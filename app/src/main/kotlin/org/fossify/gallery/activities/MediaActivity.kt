@@ -182,11 +182,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     GalleryBottomBar.Tab.ALL -> binding.mediaGrid.scrollToPosition(0)
                     GalleryBottomBar.Tab.FAVORITE_FOLDERS -> {
                         config.showAll = false
-                        startActivity(Intent(this, MainActivity::class.java)
-                            .putExtra(MainActivity.EXTRA_FOLDER_FAVORITES, true))
-                        finish()
+                        GalleryBottomBar.open(this, Intent(this, MainActivity::class.java)
+                            .putExtra(MainActivity.EXTRA_FOLDER_FAVORITES, true), finishCurrent = true)
                     }
-                    GalleryBottomBar.Tab.PRIVATE -> startActivity(Intent(this, PrivateVaultActivity::class.java))
+                    GalleryBottomBar.Tab.PRIVATE ->
+                        GalleryBottomBar.open(this, Intent(this, PrivateVaultActivity::class.java))
                 }
             }
             val bottom = (92 * resources.displayMetrics.density).toInt()
@@ -639,9 +639,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun switchToFolderView() {
         hideKeyboard()
         config.showAll = false
-        startActivity(Intent(this, MainActivity::class.java)
-            .putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true))
-        finish()
+        GalleryBottomBar.open(this, Intent(this, MainActivity::class.java)
+            .putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true), finishCurrent = true)
     }
 
     private fun changeViewType() {

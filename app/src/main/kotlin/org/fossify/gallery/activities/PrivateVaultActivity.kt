@@ -1,7 +1,6 @@
 package org.fossify.gallery.activities
 
-import android.app.Activity
-import android.app.AlertDialog
+import androidx.appcompat.app.AlertDialog
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.os.Bundle
@@ -9,7 +8,6 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -17,6 +15,15 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.VideoView
 import android.widget.Toast
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import org.fossify.commons.extensions.getProperBackgroundColor
+import org.fossify.commons.extensions.getProperPrimaryColor
+import org.fossify.commons.extensions.getProperTextColor
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import org.fossify.gallery.helpers.DIRECTORY
 import org.fossify.gallery.helpers.GalleryBottomBar
@@ -29,7 +36,7 @@ import java.util.UUID
  * Separate from hidden/protected albums. The vault never returns plaintext
  * to normal Gallery Activities, MediaStore, sharing providers, or Glide.
  */
-class PrivateVaultActivity : Activity() {
+class PrivateVaultActivity : SimpleActivity() {
     private companion object {
         const val PICK_DOCUMENT = 9041
     }
@@ -52,29 +59,70 @@ class PrivateVaultActivity : Activity() {
         purgePreviews()
 
         val density = resources.displayMetrics.density
-        val margin = (18 * density).toInt()
-        root = CoordinatorLayout(this)
-        val scroll = ScrollView(this)
+        fun dp(value: Int) = (value * density + 0.5f).toInt()
+        val background = getProperBackgroundColor()
+        val foreground = getProperTextColor()
+        val margin = dp(18)
+        root = CoordinatorLayout(this).apply { setBackgroundColor(background) }
+
+        val toolbar = TextView(this).apply {
+            text = "隐私空间"
+            textSize = 20f
+            setTextColor(foreground)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(20), 0, dp(20), 0)
+            setBackgroundColor(background)
+        }
+        val toolbarParams = CoordinatorLayout.LayoutParams(-1, dp(56)).apply {
+            gravity = Gravity.TOP
+        }
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+        }
         body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(margin, margin, margin, (112 * density).toInt())
+            setPadding(margin, dp(20), margin, dp(16))
         }
         scroll.addView(body)
-        root.addView(scroll, CoordinatorLayout.LayoutParams(-1, -1))
+        val scrollParams = CoordinatorLayout.LayoutParams(-1, -1).apply {
+            topMargin = dp(56)
+            bottomMargin = dp(60)
+        }
+        root.addView(scroll, scrollParams)
+        root.addView(toolbar, toolbarParams)
         setContentView(root)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val top = systemBars.top
+            val bottom = systemBars.bottom
+            if (toolbarParams.topMargin != top) {
+                toolbarParams.topMargin = top
+                toolbar.layoutParams = toolbarParams
+            }
+            if (scrollParams.topMargin != top + dp(56) || scrollParams.bottomMargin != bottom + dp(60)) {
+                scrollParams.topMargin = top + dp(56)
+                scrollParams.bottomMargin = bottom + dp(60)
+                scroll.layoutParams = scrollParams
+            }
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
 
         GalleryBottomBar.attach(this, root, GalleryBottomBar.Tab.PRIVATE) { tab ->
             when (tab) {
                 GalleryBottomBar.Tab.ALL -> {
                     config.showAll = true
-                    startActivity(Intent(this, MediaActivity::class.java).putExtra(DIRECTORY, ""))
-                    finish()
+                    GalleryBottomBar.open(this, Intent(this, MediaActivity::class.java)
+                        .putExtra(DIRECTORY, "")
+                        .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                        finishCurrent = true)
                 }
                 GalleryBottomBar.Tab.FAVORITE_FOLDERS -> {
                     config.showAll = false
-                    startActivity(Intent(this, MainActivity::class.java)
-                        .putExtra(MainActivity.EXTRA_FOLDER_FAVORITES, true))
-                    finish()
+                    GalleryBottomBar.open(this, Intent(this, MainActivity::class.java)
+                        .putExtra(MainActivity.EXTRA_FOLDER_FAVORITES, true),
+                        finishCurrent = true)
                 }
                 GalleryBottomBar.Tab.PRIVATE -> {
                     if (dataKey != null) showUnlocked() else showLocked()
@@ -110,31 +158,59 @@ class PrivateVaultActivity : Activity() {
     }
 
     private fun button(label: String, action: () -> Unit) {
-        body.addView(Button(this).apply {
+        val density = resources.displayMetrics.density
+        fun dp(value: Int) = (value * density + 0.5f).toInt()
+        val primary = getProperPrimaryColor()
+        val foreground = getProperTextColor()
+        val surface = getProperBackgroundColor()
+        val container = GradientDrawable().apply {
+            cornerRadius = dp(8).toFloat()
+            setColor(surface)
+            setStroke(dp(1), Color.argb(50, Color.red(foreground), Color.green(foreground), Color.blue(foreground)))
+        }
+        val row = TextView(this).apply {
             text = label
+            textSize = 15f
+            setTextColor(foreground)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), 0, dp(16), 0)
+            background = RippleDrawable(
+                ColorStateList.valueOf(Color.argb(32, Color.red(primary), Color.green(primary), Color.blue(primary))),
+                container, null
+            )
+            isClickable = true
+            isFocusable = true
             setOnClickListener { action() }
-        }, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        body.addView(row, LinearLayout.LayoutParams(-1, dp(52)).apply {
+            bottomMargin = dp(10)
+        })
     }
 
     private fun heading(text: String) {
+        val density = resources.displayMetrics.density
         body.addView(TextView(this).apply {
             this.text = text
             textSize = 23f
-            setPadding(0, 14, 0, 26)
+            setTextColor(getProperTextColor())
+            setPadding(0, (14 * density).toInt(), 0, (20 * density).toInt())
         })
     }
 
     private fun info(text: String) {
+        val density = resources.displayMetrics.density
         body.addView(TextView(this).apply {
             this.text = text
             textSize = 15f
-            setPadding(0, 4, 0, 22)
+            setTextColor(getProperTextColor())
+            alpha = 0.8f
+            setPadding(0, (4 * density).toInt(), 0, (20 * density).toInt())
         })
     }
 
     private fun showLocked() {
         body.removeAllViews()
-        heading("隐私空间")
+        heading(if (crypto.isSetUp) "空间已锁定" else "创建隐私空间")
         if (!crypto.isSetUp && crypto.hasEncryptedFiles) {
             info("设备密钥或设置已损坏。为保护现有加密文件，不允许直接重置空间。")
             return
@@ -158,10 +234,17 @@ class PrivateVaultActivity : Activity() {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             visibility = if (create || changing) android.view.View.VISIBLE else android.view.View.GONE
         }
+        val density = resources.displayMetrics.density
+        fun dp(value: Int) = (value * density + 0.5f).toInt()
+        first.isSingleLine = true
+        second.isSingleLine = true
         val inputs = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(first)
-            addView(second)
+            setPadding(dp(24), dp(4), dp(24), 0)
+            addView(first, LinearLayout.LayoutParams(-1, dp(56)))
+            addView(second, LinearLayout.LayoutParams(-1, dp(56)).apply {
+                topMargin = dp(8)
+            })
         }
         AlertDialog.Builder(this)
             .setTitle(if (changing) "更改密码" else if (create) "创建隐私空间" else "解锁隐私空间")

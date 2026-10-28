@@ -219,9 +219,14 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             config.temporarilyShowExcluded = false
             config.tempSkipDeleteConfirmation = false
             config.tempSkipRecycleBin = false
-            removeTempFolder()
-            checkRecycleBinItems()
-            startNewPhotoFetcher()
+            // Low-priority housekeeping must not block the first visible frame.
+            binding.root.postDelayed({
+                if (!isFinishing && !isDestroyed) {
+                    removeTempFolder()
+                    checkRecycleBinItems()
+                    startNewPhotoFetcher()
+                }
+            }, 800L)
         }
 
         mIsPickImageIntent = isPickImageIntent(intent)
@@ -239,13 +244,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 || mIsSetWallpaperIntent
 
         mShowingFolderFavorites = !mIsThirdPartyIntent && intent.getBooleanExtra(EXTRA_FOLDER_FAVORITES, false)
-        // The ordinary launcher opens Photos; explicit folder navigation and picker
-        // intents preserve their previous behavior.
-        if (!mIsThirdPartyIntent && !mShowingFolderFavorites &&
-            !intent.getBooleanExtra(EXTRA_SHOW_FOLDERS, false) && savedInstanceState == null
-        ) {
-            config.showAll = true
-        } else if (mShowingFolderFavorites || intent.getBooleanExtra(EXTRA_SHOW_FOLDERS, false)) {
+        // The launcher honors the last All Photos / folder-view choice. Only
+        // explicit navigation requests override it; never reset it on cold start.
+        if (mShowingFolderFavorites || intent.getBooleanExtra(EXTRA_SHOW_FOLDERS, false)) {
             config.showAll = false
         }
 
@@ -263,12 +264,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                             binding.directoriesGrid.scrollToPosition(0)
                         } else {
                             config.showAll = false
-                            startActivity(Intent(this, MainActivity::class.java)
-                                .putExtra(EXTRA_FOLDER_FAVORITES, true))
-                            finish()
+                            GalleryBottomBar.open(this, Intent(this, MainActivity::class.java)
+                                .putExtra(EXTRA_FOLDER_FAVORITES, true), finishCurrent = true)
                         }
                     }
-                    GalleryBottomBar.Tab.PRIVATE -> startActivity(Intent(this, PrivateVaultActivity::class.java))
+                    GalleryBottomBar.Tab.PRIVATE ->
+                        GalleryBottomBar.open(this, Intent(this, PrivateVaultActivity::class.java))
                 }
             }
             val bottom = (92 * resources.displayMetrics.density).toInt()
@@ -855,8 +856,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 handleMediaIntent(this)
             } else {
                 hideKeyboard()
-                startActivity(this)
-                finish()
+                GalleryBottomBar.open(this, this, finishCurrent = true)
             }
         }
     }

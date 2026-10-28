@@ -1,11 +1,14 @@
 package org.fossify.gallery.helpers
 
 import android.app.Activity
+import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.coordinatorlayout.widget.CoordinatorLayout
@@ -17,12 +20,19 @@ import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.gallery.R
 
 /**
- * OxygenOS 7.1.1-inspired unobtrusive navigation for ordinary gallery launches.
- * The host Activities keep their original picker, viewer, and result contracts.
- * Colors come from Fossify's theme instead of forcing white in dark mode.
+ * Stable, unobtrusive three-item navigation. No moving selection pill or
+ * animated tab translation; selection is expressed by icon and label color.
  */
 object GalleryBottomBar {
     enum class Tab { ALL, FAVORITE_FOLDERS, PRIVATE }
+
+    @Suppress("DEPRECATION")
+    fun open(activity: Activity, intent: Intent, finishCurrent: Boolean = false) {
+        activity.startActivity(intent)
+        if (finishCurrent) activity.finish()
+        // Suppress the system Activity slide/fade during bottom-bar navigation.
+        activity.overridePendingTransition(0, 0)
+    }
 
     fun attach(
         activity: Activity,
@@ -35,19 +45,14 @@ object GalleryBottomBar {
         val background = activity.getProperBackgroundColor()
         val foreground = activity.getProperTextColor()
         val primary = activity.getProperPrimaryColor()
-        val quiet = Color.argb(180, Color.red(foreground), Color.green(foreground), Color.blue(foreground))
-        val selectedSurface = Color.argb(30, Color.red(primary), Color.green(primary), Color.blue(primary))
+        val quiet = Color.argb(195, Color.red(foreground), Color.green(foreground), Color.blue(foreground))
 
         val bar = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            this.background = GradientDrawable().apply {
-                setColor(background)
-                setStroke(dp(1), Color.argb(24, Color.red(foreground), Color.green(foreground), Color.blue(foreground)))
-            }
-            elevation = dp(4).toFloat()
-            minimumHeight = dp(64)
-            setPadding(dp(6), 0, dp(6), 0)
+            setBackgroundColor(background)
+            elevation = dp(2).toFloat()
+            setPadding(dp(6), dp(2), dp(6), 0)
         }
 
         val tabs = listOf(
@@ -58,44 +63,55 @@ object GalleryBottomBar {
         tabs.forEach { (tab, label, icon) ->
             val selected = tab == active
             val tint = if (selected) primary else quiet
-            val item = TextView(activity).apply {
-                text = label
+            val item = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                textSize = 12.5f
-                compoundDrawablePadding = dp(4)
-                setCompoundDrawablesWithIntrinsicBounds(0, icon, 0, 0)
-                compoundDrawableTintList = ColorStateList.valueOf(tint)
-                setTextColor(tint)
-                setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
-                contentDescription = if (selected) "$label，当前页面" else label
-                isSelected = selected
                 isClickable = true
                 isFocusable = true
-                this.background = GradientDrawable().apply {
-                    cornerRadius = dp(10).toFloat()
-                    setColor(if (selected) selectedSurface else Color.TRANSPARENT)
-                }
-                setOnClickListener { navigate(tab) }
+                isSelected = selected
+                contentDescription = if (selected) "$label，当前页面" else label
+                background = RippleDrawable(
+                    ColorStateList.valueOf(Color.argb(28, Color.red(primary), Color.green(primary), Color.blue(primary))),
+                    null,
+                    GradientDrawable().apply { cornerRadius = dp(8).toFloat(); setColor(Color.WHITE) }
+                )
+                setOnClickListener { if (!selected) navigate(tab) }
             }
-            val params = LinearLayout.LayoutParams(0, dp(56), 1f).apply {
-                marginStart = dp(3)
-                marginEnd = dp(3)
-            }
-            bar.addView(item, params)
+            item.addView(ImageView(activity).apply {
+                setImageResource(icon)
+                imageTintList = ColorStateList.valueOf(tint)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(dp(23), dp(23)))
+            item.addView(TextView(activity).apply {
+                text = label
+                gravity = Gravity.CENTER
+                textSize = 12f
+                setTextColor(tint)
+                setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
+                includeFontPadding = false
+                importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(-1, dp(22)))
+            bar.addView(item, LinearLayout.LayoutParams(0, dp(56), 1f).apply {
+                marginStart = dp(2)
+                marginEnd = dp(2)
+            })
         }
 
         parent.addView(bar, CoordinatorLayout.LayoutParams(
-            CoordinatorLayout.LayoutParams.MATCH_PARENT, dp(64)
+            CoordinatorLayout.LayoutParams.MATCH_PARENT, dp(60)
         ).apply { gravity = Gravity.BOTTOM })
 
-        // Respect system gesture/navigation insets and avoid icon overlap.
-        ViewCompat.setOnApplyWindowInsetsListener(bar) { v, windowInsets ->
-            val bottom = windowInsets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-            v.layoutParams = (v.layoutParams as CoordinatorLayout.LayoutParams).apply {
-                height = dp(64) + bottom
+        ViewCompat.setOnApplyWindowInsetsListener(bar) { view, insets ->
+            val bottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+            val params = view.layoutParams as CoordinatorLayout.LayoutParams
+            val desiredHeight = dp(60) + bottom
+            if (params.height != desiredHeight) {
+                params.height = desiredHeight
+                view.layoutParams = params
             }
-            v.setPadding(dp(6), 0, dp(6), bottom)
-            windowInsets
+            view.setPadding(dp(6), dp(2), dp(6), bottom)
+            insets
         }
         ViewCompat.requestApplyInsets(bar)
     }
