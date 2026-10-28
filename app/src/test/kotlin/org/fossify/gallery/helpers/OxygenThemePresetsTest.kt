@@ -13,6 +13,15 @@ class OxygenThemePresetsTest {
         assertEquals(12, OxygenThemePresets.all.count { it.group == "material" })
         assertTrue(OxygenThemePresets.all.all { it.hex.matches(Regex("^#[0-9A-Fa-f]{6}$")) })
     }
+    @Test fun appearanceModeIsIndependentFromSystemAndAccent() {
+        assertTrue(OxygenThemeEngine.resolvedDark("dark", false))
+        assertTrue(OxygenThemeEngine.resolvedDark("dark", true))
+        org.junit.Assert.assertFalse(OxygenThemeEngine.resolvedDark("light", true))
+        org.junit.Assert.assertFalse(OxygenThemeEngine.resolvedDark("light", false))
+        assertTrue(OxygenThemeEngine.resolvedDark("system", true))
+        org.junit.Assert.assertFalse(OxygenThemeEngine.resolvedDark("system", false))
+    }
+
     @Test fun strictHexAndRoundTrip() {
         assertEquals("#42A5F5", OxygenThemeEngine.formatHex(OxygenThemeEngine.parseHex("#42A5F5")!!))
         assertNull(OxygenThemeEngine.parseHex("42A5F5"))

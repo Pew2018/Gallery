@@ -134,6 +134,11 @@ class OxygenThemeActivity : SimpleActivity() {
         scroll.post { scroll.scrollTo(0, y) }
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::root.isInitialized) render()
+    }
+
     private fun render() {
         val surface = bg
         val textColor = fg
@@ -244,6 +249,20 @@ class OxygenThemeActivity : SimpleActivity() {
                 }
             }
         }
+        section("旧版配色兼容")
+        item("恢复原有 Fossify 配色", !config.oxygenThemeActivated) {
+            changeAndRender { config.oxygenThemeActivated = false }
+        }
+        item("打开原有 Fossify 颜色管理") {
+            changeAndRender { config.oxygenThemeActivated = false }
+            startCustomizationActivity()
+        }
+        body.addView(TextView(this).apply {
+            text = "首次启用经典主题时，会备份原来的 Fossify 颜色设置；恢复后可继续用原版颜色管理页面调整。"
+            textSize = 12f
+            setTextColor(secondary)
+            setPadding(dp(16), dp(12), dp(16), dp(8))
+        })
         body.addView(TextView(this).apply {
             text = "主题会保留颜色原值。自动文字颜色仅根据背景选择黑色或白色，不改变已保存的配色。"
             textSize = 12f

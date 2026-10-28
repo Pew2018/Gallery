@@ -34,7 +34,27 @@ class Config(context: Context) : BaseConfig(context) {
     // Existing installations keep their colors until this feature is explicitly used.
     var oxygenThemeActivated: Boolean
         get() = prefs.getBoolean("oxygen_classic_theme_activated", false)
-        set(value) = prefs.edit().putBoolean("oxygen_classic_theme_activated", value).apply()
+        set(value) {
+            val wasActive = oxygenThemeActivated
+            if (value && !wasActive) {
+                // Snapshot the user's existing Commons colors BEFORE the new palette takes over.
+                prefs.edit()
+                    .putInt("oxygen_legacy_text", textColor)
+                    .putInt("oxygen_legacy_background", backgroundColor)
+                    .putInt("oxygen_legacy_primary", primaryColor)
+                    .putInt("oxygen_legacy_accent", accentColor)
+                    .putBoolean("oxygen_legacy_system", isSystemThemeEnabled)
+                    .apply()
+            } else if (!value && wasActive) {
+                // The legacy Commons color picker remains available on upgrades.
+                textColor = prefs.getInt("oxygen_legacy_text", textColor)
+                backgroundColor = prefs.getInt("oxygen_legacy_background", backgroundColor)
+                primaryColor = prefs.getInt("oxygen_legacy_primary", primaryColor)
+                accentColor = prefs.getInt("oxygen_legacy_accent", accentColor)
+                isSystemThemeEnabled = prefs.getBoolean("oxygen_legacy_system", isSystemThemeEnabled)
+            }
+            prefs.edit().putBoolean("oxygen_classic_theme_activated", value).apply()
+        }
 
     var oxygenThemePresetId: String
         get() = prefs.getString("oxygen_classic_theme_preset", "legacy") ?: "legacy"

@@ -17,12 +17,18 @@ object OxygenThemeEngine {
 
     fun formatHex(color: Int): String = "#%06X".format(color and 0xFFFFFF)
 
-    fun isDark(context: Context, config: Config): Boolean = when (config.oxygenAppearanceMode) {
+    /** Pure appearance decision; tests do not require an Android device. */
+    fun resolvedDark(mode: String, systemDark: Boolean): Boolean = when (mode) {
         "dark" -> true
         "light" -> false
-        else -> context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
-            Configuration.UI_MODE_NIGHT_YES
+        else -> systemDark
     }
+
+    fun isDark(context: Context, config: Config): Boolean = resolvedDark(
+        config.oxygenAppearanceMode,
+        (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+    )
 
     fun accent(config: Config): Int =
         OxygenThemePresets.byId[config.oxygenThemePresetId]?.color ?: config.oxygenCustomAccent
