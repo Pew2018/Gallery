@@ -67,7 +67,7 @@
         <item name="actionBarPopupTheme">@style/OxygenClassicPopupTheme.Light</item>
         <item name="popupMenuStyle">@style/OxygenClassicPopupMenu.Light</item>
         <item name="radioButtonStyle">@style/OxygenClassicRadio</item>
-        <item name="checkBoxStyle">@style/OxygenClassicCheckbox</item>
+        <item name="android:checkboxStyle">@style/OxygenClassicCheckbox</item>
         <item name="actionOverflowMenuStyle">@style/OxygenClassicOverflow.Light</item>
         <item name="materialAlertDialogTheme">@style/OxygenClassicMaterialDialog.Light</item>
         <item name="alertDialogTheme">@style/OxygenClassicAlertDialog.Light</item>
@@ -80,7 +80,7 @@
         <item name="actionBarPopupTheme">@style/OxygenClassicPopupTheme.Dark</item>
         <item name="popupMenuStyle">@style/OxygenClassicPopupMenu.Dark</item>
         <item name="radioButtonStyle">@style/OxygenClassicRadio</item>
-        <item name="checkBoxStyle">@style/OxygenClassicCheckbox</item>
+        <item name="android:checkboxStyle">@style/OxygenClassicCheckbox</item>
         <item name="actionOverflowMenuStyle">@style/OxygenClassicOverflow.Dark</item>
         <item name="materialAlertDialogTheme">@style/OxygenClassicMaterialDialog.Dark</item>
         <item name="alertDialogTheme">@style/OxygenClassicAlertDialog.Dark</item>
