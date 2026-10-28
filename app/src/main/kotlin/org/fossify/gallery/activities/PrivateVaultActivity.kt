@@ -79,7 +79,7 @@ class PrivateVaultActivity : SimpleActivity() {
             contentDescription = getString(org.fossify.commons.R.string.back)
             isClickable = true
             isFocusable = true
-            background = RippleDrawable(ColorStateList.valueOf(Color.argb(28,
+            this.background = RippleDrawable(ColorStateList.valueOf(Color.argb(28,
                 Color.red(foreground), Color.green(foreground), Color.blue(foreground))),
                 ColorDrawable(Color.TRANSPARENT), null)
             setOnClickListener { onBackPressedDispatcher.onBackPressed() }
