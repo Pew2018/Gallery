@@ -3,14 +3,15 @@
     android:id="@+id/dir_holder"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="@dimen/tiny_margin"
+    android:layout_marginBottom="0dp"
     android:background="?attr/selectableItemBackground"
     android:clickable="true"
     android:focusable="true"
     android:foreground="@drawable/selector"
-    android:paddingStart="@dimen/medium_margin"
+    android:paddingStart="@dimen/activity_margin"
     android:paddingTop="@dimen/small_margin"
-    android:paddingBottom="@dimen/small_margin">
+    android:paddingBottom="@dimen/small_margin"
+    android:paddingEnd="@dimen/activity_margin">
 
     <org.fossify.commons.views.MySquareImageView
         android:id="@+id/dir_thumbnail"
@@ -56,7 +57,7 @@
         android:paddingStart="@dimen/medium_margin"
         android:paddingEnd="@dimen/medium_margin"
         android:textColor="?android:attr/textColorPrimary"
-        android:textSize="@dimen/bigger_text_size" />
+        android:textSize="16sp" />
 
     <TextView
         android:id="@+id/dir_path"
@@ -79,7 +80,7 @@
         android:layout_height="wrap_content"
         android:layout_alignBaseline="@+id/dir_name"
         android:layout_toEndOf="@+id/dir_name"
-        android:alpha="0.4"
+        android:alpha="0.54"
         android:textColor="?android:attr/textColorPrimary"
         android:textSize="@dimen/smaller_text_size" />
 

@@ -7,7 +7,7 @@
     android:clickable="true"
     android:focusable="true"
     android:layout_margin="2dp"
-    android:padding="1px">
+    android:padding="1dp">
 
     <org.fossify.commons.views.MySquareImageView
         android:id="@+id/dir_thumbnail"
@@ -85,7 +85,7 @@
         android:layout_alignStart="@+id/dir_bottom_holder"
         android:layout_alignEnd="@+id/dir_bottom_holder"
         android:layout_alignParentBottom="true"
-        android:background="@drawable/gradient_background"
+        android:background="@drawable/oxygen_classic_folder_label"
         android:contentDescription="@null" />
 
     <LinearLayout

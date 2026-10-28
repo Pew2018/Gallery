@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Bundle
+import androidx.core.graphics.ColorUtils
 import android.text.TextUtils
 import android.widget.Toast
 import com.google.gson.Gson
@@ -42,12 +43,19 @@ class SettingsActivity : SimpleActivity() {
             padTopSystem = listOf(binding.settingsAppbar),
             padBottomSystem = listOf(binding.settingsNestedScrollview)
         )
-        setupMaterialScrollListener(binding.settingsNestedScrollview, binding.settingsAppbar)
+        // Classic Settings uses a fixed-height, non-color-morphing toolbar.
     }
 
     override fun onResume() {
         super.onResume()
-        setupTopAppBar(binding.settingsAppbar, NavigationIcon.Arrow)
+        // The 2017 Settings header is dark on light themes; respect the
+        // existing themed header on dark/custom backgrounds.
+        val classicHeader = if (ColorUtils.calculateLuminance(getProperBackgroundColor()) >= 0.5) {
+            getColor(R.color.oxygen_classic_toolbar)
+        } else {
+            getRequiredTopBarColor()
+        }
+        setupTopAppBar(binding.settingsAppbar, NavigationIcon.Arrow, topBarColor = classicHeader)
         setupSettingItems()
     }
 
