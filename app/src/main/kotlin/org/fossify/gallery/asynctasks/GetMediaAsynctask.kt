@@ -40,10 +40,16 @@ class GetMediaAsynctask(
         val media = if (showAll) {
             val foldersToScan = mediaFetcher.getFoldersToScan().filter { it != RECYCLE_BIN && it != FAVORITES && !context.config.isFolderProtected(it) }
             val media = ArrayList<Medium>()
+            // Scoped-storage MediaStore can be queried just once for all folders.
+            // Reusing the grouped result avoids O(folderCount) full-store queries.
+            val scopedFiles = mediaFetcher.getAndroid11FolderMedia(
+                isPickImage, isPickVideo, favoritePaths, false, getProperDateTaken, dateTakens
+            )
             foldersToScan.forEach {
+                if (isCancelled || mediaFetcher.shouldStop) return@forEach
                 val newMedia = mediaFetcher.getFilesFrom(
                     it, isPickImage, isPickVideo, getProperDateTaken, getProperLastModified, getProperFileSize,
-                    favoritePaths, getVideoDurations, lastModifieds, dateTakens.clone() as HashMap<String, Long>, null
+                    favoritePaths, getVideoDurations, lastModifieds, dateTakens.clone() as HashMap<String, Long>, scopedFiles
                 )
                 media.addAll(newMedia)
             }
@@ -62,7 +68,7 @@ class GetMediaAsynctask(
 
     override fun onPostExecute(media: ArrayList<ThumbnailItem>) {
         super.onPostExecute(media)
-        callback(media)
+        if (!isCancelled) callback(media)
     }
 
     fun stopFetching() {
