@@ -94,13 +94,13 @@ object OxygenToolbarStyle {
         // visually closed, then restore full input width on the focus callback.
         input.layoutParams = (input.layoutParams as RelativeLayout.LayoutParams).apply {
             height = ViewGroup.LayoutParams.MATCH_PARENT
-            removeRule(RelativeLayout.TO_START_OF)
-            removeRule(RelativeLayout.TO_END_OF)
+            removeRule(RelativeLayout.START_OF)
+            removeRule(RelativeLayout.END_OF)
             removeRule(RelativeLayout.ALIGN_PARENT_END)
             removeRule(RelativeLayout.ALIGN_PARENT_START)
             if (opened) {
                 width = ViewGroup.LayoutParams.MATCH_PARENT
-                addRule(RelativeLayout.TO_END_OF, icon.id)
+                addRule(RelativeLayout.END_OF, icon.id)
                 addRule(RelativeLayout.ALIGN_PARENT_END)
                 marginEnd = dp(16)
             } else {
