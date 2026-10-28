@@ -43,7 +43,7 @@
 
     <application
         android:name="org.fossify.gallery.App"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:appCategory="image"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_launcher_name"
@@ -52,6 +52,12 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
         tools:replace="android:label">
+
+        <!-- Vault content and Keystore-wrapped keys must never enter cloud backups. -->
+        <activity
+            android:name=".activities.PrivateVaultActivity"
+            android:exported="false"
+            android:excludeFromRecents="true" />
 
         <activity
             android:name=".activities.SplashActivity"
