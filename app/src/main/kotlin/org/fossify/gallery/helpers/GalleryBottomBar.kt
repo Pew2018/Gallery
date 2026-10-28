@@ -47,6 +47,7 @@ object GalleryBottomBar {
         val background = activity.getProperBackgroundColor()
         val foreground = activity.getProperTextColor()
         val primary = activity.getProperPrimaryColor()
+        val selectedText = OxygenClassicPalette.readableAccent(primary, background)
         val quiet = Color.argb(138, Color.red(foreground), Color.green(foreground), Color.blue(foreground))
 
         // Reattaching after a configuration-driven rebuild must not duplicate the bar.
@@ -74,7 +75,7 @@ object GalleryBottomBar {
         }
         tabs.forEach { (tab, label, icon) ->
             val selected = tab == active
-            val tint = if (selected) primary else quiet
+            val tint = if (selected) selectedText else quiet
             val item = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
@@ -83,7 +84,7 @@ object GalleryBottomBar {
                 isSelected = selected
                 contentDescription = if (selected) "$label，当前页面" else label
                 this.background = RippleDrawable(
-                    ColorStateList.valueOf(Color.argb(28, Color.red(primary), Color.green(primary), Color.blue(primary))),
+                    ColorStateList.valueOf(Color.argb(48, Color.red(primary), Color.green(primary), Color.blue(primary))),
                     ColorDrawable(Color.TRANSPARENT),
                     GradientDrawable().apply { setColor(Color.WHITE) }
                 )

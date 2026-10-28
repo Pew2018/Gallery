@@ -25,6 +25,11 @@ object OxygenClassicCustomizationBridge {
             val surface = activity.getProperBackgroundColor()
             val text = activity.getProperTextColor()
             val light = ColorUtils.calculateLuminance(surface) >= 0.5
+            activity.theme.applyStyle(
+                if (light) R.style.OxygenClassicActivityOverlay_Light
+                else R.style.OxygenClassicActivityOverlay_Dark,
+                true
+            )
             toolbar.setBackgroundColor(surface)
             toolbar.setTitleTextColor(text)
             toolbar.navigationIcon?.mutate()?.setTint(text)

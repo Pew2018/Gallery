@@ -130,7 +130,7 @@ class SettingsActivity : SimpleActivity() {
             binding.settingsRecycleBinLabel,
             binding.settingsMigratingLabel
         ).forEach {
-            it.setTextColor(getProperPrimaryColor())
+            it.setTextColor(OxygenClassicPalette.readableAccent(getProperPrimaryColor(), getProperBackgroundColor()))
         }
         // Commons applies MaterialSwitch colors in updateTextColors(); restore
         // the classic geometry/tints afterwards without changing row callbacks.

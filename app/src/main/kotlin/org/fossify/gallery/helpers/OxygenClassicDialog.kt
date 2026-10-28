@@ -69,6 +69,7 @@ object OxygenClassicDialog {
         val background = activity.getProperBackgroundColor()
         val text = activity.getProperTextColor()
         val accent = activity.getProperPrimaryColor()
+        val readableAccent = OxygenClassicPalette.readableAccent(accent, background)
         val light = ColorUtils.calculateLuminance(background) >= 0.5
         val surface = if (light) Color.WHITE else ColorUtils.blendARGB(Color.BLACK, background, 0.85f)
         val inactive = ColorUtils.blendARGB(surface, text, 0.55f)
@@ -105,7 +106,7 @@ object OxygenClassicDialog {
         visit(content)
         listOf(AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL).forEach { which ->
             dialog.getButton(which)?.apply {
-                setTextColor(accent)
+                setTextColor(readableAccent)
                 minHeight = (48f * dp).toInt()
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             }
