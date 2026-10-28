@@ -8,6 +8,7 @@ import com.bumptech.glide.load.resource.bitmap.RoundedCorners
 import com.bumptech.glide.request.RequestOptions
 import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.extensions.*
+import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.R
 import org.fossify.gallery.adapters.toItemBinding
 import org.fossify.gallery.databinding.DialogChangeFolderThumbnailStyleBinding
@@ -27,7 +28,8 @@ class ChangeFolderThumbnailStyleDialog(val activity: BaseSimpleActivity, val cal
             .setPositiveButton(org.fossify.commons.R.string.ok, this)
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
-                activity.setupDialogStuff(binding.root, this) {
+                activity.setupDialogStuff(binding.root, this) { classicDialog ->
+                    OxygenClassicDialog.apply(activity, classicDialog, binding.root)
                     setupStyle()
                     setupMediaCount()
                     updateSample()
