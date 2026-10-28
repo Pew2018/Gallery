@@ -38,10 +38,6 @@ class HiddenFoldersActivity : SimpleActivity(), RefreshRecyclerViewListener {
         super.onResume()
         setupTopAppBar(binding.manageFoldersAppbar, NavigationIcon.Arrow,
             topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
-        val foreground = OxygenThemeEngine.toolbarForeground(this, config)
-        binding.manageFoldersToolbar.setTitleTextColor(foreground)
-        binding.manageFoldersToolbar.navigationIcon?.mutate()?.setTint(foreground)
-        binding.manageFoldersToolbar.overflowIcon?.mutate()?.setTint(foreground)
         org.fossify.gallery.helpers.OxygenToolbarStyle.applyToolbar(this, binding.manageFoldersToolbar)
         OxygenSystemBars.apply(this)
     }

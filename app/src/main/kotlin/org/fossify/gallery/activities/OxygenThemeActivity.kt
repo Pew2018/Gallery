@@ -59,6 +59,7 @@ class OxygenThemeActivity : SimpleActivity() {
         titleText = TextView(this).apply {
             text = "经典主题与配色"
             textSize = 20f
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
             gravity = Gravity.CENTER_VERTICAL
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -68,7 +69,8 @@ class OxygenThemeActivity : SimpleActivity() {
             marginStart = dp(16)
             marginEnd = dp(16)
         })
-        root.addView(titleBar, LinearLayout.LayoutParams(-1, dp(56)))
+        val toolbarHeight = maxOf(dp(56), (20 * resources.displayMetrics.scaledDensity + dp(24)).toInt())
+        root.addView(titleBar, LinearLayout.LayoutParams(-1, toolbarHeight))
         scroll = ScrollView(this).apply { isFillViewport = true }
         body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(body)

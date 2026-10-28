@@ -23,6 +23,17 @@ object OxygenSelectionMode {
     fun wrap(activity: Activity, delegate: MyActionModeCallback): MyActionModeCallback =
         object : MyActionModeCallback() {
             private var active = false
+            private var layoutView: View? = null
+            private var layoutListener: android.view.ViewTreeObserver.OnGlobalLayoutListener? = null
+
+            private fun clearLayoutListener() {
+                layoutListener?.let { listener ->
+                    layoutView?.viewTreeObserver?.takeIf { it.isAlive }
+                        ?.removeOnGlobalLayoutListener(listener)
+                }
+                layoutView = null
+                layoutListener = null
+            }
             private var oldStatusBarColor: Int? = null
             private var oldLightStatusIcons: Boolean? = null
 
@@ -36,8 +47,16 @@ object OxygenSelectionMode {
                     activity.window, activity.window.decorView
                 ).isAppearanceLightStatusBars
                 style(mode, menu)
-                mode.customView?.post {
-                    if (active && !activity.isFinishing && !activity.isDestroyed) style(mode, mode.menu)
+                // Register after Commons' own one-shot global-layout tint callback.
+                // This runs once after attachment, with no delayed polling/repeated listener.
+                mode.customView?.let { view ->
+                    layoutView = view
+                    val listener = android.view.ViewTreeObserver.OnGlobalLayoutListener {
+                        clearLayoutListener()
+                        if (active && !activity.isFinishing && !activity.isDestroyed) style(mode, mode.menu)
+                    }
+                    layoutListener = listener
+                    view.viewTreeObserver.addOnGlobalLayoutListener(listener)
                 }
                 return true
             }
@@ -53,6 +72,7 @@ object OxygenSelectionMode {
 
             override fun onDestroyActionMode(mode: ActionMode) {
                 active = false
+                clearLayoutListener()
                 delegate.onDestroyActionMode(mode)
                 isSelectable = delegate.isSelectable
                 if (Build.VERSION.SDK_INT < 35) {

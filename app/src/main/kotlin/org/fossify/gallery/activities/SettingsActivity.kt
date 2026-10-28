@@ -53,10 +53,6 @@ class SettingsActivity : SimpleActivity() {
         // All ordinary toolbars share the user's chosen surface, even on light themes.
         setupTopAppBar(binding.settingsAppbar, NavigationIcon.Arrow,
             topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
-        val toolbarText = OxygenThemeEngine.toolbarForeground(this, config)
-        binding.settingsAppbar.toolbar?.setTitleTextColor(toolbarText)
-        binding.settingsAppbar.toolbar?.navigationIcon?.mutate()?.setTint(toolbarText)
-        binding.settingsAppbar.toolbar?.overflowIcon?.mutate()?.setTint(toolbarText)
         OxygenToolbarStyle.applyToolbar(this, binding.settingsToolbar)
         OxygenSystemBars.apply(this)
         setupSettingItems()
