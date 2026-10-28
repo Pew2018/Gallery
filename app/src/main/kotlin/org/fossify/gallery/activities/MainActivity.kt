@@ -1294,15 +1294,14 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
                 setupAdapter(dirs)
 
-                // update directories and media files in the local db, delete invalid items. Intentionally creating a new thread
+                // Already on the cached-media worker thread: do not create a
+                // short-lived Thread per album during a large library refresh.
                 updateDBDirectory(directory)
                 if (!directory.isRecycleBin() && !directory.areFavorites()) {
-                    Thread {
-                        try {
-                            mediaDB.insertAll(curMedia)
-                        } catch (ignored: Exception) {
-                        }
-                    }.start()
+                    try {
+                        mediaDB.insertAll(curMedia)
+                    } catch (ignored: Exception) {
+                    }
                 }
 
                 if (!directory.isRecycleBin()) {
@@ -1349,6 +1348,24 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         dirs.filterNot { it.path == RECYCLE_BIN || it.path == FAVORITES }.forEach {
             foldersToScan.remove(it.path)
+        }
+
+        // Batch newly discovered directories and media in Room transactions.
+        // Avoid a thread and full UI list-sort for every discovered folder.
+        val pendingDirs = ArrayList<Directory>()
+        val pendingMedia = ArrayList<Medium>()
+        var foldersSinceUpdate = 0
+        fun commitBatch() {
+            if (pendingDirs.isEmpty()) return
+            try {
+                GalleryDatabase.getInstance(applicationContext).runInTransaction {
+                    directoryDB.insertAll(pendingDirs)
+                    if (pendingMedia.isNotEmpty()) mediaDB.insertAll(pendingMedia)
+                }
+            } catch (ignored: Exception) {
+            }
+            pendingDirs.clear()
+            pendingMedia.clear()
         }
 
         // check the remaining folders which were not cached at all yet
@@ -1406,20 +1423,21 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 noMediaFolders = noMediaFolders
             )
             dirs.add(newDir)
-            setupAdapter(dirs)
-
-            // make sure to create a new thread for these operations, dont just use the common bg thread
-            Thread {
-                try {
-                    directoryDB.insert(newDir)
-                    if (folder != RECYCLE_BIN && folder != FAVORITES) {
-                        mediaDB.insertAll(newMedia)
-                    }
-                } catch (ignored: Exception) {
-                }
-            }.start()
+            pendingDirs.add(newDir)
+            if (folder != RECYCLE_BIN && folder != FAVORITES) {
+                pendingMedia.addAll(newMedia)
+            }
+            foldersSinceUpdate++
+            if (foldersSinceUpdate >= 8 || pendingMedia.size >= 1200) {
+                commitBatch()
+                setupAdapter(dirs)
+                foldersSinceUpdate = 0
+            }
         }
 
+        commitBatch()
+        // One final differential adapter submission, including the last partial batch.
+        setupAdapter(dirs)
         mLoadedInitialPhotos = true
         if (config.appRunCount > 1) {
             checkLastMediaChanged()
