@@ -22,14 +22,20 @@ import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.gallery.R
 
 /**
- * Stable, unobtrusive three-item navigation. No moving selection pill or
+ * Stable, unobtrusive two-item navigation. No moving selection pill or
  * animated tab translation; selection is expressed by icon and label color.
  */
 object GalleryBottomBar {
-    private val refreshers = java.util.WeakHashMap<Activity, () -> Unit>()
+    private val bars = java.util.WeakHashMap<Activity, java.lang.ref.WeakReference<LinearLayout>>()
 
     fun refreshAll() {
-        refreshers.values.toList().forEach { it() }
+        bars.entries.toList().forEach { (activity, reference) ->
+            val bar = reference.get() ?: return@forEach
+            if (activity.isFinishing || activity.isDestroyed) return@forEach
+            val children = (0 until bar.childCount).map { bar.getChildAt(it) }.associateBy { it.tag }
+            bar.removeAllViews()
+            activity.config.bottomNavigationOrder.forEach { id -> children[id]?.let { bar.addView(it) } }
+        }
     }
 
     enum class Tab { ALL, FAVORITE_FOLDERS }
@@ -48,9 +54,6 @@ object GalleryBottomBar {
         active: Tab,
         navigate: (Tab) -> Unit
     ) {
-        refreshers[activity] = {
-            if (!activity.isFinishing && !activity.isDestroyed) attach(activity, parent, active, navigate)
-        }
         val density = activity.resources.displayMetrics.density
         fun dp(value: Int) = (value * density + 0.5f).toInt()
         val background = activity.getProperBackgroundColor()
@@ -85,6 +88,7 @@ object GalleryBottomBar {
             val selected = tab == active
             val tint = if (selected) selectedText else quiet
             val item = LinearLayout(activity).apply {
+                tag = tab.name
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
                 isClickable = true
@@ -139,6 +143,7 @@ object GalleryBottomBar {
             view.setPadding(dp(6), dp(2), dp(6), bottom)
             insets
         }
+        bars[activity] = java.lang.ref.WeakReference(bar)
         ViewCompat.requestApplyInsets(bar)
     }
 }

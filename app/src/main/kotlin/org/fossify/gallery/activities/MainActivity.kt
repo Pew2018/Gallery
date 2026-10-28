@@ -178,6 +178,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mFolderVisibility = booleanArrayOf(false, false, false, true)
     private fun isSpecialFolderFilterActive() = mFolderVisibility[0] ||
         mFolderVisibility[1] || mFolderVisibility[2] || !mFolderVisibility[3]
+    private var favoriteLoadVersion = 0L
     private var mFavoriteFolderPaths: Set<String> = emptySet()
     // Saved visibility preferences never serve as authentication credentials.
     private var mFavoriteHiddenAuthorized = false
@@ -426,6 +427,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     override fun onPause() {
         super.onPause()
+        favoriteLoadVersion++
         binding.directoriesRefreshLayout.isRefreshing = false
         mIsGettingDirs = false
         storeStateVariables()
@@ -812,6 +814,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun loadFavoriteFoldersWithOverrides() {
         if (mIsGettingDirs) return
         mIsGettingDirs = true
+        val requestVersion = ++favoriteLoadVersion
         val showHidden = config.favoriteShowHidden &&
             (!config.isHiddenPasswordProtectionOn || mFavoriteHiddenAuthorized)
         val showExcluded = config.favoriteShowExcluded &&
@@ -854,6 +857,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
             val selectedDirs = ArrayList(selected)
             runOnUiThread {
+                if (requestVersion != favoriteLoadVersion) return@runOnUiThread
                 mIsGettingDirs = false
                 if (!isFinishing && !isDestroyed && mShowingFolderFavorites) {
                     // setupAdapter applies the favorite-path filter again. Publish

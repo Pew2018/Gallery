@@ -77,7 +77,6 @@ class MediaFetcher(val context: Context) {
             }
         }
 
-        // Every MediaStore/filesystem source passes through the same privacy boundary.
         sortMedia(curMedia, context.config.getFolderSorting(curPath))
         return curMedia
     }
@@ -98,7 +97,7 @@ class MediaFetcher(val context: Context) {
             val selection = getSelectionQuery(filterMedia)
             val selectionArgs = getSelectionArgsQuery(filterMedia).toTypedArray()
             val cursor = context.contentResolver.query(uri, projection, selection, selectionArgs, null)
-            folders.addAll(parseCursor(cursor!!))
+            cursor?.let { folders.addAll(parseCursor(it)) }
 
             val config = context.config
             val shouldShowHidden = config.shouldShowHidden

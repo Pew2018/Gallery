@@ -43,7 +43,7 @@ class Config(context: Context) : BaseConfig(context) {
         get() {
             val allowed = listOf("ALL", "FAVORITE_FOLDERS")
             val saved = prefs.getString(BOTTOM_NAV_ORDER, "")?.split(",") ?: emptyList()
-            return (saved.filter { it in allowed }.distinct() + allowed).distinct()
+            return NavigationOrder.normalize(saved)
         }
         set(order) {
             val allowed = setOf("ALL", "FAVORITE_FOLDERS")
