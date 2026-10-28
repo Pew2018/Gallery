@@ -41,7 +41,9 @@ class PrivateVaultActivity : Activity() {
     private var pendingImport: android.net.Uri? = null
     private var previewDialog: AlertDialog? = null
     @Volatile private var generation = 0
-    private val previews by lazy { File(cacheDir, "vault_previews") }
+    // Plaintext previews live in a dedicated app-private, non-backed-up directory.
+    // Never write them to MediaStore, external storage or ordinary image caches.
+    private val previews by lazy { File(noBackupFilesDir, "vault_previews") }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
