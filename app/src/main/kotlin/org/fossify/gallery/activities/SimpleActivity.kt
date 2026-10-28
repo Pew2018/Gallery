@@ -45,12 +45,13 @@ open class SimpleActivity : BaseSimpleActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // Commons resolves its base theme in super.onCreate(), before Gallery inflates controls.
         OxygenThemeEngine.apply(this, config)
-        if (config.oxygenThemeActivated) {
-            delegate.localNightMode = when (config.oxygenAppearanceMode) {
-                "dark" -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES
-                "light" -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO
-                else -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
-            }
+        // AppCompat remembers localNightMode across recreate(). Explicitly clear it
+        // when restoring Commons colors, rather than inheriting the previous forced mode.
+        delegate.localNightMode = when {
+            !config.oxygenThemeActivated -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_UNSPECIFIED
+            config.oxygenAppearanceMode == "dark" -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES
+            config.oxygenAppearanceMode == "light" -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO
+            else -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
         }
         super.onCreate(savedInstanceState)
         applyClassicOverlay()
