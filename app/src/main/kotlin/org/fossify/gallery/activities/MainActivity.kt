@@ -219,13 +219,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             config.temporarilyShowExcluded = false
             config.tempSkipDeleteConfirmation = false
             config.tempSkipRecycleBin = false
-            // Low-priority housekeeping must not block the first visible frame.
+            // Retain periodic cleanup and job registration even when the
+            // launcher immediately hands off to the All Photos Activity.
+            checkRecycleBinItems()
+            startNewPhotoFetcher()
+            // Only potentially slow directory inspection is deferred.
             binding.root.postDelayed({
-                if (!isFinishing && !isDestroyed) {
-                    removeTempFolder()
-                    checkRecycleBinItems()
-                    startNewPhotoFetcher()
-                }
+                if (!isFinishing && !isDestroyed) removeTempFolder()
             }, 800L)
         }
 

@@ -75,7 +75,7 @@ object GalleryBottomBar {
                     null,
                     GradientDrawable().apply { cornerRadius = dp(8).toFloat(); setColor(Color.WHITE) }
                 )
-                setOnClickListener { if (!selected) navigate(tab) }
+                setOnClickListener { navigate(tab) }
             }
             item.addView(ImageView(activity).apply {
                 setImageResource(icon)
