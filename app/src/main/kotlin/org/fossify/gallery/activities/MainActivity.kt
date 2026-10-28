@@ -520,6 +520,14 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         if (!mIsThirdPartyIntent) {
             binding.mainMenu.requireToolbar().menu.apply {
                 findItem(R.id.manage_unavailable_folder_favorites).isVisible = mShowingFolderFavorites
+                findItem(R.id.favorite_always_show_excluded).apply {
+                    isVisible = mShowingFolderFavorites
+                    isChecked = config.favoriteShowExcluded
+                }
+                findItem(R.id.favorite_always_show_hidden).apply {
+                    isVisible = mShowingFolderFavorites
+                    isChecked = config.favoriteShowHidden
+                }
                 findItem(R.id.column_count).isVisible = config.viewTypeFolders == VIEW_TYPE_GRID
                 findItem(R.id.set_as_default_folder).isVisible = !config.defaultFolder.isEmpty()
                 findItem(R.id.open_recycle_bin).isVisible =
@@ -569,6 +577,26 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 R.id.filter -> showFilterMediaDialog()
                 R.id.folder_visibility -> showFolderVisibilityDialog()
                 R.id.manage_unavailable_folder_favorites -> manageUnavailableFolderFavorites()
+                R.id.favorite_always_show_excluded -> {
+                    val next = !config.favoriteShowExcluded
+                    val apply = {
+                        config.favoriteShowExcluded = next
+                        refreshMenuItems()
+                        mIsGettingDirs = false
+                        getDirectories()
+                    }
+                    if (next) handleExcludedFolderPasswordProtection { apply() } else apply()
+                }
+                R.id.favorite_always_show_hidden -> {
+                    val next = !config.favoriteShowHidden
+                    val apply = {
+                        config.favoriteShowHidden = next
+                        refreshMenuItems()
+                        mIsGettingDirs = false
+                        getDirectories()
+                    }
+                    if (next) handleHiddenFolderPasswordProtection { apply() } else apply()
+                }
                 R.id.open_camera -> launchCamera()
                 R.id.show_all -> showAllMedia()
                 R.id.change_view_type -> changeViewType()
@@ -703,6 +731,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         if (mIsGettingDirs) {
             return
         }
+        if (mShowingFolderFavorites && (config.favoriteShowExcluded || config.favoriteShowHidden)) {
+            loadFavoriteFoldersWithOverrides()
+            return
+        }
         if (!mShowingFolderFavorites && isSpecialFolderFilterActive()) {
             loadCategorizedFolders()
             return
@@ -715,6 +747,60 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         getCachedDirectories(getVideos && !getImages, getImages && !getVideos) {
             gotDirectories(addTempFolderIfNeeded(it))
+        }
+    }
+
+    private fun loadFavoriteFoldersWithOverrides() {
+        if (mIsGettingDirs) return
+        mIsGettingDirs = true
+        val showHidden = config.favoriteShowHidden
+        val showExcluded = config.favoriteShowExcluded
+        getCachedDirectories(forceShowHidden = showHidden, forceShowExcluded = showExcluded) { cached ->
+            val favoritePaths = favoriteFoldersDB.getPaths().toSet()
+            val excluded = config.excludedFolders
+            fun inAny(path: String, roots: Collection<String>): Boolean =
+                roots.any { path == it || path.startsWith("$it/") }
+            val selected = cached.filter { dir ->
+                val path = dir.path
+                val hidden = path.split('/').any { it.startsWith('.') && it.length > 1 } ||
+                    generateSequence(File(path)) { it.parentFile }.any { File(it, ".nomedia").isFile }
+                val excludedDir = inAny(path, excluded)
+                path in favoritePaths && (!hidden || showHidden) &&
+                    (!excludedDir || showExcluded)
+            }.toMutableList()
+            // Only probe explicitly favorited directories absent from the media cache.
+            // No recursive full-device scan; permission failures preserve favorite records.
+            for (path in favoritePaths) {
+                if (selected.any { it.path == path }) continue
+                val excludedDir = inAny(path, excluded)
+                val hidden = path.split('/').any { it.startsWith('.') && it.length > 1 } ||
+                    generateSequence(File(path)) { it.parentFile }.any { File(it, ".nomedia").isFile }
+                if ((!hidden || showHidden) && (!excludedDir || showExcluded)) {
+                    val file = File(path)
+                    if (file.isDirectory) {
+                        val media = file.listFiles()?.filter { it.isFile &&
+                            (it.path.isImageFast() || it.path.isVideoFast()) }.orEmpty()
+                        selected.add(Directory().apply {
+                            this.path = path
+                            name = file.name
+                            tmb = media.firstOrNull()?.path.orEmpty()
+                            mediaCnt = media.size
+                            modified = file.lastModified()
+                            location = LOCATION_INTERNAL
+                        })
+                    }
+                }
+            }
+            mDirs = ArrayList(selected)
+            mDirsIgnoringSearch = mDirs
+            mIsGettingDirs = false
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed && mShowingFolderFavorites) {
+                    setupAdapter(mDirs)
+                    checkPlaceholderVisibility(mDirs)
+                    binding.directoriesRefreshLayout.isRefreshing = false
+                }
+            }
         }
     }
 

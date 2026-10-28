@@ -6,6 +6,8 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
+import org.fossify.gallery.extensions.config
 import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.widget.ImageView
@@ -62,11 +64,14 @@ object GalleryBottomBar {
             setPadding(dp(6), dp(2), dp(6), 0)
         }
 
-        val tabs = listOf(
-            Triple(Tab.ALL, "所有图片", R.drawable.ic_files_vector),
-            Triple(Tab.FAVORITE_FOLDERS, "收藏", R.drawable.ic_folders_vector),
-            Triple(Tab.PRIVATE, "隐私", org.fossify.commons.R.drawable.ic_lock_vector)
+        val byId = mapOf(
+            Tab.ALL to Triple(Tab.ALL, "所有图片", R.drawable.ic_files_vector),
+            Tab.FAVORITE_FOLDERS to Triple(Tab.FAVORITE_FOLDERS, "收藏", R.drawable.ic_folders_vector),
+            Tab.PRIVATE to Triple(Tab.PRIVATE, "隐私", org.fossify.commons.R.drawable.ic_lock_vector)
         )
+        val tabs = activity.config.bottomNavigationOrder.mapNotNull { id ->
+            Tab.values().firstOrNull { it.name == id }?.let(byId::get)
+        }
         tabs.forEach { (tab, label, icon) ->
             val selected = tab == active
             val tint = if (selected) primary else quiet
@@ -79,12 +84,11 @@ object GalleryBottomBar {
                 contentDescription = if (selected) "$label，当前页面" else label
                 this.background = RippleDrawable(
                     ColorStateList.valueOf(Color.argb(28, Color.red(primary), Color.green(primary), Color.blue(primary))),
-                    ColorDrawable(Color.TRANSPARENT), null
+                    ColorDrawable(Color.TRANSPARENT),
+                    GradientDrawable().apply { setColor(Color.WHITE) }
                 )
                 setOnClickListener {
-                    if (tab == active) {
-                        navigate(tab)
-                    } else if (!navigating) {
+                    if (tab != active && !navigating) {
                         navigating = true
                         navigate(tab)
                     }

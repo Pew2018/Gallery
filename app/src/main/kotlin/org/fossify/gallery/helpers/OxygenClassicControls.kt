@@ -19,9 +19,9 @@ object OxygenClassicControls {
 
     fun applySwitches(root: View, accent: Int, text: Int, surface: Int) {
         val palette = Triple(accent, text, surface)
-        val offThumb = ColorUtils.blendARGB(surface, text, 0.10f)
-        val offTrack = ColorUtils.blendARGB(surface, text, 0.38f)
-        val onTrack = ColorUtils.blendARGB(surface, accent, 0.52f)
+        val offThumb = ColorUtils.blendARGB(surface, text, 0.06f)
+        val offTrack = ColorUtils.blendARGB(surface, text, 0.24f)
+        val onTrack = ColorUtils.blendARGB(surface, accent, 0.38f)
         val disabledThumb = ColorUtils.blendARGB(surface, text, 0.06f)
         val disabledTrack = ColorUtils.blendARGB(surface, text, 0.13f)
         val selectors = arrayOf(

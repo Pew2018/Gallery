@@ -18,6 +18,9 @@ import java.util.Locale
 class Config(context: Context) : BaseConfig(context) {
     companion object {
         private const val LAST_MAIN_VIEW_ALL = "oxygenos_classic_last_main_view_all"
+        private const val FAVORITE_SHOW_EXCLUDED = "oxygen_favorite_show_excluded"
+        private const val FAVORITE_SHOW_HIDDEN = "oxygen_favorite_show_hidden"
+        private const val BOTTOM_NAV_ORDER = "oxygen_bottom_nav_order"
         fun newInstance(context: Context) = Config(context)
     }
 
@@ -26,6 +29,28 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getBoolean(LAST_MAIN_VIEW_ALL, if (appRunCount <= 1) true else showAll)
         set(value) = prefs.edit().putBoolean(LAST_MAIN_VIEW_ALL, value).apply()
 
+
+    var favoriteShowExcluded: Boolean
+        get() = prefs.getBoolean(FAVORITE_SHOW_EXCLUDED, false)
+        set(value) = prefs.edit().putBoolean(FAVORITE_SHOW_EXCLUDED, value).apply()
+
+    var favoriteShowHidden: Boolean
+        get() = prefs.getBoolean(FAVORITE_SHOW_HIDDEN, false)
+        set(value) = prefs.edit().putBoolean(FAVORITE_SHOW_HIDDEN, value).apply()
+
+    /** Stable IDs, not the view indices; malformed saved orders fall back safely. */
+    var bottomNavigationOrder: List<String>
+        get() {
+            val allowed = listOf("ALL", "FAVORITE_FOLDERS", "PRIVATE")
+            val saved = prefs.getString(BOTTOM_NAV_ORDER, "")?.split(",") ?: emptyList()
+            return if (saved.size == allowed.size && saved.toSet() == allowed.toSet()) saved else allowed
+        }
+        set(order) {
+            val allowed = setOf("ALL", "FAVORITE_FOLDERS", "PRIVATE")
+            if (order.size == 3 && order.toSet() == allowed) {
+                prefs.edit().putString(BOTTOM_NAV_ORDER, order.joinToString(",")).apply()
+            }
+        }
 
     var directorySorting: Int
         get(): Int = prefs.getInt(DIRECTORY_SORT_ORDER, SORT_BY_DATE_MODIFIED or SORT_DESCENDING)

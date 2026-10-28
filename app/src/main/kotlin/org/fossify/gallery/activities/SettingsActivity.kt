@@ -48,15 +48,11 @@ class SettingsActivity : SimpleActivity() {
 
     override fun onResume() {
         super.onResume()
-        // The 2017 Settings header is dark on light themes; respect the
-        // existing themed header on dark/custom backgrounds.
-        val classicHeader = if (ColorUtils.calculateLuminance(getProperBackgroundColor()) >= 0.5) {
-            getColor(R.color.oxygen_classic_toolbar)
-        } else {
-            getRequiredTopBarColor()
-        }
-        setupTopAppBar(binding.settingsAppbar, NavigationIcon.Arrow, topBarColor = classicHeader)
+        // All ordinary toolbars share the user's chosen surface, even on light themes.
+        setupTopAppBar(binding.settingsAppbar, NavigationIcon.Arrow,
+            topBarColor = getProperBackgroundColor())
         setupSettingItems()
+        setupBottomNavigationOrder()
     }
 
     private fun setupSettingItems() {
@@ -314,6 +310,11 @@ class SettingsActivity : SimpleActivity() {
     }
 
     private fun setupOnVideoTap() {
+        // External playback is an explicit action in the player, not a global default.
+        binding.settingsOnVideoTapHolder.visibility = android.view.View.GONE
+        binding.settingsOnVideoTap.text = getString(R.string.open_in_app_player)
+        return
+        /* Legacy dialog removed from the interaction flow.
         binding.settingsOnVideoTap.text = getVideoPlayerTypeText()
         binding.settingsOnVideoTapHolder.setOnClickListener {
             val items = arrayListOf(
@@ -330,6 +331,7 @@ class SettingsActivity : SimpleActivity() {
                 binding.settingsOnVideoTap.text = getVideoPlayerTypeText()
             }
         }
+        */
     }
 
     private fun getVideoPlayerTypeText() = getString(
@@ -338,6 +340,27 @@ class SettingsActivity : SimpleActivity() {
             else -> R.string.open_system_default_player
         }
     )
+
+    private fun setupBottomNavigationOrder() {
+        // A single settings row; the dialog owns drag-and-drop and persistence.
+        val density = resources.displayMetrics.density
+        val row = android.widget.TextView(this).apply {
+            text = "底部导航栏顺序"
+            textSize = 16f
+            setTextColor(getProperTextColor())
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding((16 * density).toInt(), 0, (16 * density).toInt(), 0)
+            minHeight = (56 * density).toInt()
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { BottomNavigationOrderDialog.show(this@SettingsActivity) }
+        }
+        val parent = binding.settingsHolder
+        (row.parent as? android.view.ViewGroup)?.removeView(row)
+        parent.findViewWithTag<android.view.View>("oxygen_bottom_nav_setting")?.let(parent::removeView)
+        row.tag = "oxygen_bottom_nav_setting"
+        parent.addView(row, 0)
+    }
 
     private fun setupMaxBrightness() {
         binding.settingsMaxBrightness.isChecked = config.maxBrightness

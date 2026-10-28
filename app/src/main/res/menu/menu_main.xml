@@ -22,6 +22,12 @@
         android:id="@+id/manage_unavailable_folder_favorites"
         android:title="清理不可用的收藏路径"
         app:showAsAction="never" />
+    <item android:id="@+id/favorite_always_show_excluded"
+        android:title="始终显示已排除项目" android:checkable="true"
+        app:showAsAction="never" />
+    <item android:id="@+id/favorite_always_show_hidden"
+        android:title="始终显示隐藏项目（包含 .nomedia）" android:checkable="true"
+        app:showAsAction="never" />
     <item
         android:id="@+id/folder_visibility"
         android:icon="@drawable/ic_filter_vector"
