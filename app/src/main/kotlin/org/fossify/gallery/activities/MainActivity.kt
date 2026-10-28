@@ -11,6 +11,7 @@ import android.provider.MediaStore.Video
 import android.view.ViewGroup
 import android.widget.RelativeLayout
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.commons.dialogs.CreateNewFolderDialog
 import org.fossify.commons.dialogs.FilePickerDialog
@@ -172,6 +173,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mAllowPickingMultiple = false
     private var mIsThirdPartyIntent = false
     private var mShowingFolderFavorites = false
+    // Sensitive categories are opt-in for the current Activity session only.
+    private var mFolderVisibility = booleanArrayOf(false, false, false, true)
+    private fun isSpecialFolderFilterActive() = mFolderVisibility[0] ||
+        mFolderVisibility[1] || mFolderVisibility[2] || !mFolderVisibility[3]
     private var mFavoriteFolderPaths: Set<String> = emptySet()
     private var mIsGettingDirs = false
     private var mLoadedInitialPhotos = false
@@ -541,6 +546,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             when (menuItem.itemId) {
                 R.id.sort -> showSortingDialog()
                 R.id.filter -> showFilterMediaDialog()
+                R.id.folder_visibility -> showFolderVisibilityDialog()
                 R.id.open_camera -> launchCamera()
                 R.id.show_all -> showAllMedia()
                 R.id.change_view_type -> changeViewType()
@@ -670,6 +676,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         if (mIsGettingDirs) {
             return
         }
+        if (!mShowingFolderFavorites && isSpecialFolderFilterActive()) {
+            loadCategorizedFolders()
+            return
+        }
 
         mShouldStopFetching = true
         mIsGettingDirs = true
@@ -704,6 +714,93 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
 
             getRecyclerAdapter()?.directorySorting = config.directorySorting
+        }
+    }
+
+    private fun showFolderVisibilityDialog() {
+        val labels = arrayOf(
+            "显示隐藏文件夹",
+            "显示排除文件夹",
+            "显示含 .nomedia 的文件夹",
+            "显示受保护／锁定文件夹"
+        )
+        val checked = mFolderVisibility.copyOf()
+        AlertDialog.Builder(this)
+            .setTitle("文件夹分类筛选")
+            .setMultiChoiceItems(labels, checked) { _, index, value -> checked[index] = value }
+            .setNegativeButton("取消", null)
+            .setPositiveButton("应用") { _, _ ->
+                val apply = {
+                    mFolderVisibility = checked
+                    mLastMediaFetcher?.shouldStop = true
+                    mShouldStopFetching = true
+                    mIsGettingDirs = false
+                    binding.directoriesGrid.adapter = null
+                    getDirectories()
+                }
+                val verifyExcluded = {
+                    if (checked[1] && !mFolderVisibility[1]) {
+                        handleExcludedFolderPasswordProtection { apply() }
+                    } else {
+                        apply()
+                    }
+                }
+                if (checked[0] && !mFolderVisibility[0]) {
+                    handleHiddenFolderPasswordProtection { verifyExcluded() }
+                } else {
+                    verifyExcluded()
+                }
+            }.show()
+    }
+
+    private fun loadCategorizedFolders() {
+        if (mIsGettingDirs) return
+        mIsGettingDirs = true
+        mLastMediaFetcher?.shouldStop = true
+        // Reuse the existing cached directory enumeration with explicit visibility
+        // overrides. This is a metadata browser; it never reads private media.
+        getCachedDirectories(forceShowHidden = true, forceShowExcluded = true) { cached ->
+            val excluded = config.excludedFolders
+            val noMedia = getNoMediaFoldersSync().toSet()
+            val supplementary = (excluded + noMedia + config.includedFolders)
+                .filter { it.isNotBlank() && File(it).isDirectory }
+                .map { path ->
+                    Directory().apply {
+                        this.path = path
+                        name = File(path).name
+                        location = LOCATION_INTERNAL
+                    }
+                }
+            val catalog = (cached + supplementary).distinctBy { it.path.lowercase() }
+            val visible = catalog.filter { folder ->
+                val path = folder.path
+                fun within(paths: Collection<String>) = paths.any { path == it || path.startsWith("$it/") }
+                val hidden = path.split('/').any { it.startsWith('.') && it.length > 1 }
+                val isExcluded = within(excluded)
+                val isNoMedia = within(noMedia)
+                val isProtected = config.isFolderProtected(path)
+                folder.folderStatuses = listOfNotNull(
+                    "隐藏".takeIf { hidden },
+                    "排除".takeIf { isExcluded },
+                    ".nomedia".takeIf { isNoMedia },
+                    "已锁定".takeIf { isProtected }
+                ).joinToString(" · ")
+                (!hidden || mFolderVisibility[0]) &&
+                    (!isExcluded || mFolderVisibility[1]) &&
+                    (!isNoMedia || mFolderVisibility[2]) &&
+                    (!isProtected || mFolderVisibility[3])
+            }.toCollection(ArrayList())
+            mDirs = visible
+            mDirsIgnoringSearch = visible
+            mLoadedInitialPhotos = true
+            mIsGettingDirs = false
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed) {
+                    setupAdapter(visible)
+                    checkPlaceholderVisibility(visible)
+                    binding.directoriesRefreshLayout.isRefreshing = false
+                }
+            }
         }
     }
 
@@ -1110,14 +1207,23 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     private fun itemClicked(path: String) {
-        handleLockedFolderOpening(path) { success ->
-            if (success) {
-                Intent(this, MediaActivity::class.java).apply {
-                    putExtra(SKIP_AUTHENTICATION, true)
-                    putExtra(DIRECTORY, path)
-                    handleMediaIntent(this)
+        val openAuthenticated = {
+            handleLockedFolderOpening(path) { success ->
+                if (success) {
+                    Intent(this, MediaActivity::class.java).apply {
+                        putExtra(SKIP_AUTHENTICATION, true)
+                        putExtra(DIRECTORY, path)
+                        handleMediaIntent(this)
+                    }
                 }
             }
+        }
+        // Displaying excluded metadata never bypasses the existing excluded
+        // folders password gate when the user actually opens the folder.
+        if (config.excludedFolders.any { path == it || path.startsWith("$it/") }) {
+            handleExcludedFolderPasswordProtection { openAuthenticated() }
+        } else {
+            openAuthenticated()
         }
     }
 
