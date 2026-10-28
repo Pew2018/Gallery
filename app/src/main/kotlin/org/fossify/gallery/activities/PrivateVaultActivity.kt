@@ -71,27 +71,16 @@ class PrivateVaultActivity : SimpleActivity() {
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(background)
         }
-        toolbar.addView(ImageView(this).apply {
-            setImageResource(org.fossify.commons.R.drawable.ic_arrow_left_vector)
-            imageTintList = ColorStateList.valueOf(foreground)
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            contentDescription = getString(org.fossify.commons.R.string.back)
-            isClickable = true
-            isFocusable = true
-            this.background = RippleDrawable(ColorStateList.valueOf(Color.argb(28,
-                Color.red(foreground), Color.green(foreground), Color.blue(foreground))),
-                ColorDrawable(Color.TRANSPARENT), null)
-            setOnClickListener { onBackPressedDispatcher.onBackPressed() }
-        }, LinearLayout.LayoutParams(dp(48), dp(56)))
+        // This is a root bottom-navigation destination; system back stays unchanged.
         toolbar.addView(TextView(this).apply {
             text = "隐私空间"
             textSize = 20f
             setTextColor(foreground)
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), 0, dp(16), 0)
+            setPadding(margin, 0, margin, 0)
             maxLines = 1
-        }, LinearLayout.LayoutParams(0, dp(56), 1f))
+            includeFontPadding = false
+        }, LinearLayout.LayoutParams(-1, dp(56)))
         val toolbarParams = CoordinatorLayout.LayoutParams(-1, dp(56)).apply {
             gravity = Gravity.TOP
         }
