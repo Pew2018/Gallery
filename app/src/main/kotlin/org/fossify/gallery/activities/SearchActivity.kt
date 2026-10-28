@@ -19,7 +19,6 @@ import org.fossify.gallery.databinding.ActivitySearchBinding
 import org.fossify.gallery.extensions.*
 import org.fossify.gallery.helpers.GridSpacingItemDecoration
 import org.fossify.gallery.helpers.MediaFetcher
-import org.fossify.gallery.helpers.PrivateFolderIndex
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.SHOW_ALL
 import org.fossify.gallery.helpers.VIDEO_PLAYER_APP
@@ -103,9 +102,7 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
     private fun textChanged(text: String) {
         ensureBackgroundThread {
             try {
-                val roots = PrivateFolderIndex.protectedPaths(this)
-                val filtered = mAllMedia.filter { it is Medium && it.name.contains(text, true) &&
-                    !PrivateFolderIndex.isProtected(it.path, roots) } as ArrayList
+                val filtered = ArrayList(mAllMedia.filter { it is Medium && it.name.contains(text, true) })
                 filtered.sortBy { it is Medium && !it.name.startsWith(text, true) }
                 val grouped = MediaFetcher(applicationContext).groupMedia(filtered as ArrayList<Medium>, "")
                 runOnUiThread {
@@ -173,7 +170,6 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
             return
         }
 
-        if (PrivateFolderIndex.isProtected(this, path)) return
         if (config.gestureVideoPlayer) launchGesturePlayer(path) else openInViewPager(path)
     }
 
@@ -232,9 +228,7 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
     private fun getAllMedia() {
         getCachedMedia("") {
             if (it.isNotEmpty()) {
-                val roots = PrivateFolderIndex.protectedPaths(this)
-                mAllMedia = ArrayList(it.filterNot { item -> item is Medium &&
-                    PrivateFolderIndex.isProtected(item.path, roots) })
+                mAllMedia = ArrayList(it)
             }
             runOnUiThread {
                 setupAdapter()

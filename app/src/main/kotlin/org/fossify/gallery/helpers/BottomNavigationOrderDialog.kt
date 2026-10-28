@@ -20,8 +20,8 @@ import java.util.Collections
 
 /** A classic list dialog. Changes are transactional until Done is pressed. */
 object BottomNavigationOrderDialog {
-    private val defaults = listOf("ALL", "FAVORITE_FOLDERS", "PRIVATE")
-    private val labels = mapOf("ALL" to "所有图片", "FAVORITE_FOLDERS" to "收藏", "PRIVATE" to "隐私")
+    private val defaults = listOf("ALL", "FAVORITE_FOLDERS")
+    private val labels = mapOf("ALL" to "所有图片", "FAVORITE_FOLDERS" to "收藏" to "隐私")
 
     fun show(context: Context) {
         val activity = context as? Activity ?: return
@@ -87,6 +87,7 @@ object BottomNavigationOrderDialog {
             .setNegativeButton("取消", null)
             .setPositiveButton("完成") { _, _ ->
                 activity.config.bottomNavigationOrder = pending
+                GalleryBottomBar.refreshAll()
             }
             .setNeutralButton("恢复默认", null)
         val dialog = OxygenClassicDialog.show(activity, builder, list)

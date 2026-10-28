@@ -41,13 +41,13 @@ class Config(context: Context) : BaseConfig(context) {
     /** Stable IDs, not the view indices; malformed saved orders fall back safely. */
     var bottomNavigationOrder: List<String>
         get() {
-            val allowed = listOf("ALL", "FAVORITE_FOLDERS", "PRIVATE")
+            val allowed = listOf("ALL", "FAVORITE_FOLDERS")
             val saved = prefs.getString(BOTTOM_NAV_ORDER, "")?.split(",") ?: emptyList()
-            return if (saved.size == allowed.size && saved.toSet() == allowed.toSet()) saved else allowed
+            return (saved.filter { it in allowed }.distinct() + allowed).distinct()
         }
         set(order) {
-            val allowed = setOf("ALL", "FAVORITE_FOLDERS", "PRIVATE")
-            if (order.size == 3 && order.toSet() == allowed) {
+            val allowed = setOf("ALL", "FAVORITE_FOLDERS")
+            if (order.size == 2 && order.toSet() == allowed) {
                 prefs.edit().putString(BOTTOM_NAV_ORDER, order.joinToString(",")).apply()
             }
         }

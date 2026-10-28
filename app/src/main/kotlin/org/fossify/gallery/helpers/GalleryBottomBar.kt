@@ -26,7 +26,13 @@ import org.fossify.gallery.R
  * animated tab translation; selection is expressed by icon and label color.
  */
 object GalleryBottomBar {
-    enum class Tab { ALL, FAVORITE_FOLDERS, PRIVATE }
+    private val refreshers = java.util.WeakHashMap<Activity, () -> Unit>()
+
+    fun refreshAll() {
+        refreshers.values.toList().forEach { it() }
+    }
+
+    enum class Tab { ALL, FAVORITE_FOLDERS }
 
     @Suppress("DEPRECATION")
     fun open(activity: Activity, intent: Intent, finishCurrent: Boolean = false) {
@@ -42,6 +48,9 @@ object GalleryBottomBar {
         active: Tab,
         navigate: (Tab) -> Unit
     ) {
+        refreshers[activity] = {
+            if (!activity.isFinishing && !activity.isDestroyed) attach(activity, parent, active, navigate)
+        }
         val density = activity.resources.displayMetrics.density
         fun dp(value: Int) = (value * density + 0.5f).toInt()
         val background = activity.getProperBackgroundColor()
@@ -67,8 +76,7 @@ object GalleryBottomBar {
 
         val byId = mapOf(
             Tab.ALL to Triple(Tab.ALL, "所有图片", R.drawable.ic_files_vector),
-            Tab.FAVORITE_FOLDERS to Triple(Tab.FAVORITE_FOLDERS, "收藏", R.drawable.ic_folders_vector),
-            Tab.PRIVATE to Triple(Tab.PRIVATE, "隐私", org.fossify.commons.R.drawable.ic_lock_vector)
+            Tab.FAVORITE_FOLDERS to Triple(Tab.FAVORITE_FOLDERS, "收藏", R.drawable.ic_folders_vector)
         )
         val tabs = activity.config.bottomNavigationOrder.mapNotNull { id ->
             Tab.values().firstOrNull { it.name == id }?.let(byId::get)

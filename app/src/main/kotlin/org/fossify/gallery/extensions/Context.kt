@@ -918,20 +918,7 @@ fun Context.getCachedDirectories(
         }
 
         val clone = filteredDirectories.clone() as ArrayList<Directory>
-        val privateRoots = org.fossify.gallery.helpers.PrivateFolderIndex.protectedPaths(this)
-        val visible = clone.filterNot {
-            org.fossify.gallery.helpers.PrivateFolderIndex.isProtected(it.path, privateRoots)
-        }.map { directory ->
-            // A parent folder must not reuse private child metadata as its cover or count.
-            val parent = directory.path.trimEnd('/').lowercase(Locale.ROOT)
-            val hasPrivateChild = parent.isNotBlank() && privateRoots.any { it.startsWith(parent + "/") }
-            val privateCover = org.fossify.gallery.helpers.PrivateFolderIndex.isProtected(directory.tmb, privateRoots)
-            if (hasPrivateChild || privateCover) {
-                directory.copy(tmb = if (privateCover) "" else directory.tmb,
-                    mediaCnt = if (hasPrivateChild) 0 else directory.mediaCnt)
-            } else directory
-        }
-        callback(ArrayList(visible.distinctBy { it.path.getDistinctPath() }))
+        callback(ArrayList(clone.distinctBy { it.path.getDistinctPath() }))
         removeInvalidDBDirectories(filteredDirectories)
     }
 }
@@ -950,13 +937,11 @@ fun Context.getCachedMedia(
             ensureBackgroundThread {
                 val allowed = directories.asSequence().map { it.path.lowercase(Locale.ROOT) }.toHashSet()
                 val fetcher = MediaFetcher(this)
-                val privateRoots = org.fossify.gallery.helpers.PrivateFolderIndex.protectedPaths(this)
                 val filter = config.filterMedia
                 val showHidden = config.shouldShowHidden
                 val media = try {
                     mediaDB.getAllMedia().filter { item ->
                         item.parentPath.lowercase(Locale.ROOT) in allowed &&
-                            !org.fossify.gallery.helpers.PrivateFolderIndex.isProtected(item.path, privateRoots) &&
                             !config.isFolderProtected(item.parentPath) &&
                             (showHidden || !item.path.contains("/.")) &&
                             (when {
@@ -1026,8 +1011,6 @@ fun Context.getCachedMedia(
             }
         }) as ArrayList<Medium>
 
-        val privateRoots = org.fossify.gallery.helpers.PrivateFolderIndex.protectedPaths(this)
-        media.removeAll { org.fossify.gallery.helpers.PrivateFolderIndex.isProtected(it.path, privateRoots) }
         val pathToUse = path.ifEmpty { SHOW_ALL }
         mediaFetcher.sortMedia(media, config.getFolderSorting(pathToUse))
         val grouped = mediaFetcher.groupMedia(media, pathToUse)
