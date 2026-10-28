@@ -296,6 +296,7 @@ class PrivateVaultActivity : SimpleActivity() {
             } else toast("未检测到可用的强生物识别")
         }
         action("立即锁定") { lock() }
+        action("刷新文件夹") { showFolders() }
         info("下方仅显示已授权的文件夹；失效的目录会保留记录以便重新授权。")
         showFolders()
     }
@@ -338,7 +339,9 @@ class PrivateVaultActivity : SimpleActivity() {
                     else emptyArray()
                 val images = children.filter { it.isFile && (it.type?.startsWith("image/") == true ||
                     it.type?.startsWith("video/") == true) }
-                Tile(entry.name, if (available) images.size.toString() + " 项" else "授权失效，需重新选择",
+                val photos = images.count { it.type?.startsWith("image/") == true }
+                val videos = images.count { it.type?.startsWith("video/") == true }
+                Tile(entry.name, if (available) "${photos} 张图片 · ${videos} 个视频" else "授权失效，需重新选择",
                     images.firstOrNull()?.uri, folder = entry)
             }
             runOnUiThread {

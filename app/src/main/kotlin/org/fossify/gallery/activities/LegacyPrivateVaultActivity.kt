@@ -40,6 +40,7 @@ import java.util.UUID
 class LegacyPrivateVaultActivity : SimpleActivity() {
     private companion object {
         const val PICK_DOCUMENT = 9041
+        const val EXPORT_DOCUMENT = 9042
     }
 
     private lateinit var crypto: PrivateVaultCrypto
@@ -47,6 +48,8 @@ class LegacyPrivateVaultActivity : SimpleActivity() {
     private lateinit var body: LinearLayout
     private var dataKey: ByteArray? = null
     private var pendingImport: android.net.Uri? = null
+    private var pendingExportTarget: android.net.Uri? = null
+    private var pendingExportSource: File? = null
     private var previewDialog: AlertDialog? = null
     @Volatile private var generation = 0
     // Plaintext previews live in a dedicated app-private, non-backed-up directory.
@@ -292,6 +295,13 @@ class LegacyPrivateVaultActivity : SimpleActivity() {
                                     pendingImport = null
                                     importFile(uri)
                                 }
+                                val exportTo = pendingExportTarget
+                                val exportFrom = pendingExportSource
+                                if (exportTo != null && exportFrom != null) {
+                                    pendingExportTarget = null
+                                    pendingExportSource = null
+                                    exportDecryptedCopy(exportFrom, exportTo)
+                                }
                             } else {
                                 newKey.fill(0)
                             }
@@ -330,6 +340,24 @@ class LegacyPrivateVaultActivity : SimpleActivity() {
                     else -> "普通文件"
                 }
                 button("${index + 1}. $type · 加密文件") { preview(file, type) }
+                button("解密导出第 ${index + 1} 个文件（保留旧密文）") {
+                    pendingExportSource = file
+                    val mime = when (type) {
+                        "图片" -> "image/jpeg"
+                        "视频" -> "video/mp4"
+                        else -> "application/octet-stream"
+                    }
+                    val suffix = when (type) {
+                        "图片" -> ".jpg"
+                        "视频" -> ".mp4"
+                        else -> ".bin"
+                    }
+                    startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        this.type = mime
+                        putExtra(Intent.EXTRA_TITLE, "Gallery_recovered_${index + 1}$suffix")
+                    }, EXPORT_DOCUMENT)
+                }
                 button("删除第 ${index + 1} 个加密副本") {
                     AlertDialog.Builder(this).setMessage("仅删除隐私空间内的加密副本？")
                         .setNegativeButton("取消", null)
@@ -351,7 +379,52 @@ class LegacyPrivateVaultActivity : SimpleActivity() {
             pendingImport = data?.data
             if (dataKey == null) passwordDialog(create = false)
             else pendingImport?.let { pendingImport = null; importFile(it) }
+        } else if (requestCode == EXPORT_DOCUMENT && resultCode == RESULT_OK) {
+            val target = data?.data
+            if (target != null && pendingExportSource != null) {
+                if (dataKey == null) {
+                    pendingExportTarget = target
+                    passwordDialog(create = false)
+                } else {
+                    val source = pendingExportSource
+                    pendingExportSource = null
+                    if (source != null) exportDecryptedCopy(source, target)
+                }
+            }
+        } else if (requestCode == EXPORT_DOCUMENT) {
+            pendingExportSource = null
+            pendingExportTarget = null
         }
+    }
+
+    private fun exportDecryptedCopy(source: File, target: android.net.Uri) {
+        val key = dataKey?.copyOf() ?: return
+        val token = generation
+        feedback("正在导出解密副本；原加密文件将保留")
+        Thread {
+            val plain = File(previews.apply { mkdirs() }, UUID.randomUUID().toString() + ".export")
+            try {
+                crypto.decryptForPreview(source, plain, key)
+                check(token == generation) { "会话过期" }
+                contentResolver.openOutputStream(target, "wt")?.use { out ->
+                    plain.inputStream().use { input -> input.copyTo(out) }
+                    out.flush()
+                } ?: error("目标文件不可写")
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        AlertDialog.Builder(this)
+                            .setTitle("解密导出成功")
+                            .setMessage("旧加密副本仍然保留。请先核实导出文件完整，然后再选择是否手动删除旧密文。")
+                            .setPositiveButton("保留旧密文", null).show()
+                    }
+                }
+            } catch (_: Exception) {
+                runOnUiThread { feedback("解密导出失败，旧密文未受影响；请核对导出目标") }
+            } finally {
+                plain.delete()
+                key.fill(0)
+            }
+        }.start()
     }
 
     private fun importFile(uri: android.net.Uri) {
