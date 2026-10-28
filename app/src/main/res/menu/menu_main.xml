@@ -19,6 +19,11 @@
         android:title="@string/sort_by"
         app:showAsAction="ifRoom" />
     <item
+        android:id="@+id/folder_visibility"
+        android:icon="@drawable/ic_filter_vector"
+        android:title="文件夹分类筛选"
+        app:showAsAction="ifRoom" />
+    <item
         android:id="@+id/filter"
         android:icon="@drawable/ic_filter_vector"
         android:title="@string/filter_media"
