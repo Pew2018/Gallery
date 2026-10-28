@@ -270,4 +270,5 @@
     <string name="oxygen_bottom_navigation_order">底部导航栏顺序</string>
     <string name="oxygen_favorite_show_hidden">始终显示隐藏项目</string>
     <string name="oxygen_favorite_show_excluded">始终显示已排除项目</string>
+    <string name="oxygen_selected_count">已选择 %1$d 项</string>
 </resources>

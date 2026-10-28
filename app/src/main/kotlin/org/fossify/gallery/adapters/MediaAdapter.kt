@@ -79,6 +79,7 @@ import org.fossify.gallery.extensions.updateDBMediaPath
 import org.fossify.gallery.extensions.updateFavorite
 import org.fossify.gallery.extensions.updateFavoritePaths
 import org.fossify.gallery.helpers.OxygenThumbnailPlaceholder
+import org.fossify.gallery.helpers.OxygenSelectionMode
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.ROUNDED_CORNERS_BIG
@@ -111,6 +112,7 @@ class MediaAdapter(
     private val ITEM_MEDIUM_PHOTO = 2
 
     private val config = activity.config
+    private var deleteDialogShowing = false
     private val viewType = config.getFolderViewType(if (config.showAll) SHOW_ALL else path)
     private val isListViewType = viewType == VIEW_TYPE_LIST
     private var rotatedImagePaths = ArrayList<String>()
@@ -128,6 +130,7 @@ class MediaAdapter(
     var timeFormat = activity.getTimeFormat()
 
     init {
+        actModeCallback = OxygenSelectionMode.wrap(activity, actModeCallback)
         setupDragListener(true)
     }
 
@@ -545,6 +548,7 @@ class MediaAdapter(
     }
 
     private fun askConfirmDelete() {
+        if (deleteDialogShowing || selectedKeys.isEmpty()) return
         val itemsCnt = selectedKeys.size
         val selectedMedia = getSelectedItems()
         val firstPath = selectedMedia.first().path
@@ -570,13 +574,13 @@ class MediaAdapter(
         val question = String.format(resources.getString(baseString), itemsAndSize)
         val showSkipRecycleBinOption = config.useRecycleBin && !isRecycleBin
 
-        DeleteWithRememberDialog(activity, question, showSkipRecycleBinOption) { remember, skipRecycleBin ->
+        deleteDialogShowing = true
+        DeleteWithRememberDialog(
+            activity, question, showSkipRecycleBinOption,
+            onDismiss = { deleteDialogShowing = false }
+        ) { remember, skipRecycleBin ->
             config.tempSkipDeleteConfirmation = remember
-
-            if (remember) {
-                config.tempSkipRecycleBin = skipRecycleBin
-            }
-
+            config.tempSkipRecycleBin = remember && skipRecycleBin
             deleteFiles(skipRecycleBin)
         }
     }

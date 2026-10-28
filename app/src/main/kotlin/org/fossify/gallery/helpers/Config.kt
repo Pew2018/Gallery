@@ -480,13 +480,14 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getString(LAST_FILEPICKER_PATH, "")!!
         set(lastFilepickerPath) = prefs.edit().putString(LAST_FILEPICKER_PATH, lastFilepickerPath).apply()
 
+    // Session-only choices must not survive process death or a fresh launch.
     var tempSkipDeleteConfirmation: Boolean
-        get() = prefs.getBoolean(TEMP_SKIP_DELETE_CONFIRMATION, false)
-        set(tempSkipDeleteConfirmation) = prefs.edit().putBoolean(TEMP_SKIP_DELETE_CONFIRMATION, tempSkipDeleteConfirmation).apply()
+        get() = DeleteSessionState.skipConfirmation
+        set(value) { DeleteSessionState.skipConfirmation = value }
 
     var tempSkipRecycleBin: Boolean
-        get() = prefs.getBoolean(TEMP_SKIP_RECYCLE_BIN, false)
-        set(tempSkipRecycleBin) = prefs.edit().putBoolean(TEMP_SKIP_RECYCLE_BIN, tempSkipRecycleBin).apply()
+        get() = DeleteSessionState.skipRecycleBin
+        set(value) { DeleteSessionState.skipRecycleBin = value }
 
     var wereFavoritesPinned: Boolean
         get() = prefs.getBoolean(WERE_FAVORITES_PINNED, false)

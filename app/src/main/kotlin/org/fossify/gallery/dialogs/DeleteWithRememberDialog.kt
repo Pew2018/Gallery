@@ -13,14 +13,18 @@ class DeleteWithRememberDialog(
     private val activity: Activity,
     private val message: String,
     private val showSkipRecycleBinOption: Boolean,
+    private val onDismiss: () -> Unit = {},
     private val callback: (remember: Boolean, skipRecycleBin: Boolean) -> Unit
 ) {
 
     private var dialog: AlertDialog? = null
+    private var confirmed = false
     private val binding = DialogDeleteWithRememberBinding.inflate(activity.layoutInflater)
 
     init {
         binding.deleteRememberTitle.text = message
+        binding.deleteRememberCheckbox.isChecked = false
+        binding.skipTheRecycleBinCheckbox.isChecked = false
         binding.skipTheRecycleBinCheckbox.beGoneIf(!showSkipRecycleBinOption)
         activity.getAlertDialogBuilder()
             .setPositiveButton(org.fossify.commons.R.string.yes) { dialog, which -> dialogConfirmed() }
@@ -29,12 +33,17 @@ class DeleteWithRememberDialog(
                 activity.setupDialogStuff(binding.root, this) { alertDialog ->
                     OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                     dialog = alertDialog
+                    alertDialog.setOnDismissListener { onDismiss() }
                 }
             }
     }
 
     private fun dialogConfirmed() {
+        if (confirmed) return
+        confirmed = true
+        val remember = binding.deleteRememberCheckbox.isChecked
+        val skipRecycleBin = showSkipRecycleBinOption && binding.skipTheRecycleBinCheckbox.isChecked
         dialog?.dismiss()
-        callback(binding.deleteRememberCheckbox.isChecked, binding.skipTheRecycleBinCheckbox.isChecked)
+        callback(remember, skipRecycleBin)
     }
 }

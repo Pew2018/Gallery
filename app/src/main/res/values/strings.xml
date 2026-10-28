@@ -306,4 +306,5 @@
     <string name="oxygen_bottom_navigation_order">Bottom navigation order</string>
     <string name="oxygen_favorite_show_hidden">Always show hidden items</string>
     <string name="oxygen_favorite_show_excluded">Always show excluded items</string>
+    <string name="oxygen_selected_count">Selected %1$d items</string>
 </resources>

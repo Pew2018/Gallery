@@ -98,6 +98,7 @@ import org.fossify.gallery.helpers.LOCATION_SD
 import org.fossify.gallery.helpers.OxygenThumbnailPlaceholder
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
+import org.fossify.gallery.helpers.OxygenSelectionMode
 import org.fossify.gallery.helpers.ROUNDED_CORNERS_BIG
 import org.fossify.gallery.helpers.ROUNDED_CORNERS_NONE
 import org.fossify.gallery.helpers.ROUNDED_CORNERS_SMALL
@@ -145,6 +146,7 @@ class DirectoryAdapter(
     var timeFormat = activity.getTimeFormat()
 
     init {
+        actModeCallback = OxygenSelectionMode.wrap(activity, actModeCallback)
         setupDragListener(true)
         setHasStableIds(true)
         fillLockedFolders()
