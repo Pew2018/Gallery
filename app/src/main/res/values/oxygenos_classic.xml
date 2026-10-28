@@ -14,8 +14,8 @@
     <dimen name="oxygen_classic_horizontal_margin">16dp</dimen>
     <dimen name="oxygen_classic_single_row">56dp</dimen>
     <dimen name="oxygen_classic_details_row">72dp</dimen>
-    <dimen name="oxygen_classic_switch_width">40dp</dimen>
-    <dimen name="oxygen_classic_switch_thumb_size">20dp</dimen>
+    <dimen name="oxygen_classic_switch_width">42dp</dimen>
+    <dimen name="oxygen_classic_switch_thumb_size">24dp</dimen>
 
     <style name="OxygenClassicSettingsSection" parent="SettingsSectionLabelStyle">
         <item name="android:minHeight">48dp</item>
