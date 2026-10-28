@@ -180,6 +180,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun isSpecialFolderFilterActive() = mFolderVisibility[0] ||
         mFolderVisibility[1] || mFolderVisibility[2] || !mFolderVisibility[3]
     private var favoriteLoadVersion = 0L
+    private var categorizedLoadVersion = 0L
     private var mFavoriteFolderPaths: Set<String> = emptySet()
     // Saved visibility preferences never serve as authentication credentials.
     private var mFavoriteHiddenAuthorized = false
@@ -429,6 +430,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     override fun onPause() {
         super.onPause()
         favoriteLoadVersion++
+        categorizedLoadVersion++
         binding.directoriesRefreshLayout.isRefreshing = false
         mIsGettingDirs = false
         storeStateVariables()
@@ -991,49 +993,62 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun loadCategorizedFolders() {
         if (mIsGettingDirs) return
         mIsGettingDirs = true
+        val requestVersion = ++categorizedLoadVersion
+        val requestedVisibility = mFolderVisibility.copyOf()
         mLastMediaFetcher?.shouldStop = true
-        // Reuse the existing cached directory enumeration with explicit visibility
-        // overrides. This is a metadata browser; it never reads private media.
         getCachedDirectories(forceShowHidden = true, forceShowExcluded = true) { cached ->
-            val excluded = config.excludedFolders
-            val noMedia = getNoMediaFoldersSync().toSet()
-            val supplementary = (excluded + noMedia + config.includedFolders)
-                .filter { it.isNotBlank() && File(it).isDirectory }
-                .map { path ->
-                    Directory().apply {
-                        this.path = path
-                        name = File(path).name
-                        location = LOCATION_INTERNAL
+            try {
+                val excluded = config.excludedFolders
+                val noMedia = getNoMediaFoldersSync().toSet()
+                val supplementary = (excluded + noMedia + config.includedFolders)
+                    .filter { it.isNotBlank() && File(it).isDirectory }
+                    .map { path ->
+                        Directory().apply {
+                            this.path = path
+                            name = File(path).name
+                            location = LOCATION_INTERNAL
+                        }
                     }
-                }
-            val catalog = (cached + supplementary).distinctBy { it.path.lowercase() }
-            val visible = catalog.filter { folder ->
-                val path = folder.path
-                fun within(paths: Collection<String>) = paths.any { path == it || path.startsWith("$it/") }
-                val hidden = path.split('/').any { it.startsWith('.') && it.length > 1 }
-                val isExcluded = within(excluded)
-                val isNoMedia = within(noMedia)
-                val isProtected = config.isFolderProtected(path)
-                folder.folderStatuses = listOfNotNull(
-                    "隐藏".takeIf { hidden },
-                    "排除".takeIf { isExcluded },
-                    ".nomedia".takeIf { isNoMedia },
-                    "已锁定".takeIf { isProtected }
-                ).joinToString(" · ")
-                    (!hidden || mFolderVisibility[0]) &&
-                    (!isExcluded || mFolderVisibility[1]) &&
-                    (!isNoMedia || mFolderVisibility[2]) &&
-                    (!isProtected || mFolderVisibility[3])
-            }.toCollection(ArrayList())
-            mDirs = visible
-            mDirsIgnoringSearch = visible
-            mLoadedInitialPhotos = true
-            mIsGettingDirs = false
-            runOnUiThread {
-                if (!isFinishing && !isDestroyed) {
+                val catalog = (cached + supplementary).distinctBy { it.path.lowercase() }
+                val visible = catalog.filter { folder ->
+                    val path = folder.path
+                    fun within(paths: Collection<String>) =
+                        paths.any { path == it || path.startsWith("$it/") }
+                    val hidden = path.split('/').any { it.startsWith('.') && it.length > 1 }
+                    val isExcluded = within(excluded)
+                    val isNoMedia = within(noMedia)
+                    val isProtected = config.isFolderProtected(path)
+                    folder.folderStatuses = listOfNotNull(
+                        "隐藏".takeIf { hidden },
+                        "排除".takeIf { isExcluded },
+                        "隐藏媒体".takeIf { isNoMedia },
+                        "已锁定".takeIf { isProtected }
+                    ).joinToString(" · ")
+                    (!hidden || requestedVisibility[0]) &&
+                        (!isExcluded || requestedVisibility[1]) &&
+                        (!isNoMedia || requestedVisibility[2]) &&
+                        (!isProtected || requestedVisibility[3])
+                }.toCollection(ArrayList())
+                runOnUiThread {
+                    if (isFinishing || isDestroyed || requestVersion != categorizedLoadVersion ||
+                        !requestedVisibility.contentEquals(mFolderVisibility)) return@runOnUiThread
+                    mDirs = visible
+                    mDirsIgnoringSearch = ArrayList(visible)
+                    mLoadedInitialPhotos = true
+                    mIsGettingDirs = false
                     setupAdapter(visible)
                     checkPlaceholderVisibility(visible)
                     binding.directoriesRefreshLayout.isRefreshing = false
+                }
+            } catch (error: Exception) {
+                android.util.Log.e("GalleryFolders", "Folder category scan failed", error)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed || requestVersion != categorizedLoadVersion)
+                        return@runOnUiThread
+                    mIsGettingDirs = false
+                    binding.directoriesRefreshLayout.isRefreshing = false
+                    android.widget.Toast.makeText(this, "文件夹加载失败，请下拉重试",
+                        android.widget.Toast.LENGTH_LONG).show()
                 }
             }
         }

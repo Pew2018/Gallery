@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Color
 import androidx.core.graphics.ColorUtils
+import org.fossify.commons.extensions.getProperBackgroundColor
 
 /** Resolves one theme snapshot into Commons' existing colors.
  * No preferences are rewritten by contrast derivation.
@@ -41,7 +42,7 @@ object OxygenThemeEngine {
     fun toolbarSurface(context: Context, config: Config): Int =
         if (config.oxygenThemeActivated && config.oxygenCustomToolbarEnabled) config.oxygenToolbarColor
         else if (config.oxygenThemeActivated) config.backgroundColor
-        else org.fossify.commons.extensions.getProperBackgroundColor(context)
+        else context.getProperBackgroundColor()
 
     fun toolbarForeground(context: Context, config: Config): Int {
         val surface = toolbarSurface(context, config)
