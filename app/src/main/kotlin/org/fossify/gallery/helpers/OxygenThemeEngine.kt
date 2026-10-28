@@ -60,8 +60,11 @@ object OxygenThemeEngine {
 
     fun autoForeground(surface: Int): Int {
         val opaque = ColorUtils.setAlphaComponent(surface, 255)
-        return if (ColorUtils.calculateContrast(Color.BLACK, opaque) >= 4.5)
-            Color.BLACK else Color.WHITE
+        // Both black and white meet the normal-text 4.5:1 target against
+        // an opaque sRGB surface; prefer the one with the stronger contrast.
+        val blackContrast = ColorUtils.calculateContrast(Color.BLACK, opaque)
+        val whiteContrast = ColorUtils.calculateContrast(Color.WHITE, opaque)
+        return if (blackContrast >= whiteContrast) Color.BLACK else Color.WHITE
     }
 
     fun toolbarSurface(context: Context, config: Config): Int =
