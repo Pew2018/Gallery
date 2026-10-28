@@ -8,6 +8,7 @@ import org.fossify.commons.extensions.hideKeyboard
 import org.fossify.commons.extensions.setupDialogStuff
 import org.fossify.commons.extensions.value
 import org.fossify.commons.models.RadioItem
+import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.DialogSlideshowBinding
 import org.fossify.gallery.extensions.config
@@ -76,6 +77,7 @@ class SlideshowDialog(val activity: BaseSimpleActivity, val callback: () -> Unit
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
                 activity.setupDialogStuff(binding.root, this) { alertDialog ->
+                    OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                     alertDialog.hideKeyboard()
                     alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         storeValues()
