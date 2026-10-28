@@ -116,6 +116,7 @@ import org.fossify.gallery.extensions.tryDeleteFileDirItem
 import org.fossify.gallery.extensions.updateDBDirectory
 import org.fossify.gallery.extensions.updateWidgets
 import org.fossify.gallery.helpers.FavoriteFolderRules
+import org.fossify.gallery.helpers.MediaCachePrunePolicy
 import org.fossify.gallery.helpers.FavoriteFolderLoadCoordinator
 import org.fossify.gallery.helpers.FavoriteFolderLoadKey
 import org.fossify.gallery.helpers.FavoriteFolderLoadStatus
@@ -1677,7 +1678,19 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 )
 
                 val newDir = if (curMedia.isEmpty()) {
-                    if (directory.path != tempFolderPath) {
+                    // An empty scan can mean permission loss, a changed filter,
+                    // or a temporarily unavailable volume. Never delete a valid
+                    // directory record based only on an empty result.
+                    val folder = File(directory.path)
+                    val parentReadable = folder.parentFile?.let {
+                        it.isDirectory && it.canRead()
+                    } == true
+                    if (directory.path != tempFolderPath &&
+                        !directory.areFavorites() && !directory.isRecycleBin() &&
+                        MediaCachePrunePolicy.canPruneDirectory(
+                            directory.path, parentReadable, folder.exists()
+                        )
+                    ) {
                         dirPathsToRemove.add(directory.path)
                     }
                     directory
@@ -1721,19 +1734,33 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     }
                 }
 
-                if (!directory.isRecycleBin()) {
-                    getCachedMedia(directory.path, getVideosOnly, getImagesOnly) {
-                        val mediaToDelete = ArrayList<Medium>()
-                        it.forEach {
-                            if (!curMedia.contains(it)) {
-                                val medium = it as? Medium
-                                val path = medium?.path
-                                if (path != null) {
-                                    mediaToDelete.add(medium)
-                                }
-                            }
+                if (!directory.isRecycleBin() && !directory.areFavorites()) {
+                    val scanOwner = mLastMediaFetcher
+                    val freshPaths = curMedia.mapTo(HashSet()) { it.path }
+                    getCachedMedia(directory.path, getVideosOnly, getImagesOnly) { cached ->
+                        if (mShouldStopFetching || isDestroyed || isFinishing ||
+                            scanOwner !== mLastMediaFetcher
+                        ) return@getCachedMedia
+
+                        // Comparing entire Medium objects is unsafe: modified
+                        // metadata makes a still-existing file look "deleted".
+                        // Absence from MediaStore alone is also not proof.
+                        val stale = cached.filterIsInstance<Medium>().filter { old ->
+                            val file = File(old.path)
+                            val parentReadable = file.parentFile?.let {
+                                it.isDirectory && it.canRead()
+                            } == true
+                            MediaCachePrunePolicy.canPrune(
+                                oldPath = old.path,
+                                latestPaths = freshPaths,
+                                isFavoritesView = false,
+                                parentReadable = parentReadable,
+                                fileExists = file.exists()
+                            )
                         }
-                        mediaDB.deleteMedia(*mediaToDelete.toTypedArray())
+                        if (stale.isNotEmpty()) {
+                            mediaDB.deleteMedia(*stale.toTypedArray())
+                        }
                     }
                 }
             }
@@ -2036,56 +2063,70 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     private fun checkInvalidDirectories(dirs: ArrayList<Directory>) {
         val invalidDirs = ArrayList<Directory>()
+        val verifiedMissingPaths = HashSet<String>()
         val OTGPath = config.OTGPath
-        dirs.filter { !it.areFavorites() && !it.isRecycleBin() }.forEach {
-            if (!getDoesFilePathExist(it.path, OTGPath)) {
-                invalidDirs.add(it)
-            } else if (it.path != config.tempFolderPath && (!isRPlus() || isExternalStorageManager())) {
-                // avoid calling file.list() or listfiles() on Android 11+, it became way too slow
-                val children = if (isPathOnOTG(it.path)) {
-                    getOTGFolderChildrenNames(it.path)
+        dirs.filter { !it.areFavorites() && !it.isRecycleBin() }.forEach { directory ->
+            val path = directory.path
+            val folder = File(path)
+            val parentReadable = folder.parentFile?.let {
+                it.isDirectory && it.canRead()
+            } == true
+            if (MediaCachePrunePolicy.canPruneDirectory(
+                    path, parentReadable, folder.exists()
+                )
+            ) {
+                invalidDirs.add(directory)
+                verifiedMissingPaths.add(path)
+            } else if (getDoesFilePathExist(path, OTGPath) &&
+                path != config.tempFolderPath && (!isRPlus() || isExternalStorageManager())
+            ) {
+                // list() == null means unknown/unreadable, NOT an empty folder.
+                val children = if (isPathOnOTG(path)) {
+                    getOTGFolderChildrenNames(path)
                 } else {
-                    File(it.path).list()?.asList()
+                    folder.list()?.asList()
                 }
-
-                val hasMediaFile = children?.any {
-                    it != null && (
-                            it.isMediaFile()
-                                    || (it.startsWith("img_", true)
-                                    && File(it).isDirectory)
+                if (children != null) {
+                    val hasMediaFile = children.any { child ->
+                        child != null && (
+                            child.isMediaFile() ||
+                                (child.startsWith("img_", true) && File(child).isDirectory)
                             )
-                } == true
-
-                if (!hasMediaFile) {
-                    invalidDirs.add(it)
+                    }
+                    if (!hasMediaFile) {
+                        // Hide empty folders from the current grid without
+                        // deleting their valid saved database metadata.
+                        invalidDirs.add(directory)
+                    }
                 }
             }
         }
 
         if (getFavoritePaths().isEmpty()) {
-            val favoritesFolder = dirs.firstOrNull { it.areFavorites() }
-            if (favoritesFolder != null) {
-                invalidDirs.add(favoritesFolder)
-            }
+            dirs.firstOrNull { it.areFavorites() }?.let(invalidDirs::add)
         }
 
         if (config.useRecycleBin) {
             try {
-                val binFolder = dirs.firstOrNull { it.path == RECYCLE_BIN }
-                if (binFolder != null && mediaDB.getDeletedMedia().isEmpty()) {
-                    invalidDirs.add(binFolder)
+                val recycleBin = dirs.firstOrNull { it.path == RECYCLE_BIN }
+                if (recycleBin != null && mediaDB.getDeletedMedia().isEmpty()) {
+                    invalidDirs.add(recycleBin)
                 }
-            } catch (ignored: Exception) {
+            } catch (error: Exception) {
+                android.util.Log.w("GalleryDirs", "Could not inspect recycle bin", error)
             }
         }
 
         if (invalidDirs.isNotEmpty()) {
-            dirs.removeAll(invalidDirs)
+            dirs.removeAll(invalidDirs.toSet())
             setupAdapter(dirs)
-            invalidDirs.forEach {
+            // A virtual folder, an empty folder, or an unmounted SD card must
+            // never lose its DB record because a scan returned no media.
+            verifiedMissingPaths.forEach { path ->
                 try {
-                    directoryDB.deleteDirPath(it.path)
-                } catch (ignored: Exception) {
+                    directoryDB.deleteDirPath(path)
+                } catch (error: Exception) {
+                    android.util.Log.w("GalleryDirs", "Could not prune missing folder", error)
                 }
             }
         }

@@ -30,6 +30,15 @@ class MediaCachePrunePolicyTest {
         assertFalse(mayPrune(favorites = true, latest = setOf(previous)))
     }
 
+    @Test fun directoryMetadataSurvivesEmptyAndInaccessibleScans() {
+        assertFalse(MediaCachePrunePolicy.canPruneDirectory(
+            "/Pictures/empty", parentReadable = true, directoryExists = true))
+        assertFalse(MediaCachePrunePolicy.canPruneDirectory(
+            "/mnt/removed/album", parentReadable = false, directoryExists = false))
+        assertTrue(MediaCachePrunePolicy.canPruneDirectory(
+            "/Pictures/gone", parentReadable = true, directoryExists = false))
+    }
+
     @Test fun emptyOrMalformedPathIsNotPruned() {
         assertFalse(MediaCachePrunePolicy.canPrune(
             "", emptySet(), false, true, false))

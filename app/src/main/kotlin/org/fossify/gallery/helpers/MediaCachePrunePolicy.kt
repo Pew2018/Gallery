@@ -20,4 +20,8 @@ internal object MediaCachePrunePolicy {
             oldPath !in latestPaths &&
             parentReadable &&
             !fileExists
+
+    /** Do not prune an existing or unreadable directory just because it scanned empty. */
+    fun canPruneDirectory(path: String, parentReadable: Boolean, directoryExists: Boolean): Boolean =
+        path.isNotBlank() && parentReadable && !directoryExists
 }
