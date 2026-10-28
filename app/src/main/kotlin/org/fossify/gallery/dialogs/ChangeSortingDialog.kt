@@ -17,6 +17,7 @@ import org.fossify.commons.helpers.SORT_BY_RANDOM
 import org.fossify.commons.helpers.SORT_BY_SIZE
 import org.fossify.commons.helpers.SORT_DESCENDING
 import org.fossify.commons.helpers.SORT_USE_NUMERIC_VALUE
+import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.DialogChangeSortingBinding
 import org.fossify.gallery.extensions.config
@@ -66,7 +67,9 @@ class ChangeSortingDialog(
             .setPositiveButton(org.fossify.commons.R.string.ok, this)
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
-                activity.setupDialogStuff(binding.root, this, org.fossify.commons.R.string.sort_by)
+                activity.setupDialogStuff(binding.root, this, org.fossify.commons.R.string.sort_by) { dialog ->
+                    OxygenClassicDialog.apply(activity, dialog, binding.root)
+                }
             }
 
         setupSortRadio()
