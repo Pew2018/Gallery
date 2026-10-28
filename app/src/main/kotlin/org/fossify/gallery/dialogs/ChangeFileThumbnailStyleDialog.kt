@@ -1,5 +1,7 @@
 package org.fossify.gallery.dialogs
 
+import org.fossify.gallery.helpers.OxygenClassicDialog
+
 import android.content.DialogInterface
 import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.dialogs.RadioGroupDialog
