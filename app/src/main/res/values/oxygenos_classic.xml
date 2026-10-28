@@ -66,6 +66,8 @@
         <item name="actionOverflowMenuStyle">@style/OxygenClassicOverflow.Light</item>
         <item name="actionBarPopupTheme">@style/OxygenClassicPopupTheme.Light</item>
         <item name="popupMenuStyle">@style/OxygenClassicPopupMenu.Light</item>
+        <item name="radioButtonStyle">@style/OxygenClassicRadio</item>
+        <item name="checkBoxStyle">@style/OxygenClassicCheckbox</item>
         <item name="actionOverflowMenuStyle">@style/OxygenClassicOverflow.Light</item>
         <item name="materialAlertDialogTheme">@style/OxygenClassicMaterialDialog.Light</item>
         <item name="alertDialogTheme">@style/OxygenClassicAlertDialog.Light</item>
@@ -77,11 +79,23 @@
         <item name="actionOverflowMenuStyle">@style/OxygenClassicOverflow.Dark</item>
         <item name="actionBarPopupTheme">@style/OxygenClassicPopupTheme.Dark</item>
         <item name="popupMenuStyle">@style/OxygenClassicPopupMenu.Dark</item>
+        <item name="radioButtonStyle">@style/OxygenClassicRadio</item>
+        <item name="checkBoxStyle">@style/OxygenClassicCheckbox</item>
         <item name="actionOverflowMenuStyle">@style/OxygenClassicOverflow.Dark</item>
         <item name="materialAlertDialogTheme">@style/OxygenClassicMaterialDialog.Dark</item>
         <item name="alertDialogTheme">@style/OxygenClassicAlertDialog.Dark</item>
         <item name="android:alertDialogTheme">@style/OxygenClassicAlertDialog.Dark</item>
     </style>
+    <!-- 2017 check/radio controls; do not inherit the M3 control geometry. -->
+    <style name="OxygenClassicRadio" parent="Widget.AppCompat.CompoundButton.RadioButton">
+        <item name="android:minHeight">48dp</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+    <style name="OxygenClassicCheckbox" parent="Widget.AppCompat.CompoundButton.CheckBox">
+        <item name="android:minHeight">48dp</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+
     <style name="OxygenClassicDialogShape" parent="ShapeAppearance.Material3.SmallComponent">
         <item name="cornerFamily">rounded</item>
         <item name="cornerSize">3dp</item>
