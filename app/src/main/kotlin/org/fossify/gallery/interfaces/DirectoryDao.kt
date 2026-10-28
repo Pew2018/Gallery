@@ -12,6 +12,10 @@ interface DirectoryDao {
     @Query("SELECT path, thumbnail, filename, media_count, last_modified, date_taken, size, location, media_types, sort_value FROM directories")
     fun getAll(): List<Directory>
 
+    // Only query the paths explicitly saved as favorites; no full-library scan.
+    @Query("SELECT path, thumbnail, filename, media_count, last_modified, date_taken, size, location, media_types, sort_value FROM directories WHERE path IN (:paths)")
+    fun getByPaths(paths: List<String>): List<Directory>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insert(directory: Directory)
 

@@ -116,6 +116,9 @@ import org.fossify.gallery.extensions.tryDeleteFileDirItem
 import org.fossify.gallery.extensions.updateDBDirectory
 import org.fossify.gallery.extensions.updateWidgets
 import org.fossify.gallery.helpers.FavoriteFolderRules
+import org.fossify.gallery.helpers.FavoriteFolderLoadCoordinator
+import org.fossify.gallery.helpers.FavoriteFolderLoadKey
+import org.fossify.gallery.helpers.FavoriteFolderLoadStatus
 import org.fossify.gallery.helpers.DIRECTORY
 import org.fossify.gallery.helpers.GET_ANY_INTENT
 import org.fossify.gallery.helpers.GET_IMAGE_INTENT
@@ -179,7 +182,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mFolderVisibility = booleanArrayOf(false, false, false, true)
     private fun isSpecialFolderFilterActive() = mFolderVisibility[0] ||
         mFolderVisibility[1] || mFolderVisibility[2] || !mFolderVisibility[3]
-    private var favoriteLoadVersion = 0L
+    private val favoriteLoad = FavoriteFolderLoadCoordinator()
+    private var favoriteViewForeground = false
     private var categorizedLoadVersion = 0L
     private var mFavoriteFolderPaths: Set<String> = emptySet()
     // Saved visibility preferences never serve as authentication credentials.
@@ -309,7 +313,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             padBottomImeAndSystem = listOf(binding.directoriesGrid)
         )
 
-        binding.directoriesRefreshLayout.setOnRefreshListener { getDirectories() }
+        binding.directoriesRefreshLayout.setOnRefreshListener {
+            getDirectories(forceFavoriteReload = true)
+            promptProtectedFavoriteFilters(force = true)
+        }
         storeStateVariables()
         checkWhatsNewDialog()
         setupLatestMediaId()
@@ -360,6 +367,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     override fun onStart() {
         super.onStart()
+        favoriteViewForeground = true
         mTempShowHiddenHandler.removeCallbacksAndMessages(null)
     }
 
@@ -430,24 +438,29 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     override fun onPause() {
         super.onPause()
-        favoriteLoadVersion++
+        // Authentication Activities can temporarily pause us. Favorite requests are
+        // retired at onStop, not here, so their successful results are not lost.
         categorizedLoadVersion++
-        binding.directoriesRefreshLayout.isRefreshing = false
-        mIsGettingDirs = false
+        if (!mShowingFolderFavorites) {
+            binding.directoriesRefreshLayout.isRefreshing = false
+            mIsGettingDirs = false
+        }
         storeStateVariables()
         mLastMediaHandler.removeCallbacksAndMessages(null)
     }
 
     override fun onStop() {
         super.onStop()
+        favoriteViewForeground = false
         if (mShowingFolderFavorites) {
+            favoriteLoad.invalidate()
             mFavoriteHiddenAuthorized = false
             mFavoriteExcludedAuthorized = false
-            mFavoriteAuthRequested = false
+            // A canceled external authentication has no failure callback in
+            // Commons. Keep the attempt latch until explicit user retry, so
+            // returning to the Activity cannot launch an endless prompt loop.
             if (config.isExcludedPasswordProtectionOn || config.isHiddenPasswordProtectionOn) {
-                binding.directoriesGrid.adapter = null
-                mDirs.clear()
-                mDirsIgnoringSearch.clear()
+                clearFavoriteDirectoryViews()
             }
         }
 
@@ -604,35 +617,22 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 R.id.manage_unavailable_folder_favorites -> manageUnavailableFolderFavorites()
                 R.id.favorite_always_show_excluded -> {
                     val next = !config.favoriteShowExcluded
-                    val apply = {
-                        config.favoriteShowExcluded = next
-                        refreshMenuItems()
-                        mIsGettingDirs = false
-                        getDirectories()
-                    }
-                    if (next) handleExcludedFolderPasswordProtection {
-                        mFavoriteExcludedAuthorized = true
-                        apply()
-                    } else {
-                        mFavoriteExcludedAuthorized = false
-                        apply()
-                    }
+                    // Save the preference even when authentication is canceled.
+                    config.favoriteShowExcluded = next
+                    if (!next) mFavoriteExcludedAuthorized = false
+                    clearFavoriteDirectoryViews()
+                    refreshMenuItems()
+                    getDirectories(forceFavoriteReload = true)
+                    if (next) promptProtectedFavoriteFilters(force = true)
                 }
                 R.id.favorite_always_show_hidden -> {
                     val next = !config.favoriteShowHidden
-                    val apply = {
-                        config.favoriteShowHidden = next
-                        refreshMenuItems()
-                        mIsGettingDirs = false
-                        getDirectories()
-                    }
-                    if (next) handleHiddenFolderPasswordProtection {
-                        mFavoriteHiddenAuthorized = true
-                        apply()
-                    } else {
-                        mFavoriteHiddenAuthorized = false
-                        apply()
-                    }
+                    config.favoriteShowHidden = next
+                    if (!next) mFavoriteHiddenAuthorized = false
+                    clearFavoriteDirectoryViews()
+                    refreshMenuItems()
+                    getDirectories(forceFavoriteReload = true)
+                    if (next) promptProtectedFavoriteFilters(force = true)
                 }
                 R.id.open_camera -> launchCamera()
                 R.id.show_all -> showAllMedia()
@@ -764,15 +764,15 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 
-    private fun getDirectories() {
-        if (mIsGettingDirs) {
-            return
-        }
+    private fun getDirectories(forceFavoriteReload: Boolean = false) {
+        // Favorites have their own versioned state. The normal gallery scan lock
+        // must never block a favorite reload after permission or auth changes.
         if (mShowingFolderFavorites) {
-            loadFavoriteFoldersWithOverrides()
+            loadFavoriteFoldersWithOverrides(forceFavoriteReload)
             return
         }
-        if (!mShowingFolderFavorites && isSpecialFolderFilterActive()) {
+        if (mIsGettingDirs) return
+        if (isSpecialFolderFilterActive()) {
             loadCategorizedFolders()
             return
         }
@@ -781,120 +781,164 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         mIsGettingDirs = true
         val getImages = mIsPickImageIntent || mIsGetImageContentIntent
         val getVideos = mIsPickVideoIntent || mIsGetVideoContentIntent
-
         getCachedDirectories(getVideos && !getImages, getImages && !getVideos) {
             gotDirectories(addTempFolderIfNeeded(it))
         }
     }
 
-    private fun promptProtectedFavoriteFilters() {
-        if (!mShowingFolderFavorites || mFavoriteAuthRequested) return
+    /** Remove old adapter and thumbnail references before reducing visible permissions. */
+    private fun clearFavoriteDirectoryViews() {
+        if (!mShowingFolderFavorites) return
+        favoriteLoad.invalidate()
+        binding.directoriesGrid.adapter = null
+        mDirs.clear()
+        mDirsIgnoringSearch.clear()
+        mFavoriteFolderPaths = emptySet()
+        mLoadedInitialPhotos = false
+        binding.directoriesRefreshLayout.isRefreshing = false
+        binding.directoriesEmptyPlaceholder.beGone()
+        binding.directoriesEmptyPlaceholder2.beGone()
+    }
+
+    /**
+     * The Commons protection callbacks report success, but not cancellation.
+     * A canceled prompt is retried by explicit pull-to-refresh or menu action.
+     */
+    private fun promptProtectedFavoriteFilters(force: Boolean = false) {
+        if (!mShowingFolderFavorites || !favoriteViewForeground ||
+            isFinishing || isDestroyed || (mFavoriteAuthRequested && !force)) return
+        val needHidden = config.favoriteShowHidden && config.isHiddenPasswordProtectionOn &&
+            !mFavoriteHiddenAuthorized
+        val needExcluded = config.favoriteShowExcluded && config.isExcludedPasswordProtectionOn &&
+            !mFavoriteExcludedAuthorized
+        if (!needHidden && !needExcluded) {
+            mFavoriteAuthRequested = false
+            return
+        }
+
         mFavoriteAuthRequested = true
         val askExcluded = {
             if (config.favoriteShowExcluded && config.isExcludedPasswordProtectionOn &&
-                !mFavoriteExcludedAuthorized) {
+                !mFavoriteExcludedAuthorized && favoriteViewForeground) {
                 handleExcludedFolderPasswordProtection {
-                    if (!isFinishing && !isDestroyed) {
+                    if (favoriteViewForeground && !isFinishing && !isDestroyed) {
                         mFavoriteExcludedAuthorized = true
-                        mIsGettingDirs = false
-                        getDirectories()
+                        mFavoriteAuthRequested = false
+                        getDirectories(forceFavoriteReload = true)
                     }
                 }
+            } else {
+                mFavoriteAuthRequested = false
             }
         }
-        if (config.favoriteShowHidden && config.isHiddenPasswordProtectionOn &&
-            !mFavoriteHiddenAuthorized) {
+        if (needHidden) {
             handleHiddenFolderPasswordProtection {
-                if (!isFinishing && !isDestroyed) {
+                if (favoriteViewForeground && !isFinishing && !isDestroyed) {
                     mFavoriteHiddenAuthorized = true
-                    mIsGettingDirs = false
-                    getDirectories()
+                    getDirectories(forceFavoriteReload = true)
                     askExcluded()
                 }
             }
-        } else askExcluded()
+        } else {
+            askExcluded()
+        }
     }
 
-    private fun loadFavoriteFoldersWithOverrides() {
-        if (mIsGettingDirs) return
-        mIsGettingDirs = true
-        // A completed old scan must never replace a newer preferences/DB snapshot.
-        val requestVersion = ++favoriteLoadVersion
+    private fun loadFavoriteFoldersWithOverrides(force: Boolean = false) {
+        val hiddenProtected = config.isHiddenPasswordProtectionOn
+        val excludedProtected = config.isExcludedPasswordProtectionOn
         val showHidden = config.favoriteShowHidden &&
-            (!config.isHiddenPasswordProtectionOn || mFavoriteHiddenAuthorized)
+            (!hiddenProtected || mFavoriteHiddenAuthorized)
         val showExcluded = config.favoriteShowExcluded &&
-            (!config.isExcludedPasswordProtectionOn || mFavoriteExcludedAuthorized)
+            (!excludedProtected || mFavoriteExcludedAuthorized)
+        val authorizationPending = (config.favoriteShowHidden && hiddenProtected && !mFavoriteHiddenAuthorized) ||
+            (config.favoriteShowExcluded && excludedProtected && !mFavoriteExcludedAuthorized)
+        val excludedRoots = config.excludedFolders.toSet()
+        val request = favoriteLoad.begin(
+            FavoriteFolderLoadKey(showHidden, showExcluded, authorizationPending, excludedRoots),
+            force
+        ) ?: return
 
-        fun reportFailure(error: Throwable) {
-            android.util.Log.e("GalleryFavorites", "Could not load favorite directories", error)
-            runOnUiThread {
-                if (requestVersion != favoriteLoadVersion || isFinishing || isDestroyed) return@runOnUiThread
-                mIsGettingDirs = false
-                binding.directoriesRefreshLayout.isRefreshing = false
-                // Keep the last valid adapter and persisted favorite relations.
-                android.widget.Toast.makeText(this, "收藏文件夹加载失败，请下拉重试", android.widget.Toast.LENGTH_LONG).show()
-            }
-        }
+        ensureBackgroundThread {
+            try {
+                // The favorite relationship is authoritative. Do not call
+                // getCachedDirectories(): it filters .nomedia and may swallow
+                // Room errors or run unrelated cache cleanup.
+                val paths = favoriteFoldersDB.getPaths().filter { it.isNotBlank() }.distinct()
+                val cachedByPath = try {
+                    paths.chunked(250).flatMap { directoryDB.getByPaths(it) }
+                        .associateBy { FavoriteFolderRules.normalizedPath(it.path) }
+                } catch (cacheError: Exception) {
+                    android.util.Log.w("GalleryFavorites", "Directory metadata unavailable", cacheError)
+                    emptyMap()
+                }
+                val selected = ArrayList<Directory>(paths.size)
+                for (path in paths) {
+                    if (!favoriteLoad.isCurrent(request)) return@ensureBackgroundThread
+                    val file = File(path)
+                    val cached = cachedByPath[FavoriteFolderRules.normalizedPath(path)]
+                    // Only inspect immediate children for uncached favorites.
+                    val children = if (cached == null && file.isDirectory && file.canRead()) {
+                        file.listFiles()
+                    } else null
+                    val accessible = file.isDirectory && file.canRead() &&
+                        (cached != null || children != null)
 
-        try {
-            getCachedDirectories(forceShowHidden = showHidden, forceShowExcluded = showExcluded) { cached ->
-                try {
-                    // Fetch one authoritative Room snapshot for every path through this screen.
-                    // Database errors are not an empty favorites collection.
-                    val favoritePaths = favoriteFoldersDB.getPaths().toSet()
-                    val excludedRoots = config.excludedFolders
-                    val cachedByPath = cached.associateBy { it.path }
-                    val selected = ArrayList<Directory>(favoritePaths.size)
+                    // Unreadable .nomedia ancestors cannot safely be classified as
+                    // public under hidden-folder protection.
+                    val hidden = FavoriteFolderRules.isDotHidden(path) ||
+                        FavoriteFolderRules.hasNoMediaAncestor(path) ||
+                        (!accessible && hiddenProtected)
+                    val excluded = FavoriteFolderRules.isExcluded(path, excludedRoots)
+                    if (!FavoriteFolderRules.shouldShow(hidden, excluded, showHidden, showExcluded))
+                        continue
 
-                    for (path in favoritePaths) {
-                        val folder = File(path)
-                        val hidden = path.split('/').any { it.startsWith('.') && it.length > 1 } ||
-                            generateSequence(folder) { it.parentFile }
-                                .any { File(it, ".nomedia").isFile }
-                        val excluded = FavoriteFolderRules.isExcluded(path, excludedRoots)
-                        if (!FavoriteFolderRules.shouldShow(hidden, excluded, showHidden, showExcluded)) continue
-
-                        val cachedDirectory = cachedByPath[path]
-                        if (cachedDirectory != null) {
-                            selected.add(cachedDirectory)
-                            continue
-                        }
-
-                        // A favorite is a persistent relationship, not a MediaStore cache hit.
-                        // Probe only its immediate children; do not recursively scan storage.
-                        val children = if (folder.isDirectory) folder.listFiles() else null
-                        val media = children?.filter { it.isFile &&
-                            (it.path.isImageFast() || it.path.isVideoFast()) }.orEmpty()
-                        selected.add(Directory().apply {
+                    val media = children?.filter { it.isFile &&
+                        (it.path.isImageFast() || it.path.isVideoFast()) }.orEmpty()
+                    val item = if (cached != null && accessible) {
+                        cached.copy().apply { name = file.name.ifBlank { path } }
+                    } else {
+                        Directory().apply {
                             this.path = path
-                            name = (folder.name.ifBlank { path }) +
-                                if (children == null) "（暂时不可访问）" else ""
+                            name = file.name.ifBlank { path }
+                            // Never reuse a cached thumbnail on inaccessible media.
                             tmb = media.firstOrNull()?.path.orEmpty()
                             mediaCnt = media.size
-                            modified = folder.lastModified()
+                            modified = if (accessible) file.lastModified() else 0L
                             location = LOCATION_INTERNAL
-                        })
+                        }
                     }
+                    if (!accessible) item.name += "（暂时不可访问）"
+                    selected.add(item)
+                }
 
-                    runOnUiThread {
-                        if (requestVersion != favoriteLoadVersion || isFinishing || isDestroyed ||
-                            !mShowingFolderFavorites) return@runOnUiThread
-                        // Publish these atomically on UI thread before setupAdapter's filter.
-                        mFavoriteFolderPaths = favoritePaths
-                        mDirs = selected
-                        mDirsIgnoringSearch = ArrayList(selected)
-                        mIsGettingDirs = false
-                        mLoadedInitialPhotos = true
-                        setupAdapter(selected)
-                        checkPlaceholderVisibility(selected)
-                        binding.directoriesRefreshLayout.isRefreshing = false
+                runOnUiThread {
+                    if (!favoriteViewForeground || isFinishing || isDestroyed ||
+                        !mShowingFolderFavorites ||
+                        !favoriteLoad.complete(request, selected.size, authorizationPending))
+                        return@runOnUiThread
+                    mFavoriteFolderPaths = paths.toSet()
+                    mDirs = selected
+                    mDirsIgnoringSearch = ArrayList(selected)
+                    mLoadedInitialPhotos = true
+                    setupAdapter(selected)
+                    checkPlaceholderVisibility(selected)
+                    if (selected.isEmpty() && authorizationPending) {
+                        binding.directoriesEmptyPlaceholder.text = "请完成验证后查看受保护的收藏文件夹"
+                        binding.directoriesEmptyPlaceholder2.beGone()
                     }
-                } catch (error: Exception) {
-                    reportFailure(error)
+                    binding.directoriesRefreshLayout.isRefreshing = false
+                }
+            } catch (error: Exception) {
+                android.util.Log.e("GalleryFavorites", "Could not load favorite directories", error)
+                runOnUiThread {
+                    if (!favoriteViewForeground || isFinishing || isDestroyed ||
+                        !favoriteLoad.fail(request)) return@runOnUiThread
+                    binding.directoriesRefreshLayout.isRefreshing = false
+                    android.widget.Toast.makeText(this,
+                        "收藏文件夹加载失败，请下拉重试", android.widget.Toast.LENGTH_LONG).show()
                 }
             }
-        } catch (error: Exception) {
-            reportFailure(error)
         }
     }
 
@@ -1496,16 +1540,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     private fun gotDirectories(newDirs: ArrayList<Directory>) {
         if (mShowingFolderFavorites) {
-            // Existing cached-directory callback runs off the main thread. A folder
-            // favorites tab must not re-scan every directory in the full library.
-            mFavoriteFolderPaths = favoriteFoldersDB.getPaths().toSet()
-            val selected = ArrayList(newDirs.filter { it.path in mFavoriteFolderPaths })
-            mDirs = selected
-            mIsGettingDirs = false
-            mLoadedInitialPhotos = true
+            // All favorite results must pass the same authentication and generation
+            // checks, including callbacks from sorting/pinning operations.
             runOnUiThread {
-                checkPlaceholderVisibility(selected)
-                setupAdapter(selected)
+                if (favoriteViewForeground && !isFinishing && !isDestroyed) {
+                    getDirectories(forceFavoriteReload = true)
+                }
             }
             return
         }
