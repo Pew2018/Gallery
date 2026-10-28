@@ -692,6 +692,7 @@ fun Context.loadImageBase(
         .priority(Priority.LOW)
         .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
         .format(DecodeFormat.PREFER_ARGB_8888)
+        .placeholder(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
 
     if (cropThumbnails) {
         options.optionalTransform(CenterCrop())

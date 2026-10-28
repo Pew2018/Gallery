@@ -67,7 +67,6 @@ object OxygenClassicDialog {
     fun apply(activity: Activity, dialog: AlertDialog, content: View) {
         val dp = activity.resources.displayMetrics.density
         val background = activity.getProperBackgroundColor()
-        val text = activity.getProperTextColor()
         val accent = activity.getProperPrimaryColor()
         val light = ColorUtils.calculateLuminance(background) >= 0.5
         val surface = if (light) Color.WHITE else Color.rgb(48, 48, 48)
@@ -95,8 +94,10 @@ object OxygenClassicDialog {
 
         fun visit(v: View) {
             if (v is TextView && v !is android.widget.Button && v !is EditText && v.isEnabled) {
-                val actual = ColorUtils.setAlphaComponent(v.currentTextColor, 255)
-                if (ColorUtils.calculateContrast(actual, surface) < 4.5) v.setTextColor(dialogText)
+                val current = v.currentTextColor
+                val displayed = if (Color.alpha(current) < 255)
+                    ColorUtils.compositeColors(current, surface) else current
+                if (ColorUtils.calculateContrast(displayed, surface) < 4.5) v.setTextColor(dialogText)
             }
             if (v is RadioButton || v is CheckBox) {
                 val button = v as android.widget.CompoundButton

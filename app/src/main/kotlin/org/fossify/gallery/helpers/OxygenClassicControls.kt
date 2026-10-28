@@ -23,9 +23,9 @@ object OxygenClassicControls {
         val d = context.resources.displayMetrics.density
         fun dp(value: Int) = (value * d + 0.5f).toInt()
         val light = ColorUtils.calculateLuminance(surface) >= 0.5
-        val offThumb = if (light) Color.rgb(244, 244, 244) else Color.rgb(224, 224, 224)
-        val offTrack = if (light) Color.rgb(210, 210, 210) else Color.rgb(105, 105, 105)
-        val onTrack = ColorUtils.blendARGB(surface, accent, if (light) 0.44f else 0.58f)
+        val offThumb = if (light) Color.rgb(238, 238, 238) else Color.rgb(200, 200, 200)
+        val offTrack = if (light) Color.rgb(215, 215, 215) else Color.rgb(105, 105, 105)
+        val onTrack = ColorUtils.blendARGB(surface, accent, if (light) 0.38f else 0.52f)
         val disabledThumb = ColorUtils.blendARGB(surface, text, if (light) 0.13f else 0.30f)
         val disabledTrack = ColorUtils.blendARGB(surface, text, 0.12f)
 
@@ -39,9 +39,9 @@ object OxygenClassicControls {
             }
 
         fun thumb(color: Int): LayerDrawable {
-            val shadow = circle(26, if (light) Color.argb(25, 0, 0, 0)
+            val shadow = circle(24, if (light) Color.argb(25, 0, 0, 0)
                 else Color.argb(45, 0, 0, 0))
-            val face = circle(22, color, true)
+            val face = circle(20, color, true)
             return LayerDrawable(arrayOf(shadow, face)).apply {
                 setLayerInset(1, dp(2), dp(2), dp(2), dp(2))
             }
@@ -50,8 +50,8 @@ object OxygenClassicControls {
         fun track(color: Int) = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             setColor(color)
-            cornerRadius = dp(7).toFloat()
-            setSize(dp(36), dp(14))
+            cornerRadius = dp(5).toFloat()
+            setSize(dp(36), dp(10))
         }
 
         val thumbState = StateListDrawable().apply {

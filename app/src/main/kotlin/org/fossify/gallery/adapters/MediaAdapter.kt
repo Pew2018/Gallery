@@ -78,6 +78,7 @@ import org.fossify.gallery.extensions.tryCopyMoveFilesTo
 import org.fossify.gallery.extensions.updateDBMediaPath
 import org.fossify.gallery.extensions.updateFavorite
 import org.fossify.gallery.extensions.updateFavoritePaths
+import org.fossify.gallery.helpers.OxygenThumbnailPlaceholder
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.ROUNDED_CORNERS_BIG
@@ -730,13 +731,12 @@ class MediaAdapter(
                 else -> ROUNDED_CORNERS_NONE
             }
 
-            mediumThumbnail.setBackgroundResource(
-                when (roundedCorners) {
-                    ROUNDED_CORNERS_SMALL -> R.drawable.placeholder_rounded_small
-                    ROUNDED_CORNERS_BIG -> R.drawable.placeholder_rounded_big
-                    else -> R.drawable.placeholder_square
-                }
-            )
+            OxygenThumbnailPlaceholder.apply(activity, mediumThumbnail, roundedCorners)
+            if (mediumThumbnail.tag != path) {
+                Glide.with(activity).clear(mediumThumbnail)
+                mediumThumbnail.setImageDrawable(null)
+                mediumThumbnail.tag = path
+            }
 
             activity.loadImage(
                 type = medium.type,

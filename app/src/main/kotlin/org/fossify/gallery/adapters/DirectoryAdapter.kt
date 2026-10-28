@@ -95,6 +95,7 @@ import org.fossify.gallery.helpers.FOLDER_STYLE_ROUNDED_CORNERS
 import org.fossify.gallery.helpers.FOLDER_STYLE_SQUARE
 import org.fossify.gallery.helpers.LOCATION_INTERNAL
 import org.fossify.gallery.helpers.LOCATION_SD
+import org.fossify.gallery.helpers.OxygenThumbnailPlaceholder
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.ROUNDED_CORNERS_BIG
@@ -930,6 +931,7 @@ class DirectoryAdapter(
                 // Recycled holders must not retain old or unprotected thumbnails.
                 Glide.with(activity).clear(dirThumbnail)
                 dirThumbnail.setImageDrawable(null)
+                dirThumbnail.tag = null
                 dirLock.beVisible()
                 dirLock.background = ColorDrawable(root.context.getProperBackgroundColor())
                 dirLock.applyColorFilter(root.context.getProperBackgroundColor().getContrastColor())
@@ -941,13 +943,13 @@ class DirectoryAdapter(
                     else -> ROUNDED_CORNERS_BIG
                 }
 
-                dirThumbnail.setBackgroundResource(
-                    when (roundedCorners) {
-                        ROUNDED_CORNERS_SMALL -> R.drawable.placeholder_rounded_small
-                        ROUNDED_CORNERS_BIG -> R.drawable.placeholder_rounded_big
-                        else -> R.drawable.placeholder_square
-                    }
-                )
+                OxygenThumbnailPlaceholder.apply(activity, dirThumbnail, roundedCorners)
+                // Old cached thumbnails must never flash on a different folder.
+                if (dirThumbnail.tag != directory.tmb) {
+                    Glide.with(activity).clear(dirThumbnail)
+                    dirThumbnail.setImageDrawable(null)
+                    dirThumbnail.tag = directory.tmb
+                }
 
                 activity.loadImage(
                     type = thumbnailType,

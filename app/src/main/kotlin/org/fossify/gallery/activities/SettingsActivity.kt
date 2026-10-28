@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Bundle
 import androidx.core.graphics.ColorUtils
+import org.fossify.gallery.helpers.OxygenThemeEngine
 import android.text.TextUtils
 import android.widget.Toast
 import com.google.gson.Gson
@@ -50,7 +51,11 @@ class SettingsActivity : SimpleActivity() {
         super.onResume()
         // All ordinary toolbars share the user's chosen surface, even on light themes.
         setupTopAppBar(binding.settingsAppbar, NavigationIcon.Arrow,
-            topBarColor = getProperBackgroundColor())
+            topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
+        val toolbarText = OxygenThemeEngine.toolbarForeground(this, config)
+        binding.settingsAppbar.toolbar?.setTitleTextColor(toolbarText)
+        binding.settingsAppbar.toolbar?.navigationIcon?.mutate()?.setTint(toolbarText)
+        binding.settingsAppbar.toolbar?.overflowIcon?.mutate()?.setTint(toolbarText)
         setupSettingItems()
         setupBottomNavigationOrder()
     }

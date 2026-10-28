@@ -35,6 +35,25 @@ object GalleryBottomBar {
             val children = (0 until bar.childCount).map { bar.getChildAt(it) }.associateBy { it.tag }
             bar.removeAllViews()
             activity.config.bottomNavigationOrder.forEach { id -> children[id]?.let { bar.addView(it) } }
+            recolor(activity)
+        }
+    }
+
+    /** Refresh the current colors without recreating views or losing selection. */
+    fun recolor(activity: Activity) {
+        val bar = bars[activity]?.get() ?: return
+        if (activity.isFinishing || activity.isDestroyed) return
+        val surface = activity.getProperBackgroundColor()
+        val foreground = activity.getProperTextColor()
+        val accent = activity.getProperPrimaryColor()
+        val selected = OxygenClassicPalette.readableAccent(accent, surface)
+        val quiet = Color.argb(138, Color.red(foreground), Color.green(foreground), Color.blue(foreground))
+        bar.setBackgroundColor(surface)
+        for (i in 0 until bar.childCount) {
+            val item = bar.getChildAt(i) as? LinearLayout ?: continue
+            val tint = if (item.isSelected) selected else quiet
+            (item.getChildAt(0) as? ImageView)?.imageTintList = ColorStateList.valueOf(tint)
+            (item.getChildAt(1) as? TextView)?.setTextColor(tint)
         }
     }
 
