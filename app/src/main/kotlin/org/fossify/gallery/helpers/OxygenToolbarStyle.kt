@@ -202,10 +202,15 @@ object OxygenToolbarStyle {
         }
         toolbar.isTitleCentered = false
         toolbar.isSubtitleCentered = false
-        toolbar.setBackgroundColor(colors.toolbarBackground)
+        // Use the exact opaque color tested by WCAG, without a Material elevation overlay.
+        toolbar.backgroundTintList = null
+        toolbar.background = ColorDrawable(colors.toolbarBackground)
+        toolbar.elevation = 0f
+        toolbar.stateListAnimator = null
+        toolbar.setTitleTextAppearance(activity, org.fossify.gallery.R.style.OxygenClassicToolbarTitle)
+        // TextAppearance may contain a color; apply the white foreground after typography.
         toolbar.setTitleTextColor(foreground)
         toolbar.setSubtitleTextColor(foreground)
-        toolbar.setTitleTextAppearance(activity, org.fossify.gallery.R.style.OxygenClassicToolbarTitle)
         toolbar.setNavigationIconTint(foreground)
         toolbar.collapseIcon = toolbar.collapseIcon?.mutate()?.also {
             it.clearColorFilter()
