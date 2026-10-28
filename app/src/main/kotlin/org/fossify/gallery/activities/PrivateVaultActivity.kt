@@ -40,6 +40,7 @@ import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.helpers.GalleryBottomBar
+import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.helpers.PrivateFolderAccess
 import org.fossify.gallery.helpers.PrivateFolderIndex
 import org.fossify.gallery.helpers.DIRECTORY
@@ -209,15 +210,18 @@ class PrivateVaultActivity : SimpleActivity() {
             visibility = if (create || change) View.VISIBLE else View.GONE
             isSingleLine = true
         }
+        OxygenClassicDialog.styleInput(this, first)
+        OxygenClassicDialog.styleInput(this, confirm)
+        val d = resources.displayMetrics.density
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(48, 8, 48, 8)
-            addView(first)
-            addView(confirm)
+            setPadding((24*d).toInt(), (8*d).toInt(), (24*d).toInt(), (8*d).toInt())
+            addView(first, LinearLayout.LayoutParams(-1, (56*d).toInt()))
+            if (create || change) addView(confirm, LinearLayout.LayoutParams(-1, (56*d).toInt()))
         }
-        AlertDialog.Builder(this)
-            .setTitle(if (create) "创建隐私空间" else if (change) "更改隐私空间密码" else "解锁")
-            .setView(row)
+        val passwordBuilder = OxygenClassicDialog.builder(
+            this, if (create) "创建隐私空间" else if (change) "更改隐私空间密码" else "解锁"
+        ).setView(row)
             .setNegativeButton("取消", null)
             .setPositiveButton("确认") { _, _ ->
                 val password = first.text.toString().toCharArray()
@@ -247,7 +251,8 @@ class PrivateVaultActivity : SimpleActivity() {
                         } else toast("密码错误、密码不足 6 位或两次输入不一致")
                     }
                 }.start()
-            }.show()
+            }
+        OxygenClassicDialog.show(this, passwordBuilder, row)
     }
 
     private fun biometricUnlock() {
@@ -360,10 +365,15 @@ class PrivateVaultActivity : SimpleActivity() {
         body.removeAllViews()
         action("返回文件夹列表") { showUnlocked() }
         action("移除此文件夹（不删除原文件）") {
-            AlertDialog.Builder(this).setMessage("仅解除隐私空间关联，保留所有原始媒体文件？")
-                .setNegativeButton("取消", null).setPositiveButton("移除") { _, _ ->
-                    index.remove(entry); showUnlocked()
-                }.show()
+            OxygenClassicDialog.show(this,
+                OxygenClassicDialog.builder(this, "移除隐私文件夹")
+                    .setMessage("仅解除隐私空间关联，保留所有原始媒体文件？")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("移除") { _, _ ->
+                        index.remove(entry)
+                        showUnlocked()
+                    }
+            )
         }
         info(entry.name)
         grid.layoutManager = GridLayoutManager(this, 3)
@@ -399,7 +409,7 @@ class PrivateVaultActivity : SimpleActivity() {
                     toast("视频无法播放：" + (error.message ?: "格式或读取错误"))
                 }
             })
-            preview = AlertDialog.Builder(this).setView(view)
+            preview = OxygenClassicDialog.builder(this, "").setView(view)
                 .setPositiveButton("关闭", null)
                 .setOnDismissListener {
                     view.player = null
@@ -407,7 +417,12 @@ class PrivateVaultActivity : SimpleActivity() {
                     if (player === playback) player = null
                     preview = null
                 }.create()
-            preview?.show()
+            preview?.let { dialog ->
+                if (window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0)
+                    dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                dialog.show()
+                OxygenClassicDialog.apply(this, dialog, view)
+            }
             playback.setMediaItem(MediaItem.fromUri(uri))
             playback.prepare()
             playback.playWhenReady = true
@@ -418,11 +433,16 @@ class PrivateVaultActivity : SimpleActivity() {
             }
             Glide.with(this).load(uri).diskCacheStrategy(DiskCacheStrategy.NONE)
                 .skipMemoryCache(true).into(image)
-            preview = AlertDialog.Builder(this).setView(image)
+            preview = OxygenClassicDialog.builder(this, "").setView(image)
                 .setPositiveButton("关闭", null)
                 .setOnDismissListener {
                     Glide.with(this).clear(image); image.setImageDrawable(null); preview = null
-                }.create().also { it.show() }
+                }.create().also {
+                    if (window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0)
+                        it.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                    it.show()
+                    OxygenClassicDialog.apply(this, it, image)
+                }
         }
     }
 

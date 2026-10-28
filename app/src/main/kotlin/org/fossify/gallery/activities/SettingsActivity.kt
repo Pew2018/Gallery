@@ -342,24 +342,9 @@ class SettingsActivity : SimpleActivity() {
     )
 
     private fun setupBottomNavigationOrder() {
-        // A single settings row; the dialog owns drag-and-drop and persistence.
-        val density = resources.displayMetrics.density
-        val row = android.widget.TextView(this).apply {
-            text = "底部导航栏顺序"
-            textSize = 16f
-            setTextColor(getProperTextColor())
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            setPadding((16 * density).toInt(), 0, (16 * density).toInt(), 0)
-            minHeight = (56 * density).toInt()
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { BottomNavigationOrderDialog.show(this@SettingsActivity) }
+        binding.settingsBottomNavigationOrderHolder.setOnClickListener {
+            BottomNavigationOrderDialog.show(this@SettingsActivity)
         }
-        val parent = binding.settingsHolder
-        (row.parent as? android.view.ViewGroup)?.removeView(row)
-        parent.findViewWithTag<android.view.View>("oxygen_bottom_nav_setting")?.let(parent::removeView)
-        row.tag = "oxygen_bottom_nav_setting"
-        parent.addView(row, 0)
     }
 
     private fun setupMaxBrightness() {

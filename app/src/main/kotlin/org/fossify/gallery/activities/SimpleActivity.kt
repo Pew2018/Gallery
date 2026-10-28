@@ -1,6 +1,9 @@
 package org.fossify.gallery.activities
 
 import android.database.ContentObserver
+import android.os.Bundle
+import androidx.core.graphics.ColorUtils
+import org.fossify.commons.extensions.getProperBackgroundColor
 import android.net.Uri
 import android.provider.MediaStore.Images
 import android.provider.MediaStore.Video
@@ -19,6 +22,16 @@ import org.fossify.gallery.extensions.updateDirectoryPath
 import org.fossify.gallery.helpers.getPermissionsToRequest
 
 open class SimpleActivity : BaseSimpleActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        theme.applyStyle(
+            if (ColorUtils.calculateLuminance(getProperBackgroundColor()) >= 0.5)
+                R.style.OxygenClassicActivityOverlay_Light
+            else R.style.OxygenClassicActivityOverlay_Dark,
+            true
+        )
+    }
+
 
     private var dialog: AlertDialog? = null
 

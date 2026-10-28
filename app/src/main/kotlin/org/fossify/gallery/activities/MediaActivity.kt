@@ -382,6 +382,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun setupOptionsMenu() {
+        OxygenToolbarStyle.preparePopup(this, binding.mediaMenu)
         binding.mediaMenu.requireToolbar().inflateMenu(R.menu.menu_media)
         binding.mediaMenu.toggleHideOnScroll(!config.scrollHorizontally)
         binding.mediaMenu.setupMenu()

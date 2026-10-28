@@ -20,7 +20,7 @@
 
             <RelativeLayout
                 android:id="@+id/folder_picker_show_folder_name_holder"
-                style="@style/SettingsHolderCheckboxStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground">

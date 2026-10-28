@@ -554,12 +554,16 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
 
         binding.mainMenu.requireToolbar().menu.apply {
-            findItem(R.id.temporarily_show_hidden).isVisible = !config.shouldShowHidden
+            findItem(R.id.temporarily_show_hidden).isVisible =
+                !mShowingFolderFavorites && !config.shouldShowHidden
             findItem(R.id.stop_showing_hidden).isVisible =
-                (!isRPlus() || isExternalStorageManager()) && config.temporarilyShowHidden
+                !mShowingFolderFavorites &&
+                    (!isRPlus() || isExternalStorageManager()) && config.temporarilyShowHidden
 
-            findItem(R.id.temporarily_show_excluded).isVisible = !config.temporarilyShowExcluded
-            findItem(R.id.stop_showing_excluded).isVisible = config.temporarilyShowExcluded
+            findItem(R.id.temporarily_show_excluded).isVisible =
+                !mShowingFolderFavorites && !config.temporarilyShowExcluded
+            findItem(R.id.stop_showing_excluded).isVisible =
+                !mShowingFolderFavorites && config.temporarilyShowExcluded
         }
     }
 
@@ -570,6 +574,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             R.menu.menu_main
         }
 
+        OxygenToolbarStyle.preparePopup(this, binding.mainMenu)
         binding.mainMenu.requireToolbar().inflateMenu(menuId)
         binding.mainMenu.toggleHideOnScroll(!config.scrollHorizontally)
         binding.mainMenu.setupMenu()

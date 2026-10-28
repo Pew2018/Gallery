@@ -23,10 +23,10 @@
         android:title="清理不可用的收藏路径"
         app:showAsAction="never" />
     <item android:id="@+id/favorite_always_show_excluded"
-        android:title="始终显示已排除项目" android:checkable="true"
+        android:title="@string/oxygen_favorite_show_excluded" android:checkable="true"
         app:showAsAction="never" />
     <item android:id="@+id/favorite_always_show_hidden"
-        android:title="始终显示隐藏项目（包含 .nomedia）" android:checkable="true"
+        android:title="@string/oxygen_favorite_show_hidden" android:checkable="true"
         app:showAsAction="never" />
     <item
         android:id="@+id/folder_visibility"

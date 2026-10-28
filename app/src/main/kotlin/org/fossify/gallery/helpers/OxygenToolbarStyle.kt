@@ -29,6 +29,15 @@ object OxygenToolbarStyle {
     private class State(var title: String, var back: Boolean)
     private val hooked = WeakHashMap<MySearchMenu, State>()
 
+    /** Set the ActionMenuPresenter popup theme before the menu is inflated. */
+    fun preparePopup(activity: Activity, searchMenu: MySearchMenu) {
+        val light = ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
+        searchMenu.binding.topToolbar.setPopupTheme(
+            if (light) org.fossify.gallery.R.style.OxygenClassicPopupTheme_Light
+            else org.fossify.gallery.R.style.OxygenClassicPopupTheme_Dark
+        )
+    }
+
     fun apply(activity: Activity, searchMenu: MySearchMenu, title: String, backButton: Boolean = false) {
         val current = hooked[searchMenu]
         if (current != null) {
@@ -70,11 +79,7 @@ object OxygenToolbarStyle {
         }
         val surface = activity.getProperBackgroundColor()
         container.background = ColorDrawable(surface)
-        actions.setPopupTheme(if (ColorUtils.calculateLuminance(surface) >= 0.5) {
-            org.fossify.gallery.R.style.OxygenClassicPopupTheme_Light
-        } else {
-            org.fossify.gallery.R.style.OxygenClassicPopupTheme_Dark
-        })
+        preparePopup(activity, menu)
         actions.visibility = if (opened) View.GONE else View.VISIBLE
 
         // Closed search icon is to the left of menu actions; open arrow is leading.

@@ -26,19 +26,100 @@
     </style>
     <style name="OxygenClassicSettingsSwitchRow" parent="SettingsHolderSwitchStyle">
         <item name="android:minHeight">@dimen/oxygen_classic_single_row</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:paddingTop">0dp</item>
+        <item name="android:paddingBottom">0dp</item>
         <item name="android:gravity">center_vertical</item>
     </style>
     <style name="OxygenClassicSettingsSingleRow" parent="SettingsHolderTextViewOneLinerStyle">
         <item name="android:minHeight">@dimen/oxygen_classic_single_row</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:paddingTop">0dp</item>
+        <item name="android:paddingBottom">0dp</item>
         <item name="android:gravity">center_vertical</item>
     </style>
     <style name="OxygenClassicSettingsDetailsRow" parent="SettingsHolderTextViewStyle">
         <item name="android:minHeight">@dimen/oxygen_classic_details_row</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:paddingTop">8dp</item>
+        <item name="android:paddingBottom">8dp</item>
         <item name="android:gravity">center_vertical</item>
     </style>
     <style name="OxygenClassicSettingsSecondaryText" parent="SettingsTextValueStyle">
         <item name="android:textSize">12sp</item>
         <item name="android:alpha">0.54</item>
+    </style>
+
+    <!-- Theme is applied after Commons has selected the saved dark/light palette.
+         It overrides Material3 decoration without replacing Commons' parent Theme. -->
+    <color name="oxygen_classic_on_light">#212121</color>
+    <color name="oxygen_classic_on_dark">#FAFAFA</color>
+    <color name="oxygen_classic_dialog_dark">#303030</color>
+
+    <style name="OxygenClassicActivityOverlay.Light">
+        <item name="colorSurface">@color/oxygen_classic_surface</item>
+        <item name="colorOnSurface">@color/oxygen_classic_on_light</item>
+        <item name="actionOverflowMenuStyle">@style/OxygenClassicOverflow.Light</item>
+        <item name="actionBarPopupTheme">@style/OxygenClassicPopupTheme.Light</item>
+        <item name="popupMenuStyle">@style/OxygenClassicPopupMenu.Light</item>
+        <item name="actionOverflowMenuStyle">@style/OxygenClassicOverflow.Light</item>
+        <item name="materialAlertDialogTheme">@style/OxygenClassicMaterialDialog.Light</item>
+        <item name="alertDialogTheme">@style/OxygenClassicAlertDialog.Light</item>
+        <item name="android:alertDialogTheme">@style/OxygenClassicAlertDialog.Light</item>
+    </style>
+    <style name="OxygenClassicActivityOverlay.Dark">
+        <item name="colorSurface">@color/oxygen_classic_dialog_dark</item>
+        <item name="colorOnSurface">@color/oxygen_classic_on_dark</item>
+        <item name="actionOverflowMenuStyle">@style/OxygenClassicOverflow.Dark</item>
+        <item name="actionBarPopupTheme">@style/OxygenClassicPopupTheme.Dark</item>
+        <item name="popupMenuStyle">@style/OxygenClassicPopupMenu.Dark</item>
+        <item name="actionOverflowMenuStyle">@style/OxygenClassicOverflow.Dark</item>
+        <item name="materialAlertDialogTheme">@style/OxygenClassicMaterialDialog.Dark</item>
+        <item name="alertDialogTheme">@style/OxygenClassicAlertDialog.Dark</item>
+        <item name="android:alertDialogTheme">@style/OxygenClassicAlertDialog.Dark</item>
+    </style>
+    <style name="OxygenClassicDialogShape" parent="ShapeAppearance.Material3.SmallComponent">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">3dp</item>
+    </style>
+    <style name="OxygenClassicMaterialDialog.Light" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="colorSurface">@color/oxygen_classic_surface</item>
+        <item name="colorOnSurface">@color/oxygen_classic_on_light</item>
+        <item name="shapeAppearance">@style/OxygenClassicDialogShape</item>
+        <item name="materialAlertDialogTitleTextStyle">@style/OxygenClassicDialogTitle.Light</item>
+    </style>
+    <style name="OxygenClassicMaterialDialog.Dark" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="colorSurface">@color/oxygen_classic_dialog_dark</item>
+        <item name="colorOnSurface">@color/oxygen_classic_on_dark</item>
+        <item name="shapeAppearance">@style/OxygenClassicDialogShape</item>
+        <item name="materialAlertDialogTitleTextStyle">@style/OxygenClassicDialogTitle.Dark</item>
+    </style>
+    <style name="OxygenClassicDialogTitle.Light" parent="MaterialAlertDialog.Material3.Title.Text">
+        <item name="android:textColor">@color/oxygen_classic_on_light</item>
+        <item name="android:textSize">20sp</item>
+    </style>
+    <style name="OxygenClassicDialogTitle.Dark" parent="MaterialAlertDialog.Material3.Title.Text">
+        <item name="android:textColor">@color/oxygen_classic_on_dark</item>
+        <item name="android:textSize">20sp</item>
+    </style>
+    <style name="OxygenClassicAlertDialog.Light" parent="Theme.AppCompat.Light.Dialog.Alert">
+        <item name="android:textColorPrimary">@color/oxygen_classic_on_light</item>
+        <item name="android:textColorHint">#757575</item>
+        <item name="android:windowBackground">@drawable/oxygen_classic_popup_light</item>
+    </style>
+    <style name="OxygenClassicAlertDialog.Dark" parent="Theme.AppCompat.Dialog.Alert">
+        <item name="android:textColorPrimary">@color/oxygen_classic_on_dark</item>
+        <item name="android:textColorHint">#BDBDBD</item>
+        <item name="android:windowBackground">@drawable/oxygen_classic_popup_dark</item>
+    </style>
+    <style name="OxygenClassicOverflow.Light" parent="Widget.AppCompat.PopupMenu.Overflow">
+        <item name="android:popupBackground">@drawable/oxygen_classic_popup_light</item>
+    </style>
+    <style name="OxygenClassicOverflow.Dark" parent="Widget.AppCompat.PopupMenu.Overflow">
+        <item name="android:popupBackground">@drawable/oxygen_classic_popup_dark</item>
     </style>
 
     <!-- Keep menus on a neutral surface, never the user's accent color. -->

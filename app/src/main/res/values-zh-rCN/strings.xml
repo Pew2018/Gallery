@@ -267,4 +267,7 @@
     <string name="open_in_app_player">打开应用内播放器</string>
     <string name="open_system_default_player">打开默认播放器应用</string>
     <string name="on_video_tap">点按视频时</string>
+    <string name="oxygen_bottom_navigation_order">底部导航栏顺序</string>
+    <string name="oxygen_favorite_show_hidden">始终显示隐藏项目</string>
+    <string name="oxygen_favorite_show_excluded">始终显示已排除项目</string>
 </resources>

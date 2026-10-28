@@ -59,6 +59,20 @@
 
             </androidx.constraintlayout.widget.ConstraintLayout>
 
+            <RelativeLayout
+                android:id="@+id/settings_bottom_navigation_order_holder"
+                style="@style/OxygenClassicSettingsSingleRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_bottom_navigation_order"
+                    style="@style/SettingsTextLabelStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/oxygen_bottom_navigation_order" />
+            </RelativeLayout>
+
             <include
                 android:id="@+id/settings_color_customization_divider"
                 layout="@layout/divider" />

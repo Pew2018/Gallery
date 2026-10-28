@@ -303,4 +303,7 @@
         Haven't found some strings? There's more at
         https://github.com/FossifyOrg/Commons/tree/master/commons/src/main/res
     -->
+    <string name="oxygen_bottom_navigation_order">Bottom navigation order</string>
+    <string name="oxygen_favorite_show_hidden">Always show hidden items</string>
+    <string name="oxygen_favorite_show_excluded">Always show excluded items</string>
 </resources>

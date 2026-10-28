@@ -28,6 +28,7 @@ import org.fossify.commons.extensions.getProperTextColor
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import org.fossify.gallery.helpers.DIRECTORY
 import org.fossify.gallery.helpers.GalleryBottomBar
+import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.helpers.PrivateVaultCrypto
 import org.fossify.gallery.extensions.config
 import java.io.File
@@ -247,6 +248,8 @@ class LegacyPrivateVaultActivity : SimpleActivity() {
         fun dp(value: Int) = (value * density + 0.5f).toInt()
         first.isSingleLine = true
         second.isSingleLine = true
+        OxygenClassicDialog.styleInput(this, first)
+        OxygenClassicDialog.styleInput(this, second)
         val inputs = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(4), dp(24), 0)
@@ -255,9 +258,9 @@ class LegacyPrivateVaultActivity : SimpleActivity() {
                 topMargin = dp(8)
             })
         }
-        AlertDialog.Builder(this)
-            .setTitle(if (changing) "更改密码" else if (create) "创建隐私空间" else "解锁隐私空间")
-            .setView(inputs)
+        val passwordBuilder = OxygenClassicDialog.builder(
+            this, if (changing) "更改密码" else if (create) "创建隐私空间" else "解锁隐私空间"
+        ).setView(inputs)
             .setNegativeButton("取消", null)
             .setPositiveButton("确认") { _, _ ->
                 val pw = first.text.toString().toCharArray()
@@ -313,7 +316,8 @@ class LegacyPrivateVaultActivity : SimpleActivity() {
                         if (changing) current?.fill(0)
                     }
                 }.start()
-            }.show()
+            }
+        OxygenClassicDialog.show(this, passwordBuilder, inputs)
     }
 
     private fun showUnlocked() {
@@ -359,14 +363,16 @@ class LegacyPrivateVaultActivity : SimpleActivity() {
                     }, EXPORT_DOCUMENT)
                 }
                 button("删除第 ${index + 1} 个加密副本") {
-                    AlertDialog.Builder(this).setMessage("仅删除隐私空间内的加密副本？")
+                    val deleteBuilder = OxygenClassicDialog.builder(this, "删除加密副本")
+                        .setMessage("仅删除隐私空间内的加密副本？")
                         .setNegativeButton("取消", null)
                         .setPositiveButton("删除") { _, _ ->
                             Thread {
                                 try { crypto.delete(file) } catch (_: Exception) { }
                                 runOnUiThread { if (dataKey != null) showUnlocked() }
                             }.start()
-                        }.show()
+                        }
+                    OxygenClassicDialog.show(this, deleteBuilder)
                 }
             }
         }
@@ -412,10 +418,11 @@ class LegacyPrivateVaultActivity : SimpleActivity() {
                 } ?: error("目标文件不可写")
                 runOnUiThread {
                     if (!isFinishing && !isDestroyed) {
-                        AlertDialog.Builder(this)
-                            .setTitle("解密导出成功")
-                            .setMessage("旧加密副本仍然保留。请先核实导出文件完整，然后再选择是否手动删除旧密文。")
-                            .setPositiveButton("保留旧密文", null).show()
+                        OxygenClassicDialog.show(this,
+                            OxygenClassicDialog.builder(this, "解密导出成功")
+                                .setMessage("旧加密副本仍然保留。请先核实导出文件完整，再选择是否手动删除旧密文。")
+                                .setPositiveButton("保留旧密文", null)
+                        )
                     }
                 }
             } catch (_: Exception) {
@@ -450,8 +457,11 @@ class LegacyPrivateVaultActivity : SimpleActivity() {
 
     private fun preview(file: File, type: String) {
         if (type == "普通文件") {
-            AlertDialog.Builder(this).setMessage("此类型暂不支持应用内预览；加密副本仍安全保存。")
-                .setPositiveButton("确定", null).show()
+            OxygenClassicDialog.show(this,
+                OxygenClassicDialog.builder(this, "无法预览")
+                    .setMessage("此类型暂不支持应用内预览；加密副本仍安全保存。")
+                    .setPositiveButton("确定", null)
+            )
             return
         }
         val snapshot = dataKey?.copyOf() ?: return
@@ -480,14 +490,18 @@ class LegacyPrivateVaultActivity : SimpleActivity() {
                                 adjustViewBounds = true
                                 scaleType = ImageView.ScaleType.FIT_CENTER
                             }
-                            previewDialog = AlertDialog.Builder(this).setView(image)
+                            previewDialog = OxygenClassicDialog.builder(this, "").setView(image)
                                 .setPositiveButton("关闭", null)
                                 .setOnDismissListener {
                                     image.setImageDrawable(null)
                                     bitmap.recycle()
                                     preview.delete()
                                     previewDialog = null
-                                }.create().also { it.show() }
+                                }.create().also {
+                                    it.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                                    it.show()
+                                    OxygenClassicDialog.apply(this, it, image)
+                                }
                         }
                     }
                 } else {
@@ -498,13 +512,18 @@ class LegacyPrivateVaultActivity : SimpleActivity() {
                                 layoutParams = LinearLayout.LayoutParams(-1, (260 * resources.displayMetrics.density).toInt())
                                 setVideoPath(preview.path)
                             }
-                            previewDialog = AlertDialog.Builder(this).setView(player)
+                            previewDialog = OxygenClassicDialog.builder(this, "").setView(player)
                                 .setPositiveButton("关闭", null)
                                 .setOnDismissListener {
                                     player.stopPlayback()
                                     preview.delete()
                                     previewDialog = null
-                                }.create().also { it.show(); player.start() }
+                                }.create().also {
+                                    it.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                                    it.show()
+                                    OxygenClassicDialog.apply(this, it, player)
+                                    player.start()
+                                }
                         }
                     }
                 }

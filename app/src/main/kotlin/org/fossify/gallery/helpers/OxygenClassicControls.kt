@@ -1,52 +1,88 @@
 package org.fossify.gallery.helpers
 
-import android.content.res.ColorStateList
+import android.content.Context
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
+import android.graphics.drawable.StateListDrawable
 import android.view.View
 import android.view.ViewGroup
-import androidx.appcompat.content.res.AppCompatResources
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.graphics.ColorUtils
-import org.fossify.gallery.R
-import java.util.WeakHashMap
 
 /**
- * Classic SwitchCompat geometry and stateful tints across the settings page.
- * The SettingsSwitchStyle keeps the switch itself non-clickable, so the
- * existing whole-row click listeners are the single source of persistence.
+ * 2017-era thin-track SwitchCompat. The thumb contains a separate shadow layer
+ * which must NOT receive the thumb tint (it would make the shadow green).
+ *
+ * Gallery settings use whole-row click listeners; changing this appearance
+ * must never add a second checked-change handler or a second toggle.
  */
 object OxygenClassicControls {
-    private val applied = WeakHashMap<SwitchCompat, Triple<Int, Int, Int>>()
-
     fun applySwitches(root: View, accent: Int, text: Int, surface: Int) {
-        val palette = Triple(accent, text, surface)
-        val offThumb = ColorUtils.blendARGB(surface, text, 0.06f)
-        val offTrack = ColorUtils.blendARGB(surface, text, 0.24f)
-        val onTrack = ColorUtils.blendARGB(surface, accent, 0.38f)
-        val disabledThumb = ColorUtils.blendARGB(surface, text, 0.06f)
-        val disabledTrack = ColorUtils.blendARGB(surface, text, 0.13f)
-        val selectors = arrayOf(
-            intArrayOf(-android.R.attr.state_enabled),
-            intArrayOf(android.R.attr.state_checked),
-            intArrayOf()
-        )
-        val thumbs = ColorStateList(selectors, intArrayOf(disabledThumb, accent, offThumb))
-        val tracks = ColorStateList(selectors, intArrayOf(disabledTrack, onTrack, offTrack))
+        val context = root.context
+        val d = context.resources.displayMetrics.density
+        fun dp(value: Int) = (value * d + 0.5f).toInt()
+        val light = ColorUtils.calculateLuminance(surface) >= 0.5
+        val offThumb = if (light) Color.rgb(244, 244, 244) else Color.rgb(224, 224, 224)
+        val offTrack = if (light) Color.rgb(210, 210, 210) else Color.rgb(105, 105, 105)
+        val onTrack = ColorUtils.blendARGB(surface, accent, if (light) 0.44f else 0.58f)
+        val disabledThumb = ColorUtils.blendARGB(surface, text, if (light) 0.13f else 0.30f)
+        val disabledTrack = ColorUtils.blendARGB(surface, text, 0.12f)
 
-        fun visit(view: View) {
-            if (view is SwitchCompat && applied[view] != palette) {
-                view.thumbDrawable = AppCompatResources.getDrawable(view.context, R.drawable.oxygen_classic_switch_thumb)
-                view.trackDrawable = AppCompatResources.getDrawable(view.context, R.drawable.oxygen_classic_switch_track)
-                view.thumbTintList = thumbs
-                view.trackTintList = tracks
-                view.switchMinWidth = view.resources.getDimensionPixelSize(R.dimen.oxygen_classic_switch_width)
-                view.showText = false
-                view.splitTrack = false
-                applied[view] = palette
+        fun circle(diameter: Int, color: Int, outline: Boolean = false) =
+            GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+                setSize(dp(diameter), dp(diameter))
+                if (outline) setStroke(dp(1).coerceAtLeast(1),
+                    ColorUtils.blendARGB(color, if (light) Color.BLACK else Color.WHITE, 0.10f))
             }
-            if (view is ViewGroup) {
-                for (i in 0 until view.childCount) visit(view.getChildAt(i))
+
+        fun thumb(color: Int): LayerDrawable {
+            val shadow = circle(26, if (light) Color.argb(25, 0, 0, 0)
+                else Color.argb(45, 0, 0, 0))
+            val face = circle(22, color, true)
+            return LayerDrawable(arrayOf(shadow, face)).apply {
+                setLayerInset(1, dp(2), dp(2), dp(2), dp(2))
             }
         }
-        visit(root)
+
+        fun track(color: Int) = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(color)
+            cornerRadius = dp(7).toFloat()
+            setSize(dp(36), dp(14))
+        }
+
+        val thumbState = StateListDrawable().apply {
+            addState(intArrayOf(-android.R.attr.state_enabled), thumb(disabledThumb))
+            addState(intArrayOf(android.R.attr.state_checked), thumb(accent))
+            addState(intArrayOf(), thumb(offThumb))
+        }
+        val trackState = StateListDrawable().apply {
+            addState(intArrayOf(-android.R.attr.state_enabled), track(disabledTrack))
+            addState(intArrayOf(android.R.attr.state_checked), track(onTrack))
+            addState(intArrayOf(), track(offTrack))
+        }
+
+        fun apply(view: View) {
+            if (view is SwitchCompat) {
+                // Commons updateTextColors() may re-tint an otherwise unchanged
+                // drawable. Re-apply every Settings resume, not every scroll.
+                view.thumbTintList = null
+                view.trackTintList = null
+                view.thumbDrawable = thumbState.constantState?.newDrawable()?.mutate() ?: thumb(accent)
+                view.trackDrawable = trackState.constantState?.newDrawable()?.mutate() ?: track(offTrack)
+                view.switchMinWidth = dp(42)
+                view.showText = false
+                view.splitTrack = false
+                view.setSwitchPadding(0)
+                view.setThumbTextPadding(0)
+            }
+            if (view is ViewGroup) {
+                for (i in 0 until view.childCount) apply(view.getChildAt(i))
+            }
+        }
+        apply(root)
     }
 }
