@@ -910,6 +910,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         getCachedDirectories(forceShowHidden = true, forceShowExcluded = true) { cached ->
             val excluded = config.excludedFolders
             val noMedia = getNoMediaFoldersSync().toSet()
+            val privateRoots = PrivateFolderIndex.protectedPaths(this)
             val supplementary = (excluded + noMedia + config.includedFolders)
                 .filter { it.isNotBlank() && File(it).isDirectory }
                 .map { path ->
@@ -933,7 +934,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     ".nomedia".takeIf { isNoMedia },
                     "已锁定".takeIf { isProtected }
                 ).joinToString(" · ")
-                !PrivateFolderIndex.isProtected(path, PrivateFolderIndex.protectedPaths(this)) &&
+                !PrivateFolderIndex.isProtected(path, privateRoots) &&
                     (!hidden || mFolderVisibility[0]) &&
                     (!isExcluded || mFolderVisibility[1]) &&
                     (!isNoMedia || mFolderVisibility[2]) &&

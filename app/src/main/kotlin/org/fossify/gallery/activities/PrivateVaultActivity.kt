@@ -69,13 +69,13 @@ class PrivateVaultActivity : SimpleActivity() {
         auth = PrivateFolderAccess(this)
         index = PrivateFolderIndex(this)
         val surface = getProperBackgroundColor()
-        val text = getProperTextColor()
+        val toolbarTextColor = getProperTextColor()
         val density = resources.displayMetrics.density
         fun dp(n: Int) = (n * density + .5f).toInt()
         root = CoordinatorLayout(this).apply { setBackgroundColor(surface) }
         val bar = TextView(this).apply {
             setBackgroundColor(surface)
-            setTextColor(text)
+            setTextColor(toolbarTextColor)
             text = "隐私空间"
             textSize = 20f
             gravity = Gravity.CENTER_VERTICAL
