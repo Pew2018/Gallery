@@ -131,7 +131,7 @@ class OxygenThemeActivity : SimpleActivity() {
         body.addView(row, LinearLayout.LayoutParams(-1, dp(56)))
     }
 
-    private fun chooseColor(title: String, initial: Int, save: (Int) -> Unit) {
+    private fun chooseColor(title: String, initial: Int, defaultColor: Int, save: (Int) -> Unit) {
         val field = EditText(this).apply {
             setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
@@ -156,7 +156,7 @@ class OxygenThemeActivity : SimpleActivity() {
             }
         }
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
-            field.setText("#42A5F5")
+            field.setText(OxygenThemeEngine.formatHex(defaultColor))
             field.selectAll()
         }
     }
@@ -217,7 +217,7 @@ class OxygenThemeActivity : SimpleActivity() {
         section("主题强调色与自定义配色")
         item("自定义强调色：" + OxygenThemeEngine.formatHex(accent),
             config.oxygenThemePresetId == "custom", accent) {
-            chooseColor("应用强调色", accent) { color ->
+            chooseColor("应用强调色", accent, Color.rgb(33, 150, 243)) { color ->
                 changeAndRender {
                     config.oxygenCustomAccent = color
                     config.oxygenThemePresetId = "custom"
@@ -234,7 +234,7 @@ class OxygenThemeActivity : SimpleActivity() {
         }
         item("顶栏背景：自定义", config.oxygenCustomToolbarEnabled,
             config.oxygenToolbarColor) {
-            chooseColor("顶栏背景颜色", config.oxygenToolbarColor) { color ->
+            chooseColor("顶栏背景颜色", config.oxygenToolbarColor, OxygenThemeEngine.CLASSIC_TOOLBAR) { color ->
                 changeAndRender {
                     config.oxygenToolbarColor = color
                     config.oxygenCustomToolbarEnabled = true
@@ -248,7 +248,7 @@ class OxygenThemeActivity : SimpleActivity() {
         }
         item("顶栏文字与图标：手动颜色", config.oxygenManualToolbarText,
             config.oxygenToolbarTextColor) {
-            chooseColor("顶栏文字与图标颜色", config.oxygenToolbarTextColor) { color ->
+            chooseColor("顶栏文字与图标颜色", config.oxygenToolbarTextColor, Color.WHITE) { color ->
                 changeAndRender {
                     config.oxygenToolbarTextColor = color
                     config.oxygenManualToolbarText = true
