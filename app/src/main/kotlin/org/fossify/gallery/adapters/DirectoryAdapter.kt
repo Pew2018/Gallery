@@ -927,6 +927,9 @@ class DirectoryAdapter(
             }
 
             if (lockedFolderPaths.contains(directory.path)) {
+                // Recycled holders must not retain old or unprotected thumbnails.
+                Glide.with(activity).clear(dirThumbnail)
+                dirThumbnail.setImageDrawable(null)
                 dirLock.beVisible()
                 dirLock.background = ColorDrawable(root.context.getProperBackgroundColor())
                 dirLock.applyColorFilter(root.context.getProperBackgroundColor().getContrastColor())
