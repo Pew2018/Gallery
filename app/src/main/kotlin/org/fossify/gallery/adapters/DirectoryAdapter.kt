@@ -14,6 +14,7 @@ import android.widget.ImageView
 import android.widget.RelativeLayout
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.bumptech.glide.Glide
@@ -144,6 +145,7 @@ class DirectoryAdapter(
 
     init {
         setupDragListener(true)
+        setHasStableIds(true)
         fillLockedFolders()
         ensureBackgroundThread {
             try { favoriteFolderPaths = activity.favoriteFoldersDB.getPaths().toSet() }
@@ -839,14 +841,38 @@ class DirectoryAdapter(
         }
     }
 
+    private var diffGeneration = 0
+
+    override fun getItemId(position: Int): Long {
+        return dirs.getOrNull(position)?.path?.fold(1469598103934665603L) { hash, ch ->
+            (hash xor ch.code.toLong()) * 1099511628211L
+        } ?: RecyclerView.NO_ID
+    }
+
     fun updateDirs(newDirs: ArrayList<Directory>) {
-        val directories = newDirs.clone() as ArrayList<Directory>
-        if (directories.hashCode() != currentDirectoriesHash) {
-            currentDirectoriesHash = directories.hashCode()
-            dirs = directories
-            fillLockedFolders()
-            notifyDataSetChanged()
-            finishActMode()
+        val directories = ArrayList(newDirs)
+        if (directories.hashCode() == currentDirectoriesHash) return
+        // Snapshot both lists on the UI thread. Diffing large albums off the
+        // main thread avoids stalling scroll or gesture navigation.
+        val old = ArrayList(dirs)
+        val generation = ++diffGeneration
+        ensureBackgroundThread {
+            val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+                override fun getOldListSize() = old.size
+                override fun getNewListSize() = directories.size
+                override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int) =
+                    old[oldItemPosition].path == directories[newItemPosition].path
+                override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int) =
+                    old[oldItemPosition] == directories[newItemPosition]
+            })
+            activity.runOnUiThread {
+                if (generation != diffGeneration || activity.isDestroyed) return@runOnUiThread
+                currentDirectoriesHash = directories.hashCode()
+                finishActMode()
+                dirs = directories
+                fillLockedFolders()
+                diff.dispatchUpdatesTo(this)
+            }
         }
     }
 
