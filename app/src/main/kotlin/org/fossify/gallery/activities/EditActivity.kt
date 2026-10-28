@@ -77,6 +77,8 @@ import org.fossify.gallery.helpers.ASPECT_RATIO_ONE_ONE
 import org.fossify.gallery.helpers.ASPECT_RATIO_OTHER
 import org.fossify.gallery.helpers.ASPECT_RATIO_SIXTEEN_NINE
 import org.fossify.gallery.helpers.ColorModeHelper
+import org.fossify.gallery.helpers.OxygenThemeEngine
+import org.fossify.gallery.helpers.OxygenSystemBars
 import org.fossify.gallery.helpers.FilterThumbnailsManager
 import org.fossify.gallery.helpers.getPermissionToRequest
 import org.fossify.gallery.models.FilterItem
@@ -160,7 +162,16 @@ class EditActivity : BaseCropActivity() {
         super.onResume()
         isEditingWithThirdParty = false
         binding.bottomEditorDrawActions.bottomDrawWidth.setColors(getProperTextColor(), getProperPrimaryColor(), getProperBackgroundColor())
-        setupTopAppBar(binding.editorAppbar, NavigationIcon.Arrow)
+        setupTopAppBar(binding.editorAppbar, NavigationIcon.Arrow,
+            topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
+        val toolbarText = OxygenThemeEngine.toolbarForeground(this, config)
+        binding.editorToolbar.setTitleTextColor(toolbarText)
+        binding.editorToolbar.navigationIcon?.mutate()?.setTint(toolbarText)
+        binding.editorToolbar.overflowIcon?.mutate()?.setTint(toolbarText)
+        for (i in 0 until binding.editorToolbar.menu.size()) {
+            binding.editorToolbar.menu.getItem(i).icon?.mutate()?.setTint(toolbarText)
+        }
+        OxygenSystemBars.apply(this)
     }
 
     override fun onStop() {

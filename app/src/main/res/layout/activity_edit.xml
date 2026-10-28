@@ -14,11 +14,11 @@
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/editor_toolbar"
             android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
-            android:background="@color/color_primary"
+            android:layout_height="@dimen/oxygen_classic_toolbar_height"
+            android:background="@color/oxygen_classic_toolbar"
             app:menu="@menu/menu_editor"
             app:title="@string/editor"
-            app:titleTextAppearance="@style/AppTheme.ActionBar.TitleTextStyle" />
+            app:titleTextAppearance="@style/OxygenClassicToolbarTitle" />
 
     </org.fossify.commons.views.MyAppBarLayout>
 
