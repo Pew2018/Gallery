@@ -588,7 +588,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     private fun updateMenuColors() {
         binding.mainMenu.updateColors()
-        OxygenToolbarStyle.apply(this, binding.mainMenu)
+        OxygenToolbarStyle.apply(
+            this, binding.mainMenu,
+            if (mShowingFolderFavorites) getString(org.fossify.commons.R.string.favorites)
+            else getString(R.string.app_launcher_name)
+        )
     }
 
     private fun getRecyclerAdapter() = binding.directoriesGrid.adapter as? DirectoryAdapter

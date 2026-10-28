@@ -435,7 +435,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private fun updateMenuColors() {
         binding.mediaMenu.updateColors()
-        OxygenToolbarStyle.apply(this, binding.mediaMenu)
+        OxygenToolbarStyle.apply(
+            this, binding.mediaMenu,
+            when {
+                mShowAll || mPath.isEmpty() -> getString(R.string.app_launcher_name)
+                mPath == FAVORITES -> getString(org.fossify.commons.R.string.favorites)
+                mPath == RECYCLE_BIN -> getString(org.fossify.commons.R.string.recycle_bin)
+                else -> getHumanizedFilename(mPath)
+            },
+            backButton = !mShowAll
+        )
     }
 
     private fun storeStateVariables() {
@@ -463,6 +472,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     media = filtered as ArrayList<Medium>, path = mPath
                 )
                 runOnUiThread {
+                    // An earlier background search must not overwrite a newer query.
+                    if (isFinishing || isDestroyed || mLastSearchedText != text) return@runOnUiThread
                     if (grouped.isEmpty()) {
                         binding.mediaEmptyTextPlaceholder.text =
                             getString(org.fossify.commons.R.string.no_items_found)
@@ -719,7 +730,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     gotMedia(newMedia, false)
 
                     // remove cached files that are no longer valid for whatever reason
-                    val newPaths = newMedia.mapNotNull { it as? Medium }.map { it.path }
+                    // Hash membership avoids O(oldMedia × newMedia) lookups for large libraries.
+                    val newPaths = newMedia.mapNotNull { it as? Medium }.mapTo(HashSet()) { it.path }
                     oldMedia
                         .mapNotNull { it as? Medium }
                         .filter { !newPaths.contains(it.path) }
