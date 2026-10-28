@@ -22,6 +22,28 @@ class OxygenThemePresetsTest {
         org.junit.Assert.assertFalse(OxygenThemeEngine.resolvedDark("system", false))
     }
 
+    @Test fun classicToolbarKeepsUserSelectionAndLegacyMode() {
+        val legacy = 0xFFFAFAFA.toInt()
+        val custom = 0xFF0071CD.toInt()
+        assertEquals(legacy, OxygenThemeEngine.resolveToolbarSurface(false, false, custom, legacy))
+        assertEquals(legacy, OxygenThemeEngine.resolveToolbarSurface(false, true, custom, legacy))
+        assertEquals(0xFF212121.toInt(), OxygenThemeEngine.resolveToolbarSurface(true, false, custom, legacy))
+        assertEquals(custom, OxygenThemeEngine.resolveToolbarSurface(true, true, custom, legacy))
+    }
+
+    @Test fun autoToolbarForegroundPassesContrastReferenceSurfaces() {
+        val surfaces = listOf("#212121", "#FFFFFF", "#FAFAFA", "#000000",
+            "#0071CD", "#2196F3", "#E6A545", "#7DC22F")
+        for (hex in surfaces) {
+            val color = OxygenThemeEngine.parseHex(hex)!!
+            val foreground = OxygenThemeEngine.autoForeground(color)
+            assertTrue("Unexpected foreground for $hex", foreground == 0xFF000000.toInt() ||
+                foreground == 0xFFFFFFFF.toInt())
+            assertTrue("Insufficient contrast on $hex",
+                androidx.core.graphics.ColorUtils.calculateContrast(foreground, color) >= 4.5)
+        }
+    }
+
     @Test fun strictHexAndRoundTrip() {
         assertEquals("#42A5F5", OxygenThemeEngine.formatHex(OxygenThemeEngine.parseHex("#42A5F5")!!))
         assertNull(OxygenThemeEngine.parseHex("42A5F5"))

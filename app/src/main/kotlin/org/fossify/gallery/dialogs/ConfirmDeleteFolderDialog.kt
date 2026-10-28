@@ -2,6 +2,7 @@ package org.fossify.gallery.dialogs
 
 import android.app.Activity
 import androidx.appcompat.app.AlertDialog
+import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.commons.extensions.getAlertDialogBuilder
 import org.fossify.commons.extensions.setupDialogStuff
 import org.fossify.gallery.databinding.DialogConfirmDeleteFolderBinding
@@ -19,6 +20,7 @@ class ConfirmDeleteFolderDialog(activity: Activity, message: String, warningMess
             .setNegativeButton(org.fossify.commons.R.string.no, null)
             .apply {
                 activity.setupDialogStuff(binding.root, this) { alertDialog ->
+            OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                     dialog = alertDialog
                 }
             }

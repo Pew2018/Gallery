@@ -7,6 +7,9 @@ import android.view.Gravity
 import android.widget.EditText
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.View
@@ -110,6 +113,12 @@ object OxygenClassicDialog {
                 setTextColor(readableAccent)
                 minHeight = (48f * dp).toInt()
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                isAllCaps = true
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                background = RippleDrawable(
+                    ColorStateList.valueOf(ColorUtils.setAlphaComponent(readableAccent, 30)),
+                    ColorDrawable(Color.TRANSPARENT), null
+                )
             }
         }
     }

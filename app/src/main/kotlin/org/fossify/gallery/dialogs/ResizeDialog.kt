@@ -3,6 +3,7 @@ package org.fossify.gallery.dialogs
 import android.graphics.Point
 import android.widget.EditText
 import androidx.appcompat.app.AlertDialog
+import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.extensions.*
 import org.fossify.gallery.R
@@ -52,6 +53,7 @@ class ResizeDialog(val activity: BaseSimpleActivity, val size: Point, val callba
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
                 activity.setupDialogStuff(binding.root, this, R.string.resize_and_save) { alertDialog ->
+            OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                     alertDialog.showKeyboard(binding.resizeImageWidth)
                     alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         val width = getViewValue(widthView)

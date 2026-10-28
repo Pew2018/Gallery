@@ -1,6 +1,11 @@
 package org.fossify.gallery.helpers
 
 import android.content.Context
+import android.content.res.ColorStateList
+import android.widget.CheckBox
+import android.widget.RadioButton
+import android.widget.SeekBar
+import android.widget.CompoundButton
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
@@ -54,12 +59,12 @@ object OxygenClassicControls {
             setSize(dp(36), dp(10))
         }
 
-        val thumbState = StateListDrawable().apply {
+        fun newThumbState() = StateListDrawable().apply {
             addState(intArrayOf(-android.R.attr.state_enabled), thumb(disabledThumb))
             addState(intArrayOf(android.R.attr.state_checked), thumb(accent))
             addState(intArrayOf(), thumb(offThumb))
         }
-        val trackState = StateListDrawable().apply {
+        fun newTrackState() = StateListDrawable().apply {
             addState(intArrayOf(-android.R.attr.state_enabled), track(disabledTrack))
             addState(intArrayOf(android.R.attr.state_checked), track(onTrack))
             addState(intArrayOf(), track(offTrack))
@@ -71,13 +76,36 @@ object OxygenClassicControls {
                 // drawable. Re-apply every Settings resume, not every scroll.
                 view.thumbTintList = null
                 view.trackTintList = null
-                view.thumbDrawable = thumbState.constantState?.newDrawable()?.mutate() ?: thumb(accent)
-                view.trackDrawable = trackState.constantState?.newDrawable()?.mutate() ?: track(offTrack)
+                // Each switch owns its own stateful drawables: no cross-row state leak.
+                view.thumbDrawable = newThumbState().mutate()
+                view.trackDrawable = newTrackState().mutate()
                 view.switchMinWidth = dp(42)
                 view.showText = false
                 view.splitTrack = false
                 view.setSwitchPadding(0)
                 view.setThumbTextPadding(0)
+            }
+            if (view is CheckBox || view is RadioButton) {
+                val checkedColor = OxygenClassicPalette.readableAccent(accent, surface)
+                val unchecked = ColorUtils.blendARGB(surface, text, if (light) 0.54f else 0.72f)
+                val disabled = ColorUtils.blendARGB(surface, text, 0.25f)
+                (view as CompoundButton).buttonTintList = ColorStateList(
+                    arrayOf(
+                        intArrayOf(-android.R.attr.state_enabled),
+                        intArrayOf(android.R.attr.state_checked),
+                        intArrayOf()
+                    ),
+                    intArrayOf(disabled, checkedColor, unchecked)
+                )
+                view.minHeight = maxOf(view.minHeight, dp(48))
+            }
+            if (view is SeekBar) {
+                val readable = OxygenClassicPalette.readableAccent(accent, surface)
+                view.progressTintList = ColorStateList.valueOf(readable)
+                view.thumbTintList = ColorStateList.valueOf(readable)
+                view.progressBackgroundTintList = ColorStateList.valueOf(
+                    ColorUtils.blendARGB(surface, text, 0.22f)
+                )
             }
             if (view is ViewGroup) {
                 for (i in 0 until view.childCount) apply(view.getChildAt(i))
