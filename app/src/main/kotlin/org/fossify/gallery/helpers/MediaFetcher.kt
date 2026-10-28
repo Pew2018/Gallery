@@ -31,6 +31,8 @@ class MediaFetcher(val context: Context) {
         getProperFileSize: Boolean, favoritePaths: ArrayList<String>, getVideoDurations: Boolean,
         lastModifieds: HashMap<String, Long>, dateTakens: HashMap<String, Long>, android11Files: HashMap<String, ArrayList<Medium>>?
     ): ArrayList<Medium> {
+        val privateRoots = PrivateFolderIndex.protectedPaths(context)
+        if (PrivateFolderIndex.isProtected(curPath, privateRoots)) return ArrayList()
         val filterMedia = context.config.filterMedia
         if (filterMedia == 0) {
             return ArrayList()
@@ -78,7 +80,6 @@ class MediaFetcher(val context: Context) {
         }
 
         // Every MediaStore/filesystem source passes through the same privacy boundary.
-        val privateRoots = PrivateFolderIndex.protectedPaths(context)
         curMedia.removeAll { PrivateFolderIndex.isProtected(it.path, privateRoots) }
         sortMedia(curMedia, context.config.getFolderSorting(curPath))
         return curMedia

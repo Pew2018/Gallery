@@ -61,6 +61,7 @@ class PrivateVaultActivity : SimpleActivity() {
     private val generation = AtomicInteger()
     private var preview: AlertDialog? = null
     private var player: ExoPlayer? = null
+    private var pendingFolderUri: Uri? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -238,6 +239,11 @@ class PrivateVaultActivity : SimpleActivity() {
                         if (ok) {
                             authenticated = true
                             showUnlocked()
+                            pendingFolderUri?.let { pending ->
+                                pendingFolderUri = null
+                                if (index.add(pending)) showFolders()
+                                else toast("目录不是可隔离的外部媒体文件夹，未加入")
+                            }
                         } else toast("密码错误、密码不足 6 位或两次输入不一致")
                     }
                 }.start()
@@ -245,6 +251,7 @@ class PrivateVaultActivity : SimpleActivity() {
     }
 
     private fun biometricUnlock() {
+        val token = generation.get()
         val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
         if (BiometricManager.from(this).canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) {
             toast("当前没有可用的强生物识别，请使用独立密码"); return
@@ -253,7 +260,8 @@ class PrivateVaultActivity : SimpleActivity() {
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
-                    if (!isFinishing && !isDestroyed && auth.biometricsEnabled) {
+                    if (token == generation.get() && !isFinishing && !isDestroyed && auth.biometricsEnabled &&
+                        lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
                         authenticated = true
                         showUnlocked()
                     }
@@ -295,13 +303,20 @@ class PrivateVaultActivity : SimpleActivity() {
     @Deprecated("Uses the existing Activity result model for SAF folder selection")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != pickerRequest || resultCode != RESULT_OK || !authenticated) return
+        if (requestCode != pickerRequest || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         try {
             contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            if (index.add(uri)) {
-                showFolders()
-            } else toast("该目录无法对应到系统媒体路径，无法保证 Gallery 内部隔离，因此没有加入")
+            if (authenticated) {
+                if (index.add(uri)) showFolders()
+                else toast("该目录无法对应到系统媒体路径，无法保证 Gallery 内部隔离，因此没有加入")
+            } else {
+                // ACTION_OPEN_DOCUMENT_TREE can stop the Activity and invalidate the session.
+                // Persist the grant, but require a fresh password/biometric auth before linking.
+                pendingFolderUri = uri
+                showLocked()
+                toast("请重新认证以完成文件夹关联")
+            }
         } catch (_: Exception) {
             toast("文件夹授权失败，请重新选择")
         }

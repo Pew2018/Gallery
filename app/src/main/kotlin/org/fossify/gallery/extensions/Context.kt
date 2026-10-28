@@ -940,12 +940,13 @@ fun Context.getCachedMedia(
             ensureBackgroundThread {
                 val allowed = directories.asSequence().map { it.path.lowercase(Locale.ROOT) }.toHashSet()
                 val fetcher = MediaFetcher(this)
+                val privateRoots = org.fossify.gallery.helpers.PrivateFolderIndex.protectedPaths(this)
                 val filter = config.filterMedia
                 val showHidden = config.shouldShowHidden
                 val media = try {
                     mediaDB.getAllMedia().filter { item ->
                         item.parentPath.lowercase(Locale.ROOT) in allowed &&
-                            !org.fossify.gallery.helpers.PrivateFolderIndex.isProtected(this, item.path) &&
+                            !org.fossify.gallery.helpers.PrivateFolderIndex.isProtected(item.path, privateRoots) &&
                             !config.isFolderProtected(item.parentPath) &&
                             (showHidden || !item.path.contains("/.")) &&
                             (when {

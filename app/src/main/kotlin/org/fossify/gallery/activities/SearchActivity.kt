@@ -19,6 +19,7 @@ import org.fossify.gallery.databinding.ActivitySearchBinding
 import org.fossify.gallery.extensions.*
 import org.fossify.gallery.helpers.GridSpacingItemDecoration
 import org.fossify.gallery.helpers.MediaFetcher
+import org.fossify.gallery.helpers.PrivateFolderIndex
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.SHOW_ALL
 import org.fossify.gallery.helpers.VIDEO_PLAYER_APP
@@ -102,7 +103,9 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
     private fun textChanged(text: String) {
         ensureBackgroundThread {
             try {
-                val filtered = mAllMedia.filter { it is Medium && it.name.contains(text, true) } as ArrayList
+                val roots = PrivateFolderIndex.protectedPaths(this)
+                val filtered = mAllMedia.filter { it is Medium && it.name.contains(text, true) &&
+                    !PrivateFolderIndex.isProtected(it.path, roots) } as ArrayList
                 filtered.sortBy { it is Medium && !it.name.startsWith(text, true) }
                 val grouped = MediaFetcher(applicationContext).groupMedia(filtered as ArrayList<Medium>, "")
                 runOnUiThread {
@@ -170,11 +173,8 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
             return
         }
 
-        when (config.videoPlayerType) {
-            VIDEO_PLAYER_SYSTEM -> openPath(path = path, forceChooser = false)
-            VIDEO_PLAYER_APP -> if (config.gestureVideoPlayer) launchGesturePlayer(path) else openInViewPager(path)
-            else -> openInViewPager(path) // unreachable by design
-        }
+        if (PrivateFolderIndex.isProtected(this, path)) return
+        if (config.gestureVideoPlayer) launchGesturePlayer(path) else openInViewPager(path)
     }
 
     private fun openInViewPager(path: String) {
@@ -232,7 +232,9 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
     private fun getAllMedia() {
         getCachedMedia("") {
             if (it.isNotEmpty()) {
-                mAllMedia = it.clone() as ArrayList<ThumbnailItem>
+                val roots = PrivateFolderIndex.protectedPaths(this)
+                mAllMedia = ArrayList(it.filterNot { item -> item is Medium &&
+                    PrivateFolderIndex.isProtected(item.path, roots) })
             }
             runOnUiThread {
                 setupAdapter()
