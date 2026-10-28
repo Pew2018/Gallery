@@ -2,6 +2,9 @@ package org.fossify.gallery
 
 import android.app.Activity
 import android.app.Application
+import android.content.res.Configuration
+import org.fossify.gallery.extensions.config
+import org.fossify.gallery.helpers.OxygenThemeEngine
 import android.os.Bundle
 import com.github.ajalt.reprint.core.Reprint
 import org.fossify.gallery.helpers.OxygenClassicCustomizationBridge
@@ -15,8 +18,14 @@ class App : FossifyApp() {
 
     override val isAppLockFeatureAvailable = true
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        OxygenThemeEngine.apply(this, config)
+    }
+
     override fun onCreate() {
         super.onCreate()
+        OxygenThemeEngine.apply(this, config)
         Reprint.initialize(this)
         // Commons' sealed CustomizationActivity is not a Gallery SimpleActivity.
         // Apply its classic toolbar once on resume, after Commons sets its theme.

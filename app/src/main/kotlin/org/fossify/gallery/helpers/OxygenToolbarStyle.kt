@@ -17,6 +17,7 @@ import androidx.core.graphics.ColorUtils
 import org.fossify.commons.extensions.getProperBackgroundColor
 import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.commons.views.MySearchMenu
+import org.fossify.gallery.extensions.config
 import java.util.WeakHashMap
 
 /**
@@ -67,7 +68,7 @@ object OxygenToolbarStyle {
         val density = activity.resources.displayMetrics.density
         fun dp(value: Int) = (value * density + 0.5f).toInt()
         val opened = menu.isSearchOpen
-        val foreground = activity.getProperTextColor()
+        val foreground = OxygenThemeEngine.toolbarForeground(activity, activity.config)
         val container = menu.binding.toolbarContainer
         val icon = menu.binding.topToolbarSearchIcon
         val input = menu.binding.topToolbarSearch
@@ -77,7 +78,7 @@ object OxygenToolbarStyle {
         container.layoutParams = container.layoutParams.apply {
             height = ViewGroup.LayoutParams.MATCH_PARENT
         }
-        val surface = activity.getProperBackgroundColor()
+        val surface = OxygenThemeEngine.toolbarSurface(activity, activity.config)
         container.background = ColorDrawable(surface)
         preparePopup(activity, menu)
         actions.visibility = if (opened) View.GONE else View.VISIBLE

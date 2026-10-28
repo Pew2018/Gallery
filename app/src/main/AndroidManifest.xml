@@ -144,6 +144,11 @@
             android:parentActivityName=".activities.SettingsActivity" />
 
         <activity
+            android:name=".activities.OxygenThemeActivity"
+            android:exported="false"
+            android:parentActivityName=".activities.SettingsActivity" />
+
+        <activity
             android:name=".activities.SettingsActivity"
             android:configChanges="orientation"
             android:exported="true"

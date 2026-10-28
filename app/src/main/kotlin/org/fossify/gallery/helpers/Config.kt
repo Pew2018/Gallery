@@ -30,6 +30,40 @@ class Config(context: Context) : BaseConfig(context) {
         set(value) = prefs.edit().putBoolean(LAST_MAIN_VIEW_ALL, value).apply()
 
 
+    // Classic appearance preferences are separate from Commons' legacy colors.
+    // Existing installations keep their colors until this feature is explicitly used.
+    var oxygenThemeActivated: Boolean
+        get() = prefs.getBoolean("oxygen_classic_theme_activated", false)
+        set(value) = prefs.edit().putBoolean("oxygen_classic_theme_activated", value).apply()
+
+    var oxygenThemePresetId: String
+        get() = prefs.getString("oxygen_classic_theme_preset", "legacy") ?: "legacy"
+        set(value) = prefs.edit().putString("oxygen_classic_theme_preset", value).apply()
+
+    var oxygenAppearanceMode: String
+        get() = prefs.getString("oxygen_classic_appearance", "system") ?: "system"
+        set(value) = prefs.edit().putString("oxygen_classic_appearance", value).apply()
+
+    var oxygenCustomAccent: Int
+        get() = prefs.getInt("oxygen_classic_custom_accent", primaryColor)
+        set(value) = prefs.edit().putInt("oxygen_classic_custom_accent", value).apply()
+
+    var oxygenCustomToolbarEnabled: Boolean
+        get() = prefs.getBoolean("oxygen_classic_toolbar_custom", false)
+        set(value) = prefs.edit().putBoolean("oxygen_classic_toolbar_custom", value).apply()
+
+    var oxygenToolbarColor: Int
+        get() = prefs.getInt("oxygen_classic_toolbar_color", 0xFF212121.toInt())
+        set(value) = prefs.edit().putInt("oxygen_classic_toolbar_color", value).apply()
+
+    var oxygenManualToolbarText: Boolean
+        get() = prefs.getBoolean("oxygen_classic_toolbar_manual_text", false)
+        set(value) = prefs.edit().putBoolean("oxygen_classic_toolbar_manual_text", value).apply()
+
+    var oxygenToolbarTextColor: Int
+        get() = prefs.getInt("oxygen_classic_toolbar_text_color", android.graphics.Color.WHITE)
+        set(value) = prefs.edit().putInt("oxygen_classic_toolbar_text_color", value).apply()
+
     var favoriteShowExcluded: Boolean
         get() = prefs.getBoolean(FAVORITE_SHOW_EXCLUDED, false)
         set(value) = prefs.edit().putBoolean(FAVORITE_SHOW_EXCLUDED, value).apply()

@@ -155,7 +155,7 @@ class SettingsActivity : SimpleActivity() {
 
     private fun setupCustomizeColors() {
         binding.settingsColorCustomizationHolder.setOnClickListener {
-            startCustomizationActivity()
+            startActivity(Intent(this, OxygenThemeActivity::class.java))
         }
     }
 
