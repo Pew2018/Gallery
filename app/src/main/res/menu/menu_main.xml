@@ -19,6 +19,10 @@
         android:title="@string/sort_by"
         app:showAsAction="ifRoom" />
     <item
+        android:id="@+id/manage_unavailable_folder_favorites"
+        android:title="清理不可用的收藏路径"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/folder_visibility"
         android:icon="@drawable/ic_filter_vector"
         android:title="文件夹分类筛选"
