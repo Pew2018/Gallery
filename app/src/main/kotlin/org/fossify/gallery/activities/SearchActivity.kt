@@ -12,6 +12,7 @@ import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.commons.models.FileDirItem
 import org.fossify.commons.views.MyGridLayoutManager
 import org.fossify.gallery.helpers.OxygenToolbarStyle
+import org.fossify.gallery.helpers.OxygenSystemBars
 import org.fossify.gallery.helpers.OxygenSearchNavigation
 import org.fossify.gallery.helpers.SearchExitGate
 import org.fossify.gallery.R

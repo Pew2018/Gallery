@@ -95,6 +95,7 @@ import org.fossify.gallery.helpers.IS_IN_RECYCLE_BIN
 import org.fossify.gallery.helpers.MAX_COLUMN_COUNT
 import org.fossify.gallery.helpers.GalleryBottomBar
 import org.fossify.gallery.helpers.OxygenToolbarStyle
+import org.fossify.gallery.helpers.OxygenSystemBars
 import org.fossify.gallery.helpers.OxygenSearchNavigation
 import org.fossify.gallery.helpers.MediaFetcher
 import org.fossify.gallery.helpers.PATH
