@@ -13,6 +13,7 @@ import android.widget.ImageView
 import android.widget.RelativeLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.core.graphics.ColorUtils
 import org.fossify.commons.extensions.getProperBackgroundColor
 import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.commons.views.MySearchMenu
@@ -67,7 +68,13 @@ object OxygenToolbarStyle {
         container.layoutParams = container.layoutParams.apply {
             height = ViewGroup.LayoutParams.MATCH_PARENT
         }
-        container.background = ColorDrawable(activity.getProperBackgroundColor())
+        val surface = activity.getProperBackgroundColor()
+        container.background = ColorDrawable(surface)
+        actions.setPopupTheme(if (ColorUtils.calculateLuminance(surface) >= 0.5) {
+            org.fossify.gallery.R.style.OxygenClassicPopupTheme_Light
+        } else {
+            org.fossify.gallery.R.style.OxygenClassicPopupTheme_Dark
+        })
         actions.visibility = if (opened) View.GONE else View.VISIBLE
 
         // Closed search icon is to the left of menu actions; open arrow is leading.
