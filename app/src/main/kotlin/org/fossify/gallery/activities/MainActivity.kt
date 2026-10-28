@@ -1139,8 +1139,18 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     private fun gotDirectories(newDirs: ArrayList<Directory>) {
         if (mShowingFolderFavorites) {
-            // This callback is invoked from the existing cached-directory background loader.
+            // Existing cached-directory callback runs off the main thread. A folder
+            // favorites tab must not re-scan every directory in the full library.
             mFavoriteFolderPaths = favoriteFoldersDB.getPaths().toSet()
+            val selected = ArrayList(newDirs.filter { it.path in mFavoriteFolderPaths })
+            mDirs = selected
+            mIsGettingDirs = false
+            mLoadedInitialPhotos = true
+            runOnUiThread {
+                checkPlaceholderVisibility(selected)
+                setupAdapter(selected)
+            }
+            return
         }
         mIsGettingDirs = false
         mShouldStopFetching = false
