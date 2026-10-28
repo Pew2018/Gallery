@@ -89,6 +89,7 @@ import org.fossify.gallery.extensions.addTempFolderIfNeeded
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.createDirectoryFromMedia
 import org.fossify.gallery.extensions.directoryDB
+import org.fossify.gallery.extensions.favoriteFoldersDB
 import org.fossify.gallery.extensions.getCachedDirectories
 import org.fossify.gallery.extensions.getCachedMedia
 import org.fossify.gallery.extensions.getDirectorySortingValue
@@ -125,6 +126,7 @@ import org.fossify.gallery.helpers.GROUP_DESCENDING
 import org.fossify.gallery.helpers.LOCATION_INTERNAL
 import org.fossify.gallery.helpers.MAX_COLUMN_COUNT
 import org.fossify.gallery.helpers.MONTH_MILLISECONDS
+import org.fossify.gallery.helpers.GalleryBottomBar
 import org.fossify.gallery.helpers.MediaFetcher
 import org.fossify.gallery.helpers.PICKED_PATHS
 import org.fossify.gallery.helpers.RECYCLE_BIN
@@ -157,6 +159,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         private const val PICK_MEDIA = 2
         private const val PICK_WALLPAPER = 3
         private const val LAST_MEDIA_CHECK_PERIOD = 3000L
+        const val EXTRA_SHOW_FOLDERS = "org.fossify.gallery.SHOW_FOLDERS"
+        const val EXTRA_FOLDER_FAVORITES = "org.fossify.gallery.FOLDER_FAVORITES"
     }
 
     private var mIsPickImageIntent = false
@@ -167,6 +171,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mIsSetWallpaperIntent = false
     private var mAllowPickingMultiple = false
     private var mIsThirdPartyIntent = false
+    private var mShowingFolderFavorites = false
+    private var mFavoriteFolderPaths: Set<String> = emptySet()
     private var mIsGettingDirs = false
     private var mLoadedInitialPhotos = false
     private var mShouldStopFetching = false
@@ -227,8 +233,46 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 || mIsGetAnyContentIntent
                 || mIsSetWallpaperIntent
 
+        mShowingFolderFavorites = !mIsThirdPartyIntent && intent.getBooleanExtra(EXTRA_FOLDER_FAVORITES, false)
+        // The ordinary launcher opens Photos; explicit folder navigation and picker
+        // intents preserve their previous behavior.
+        if (!mIsThirdPartyIntent && !mShowingFolderFavorites &&
+            !intent.getBooleanExtra(EXTRA_SHOW_FOLDERS, false) && savedInstanceState == null
+        ) {
+            config.showAll = true
+        } else if (mShowingFolderFavorites || intent.getBooleanExtra(EXTRA_SHOW_FOLDERS, false)) {
+            config.showAll = false
+        }
+
         setupOptionsMenu()
         refreshMenuItems()
+
+        if (!mIsThirdPartyIntent) {
+            GalleryBottomBar.attach(this, binding.root,
+                if (mShowingFolderFavorites) GalleryBottomBar.Tab.FAVORITE_FOLDERS else GalleryBottomBar.Tab.ALL
+            ) { tab ->
+                when (tab) {
+                    GalleryBottomBar.Tab.ALL -> showAllMedia()
+                    GalleryBottomBar.Tab.FAVORITE_FOLDERS -> {
+                        if (mShowingFolderFavorites) {
+                            binding.directoriesGrid.scrollToPosition(0)
+                        } else {
+                            config.showAll = false
+                            startActivity(Intent(this, MainActivity::class.java)
+                                .putExtra(EXTRA_FOLDER_FAVORITES, true))
+                            finish()
+                        }
+                    }
+                    GalleryBottomBar.Tab.PRIVATE -> startActivity(Intent(this, PrivateVaultActivity::class.java))
+                }
+            }
+            val bottom = (92 * resources.displayMetrics.density).toInt()
+            binding.directoriesGrid.setPadding(
+                binding.directoriesGrid.paddingLeft, binding.directoriesGrid.paddingTop,
+                binding.directoriesGrid.paddingRight, bottom
+            )
+            binding.directoriesGrid.clipToPadding = false
+        }
 
         setupEdgeToEdge(
             padBottomImeAndSystem = listOf(binding.directoriesGrid)
@@ -1094,6 +1138,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     private fun gotDirectories(newDirs: ArrayList<Directory>) {
+        if (mShowingFolderFavorites) {
+            // This callback is invoked from the existing cached-directory background loader.
+            mFavoriteFolderPaths = favoriteFoldersDB.getPaths().toSet()
+        }
         mIsGettingDirs = false
         mShouldStopFetching = false
 
@@ -1477,6 +1525,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     ) {
         val currAdapter = binding.directoriesGrid.adapter
         val distinctDirs = dirs
+            .filter { !mShowingFolderFavorites || mFavoriteFolderPaths.contains(it.path) }
             .distinctBy { it.path.getDistinctPath() }
             .toMutableList() as ArrayList<Directory>
 
