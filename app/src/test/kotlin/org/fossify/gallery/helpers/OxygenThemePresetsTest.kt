@@ -22,13 +22,15 @@ class OxygenThemePresetsTest {
         org.junit.Assert.assertFalse(OxygenThemeEngine.resolvedDark("system", false))
     }
 
-    @Test fun classicToolbarKeepsUserSelectionAndLegacyMode() {
+    @Suppress("DEPRECATION")
+    @Test fun legacyToolbarResolverRetainsSignatureButUsesSafeWhiteBackground() {
         val legacy = 0xFFFAFAFA.toInt()
         val custom = 0xFF0071CD.toInt()
-        assertEquals(legacy, OxygenThemeEngine.resolveToolbarSurface(false, false, custom, legacy))
-        assertEquals(legacy, OxygenThemeEngine.resolveToolbarSurface(false, true, custom, legacy))
-        assertEquals(0xFF212121.toInt(), OxygenThemeEngine.resolveToolbarSurface(true, false, custom, legacy))
-        assertEquals(custom, OxygenThemeEngine.resolveToolbarSurface(true, true, custom, legacy))
+        for (activated in listOf(false, true)) for (customEnabled in listOf(false, true)) {
+            val result = OxygenThemeEngine.resolveToolbarSurface(activated, customEnabled, custom, legacy)
+            assertEquals(OxygenThemeColors.toolbarBackground(if (activated) custom else legacy), result)
+            assertTrue(OxygenThemeEngine.contrastRatio(-1, result) >= 4.5)
+        }
     }
 
     @Test fun autoToolbarForegroundPassesContrastReferenceSurfaces() {

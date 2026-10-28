@@ -33,6 +33,14 @@ class App : FossifyApp() {
             override fun onActivityCreated(activity: Activity, state: Bundle?) = Unit
             override fun onActivityStarted(activity: Activity) = Unit
             override fun onActivityResumed(activity: Activity) {
+                // Pre-29 has no post-resume lifecycle callback. One queued pass is sufficient.
+                if (android.os.Build.VERSION.SDK_INT < 29) activity.window.decorView.post {
+                    if (!activity.isFinishing && !activity.isDestroyed) {
+                        OxygenClassicCustomizationBridge.apply(activity)
+                    }
+                }
+            }
+            override fun onActivityPostResumed(activity: Activity) {
                 OxygenClassicCustomizationBridge.apply(activity)
             }
             override fun onActivityPaused(activity: Activity) = Unit

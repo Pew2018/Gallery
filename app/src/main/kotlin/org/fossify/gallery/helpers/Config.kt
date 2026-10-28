@@ -68,6 +68,8 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getInt("oxygen_classic_custom_accent", primaryColor)
         set(value) = prefs.edit().putInt("oxygen_classic_custom_accent", value).apply()
 
+    // Legacy toolbar overrides are retained for upgrades/export compatibility only.
+    // Visible toolbar colors are derived from the current accent by OxygenThemeEngine.
     var oxygenCustomToolbarEnabled: Boolean
         get() = prefs.getBoolean("oxygen_classic_toolbar_custom", false)
         set(value) = prefs.edit().putBoolean("oxygen_classic_toolbar_custom", value).apply()

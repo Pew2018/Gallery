@@ -2,8 +2,12 @@ package org.fossify.gallery.activities
 
 import android.database.ContentObserver
 import android.os.Bundle
-import androidx.core.graphics.ColorUtils
-import org.fossify.commons.extensions.getProperBackgroundColor
+import android.content.res.Configuration
+import org.fossify.gallery.helpers.OxygenThemeEngine
+import org.fossify.gallery.helpers.OxygenThemeTokens
+import org.fossify.gallery.helpers.OxygenThemeViewState
+import org.fossify.gallery.helpers.OxygenToolbarStyle
+import org.fossify.gallery.helpers.OxygenSystemBars
 import android.net.Uri
 import android.provider.MediaStore.Images
 import android.provider.MediaStore.Video
@@ -22,16 +26,101 @@ import org.fossify.gallery.extensions.updateDirectoryPath
 import org.fossify.gallery.helpers.getPermissionsToRequest
 
 open class SimpleActivity : BaseSimpleActivity() {
+    private var inflatedTheme: OxygenThemeTokens? = null
+    private var inflatedAppearance: Pair<Boolean, String>? = null
+    private var themeRecreationRequested = false
+    private var restoredThemeState: Bundle? = null
+    private val themeViewState = OxygenThemeViewState()
+
+    // Fullscreen viewers and editors keep their media/playback/edit state and dedicated themes.
+    private val recreatesForTheme: Boolean
+        get() = this is MainActivity || this is MediaActivity || this is SearchActivity ||
+            this is SettingsActivity || this is IncludedFoldersActivity ||
+            this is ExcludedFoldersActivity || this is HiddenFoldersActivity ||
+            this is OxygenThemeActivity
+
+    private val usesSharedToolbar: Boolean
+        get() = recreatesForTheme || this is EditActivity || this is SetWallpaperActivity
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Commons resolves its base theme in super.onCreate(), before Gallery inflates controls.
+        OxygenThemeEngine.apply(this, config)
+        if (config.oxygenThemeActivated) {
+            delegate.localNightMode = when (config.oxygenAppearanceMode) {
+                "dark" -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES
+                "light" -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO
+                else -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+            }
+        }
         super.onCreate(savedInstanceState)
+        applyClassicOverlay()
+        inflatedTheme = OxygenThemeEngine.snapshot(this, config)
+        inflatedAppearance = config.oxygenThemeActivated to config.oxygenAppearanceMode
+        restoredThemeState = savedInstanceState
+    }
+
+    override fun onResume() {
+        OxygenThemeEngine.apply(this, config)
+        super.onResume()
+        // Commons' onResume calls setTheme(); restore the overlay after that call.
+        applyClassicOverlay()
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        if (refreshThemeIfNeeded()) return
+        if (usesSharedToolbar) {
+            OxygenToolbarStyle.refresh(this)
+            OxygenSystemBars.apply(this)
+        }
+        themeViewState.restore(this, restoredThemeState)
+        restoredThemeState = null
+    }
+
+    private fun applyClassicOverlay() {
         theme.applyStyle(
-            if (ColorUtils.calculateLuminance(getProperBackgroundColor()) >= 0.5)
-                R.style.OxygenClassicActivityOverlay_Light
-            else R.style.OxygenClassicActivityOverlay_Dark,
+            if (OxygenThemeEngine.snapshot(this, config).dark)
+                R.style.OxygenClassicActivityOverlay_Dark
+            else R.style.OxygenClassicActivityOverlay_Light,
             true
         )
     }
 
+    /** Returns true only while a single recreation is pending; never rewrite seeds here. */
+    protected fun refreshThemeIfNeeded(): Boolean {
+        OxygenThemeEngine.apply(this, config)
+        val current = OxygenThemeEngine.snapshot(this, config)
+        val appearance = config.oxygenThemeActivated to config.oxygenAppearanceMode
+        if (!recreatesForTheme || (inflatedTheme == current && inflatedAppearance == appearance)) return false
+        if (!themeRecreationRequested) {
+            themeRecreationRequested = true
+            window.decorView.setBackgroundColor(current.pageBackground)
+            recreate()
+        }
+        return true
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        themeViewState.save(this, outState)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        OxygenThemeEngine.apply(this, config)
+        applyClassicOverlay()
+        if (!refreshThemeIfNeeded()) {
+            if (usesSharedToolbar) {
+                OxygenToolbarStyle.refresh(this)
+                OxygenSystemBars.apply(this)
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        themeViewState.clear()
+        super.onDestroy()
+    }
 
     private var dialog: AlertDialog? = null
 

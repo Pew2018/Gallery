@@ -10,7 +10,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
-import androidx.core.graphics.ColorUtils
 import androidx.core.view.WindowCompat
 import org.fossify.commons.interfaces.MyActionModeCallback
 import org.fossify.gallery.R
@@ -63,6 +62,9 @@ object OxygenSelectionMode {
                     WindowCompat.getInsetsController(activity.window, activity.window.decorView)
                         .isAppearanceLightStatusBars = it
                 }
+                // Delegate may restore a stale Commons color, including on API 35+.
+                OxygenToolbarStyle.refresh(activity)
+                OxygenSystemBars.apply(activity)
                 oldStatusBarColor = null
                 oldLightStatusIcons = null
             }
@@ -92,35 +94,22 @@ object OxygenSelectionMode {
                         it.setBackgroundColor(surface)
                         tintClose(it, foreground)
                     }
-                tintMenu(menu, foreground)
+                OxygenToolbarStyle.tintMenu(menu, foreground)
                 OxygenSystemBars.apply(activity)
-                if (!activity.config.oxygenThemeActivated) {
-                    if (Build.VERSION.SDK_INT < 35) activity.window.statusBarColor = surface
-                    WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-                        .isAppearanceLightStatusBars =
-                        ColorUtils.calculateContrast(android.graphics.Color.BLACK, surface) >= 4.5
-                }
-            }
-
-            private fun tintMenu(menu: Menu?, foreground: Int) {
-                if (menu == null) return
-                for (i in 0 until menu.size()) {
-                    val item = menu.getItem(i)
-                    val tint = if (item.isEnabled) foreground else ColorUtils.setAlphaComponent(foreground, 110)
-                    item.icon?.mutate()?.setTintList(ColorStateList.valueOf(tint))
-                    item.subMenu?.let { tintMenu(it, foreground) }
-                }
             }
 
             private fun tintClose(root: View, foreground: Int) {
-                val close = root.findViewById<View>(androidx.appcompat.R.id.action_mode_close_button)
                 fun tintImages(view: View) {
-                    if (view is ImageView) view.imageTintList = ColorStateList.valueOf(foreground)
+                    if (view is ImageView) {
+                        view.clearColorFilter()
+                        view.drawable?.mutate()?.clearColorFilter()
+                        view.imageTintList = ColorStateList.valueOf(foreground)
+                    }
                     if (view is ViewGroup) {
                         for (i in 0 until view.childCount) tintImages(view.getChildAt(i))
                     }
                 }
-                close?.let(::tintImages)
+                tintImages(root) // Includes the close and overflow buttons.
             }
         }
 }

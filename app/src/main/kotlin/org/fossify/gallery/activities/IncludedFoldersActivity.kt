@@ -28,7 +28,7 @@ class IncludedFoldersActivity : SimpleActivity(), RefreshRecyclerViewListener {
             padTopSystem = listOf(binding.manageFoldersAppbar),
             padBottomSystem = listOf(binding.manageFoldersList)
         )
-        setupMaterialScrollListener(binding.manageFoldersList, binding.manageFoldersAppbar)
+        // Keep the shared accent toolbar flat; Commons' scroll animator restores page colors.
     }
 
     override fun onResume() {
@@ -39,6 +39,7 @@ class IncludedFoldersActivity : SimpleActivity(), RefreshRecyclerViewListener {
         binding.manageFoldersToolbar.setTitleTextColor(foreground)
         binding.manageFoldersToolbar.navigationIcon?.mutate()?.setTint(foreground)
         binding.manageFoldersToolbar.overflowIcon?.mutate()?.setTint(foreground)
+        org.fossify.gallery.helpers.OxygenToolbarStyle.applyToolbar(this, binding.manageFoldersToolbar)
         OxygenSystemBars.apply(this)
     }
 

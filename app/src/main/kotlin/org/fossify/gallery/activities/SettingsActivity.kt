@@ -57,6 +57,7 @@ class SettingsActivity : SimpleActivity() {
         binding.settingsAppbar.toolbar?.setTitleTextColor(toolbarText)
         binding.settingsAppbar.toolbar?.navigationIcon?.mutate()?.setTint(toolbarText)
         binding.settingsAppbar.toolbar?.overflowIcon?.mutate()?.setTint(toolbarText)
+        OxygenToolbarStyle.applyToolbar(this, binding.settingsToolbar)
         OxygenSystemBars.apply(this)
         setupSettingItems()
         setupBottomNavigationOrder()

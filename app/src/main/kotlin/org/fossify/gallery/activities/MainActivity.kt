@@ -586,6 +586,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             findItem(R.id.stop_showing_excluded).isVisible =
                 !mShowingFolderFavorites && config.temporarilyShowExcluded
         }
+        updateMenuColors()
     }
 
     private fun setupOptionsMenu() {

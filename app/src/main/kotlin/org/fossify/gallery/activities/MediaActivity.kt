@@ -383,6 +383,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             findItem(R.id.column_count).isVisible = viewType == VIEW_TYPE_GRID
             findItem(R.id.toggle_filename).isVisible = viewType == VIEW_TYPE_GRID
         }
+        updateMenuColors()
     }
 
     private fun setupOptionsMenu() {

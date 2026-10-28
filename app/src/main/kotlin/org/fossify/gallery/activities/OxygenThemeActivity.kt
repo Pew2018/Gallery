@@ -36,12 +36,9 @@ class OxygenThemeActivity : SimpleActivity() {
 
     private fun dp(n: Int) = (resources.displayMetrics.density * n + 0.5f).toInt()
     private val bg get() = OxygenThemeEngine.pageSurface(this, config)
-    private val fg get() = if (config.oxygenThemeActivated) {
-        if (OxygenThemeEngine.isDark(this, config)) Color.WHITE else Color.rgb(33, 33, 33)
-    } else getProperTextColor()
-    private val secondary get() = ColorUtils.blendARGB(bg, fg, 0.65f)
-    private val accent get() = if (config.oxygenThemeActivated) OxygenThemeEngine.accent(config)
-        else config.primaryColor
+    private val fg get() = OxygenThemeEngine.snapshot(this, config).primaryText
+    private val secondary get() = OxygenThemeEngine.snapshot(this, config).secondaryText
+    private val accent get() = OxygenThemeEngine.snapshot(this, config).rawAccent
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,6 +81,14 @@ class OxygenThemeActivity : SimpleActivity() {
         }
         ViewCompat.requestApplyInsets(root)
         render()
+        savedInstanceState?.getInt("classic_theme_scroll")?.let { y ->
+            scroll.post { scroll.scrollTo(0, y) }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putInt("classic_theme_scroll", scroll.scrollY)
+        super.onSaveInstanceState(outState)
     }
 
     private fun section(label: String) {
@@ -168,6 +173,7 @@ class OxygenThemeActivity : SimpleActivity() {
         val y = scroll.scrollY
         action()
         OxygenThemeEngine.apply(this, config)
+        if (refreshThemeIfNeeded()) return
         render()
         scroll.post { scroll.scrollTo(0, y) }
     }
@@ -229,13 +235,13 @@ class OxygenThemeActivity : SimpleActivity() {
             }
         }
         section("顶栏背景")
-        item("顶栏背景：默认经典颜色", !config.oxygenCustomToolbarEnabled) {
+        item("顶栏背景：跟随强调色", !config.oxygenCustomToolbarEnabled) {
             changeAndRender {
                 config.oxygenCustomToolbarEnabled = false
                 config.oxygenThemeActivated = true
             }
         }
-        item("顶栏背景：自定义", config.oxygenCustomToolbarEnabled,
+        item("顶栏背景：旧版自定义值（保留记录）", config.oxygenCustomToolbarEnabled,
             config.oxygenToolbarColor) {
             chooseColor("顶栏背景颜色", config.oxygenToolbarColor, OxygenThemeEngine.CLASSIC_TOOLBAR) { color ->
                 changeAndRender {
@@ -246,10 +252,10 @@ class OxygenThemeActivity : SimpleActivity() {
             }
         }
         section("顶栏文字与图标")
-        item("顶栏文字与图标：自动选择", !config.oxygenManualToolbarText) {
+        item("顶栏文字与图标：白色（自动保证对比度）", !config.oxygenManualToolbarText) {
             changeAndRender { config.oxygenManualToolbarText = false }
         }
-        item("顶栏文字与图标：手动颜色", config.oxygenManualToolbarText,
+        item("顶栏文字与图标：旧版手动值（保留记录）", config.oxygenManualToolbarText,
             config.oxygenToolbarTextColor) {
             chooseColor("顶栏文字与图标颜色", config.oxygenToolbarTextColor, Color.WHITE) { color ->
                 changeAndRender {
@@ -272,18 +278,8 @@ class OxygenThemeActivity : SimpleActivity() {
             setTextColor(secondary)
             setPadding(dp(16), dp(12), dp(16), dp(8))
         })
-        if (config.oxygenThemeActivated && config.oxygenManualToolbarText &&
-            ColorUtils.calculateContrast(ColorUtils.setAlphaComponent(config.oxygenToolbarTextColor, 255),
-                OxygenThemeEngine.toolbarSurface(this, config)) < 4.5) {
-            body.addView(TextView(this).apply {
-                text = "注意：手动设置的顶栏文字色对比度不足 4.5:1，已按你的设置保留原值。"
-                textSize = 12f
-                setTextColor(OxygenClassicPalette.readableAccent(accent, surface))
-                setPadding(dp(16), dp(8), dp(16), dp(8))
-            })
-        }
         body.addView(TextView(this).apply {
-            text = "主题会保留颜色原值。自动文字颜色仅根据背景选择黑色或白色，不改变已保存的配色。"
+            text = "强调色保留原值；顶栏跟随强调色并按需加深，标题与图标始终为白色。旧版独立顶栏颜色仅保留记录，不再控制显示。"
             textSize = 12f
             setTextColor(secondary)
             setPadding(dp(16), dp(12), dp(16), dp(24))
