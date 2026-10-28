@@ -25,7 +25,7 @@
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground">
 
-                <org.fossify.commons.views.MyMaterialSwitch
+                <androidx.appcompat.widget.SwitchCompat
                     android:id="@+id/folder_picker_show_folder_name"
                     style="@style/SettingsSwitchStyle"
                     android:layout_width="match_parent"
