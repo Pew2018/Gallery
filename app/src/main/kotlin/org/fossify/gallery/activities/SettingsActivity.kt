@@ -44,7 +44,8 @@ class SettingsActivity : SimpleActivity() {
             padTopSystem = listOf(binding.settingsAppbar),
             padBottomSystem = listOf(binding.settingsNestedScrollview)
         )
-        // Classic Settings uses a fixed-height, non-color-morphing toolbar.
+        // Resolve the first toolbar frame with the same theme token as onResume.
+        binding.settingsToolbar.setBackgroundColor(OxygenThemeEngine.toolbarSurface(this, config))
     }
 
     override fun onResume() {
@@ -56,6 +57,7 @@ class SettingsActivity : SimpleActivity() {
         binding.settingsAppbar.toolbar?.setTitleTextColor(toolbarText)
         binding.settingsAppbar.toolbar?.navigationIcon?.mutate()?.setTint(toolbarText)
         binding.settingsAppbar.toolbar?.overflowIcon?.mutate()?.setTint(toolbarText)
+        OxygenSystemBars.apply(this)
         setupSettingItems()
         setupBottomNavigationOrder()
     }

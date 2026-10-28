@@ -10,6 +10,8 @@ import org.fossify.gallery.R
 import org.fossify.gallery.adapters.ManageFoldersAdapter
 import org.fossify.gallery.databinding.ActivityManageFoldersBinding
 import org.fossify.gallery.extensions.config
+import org.fossify.gallery.helpers.OxygenThemeEngine
+import org.fossify.gallery.helpers.OxygenSystemBars
 
 class IncludedFoldersActivity : SimpleActivity(), RefreshRecyclerViewListener {
 
@@ -31,7 +33,13 @@ class IncludedFoldersActivity : SimpleActivity(), RefreshRecyclerViewListener {
 
     override fun onResume() {
         super.onResume()
-        setupTopAppBar(binding.manageFoldersAppbar, NavigationIcon.Arrow)
+        setupTopAppBar(binding.manageFoldersAppbar, NavigationIcon.Arrow,
+            topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
+        val foreground = OxygenThemeEngine.toolbarForeground(this, config)
+        binding.manageFoldersToolbar.setTitleTextColor(foreground)
+        binding.manageFoldersToolbar.navigationIcon?.mutate()?.setTint(foreground)
+        binding.manageFoldersToolbar.overflowIcon?.mutate()?.setTint(foreground)
+        OxygenSystemBars.apply(this)
     }
 
     private fun updateFolders() {

@@ -54,6 +54,11 @@ object GalleryBottomBar {
             val tint = if (item.isSelected) selected else quiet
             (item.getChildAt(0) as? ImageView)?.imageTintList = ColorStateList.valueOf(tint)
             (item.getChildAt(1) as? TextView)?.setTextColor(tint)
+            // Keep the touch ripple in sync after live theme changes.
+            item.background = RippleDrawable(
+                ColorStateList.valueOf(Color.argb(32, Color.red(accent), Color.green(accent), Color.blue(accent))),
+                ColorDrawable(Color.TRANSPARENT), ColorDrawable(Color.WHITE)
+            )
         }
     }
 
@@ -115,7 +120,7 @@ object GalleryBottomBar {
                 isSelected = selected
                 contentDescription = if (selected) "$label，当前页面" else label
                 this.background = RippleDrawable(
-                    ColorStateList.valueOf(Color.argb(48, Color.red(primary), Color.green(primary), Color.blue(primary))),
+                    ColorStateList.valueOf(Color.argb(32, Color.red(primary), Color.green(primary), Color.blue(primary))),
                     ColorDrawable(Color.TRANSPARENT),
                     GradientDrawable().apply { setColor(Color.WHITE) }
                 )
