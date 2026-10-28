@@ -55,7 +55,7 @@
         android:maxLines="1"
         android:paddingStart="@dimen/medium_margin"
         android:paddingEnd="@dimen/medium_margin"
-        android:textColor="@android:color/white"
+        android:textColor="?android:attr/textColorPrimary"
         android:textSize="@dimen/bigger_text_size" />
 
     <TextView
@@ -65,12 +65,12 @@
         android:layout_below="@+id/dir_name"
         android:layout_alignStart="@+id/dir_name"
         android:layout_marginEnd="@dimen/activity_margin"
-        android:alpha="0.4"
+        android:alpha="0.70"
         android:ellipsize="end"
         android:maxLines="1"
         android:paddingStart="@dimen/medium_margin"
         android:paddingEnd="@dimen/medium_margin"
-        android:textColor="@android:color/white"
+        android:textColor="?android:attr/textColorPrimary"
         android:textSize="@dimen/smaller_text_size" />
 
     <TextView
@@ -80,7 +80,7 @@
         android:layout_alignBaseline="@+id/dir_name"
         android:layout_toEndOf="@+id/dir_name"
         android:alpha="0.4"
-        android:textColor="@android:color/white"
+        android:textColor="?android:attr/textColorPrimary"
         android:textSize="@dimen/smaller_text_size" />
 
     <LinearLayout
