@@ -28,7 +28,9 @@ class ManageExtendedDetailsDialog(val activity: BaseSimpleActivity, val callback
             .setPositiveButton(org.fossify.commons.R.string.ok) { dialog, which -> dialogConfirmed() }
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
-                activity.setupDialogStuff(binding.root, this)
+                activity.setupDialogStuff(binding.root, this) { classicDialog ->
+                    OxygenClassicDialog.apply(activity, classicDialog, binding.root)
+                }
             }
     }
 
