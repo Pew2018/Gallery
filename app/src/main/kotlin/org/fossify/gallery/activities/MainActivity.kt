@@ -115,6 +115,7 @@ import org.fossify.gallery.extensions.storeDirectoryItems
 import org.fossify.gallery.extensions.tryDeleteFileDirItem
 import org.fossify.gallery.extensions.updateDBDirectory
 import org.fossify.gallery.extensions.updateWidgets
+import org.fossify.gallery.helpers.FavoriteFolderRules
 import org.fossify.gallery.helpers.DIRECTORY
 import org.fossify.gallery.helpers.GET_ANY_INTENT
 import org.fossify.gallery.helpers.GET_IMAGE_INTENT
@@ -814,62 +815,83 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun loadFavoriteFoldersWithOverrides() {
         if (mIsGettingDirs) return
         mIsGettingDirs = true
+        // A completed old scan must never replace a newer preferences/DB snapshot.
         val requestVersion = ++favoriteLoadVersion
         val showHidden = config.favoriteShowHidden &&
             (!config.isHiddenPasswordProtectionOn || mFavoriteHiddenAuthorized)
         val showExcluded = config.favoriteShowExcluded &&
             (!config.isExcludedPasswordProtectionOn || mFavoriteExcludedAuthorized)
-        getCachedDirectories(forceShowHidden = showHidden, forceShowExcluded = showExcluded) { cached ->
-            val favoritePaths = favoriteFoldersDB.getPaths().toSet()
-            val excluded = config.excludedFolders
-            fun inAny(path: String, roots: Collection<String>): Boolean =
-                roots.any { path == it || path.startsWith("$it/") }
-            val selected = cached.filter { dir ->
-                val path = dir.path
-                val hidden = path.split('/').any { it.startsWith('.') && it.length > 1 } ||
-                    generateSequence(File(path)) { it.parentFile }.any { File(it, ".nomedia").isFile }
-                val excludedDir = inAny(path, excluded)
-                path in favoritePaths && (!hidden || showHidden) &&
-                    (!excludedDir || showExcluded)
-            }.toMutableList()
-            // Only probe explicitly favorited directories absent from the media cache.
-            // No recursive full-device scan; permission failures preserve favorite records.
-            for (path in favoritePaths) {
-                if (selected.any { it.path == path }) continue
-                val excludedDir = inAny(path, excluded)
-                val hidden = path.split('/').any { it.startsWith('.') && it.length > 1 } ||
-                    generateSequence(File(path)) { it.parentFile }.any { File(it, ".nomedia").isFile }
-                if ((!hidden || showHidden) && (!excludedDir || showExcluded)) {
-                    val file = File(path)
-                    if (file.isDirectory) {
-                        val media = file.listFiles()?.filter { it.isFile &&
+
+        fun reportFailure(error: Throwable) {
+            android.util.Log.e("GalleryFavorites", "Could not load favorite directories", error)
+            runOnUiThread {
+                if (requestVersion != favoriteLoadVersion || isFinishing || isDestroyed) return@runOnUiThread
+                mIsGettingDirs = false
+                binding.directoriesRefreshLayout.isRefreshing = false
+                // Keep the last valid adapter and persisted favorite relations.
+                android.widget.Toast.makeText(this, "收藏文件夹加载失败，请下拉重试", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+
+        try {
+            getCachedDirectories(forceShowHidden = showHidden, forceShowExcluded = showExcluded) { cached ->
+                try {
+                    // Fetch one authoritative Room snapshot for every path through this screen.
+                    // Database errors are not an empty favorites collection.
+                    val favoritePaths = favoriteFoldersDB.getPaths().toSet()
+                    val excludedRoots = config.excludedFolders
+                    val cachedByPath = cached.associateBy { it.path }
+                    val selected = ArrayList<Directory>(favoritePaths.size)
+
+                    for (path in favoritePaths) {
+                        val folder = File(path)
+                        val hidden = path.split('/').any { it.startsWith('.') && it.length > 1 } ||
+                            generateSequence(folder) { it.parentFile }
+                                .any { File(it, ".nomedia").isFile }
+                        val excluded = FavoriteFolderRules.isExcluded(path, excludedRoots)
+                        if (!FavoriteFolderRules.shouldShow(hidden, excluded, showHidden, showExcluded)) continue
+
+                        val cachedDirectory = cachedByPath[path]
+                        if (cachedDirectory != null) {
+                            selected.add(cachedDirectory)
+                            continue
+                        }
+
+                        // A favorite is a persistent relationship, not a MediaStore cache hit.
+                        // Probe only its immediate children; do not recursively scan storage.
+                        val children = if (folder.isDirectory) folder.listFiles() else null
+                        val media = children?.filter { it.isFile &&
                             (it.path.isImageFast() || it.path.isVideoFast()) }.orEmpty()
                         selected.add(Directory().apply {
                             this.path = path
-                            name = file.name
+                            name = (folder.name.ifBlank { path }) +
+                                if (children == null) "（暂时不可访问）" else ""
                             tmb = media.firstOrNull()?.path.orEmpty()
                             mediaCnt = media.size
-                            modified = file.lastModified()
+                            modified = folder.lastModified()
                             location = LOCATION_INTERNAL
                         })
                     }
+
+                    runOnUiThread {
+                        if (requestVersion != favoriteLoadVersion || isFinishing || isDestroyed ||
+                            !mShowingFolderFavorites) return@runOnUiThread
+                        // Publish these atomically on UI thread before setupAdapter's filter.
+                        mFavoriteFolderPaths = favoritePaths
+                        mDirs = selected
+                        mDirsIgnoringSearch = ArrayList(selected)
+                        mIsGettingDirs = false
+                        mLoadedInitialPhotos = true
+                        setupAdapter(selected)
+                        checkPlaceholderVisibility(selected)
+                        binding.directoriesRefreshLayout.isRefreshing = false
+                    }
+                } catch (error: Exception) {
+                    reportFailure(error)
                 }
             }
-            val selectedDirs = ArrayList(selected)
-            runOnUiThread {
-                if (requestVersion != favoriteLoadVersion) return@runOnUiThread
-                mIsGettingDirs = false
-                if (!isFinishing && !isDestroyed && mShowingFolderFavorites) {
-                    // setupAdapter applies the favorite-path filter again. Publish
-                    // the database snapshot together with the matching results.
-                    mFavoriteFolderPaths = favoritePaths
-                    mDirs = selectedDirs
-                    mDirsIgnoringSearch = selectedDirs
-                    setupAdapter(selectedDirs)
-                    checkPlaceholderVisibility(selectedDirs)
-                    binding.directoriesRefreshLayout.isRefreshing = false
-                }
-            }
+        } catch (error: Exception) {
+            reportFailure(error)
         }
     }
 

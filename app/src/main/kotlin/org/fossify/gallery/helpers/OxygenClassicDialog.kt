@@ -35,7 +35,7 @@ object OxygenClassicDialog {
         val dp = activity.resources.displayMetrics.density
         val titleView = TextView(context).apply {
             text = title
-            setTextColor(activity.getProperTextColor())
+            setTextColor(if (light) Color.rgb(33, 33, 33) else Color.WHITE)
             textSize = 20f
             gravity = Gravity.CENTER_VERTICAL
             setPadding((24*dp).toInt(), (20*dp).toInt(), (24*dp).toInt(), (8*dp).toInt())
@@ -69,11 +69,12 @@ object OxygenClassicDialog {
         val background = activity.getProperBackgroundColor()
         val text = activity.getProperTextColor()
         val accent = activity.getProperPrimaryColor()
-        val readableAccent = OxygenClassicPalette.readableAccent(accent, background)
         val light = ColorUtils.calculateLuminance(background) >= 0.5
-        val surface = if (light) Color.WHITE else ColorUtils.blendARGB(Color.BLACK, background, 0.85f)
-        val inactive = ColorUtils.blendARGB(surface, text, 0.55f)
-        val disabled = ColorUtils.blendARGB(surface, text, 0.25f)
+        val surface = if (light) Color.WHITE else Color.rgb(48, 48, 48)
+        val readableAccent = OxygenClassicPalette.readableAccent(accent, surface)
+        val dialogText = if (light) Color.rgb(33, 33, 33) else Color.WHITE
+        val inactive = ColorUtils.blendARGB(surface, dialogText, 0.55f)
+        val disabled = ColorUtils.blendARGB(surface, dialogText, 0.25f)
         val tints = ColorStateList(
             arrayOf(
                 intArrayOf(-android.R.attr.state_enabled),
@@ -93,6 +94,10 @@ object OxygenClassicDialog {
         if (width > 0) dialog.window?.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
 
         fun visit(v: View) {
+            if (v is TextView && v !is android.widget.Button && v !is EditText && v.isEnabled) {
+                val actual = ColorUtils.setAlphaComponent(v.currentTextColor, 255)
+                if (ColorUtils.calculateContrast(actual, surface) < 4.5) v.setTextColor(dialogText)
+            }
             if (v is RadioButton || v is CheckBox) {
                 val button = v as android.widget.CompoundButton
                 CompoundButtonCompat.setButtonTintList(button, tints)

@@ -68,7 +68,6 @@
         <item name="popupMenuStyle">@style/OxygenClassicPopupMenu.Light</item>
         <item name="radioButtonStyle">@style/OxygenClassicRadio</item>
         <item name="android:checkboxStyle">@style/OxygenClassicCheckbox</item>
-        <item name="actionOverflowMenuStyle">@style/OxygenClassicOverflow.Light</item>
         <item name="materialAlertDialogTheme">@style/OxygenClassicMaterialDialog.Light</item>
         <item name="alertDialogTheme">@style/OxygenClassicAlertDialog.Light</item>
         <item name="android:alertDialogTheme">@style/OxygenClassicAlertDialog.Light</item>
@@ -81,7 +80,6 @@
         <item name="popupMenuStyle">@style/OxygenClassicPopupMenu.Dark</item>
         <item name="radioButtonStyle">@style/OxygenClassicRadio</item>
         <item name="android:checkboxStyle">@style/OxygenClassicCheckbox</item>
-        <item name="actionOverflowMenuStyle">@style/OxygenClassicOverflow.Dark</item>
         <item name="materialAlertDialogTheme">@style/OxygenClassicMaterialDialog.Dark</item>
         <item name="alertDialogTheme">@style/OxygenClassicAlertDialog.Dark</item>
         <item name="android:alertDialogTheme">@style/OxygenClassicAlertDialog.Dark</item>
@@ -143,6 +141,10 @@
         <item name="android:textColorSecondary">@color/oxygen_classic_on_light</item>
         <item name="android:textColor">@color/oxygen_classic_on_light</item>
         <item name="colorControlNormal">@color/oxygen_classic_on_light</item>
+        <item name="colorSurface">@color/oxygen_classic_surface</item>
+        <item name="colorOnSurface">@color/oxygen_classic_on_light</item>
+        <item name="textAppearanceLargePopupMenu">@style/OxygenClassicPopupText.Light</item>
+        <item name="textAppearanceSmallPopupMenu">@style/OxygenClassicPopupText.Light</item>
         <item name="popupMenuStyle">@style/OxygenClassicPopupMenu.Light</item>
         <item name="android:popupMenuStyle">@style/OxygenClassicPopupMenu.Light</item>
     </style>
@@ -151,6 +153,10 @@
         <item name="android:textColorSecondary">@color/oxygen_classic_on_dark</item>
         <item name="android:textColor">@color/oxygen_classic_on_dark</item>
         <item name="colorControlNormal">@color/oxygen_classic_on_dark</item>
+        <item name="colorSurface">@color/oxygen_classic_dialog_dark</item>
+        <item name="colorOnSurface">@color/oxygen_classic_on_dark</item>
+        <item name="textAppearanceLargePopupMenu">@style/OxygenClassicPopupText.Dark</item>
+        <item name="textAppearanceSmallPopupMenu">@style/OxygenClassicPopupText.Dark</item>
         <item name="popupMenuStyle">@style/OxygenClassicPopupMenu.Dark</item>
         <item name="android:popupMenuStyle">@style/OxygenClassicPopupMenu.Dark</item>
     </style>
@@ -159,6 +165,15 @@
     </style>
     <style name="OxygenClassicPopupMenu.Dark" parent="Widget.AppCompat.PopupMenu">
         <item name="android:popupBackground">@drawable/oxygen_classic_popup_dark</item>
+    </style>
+
+    <style name="OxygenClassicPopupText.Light" parent="TextAppearance.AppCompat.Widget.PopupMenu.Large">
+        <item name="android:textColor">@color/oxygen_classic_on_light</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+    <style name="OxygenClassicPopupText.Dark" parent="TextAppearance.AppCompat.Widget.PopupMenu.Large">
+        <item name="android:textColor">@color/oxygen_classic_on_dark</item>
+        <item name="android:textSize">16sp</item>
     </style>
 
     <style name="OxygenClassicDialogButton" parent="Widget.AppCompat.Button.Borderless.Colored">
