@@ -26,6 +26,11 @@ fun hasSigningVars(): Boolean {
 val baseVersionCode = project.property("VERSION_CODE").toString().toInt()
 val abiCodes = mapOf("armeabi-v7a" to 1, "arm64-v8a" to 2, "x86" to 3, "x86_64" to 4)
 val abiSplits = providers.gradleProperty("ABI_SPLITS").map(String::toBoolean).getOrElse(false)
+// Only opt-in CI uses this; normal release defaults and ABI matrix are unchanged.
+val abiTarget = providers.gradleProperty("ABI_TARGET").orNull?.takeIf { it.isNotBlank() }
+require(abiTarget == null || (abiSplits && abiCodes.containsKey(abiTarget))) {
+    "ABI_TARGET requires ABI_SPLITS=true and a supported ABI"
+}
 
 base {
     archivesName = "gallery-$baseVersionCode"
@@ -94,8 +99,8 @@ android {
         abi {
             isEnable = abiSplits
             reset()
-            include(*abiCodes.keys.toTypedArray())
-            isUniversalApk = true
+            include(*(abiTarget?.let { arrayOf(it) } ?: abiCodes.keys.toTypedArray()))
+            isUniversalApk = abiTarget == null
         }
     }
 
