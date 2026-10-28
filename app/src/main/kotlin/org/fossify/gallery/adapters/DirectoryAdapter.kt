@@ -131,6 +131,7 @@ class DirectoryAdapter(
     private var groupDirectSubfolders = config.groupDirectSubfolders
     private var currentDirectoriesHash = dirs.hashCode()
     private var lockedFolderPaths = ArrayList<String>()
+    @Volatile private var favoriteFolderPaths: Set<String> = emptySet()
     private var isDragAndDropping = false
     private var startReorderDragListener: StartReorderDragListener? = null
 
@@ -144,6 +145,10 @@ class DirectoryAdapter(
     init {
         setupDragListener(true)
         fillLockedFolders()
+        ensureBackgroundThread {
+            try { favoriteFolderPaths = activity.favoriteFoldersDB.getPaths().toSet() }
+            catch (_: Exception) { }
+        }
     }
 
     override fun getActionMenuId() = R.menu.cab_directories
@@ -192,7 +197,7 @@ class DirectoryAdapter(
 
             checkHideBtnVisibility(this, selectedPaths)
             checkPinBtnVisibility(this, selectedPaths)
-            val favoritePaths = try { activity.favoriteFoldersDB.getPaths().toSet() } catch (_: Exception) { emptySet() }
+            val favoritePaths = favoriteFolderPaths
             findItem(R.id.cab_favorite_folder).isVisible = selectedPaths.any { it != FAVORITES && it != RECYCLE_BIN && it !in favoritePaths }
             findItem(R.id.cab_unfavorite_folder).isVisible = selectedPaths.any { it in favoritePaths }
         }
@@ -284,6 +289,7 @@ class DirectoryAdapter(
                     activity.favoriteFoldersDB.delete(path)
                 }
             }
+            favoriteFolderPaths = activity.favoriteFoldersDB.getPaths().toSet()
             activity.runOnUiThread { listener?.refreshItems() }
         }
     }
