@@ -856,7 +856,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 handleMediaIntent(this)
             } else {
                 hideKeyboard()
-                GalleryBottomBar.open(this, this, finishCurrent = true)
+                GalleryBottomBar.open(this@MainActivity, this, finishCurrent = true)
             }
         }
     }
