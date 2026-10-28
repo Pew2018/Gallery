@@ -5,6 +5,7 @@ import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.extensions.beVisibleIf
 import org.fossify.commons.extensions.getAlertDialogBuilder
 import org.fossify.commons.extensions.setupDialogStuff
+import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.DialogChangeGroupingBinding
 import org.fossify.gallery.extensions.config
@@ -28,7 +29,9 @@ class ChangeGroupingDialog(val activity: BaseSimpleActivity, val path: String = 
             .setPositiveButton(org.fossify.commons.R.string.ok, this)
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
-                activity.setupDialogStuff(binding.root, this, R.string.group_by)
+                activity.setupDialogStuff(binding.root, this, R.string.group_by) { dialog ->
+                    OxygenClassicDialog.apply(activity, dialog, binding.root)
+                }
             }
 
         setupGroupRadio()
