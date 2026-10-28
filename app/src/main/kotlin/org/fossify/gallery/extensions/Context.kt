@@ -929,13 +929,40 @@ fun Context.getCachedMedia(
     getImagesOnly: Boolean = false,
     callback: (ArrayList<ThumbnailItem>) -> Unit
 ) {
+    if (path.isEmpty()) {
+        // Display cached media without first doing an expensive MediaStore folder
+        // enumeration or one Room SELECT per folder. The normal background
+        // media refresh will reconcile newly added or removed files afterward.
+        getCachedDirectories(getVideosOnly, getImagesOnly) { directories ->
+            ensureBackgroundThread {
+                val allowed = directories.asSequence().map { it.path.lowercase(Locale.ROOT) }.toHashSet()
+                val fetcher = MediaFetcher(this)
+                val filter = config.filterMedia
+                val showHidden = config.shouldShowHidden
+                val media = try {
+                    mediaDB.getAllMedia().filter { item ->
+                        item.parentPath.lowercase(Locale.ROOT) in allowed &&
+                            !config.isFolderProtected(item.parentPath) &&
+                            (showHidden || !item.path.contains("/.")) &&
+                            (when {
+                                getVideosOnly -> item.type == TYPE_VIDEOS
+                                getImagesOnly -> item.type == TYPE_IMAGES
+                                else -> item.type and filter != 0
+                            })
+                    }.toCollection(ArrayList())
+                } catch (_: Exception) {
+                    ArrayList<Medium>()
+                }
+                fetcher.sortMedia(media, config.getFolderSorting(SHOW_ALL))
+                callback(fetcher.groupMedia(media, SHOW_ALL))
+            }
+        }
+        return
+    }
+
     ensureBackgroundThread {
         val mediaFetcher = MediaFetcher(this)
-        val foldersToScan = if (path.isEmpty()) {
-            mediaFetcher.getFoldersToScan()
-        } else {
-            arrayListOf(path)
-        }
+        val foldersToScan = arrayListOf(path)
 
         var media = ArrayList<Medium>()
         if (path == FAVORITES) {
