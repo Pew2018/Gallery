@@ -735,7 +735,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     .setMessage(
                         "以下 ${unavailable.size} 个收藏路径目前无法访问。它们也可能位于暂时未连接的存储设备。\n\n" +
                             unavailable.take(8).joinToString("\n") +
-                            if (unavailable.size > 8) "\n……" else "" +
+                            (if (unavailable.size > 8) "\n……" else "") +
                             "\n\n仅删除收藏记录，不删除任何原始文件。"
                     )
                     .setNegativeButton("保留", null)
