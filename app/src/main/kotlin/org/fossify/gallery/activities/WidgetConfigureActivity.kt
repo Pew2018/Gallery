@@ -16,6 +16,7 @@ import org.fossify.gallery.R
 import org.fossify.gallery.databinding.ActivityWidgetConfigBinding
 import org.fossify.gallery.dialogs.PickDirectoryDialog
 import org.fossify.gallery.extensions.*
+import org.fossify.gallery.helpers.OxygenClassicControls
 import org.fossify.gallery.helpers.MyWidgetProvider
 import org.fossify.gallery.helpers.ROUNDED_CORNERS_NONE
 import org.fossify.gallery.models.Directory
@@ -54,6 +55,7 @@ class WidgetConfigureActivity : SimpleActivity() {
 
         updateTextColors(binding.folderPickerHolder)
         val primaryColor = getProperPrimaryColor()
+        OxygenClassicControls.applySwitches(binding.folderPickerHolder, primaryColor, getProperTextColor(), getProperBackgroundColor())
         binding.configBgSeekbar.setColors(mTextColor, primaryColor, primaryColor)
         binding.folderPickerHolder.background = ColorDrawable(getProperBackgroundColor())
 
