@@ -273,7 +273,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                                     .putExtra(EXTRA_SHOW_FOLDERS, true), finishCurrent = true)
                             }
                         } else {
-                            binding.directoriesGrid.scrollToPosition(0)
+                            // Preserve the existing Photos action when ALL is
+                            // tapped from the ordinary folder view.
+                            showAllMedia()
                         }
                     }
                     GalleryBottomBar.Tab.FAVORITE_FOLDERS -> {
