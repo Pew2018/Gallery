@@ -7,6 +7,7 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.ScrollView
@@ -16,6 +17,9 @@ import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import org.fossify.gallery.extensions.config
+import org.fossify.commons.extensions.getProperBackgroundColor
+import org.fossify.commons.extensions.getProperTextColor
+import org.fossify.gallery.helpers.OxygenSystemBars
 import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.helpers.OxygenClassicPalette
 import org.fossify.gallery.helpers.OxygenThemeEngine
@@ -24,12 +28,17 @@ import org.fossify.gallery.helpers.OxygenThemePresets
 /** A classic View settings screen: no Material3 or Compose widgets. */
 class OxygenThemeActivity : SimpleActivity() {
     private lateinit var root: LinearLayout
+    private lateinit var titleBar: LinearLayout
+    private lateinit var backIcon: ImageView
+    private lateinit var titleText: TextView
     private lateinit var scroll: ScrollView
     private lateinit var body: LinearLayout
 
     private fun dp(n: Int) = (resources.displayMetrics.density * n + 0.5f).toInt()
-    private val bg get() = if (OxygenThemeEngine.isDark(this, config)) Color.rgb(33, 33, 33) else Color.rgb(250, 250, 250)
-    private val fg get() = if (OxygenThemeEngine.isDark(this, config)) Color.WHITE else Color.rgb(33, 33, 33)
+    private val bg get() = OxygenThemeEngine.pageSurface(this, config)
+    private val fg get() = if (config.oxygenThemeActivated) {
+        if (OxygenThemeEngine.isDark(this, config)) Color.WHITE else Color.rgb(33, 33, 33)
+    } else getProperTextColor()
     private val secondary get() = ColorUtils.blendARGB(bg, fg, 0.65f)
     private val accent get() = if (config.oxygenThemeActivated) OxygenThemeEngine.accent(config)
         else config.primaryColor
@@ -37,6 +46,32 @@ class OxygenThemeActivity : SimpleActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        titleBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        backIcon = ImageView(this).apply {
+            setImageResource(org.fossify.commons.R.drawable.ic_arrow_left_vector)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            contentDescription = "返回"
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { finish() }
+        }
+        titleText = TextView(this).apply {
+            text = "经典主题与配色"
+            textSize = 20f
+            gravity = Gravity.CENTER_VERTICAL
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        titleBar.addView(backIcon, LinearLayout.LayoutParams(dp(48), dp(56)))
+        titleBar.addView(titleText, LinearLayout.LayoutParams(0, -1, 1f).apply {
+            marginStart = dp(16)
+            marginEnd = dp(16)
+        })
+        root.addView(titleBar, LinearLayout.LayoutParams(-1, dp(56)))
         scroll = ScrollView(this).apply { isFillViewport = true }
         body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(body)
@@ -145,44 +180,22 @@ class OxygenThemeActivity : SimpleActivity() {
         root.setBackgroundColor(surface)
         body.removeAllViews()
         body.setBackgroundColor(surface)
-        val titleBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(OxygenThemeEngine.toolbarSurface(this@OxygenThemeActivity, config))
-        }
-        val barColor = OxygenThemeEngine.toolbarForeground(this, config)
-        val back = TextView(this).apply {
-            text = "‹"
-            textSize = 32f
-            setTextColor(barColor)
-            gravity = Gravity.CENTER
-            contentDescription = "返回"
-            setOnClickListener { finish() }
-        }
-        titleBar.addView(back, LinearLayout.LayoutParams(dp(56), -1))
-        titleBar.addView(TextView(this).apply {
-            text = "经典主题与配色"
-            textSize = 20f
-            setTextColor(barColor)
-            gravity = Gravity.CENTER_VERTICAL
-        })
-        root.findViewWithTag<View>("oxygen_theme_toolbar")?.let(root::removeView)
-        titleBar.tag = "oxygen_theme_toolbar"
-        root.addView(titleBar, 0, LinearLayout.LayoutParams(-1, dp(56)))
-        window.statusBarColor = OxygenThemeEngine.toolbarSurface(this, config)
-        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-            .isAppearanceLightStatusBars = ColorUtils.calculateLuminance(
-                OxygenThemeEngine.toolbarSurface(this, config)) >= 0.5
+        val toolbarColor = OxygenThemeEngine.toolbarSurface(this, config)
+        val toolbarText = OxygenThemeEngine.toolbarForeground(this, config)
+        titleBar.setBackgroundColor(toolbarColor)
+        backIcon.imageTintList = ColorStateList.valueOf(toolbarText)
+        titleText.setTextColor(toolbarText)
+        OxygenSystemBars.apply(this)
 
-        section("主题实时预览")
-        val preview = TextView(this).apply {
-            text = "OxygenOS Classic     ●   □   ✓"
-            textSize = 16f
-            setTextColor(OxygenClassicPalette.readableAccent(accent, surface))
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(8), dp(16), dp(8))
+        section("外观模式")
+        listOf("system" to "跟随系统", "light" to "浅色模式", "dark" to "深色模式").forEach { (mode, label) ->
+            item(label, config.oxygenAppearanceMode == mode) {
+                changeAndRender {
+                    config.oxygenAppearanceMode = mode
+                    config.oxygenThemeActivated = true
+                }
+            }
         }
-        body.addView(preview, LinearLayout.LayoutParams(-1, dp(54)))
         section("经典配色")
         OxygenThemePresets.all.filter { it.group == "classic" }.forEach { preset ->
             item(preset.label, config.oxygenThemePresetId == preset.id, preset.color) {
@@ -201,16 +214,7 @@ class OxygenThemeActivity : SimpleActivity() {
                 }
             }
         }
-        section("外观模式")
-        listOf("system" to "跟随系统", "light" to "浅色模式", "dark" to "深色模式").forEach { (mode, label) ->
-            item(label, config.oxygenAppearanceMode == mode) {
-                changeAndRender {
-                    config.oxygenAppearanceMode = mode
-                    config.oxygenThemeActivated = true
-                }
-            }
-        }
-        section("自定义强调色和顶栏配色")
+        section("主题强调色与自定义配色")
         item("自定义强调色：" + OxygenThemeEngine.formatHex(accent),
             config.oxygenThemePresetId == "custom", accent) {
             chooseColor("应用强调色", accent) { color ->
@@ -221,7 +225,8 @@ class OxygenThemeActivity : SimpleActivity() {
                 }
             }
         }
-        item("顶栏背景：跟随主题", !config.oxygenCustomToolbarEnabled) {
+        section("顶栏背景")
+        item("顶栏背景：默认经典颜色", !config.oxygenCustomToolbarEnabled) {
             changeAndRender {
                 config.oxygenCustomToolbarEnabled = false
                 config.oxygenThemeActivated = true
@@ -237,6 +242,7 @@ class OxygenThemeActivity : SimpleActivity() {
                 }
             }
         }
+        section("顶栏文字与图标")
         item("顶栏文字与图标：自动选择", !config.oxygenManualToolbarText) {
             changeAndRender { config.oxygenManualToolbarText = false }
         }
@@ -249,7 +255,7 @@ class OxygenThemeActivity : SimpleActivity() {
                 }
             }
         }
-        section("旧版配色兼容")
+        section("恢复与兼容")
         item("恢复原有 Fossify 配色", !config.oxygenThemeActivated) {
             changeAndRender { config.oxygenThemeActivated = false }
         }
@@ -263,6 +269,16 @@ class OxygenThemeActivity : SimpleActivity() {
             setTextColor(secondary)
             setPadding(dp(16), dp(12), dp(16), dp(8))
         })
+        if (config.oxygenThemeActivated && config.oxygenManualToolbarText &&
+            ColorUtils.calculateContrast(ColorUtils.setAlphaComponent(config.oxygenToolbarTextColor, 255),
+                OxygenThemeEngine.toolbarSurface(this, config)) < 4.5) {
+            body.addView(TextView(this).apply {
+                text = "注意：手动设置的顶栏文字色对比度不足 4.5:1，已按你的设置保留原值。"
+                textSize = 12f
+                setTextColor(OxygenClassicPalette.readableAccent(accent, surface))
+                setPadding(dp(16), dp(8), dp(16), dp(8))
+            })
+        }
         body.addView(TextView(this).apply {
             text = "主题会保留颜色原值。自动文字颜色仅根据背景选择黑色或白色，不改变已保存的配色。"
             textSize = 12f
