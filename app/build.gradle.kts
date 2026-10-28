@@ -72,7 +72,9 @@ android {
         buildConfig = true
     }
 
-    testBuildType = "release"\n\n    buildTypes {
+    testBuildType = "release"
+
+    buildTypes {
         debug {
             applicationIdSuffix = ".debug"
         }
