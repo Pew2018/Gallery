@@ -25,6 +25,7 @@ class DeleteWithRememberDialog(
             .setNegativeButton(org.fossify.commons.R.string.no, null)
             .apply {
                 activity.setupDialogStuff(binding.root, this) { alertDialog ->
+                    OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                     dialog = alertDialog
                 }
             }
