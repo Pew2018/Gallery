@@ -72,6 +72,7 @@ object OxygenSelectionMode {
                 val foreground = OxygenThemeEngine.toolbarForeground(activity, activity.config)
                 val title = mode.customView as? TextView
                 title?.setTextColor(foreground)
+                title?.textSize = 20f
                 SelectionCountFormatter.selectedCount(title?.text)?.let { count ->
                     title?.text = activity.getString(R.string.oxygen_selected_count, count)
                 }
@@ -92,10 +93,13 @@ object OxygenSelectionMode {
                         tintClose(it, foreground)
                     }
                 tintMenu(menu, foreground)
-                if (Build.VERSION.SDK_INT < 35) activity.window.statusBarColor = surface
-                WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-                    .isAppearanceLightStatusBars =
-                    ColorUtils.calculateContrast(android.graphics.Color.BLACK, surface) >= 4.5
+                OxygenSystemBars.apply(activity)
+                if (!activity.config.oxygenThemeActivated) {
+                    if (Build.VERSION.SDK_INT < 35) activity.window.statusBarColor = surface
+                    WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+                        .isAppearanceLightStatusBars =
+                        ColorUtils.calculateContrast(android.graphics.Color.BLACK, surface) >= 4.5
+                }
             }
 
             private fun tintMenu(menu: Menu?, foreground: Int) {

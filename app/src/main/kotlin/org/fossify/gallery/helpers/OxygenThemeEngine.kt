@@ -47,8 +47,8 @@ object OxygenThemeEngine {
 
     // The 2017 Settings-derived toolbar is a dedicated dark surface, NOT the
     // light page surface. Keep legacy Fossify and all saved custom colors intact.
-    const val CLASSIC_TOOLBAR: Int = 0xFF212121.toInt()
-    const val CLASSIC_STATUS_BAR: Int = 0xFF1E1E1E.toInt()
+    val CLASSIC_TOOLBAR: Int = 0xFF212121.toInt()
+    val CLASSIC_STATUS_BAR: Int = 0xFF1E1E1E.toInt()
 
     fun resolveToolbarSurface(
         activated: Boolean, customEnabled: Boolean, customColor: Int, legacyColor: Int

@@ -82,6 +82,17 @@ object OxygenToolbarStyle {
         container.background = ColorDrawable(surface)
         preparePopup(activity, menu)
         actions.visibility = if (opened) View.GONE else View.VISIBLE
+        menu.minimumHeight = dp(56)
+        actions.setBackgroundColor(surface)
+        actions.setTitleTextColor(foreground)
+        actions.navigationIcon?.mutate()?.setTint(foreground)
+        actions.overflowIcon?.mutate()?.setTint(foreground)
+        for (i in 0 until actions.menu.size()) {
+            actions.menu.getItem(i).icon?.mutate()?.setTint(foreground)
+        }
+        icon.imageTintList = ColorStateList.valueOf(foreground)
+        input.setTextColor(foreground)
+        input.setHintTextColor(ColorUtils.setAlphaComponent(foreground, 160))
 
         // Closed search icon is to the left of menu actions; open arrow is leading.
         icon.layoutParams = (icon.layoutParams as RelativeLayout.LayoutParams).apply {

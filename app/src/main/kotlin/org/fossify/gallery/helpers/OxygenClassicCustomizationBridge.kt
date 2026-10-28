@@ -9,6 +9,7 @@ import org.fossify.commons.activities.CustomizationActivity
 import org.fossify.commons.extensions.getProperBackgroundColor
 import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.gallery.R
+import org.fossify.gallery.extensions.config
 
 /**
  * A one-shot lifecycle adapter for Commons' non-subclassable appearance screen.
@@ -22,9 +23,9 @@ object OxygenClassicCustomizationBridge {
             val toolbar = activity.findViewById<MaterialToolbar>(
                 org.fossify.commons.R.id.customization_toolbar
             ) ?: return@post
-            val surface = activity.getProperBackgroundColor()
-            val text = activity.getProperTextColor()
-            val light = ColorUtils.calculateLuminance(surface) >= 0.5
+            val surface = OxygenThemeEngine.toolbarSurface(activity, activity.config)
+            val text = OxygenThemeEngine.toolbarForeground(activity, activity.config)
+            val light = ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
             activity.theme.applyStyle(
                 if (light) R.style.OxygenClassicActivityOverlay_Light
                 else R.style.OxygenClassicActivityOverlay_Dark,
@@ -43,8 +44,7 @@ object OxygenClassicCustomizationBridge {
             )
             activity.findViewById<View>(org.fossify.commons.R.id.app_bar)
                 ?.setBackgroundColor(surface)
-            WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-                .isAppearanceLightStatusBars = light
+            OxygenSystemBars.apply(activity)
         }
     }
 }

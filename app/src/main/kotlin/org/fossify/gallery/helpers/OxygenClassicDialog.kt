@@ -51,7 +51,7 @@ object OxygenClassicDialog {
             dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
         dialog.show()
-        apply(activity, dialog, content ?: (dialog.window?.decorView ?: activity.window.decorView))
+        apply(activity, dialog, dialog.window?.decorView ?: content ?: activity.window.decorView)
         dialog.window?.setDimAmount(0.60f)
         return dialog
     }
@@ -80,7 +80,7 @@ object OxygenClassicDialog {
                 intArrayOf(android.R.attr.state_checked),
                 intArrayOf()
             ),
-            intArrayOf(disabled, accent, inactive)
+            intArrayOf(disabled, readableAccent, inactive)
         )
 
         val shape = GradientDrawable().apply {
@@ -92,13 +92,8 @@ object OxygenClassicDialog {
             .coerceAtMost((560f * dp).toInt())
         if (width > 0) dialog.window?.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
 
+        // Preserve semantic, disabled, link and hint text: only skin actual controls.
         fun visit(v: View) {
-            if (v is TextView && v !is android.widget.Button && v !is EditText && v.isEnabled) {
-                val current = v.currentTextColor
-                val displayed = if (Color.alpha(current) < 255)
-                    ColorUtils.compositeColors(current, surface) else current
-                if (ColorUtils.calculateContrast(displayed, surface) < 4.5) v.setTextColor(dialogText)
-            }
             if (v is RadioButton || v is CheckBox) {
                 val button = v as android.widget.CompoundButton
                 CompoundButtonCompat.setButtonTintList(button, tints)
