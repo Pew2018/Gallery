@@ -565,6 +565,12 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                 }
             }
 
+            override fun onRenderedFirstFrame() {
+                // Keep the preview visible until the decoder really displays a frame.
+                // Player.STATE_READY alone does not guarantee that the Surface has one.
+                if (view != null) binding.videoPreview.beGone()
+            }
+
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 mVideoSize.x = videoSize.width
                 mVideoSize.y = (videoSize.height / videoSize.pixelWidthHeightRatio).toInt()
@@ -805,11 +811,8 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             return
         }
 
-        if (binding.videoPreview.isVisible()) {
-            binding.videoPreview.beGone()
-            initExoPlayer()
-        }
-
+        // The preview is removed by onRenderedFirstFrame, not when playback
+        // is requested, so slow decoders do not expose a blank black Surface.
         val wasEnded = videoEnded()
         if (wasEnded) {
             setPosition(0)
