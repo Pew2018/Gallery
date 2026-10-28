@@ -51,7 +51,7 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
-        tools:replace="android:label">
+        tools:replace="android:label,android:allowBackup">
 
         <!-- Vault content and Keystore-wrapped keys must never enter cloud backups. -->
         <activity
