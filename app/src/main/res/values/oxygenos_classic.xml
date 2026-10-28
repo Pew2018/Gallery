@@ -59,6 +59,7 @@
     <color name="oxygen_classic_on_dark">#FAFAFA</color>
     <color name="oxygen_classic_dialog_dark">#303030</color>
 
+    <style name="OxygenClassicActivityOverlay" />
     <style name="OxygenClassicActivityOverlay.Light">
         <item name="colorSurface">@color/oxygen_classic_surface</item>
         <item name="colorOnSurface">@color/oxygen_classic_on_light</item>
