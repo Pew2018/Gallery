@@ -37,14 +37,14 @@
 
             <TextView
                 android:id="@+id/settings_color_customization_section_label"
-                style="@style/SettingsSectionLabelStyle"
+                style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/color_customization" />
 
             <androidx.constraintlayout.widget.ConstraintLayout
                 android:id="@+id/settings_color_customization_holder"
-                style="@style/SettingsHolderTextViewOneLinerStyle"
+                style="@style/OxygenClassicSettingsSingleRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -65,7 +65,7 @@
 
             <TextView
                 android:id="@+id/settings_general_settings_label"
-                style="@style/SettingsSectionLabelStyle"
+                style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/general_settings" />
@@ -77,7 +77,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_use_english_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -92,7 +92,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_language_holder"
-                style="@style/SettingsHolderTextViewStyle"
+                style="@style/OxygenClassicSettingsDetailsRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -105,7 +105,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_language"
-                    style="@style/SettingsTextValueStyle"
+                    style="@style/OxygenClassicSettingsSecondaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_below="@+id/settings_language_label"
@@ -115,7 +115,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_change_date_time_format_holder"
-                style="@style/SettingsHolderTextViewOneLinerStyle"
+                style="@style/OxygenClassicSettingsSingleRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -130,7 +130,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_file_loading_priority_holder"
-                style="@style/SettingsHolderTextViewStyle"
+                style="@style/OxygenClassicSettingsDetailsRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -143,7 +143,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_file_loading_priority"
-                    style="@style/SettingsTextValueStyle"
+                    style="@style/OxygenClassicSettingsSecondaryText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_below="@+id/settings_file_loading_priority_label"
@@ -153,7 +153,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_manage_included_folders_holder"
-                style="@style/SettingsHolderTextViewOneLinerStyle"
+                style="@style/OxygenClassicSettingsSingleRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -168,7 +168,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_manage_excluded_folders_holder"
-                style="@style/SettingsHolderTextViewOneLinerStyle"
+                style="@style/OxygenClassicSettingsSingleRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -183,7 +183,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_manage_hidden_folders_holder"
-                style="@style/SettingsHolderTextViewOneLinerStyle"
+                style="@style/OxygenClassicSettingsSingleRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -198,7 +198,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_show_hidden_items_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -213,7 +213,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_search_all_files_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -232,14 +232,14 @@
 
             <TextView
                 android:id="@+id/settings_videos_label"
-                style="@style/SettingsSectionLabelStyle"
+                style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/videos" />
 
             <RelativeLayout
                 android:id="@+id/settings_autoplay_videos_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -254,7 +254,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_remember_last_video_position_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -269,7 +269,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_loop_videos_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -284,7 +284,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_open_videos_on_separate_screen_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -299,7 +299,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_allow_video_gestures_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -314,7 +314,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_on_video_tap_holder"
-                style="@style/SettingsHolderTextViewStyle"
+                style="@style/OxygenClassicSettingsDetailsRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -327,7 +327,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_on_video_tap"
-                    style="@style/SettingsTextValueStyle"
+                    style="@style/OxygenClassicSettingsSecondaryText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_below="@+id/settings_on_video_tap_label"
@@ -341,14 +341,14 @@
 
             <TextView
                 android:id="@+id/settings_thumbnails_label"
-                style="@style/SettingsSectionLabelStyle"
+                style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/thumbnails" />
 
             <RelativeLayout
                 android:id="@+id/settings_crop_thumbnails_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -363,7 +363,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_animate_gifs_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -378,7 +378,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_file_thumbnail_style_holder"
-                style="@style/SettingsHolderTextViewOneLinerStyle"
+                style="@style/OxygenClassicSettingsSingleRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -393,7 +393,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_folder_thumbnail_style_holder"
-                style="@style/SettingsHolderTextViewStyle"
+                style="@style/OxygenClassicSettingsDetailsRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -406,7 +406,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_folder_thumbnail_style"
-                    style="@style/SettingsTextValueStyle"
+                    style="@style/OxygenClassicSettingsSecondaryText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_below="@+id/settings_folder_thumbnail_style_label"
@@ -420,14 +420,14 @@
 
             <TextView
                 android:id="@+id/settings_scrolling_label"
-                style="@style/SettingsSectionLabelStyle"
+                style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/scrolling" />
 
             <RelativeLayout
                 android:id="@+id/settings_scroll_horizontally_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -442,7 +442,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_enable_pull_to_refresh_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -461,14 +461,14 @@
 
             <TextView
                 android:id="@+id/settings_fullscreen_media_label"
-                style="@style/SettingsSectionLabelStyle"
+                style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/fullscreen_media" />
 
             <RelativeLayout
                 android:id="@+id/settings_max_brightness_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -483,7 +483,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_ultra_hdr_rendering_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -498,7 +498,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_black_background_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -513,7 +513,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_hide_system_ui_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -528,7 +528,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_allow_instant_change_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -543,7 +543,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_keep_screen_on_fullscreen_photos_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -558,7 +558,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_allow_photo_gestures_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -573,7 +573,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_allow_down_gesture_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -588,7 +588,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_show_notch_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -603,7 +603,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_screen_rotation_holder"
-                style="@style/SettingsHolderTextViewStyle"
+                style="@style/OxygenClassicSettingsDetailsRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -616,7 +616,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_screen_rotation"
-                    style="@style/SettingsTextValueStyle"
+                    style="@style/OxygenClassicSettingsSecondaryText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_below="@+id/settings_screen_rotation_label"
@@ -630,14 +630,14 @@
 
             <TextView
                 android:id="@+id/settings_deep_zoomable_images_label"
-                style="@style/SettingsSectionLabelStyle"
+                style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/deep_zoomable_images" />
 
             <RelativeLayout
                 android:id="@+id/settings_allow_zooming_images_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -652,7 +652,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_allow_rotating_with_gestures_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -667,7 +667,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_show_highest_quality_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -682,7 +682,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_allow_one_to_one_zoom_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -701,14 +701,14 @@
 
             <TextView
                 android:id="@+id/settings_extended_details_label"
-                style="@style/SettingsSectionLabelStyle"
+                style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/extended_details" />
 
             <RelativeLayout
                 android:id="@+id/settings_show_extended_details_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -723,7 +723,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_hide_extended_details_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -738,7 +738,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_manage_extended_details_holder"
-                style="@style/SettingsHolderTextViewOneLinerStyle"
+                style="@style/OxygenClassicSettingsSingleRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -757,14 +757,14 @@
 
             <TextView
                 android:id="@+id/settings_security_label"
-                style="@style/SettingsSectionLabelStyle"
+                style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/security" />
 
             <RelativeLayout
                 android:id="@+id/settings_app_password_protection_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -779,7 +779,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_hidden_item_password_protection_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -794,7 +794,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_excluded_item_password_protection_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -809,7 +809,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_file_deletion_password_protection_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -828,14 +828,14 @@
 
             <TextView
                 android:id="@+id/settings_file_operations_label"
-                style="@style/SettingsSectionLabelStyle"
+                style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/file_operations" />
 
             <RelativeLayout
                 android:id="@+id/settings_delete_empty_folders_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -850,7 +850,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_keep_last_modified_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -865,7 +865,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_skip_delete_confirmation_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -884,14 +884,14 @@
 
             <TextView
                 android:id="@+id/settings_bottom_actions_label"
-                style="@style/SettingsSectionLabelStyle"
+                style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/bottom_actions" />
 
             <RelativeLayout
                 android:id="@+id/settings_bottom_actions_checkbox_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -906,7 +906,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_manage_bottom_actions_holder"
-                style="@style/SettingsHolderTextViewOneLinerStyle"
+                style="@style/OxygenClassicSettingsSingleRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -925,14 +925,14 @@
 
             <TextView
                 android:id="@+id/settings_recycle_bin_label"
-                style="@style/SettingsSectionLabelStyle"
+                style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/recycle_bin" />
 
             <RelativeLayout
                 android:id="@+id/settings_use_recycle_bin_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -947,7 +947,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_show_recycle_bin_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -962,7 +962,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_show_recycle_bin_last_holder"
-                style="@style/SettingsHolderSwitchStyle"
+                style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -977,7 +977,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_empty_recycle_bin_holder"
-                style="@style/SettingsHolderTextViewStyle"
+                style="@style/OxygenClassicSettingsDetailsRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -990,7 +990,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_empty_recycle_bin_size"
-                    style="@style/SettingsTextValueStyle"
+                    style="@style/OxygenClassicSettingsSecondaryText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_below="@+id/settings_empty_recycle_bin_label"
@@ -1004,14 +1004,14 @@
 
             <TextView
                 android:id="@+id/settings_migrating_label"
-                style="@style/SettingsSectionLabelStyle"
+                style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/migrating" />
 
             <RelativeLayout
                 android:id="@+id/settings_clear_cache_holder"
-                style="@style/SettingsHolderTextViewStyle"
+                style="@style/OxygenClassicSettingsDetailsRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -1024,7 +1024,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_clear_cache_size"
-                    style="@style/SettingsTextValueStyle"
+                    style="@style/OxygenClassicSettingsSecondaryText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_below="@+id/settings_clear_cache_label"
@@ -1034,7 +1034,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_export_favorites_holder"
-                style="@style/SettingsHolderTextViewOneLinerStyle"
+                style="@style/OxygenClassicSettingsSingleRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -1049,7 +1049,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_import_favorites_holder"
-                style="@style/SettingsHolderTextViewOneLinerStyle"
+                style="@style/OxygenClassicSettingsSingleRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -1064,7 +1064,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_export_holder"
-                style="@style/SettingsHolderTextViewOneLinerStyle"
+                style="@style/OxygenClassicSettingsSingleRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
@@ -1079,7 +1079,7 @@
 
             <RelativeLayout
                 android:id="@+id/settings_import_holder"
-                style="@style/SettingsHolderTextViewOneLinerStyle"
+                style="@style/OxygenClassicSettingsSingleRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 

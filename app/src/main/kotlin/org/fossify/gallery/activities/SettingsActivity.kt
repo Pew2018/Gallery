@@ -128,6 +128,11 @@ class SettingsActivity : SimpleActivity() {
         ).forEach {
             it.setTextColor(getProperPrimaryColor())
         }
+        // Commons applies MaterialSwitch colors in updateTextColors(); restore
+        // the classic geometry/tints afterwards without changing row callbacks.
+        OxygenClassicControls.applySwitches(
+            binding.settingsHolder, getProperPrimaryColor(), getProperTextColor(), getProperBackgroundColor()
+        )
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, resultData: Intent?) {

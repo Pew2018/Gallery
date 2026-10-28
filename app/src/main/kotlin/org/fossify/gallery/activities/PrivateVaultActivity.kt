@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.EditText
@@ -17,7 +18,7 @@ import android.widget.VideoView
 import android.widget.Toast
 import android.content.res.ColorStateList
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.RippleDrawable
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -62,17 +63,35 @@ class PrivateVaultActivity : SimpleActivity() {
         fun dp(value: Int) = (value * density + 0.5f).toInt()
         val background = getProperBackgroundColor()
         val foreground = getProperTextColor()
-        val margin = dp(18)
+        val margin = dp(16)
         root = CoordinatorLayout(this).apply { setBackgroundColor(background) }
 
-        val toolbar = TextView(this).apply {
+        val toolbar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(background)
+        }
+        toolbar.addView(ImageView(this).apply {
+            setImageResource(org.fossify.commons.R.drawable.ic_arrow_left_vector)
+            imageTintList = ColorStateList.valueOf(foreground)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            contentDescription = getString(org.fossify.commons.R.string.back)
+            isClickable = true
+            isFocusable = true
+            background = RippleDrawable(ColorStateList.valueOf(Color.argb(28,
+                Color.red(foreground), Color.green(foreground), Color.blue(foreground))),
+                ColorDrawable(Color.TRANSPARENT), null)
+            setOnClickListener { onBackPressedDispatcher.onBackPressed() }
+        }, LinearLayout.LayoutParams(dp(48), dp(56)))
+        toolbar.addView(TextView(this).apply {
             text = "隐私空间"
             textSize = 20f
             setTextColor(foreground)
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(20), 0, dp(20), 0)
-            setBackgroundColor(background)
-        }
+            setPadding(dp(16), 0, dp(16), 0)
+            maxLines = 1
+        }, LinearLayout.LayoutParams(0, dp(56), 1f))
         val toolbarParams = CoordinatorLayout.LayoutParams(-1, dp(56)).apply {
             gravity = Gravity.TOP
         }
@@ -165,36 +184,31 @@ class PrivateVaultActivity : SimpleActivity() {
         fun dp(value: Int) = (value * density + 0.5f).toInt()
         val primary = getProperPrimaryColor()
         val foreground = getProperTextColor()
-        val surface = getProperBackgroundColor()
-        val container = GradientDrawable().apply {
-            cornerRadius = dp(8).toFloat()
-            setColor(surface)
-            setStroke(dp(1), Color.argb(50, Color.red(foreground), Color.green(foreground), Color.blue(foreground)))
-        }
         val row = TextView(this).apply {
             text = label
-            textSize = 15f
+            textSize = 16f
             setTextColor(foreground)
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(16), 0, dp(16), 0)
             background = RippleDrawable(
-                ColorStateList.valueOf(Color.argb(32, Color.red(primary), Color.green(primary), Color.blue(primary))),
-                container, null
+                ColorStateList.valueOf(Color.argb(28, Color.red(primary), Color.green(primary), Color.blue(primary))),
+                ColorDrawable(Color.TRANSPARENT), null
             )
             isClickable = true
             isFocusable = true
             setOnClickListener { action() }
         }
-        body.addView(row, LinearLayout.LayoutParams(-1, dp(52)).apply {
-            bottomMargin = dp(10)
-        })
+        body.addView(row, LinearLayout.LayoutParams(-1, dp(56)))
+        body.addView(View(this).apply {
+            setBackgroundColor(Color.argb(38, Color.red(foreground), Color.green(foreground), Color.blue(foreground)))
+        }, LinearLayout.LayoutParams(-1, dp(1)))
     }
 
     private fun heading(text: String) {
         val density = resources.displayMetrics.density
         body.addView(TextView(this).apply {
             this.text = text
-            textSize = 23f
+            textSize = 20f
             setTextColor(getProperTextColor())
             setPadding(0, (14 * density).toInt(), 0, (20 * density).toInt())
         })

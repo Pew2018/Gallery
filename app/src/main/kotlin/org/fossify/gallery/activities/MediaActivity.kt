@@ -315,7 +315,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun onDestroy() {
         super.onDestroy()
-        if (config.showAll && !isChangingConfigurations) {
+        if (mShowAll && !isChangingConfigurations) {
             config.temporarilyShowHidden = false
             config.tempSkipDeleteConfirmation = false
             config.tempSkipRecycleBin = false

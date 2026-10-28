@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- OxygenOS 4.5.15 screenshot-derived visual baselines; user-selected
+         Fossify colors still control interactive tints and dark themes. -->
+    <color name="oxygen_classic_toolbar">#212121</color>
+    <color name="oxygen_classic_statusbar">#1E1E1E</color>
+    <color name="oxygen_classic_page">#FAFAFA</color>
+    <color name="oxygen_classic_surface">#FFFFFF</color>
+    <color name="oxygen_classic_accent">#2196F3</color>
+    <color name="oxygen_classic_file_manager_blue">#0071CD</color>
+    <color name="oxygen_classic_divider">#E6E6E6</color>
+
+    <dimen name="oxygen_classic_toolbar_height">56dp</dimen>
+    <dimen name="oxygen_classic_horizontal_margin">16dp</dimen>
+    <dimen name="oxygen_classic_single_row">56dp</dimen>
+    <dimen name="oxygen_classic_details_row">72dp</dimen>
+    <dimen name="oxygen_classic_switch_width">40dp</dimen>
+    <dimen name="oxygen_classic_switch_thumb_size">20dp</dimen>
+
+    <style name="OxygenClassicSettingsSection" parent="SettingsSectionLabelStyle">
+        <item name="android:minHeight">48dp</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:paddingTop">12dp</item>
+        <item name="android:paddingBottom">8dp</item>
+    </style>
+    <style name="OxygenClassicSettingsSwitchRow" parent="SettingsHolderSwitchStyle">
+        <item name="android:minHeight">@dimen/oxygen_classic_single_row</item>
+        <item name="android:gravity">center_vertical</item>
+    </style>
+    <style name="OxygenClassicSettingsSingleRow" parent="SettingsHolderTextViewOneLinerStyle">
+        <item name="android:minHeight">@dimen/oxygen_classic_single_row</item>
+        <item name="android:gravity">center_vertical</item>
+    </style>
+    <style name="OxygenClassicSettingsDetailsRow" parent="SettingsHolderTextViewStyle">
+        <item name="android:minHeight">@dimen/oxygen_classic_details_row</item>
+        <item name="android:gravity">center_vertical</item>
+    </style>
+    <style name="OxygenClassicSettingsSecondaryText" parent="SettingsTextValueStyle">
+        <item name="android:textSize">12sp</item>
+        <item name="android:alpha">0.54</item>
+    </style>
+</resources>
