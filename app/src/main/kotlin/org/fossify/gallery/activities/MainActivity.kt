@@ -299,6 +299,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
 
         setupEdgeToEdge(
+            padTopSystem = listOf(binding.mainMenu),
             padBottomImeAndSystem = listOf(binding.directoriesGrid)
         )
 
