@@ -40,4 +40,26 @@
         <item name="android:textSize">12sp</item>
         <item name="android:alpha">0.54</item>
     </style>
+
+    <!-- Keep menus on a neutral surface, never the user's accent color. -->
+    <style name="OxygenClassicPopupTheme.Light" parent="ThemeOverlay.AppCompat.Light">
+        <item name="popupMenuStyle">@style/OxygenClassicPopupMenu.Light</item>
+        <item name="android:popupMenuStyle">@style/OxygenClassicPopupMenu.Light</item>
+    </style>
+    <style name="OxygenClassicPopupTheme.Dark" parent="ThemeOverlay.AppCompat.Dark">
+        <item name="popupMenuStyle">@style/OxygenClassicPopupMenu.Dark</item>
+        <item name="android:popupMenuStyle">@style/OxygenClassicPopupMenu.Dark</item>
+    </style>
+    <style name="OxygenClassicPopupMenu.Light" parent="Widget.AppCompat.PopupMenu">
+        <item name="android:popupBackground">@drawable/oxygen_classic_popup_light</item>
+    </style>
+    <style name="OxygenClassicPopupMenu.Dark" parent="Widget.AppCompat.PopupMenu">
+        <item name="android:popupBackground">@drawable/oxygen_classic_popup_dark</item>
+    </style>
+
+    <style name="OxygenClassicDialogButton" parent="Widget.AppCompat.Button.Borderless.Colored">
+        <item name="android:minHeight">48dp</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:textSize">14sp</item>
+    </style>
 </resources>
