@@ -94,6 +94,7 @@ import org.fossify.gallery.helpers.GridSpacingItemDecoration
 import org.fossify.gallery.helpers.IS_IN_RECYCLE_BIN
 import org.fossify.gallery.helpers.MAX_COLUMN_COUNT
 import org.fossify.gallery.helpers.GalleryBottomBar
+import org.fossify.gallery.helpers.OxygenToolbarStyle
 import org.fossify.gallery.helpers.MediaFetcher
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.PICKED_PATHS
@@ -435,6 +436,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private fun updateMenuColors() {
         binding.mediaMenu.updateColors()
+        OxygenToolbarStyle.apply(this, binding.mediaMenu)
     }
 
     private fun storeStateVariables() {
