@@ -499,6 +499,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun refreshMenuItems() {
         if (!mIsThirdPartyIntent) {
             binding.mainMenu.requireToolbar().menu.apply {
+                findItem(R.id.manage_unavailable_folder_favorites).isVisible = mShowingFolderFavorites
                 findItem(R.id.column_count).isVisible = config.viewTypeFolders == VIEW_TYPE_GRID
                 findItem(R.id.set_as_default_folder).isVisible = !config.defaultFolder.isEmpty()
                 findItem(R.id.open_recycle_bin).isVisible =
@@ -547,6 +548,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 R.id.sort -> showSortingDialog()
                 R.id.filter -> showFilterMediaDialog()
                 R.id.folder_visibility -> showFolderVisibilityDialog()
+                R.id.manage_unavailable_folder_favorites -> manageUnavailableFolderFavorites()
                 R.id.open_camera -> launchCamera()
                 R.id.show_all -> showAllMedia()
                 R.id.change_view_type -> changeViewType()
@@ -714,6 +716,37 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
 
             getRecyclerAdapter()?.directorySorting = config.directorySorting
+        }
+    }
+
+    private fun manageUnavailableFolderFavorites() {
+        ensureBackgroundThread {
+            val unavailable = favoriteFoldersDB.getPaths().filter { path ->
+                !getDoesFilePathExist(path, config.OTGPath)
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (unavailable.isEmpty()) {
+                    toast("没有检测到不可用的收藏路径")
+                    return@runOnUiThread
+                }
+                AlertDialog.Builder(this)
+                    .setTitle("清理不可用的收藏路径")
+                    .setMessage(
+                        "以下 ${unavailable.size} 个收藏路径目前无法访问。它们也可能位于暂时未连接的存储设备。\n\n" +
+                            unavailable.take(8).joinToString("\n") +
+                            if (unavailable.size > 8) "\n……" else "" +
+                            "\n\n仅删除收藏记录，不删除任何原始文件。"
+                    )
+                    .setNegativeButton("保留", null)
+                    .setPositiveButton("清理收藏记录") { _, _ ->
+                        ensureBackgroundThread {
+                            unavailable.forEach { favoriteFoldersDB.delete(it) }
+                            runOnUiThread { if (!isFinishing && !isDestroyed) getDirectories() }
+                        }
+                    }
+                    .show()
+            }
         }
     }
 
