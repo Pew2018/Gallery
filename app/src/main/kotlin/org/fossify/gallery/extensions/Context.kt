@@ -105,6 +105,7 @@ import org.fossify.gallery.helpers.TYPE_SVGS
 import org.fossify.gallery.helpers.TYPE_VIDEOS
 import org.fossify.gallery.interfaces.DateTakensDao
 import org.fossify.gallery.interfaces.DirectoryDao
+import org.fossify.gallery.interfaces.FavoriteFoldersDao
 import org.fossify.gallery.interfaces.FavoritesDao
 import org.fossify.gallery.interfaces.MediumDao
 import org.fossify.gallery.interfaces.WidgetsDao
@@ -138,6 +139,9 @@ val Context.mediaDB: MediumDao get() = GalleryDatabase.getInstance(applicationCo
 
 val Context.directoryDB: DirectoryDao
     get() = GalleryDatabase.getInstance(applicationContext).DirectoryDao()
+
+val Context.favoriteFoldersDB: FavoriteFoldersDao
+    get() = GalleryDatabase.getInstance(applicationContext).FavoriteFoldersDao()
 
 val Context.favoritesDB: FavoritesDao
     get() = GalleryDatabase.getInstance(applicationContext).FavoritesDao()
