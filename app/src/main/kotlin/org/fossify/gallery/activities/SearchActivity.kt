@@ -12,6 +12,8 @@ import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.commons.models.FileDirItem
 import org.fossify.commons.views.MyGridLayoutManager
 import org.fossify.gallery.helpers.OxygenToolbarStyle
+import org.fossify.gallery.helpers.OxygenSearchNavigation
+import org.fossify.gallery.helpers.SearchExitGate
 import org.fossify.gallery.R
 import org.fossify.gallery.adapters.MediaAdapter
 import org.fossify.gallery.asynctasks.GetMediaAsynctask
@@ -37,6 +39,10 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
     private var mAllMedia = ArrayList<ThumbnailItem>()
 
     private val binding by viewBinding(ActivitySearchBinding::inflate)
+    private val exitGate = SearchExitGate()
+    private val initialFocusRequest = Runnable {
+        if (!exitGate.exiting && !isFinishing && !isDestroyed) binding.searchMenu.focusView()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,9 +62,25 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
         updateMenuColors()
     }
 
+    override fun onStop() {
+        binding.searchMenu.removeCallbacks(initialFocusRequest)
+        super.onStop()
+    }
+
     override fun onDestroy() {
-        super.onDestroy()
+        binding.searchMenu.removeCallbacks(initialFocusRequest)
         mCurrAsyncTask?.stopFetching()
+        super.onDestroy()
+    }
+
+    /** Toolbar arrow always exits this dedicated search, independent of query text. */
+    private fun exitSearch() {
+        if (!exitGate.beginExit()) return
+        binding.searchMenu.removeCallbacks(initialFocusRequest)
+        mCurrAsyncTask?.stopFetching()
+        OxygenSearchNavigation.hideImeAndClearFocus(this, binding.searchMenu)
+        if (binding.searchMenu.isSearchOpen) binding.searchMenu.closeSearch()
+        finish()
     }
 
     private fun setupOptionsMenu() {
@@ -66,19 +88,14 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
         binding.searchMenu.toggleHideOnScroll(true)
         binding.searchMenu.setupMenu()
         binding.searchMenu.toggleForceArrowBackIcon(true)
-        // Commons installs its focus listener with post; enqueue focus afterwards.
-        binding.searchMenu.post {
-            if (!isFinishing && !isDestroyed) binding.searchMenu.focusView()
-        }
+        // Commons installs its focus listener with post; ours remains cancellable.
+        binding.searchMenu.post(initialFocusRequest)
         binding.searchMenu.updateHintText(getString(org.fossify.commons.R.string.search_files))
 
-        binding.searchMenu.onNavigateBackClickListener = {
-            if (binding.searchMenu.getCurrentQuery().isEmpty()) {
-                finish()
-            } else {
-                binding.searchMenu.closeSearch()
-            }
-        }
+        binding.searchMenu.onNavigateBackClickListener = ::exitSearch
+        // Expanded Commons search arrows call closeSearch(), NOT navigate back.
+        // Override only this toolbar control; system back stays platform-owned.
+        binding.searchMenu.binding.topToolbarSearchIcon.setOnClickListener { exitSearch() }
 
         binding.searchMenu.onSearchTextChangedListener = { text ->
             mLastSearchedText = text
@@ -106,6 +123,7 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
                 filtered.sortBy { it is Medium && !it.name.startsWith(text, true) }
                 val grouped = MediaFetcher(applicationContext).groupMedia(filtered as ArrayList<Medium>, "")
                 runOnUiThread {
+                    if (exitGate.exiting || isFinishing || isDestroyed || text != mLastSearchedText) return@runOnUiThread
                     if (grouped.isEmpty()) {
                         binding.searchEmptyTextPlaceholder.text = getString(org.fossify.commons.R.string.no_items_found)
                         binding.searchEmptyTextPlaceholder.beVisible()

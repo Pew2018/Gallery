@@ -56,7 +56,7 @@ object OxygenToolbarStyle {
         }
         searchMenu.onSearchClosedListener = {
             oldClose?.invoke()
-            searchMenu.binding.topToolbarSearch.clearFocus()
+            OxygenSearchNavigation.hideImeAndClearFocus(activity, searchMenu)
             render(searchMenu, state)
         }
         hooked[searchMenu] = state
@@ -135,8 +135,11 @@ object OxygenToolbarStyle {
                 ColorDrawable(Color.TRANSPARENT), null
             )
             it.setOnClickListener {
-                val dispatcher = (activity as? ComponentActivity)?.onBackPressedDispatcher
-                if (dispatcher != null) dispatcher.onBackPressed() else activity.onBackPressed()
+                val navigate = menu.onNavigateBackClickListener
+                if (navigate != null) navigate.invoke() else {
+                    val dispatcher = (activity as? ComponentActivity)?.onBackPressedDispatcher
+                    if (dispatcher != null) dispatcher.onBackPressed() else activity.onBackPressed()
+                }
             }
             container.addView(it)
         }

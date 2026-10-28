@@ -95,6 +95,7 @@ import org.fossify.gallery.helpers.IS_IN_RECYCLE_BIN
 import org.fossify.gallery.helpers.MAX_COLUMN_COUNT
 import org.fossify.gallery.helpers.GalleryBottomBar
 import org.fossify.gallery.helpers.OxygenToolbarStyle
+import org.fossify.gallery.helpers.OxygenSearchNavigation
 import org.fossify.gallery.helpers.MediaFetcher
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.PICKED_PATHS
@@ -179,6 +180,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         storeStateVariables()
         if (mShowAll && !mIsGetImageIntent && !mIsGetVideoIntent && !mIsGetAnyIntent) {
             GalleryBottomBar.attach(this, binding.root, GalleryBottomBar.Tab.ALL) { tab ->
+                getMediaAdapter()?.finishActMode()
                 when (tab) {
                     GalleryBottomBar.Tab.ALL -> binding.mediaGrid.scrollToPosition(0)
                     GalleryBottomBar.Tab.FAVORITE_FOLDERS -> {
@@ -328,7 +330,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun onBackPressedCompat(): Boolean {
         return if (binding.mediaMenu.isSearchOpen) {
-            binding.mediaMenu.closeSearch()
+            OxygenSearchNavigation.closeInlineSearch(this, binding.mediaMenu)
             true
         } else {
             if (config.showAll) {
@@ -512,6 +514,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             if (!mShowAll) {
                 binding.mediaMenu.toggleForceArrowBackIcon(true)
                 binding.mediaMenu.onNavigateBackClickListener = {
+                    OxygenSearchNavigation.hideImeAndClearFocus(this, binding.mediaMenu)
                     performDefaultBack()
                 }
             }

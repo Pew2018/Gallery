@@ -133,6 +133,7 @@ import org.fossify.gallery.helpers.MAX_COLUMN_COUNT
 import org.fossify.gallery.helpers.MONTH_MILLISECONDS
 import org.fossify.gallery.helpers.GalleryBottomBar
 import org.fossify.gallery.helpers.OxygenToolbarStyle
+import org.fossify.gallery.helpers.OxygenSearchNavigation
 import org.fossify.gallery.helpers.MediaFetcher
 import org.fossify.gallery.helpers.PICKED_PATHS
 import org.fossify.gallery.helpers.RECYCLE_BIN
@@ -274,6 +275,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             GalleryBottomBar.attach(this, binding.root,
                 if (mShowingFolderFavorites) GalleryBottomBar.Tab.FAVORITE_FOLDERS else GalleryBottomBar.Tab.ALL
             ) { tab ->
+                getRecyclerAdapter()?.finishActMode()
                 when (tab) {
                     GalleryBottomBar.Tab.ALL -> {
                         if (mShowingFolderFavorites) {
@@ -496,7 +498,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     override fun onBackPressedCompat(): Boolean {
         return if (binding.mainMenu.isSearchOpen) {
-            binding.mainMenu.closeSearch()
+            OxygenSearchNavigation.closeInlineSearch(this, binding.mainMenu)
             true
         } else if (config.groupDirectSubfolders) {
             if (mCurrentPathPrefix.isEmpty()) {
@@ -948,9 +950,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             startActivity(this)
         }
 
-        binding.mainMenu.postDelayed({
-            binding.mainMenu.closeSearch()
-        }, 500)
+        // Close only after Commons finishes its opening callback, without a timer.
+        binding.mainMenu.post {
+            if (!isFinishing && !isDestroyed && binding.mainMenu.isSearchOpen) {
+                OxygenSearchNavigation.closeInlineSearch(this, binding.mainMenu)
+            }
+        }
     }
 
     private fun showSortingDialog() {
