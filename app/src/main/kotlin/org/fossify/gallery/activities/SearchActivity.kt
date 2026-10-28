@@ -11,6 +11,7 @@ import org.fossify.commons.helpers.VIEW_TYPE_GRID
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.commons.models.FileDirItem
 import org.fossify.commons.views.MyGridLayoutManager
+import org.fossify.gallery.helpers.OxygenToolbarStyle
 import org.fossify.gallery.R
 import org.fossify.gallery.adapters.MediaAdapter
 import org.fossify.gallery.asynctasks.GetMediaAsynctask
@@ -65,7 +66,10 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
         binding.searchMenu.toggleHideOnScroll(true)
         binding.searchMenu.setupMenu()
         binding.searchMenu.toggleForceArrowBackIcon(true)
-        binding.searchMenu.focusView()
+        // Commons installs its focus listener with post; enqueue focus afterwards.
+        binding.searchMenu.post {
+            if (!isFinishing && !isDestroyed) binding.searchMenu.focusView()
+        }
         binding.searchMenu.updateHintText(getString(org.fossify.commons.R.string.search_files))
 
         binding.searchMenu.onNavigateBackClickListener = {
@@ -92,6 +96,7 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
 
     private fun updateMenuColors() {
         binding.searchMenu.updateColors()
+        OxygenToolbarStyle.apply(this, binding.searchMenu, getString(org.fossify.commons.R.string.search))
     }
 
     private fun textChanged(text: String) {
