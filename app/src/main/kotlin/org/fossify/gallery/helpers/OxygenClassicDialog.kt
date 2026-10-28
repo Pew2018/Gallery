@@ -115,7 +115,7 @@ object OxygenClassicDialog {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                 isAllCaps = true
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-                background = RippleDrawable(
+                this.background = RippleDrawable(
                     ColorStateList.valueOf(ColorUtils.setAlphaComponent(readableAccent, 30)),
                     ColorDrawable(Color.TRANSPARENT), null
                 )
