@@ -1241,6 +1241,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 if (mShouldStopFetching || isDestroyed || isFinishing) {
                     return
                 }
+                // A locked album is represented by its cached metadata only.
+                // Its media may be scanned only by MediaActivity after authentication.
+                if (config.isFolderProtected(directory.path)) continue
 
                 val sorting = config.getFolderSorting(directory.path)
                 val grouping = config.getFolderGrouping(directory.path)
@@ -1383,6 +1386,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             if (mShouldStopFetching || isDestroyed || isFinishing) {
                 return
             }
+            if (config.isFolderProtected(folder)) continue
 
             val sorting = config.getFolderSorting(folder)
             val grouping = config.getFolderGrouping(folder)
