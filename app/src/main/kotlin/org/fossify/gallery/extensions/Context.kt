@@ -918,7 +918,10 @@ fun Context.getCachedDirectories(
         }
 
         val clone = filteredDirectories.clone() as ArrayList<Directory>
-        callback(clone.distinctBy { it.path.getDistinctPath() } as ArrayList<Directory>)
+        val privateRoots = org.fossify.gallery.helpers.PrivateFolderIndex.protectedPaths(this)
+        callback(clone.filterNot {
+            org.fossify.gallery.helpers.PrivateFolderIndex.isProtected(it.path, privateRoots)
+        }.distinctBy { it.path.getDistinctPath() } as ArrayList<Directory>)
         removeInvalidDBDirectories(filteredDirectories)
     }
 }
@@ -942,6 +945,7 @@ fun Context.getCachedMedia(
                 val media = try {
                     mediaDB.getAllMedia().filter { item ->
                         item.parentPath.lowercase(Locale.ROOT) in allowed &&
+                            !org.fossify.gallery.helpers.PrivateFolderIndex.isProtected(this, item.path) &&
                             !config.isFolderProtected(item.parentPath) &&
                             (showHidden || !item.path.contains("/.")) &&
                             (when {
@@ -1011,6 +1015,8 @@ fun Context.getCachedMedia(
             }
         }) as ArrayList<Medium>
 
+        val privateRoots = org.fossify.gallery.helpers.PrivateFolderIndex.protectedPaths(this)
+        media.removeAll { org.fossify.gallery.helpers.PrivateFolderIndex.isProtected(it.path, privateRoots) }
         val pathToUse = path.ifEmpty { SHOW_ALL }
         mediaFetcher.sortMedia(media, config.getFolderSorting(pathToUse))
         val grouped = mediaFetcher.groupMedia(media, pathToUse)

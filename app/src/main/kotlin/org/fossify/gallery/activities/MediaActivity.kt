@@ -96,6 +96,7 @@ import org.fossify.gallery.helpers.MAX_COLUMN_COUNT
 import org.fossify.gallery.helpers.GalleryBottomBar
 import org.fossify.gallery.helpers.OxygenToolbarStyle
 import org.fossify.gallery.helpers.MediaFetcher
+import org.fossify.gallery.helpers.PrivateFolderIndex
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.PICKED_PATHS
 import org.fossify.gallery.helpers.RECYCLE_BIN
@@ -1037,7 +1038,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun gotMedia(media: ArrayList<ThumbnailItem>, isFromCache: Boolean) {
         mIsGettingMedia = false
         checkLastMediaChanged()
-        mMedia = media
+        val protectedRoots = PrivateFolderIndex.protectedPaths(this)
+        mMedia = ArrayList(media.filterNot { it is org.fossify.gallery.models.Medium &&
+            PrivateFolderIndex.isProtected(it.path, protectedRoots) })
 
         runOnUiThread {
             binding.loadingIndicator.hide()

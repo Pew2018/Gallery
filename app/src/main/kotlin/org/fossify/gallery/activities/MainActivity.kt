@@ -130,6 +130,7 @@ import org.fossify.gallery.helpers.MONTH_MILLISECONDS
 import org.fossify.gallery.helpers.GalleryBottomBar
 import org.fossify.gallery.helpers.OxygenToolbarStyle
 import org.fossify.gallery.helpers.MediaFetcher
+import org.fossify.gallery.helpers.PrivateFolderIndex
 import org.fossify.gallery.helpers.PICKED_PATHS
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.SET_WALLPAPER_INTENT
@@ -760,8 +761,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             val excluded = config.excludedFolders
             fun inAny(path: String, roots: Collection<String>): Boolean =
                 roots.any { path == it || path.startsWith("$it/") }
+            val privateRoots = PrivateFolderIndex.protectedPaths(this)
             val selected = cached.filter { dir ->
                 val path = dir.path
+                if (PrivateFolderIndex.isProtected(path, privateRoots)) return@filter false
                 val hidden = path.split('/').any { it.startsWith('.') && it.length > 1 } ||
                     generateSequence(File(path)) { it.parentFile }.any { File(it, ".nomedia").isFile }
                 val excludedDir = inAny(path, excluded)
@@ -771,6 +774,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             // Only probe explicitly favorited directories absent from the media cache.
             // No recursive full-device scan; permission failures preserve favorite records.
             for (path in favoritePaths) {
+                if (PrivateFolderIndex.isProtected(path, privateRoots)) continue
                 if (selected.any { it.path == path }) continue
                 val excludedDir = inAny(path, excluded)
                 val hidden = path.split('/').any { it.startsWith('.') && it.length > 1 } ||
@@ -929,7 +933,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     ".nomedia".takeIf { isNoMedia },
                     "已锁定".takeIf { isProtected }
                 ).joinToString(" · ")
-                (!hidden || mFolderVisibility[0]) &&
+                !PrivateFolderIndex.isProtected(path, PrivateFolderIndex.protectedPaths(this)) &&
+                    (!hidden || mFolderVisibility[0]) &&
                     (!isExcluded || mFolderVisibility[1]) &&
                     (!isNoMedia || mFolderVisibility[2]) &&
                     (!isProtected || mFolderVisibility[3])
@@ -1388,6 +1393,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     private fun gotDirectories(newDirs: ArrayList<Directory>) {
+        val privateRoots = PrivateFolderIndex.protectedPaths(this)
+        newDirs.removeAll { PrivateFolderIndex.isProtected(it.path, privateRoots) }
         if (mShowingFolderFavorites) {
             // Existing cached-directory callback runs off the main thread. A folder
             // favorites tab must not re-scan every directory in the full library.

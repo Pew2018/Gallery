@@ -77,6 +77,9 @@ class MediaFetcher(val context: Context) {
             }
         }
 
+        // Every MediaStore/filesystem source passes through the same privacy boundary.
+        val privateRoots = PrivateFolderIndex.protectedPaths(context)
+        curMedia.removeAll { PrivateFolderIndex.isProtected(it.path, privateRoots) }
         sortMedia(curMedia, context.config.getFolderSorting(curPath))
         return curMedia
     }
@@ -127,8 +130,10 @@ class MediaFetcher(val context: Context) {
                 folderNoMediaStatuses["$folder/$NOMEDIA"] = true
             }
 
+            val privateRoots = PrivateFolderIndex.protectedPaths(context)
             distinctPaths.filter {
-                it.shouldFolderBeVisible(excludedPaths, includedPaths, shouldShowHidden, folderNoMediaStatuses) { path, hasNoMedia ->
+                !PrivateFolderIndex.isProtected(it, privateRoots) &&
+                    it.shouldFolderBeVisible(excludedPaths, includedPaths, shouldShowHidden, folderNoMediaStatuses) { path, hasNoMedia ->
                     folderNoMediaStatuses[path] = hasNoMedia
                 }
             }.toMutableList() as ArrayList<String>

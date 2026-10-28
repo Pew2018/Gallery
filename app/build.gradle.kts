@@ -188,6 +188,8 @@ dependencies {
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.media3.exoplayer)
+    implementation("androidx.media3:media3-ui:1.10.1")
+    implementation("androidx.biometric:biometric:1.1.0")
     implementation(libs.sanselan)
     implementation(libs.androidphotofilters)
     implementation(libs.androidsvg.aar)

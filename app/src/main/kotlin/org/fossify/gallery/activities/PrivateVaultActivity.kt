@@ -1,8 +1,12 @@
 package org.fossify.gallery.activities
 
-import androidx.appcompat.app.AlertDialog
 import android.content.Intent
-import android.graphics.BitmapFactory
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
+import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
@@ -12,439 +16,441 @@ import android.view.WindowManager
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.VideoView
 import android.widget.Toast
-import android.content.res.ColorStateList
-import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.RippleDrawable
+import androidx.appcompat.app.AlertDialog
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.coordinatorlayout.widget.CoordinatorLayout
+import androidx.documentfile.provider.DocumentFile
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
+import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import com.bumptech.glide.Glide
+import com.bumptech.glide.load.engine.DiskCacheStrategy
 import org.fossify.commons.extensions.getProperBackgroundColor
 import org.fossify.commons.extensions.getProperPrimaryColor
 import org.fossify.commons.extensions.getProperTextColor
-import androidx.coordinatorlayout.widget.CoordinatorLayout
-import org.fossify.gallery.helpers.DIRECTORY
-import org.fossify.gallery.helpers.GalleryBottomBar
-import org.fossify.gallery.helpers.PrivateVaultCrypto
+import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
-import java.io.File
-import java.util.UUID
+import org.fossify.gallery.helpers.GalleryBottomBar
+import org.fossify.gallery.helpers.PrivateFolderAccess
+import org.fossify.gallery.helpers.PrivateFolderIndex
+import org.fossify.gallery.helpers.DIRECTORY
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Separate from hidden/protected albums. The vault never returns plaintext
- * to normal Gallery Activities, MediaStore, sharing providers, or Glide.
+ * Non-encrypting privacy collection: password/optional system biometric gate,
+ * SAF directory references and in-process previews without shared media caches.
+ * This cannot hide the original files from other apps or the operating system.
  */
 class PrivateVaultActivity : SimpleActivity() {
-    private companion object {
-        const val PICK_DOCUMENT = 9041
-    }
-
-    private lateinit var crypto: PrivateVaultCrypto
+    private val pickerRequest = 9042
+    private lateinit var auth: PrivateFolderAccess
+    private lateinit var index: PrivateFolderIndex
     private lateinit var root: CoordinatorLayout
     private lateinit var body: LinearLayout
-    private var dataKey: ByteArray? = null
-    private var pendingImport: android.net.Uri? = null
-    private var previewDialog: AlertDialog? = null
-    @Volatile private var generation = 0
-    // Plaintext previews live in a dedicated app-private, non-backed-up directory.
-    // Never write them to MediaStore, external storage or ordinary image caches.
-    private val previews by lazy { File(noBackupFilesDir, "vault_previews") }
+    private lateinit var grid: RecyclerView
+    private var authenticated = false
+    private val generation = AtomicInteger()
+    private var preview: AlertDialog? = null
+    private var player: ExoPlayer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        crypto = PrivateVaultCrypto(applicationContext)
-        purgePreviews()
-
+        auth = PrivateFolderAccess(this)
+        index = PrivateFolderIndex(this)
+        val surface = getProperBackgroundColor()
+        val text = getProperTextColor()
         val density = resources.displayMetrics.density
-        fun dp(value: Int) = (value * density + 0.5f).toInt()
-        val background = getProperBackgroundColor()
-        val foreground = getProperTextColor()
-        val margin = dp(16)
-        root = CoordinatorLayout(this).apply { setBackgroundColor(background) }
-
-        val toolbar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(background)
-        }
-        // This is a root bottom-navigation destination; system back stays unchanged.
-        toolbar.addView(TextView(this).apply {
+        fun dp(n: Int) = (n * density + .5f).toInt()
+        root = CoordinatorLayout(this).apply { setBackgroundColor(surface) }
+        val bar = TextView(this).apply {
+            setBackgroundColor(surface)
+            setTextColor(text)
             text = "隐私空间"
             textSize = 20f
-            setTextColor(foreground)
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(margin, 0, margin, 0)
-            maxLines = 1
-            includeFontPadding = false
-        }, LinearLayout.LayoutParams(-1, dp(56)))
-        val toolbarParams = CoordinatorLayout.LayoutParams(-1, dp(56)).apply {
-            gravity = Gravity.TOP
+            setPadding(dp(16), 0, dp(16), 0)
         }
-        val scroll = ScrollView(this).apply {
-            isFillViewport = true
-            clipToPadding = false
-        }
+        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(margin, dp(20), margin, dp(16))
+            setPadding(dp(16), dp(8), dp(16), dp(8))
         }
-        scroll.addView(body)
-        val scrollParams = CoordinatorLayout.LayoutParams(-1, -1).apply {
-            topMargin = dp(56)
-            bottomMargin = dp(60)
+        grid = RecyclerView(this).apply {
+            layoutManager = GridLayoutManager(this@PrivateVaultActivity, 2)
+            overScrollMode = View.OVER_SCROLL_NEVER
         }
-        root.addView(scroll, scrollParams)
-        root.addView(toolbar, toolbarParams)
+        content.addView(body, LinearLayout.LayoutParams(-1, -2))
+        content.addView(grid, LinearLayout.LayoutParams(-1, 0, 1f))
+        val params = CoordinatorLayout.LayoutParams(-1, -1).apply {
+            topMargin = dp(56); bottomMargin = dp(60)
+        }
+        val barParams = CoordinatorLayout.LayoutParams(-1, dp(56)).apply { gravity = Gravity.TOP }
+        root.addView(content, params)
+        root.addView(bar, barParams)
         setContentView(root)
-        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            val top = systemBars.top
-            val bottom = systemBars.bottom
-            if (toolbarParams.topMargin != top) {
-                toolbarParams.topMargin = top
-                toolbar.layoutParams = toolbarParams
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, ins ->
+            val bars = ins.getInsets(WindowInsetsCompat.Type.systemBars())
+            val top = bars.top
+            if (barParams.topMargin != top) { barParams.topMargin = top; bar.layoutParams = barParams }
+            if (params.topMargin != top + dp(56) || params.bottomMargin != bars.bottom + dp(60)) {
+                params.topMargin = top + dp(56)
+                params.bottomMargin = bars.bottom + dp(60)
+                content.layoutParams = params
             }
-            if (scrollParams.topMargin != top + dp(56) || scrollParams.bottomMargin != bottom + dp(60)) {
-                scrollParams.topMargin = top + dp(56)
-                scrollParams.bottomMargin = bottom + dp(60)
-                scroll.layoutParams = scrollParams
-            }
-            insets
+            ins
         }
         ViewCompat.requestApplyInsets(root)
-
         GalleryBottomBar.attach(this, root, GalleryBottomBar.Tab.PRIVATE) { tab ->
             when (tab) {
                 GalleryBottomBar.Tab.ALL -> {
-                    val showPhotos = config.lastMainViewAll
-                    config.showAll = showPhotos
-                    val destination = if (showPhotos) {
+                    config.showAll = config.lastMainViewAll
+                    val target = if (config.lastMainViewAll)
                         Intent(this, MediaActivity::class.java).putExtra(DIRECTORY, "")
-                    } else {
-                        Intent(this, MainActivity::class.java)
-                            .putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true)
-                    }
-                    GalleryBottomBar.open(this, destination, finishCurrent = true)
+                    else Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true)
+                    lock()
+                    GalleryBottomBar.open(this, target, true)
                 }
                 GalleryBottomBar.Tab.FAVORITE_FOLDERS -> {
+                    lock()
                     GalleryBottomBar.open(this, Intent(this, MainActivity::class.java)
-                        .putExtra(MainActivity.EXTRA_FOLDER_FAVORITES, true),
-                        finishCurrent = true)
+                        .putExtra(MainActivity.EXTRA_FOLDER_FAVORITES, true), true)
                 }
-                GalleryBottomBar.Tab.PRIVATE -> {
-                    if (dataKey != null) showUnlocked() else showLocked()
-                }
+                GalleryBottomBar.Tab.PRIVATE -> Unit
             }
         }
         showLocked()
     }
 
     override fun onStop() {
-        // No session key or decrypted preview may survive backgrounding.
         lock()
         super.onStop()
     }
-
     override fun onDestroy() {
         lock()
         super.onDestroy()
     }
 
-    private fun purgePreviews() {
-        previews.listFiles()?.forEach { it.delete() }
-    }
-
     private fun lock() {
-        generation++
-        previewDialog?.dismiss()
-        previewDialog = null
-        dataKey?.fill(0)
-        dataKey = null
-        purgePreviews()
-        if (::body.isInitialized) showLocked()
+        generation.incrementAndGet()
+        authenticated = false
+        preview?.dismiss()
+        preview = null
+        player?.release()
+        player = null
+        if (::grid.isInitialized) grid.adapter = null
+        if (::body.isInitialized && !isFinishing && !isDestroyed) showLocked()
     }
 
-    private fun button(label: String, action: () -> Unit) {
-        val density = resources.displayMetrics.density
-        fun dp(value: Int) = (value * density + 0.5f).toInt()
-        val primary = getProperPrimaryColor()
-        val foreground = getProperTextColor()
-        val row = TextView(this).apply {
-            text = label
+    private fun info(value: String) {
+        body.addView(TextView(this).apply {
+            text = value
+            textSize = 14f
+            setTextColor(getProperTextColor())
+            alpha = 0.75f
+            setPadding(0, 8, 0, 16)
+        }, LinearLayout.LayoutParams(-1, -2))
+    }
+
+    private fun action(name: String, onClick: () -> Unit) {
+        val d = resources.displayMetrics.density
+        val accent = getProperPrimaryColor()
+        body.addView(TextView(this).apply {
+            text = name
             textSize = 16f
-            setTextColor(foreground)
+            setTextColor(getProperTextColor())
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), 0, dp(16), 0)
+            setPadding((8*d).toInt(), 0, (8*d).toInt(), 0)
             background = RippleDrawable(
-                ColorStateList.valueOf(Color.argb(28, Color.red(primary), Color.green(primary), Color.blue(primary))),
-                ColorDrawable(Color.TRANSPARENT), null
-            )
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { action() }
-        }
-        body.addView(row, LinearLayout.LayoutParams(-1, dp(56)))
-        body.addView(View(this).apply {
-            setBackgroundColor(Color.argb(38, Color.red(foreground), Color.green(foreground), Color.blue(foreground)))
-        }, LinearLayout.LayoutParams(-1, dp(1)))
-    }
-
-    private fun heading(text: String) {
-        val density = resources.displayMetrics.density
-        body.addView(TextView(this).apply {
-            this.text = text
-            textSize = 20f
-            setTextColor(getProperTextColor())
-            setPadding(0, (14 * density).toInt(), 0, (20 * density).toInt())
-        })
-    }
-
-    private fun info(text: String) {
-        val density = resources.displayMetrics.density
-        body.addView(TextView(this).apply {
-            this.text = text
-            textSize = 15f
-            setTextColor(getProperTextColor())
-            alpha = 0.8f
-            setPadding(0, (4 * density).toInt(), 0, (20 * density).toInt())
-        })
+                ColorStateList.valueOf(Color.argb(38, Color.red(accent), Color.green(accent), Color.blue(accent))),
+                ColorDrawable(Color.TRANSPARENT), GradientDrawable().apply { setColor(Color.WHITE) })
+            isClickable = true; isFocusable = true
+            setOnClickListener { onClick() }
+        }, LinearLayout.LayoutParams(-1, (48*d).toInt()))
     }
 
     private fun showLocked() {
+        authenticated = false
         body.removeAllViews()
-        heading(if (crypto.isSetUp) "空间已锁定" else "创建隐私空间")
-        if (!crypto.isSetUp && crypto.hasEncryptedFiles) {
-            info("设备密钥或设置已损坏。为保护现有加密文件，不允许直接重置空间。")
-            return
-        }
-        if (crypto.isSetUp) {
-            info("已锁定。文件经过 AES-GCM 加密，不属于普通的隐藏相册。")
-            button("解锁隐私空间") { passwordDialog(create = false) }
-        } else {
-            info("尚未设置密码。创建后文件只以密文保存在应用私有目录；原文件不会自动删除。")
-            button("设置密码并创建空间") { passwordDialog(create = true) }
+        grid.adapter = null
+        info(if (auth.configured) "隐私空间已锁定" else "为隐私空间创建独立密码")
+        info("目录中的文件保持原始位置，不加密；其他拥有文件权限的应用仍可能读取。")
+        if (auth.configured) {
+            action("输入密码解锁") { passwordDialog(false) }
+            if (auth.biometricsEnabled) action("使用系统生物识别") { biometricUnlock() }
+        } else action("设置隐私空间密码") { passwordDialog(true) }
+        val legacy = org.fossify.gallery.helpers.PrivateVaultCrypto(this)
+        if (legacy.isSetUp || legacy.hasEncryptedFiles) {
+            action("进入旧版 AES-GCM 加密空间（保留旧文件）") {
+                startActivity(Intent(this, LegacyPrivateVaultActivity::class.java))
+            }
         }
     }
 
-    private fun passwordDialog(create: Boolean, changing: Boolean = false) {
+    private fun passwordDialog(create: Boolean, change: Boolean = false) {
         val first = EditText(this).apply {
-            hint = if (create || changing) "新密码（至少 6 位）" else "隐私空间密码"
+            hint = if (create || change) "新密码（至少 6 位）" else "隐私空间密码"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            isSingleLine = true
         }
-        val second = EditText(this).apply {
-            hint = "再次输入密码"
+        val confirm = EditText(this).apply {
+            hint = "确认新密码"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            visibility = if (create || changing) android.view.View.VISIBLE else android.view.View.GONE
+            visibility = if (create || change) View.VISIBLE else View.GONE
+            isSingleLine = true
         }
-        val density = resources.displayMetrics.density
-        fun dp(value: Int) = (value * density + 0.5f).toInt()
-        first.isSingleLine = true
-        second.isSingleLine = true
-        val inputs = LinearLayout(this).apply {
+        val row = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(4), dp(24), 0)
-            addView(first, LinearLayout.LayoutParams(-1, dp(56)))
-            addView(second, LinearLayout.LayoutParams(-1, dp(56)).apply {
-                topMargin = dp(8)
-            })
+            setPadding(48, 8, 48, 8)
+            addView(first)
+            addView(confirm)
         }
         AlertDialog.Builder(this)
-            .setTitle(if (changing) "更改密码" else if (create) "创建隐私空间" else "解锁隐私空间")
-            .setView(inputs)
+            .setTitle(if (create) "创建隐私空间" else if (change) "更改隐私空间密码" else "解锁")
+            .setView(row)
             .setNegativeButton("取消", null)
             .setPositiveButton("确认") { _, _ ->
-                val pw = first.text.toString().toCharArray()
-                val pw2 = second.text.toString().toCharArray()
-                if ((create || changing) && !pw.contentEquals(pw2)) {
-                    pw.fill('\u0000'); pw2.fill('\u0000')
-                    feedback("两次密码不一致")
-                    return@setPositiveButton
-                }
-                pw2.fill('\u0000')
-                if ((create || changing) && pw.size < 6) {
-                    pw.fill('\u0000')
-                    feedback("密码至少需要 6 位")
-                    return@setPositiveButton
-                }
-                val current = dataKey?.copyOf()
-                val currentGeneration = generation
+                val password = first.text.toString().toCharArray()
+                val repeat = confirm.text.toString().toCharArray()
+                val token = generation.get()
                 Thread {
-                    try {
-                        val newKey = when {
-                            changing -> {
-                                check(current != null)
-                                crypto.changePassword(current, pw)
-                                current
-                            }
-                            create -> crypto.setup(pw)
-                            else -> crypto.unlock(pw)
+                    val ok = try {
+                        if ((create || change) && !password.contentEquals(repeat)) false
+                        else when {
+                            create -> auth.setup(password)
+                            change && authenticated -> auth.changePassword(password)
+                            else -> auth.verify(password)
                         }
-                        runOnUiThread {
-                            if (!isFinishing && !isDestroyed && generation == currentGeneration) {
-                                dataKey?.fill(0)
-                                dataKey = newKey
-                                showUnlocked()
-                                pendingImport?.let { uri ->
-                                    pendingImport = null
-                                    importFile(uri)
-                                }
-                            } else {
-                                newKey.fill(0)
-                            }
-                        }
-                    } catch (_: Exception) {
-                        runOnUiThread { feedback("密码错误、密钥失效或加密数据损坏") }
                     } finally {
-                        pw.fill('\u0000')
-                        if (changing) current?.fill(0)
+                        password.fill('\u0000'); repeat.fill('\u0000')
+                    }
+                    runOnUiThread {
+                        if (token != generation.get() || isFinishing || isDestroyed) return@runOnUiThread
+                        if (ok) {
+                            authenticated = true
+                            showUnlocked()
+                        } else toast("密码错误、密码不足 6 位或两次输入不一致")
                     }
                 }.start()
             }.show()
     }
 
-    private fun showUnlocked() {
-        if (dataKey == null) return
-        body.removeAllViews()
-        heading("隐私空间 · 已解锁")
-        info("已加密保存的文件不会出现在系统图库中。退出此页面或切换到其他应用会自动锁定。")
-        button("添加图片、视频或文件") {
-            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "*/*"
-            }, PICK_DOCUMENT)
+    private fun biometricUnlock() {
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
+        if (BiometricManager.from(this).canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) {
+            toast("当前没有可用的强生物识别，请使用独立密码"); return
         }
-        button("更改密码") { passwordDialog(create = false, changing = true) }
-        button("立即锁定") { lock() }
-        val files = crypto.files()
-        if (files.isEmpty()) {
-            info("空间为空。请选择需要导入的文件。导入后原文件仍保留在原位置。")
-        } else {
-            files.forEachIndexed { index, file ->
-                val type = when {
-                    file.name.endsWith(".image.gvlt") -> "图片"
-                    file.name.endsWith(".video.gvlt") -> "视频"
-                    else -> "普通文件"
+        val prompt = BiometricPrompt(this, androidx.core.content.ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    super.onAuthenticationSucceeded(result)
+                    if (!isFinishing && !isDestroyed && auth.biometricsEnabled) {
+                        authenticated = true
+                        showUnlocked()
+                    }
                 }
-                button("${index + 1}. $type · 加密文件") { preview(file, type) }
-                button("删除第 ${index + 1} 个加密副本") {
-                    AlertDialog.Builder(this).setMessage("仅删除隐私空间内的加密副本？")
-                        .setNegativeButton("取消", null)
-                        .setPositiveButton("删除") { _, _ ->
-                            Thread {
-                                try { crypto.delete(file) } catch (_: Exception) { }
-                                runOnUiThread { if (dataKey != null) showUnlocked() }
-                            }.start()
-                        }.show()
-                }
-            }
-        }
+            })
+        prompt.authenticate(BiometricPrompt.PromptInfo.Builder()
+            .setTitle("解锁隐私空间")
+            .setSubtitle("使用设备生物识别验证身份")
+            .setAllowedAuthenticators(authenticators)
+            .setNegativeButtonText("使用密码")
+            .build())
     }
 
-    @Deprecated("Compatibility with the existing Activity result flow")
+    private fun showUnlocked() {
+        if (!authenticated) return
+        body.removeAllViews()
+        action("添加文件夹") {
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+            }, pickerRequest)
+        }
+        action("更改密码") { passwordDialog(false, true) }
+        action(if (auth.biometricsEnabled) "关闭生物识别解锁" else "启用生物识别解锁") {
+            if (auth.biometricsEnabled) {
+                auth.biometricsEnabled = false
+                showUnlocked()
+            } else if (BiometricManager.from(this).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) ==
+                    BiometricManager.BIOMETRIC_SUCCESS) {
+                // Only an already authenticated user can enable this optional unlock route.
+                auth.biometricsEnabled = true
+                showUnlocked()
+            } else toast("未检测到可用的强生物识别")
+        }
+        action("立即锁定") { lock() }
+        info("下方仅显示已授权的文件夹；失效的目录会保留记录以便重新授权。")
+        showFolders()
+    }
+
+    @Deprecated("Uses the existing Activity result model for SAF folder selection")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == PICK_DOCUMENT && resultCode == RESULT_OK) {
-            pendingImport = data?.data
-            if (dataKey == null) passwordDialog(create = false)
-            else pendingImport?.let { pendingImport = null; importFile(it) }
+        if (requestCode != pickerRequest || resultCode != RESULT_OK || !authenticated) return
+        val uri = data?.data ?: return
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (index.add(uri)) {
+                showFolders()
+            } else toast("该目录无法对应到系统媒体路径，无法保证 Gallery 内部隔离，因此没有加入")
+        } catch (_: Exception) {
+            toast("文件夹授权失败，请重新选择")
         }
     }
 
-    private fun importFile(uri: android.net.Uri) {
-        val snapshot = dataKey?.copyOf() ?: return
-        val token = generation
-        feedback("正在加密导入")
+    private data class Tile(val name: String, val subtitle: String, val uri: Uri?,
+                            val video: Boolean = false, val folder: PrivateFolderIndex.Folder? = null)
+
+    private fun showFolders() {
+        grid.layoutManager = GridLayoutManager(this, 2)
+        val current = index.folders()
+        val token = generation.get()
+        // Directory enumeration can involve slow external providers. Never block UI.
         Thread {
-            try {
-                crypto.import(uri, contentResolver.getType(uri), snapshot)
-                runOnUiThread {
-                    if (!isFinishing && !isDestroyed && generation == token && dataKey != null) {
-                        showUnlocked()
-                        feedback("已加密导入，原文件未删除")
+            val rows = current.map { entry ->
+                val doc = try { DocumentFile.fromTreeUri(this, Uri.parse(entry.uri)) } catch (_: Exception) { null }
+                val available = index.isAccessible(entry)
+                val children = if (available) try { doc?.listFiles().orEmpty() } catch (_: Exception) { emptyArray() }
+                    else emptyArray()
+                val images = children.filter { it.isFile && (it.type?.startsWith("image/") == true ||
+                    it.type?.startsWith("video/") == true) }
+                Tile(entry.name, if (available) images.size.toString() + " 项" else "授权失效，需重新选择",
+                    images.firstOrNull()?.uri, folder = entry)
+            }
+            runOnUiThread {
+                if (token == generation.get() && authenticated && !isFinishing) {
+                    grid.adapter = TilesAdapter(rows) { tile ->
+                        tile.folder?.let { openFolder(it) }
                     }
                 }
-            } catch (_: Exception) {
-                runOnUiThread { feedback("导入失败，未修改原文件") }
-            } finally {
-                snapshot.fill(0)
             }
         }.start()
     }
 
-    private fun preview(file: File, type: String) {
-        if (type == "普通文件") {
-            AlertDialog.Builder(this).setMessage("此类型暂不支持应用内预览；加密副本仍安全保存。")
-                .setPositiveButton("确定", null).show()
-            return
+    private fun openFolder(entry: PrivateFolderIndex.Folder) {
+        if (!authenticated) return
+        val token = generation.get()
+        body.removeAllViews()
+        action("返回文件夹列表") { showUnlocked() }
+        action("移除此文件夹（不删除原文件）") {
+            AlertDialog.Builder(this).setMessage("仅解除隐私空间关联，保留所有原始媒体文件？")
+                .setNegativeButton("取消", null).setPositiveButton("移除") { _, _ ->
+                    index.remove(entry); showUnlocked()
+                }.show()
         }
-        val snapshot = dataKey?.copyOf() ?: return
-        val token = generation
+        info(entry.name)
+        grid.layoutManager = GridLayoutManager(this, 3)
         Thread {
-            val preview = File(previews.apply { mkdirs() }, UUID.randomUUID().toString() +
-                if (type == "视频") ".mp4" else ".jpg")
-            try {
-                crypto.decryptForPreview(file, preview, snapshot)
-                if (token != generation) { preview.delete(); return@Thread }
-                if (type == "图片") {
-                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeFile(preview.path, bounds)
-                    val options = BitmapFactory.Options()
-                    var sample = 1
-                    while (bounds.outWidth / sample > 2048 || bounds.outHeight / sample > 2048) sample *= 2
-                    options.inSampleSize = sample
-                    val bitmap = BitmapFactory.decodeFile(preview.path, options)
-                        ?: error("不支持的图片格式")
-                    runOnUiThread {
-                        if (token != generation || dataKey == null || isFinishing) {
-                            bitmap.recycle(); preview.delete()
-                        } else {
-                            val image = ImageView(this).apply {
-                                setImageBitmap(bitmap)
-                                adjustViewBounds = true
-                                scaleType = ImageView.ScaleType.FIT_CENTER
-                            }
-                            previewDialog = AlertDialog.Builder(this).setView(image)
-                                .setPositiveButton("关闭", null)
-                                .setOnDismissListener {
-                                    image.setImageDrawable(null)
-                                    bitmap.recycle()
-                                    preview.delete()
-                                    previewDialog = null
-                                }.create().also { it.show() }
-                        }
-                    }
-                } else {
-                    runOnUiThread {
-                        if (token != generation || dataKey == null || isFinishing) preview.delete()
-                        else {
-                            val player = VideoView(this).apply {
-                                layoutParams = LinearLayout.LayoutParams(-1, (260 * resources.displayMetrics.density).toInt())
-                                setVideoPath(preview.path)
-                            }
-                            previewDialog = AlertDialog.Builder(this).setView(player)
-                                .setPositiveButton("关闭", null)
-                                .setOnDismissListener {
-                                    player.stopPlayback()
-                                    preview.delete()
-                                    previewDialog = null
-                                }.create().also { it.show(); player.start() }
-                        }
+            val doc = try { DocumentFile.fromTreeUri(this, Uri.parse(entry.uri)) } catch (_: Exception) { null }
+            val media = try { doc?.listFiles().orEmpty().filter { it.isFile &&
+                (it.type?.startsWith("image/") == true || it.type?.startsWith("video/") == true) } }
+                catch (_: Exception) { null }.orEmpty()
+            val rows = media.map { Tile(it.name ?: "媒体文件", "", it.uri,
+                it.type?.startsWith("video/") == true) }
+            runOnUiThread {
+                if (authenticated && token == generation.get() && !isFinishing) {
+                    grid.adapter = TilesAdapter(rows) { item ->
+                        item.uri?.let { previewMedia(it, item.video) }
                     }
                 }
-            } catch (_: Exception) {
-                preview.delete()
-                runOnUiThread { feedback("预览失败：文件损坏或格式不受支持") }
-            } finally {
-                snapshot.fill(0)
             }
         }.start()
     }
 
-    private fun feedback(message: String) {
-        if (!isFinishing && !isDestroyed) Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    private fun previewMedia(uri: Uri, video: Boolean) {
+        if (!authenticated) return
+        if (video) {
+            val view = PlayerView(this).apply {
+                useController = true
+                layoutParams = LinearLayout.LayoutParams(-1, (320*resources.displayMetrics.density).toInt())
+            }
+            val playback = ExoPlayer.Builder(this).build()
+            player = playback
+            view.player = playback
+            playback.addListener(object : Player.Listener {
+                override fun onPlayerError(error: PlaybackException) {
+                    toast("视频无法播放：" + (error.message ?: "格式或读取错误"))
+                }
+            })
+            preview = AlertDialog.Builder(this).setView(view)
+                .setPositiveButton("关闭", null)
+                .setOnDismissListener {
+                    view.player = null
+                    playback.release()
+                    if (player === playback) player = null
+                    preview = null
+                }.create()
+            preview?.show()
+            playback.setMediaItem(MediaItem.fromUri(uri))
+            playback.prepare()
+            playback.playWhenReady = true
+        } else {
+            val image = ImageView(this).apply {
+                adjustViewBounds = true
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
+            Glide.with(this).load(uri).diskCacheStrategy(DiskCacheStrategy.NONE)
+                .skipMemoryCache(true).into(image)
+            preview = AlertDialog.Builder(this).setView(image)
+                .setPositiveButton("关闭", null)
+                .setOnDismissListener {
+                    Glide.with(this).clear(image); image.setImageDrawable(null); preview = null
+                }.create().also { it.show() }
+        }
     }
+
+    private inner class TilesAdapter(private val items: List<Tile>,
+        private val opened: (Tile) -> Unit) : RecyclerView.Adapter<TilesAdapter.Holder>() {
+        inner class Holder(val item: LinearLayout, val image: ImageView, val title: TextView)
+            : RecyclerView.ViewHolder(item)
+        override fun getItemCount() = items.size
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
+            val d = resources.displayMetrics.density
+            val container = LinearLayout(this@PrivateVaultActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding((4*d).toInt(), (4*d).toInt(), (4*d).toInt(), (4*d).toInt())
+            }
+            val thumb = ImageView(this@PrivateVaultActivity).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                setImageResource(R.drawable.placeholder_square)
+                contentDescription = "媒体缩略图"
+            }
+            val title = TextView(this@PrivateVaultActivity).apply {
+                setTextColor(getProperTextColor())
+                textSize = 13f
+                maxLines = 2
+            }
+            container.addView(thumb, LinearLayout.LayoutParams(-1, (116*d).toInt()))
+            container.addView(title, LinearLayout.LayoutParams(-1, -2))
+            return Holder(container, thumb, title)
+        }
+        override fun onBindViewHolder(holder: Holder, position: Int) {
+            val tile = items[position]
+            holder.title.text = tile.name + if (tile.subtitle.isEmpty()) "" else "\n" + tile.subtitle
+            Glide.with(this@PrivateVaultActivity).clear(holder.image)
+            holder.image.setImageResource(R.drawable.placeholder_square)
+            if (tile.uri != null) {
+                Glide.with(this@PrivateVaultActivity).load(tile.uri)
+                    .diskCacheStrategy(DiskCacheStrategy.NONE).skipMemoryCache(true)
+                    .placeholder(R.drawable.placeholder_square).into(holder.image)
+            }
+            holder.item.setOnClickListener { if (authenticated) opened(tile) }
+            holder.item.contentDescription = holder.title.text
+        }
+        override fun onViewRecycled(holder: Holder) {
+            Glide.with(this@PrivateVaultActivity).clear(holder.image)
+            holder.image.setImageDrawable(null)
+            super.onViewRecycled(holder)
+        }
+    }
+    private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
 }
