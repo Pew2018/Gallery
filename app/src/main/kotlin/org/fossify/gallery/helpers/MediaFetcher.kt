@@ -63,15 +63,9 @@ class MediaFetcher(val context: Context) {
                 if (curPath == FAVORITES && isRPlus() && !isExternalStorageManager()) {
                     val files =
                         getAndroid11FolderMedia(isPickImage, isPickVideo, favoritePaths, true, getProperDateTaken, dateTakens.clone() as HashMap<String, Long>)
-                    newMedia.forEach { newMedium ->
-                        for ((folder, media) in files) {
-                            media.forEach { medium ->
-                                if (medium.path == newMedium.path) {
-                                    newMedium.size = medium.size
-                                }
-                            }
-                        }
-                    }
+                    // Index once instead of comparing every favorite against every
+                    // MediaStore entry. Exact path matching preserves case.
+                    FavoriteMediaSizeReconciler.apply(newMedia, files)
                 }
                 curMedia.addAll(newMedia)
             }
