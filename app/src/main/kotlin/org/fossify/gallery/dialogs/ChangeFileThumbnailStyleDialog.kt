@@ -51,7 +51,9 @@ class ChangeFileThumbnailStyleDialog(val activity: BaseSimpleActivity) : DialogI
             .setPositiveButton(org.fossify.commons.R.string.ok, this)
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
-                activity.setupDialogStuff(binding.root, this)
+                activity.setupDialogStuff(binding.root, this) { classicDialog ->
+                    OxygenClassicDialog.apply(activity, classicDialog, binding.root)
+                }
             }
     }
 
