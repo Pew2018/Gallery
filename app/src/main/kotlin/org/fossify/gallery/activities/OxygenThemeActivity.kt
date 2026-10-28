@@ -100,7 +100,10 @@ class OxygenThemeActivity : SimpleActivity() {
         val row = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(16), 0, dp(16), 0)
+            // Preserve the 56dp classic row at default font scale while
+            // allowing multi-line labels to expand for large text or narrow screens.
+            minimumHeight = dp(56)
+            setPadding(dp(16), dp(4), dp(16), dp(4))
             isClickable = true
             isFocusable = true
         }
@@ -118,7 +121,7 @@ class OxygenThemeActivity : SimpleActivity() {
             textSize = 16f
             setTextColor(fg)
             gravity = Gravity.CENTER_VERTICAL
-        }, LinearLayout.LayoutParams(0, -1, 1f))
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         row.addView(RadioButton(this).apply {
             isChecked = selected
             isClickable = false
@@ -128,7 +131,7 @@ class OxygenThemeActivity : SimpleActivity() {
                 intArrayOf(OxygenClassicPalette.readableAccent(accent, bg), secondary))
         }, LinearLayout.LayoutParams(dp(40), dp(48)))
         row.setOnClickListener { action() }
-        body.addView(row, LinearLayout.LayoutParams(-1, dp(56)))
+        body.addView(row, LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT))
     }
 
     private fun chooseColor(title: String, initial: Int, defaultColor: Int, save: (Int) -> Unit) {
