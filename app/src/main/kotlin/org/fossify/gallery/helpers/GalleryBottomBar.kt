@@ -70,7 +70,7 @@ object GalleryBottomBar {
                 isFocusable = true
                 isSelected = selected
                 contentDescription = if (selected) "$label，当前页面" else label
-                background = RippleDrawable(
+                this.background = RippleDrawable(
                     ColorStateList.valueOf(Color.argb(28, Color.red(primary), Color.green(primary), Color.blue(primary))),
                     null,
                     GradientDrawable().apply { cornerRadius = dp(8).toFloat(); setColor(Color.WHITE) }
