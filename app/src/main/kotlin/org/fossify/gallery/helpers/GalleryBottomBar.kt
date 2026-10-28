@@ -5,7 +5,7 @@ import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.widget.ImageView
@@ -45,13 +45,20 @@ object GalleryBottomBar {
         val background = activity.getProperBackgroundColor()
         val foreground = activity.getProperTextColor()
         val primary = activity.getProperPrimaryColor()
-        val quiet = Color.argb(195, Color.red(foreground), Color.green(foreground), Color.blue(foreground))
+        val quiet = Color.argb(138, Color.red(foreground), Color.green(foreground), Color.blue(foreground))
 
+        // Reattaching after a configuration-driven rebuild must not duplicate the bar.
+        parent.findViewWithTag<android.view.View>("oxygen_classic_bottom_bar")?.let(parent::removeView)
+        var navigating = false
+        val barHeight = activity.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height)
+        val itemHeight = activity.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_item_height)
+        val iconSize = activity.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_icon_size)
         val bar = LinearLayout(activity).apply {
+            tag = "oxygen_classic_bottom_bar"
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(background)
-            elevation = dp(2).toFloat()
+            elevation = 0f
             setPadding(dp(6), dp(2), dp(6), 0)
         }
 
@@ -72,17 +79,23 @@ object GalleryBottomBar {
                 contentDescription = if (selected) "$label，当前页面" else label
                 this.background = RippleDrawable(
                     ColorStateList.valueOf(Color.argb(28, Color.red(primary), Color.green(primary), Color.blue(primary))),
-                    null,
-                    GradientDrawable().apply { cornerRadius = dp(8).toFloat(); setColor(Color.WHITE) }
+                    ColorDrawable(Color.TRANSPARENT), null
                 )
-                setOnClickListener { navigate(tab) }
+                setOnClickListener {
+                    if (tab == active) {
+                        navigate(tab)
+                    } else if (!navigating) {
+                        navigating = true
+                        navigate(tab)
+                    }
+                }
             }
             item.addView(ImageView(activity).apply {
                 setImageResource(icon)
                 imageTintList = ColorStateList.valueOf(tint)
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }, LinearLayout.LayoutParams(dp(23), dp(23)))
+            }, LinearLayout.LayoutParams(iconSize, iconSize))
             item.addView(TextView(activity).apply {
                 text = label
                 gravity = Gravity.CENTER
@@ -92,20 +105,20 @@ object GalleryBottomBar {
                 includeFontPadding = false
                 importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }, LinearLayout.LayoutParams(-1, dp(22)))
-            bar.addView(item, LinearLayout.LayoutParams(0, dp(56), 1f).apply {
+            bar.addView(item, LinearLayout.LayoutParams(0, itemHeight, 1f).apply {
                 marginStart = dp(2)
                 marginEnd = dp(2)
             })
         }
 
         parent.addView(bar, CoordinatorLayout.LayoutParams(
-            CoordinatorLayout.LayoutParams.MATCH_PARENT, dp(60)
+            CoordinatorLayout.LayoutParams.MATCH_PARENT, barHeight
         ).apply { gravity = Gravity.BOTTOM })
 
         ViewCompat.setOnApplyWindowInsetsListener(bar) { view, insets ->
             val bottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
             val params = view.layoutParams as CoordinatorLayout.LayoutParams
-            val desiredHeight = dp(60) + bottom
+            val desiredHeight = barHeight + bottom
             if (params.height != desiredHeight) {
                 params.height = desiredHeight
                 view.layoutParams = params

@@ -247,8 +247,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         mShowingFolderFavorites = !mIsThirdPartyIntent && intent.getBooleanExtra(EXTRA_FOLDER_FAVORITES, false)
         // The launcher honors the last All Photos / folder-view choice. Only
         // explicit navigation requests override it; never reset it on cold start.
-        if (mShowingFolderFavorites || intent.getBooleanExtra(EXTRA_SHOW_FOLDERS, false)) {
-            config.showAll = false
+        when {
+            mShowingFolderFavorites -> config.showAll = false
+            intent.getBooleanExtra(EXTRA_SHOW_FOLDERS, false) -> {
+                config.showAll = false
+                if (!mIsThirdPartyIntent) config.lastMainViewAll = false
+            }
+            !mIsThirdPartyIntent -> config.showAll = config.lastMainViewAll
         }
 
         setupOptionsMenu()
@@ -259,21 +264,31 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 if (mShowingFolderFavorites) GalleryBottomBar.Tab.FAVORITE_FOLDERS else GalleryBottomBar.Tab.ALL
             ) { tab ->
                 when (tab) {
-                    GalleryBottomBar.Tab.ALL -> showAllMedia()
+                    GalleryBottomBar.Tab.ALL -> {
+                        if (mShowingFolderFavorites) {
+                            if (config.lastMainViewAll) {
+                                showAllMedia()
+                            } else {
+                                GalleryBottomBar.open(this, Intent(this, MainActivity::class.java)
+                                    .putExtra(EXTRA_SHOW_FOLDERS, true), finishCurrent = true)
+                            }
+                        } else {
+                            binding.directoriesGrid.scrollToPosition(0)
+                        }
+                    }
                     GalleryBottomBar.Tab.FAVORITE_FOLDERS -> {
                         if (mShowingFolderFavorites) {
                             binding.directoriesGrid.scrollToPosition(0)
                         } else {
-                            config.showAll = false
                             GalleryBottomBar.open(this, Intent(this, MainActivity::class.java)
                                 .putExtra(EXTRA_FOLDER_FAVORITES, true), finishCurrent = true)
                         }
                     }
                     GalleryBottomBar.Tab.PRIVATE ->
-                        GalleryBottomBar.open(this, Intent(this, PrivateVaultActivity::class.java))
+                        GalleryBottomBar.open(this, Intent(this, PrivateVaultActivity::class.java), finishCurrent = true)
                 }
             }
-            val bottom = (92 * resources.displayMetrics.density).toInt()
+            val bottom = resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height)
             binding.directoriesGrid.setPadding(
                 binding.directoriesGrid.paddingLeft, binding.directoriesGrid.paddingTop,
                 binding.directoriesGrid.paddingRight, bottom
@@ -850,6 +865,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     private fun showAllMedia() {
+        if (!mIsThirdPartyIntent) config.lastMainViewAll = true
         config.showAll = true
         Intent(this, MediaActivity::class.java).apply {
             putExtra(DIRECTORY, "")

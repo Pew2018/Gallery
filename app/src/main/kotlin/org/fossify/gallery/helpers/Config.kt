@@ -17,8 +17,15 @@ import java.util.Locale
 
 class Config(context: Context) : BaseConfig(context) {
     companion object {
+        private const val LAST_MAIN_VIEW_ALL = "oxygenos_classic_last_main_view_all"
         fun newInstance(context: Context) = Config(context)
     }
+
+    /** The selected main Photos/Folders view, independent of the active bottom tab. */
+    var lastMainViewAll: Boolean
+        get() = prefs.getBoolean(LAST_MAIN_VIEW_ALL, if (appRunCount <= 1) true else showAll)
+        set(value) = prefs.edit().putBoolean(LAST_MAIN_VIEW_ALL, value).apply()
+
 
     var directorySorting: Int
         get(): Int = prefs.getInt(DIRECTORY_SORT_ORDER, SORT_BY_DATE_MODIFIED or SORT_DESCENDING)

@@ -112,14 +112,17 @@ class PrivateVaultActivity : SimpleActivity() {
         GalleryBottomBar.attach(this, root, GalleryBottomBar.Tab.PRIVATE) { tab ->
             when (tab) {
                 GalleryBottomBar.Tab.ALL -> {
-                    config.showAll = true
-                    GalleryBottomBar.open(this, Intent(this, MediaActivity::class.java)
-                        .putExtra(DIRECTORY, "")
-                        .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-                        finishCurrent = true)
+                    val showPhotos = config.lastMainViewAll
+                    config.showAll = showPhotos
+                    val destination = if (showPhotos) {
+                        Intent(this, MediaActivity::class.java).putExtra(DIRECTORY, "")
+                    } else {
+                        Intent(this, MainActivity::class.java)
+                            .putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true)
+                    }
+                    GalleryBottomBar.open(this, destination, finishCurrent = true)
                 }
                 GalleryBottomBar.Tab.FAVORITE_FOLDERS -> {
-                    config.showAll = false
                     GalleryBottomBar.open(this, Intent(this, MainActivity::class.java)
                         .putExtra(MainActivity.EXTRA_FOLDER_FAVORITES, true),
                         finishCurrent = true)
