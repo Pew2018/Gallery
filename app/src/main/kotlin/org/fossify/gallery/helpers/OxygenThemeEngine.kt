@@ -45,18 +45,51 @@ object OxygenThemeEngine {
         config.accentColor = seed
     }
 
+    // The 2017 Settings-derived toolbar is a dedicated dark surface, NOT the
+    // light page surface. Keep legacy Fossify and all saved custom colors intact.
+    const val CLASSIC_TOOLBAR: Int = 0xFF212121.toInt()
+    const val CLASSIC_STATUS_BAR: Int = 0xFF1E1E1E.toInt()
+
+    fun resolveToolbarSurface(
+        activated: Boolean, customEnabled: Boolean, customColor: Int, legacyColor: Int
+    ): Int = when {
+        !activated -> legacyColor
+        customEnabled -> customColor
+        else -> CLASSIC_TOOLBAR
+    }
+
+    fun autoForeground(surface: Int): Int {
+        val opaque = ColorUtils.setAlphaComponent(surface, 255)
+        return if (ColorUtils.calculateContrast(Color.BLACK, opaque) >= 4.5)
+            Color.BLACK else Color.WHITE
+    }
+
     fun toolbarSurface(context: Context, config: Config): Int =
-        if (config.oxygenThemeActivated && config.oxygenCustomToolbarEnabled) config.oxygenToolbarColor
-        else if (config.oxygenThemeActivated) config.backgroundColor
+        resolveToolbarSurface(config.oxygenThemeActivated, config.oxygenCustomToolbarEnabled,
+            config.oxygenToolbarColor, context.getProperBackgroundColor())
+
+    fun toolbarForeground(context: Context, config: Config): Int =
+        if (config.oxygenThemeActivated && config.oxygenManualToolbarText)
+            config.oxygenToolbarTextColor
+        else autoForeground(toolbarSurface(context, config))
+
+    fun statusBarSurface(context: Context, config: Config): Int = when {
+        !config.oxygenThemeActivated -> toolbarSurface(context, config)
+        !config.oxygenCustomToolbarEnabled -> CLASSIC_STATUS_BAR
+        else -> ColorUtils.blendARGB(toolbarSurface(context, config), Color.BLACK, 0.09f)
+    }
+
+    fun statusBarLightIcons(context: Context, config: Config): Boolean =
+        autoForeground(statusBarSurface(context, config)) == Color.BLACK
+
+    fun pageSurface(context: Context, config: Config): Int =
+        if (config.oxygenThemeActivated) {
+            if (isDark(context, config)) Color.rgb(33, 33, 33) else Color.rgb(250, 250, 250)
+        } else context.getProperBackgroundColor()
+
+    fun dialogSurface(context: Context, config: Config): Int =
+        if (config.oxygenThemeActivated && isDark(context, config)) Color.rgb(48, 48, 48)
+        else if (config.oxygenThemeActivated) Color.WHITE
         else context.getProperBackgroundColor()
 
-    fun toolbarForeground(context: Context, config: Config): Int {
-        val surface = toolbarSurface(context, config)
-        if (config.oxygenThemeActivated && config.oxygenManualToolbarText) {
-            val chosen = config.oxygenToolbarTextColor
-            // Manual colors must not silently change, even when contrast is inadequate.
-            return chosen
-        }
-        return if (ColorUtils.calculateContrast(Color.BLACK, surface) >= 4.5) Color.BLACK else Color.WHITE
-    }
 }
