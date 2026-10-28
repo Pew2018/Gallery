@@ -1515,7 +1515,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
         // Displaying excluded metadata never bypasses the existing excluded
         // folders password gate when the user actually opens the folder.
-        if (config.excludedFolders.any { path == it || path.startsWith("$it/") }) {
+        if (FavoriteFolderRules.isExcluded(path, config.excludedFolders)) {
             handleExcludedFolderPasswordProtection { openAuthenticated() }
         } else {
             openAuthenticated()
@@ -1955,7 +1955,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val currAdapter = binding.directoriesGrid.adapter
         val distinctDirs = dirs
             .filter { !mShowingFolderFavorites || mFavoriteFolderPaths.contains(it.path) }
-            .distinctBy { it.path.getDistinctPath() }
+            .distinctBy {
+                if (mShowingFolderFavorites) FavoriteFolderRules.normalizedPath(it.path)
+                else it.path.getDistinctPath()
+            }
             .toMutableList() as ArrayList<Directory>
 
         val sortedDirs = getSortedDirectories(distinctDirs)
