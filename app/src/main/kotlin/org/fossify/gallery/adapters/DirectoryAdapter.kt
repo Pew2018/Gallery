@@ -77,6 +77,7 @@ import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.directoryDB
 import org.fossify.gallery.extensions.emptyAndDisableTheRecycleBin
 import org.fossify.gallery.extensions.emptyTheRecycleBin
+import org.fossify.gallery.extensions.favoriteFoldersDB
 import org.fossify.gallery.extensions.favoritesDB
 import org.fossify.gallery.extensions.fixDateTaken
 import org.fossify.gallery.extensions.getShortcutImage
@@ -191,6 +192,9 @@ class DirectoryAdapter(
 
             checkHideBtnVisibility(this, selectedPaths)
             checkPinBtnVisibility(this, selectedPaths)
+            val favoritePaths = try { activity.favoriteFoldersDB.getPaths().toSet() } catch (_: Exception) { emptySet() }
+            findItem(R.id.cab_favorite_folder).isVisible = selectedPaths.any { it != FAVORITES && it != RECYCLE_BIN && it !in favoritePaths }
+            findItem(R.id.cab_unfavorite_folder).isVisible = selectedPaths.any { it in favoritePaths }
         }
     }
 
@@ -206,6 +210,8 @@ class DirectoryAdapter(
             R.id.cab_rename -> renameDir()
             R.id.cab_pin -> pinFolders(true)
             R.id.cab_unpin -> pinFolders(false)
+            R.id.cab_favorite_folder -> updateFolderFavorites(true)
+            R.id.cab_unfavorite_folder -> updateFolderFavorites(false)
             R.id.cab_change_order -> changeOrder()
             R.id.cab_empty_recycle_bin -> tryEmptyRecycleBin(true)
             R.id.cab_empty_disable_recycle_bin -> emptyAndDisableRecycleBin()
@@ -265,6 +271,21 @@ class DirectoryAdapter(
         val pinnedFolders = config.pinnedFolders
         menu.findItem(R.id.cab_pin).isVisible = selectedPaths.any { !pinnedFolders.contains(it) }
         menu.findItem(R.id.cab_unpin).isVisible = selectedPaths.any { pinnedFolders.contains(it) }
+    }
+
+    private fun updateFolderFavorites(add: Boolean) {
+        val selected = getSelectedPaths().filter { it != FAVORITES && it != RECYCLE_BIN }
+        finishActMode()
+        ensureBackgroundThread {
+            selected.forEach { path ->
+                if (add) {
+                    activity.favoriteFoldersDB.insert(org.fossify.gallery.models.FavoriteFolder(path))
+                } else {
+                    activity.favoriteFoldersDB.delete(path)
+                }
+            }
+            activity.runOnUiThread { listener?.refreshItems() }
+        }
     }
 
     private fun moveSelectedItemsToTop() {
@@ -329,6 +350,7 @@ class DirectoryAdapter(
                             ensureBackgroundThread {
                                 try {
                                     activity.directoryDB.updateDirectoryAfterRename(firstDir.tmb, firstDir.name, firstDir.path, sourcePath)
+                                    activity.favoriteFoldersDB.rename(sourcePath, firstDir.path)
                                     listener?.refreshItems()
                                 } catch (e: Exception) {
                                     activity.showErrorToast(e)
