@@ -18,6 +18,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.bumptech.glide.Glide
+import com.squareup.picasso.Picasso
 import com.google.gson.Gson
 import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 import org.fossify.commons.activities.BaseSimpleActivity
@@ -265,7 +266,11 @@ class DirectoryAdapter(
     override fun onViewRecycled(holder: ViewHolder) {
         super.onViewRecycled(holder)
         if (!activity.isDestroyed) {
-            Glide.with(activity).clear(bindItem(holder.itemView).dirThumbnail)
+            val thumbnail = bindItem(holder.itemView).dirThumbnail
+            Picasso.get().cancelRequest(thumbnail)
+            Glide.with(activity).clear(thumbnail)
+            thumbnail.setImageDrawable(null)
+            thumbnail.tag = null
         }
     }
 
@@ -931,6 +936,7 @@ class DirectoryAdapter(
 
             if (lockedFolderPaths.contains(directory.path)) {
                 // Recycled holders must not retain old or unprotected thumbnails.
+                Picasso.get().cancelRequest(dirThumbnail)
                 Glide.with(activity).clear(dirThumbnail)
                 dirThumbnail.setImageDrawable(null)
                 dirThumbnail.tag = null
@@ -946,6 +952,8 @@ class DirectoryAdapter(
                 }
 
                 OxygenThumbnailPlaceholder.apply(activity, dirThumbnail, roundedCorners)
+                Picasso.get().cancelRequest(dirThumbnail)
+                dirThumbnail.scaleType = if (cropThumbnails) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
                 // Old cached thumbnails must never flash on a different folder.
                 if (dirThumbnail.tag != directory.tmb) {
                     Glide.with(activity).clear(dirThumbnail)

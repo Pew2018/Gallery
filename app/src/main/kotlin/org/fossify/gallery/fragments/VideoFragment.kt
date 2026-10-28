@@ -10,6 +10,7 @@ import android.graphics.SurfaceTexture
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
+import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.GestureDetector
 import android.view.HapticFeedbackConstants
@@ -119,8 +120,20 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     var mIsPlaying = false
 
     private var mExoPlayer: ExoPlayer? = null
+    private var mVideoSurface: Surface? = null
     private var mVideoSize = Point(1, 1)
-    private var mTimerHandler = Handler()
+    private val mTimerHandler = Handler(Looper.getMainLooper())
+    private val mProgressRunnable = object : Runnable {
+        override fun run() {
+            val player = mExoPlayer
+            if (player != null && !mIsDragged && mIsPlaying) {
+                mCurrTime = player.currentPosition
+                mSeekBar.progress = mCurrTime.toInt()
+                mCurrTimeView.text = mCurrTime.getFormattedDuration()
+            }
+            mTimerHandler.postDelayed(this, UPDATE_INTERVAL_MS)
+        }
+    }
 
     private var mStoredShowExtendedDetails = false
     private var mStoredHideExtendedDetails = false
@@ -390,11 +403,12 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        if (activity?.isChangingConfigurations == false) {
-            cleanup()
-        }
+    override fun onDestroyView() {
+        // Fragment views are discarded on rotation too. Never keep their player,
+        // timer or video Surface alive across view destruction.
+        cleanup()
+        mTextureView.surfaceTextureListener = null
+        super.onDestroyView()
     }
 
     override fun setMenuVisibility(menuVisible: Boolean) {
@@ -459,17 +473,9 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     }
 
     private fun setupTimer() {
-        activity?.runOnUiThread(object : Runnable {
-            override fun run() {
-                if (mExoPlayer != null && !mIsDragged && mIsPlaying) {
-                    mCurrTime = mExoPlayer!!.currentPosition
-                    mSeekBar.progress = mCurrTime.toInt()
-                    mCurrTimeView.text = mCurrTime.getFormattedDuration()
-                }
-
-                mTimerHandler.postDelayed(this, UPDATE_INTERVAL_MS)
-            }
-        })
+        // Repeated duration updates must not schedule parallel 250-ms loops.
+        mTimerHandler.removeCallbacks(mProgressRunnable)
+        mTimerHandler.post(mProgressRunnable)
     }
 
     private fun initExoPlayer() {
@@ -530,9 +536,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                 )
                 prepare()
 
-                if (mTextureView.surfaceTexture != null) {
-                    setVideoSurface(Surface(mTextureView.surfaceTexture))
-                }
+                mTextureView.surfaceTexture?.let { attachVideoSurface(this, it) }
 
                 initListeners()
             }
@@ -924,13 +928,16 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     }
 
     private fun cleanup() {
+        mTimerHandler.removeCallbacksAndMessages(null)
         pauseVideo()
+        mExoPlayer?.clearVideoSurface()
+        mVideoSurface?.release()
+        mVideoSurface = null
         releaseExoPlayer()
 
         if (mWasFragmentInit) {
             mCurrTimeView.text = 0.getFormattedDuration()
             mSeekBar.progress = 0
-            mTimerHandler.removeCallbacksAndMessages(null)
         }
     }
 
@@ -947,10 +954,21 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
 
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
 
-    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture) = false
+    private fun attachVideoSurface(player: ExoPlayer, texture: SurfaceTexture) {
+        player.clearVideoSurface()
+        mVideoSurface?.release()
+        mVideoSurface = Surface(texture).also { player.setVideoSurface(it) }
+    }
+
+    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+        mExoPlayer?.clearVideoSurface()
+        mVideoSurface?.release()
+        mVideoSurface = null
+        return true
+    }
 
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-        mExoPlayer?.setVideoSurface(Surface(mTextureView.surfaceTexture))
+        mExoPlayer?.let { attachVideoSurface(it, surface) }
     }
 
     private fun setVideoSize() {

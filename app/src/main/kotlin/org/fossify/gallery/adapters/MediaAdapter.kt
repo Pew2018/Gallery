@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.view.allViews
 import com.bumptech.glide.Glide
+import com.squareup.picasso.Picasso
 import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.adapters.MyRecyclerViewAdapter
@@ -256,8 +257,11 @@ class MediaAdapter(
         if (!activity.isDestroyed) {
             val itemView = holder.itemView
             val tmb = itemView.allViews.firstOrNull { it.id == R.id.medium_thumbnail }
-            if (tmb != null) {
+            if (tmb is ImageView) {
+                Picasso.get().cancelRequest(tmb)
                 Glide.with(activity).clear(tmb)
+                tmb.setImageDrawable(null)
+                tmb.tag = null
             }
         }
     }
@@ -736,6 +740,9 @@ class MediaAdapter(
             }
 
             OxygenThumbnailPlaceholder.apply(activity, mediumThumbnail, roundedCorners)
+            // The PNG fallback uses Picasso and is not cancelled by Glide.clear().
+            Picasso.get().cancelRequest(mediumThumbnail)
+            mediumThumbnail.scaleType = if (cropThumbnails) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
             if (mediumThumbnail.tag != path) {
                 Glide.with(activity).clear(mediumThumbnail)
                 mediumThumbnail.setImageDrawable(null)

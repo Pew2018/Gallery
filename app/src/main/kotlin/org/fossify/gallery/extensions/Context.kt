@@ -731,7 +731,7 @@ fun Context.loadImageBase(
     }
 
     WebpBitmapFactory.sUseSystemDecoder = false // CVE-2023-4863
-    var builder = Glide.with(applicationContext)
+    var builder = Glide.with(target)
         .load(path)
         .apply(options)
         .set(WebpDownsampler.USE_SYSTEM_DECODER, false) // CVE-2023-4863
@@ -744,8 +744,10 @@ fun Context.loadImageBase(
             targetBitmap: Target<Drawable>,
             isFirstResource: Boolean
         ): Boolean {
+            // A recycled ImageView must never receive a failed request's fallback.
+            if (target.tag != path) return true
             if (tryLoadingWithPicasso) {
-                tryLoadingWithPicasso(path, target, cropThumbnails, roundCorners, signature)
+                tryLoadingWithPicasso(path, target, cropThumbnails, roundCorners, signature, onError)
             } else {
                 onError?.invoke()
             }
@@ -780,7 +782,7 @@ fun Context.loadSVG(
     }
 
     val options = RequestOptions().signature(signature)
-    var builder = Glide.with(applicationContext)
+    var builder = Glide.with(target)
         .`as`(PictureDrawable::class.java)
         .listener(SvgSoftwareLayerSetter())
         .load(path)
@@ -806,7 +808,8 @@ fun Context.tryLoadingWithPicasso(
     view: MySquareImageView,
     cropThumbnails: Boolean,
     roundCorners: Int,
-    signature: ObjectKey
+    signature: ObjectKey,
+    onError: (() -> Unit)? = null
 ) {
     var pathToLoad = "file://$path"
     pathToLoad = pathToLoad.replace("%", "%25").replace("#", "%23")
@@ -829,8 +832,16 @@ fun Context.tryLoadingWithPicasso(
             builder = builder.transform(PicassoRoundedCornersTransformation(cornerRadius.toFloat()))
         }
 
-        builder.into(view)
+        // Picasso is a fallback: its own failure must terminate loading, and
+        // an outdated callback must never replace a newer holder's image.
+        builder.into(view, object : com.squareup.picasso.Callback {
+            override fun onSuccess() = Unit
+            override fun onError(e: Exception?) {
+                if (view.tag == path) onError?.invoke()
+            }
+        })
     } catch (e: Exception) {
+        if (view.tag == path) onError?.invoke()
     }
 }
 
