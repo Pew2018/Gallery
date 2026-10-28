@@ -51,4 +51,19 @@ class OxygenThemePresetsTest {
         assertNull(OxygenThemeEngine.parseHex("#00000000"))
         assertNull(OxygenThemeEngine.parseHex("#GGGGGG"))
     }
+    @Test fun autoForegroundChoosesTheHigherContrastOfBlackAndWhite() {
+        val surfaces = listOf("#212121", "#FFFFFF", "#FAFAFA", "#000000",
+            "#0071CD", "#2196F3", "#E6A545", "#7DC22F", "#777777")
+        for (hex in surfaces) {
+            val background = OxygenThemeEngine.parseHex(hex)!!
+            val blackContrast = androidx.core.graphics.ColorUtils.calculateContrast(
+                android.graphics.Color.BLACK, background)
+            val whiteContrast = androidx.core.graphics.ColorUtils.calculateContrast(
+                android.graphics.Color.WHITE, background)
+            val chosen = OxygenThemeEngine.autoForeground(background)
+            val actual = androidx.core.graphics.ColorUtils.calculateContrast(chosen, background)
+            assertEquals("Contrast choice for $hex", maxOf(blackContrast, whiteContrast), actual, 0.00001)
+        }
+    }
+
 }
