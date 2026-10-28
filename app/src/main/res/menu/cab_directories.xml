@@ -110,6 +110,14 @@
         </menu>
     </item>
     <item
+        android:id="@+id/cab_favorite_folder"
+        android:title="收藏文件夹"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/cab_unfavorite_folder"
+        android:title="取消收藏文件夹"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/cab_select_all"
         android:icon="@drawable/ic_select_all_vector"
         android:title="@string/select_all"
