@@ -1,5 +1,7 @@
 package org.fossify.gallery.dialogs
 
+import org.fossify.gallery.helpers.OxygenClassicDialog
+
 import android.app.Activity
 import androidx.appcompat.app.AlertDialog
 import org.fossify.commons.extensions.beGoneIf
