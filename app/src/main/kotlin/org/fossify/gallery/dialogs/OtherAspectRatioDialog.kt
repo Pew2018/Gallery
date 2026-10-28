@@ -1,6 +1,7 @@
 package org.fossify.gallery.dialogs
 
 import androidx.appcompat.app.AlertDialog
+import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.extensions.getAlertDialogBuilder
 import org.fossify.commons.extensions.setupDialogStuff
@@ -61,6 +62,7 @@ class OtherAspectRatioDialog(
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
                 activity.setupDialogStuff(binding.root, this) { alertDialog ->
+                    OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                     dialog = alertDialog
                 }
             }

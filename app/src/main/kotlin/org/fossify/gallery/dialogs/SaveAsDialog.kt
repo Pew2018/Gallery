@@ -1,6 +1,7 @@
 package org.fossify.gallery.dialogs
 
 import androidx.appcompat.app.AlertDialog
+import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.dialogs.FilePickerDialog
 import org.fossify.commons.extensions.getAlertDialogBuilder
@@ -80,6 +81,7 @@ class SaveAsDialog(
                     dialog = this,
                     titleId = org.fossify.commons.R.string.save_as
                 ) { alertDialog ->
+                    OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                     alertDialog.showKeyboard(binding.filenameValue)
                     alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         validateAndConfirmPath(alertDialog::dismiss)

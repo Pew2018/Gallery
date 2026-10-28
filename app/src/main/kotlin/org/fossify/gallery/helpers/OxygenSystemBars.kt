@@ -1,6 +1,7 @@
 package org.fossify.gallery.helpers
 
 import android.app.Activity
+import android.graphics.Color
 import android.os.Build
 import android.view.Gravity
 import android.view.View
@@ -33,8 +34,10 @@ object OxygenSystemBars {
             @Suppress("DEPRECATION")
             activity.window.statusBarColor = color
         }
-        WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-            .isAppearanceLightStatusBars = OxygenThemeEngine.statusBarLightIcons(activity, activity.config)
+        val bars = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+        bars.isAppearanceLightStatusBars = OxygenThemeEngine.statusBarLightIcons(activity, activity.config)
+        bars.isAppearanceLightNavigationBars =
+            OxygenThemeEngine.autoForeground(OxygenThemeEngine.pageSurface(activity, activity.config)) == Color.BLACK
 
         val underlay = existing ?: View(activity).also { view ->
             view.tag = STATUS_UNDERLAY

@@ -2,6 +2,7 @@ package org.fossify.gallery.dialogs
 
 import android.graphics.Point
 import androidx.appcompat.app.AlertDialog
+import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.extensions.*
 import org.fossify.commons.helpers.ensureBackgroundThread
@@ -39,6 +40,7 @@ class ResizeMultipleImagesDialog(
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
                 activity.setupDialogStuff(binding.root, this, R.string.resize_multiple_images) { alertDialog ->
+                    OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                     dialog = alertDialog
                     alertDialog.showKeyboard(resizeFactorEditText)
 
