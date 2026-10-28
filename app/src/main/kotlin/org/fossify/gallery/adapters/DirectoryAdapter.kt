@@ -990,7 +990,11 @@ class DirectoryAdapter(
                 }
             }
 
-            dirName.text = nameCount
+            dirName.text = buildString {
+                if (directory.path in favoriteFolderPaths) append("★ ")
+                append(nameCount)
+                if (directory.folderStatuses.isNotEmpty()) append(" · ${directory.folderStatuses}")
+            }
 
             if (isListViewType || folderStyle == FOLDER_STYLE_ROUNDED_CORNERS) {
                 photoCnt.setTextColor(textColor)
