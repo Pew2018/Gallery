@@ -113,6 +113,7 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
 
     private fun updateMenuColors() {
         binding.searchMenu.updateColors()
+        OxygenSystemBars.apply(this)
         OxygenToolbarStyle.apply(this, binding.searchMenu, getString(org.fossify.commons.R.string.search))
     }
 

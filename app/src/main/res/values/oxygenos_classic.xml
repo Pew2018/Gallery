@@ -17,6 +17,13 @@
     <dimen name="oxygen_classic_switch_width">42dp</dimen>
     <dimen name="oxygen_classic_switch_thumb_size">24dp</dimen>
 
+    <style name="OxygenClassicToolbarTitle" parent="TextAppearance.Widget.AppCompat.Toolbar.Title">
+        <item name="android:textSize">20sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
     <style name="OxygenClassicSettingsSection" parent="SettingsSectionLabelStyle">
         <item name="android:minHeight">48dp</item>
         <item name="android:textSize">12sp</item>

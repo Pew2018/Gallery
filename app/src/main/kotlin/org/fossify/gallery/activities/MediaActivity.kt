@@ -438,6 +438,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private fun updateMenuColors() {
         binding.mediaMenu.updateColors()
+        OxygenSystemBars.apply(this)
         OxygenToolbarStyle.apply(
             this, binding.mediaMenu,
             when {

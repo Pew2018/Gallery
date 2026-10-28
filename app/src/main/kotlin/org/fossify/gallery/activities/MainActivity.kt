@@ -658,6 +658,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     private fun updateMenuColors() {
         binding.mainMenu.updateColors()
+        OxygenSystemBars.apply(this)
         OxygenToolbarStyle.apply(
             this, binding.mainMenu,
             if (mShowingFolderFavorites) getString(org.fossify.commons.R.string.favorites)
