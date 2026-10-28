@@ -93,6 +93,7 @@ import org.fossify.gallery.helpers.GET_VIDEO_INTENT
 import org.fossify.gallery.helpers.GridSpacingItemDecoration
 import org.fossify.gallery.helpers.IS_IN_RECYCLE_BIN
 import org.fossify.gallery.helpers.MAX_COLUMN_COUNT
+import org.fossify.gallery.helpers.GalleryBottomBar
 import org.fossify.gallery.helpers.MediaFetcher
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.PICKED_PATHS
@@ -175,6 +176,26 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         setupOptionsMenu()
         refreshMenuItems()
         storeStateVariables()
+        if (mShowAll && !mIsGetImageIntent && !mIsGetVideoIntent && !mIsGetAnyIntent) {
+            GalleryBottomBar.attach(this, binding.root, GalleryBottomBar.Tab.ALL) { tab ->
+                when (tab) {
+                    GalleryBottomBar.Tab.ALL -> binding.mediaGrid.scrollToPosition(0)
+                    GalleryBottomBar.Tab.FAVORITE_FOLDERS -> {
+                        config.showAll = false
+                        startActivity(Intent(this, MainActivity::class.java)
+                            .putExtra(MainActivity.EXTRA_FOLDER_FAVORITES, true))
+                        finish()
+                    }
+                    GalleryBottomBar.Tab.PRIVATE -> startActivity(Intent(this, PrivateVaultActivity::class.java))
+                }
+            }
+            val bottom = (92 * resources.displayMetrics.density).toInt()
+            binding.mediaGrid.setPadding(
+                binding.mediaGrid.paddingLeft, binding.mediaGrid.paddingTop,
+                binding.mediaGrid.paddingRight, bottom
+            )
+            binding.mediaGrid.clipToPadding = false
+        }
         setupEdgeToEdge(
             padTopSystem = listOf(binding.mediaMenu),
             padBottomImeAndSystem = listOf(binding.mediaGrid)
