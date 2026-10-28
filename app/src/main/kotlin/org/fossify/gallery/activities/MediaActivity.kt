@@ -98,6 +98,7 @@ import org.fossify.gallery.helpers.OxygenToolbarStyle
 import org.fossify.gallery.helpers.OxygenSystemBars
 import org.fossify.gallery.helpers.OxygenSearchNavigation
 import org.fossify.gallery.helpers.MediaFetcher
+import org.fossify.gallery.helpers.MediaCachePrunePolicy
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.PICKED_PATHS
 import org.fossify.gallery.helpers.RECYCLE_BIN
@@ -138,6 +139,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mLastMediaHandler = Handler()
     private var mTempShowHiddenHandler = Handler()
     private var mCurrAsyncTask: GetMediaAsynctask? = null
+    @Volatile private var mediaScanGeneration = 0L
     private var mZoomListener: MyRecyclerView.MyZoomListener? = null
 
     private var mStoredAnimateGifs = true
@@ -721,6 +723,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun startAsyncTask() {
+        // A canceled or superseded scan must not change the visible list or cached data.
+        val scanGeneration = ++mediaScanGeneration
         mCurrAsyncTask?.stopFetching()
         mCurrAsyncTask = GetMediaAsynctask(
             context = applicationContext,
@@ -728,28 +732,40 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             isPickImage = mIsGetImageIntent && !mIsGetVideoIntent,
             isPickVideo = mIsGetVideoIntent && !mIsGetImageIntent,
             showAll = mShowAll
-        ) {
+        ) { scannedMedia ->
             ensureBackgroundThread {
-                val oldMedia = mMedia.clone() as ArrayList<ThumbnailItem>
-                val newMedia = it
+                if (scanGeneration != mediaScanGeneration || isFinishing || isDestroyed) {
+                    return@ensureBackgroundThread
+                }
                 try {
-                    gotMedia(newMedia, false)
+                    val oldMedia = mMedia.filterIsInstance<Medium>()
+                    val newPaths = scannedMedia.filterIsInstance<Medium>()
+                        .mapTo(HashSet()) { it.path }
+                    gotMedia(scannedMedia, false)
 
-                    // remove cached files that are no longer valid for whatever reason
-                    // Hash membership avoids O(oldMedia × newMedia) lookups for large libraries.
-                    val newPaths = newMedia.mapNotNull { it as? Medium }.mapTo(HashSet()) { it.path }
-                    oldMedia
-                        .mapNotNull { it as? Medium }
-                        .filter { !newPaths.contains(it.path) }
-                        .forEach {
-                            if (mPath == FAVORITES && getDoesFilePathExist(it.path)) {
-                                favoritesDB.deleteFavoritePath(it.path)
-                                mediaDB.updateFavorite(it.path, false)
-                            } else {
-                                mediaDB.deleteMediumPath(it.path)
-                            }
+                    // A filtered/partial/permission-limited scan is NOT evidence that an
+                    // old file was deleted. Never clear a favorite relationship here.
+                    // Only prune cached metadata for files confirmed absent from an
+                    // accessible parent directory.
+                    oldMedia.forEach { old ->
+                        if (scanGeneration != mediaScanGeneration) return@ensureBackgroundThread
+                        val file = File(old.path)
+                        val parentReadable = file.parentFile?.let {
+                            it.isDirectory && it.canRead()
+                        } == true
+                        if (MediaCachePrunePolicy.canPrune(
+                                oldPath = old.path,
+                                latestPaths = newPaths,
+                                isFavoritesView = mPath == FAVORITES,
+                                parentReadable = parentReadable,
+                                fileExists = file.exists()
+                            )
+                        ) {
+                            mediaDB.deleteMediumPath(old.path)
                         }
+                    }
                 } catch (e: Exception) {
+                    android.util.Log.e("GalleryMedia", "Media scan reconciliation failed", e)
                 }
             }
         }
