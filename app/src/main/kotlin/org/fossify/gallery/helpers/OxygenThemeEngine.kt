@@ -5,6 +5,7 @@ import android.content.res.Configuration
 import android.graphics.Color
 import androidx.core.graphics.ColorUtils
 import org.fossify.commons.extensions.getProperBackgroundColor
+import kotlin.math.pow
 
 /** Resolves one theme snapshot into Commons' existing colors.
  * No preferences are rewritten by contrast derivation.
@@ -58,14 +59,23 @@ object OxygenThemeEngine {
         else -> CLASSIC_TOOLBAR
     }
 
-    fun autoForeground(surface: Int): Int {
-        val opaque = ColorUtils.setAlphaComponent(surface, 255)
-        // Both black and white meet the normal-text 4.5:1 target against
-        // an opaque sRGB surface; prefer the one with the stronger contrast.
-        val blackContrast = ColorUtils.calculateContrast(Color.BLACK, opaque)
-        val whiteContrast = ColorUtils.calculateContrast(Color.WHITE, opaque)
-        return if (blackContrast >= whiteContrast) Color.BLACK else Color.WHITE
+    /** Pure sRGB contrast math, including JVM unit tests without Robolectric. */
+    fun contrastRatio(foreground: Int, background: Int): Double {
+        fun luminance(color: Int): Double {
+            fun channel(shift: Int): Double {
+                val s = ((color ushr shift) and 0xFF) / 255.0
+                return if (s <= 0.04045) s / 12.92 else ((s + 0.055) / 1.055).pow(2.4)
+            }
+            return 0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
+        }
+        val one = luminance(foreground)
+        val two = luminance(background)
+        return (maxOf(one, two) + 0.05) / (minOf(one, two) + 0.05)
     }
+
+    fun autoForeground(surface: Int): Int =
+        if (contrastRatio(Color.BLACK, surface) >= contrastRatio(Color.WHITE, surface))
+            Color.BLACK else Color.WHITE
 
     fun toolbarSurface(context: Context, config: Config): Int =
         resolveToolbarSurface(config.oxygenThemeActivated, config.oxygenCustomToolbarEnabled,

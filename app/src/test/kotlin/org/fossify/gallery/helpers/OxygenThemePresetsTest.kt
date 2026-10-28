@@ -40,7 +40,7 @@ class OxygenThemePresetsTest {
             assertTrue("Unexpected foreground for $hex", foreground == 0xFF000000.toInt() ||
                 foreground == 0xFFFFFFFF.toInt())
             assertTrue("Insufficient contrast on $hex",
-                androidx.core.graphics.ColorUtils.calculateContrast(foreground, color) >= 4.5)
+                OxygenThemeEngine.contrastRatio(foreground, color) >= 4.5)
         }
     }
 
@@ -56,12 +56,12 @@ class OxygenThemePresetsTest {
             "#0071CD", "#2196F3", "#E6A545", "#7DC22F", "#777777")
         for (hex in surfaces) {
             val background = OxygenThemeEngine.parseHex(hex)!!
-            val blackContrast = androidx.core.graphics.ColorUtils.calculateContrast(
+            val blackContrast = OxygenThemeEngine.contrastRatio(
                 android.graphics.Color.BLACK, background)
-            val whiteContrast = androidx.core.graphics.ColorUtils.calculateContrast(
+            val whiteContrast = OxygenThemeEngine.contrastRatio(
                 android.graphics.Color.WHITE, background)
             val chosen = OxygenThemeEngine.autoForeground(background)
-            val actual = androidx.core.graphics.ColorUtils.calculateContrast(chosen, background)
+            val actual = OxygenThemeEngine.contrastRatio(chosen, background)
             assertEquals("Contrast choice for $hex", maxOf(blackContrast, whiteContrast), actual, 0.00001)
         }
     }
