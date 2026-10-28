@@ -3,6 +3,7 @@ package org.fossify.gallery.dialogs
 import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.extensions.getAlertDialogBuilder
 import org.fossify.commons.extensions.setupDialogStuff
+import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.DialogFilterMediaBinding
 import org.fossify.gallery.extensions.config
@@ -26,7 +27,9 @@ class FilterMediaDialog(val activity: BaseSimpleActivity, val callback: (result:
             .setPositiveButton(org.fossify.commons.R.string.ok) { dialog, which -> dialogConfirmed() }
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
-                activity.setupDialogStuff(binding.root, this, R.string.filter_media)
+                activity.setupDialogStuff(binding.root, this, R.string.filter_media) { classicDialog ->
+                    OxygenClassicDialog.apply(activity, classicDialog, binding.root)
+                }
             }
     }
 
