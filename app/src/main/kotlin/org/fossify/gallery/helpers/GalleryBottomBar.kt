@@ -41,7 +41,7 @@ object GalleryBottomBar {
         val bar = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = GradientDrawable().apply {
+            this.background = GradientDrawable().apply {
                 setColor(background)
                 setStroke(dp(1), Color.argb(24, Color.red(foreground), Color.green(foreground), Color.blue(foreground)))
             }
@@ -71,7 +71,7 @@ object GalleryBottomBar {
                 isSelected = selected
                 isClickable = true
                 isFocusable = true
-                background = GradientDrawable().apply {
+                this.background = GradientDrawable().apply {
                     cornerRadius = dp(10).toFloat()
                     setColor(if (selected) selectedSurface else Color.TRANSPARENT)
                 }
