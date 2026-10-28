@@ -90,6 +90,7 @@ import org.fossify.gallery.helpers.LOCATION_INTERNAL
 import org.fossify.gallery.helpers.LOCATION_OTG
 import org.fossify.gallery.helpers.LOCATION_SD
 import org.fossify.gallery.helpers.MediaFetcher
+import org.fossify.gallery.helpers.MediaCachePrunePolicy
 import org.fossify.gallery.helpers.MyWidgetProvider
 import org.fossify.gallery.helpers.PicassoRoundedCornersTransformation
 import org.fossify.gallery.helpers.RECYCLE_BIN
@@ -1059,16 +1060,24 @@ fun Context.getCachedMedia(
 
 fun Context.removeInvalidDBDirectories(dirs: ArrayList<Directory>? = null) {
     val dirsToCheck = dirs ?: directoryDB.getAll()
-    val OTGPath = config.OTGPath
-    dirsToCheck.filter {
-        !it.areFavorites()
-                && !it.isRecycleBin()
-                && !getDoesFilePathExist(it.path, OTGPath)
-                && it.path != config.tempFolderPath
-    }.forEach {
+    dirsToCheck.filter { directory ->
+        val path = directory.path
+        val folder = File(path)
+        val parentReadable = folder.parentFile?.let {
+            it.isDirectory && it.canRead()
+        } == true
+        // A disconnected SD card or a revoked storage grant is not deletion.
+        // OTG paths need provider-level proof and must not be pruned here.
+        !directory.areFavorites() &&
+            !directory.isRecycleBin() &&
+            path != config.tempFolderPath &&
+            !isPathOnOTG(path) &&
+            MediaCachePrunePolicy.canPruneDirectory(path, parentReadable, folder.exists())
+    }.forEach { directory ->
         try {
-            directoryDB.deleteDirPath(it.path)
-        } catch (ignored: Exception) {
+            directoryDB.deleteDirPath(directory.path)
+        } catch (error: Exception) {
+            android.util.Log.w("GalleryDirs", "Could not prune directory", error)
         }
     }
 }
