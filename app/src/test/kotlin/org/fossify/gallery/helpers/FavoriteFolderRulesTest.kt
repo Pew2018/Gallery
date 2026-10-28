@@ -37,6 +37,14 @@ class FavoriteFolderRulesTest {
         assertFalse(FavoriteFolderRules.isExcluded("/Pictures/Other", listOf("")))
     }
 
+    @Test fun normalizedPathsPreserveCaseAndDirectoryBoundaries() {
+        assertEquals("/Pictures/Private", FavoriteFolderRules.normalizedPath("/Pictures/Temp/../Private/"))
+        assertFalse(FavoriteFolderRules.isExcluded("/Pictures/PRIVATE/a", listOf("/Pictures/Private")))
+        assertFalse(FavoriteFolderRules.isExcluded("/Pictures/PrivateBackup/a", listOf("/Pictures/Private")))
+        assertTrue(FavoriteFolderRules.isExcluded("/Pictures/Private/a", listOf("/Pictures/Private/")))
+        assertFalse(FavoriteFolderRules.isExcluded("/Pictures/.privateOther", listOf("/Pictures/.private")))
+    }
+
     @Test fun dotHiddenAndNoMediaRemainSeparate() {
         assertTrue(FavoriteFolderRules.isDotHidden("/Pictures/.private/2026"))
         assertFalse(FavoriteFolderRules.isDotHidden("/Pictures/private"))

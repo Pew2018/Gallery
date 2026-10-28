@@ -1062,14 +1062,15 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                             location = LOCATION_INTERNAL
                         }
                     }
-                val catalog = (cached + supplementary).distinctBy { it.path.lowercase() }
+                // Android paths are case-sensitive. Never collapse Photo and photo.
+                val catalog = (cached + supplementary).distinctBy {
+                    FavoriteFolderRules.normalizedPath(it.path)
+                }
                 val visible = catalog.filter { folder ->
                     val path = folder.path
-                    fun within(paths: Collection<String>) =
-                        paths.any { path == it || path.startsWith("$it/") }
-                    val hidden = path.split('/').any { it.startsWith('.') && it.length > 1 }
-                    val isExcluded = within(excluded)
-                    val isNoMedia = within(noMedia)
+                    val hidden = FavoriteFolderRules.isDotHidden(path)
+                    val isExcluded = FavoriteFolderRules.isExcluded(path, excluded)
+                    val isNoMedia = FavoriteFolderRules.isExcluded(path, noMedia)
                     val isProtected = config.isFolderProtected(path)
                     folder.folderStatuses = listOfNotNull(
                         "隐藏".takeIf { hidden },
