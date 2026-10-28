@@ -919,9 +919,19 @@ fun Context.getCachedDirectories(
 
         val clone = filteredDirectories.clone() as ArrayList<Directory>
         val privateRoots = org.fossify.gallery.helpers.PrivateFolderIndex.protectedPaths(this)
-        callback(clone.filterNot {
+        val visible = clone.filterNot {
             org.fossify.gallery.helpers.PrivateFolderIndex.isProtected(it.path, privateRoots)
-        }.distinctBy { it.path.getDistinctPath() } as ArrayList<Directory>)
+        }.map { directory ->
+            // A parent folder must not reuse private child metadata as its cover or count.
+            val parent = directory.path.trimEnd('/').lowercase(Locale.ROOT)
+            val hasPrivateChild = parent.isNotBlank() && privateRoots.any { it.startsWith(parent + "/") }
+            val privateCover = org.fossify.gallery.helpers.PrivateFolderIndex.isProtected(directory.tmb, privateRoots)
+            if (hasPrivateChild || privateCover) {
+                directory.copy(tmb = if (privateCover) "" else directory.tmb,
+                    mediaCnt = if (hasPrivateChild) 0 else directory.mediaCnt)
+            } else directory
+        }
+        callback(ArrayList(visible.distinctBy { it.path.getDistinctPath() }))
         removeInvalidDBDirectories(filteredDirectories)
     }
 }

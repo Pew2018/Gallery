@@ -180,6 +180,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun isSpecialFolderFilterActive() = mFolderVisibility[0] ||
         mFolderVisibility[1] || mFolderVisibility[2] || !mFolderVisibility[3]
     private var mFavoriteFolderPaths: Set<String> = emptySet()
+    // Saved visibility preferences never serve as authentication credentials.
+    private var mFavoriteHiddenAuthorized = false
+    private var mFavoriteExcludedAuthorized = false
+    private var mFavoriteAuthRequested = false
     private var mIsGettingDirs = false
     private var mLoadedInitialPhotos = false
     private var mShouldStopFetching = false
@@ -412,6 +416,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         if (!binding.mainMenu.isSearchOpen) {
             refreshMenuItems()
             tryLoadGallery()
+            promptProtectedFavoriteFilters()
         }
 
         if (config.searchAllFilesByDefault) {
@@ -431,6 +436,16 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     override fun onStop() {
         super.onStop()
+        if (mShowingFolderFavorites) {
+            mFavoriteHiddenAuthorized = false
+            mFavoriteExcludedAuthorized = false
+            mFavoriteAuthRequested = false
+            if (config.isExcludedPasswordProtectionOn || config.isHiddenPasswordProtectionOn) {
+                binding.directoriesGrid.adapter = null
+                mDirs.clear()
+                mDirsIgnoringSearch.clear()
+            }
+        }
 
         if (config.temporarilyShowHidden || config.tempSkipDeleteConfirmation || config.temporarilyShowExcluded) {
             mTempShowHiddenHandler.postDelayed({
@@ -586,7 +601,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                         mIsGettingDirs = false
                         getDirectories()
                     }
-                    if (next) handleExcludedFolderPasswordProtection { apply() } else apply()
+                    if (next) handleExcludedFolderPasswordProtection {
+                        mFavoriteExcludedAuthorized = true
+                        apply()
+                    } else {
+                        mFavoriteExcludedAuthorized = false
+                        apply()
+                    }
                 }
                 R.id.favorite_always_show_hidden -> {
                     val next = !config.favoriteShowHidden
@@ -596,7 +617,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                         mIsGettingDirs = false
                         getDirectories()
                     }
-                    if (next) handleHiddenFolderPasswordProtection { apply() } else apply()
+                    if (next) handleHiddenFolderPasswordProtection {
+                        mFavoriteHiddenAuthorized = true
+                        apply()
+                    } else {
+                        mFavoriteHiddenAuthorized = false
+                        apply()
+                    }
                 }
                 R.id.open_camera -> launchCamera()
                 R.id.show_all -> showAllMedia()
@@ -751,11 +778,41 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 
+    private fun promptProtectedFavoriteFilters() {
+        if (!mShowingFolderFavorites || mFavoriteAuthRequested) return
+        mFavoriteAuthRequested = true
+        val askExcluded = {
+            if (config.favoriteShowExcluded && config.isExcludedPasswordProtectionOn &&
+                !mFavoriteExcludedAuthorized) {
+                handleExcludedFolderPasswordProtection {
+                    if (!isFinishing && !isDestroyed) {
+                        mFavoriteExcludedAuthorized = true
+                        mIsGettingDirs = false
+                        getDirectories()
+                    }
+                }
+            }
+        }
+        if (config.favoriteShowHidden && config.isHiddenPasswordProtectionOn &&
+            !mFavoriteHiddenAuthorized) {
+            handleHiddenFolderPasswordProtection {
+                if (!isFinishing && !isDestroyed) {
+                    mFavoriteHiddenAuthorized = true
+                    mIsGettingDirs = false
+                    getDirectories()
+                    askExcluded()
+                }
+            }
+        } else askExcluded()
+    }
+
     private fun loadFavoriteFoldersWithOverrides() {
         if (mIsGettingDirs) return
         mIsGettingDirs = true
-        val showHidden = config.favoriteShowHidden
-        val showExcluded = config.favoriteShowExcluded
+        val showHidden = config.favoriteShowHidden &&
+            (!config.isHiddenPasswordProtectionOn || mFavoriteHiddenAuthorized)
+        val showExcluded = config.favoriteShowExcluded &&
+            (!config.isExcludedPasswordProtectionOn || mFavoriteExcludedAuthorized)
         getCachedDirectories(forceShowHidden = showHidden, forceShowExcluded = showExcluded) { cached ->
             val favoritePaths = favoriteFoldersDB.getPaths().toSet()
             val excluded = config.excludedFolders

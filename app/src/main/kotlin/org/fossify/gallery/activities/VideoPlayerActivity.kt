@@ -30,6 +30,7 @@ import android.widget.RelativeLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.appcompat.content.res.AppCompatResources
+import androidx.appcompat.app.AlertDialog
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.media3.common.AudioAttributes
@@ -121,6 +122,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
     private var mProgressAtDown = 0L
     private var mCloseDownThreshold = 100f
 
+    private var mUnsupportedPromptShown = false
     private var mUri: Uri? = null
     private var mExoPlayer: ExoPlayer? = null
     private var mVideoSize = Point(0, 0)
@@ -444,6 +446,27 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
             override fun onPlayerErrorChanged(error: PlaybackException?) {
                 binding.errorMessageHolder.errorMessage.apply {
                     if (error != null) {
+                        val unsupported = error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+                            error.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED ||
+                            error.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES
+                        if (unsupported && !mUnsupportedPromptShown && mUri != null &&
+                            !isFinishing && !isDestroyed) {
+                            mUnsupportedPromptShown = true
+                            mExoPlayer?.pause()
+                            AlertDialog.Builder(this@VideoPlayerActivity)
+                                .setTitle("内置播放器无法解码此视频")
+                                .setMessage("该媒体格式或解码配置不受支持。你可以自行选择其他应用打开。")
+                                .setNegativeButton("取消", null)
+                                .setPositiveButton("使用其他应用打开") { _, _ ->
+                                    try {
+                                        mUri?.let { openPath(it.toString(), true) }
+                                    } catch (_: android.content.ActivityNotFoundException) {
+                                        toast("没有可用的其他播放器")
+                                    } catch (_: Exception) {
+                                        toast("无法打开外部播放器")
+                                    }
+                                }.show()
+                        }
                         text = error.getFriendlyMessage(context)
                         setTextColor(if (context.config.blackBackground) Color.WHITE else context.getProperTextColor())
                         fadeIn()
