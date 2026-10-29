@@ -168,6 +168,7 @@ import org.fossify.gallery.helpers.SHOW_PREV_ITEM
 import org.fossify.gallery.helpers.SHOW_RECYCLE_BIN
 import org.fossify.gallery.helpers.SKIP_AUTHENTICATION
 import org.fossify.gallery.helpers.ViewerAuthenticationPolicy
+import org.fossify.gallery.helpers.FavoriteMediaLoadPolicy
 import org.fossify.gallery.helpers.SLIDESHOW_ANIMATION_FADE
 import org.fossify.gallery.helpers.SLIDESHOW_ANIMATION_NONE
 import org.fossify.gallery.helpers.SLIDESHOW_ANIMATION_SLIDE
@@ -478,7 +479,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             initContinue()
         } else {
             val authenticateFolder = {
-                handleLockedFolderOpening(mPath.getParentPath()) { success ->
+                val protectedFolder = FavoriteMediaLoadPolicy.protectedFolderForPath(
+                    mPath, config::isFolderProtected
+                ) ?: mPath.getParentPath()
+                handleLockedFolderOpening(protectedFolder) { success ->
                     if (success) initContinue() else finish()
                 }
             }

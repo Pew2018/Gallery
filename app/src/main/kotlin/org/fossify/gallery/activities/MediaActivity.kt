@@ -72,6 +72,7 @@ import org.fossify.gallery.extensions.emptyTheRecycleBin
 import org.fossify.gallery.extensions.favoritesDB
 import org.fossify.gallery.extensions.getCachedMedia
 import org.fossify.gallery.extensions.getHumanizedFilename
+import org.fossify.gallery.extensions.getFavoritePaths
 import org.fossify.gallery.extensions.isDownloadsFolder
 import org.fossify.gallery.extensions.launchAbout
 import org.fossify.gallery.extensions.launchCamera
@@ -110,6 +111,7 @@ import org.fossify.gallery.helpers.SET_WALLPAPER_INTENT
 import org.fossify.gallery.helpers.SHOW_ALL
 import org.fossify.gallery.helpers.SHOW_FAVORITES
 import org.fossify.gallery.helpers.FavoriteMediaLoadRequests
+import org.fossify.gallery.helpers.FavoriteMediaLoadPolicy
 import org.fossify.gallery.helpers.SHOW_RECYCLE_BIN
 import org.fossify.gallery.helpers.SHOW_TEMP_HIDDEN_DURATION
 import org.fossify.gallery.helpers.SKIP_AUTHENTICATION
@@ -149,6 +151,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     @Volatile private var mediaScanGeneration = 0L
     private val mediaLoadRequests = FavoriteMediaLoadRequests()
     private var completedMediaRequest = -1L
+    // Only paths whose parent folder is unprotected or has passed the normal
+    // folder-lock flow may enter the favorites cache or scan for this Activity.
+    private var favoriteAccessPaths: Set<String>? = null
+    private var resolvingFavoriteAccess = false
+    private var favoritesNeedReload = false
     private var mZoomListener: MyRecyclerView.MyZoomListener? = null
 
     private var mStoredAnimateGifs = true
@@ -193,8 +200,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             "" -> GallerySection.ALL
             else -> null
         }
-        if (savedInstanceState == null && mGallerySection != null) {
+        if (mGallerySection == GallerySection.FAVORITES ||
+            (savedInstanceState == null && mGallerySection != null)) {
             // The legacy shared list can belong to the previous root tab.
+            // Never retain favorite thumbnails across Activity recreation.
             mMedia = ArrayList()
         }
         setupOptionsMenu()
@@ -269,6 +278,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             getMediaAdapter()?.updatePrimaryColor()
         }
 
+        if (mPath == FAVORITES && favoritesNeedReload) {
+            favoritesNeedReload = false
+            mLoadedInitialPhotos = false
+            binding.mediaGrid.adapter = null
+            mMedia = ArrayList()
+            getMedia()
+        }
+
         if (
             mStoredThumbnailSpacing != config.thumbnailSpacing
             || mStoredRoundedCorners != config.fileRoundedCorners
@@ -295,7 +312,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
         // do not refresh Random sorted files after opening a fullscreen image and going Back
         val isRandomSorting = config.getFolderSorting(mPath) and SORT_BY_RANDOM != 0
-        if (mPath == FAVORITES || mMedia.isEmpty() || !isRandomSorting ||
+        if (mPath == FAVORITES) {
+            tryLoadGallery()
+        } else if (mMedia.isEmpty() || !isRandomSorting ||
             (isRandomSorting && !mWasFullscreenViewOpen)) {
             if (shouldSkipAuthentication()) {
                 tryLoadGallery()
@@ -324,6 +343,19 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun onStop() {
         super.onStop()
+
+        if (mPath == FAVORITES && !isFinishing && !isChangingConfigurations && !resolvingFavoriteAccess) {
+            // A stopped favorites page has no reusable authorization session.
+            // Drop its adapter and data before it can return to the foreground.
+            mediaLoadRequests.invalidate()
+            mediaScanGeneration++
+            mCurrAsyncTask?.stopFetching()
+            binding.mediaGrid.adapter = null
+            mMedia = ArrayList()
+            favoriteAccessPaths = null
+            favoritesNeedReload = true
+            mLoadedInitialPhotos = false
+        }
 
         if (config.temporarilyShowHidden || config.tempSkipDeleteConfirmation) {
             mTempShowHiddenHandler.postDelayed({
@@ -749,6 +781,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun getMedia() {
+        if (mPath == FAVORITES && favoriteAccessPaths == null) {
+            resolveFavoriteAccess { allowedPaths ->
+                favoriteAccessPaths = allowedPaths
+                if (!isFinishing && !isDestroyed) getMedia()
+            }
+            return
+        }
         // Every refresh has a separate request identity, including the cache step.
         // A late cache response must never launch an older scan or replace new UI.
         val request = mediaLoadRequests.begin()
@@ -760,7 +799,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             getCachedMedia(
                 mPath,
                 mIsGetVideoIntent && !mIsGetImageIntent,
-                mIsGetImageIntent && !mIsGetVideoIntent
+                mIsGetImageIntent && !mIsGetVideoIntent,
+                allowedFavoritePaths = favoriteAccessPaths
             ) { cached ->
                 if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return@getCachedMedia
                 if (cached.isEmpty()) {
@@ -788,6 +828,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             isPickImage = mIsGetImageIntent && !mIsGetVideoIntent,
             isPickVideo = mIsGetVideoIntent && !mIsGetImageIntent,
             showAll = mShowAll,
+            favoritePathsOverride = if (mPath == FAVORITES)
+                favoriteAccessPaths?.toCollection(ArrayList()) else null,
             onFailure = { error ->
                 android.util.Log.e("GalleryMedia", "Media scan failed", error)
                 runOnUiThread {
@@ -838,6 +880,53 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         mCurrAsyncTask!!.execute()
+    }
+
+    /** Authenticate each protected favorite source folder before reading its
+     * cached thumbnails or scanning its media. Failed/canceled folders are
+     * omitted while ordinary and successfully authorized favorites remain.
+     */
+    private fun resolveFavoriteAccess(onResolved: (Set<String>) -> Unit) {
+        if (resolvingFavoriteAccess) return
+        resolvingFavoriteAccess = true
+        ensureBackgroundThread {
+            val favoritePaths = getFavoritePaths()
+            val protectedByPath = favoritePaths.associateWith { path ->
+                FavoriteMediaLoadPolicy.protectedFolderForPath(path, config::isFolderProtected)
+            }
+            val allowed = favoritePaths.filterTo(LinkedHashSet()) { protectedByPath[it] == null }
+            val folders = protectedByPath.values.filterNotNull().distinct()
+            runOnUiThread {
+                if (isFinishing || isDestroyed) {
+                    resolvingFavoriteAccess = false
+                    return@runOnUiThread
+                }
+                // Ordinary favorites remain available even if a protected
+                // folder's external password dialog is canceled.
+                onResolved(allowed.toSet())
+                if (folders.isEmpty()) {
+                    resolvingFavoriteAccess = false
+                    return@runOnUiThread
+                }
+                fun authenticate(index: Int) {
+                    if (index >= folders.size || isFinishing || isDestroyed) {
+                        resolvingFavoriteAccess = false
+                        return
+                    }
+                    val folder = folders[index]
+                    handleLockedFolderOpening(folder) { success ->
+                        if (success) {
+                            protectedByPath.forEach { (path, protectedFolder) ->
+                                if (protectedFolder == folder) allowed.add(path)
+                            }
+                            onResolved(allowed.toSet())
+                        }
+                        authenticate(index + 1)
+                    }
+                }
+                authenticate(0)
+            }
+        }
     }
 
     private fun isDirEmpty(): Boolean {

@@ -28,7 +28,9 @@ object OxygenFastScroller {
                 cornerRadius = dp(3).toFloat()
             }
         }
-        scroller.handleWidth = dp(12)
+        // The drawable remains 4dp wide, while the View provides a forgiving
+        // 24dp target for direct thumb drags.
+        scroller.handleWidth = dp(24)
         scroller.handleHeight = dp(36)
         scroller.handleDrawable = GradientDrawable().apply {
             setColor(tokens.interactiveAccent)
@@ -47,13 +49,19 @@ object OxygenFastScroller {
                 val canScroll = if (vertical) recycler.canScrollVertically(-1) || recycler.canScrollVertically(1)
                     else recycler.canScrollHorizontally(-1) || recycler.canScrollHorizontally(1)
                 scroller.isFastScrollEnabled = canScroll
-                if (!canScroll) {
-                    scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.thumbIV)?.apply {
-                        scaleX = 0f
-                        scaleY = 0f
-                    }
-                    scroller.popupTextView.scaleX = 0f
-                    scroller.popupTextView.scaleY = 0f
+                // Keep the touch target and popup in sync with availability.
+                // In particular, restore them when a later adapter update makes
+                // the list scrollable again.
+                val scale = if (canScroll) 1f else 0f
+                scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.thumbIV)?.apply {
+                    scaleX = scale
+                    scaleY = scale
+                    isClickable = canScroll
+                    isFocusable = canScroll
+                }
+                scroller.popupTextView.apply {
+                    scaleX = scale
+                    scaleY = scale
                 }
             }
             recycler.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateAvailability() }

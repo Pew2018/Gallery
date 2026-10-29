@@ -15,6 +15,18 @@ internal object FavoriteMediaLoadPolicy {
         indexed.forEach { merged[pathOf(it)] = it }
         return ArrayList(merged.values)
     }
+
+    /** Resolve a lock on the media's actual path, including a protected ancestor. */
+    fun protectedFolderForPath(path: String, isProtected: (String) -> Boolean): String? {
+        var folder = path.substringBeforeLast('/', "")
+        while (folder.isNotEmpty()) {
+            if (isProtected(folder)) return folder
+            val parent = folder.substringBeforeLast('/', "")
+            if (parent == folder) break
+            folder = parent
+        }
+        return null
+    }
 }
 
 /** UI-owned request generations also cover late cache callbacks, not only scan callbacks. */

@@ -86,7 +86,9 @@
         <item name="android:singleLine">false</item>
         <item name="android:clickable">true</item>
         <item name="android:focusable">true</item>
-        <item name="android:background">?attr/selectableItemBackground</item>
+        <!-- The settings row owns the single ripple. The Switch itself spans
+             the row width so a second selectable background would duplicate it. -->
+        <item name="android:background">@android:color/transparent</item>
         <item name="showText">false</item>
         <item name="switchPadding">16dp</item>
     </style>

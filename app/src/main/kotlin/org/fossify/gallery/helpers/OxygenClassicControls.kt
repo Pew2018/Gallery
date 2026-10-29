@@ -1,15 +1,18 @@
 package org.fossify.gallery.helpers
 
+import android.animation.ValueAnimator
 import android.content.res.ColorStateList
 import android.graphics.*
 import android.graphics.drawable.ClipDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.LayerDrawable
+import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.widget.SwitchCompat
+import androidx.core.graphics.ColorUtils
 import org.fossify.gallery.R
 
 /** Shared control skin. No listeners or preference writes; each view owns its drawables. */
@@ -18,12 +21,21 @@ object OxygenClassicControls {
         val key = listOf(accent, text, surface, root.resources.displayMetrics.density.toBits())
         val density = root.resources.displayMetrics.density
         fun dp(n: Int) = (n * density + 0.5f).toInt()
-        val colors = OxygenThemeColors.resolve(false, "system", false, accent, surface, text)
+        val dark = ColorUtils.calculateLuminance(surface) < 0.5
+        val colors = OxygenThemeColors.resolve(
+            classic = true, mode = if (dark) "dark" else "light", systemDark = dark,
+            rawAccent = accent, legacyBackground = surface, legacyText = text
+        )
+        val animationsEnabled = runCatching {
+            Settings.Global.getFloat(
+                root.context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f
+            ) > 0f
+        }.getOrDefault(true)
         val labelColors = ColorStateList(
             arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
             intArrayOf(colors.disabledText, colors.primaryText)
         )
-        fun skin(kind: String) = ClassicDrawable(kind, density, colors)
+        fun skin(kind: String) = ClassicDrawable(kind, density, colors, animationsEnabled)
         fun visit(view: View) {
             val changed = view.getTag(R.id.classic_control_skin) != key
             if (view is CompoundButton) {
@@ -81,10 +93,13 @@ object OxygenClassicControls {
      * still owns measurement, RTL placement, checked state and thumb animation.
      */
     private class ClassicDrawable(
-        private val kind: String, private val density: Float, private val colors: OxygenThemeTokens
+        private val kind: String, private val density: Float, private val colors: OxygenThemeTokens,
+        private val animationsEnabled: Boolean
     ) : Drawable() {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private var opacity = 255
+        private var animatedColor: Int? = null
+        private var colorAnimator: ValueAnimator? = null
         override fun getIntrinsicWidth() = ((when (kind) {
             "track" -> 40
             "thumb" -> 20
@@ -92,12 +107,55 @@ object OxygenClassicControls {
         }) * density + 0.5f).toInt()
         override fun getIntrinsicHeight() = (24 * density + 0.5f).toInt()
         override fun isStateful() = true
-        override fun onStateChange(state: IntArray): Boolean { invalidateSelf(); return true }
+        override fun onStateChange(state: IntArray): Boolean {
+            if (kind == "track" || kind == "thumb") {
+                val target = stateColor(state)
+                val current = animatedColor
+                if (current == null || !animationsEnabled || current == target) {
+                    colorAnimator?.cancel()
+                    animatedColor = target
+                } else {
+                    colorAnimator?.cancel()
+                    colorAnimator = ValueAnimator.ofArgb(current, target).apply {
+                        duration = 150L
+                        addUpdateListener { animator ->
+                            animatedColor = animator.animatedValue as Int
+                            invalidateSelf()
+                        }
+                        start()
+                    }
+                }
+            }
+            invalidateSelf()
+            return true
+        }
         override fun setAlpha(alpha: Int) { opacity = alpha.coerceIn(0, 255); invalidateSelf() }
         override fun getAlpha(): Int = opacity
         override fun setColorFilter(filter: ColorFilter?) { paint.colorFilter = filter; invalidateSelf() }
         @Deprecated("Deprecated in Android")
         override fun getOpacity() = PixelFormat.TRANSLUCENT
+        private fun stateColor(state: IntArray): Int {
+            val enabled = state.contains(android.R.attr.state_enabled)
+            val checked = state.contains(android.R.attr.state_checked)
+            val pressed = state.contains(android.R.attr.state_pressed)
+            val bg = colors.pageBackground
+            val fg = colors.primaryText
+            val accent = colors.interactiveAccent
+            if (kind == "track") {
+                return if (checked) OxygenThemeColors.blend(bg, accent,
+                    if (enabled) 0.52 else 0.17)
+                else if (enabled) OxygenThemeColors.blend(bg, fg, if (colors.dark) 0.38 else 0.16)
+                else OxygenThemeColors.blend(bg, fg, if (colors.dark) 0.19 else 0.09)
+            }
+            val face = when {
+                checked && enabled -> accent
+                checked -> OxygenThemeColors.blend(bg, accent, 0.30)
+                enabled && colors.dark -> 0xFFCCCCCC.toInt()
+                enabled -> 0xFFEEEEEE.toInt()
+                else -> OxygenThemeColors.blend(bg, fg, if (colors.dark) 0.29 else 0.20)
+            }
+            return if (pressed && enabled) OxygenThemeColors.blend(face, bg, 0.07) else face
+        }
         override fun draw(canvas: Canvas) {
             val enabled = state.contains(android.R.attr.state_enabled)
             val checked = state.contains(android.R.attr.state_checked)
@@ -127,8 +185,7 @@ object OxygenClassicControls {
                     // The original OxygenOS 4.5.15 reference (205249 and
                     // 205801) has a fine outlined rail, not an opaque capsule.
                     // Keep its center transparent so the actual row surface shows.
-                    color(if (checked) OxygenThemeColors.blend(bg, accent,
-                        if (enabled) 0.52 else 0.17) else inactive)
+                    color(animatedColor ?: stateColor(state))
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = 1.5f * density
                     // Intrinsic sizes alone do not prevent SwitchCompat from
@@ -145,10 +202,8 @@ object OxygenClassicControls {
                     // replace its ARGB alpha with full opacity.
                     color(0x18000000)
                     canvas.drawCircle(cx, cy + 1.25f * density, 10 * density, paint)
-                    val face = if (checked) active else if (enabled) {
-                        if (colors.dark) 0xFFCCCCCC.toInt() else 0xFFEEEEEE.toInt()
-                    } else OxygenThemeColors.blend(bg, fg, if (colors.dark) 0.29 else 0.20)
-                    circle(9.7f, if (pressed && enabled) OxygenThemeColors.blend(face, bg, 0.07) else face)
+                    val face = animatedColor ?: stateColor(state)
+                    circle(9.7f, face)
                     color(OxygenThemeColors.blend(face, fg, if (colors.dark) 0.10 else 0.08))
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = 0.35f * density

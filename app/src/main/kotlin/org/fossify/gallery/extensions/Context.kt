@@ -941,6 +941,7 @@ fun Context.getCachedMedia(
     path: String,
     getVideosOnly: Boolean = false,
     getImagesOnly: Boolean = false,
+    allowedFavoritePaths: Set<String>? = null,
     callback: (ArrayList<ThumbnailItem>) -> Unit
 ) {
     if (path.isEmpty()) {
@@ -980,7 +981,12 @@ fun Context.getCachedMedia(
 
         var media = ArrayList<Medium>()
         if (path == FAVORITES) {
-            media.addAll(mediaDB.getCachedFavoriteMedia())
+            // Cached metadata can contain protected media from an earlier
+            // authorized session. It is never authorization by itself.
+            media.addAll(mediaDB.getCachedFavoriteMedia().filter { item ->
+                FavoriteMediaLoadPolicy.protectedFolderForPath(item.path, config::isFolderProtected) == null ||
+                    item.path in allowedFavoritePaths.orEmpty()
+            })
         }
 
         if (path == RECYCLE_BIN) {

@@ -5,6 +5,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Bundle
+import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -122,10 +123,18 @@ class OxygenThemeActivity : SimpleActivity() {
         buildPage()
         scroll.scrollTo(0, if (open) 0 else mainScroll)
         // A short content transition keeps the toolbar fixed and respects disabled animations.
+        val animationsEnabled = runCatching {
+            Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
+        }.getOrDefault(true)
+        if (!animationsEnabled) {
+            scroll.translationX = 0f
+            scroll.alpha = 1f
+            return
+        }
         val distance = dp(12).toFloat() * if (open) 1 else -1
         scroll.translationX = distance
         scroll.alpha = 0.72f
-        scroll.animate().translationX(0f).alpha(1f).setDuration(200L).start()
+        scroll.animate().translationX(0f).alpha(1f).setDuration(150L).start()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

@@ -14,7 +14,9 @@ import org.fossify.gallery.models.ThumbnailItem
 
 class GetMediaAsynctask(
     val context: Context, val mPath: String, val isPickImage: Boolean = false, val isPickVideo: Boolean = false,
-    val showAll: Boolean, val onFailure: (Exception) -> Unit = {}, val callback: (media: ArrayList<ThumbnailItem>) -> Unit
+    val showAll: Boolean, val onFailure: (Exception) -> Unit = {},
+    private val favoritePathsOverride: ArrayList<String>? = null,
+    val callback: (media: ArrayList<ThumbnailItem>) -> Unit
 ) :
     AsyncTask<Void, Void, ArrayList<ThumbnailItem>>() {
     private val mediaFetcher = MediaFetcher(context)
@@ -34,7 +36,7 @@ class GetMediaAsynctask(
             folderGrouping and GROUP_BY_LAST_MODIFIED_MONTHLY != 0
 
         val getProperFileSize = folderSorting and SORT_BY_SIZE != 0
-        val favoritePaths = context.getFavoritePaths()
+        val favoritePaths = favoritePathsOverride ?: context.getFavoritePaths()
         val getVideoDurations = context.config.showThumbnailVideoDuration
         val lastModifieds = if (getProperLastModified) mediaFetcher.getLastModifieds() else HashMap()
         val dateTakens = if (getProperDateTaken) mediaFetcher.getDateTakens() else HashMap()
