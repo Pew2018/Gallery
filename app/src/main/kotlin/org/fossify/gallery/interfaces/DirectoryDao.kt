@@ -22,16 +22,16 @@ interface DirectoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertAll(directories: List<Directory>)
 
-    @Query("DELETE FROM directories WHERE path = :path COLLATE NOCASE")
+    @Query("DELETE FROM directories WHERE path = :path")
     fun deleteDirPath(path: String)
 
-    @Query("UPDATE OR REPLACE directories SET thumbnail = :thumbnail, media_count = :mediaCnt, last_modified = :lastModified, date_taken = :dateTaken, size = :size, media_types = :mediaTypes, sort_value = :sortValue WHERE path = :path COLLATE NOCASE")
+    @Query("UPDATE OR REPLACE directories SET thumbnail = :thumbnail, media_count = :mediaCnt, last_modified = :lastModified, date_taken = :dateTaken, size = :size, media_types = :mediaTypes, sort_value = :sortValue WHERE path = :path")
     fun updateDirectory(path: String, thumbnail: String, mediaCnt: Int, lastModified: Long, dateTaken: Long, size: Long, mediaTypes: Int, sortValue: String)
 
-    @Query("UPDATE directories SET thumbnail = :thumbnail, filename = :name, path = :newPath WHERE path = :oldPath COLLATE NOCASE")
+    @Query("UPDATE directories SET thumbnail = :thumbnail, filename = :name, path = :newPath WHERE path = :oldPath")
     fun updateDirectoryAfterRename(thumbnail: String, name: String, newPath: String, oldPath: String)
 
-    @Query("DELETE FROM directories WHERE path = \'$RECYCLE_BIN\' COLLATE NOCASE")
+    @Query("DELETE FROM directories WHERE path = \'$RECYCLE_BIN\'")
     fun deleteRecycleBin()
 
     @Query("SELECT thumbnail FROM directories WHERE path = :path")
