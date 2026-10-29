@@ -32,7 +32,8 @@ abstract class GalleryDatabase : RoomDatabase() {
                 synchronized(GalleryDatabase::class) {
                     if (db == null) {
                         db = Room.databaseBuilder(context.applicationContext, GalleryDatabase::class.java, "gallery.db")
-                            .fallbackToDestructiveMigration()
+                            // Never erase favorites or other user metadata on an unsupported schema.
+                            // Existing explicit migrations remain the only permitted upgrade path.
                             .addMigrations(MIGRATION_4_5)
                             .addMigrations(MIGRATION_5_6)
                             .addMigrations(MIGRATION_6_7)
