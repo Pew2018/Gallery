@@ -14,6 +14,9 @@ interface FavoritesDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertAll(favorites: List<Favorite>)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertAllIgnore(favorites: List<Favorite>): List<Long>
+
     @Query("SELECT full_path FROM favorites")
     fun getValidFavoritePaths(): List<String>
 

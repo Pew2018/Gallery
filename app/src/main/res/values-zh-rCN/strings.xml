@@ -195,8 +195,8 @@
     <string name="limit_folder_title">单行显示超长的文件夹名称</string>
     <string name="square">方形</string>
     <string name="rounded_corners">圆角</string>
-    <string name="export_favorite_paths">导出收藏</string>
-    <string name="import_favorite_paths">导入收藏</string>
+    <string name="export_favorite_paths">导出收藏文件</string>
+    <string name="import_favorite_paths">导入收藏文件</string>
     <string name="paths_imported_successfully">路径导入成功</string>
     <string name="media_management_prompt">为了确保文件操作的可靠性，请在本设备的设置页面中将本应用设为媒体管理应用。</string>
     <string name="password_protect_excluded">用密码保护已排除文件夹的可见性</string>
@@ -272,4 +272,11 @@
     <string name="oxygen_favorite_show_excluded">始终显示已排除项目</string>
     <string name="oxygen_selected_count">已选择 %1$d 项</string>
     <string name="gallery_nav_all_images">所有图片</string>
+    <string name="export_favorite_folder_paths">导出收藏文件夹</string>
+    <string name="import_favorite_folder_paths">导入收藏文件夹</string>
+    <string name="favorite_media_import_summary">文件收藏：新增 %1$d 项，已有 %2$d 项，无法访问或无效 %3$d 项</string>
+    <string name="favorite_folders_import_summary">文件夹收藏：新增 %1$d 项，已有 %2$d 项，无效 %3$d 项</string>
+    <string name="favorite_folders_export_summary">已导出 %1$d 个收藏文件夹</string>
+    <string name="favorite_backup_import_failed">收藏备份格式不正确或无法读取，未导入任何内容</string>
+    <string name="favorite_backup_export_failed">收藏备份导出失败</string>
 </resources>

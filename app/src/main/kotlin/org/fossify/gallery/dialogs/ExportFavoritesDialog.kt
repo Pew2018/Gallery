@@ -12,6 +12,7 @@ import org.fossify.gallery.helpers.OxygenClassicDialog
 
 class ExportFavoritesDialog(
     val activity: BaseSimpleActivity, val defaultFilename: String, val hidePath: Boolean,
+    val extension: String = ".txt", val dialogTitle: Int = R.string.export_favorite_paths,
     callback: (path: String, filename: String) -> Unit
 ) {
     init {
@@ -23,7 +24,7 @@ class ExportFavoritesDialog(
         }
 
         val binding = DialogExportFavoritesBinding.inflate(activity.layoutInflater).apply {
-            exportFavoritesFilename.setText(defaultFilename.removeSuffix(".txt"))
+            exportFavoritesFilename.setText(defaultFilename.removeSuffix(extension))
 
             if (hidePath) {
                 exportFavoritesPathLabel.beGone()
@@ -43,7 +44,7 @@ class ExportFavoritesDialog(
             .setPositiveButton(org.fossify.commons.R.string.ok, null)
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
-                activity.setupDialogStuff(binding.root, this, R.string.export_favorite_paths) { alertDialog ->
+                activity.setupDialogStuff(binding.root, this, dialogTitle) { alertDialog ->
                     OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                     alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         var filename = binding.exportFavoritesFilename.value
@@ -52,7 +53,7 @@ class ExportFavoritesDialog(
                             return@setOnClickListener
                         }
 
-                        filename += ".txt"
+                        filename += extension
                         val newPath = "${folder.trimEnd('/')}/$filename"
                         if (!newPath.getFilenameFromPath().isAValidFilename()) {
                             activity.toast(org.fossify.commons.R.string.filename_invalid_characters)

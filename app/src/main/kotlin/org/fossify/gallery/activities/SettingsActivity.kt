@@ -18,6 +18,8 @@ import org.fossify.commons.helpers.*
 import org.fossify.commons.models.RadioItem
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.ActivitySettingsBinding
+import org.fossify.gallery.databases.GalleryDatabase
+import org.fossify.gallery.models.FavoriteFolder
 import org.fossify.gallery.dialogs.*
 import org.fossify.gallery.extensions.*
 import org.fossify.gallery.helpers.*
@@ -33,6 +35,8 @@ class SettingsActivity : SimpleActivity() {
         private const val PICK_IMPORT_SOURCE_INTENT = 1
         private const val SELECT_EXPORT_FAVORITES_FILE_INTENT = 2
         private const val SELECT_IMPORT_FAVORITES_FILE_INTENT = 3
+        private const val SELECT_EXPORT_FAVORITE_FOLDERS_INTENT = 4
+        private const val SELECT_IMPORT_FAVORITE_FOLDERS_INTENT = 5
     }
 
     private var mRecycleBinContentSize = 0L
@@ -56,7 +60,7 @@ class SettingsActivity : SimpleActivity() {
             SettingsCategory("videos", R.string.classic_settings_video, R.string.settings_hub_videos_summary, R.drawable.ic_play_vector, 31, 39),
             SettingsCategory("files", R.string.classic_settings_files, R.string.settings_hub_files_summary, R.drawable.ic_files_vector, 40, 53),
             SettingsCategory("security", R.string.classic_settings_security, R.string.settings_hub_security_summary, org.fossify.commons.R.drawable.ic_lock_vector, 54, 59),
-            SettingsCategory("advanced", R.string.classic_settings_advanced, R.string.settings_hub_advanced_summary, org.fossify.commons.R.drawable.ic_settings_cog_vector, 60, 70)
+            SettingsCategory("advanced", R.string.classic_settings_advanced, R.string.settings_hub_advanced_summary, org.fossify.commons.R.drawable.ic_settings_cog_vector, 60, 72)
         )
     }
 
@@ -269,6 +273,8 @@ class SettingsActivity : SimpleActivity() {
         setupClearCache()
         setupExportFavorites()
         setupImportFavorites()
+        setupExportFavoriteFolders()
+        setupImportFavoriteFolders()
         setupExportSettings()
         setupImportSettings()
 
@@ -291,9 +297,15 @@ class SettingsActivity : SimpleActivity() {
         } else if (requestCode == SELECT_EXPORT_FAVORITES_FILE_INTENT && resultCode == Activity.RESULT_OK && resultData != null && resultData.data != null) {
             val outputStream = contentResolver.openOutputStream(resultData.data!!)
             exportFavoritesTo(outputStream)
-        } else if (requestCode == SELECT_IMPORT_FAVORITES_FILE_INTENT && resultCode == Activity.RESULT_OK && resultData != null && resultData.data != null) {
-            val inputStream = contentResolver.openInputStream(resultData.data!!)
-            importFavorites(inputStream)
+        } else if (requestCode == SELECT_IMPORT_FAVORITES_FILE_INTENT && resultCode == Activity.RESULT_OK && resultData?.data != null) {
+            runCatching { contentResolver.openInputStream(resultData.data!!) }
+                .onSuccess(::importFavorites).onFailure { showErrorToast(it) }
+        } else if (requestCode == SELECT_EXPORT_FAVORITE_FOLDERS_INTENT && resultCode == Activity.RESULT_OK && resultData?.data != null) {
+            runCatching { contentResolver.openOutputStream(resultData.data!!) }
+                .onSuccess(::exportFavoriteFoldersTo).onFailure { showErrorToast(it) }
+        } else if (requestCode == SELECT_IMPORT_FAVORITE_FOLDERS_INTENT && resultCode == Activity.RESULT_OK && resultData?.data != null) {
+            runCatching { contentResolver.openInputStream(resultData.data!!) }
+                .onSuccess(::importFavoriteFolders).onFailure { showErrorToast(it) }
         }
     }
 
@@ -1004,17 +1016,20 @@ class SettingsActivity : SimpleActivity() {
         }
 
         ensureBackgroundThread {
-            val favoritePaths = favoritesDB.getValidFavoritePaths()
-            if (favoritePaths.isNotEmpty()) {
+            try {
+                val favoritePaths = favoritesDB.getValidFavoritePaths()
+                // Keep the legacy one-path-per-line bytes unchanged for stock Fossify.
                 outputStream.bufferedWriter().use { out ->
                     favoritePaths.forEach { path ->
                         out.writeLn(path)
                     }
                 }
-
-                toast(org.fossify.commons.R.string.exporting_successful)
-            } else {
-                toast(org.fossify.commons.R.string.no_items_found)
+                toast(if (favoritePaths.isNotEmpty())
+                    org.fossify.commons.R.string.exporting_successful
+                else org.fossify.commons.R.string.no_items_found)
+            } catch (error: Exception) {
+                android.util.Log.e("GalleryFavoritesBackup", "Media favorites export failed", error)
+                toast(getString(R.string.favorite_backup_export_failed))
             }
         }
     }
@@ -1053,23 +1068,153 @@ class SettingsActivity : SimpleActivity() {
         }
 
         ensureBackgroundThread {
-            var importedItems = 0
-            inputStream.bufferedReader().use {
-                while (true) {
-                    try {
-                        val line = it.readLine() ?: break
-                        if (getDoesFilePathExist(line)) {
-                            val favorite = getFavoriteFromPath(line)
-                            favoritesDB.insert(favorite)
-                            importedItems++
+            try {
+                // Legacy TXT is one path per line. Do not introduce a header or
+                // change the export format: stock Fossify must read our exports.
+                val paths = FavoriteBackupCodec.decodeMediaPaths(FavoriteBackupCodec.readLimited(inputStream))
+                val candidates = paths.filter { path ->
+                    runCatching { getDoesFilePathExist(path) && !File(path).isDirectory }
+                        .getOrDefault(false)
+                }
+                val skipped = paths.size - candidates.size
+                val existing = favoritesDB.getValidFavoritePaths().toHashSet()
+                val newPaths = candidates.filterNot { it in existing }
+                val database = GalleryDatabase.getInstance(applicationContext)
+                var added = 0
+                database.runInTransaction {
+                    added = favoritesDB.insertAllIgnore(newPaths.map { getFavoriteFromPath(it) })
+                        .count { it >= 0L }
+                    // Media flags are cached metadata; maintain them alongside
+                    // the authoritative favorites table, even on repeat import.
+                    candidates.forEach { mediaDB.updateFavorite(it, true) }
+                }
+                toast(getString(R.string.favorite_media_import_summary, added,
+                    candidates.size - added, skipped))
+            } catch (error: Exception) {
+                android.util.Log.e("GalleryFavoritesBackup", "Media favorites import failed", error)
+                toast(getString(R.string.favorite_backup_import_failed))
+            }
+        }
+    }
+
+    private fun setupExportFavoriteFolders() {
+        binding.settingsExportFavoriteFoldersHolder.setOnClickListener {
+            if (isQPlus()) {
+                ExportFavoritesDialog(this, getExportFavoriteFoldersFilename(), true,
+                    ".json", R.string.export_favorite_folder_paths) { _, filename ->
+                    Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                        type = "application/json"
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        putExtra(Intent.EXTRA_TITLE, filename)
+                        try {
+                            startActivityForResult(this, SELECT_EXPORT_FAVORITE_FOLDERS_INTENT)
+                        } catch (error: ActivityNotFoundException) {
+                            toast(org.fossify.commons.R.string.system_service_disabled, Toast.LENGTH_LONG)
+                        } catch (error: Exception) {
+                            showErrorToast(error)
                         }
-                    } catch (e: Exception) {
-                        showErrorToast(e)
+                    }
+                }
+            } else {
+                handlePermission(PERMISSION_WRITE_STORAGE) { granted ->
+                    if (granted) {
+                        ExportFavoritesDialog(this, getExportFavoriteFoldersFilename(), false,
+                            ".json", R.string.export_favorite_folder_paths) { path, _ ->
+                            getFileOutputStream(File(path).toFileDirItem(this), true) {
+                                exportFavoriteFoldersTo(it)
+                            }
+                        }
                     }
                 }
             }
+        }
+    }
 
-            toast(if (importedItems > 0) org.fossify.commons.R.string.importing_successful else org.fossify.commons.R.string.no_entries_for_importing)
+    private fun getExportFavoriteFoldersFilename(): String {
+        val appName = baseConfig.appId.removeSuffix(".debug").removePrefix("org.fossify.")
+        return "$appName-favorite-folders_${getCurrentFormattedDateTime()}"
+    }
+
+    private fun exportFavoriteFoldersTo(outputStream: OutputStream?) {
+        if (outputStream == null) {
+            toast(org.fossify.commons.R.string.unknown_error_occurred)
+            return
+        }
+        ensureBackgroundThread {
+            try {
+                val records = favoriteFoldersDB.getAll().map {
+                    FavoriteBackupCodec.FolderRecord(it.path, it.addedAt)
+                }
+                outputStream.bufferedWriter(Charsets.UTF_8).use {
+                    it.write(FavoriteBackupCodec.encodeFolders(records))
+                }
+                toast(getString(R.string.favorite_folders_export_summary, records.size))
+            } catch (error: Exception) {
+                android.util.Log.e("GalleryFavoritesBackup", "Favorite folders export failed", error)
+                toast(getString(R.string.favorite_backup_export_failed))
+            }
+        }
+    }
+
+    private fun setupImportFavoriteFolders() {
+        binding.settingsImportFavoriteFoldersHolder.setOnClickListener {
+            if (isQPlus()) {
+                Intent(Intent.ACTION_GET_CONTENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "application/json"
+                    try {
+                        startActivityForResult(this, SELECT_IMPORT_FAVORITE_FOLDERS_INTENT)
+                    } catch (error: Exception) {
+                        showErrorToast(error)
+                    }
+                }
+            } else {
+                handlePermission(PERMISSION_READ_STORAGE) { granted ->
+                    if (granted) {
+                        FilePickerDialog(this) { path ->
+                            ensureBackgroundThread {
+                                try {
+                                    importFavoriteFolders(File(path).inputStream())
+                                } catch (error: Exception) {
+                                    showErrorToast(error)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun importFavoriteFolders(inputStream: InputStream?) {
+        if (inputStream == null) {
+            toast(org.fossify.commons.R.string.unknown_error_occurred)
+            return
+        }
+        ensureBackgroundThread {
+            try {
+                // Parse and validate the entire backup before touching Room.
+                val records = FavoriteBackupCodec.decodeFolders(FavoriteBackupCodec.readLimited(inputStream))
+                val valid = records.filterNot { File(it.path).isFile }
+                val rejected = records.size - valid.size
+                val existing = favoriteFoldersDB.getPaths()
+                    .map(FavoriteFolderRules::normalizedPath).toHashSet()
+                val newRecords = valid.filterNot {
+                    FavoriteFolderRules.normalizedPath(it.path) in existing
+                }
+                val database = GalleryDatabase.getInstance(applicationContext)
+                var added = 0
+                database.runInTransaction {
+                    added = favoriteFoldersDB.insertAllIgnore(newRecords.map {
+                        FavoriteFolder(it.path, it.addedAt)
+                    }).count { it >= 0L }
+                }
+                toast(getString(R.string.favorite_folders_import_summary, added,
+                    valid.size - added, rejected))
+            } catch (error: Exception) {
+                android.util.Log.e("GalleryFavoritesBackup", "Favorite folders import failed", error)
+                toast(getString(R.string.favorite_backup_import_failed))
+            }
         }
     }
 

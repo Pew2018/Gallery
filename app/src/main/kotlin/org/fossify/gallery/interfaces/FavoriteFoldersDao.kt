@@ -20,6 +20,9 @@ interface FavoriteFoldersDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insert(folder: FavoriteFolder)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertAllIgnore(folders: List<FavoriteFolder>): List<Long>
+
     @Query("DELETE FROM favorite_folders WHERE path = :path")
     fun delete(path: String)
 

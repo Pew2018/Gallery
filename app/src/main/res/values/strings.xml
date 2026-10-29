@@ -227,8 +227,8 @@
     <string name="limit_folder_title">Limit long folder titles to 1 line</string>
     <string name="square">Square</string>
     <string name="rounded_corners">Rounded corners</string>
-    <string name="export_favorite_paths">Export favorites</string>
-    <string name="import_favorite_paths">Import favorites</string>
+    <string name="export_favorite_paths">Export favorite files</string>
+    <string name="import_favorite_paths">Import favorite files</string>
     <string name="paths_imported_successfully">Paths imported successfully</string>
     <string name="media_management_prompt">To make sure that all file operations work reliably, please make this app a Media management app in your device settings.</string>
     <string name="password_protect_excluded">Password protect excluded folder visibility</string>
@@ -308,4 +308,11 @@
     <string name="oxygen_favorite_show_excluded">Always show excluded items</string>
     <string name="oxygen_selected_count">Selected %1$d items</string>
     <string name="gallery_nav_all_images">All images</string>
+    <string name="export_favorite_folder_paths">Export favorite folders</string>
+    <string name="import_favorite_folder_paths">Import favorite folders</string>
+    <string name="favorite_media_import_summary">File favorites: %1$d added, %2$d already saved, %3$d unavailable or invalid</string>
+    <string name="favorite_folders_import_summary">Folder favorites: %1$d added, %2$d already saved, %3$d invalid</string>
+    <string name="favorite_folders_export_summary">Exported %1$d favorite folders</string>
+    <string name="favorite_backup_import_failed">Invalid or unreadable favorites backup. Nothing was imported.</string>
+    <string name="favorite_backup_export_failed">Could not export favorites backup.</string>
 </resources>

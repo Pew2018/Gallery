@@ -1015,6 +1015,32 @@
             </RelativeLayout>
 
             <RelativeLayout
+                android:id="@+id/settings_export_favorite_folders_holder"
+                style="@style/OxygenClassicSettingsSingleRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_export_favorite_folders"
+                    style="@style/OxygenClassicSettingsPrimaryText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/export_favorite_folder_paths" />
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_import_favorite_folders_holder"
+                style="@style/OxygenClassicSettingsSingleRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_import_favorite_folders"
+                    style="@style/OxygenClassicSettingsPrimaryText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/import_favorite_folder_paths" />
+            </RelativeLayout>
+
+            <RelativeLayout
                 android:id="@+id/settings_export_holder"
                 style="@style/OxygenClassicSettingsSingleRow"
                 android:layout_width="match_parent"
