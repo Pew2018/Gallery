@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import androidx.activity.OnBackPressedCallback
 import androidx.core.graphics.ColorUtils
 import org.fossify.gallery.helpers.OxygenThemeEngine
 import android.text.TextUtils
@@ -40,6 +41,7 @@ class SettingsActivity : SimpleActivity() {
     private val settingsPageViews = mutableListOf<View>()
     private val settingsPageInitialVisibility = mutableListOf<Int>()
     private lateinit var settingsHub: android.widget.LinearLayout
+    private lateinit var settingsBackCallback: OnBackPressedCallback
 
     private data class SettingsCategory(
         val id: String, val title: Int, val summary: Int, val icon: Int, val first: Int, val last: Int
@@ -61,6 +63,13 @@ class SettingsActivity : SimpleActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
+
+        settingsBackCallback = object : OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                navigateSettingsBack()
+            }
+        }
+        onBackPressedDispatcher.addCallback(this, settingsBackCallback)
 
         setupEdgeToEdge(
             padTopSystem = listOf(binding.settingsAppbar),
@@ -157,6 +166,7 @@ class SettingsActivity : SimpleActivity() {
 
     private fun openSettingsCategory(category: SettingsCategory) {
         activeSettingsCategory = category.id
+        settingsBackCallback.isEnabled = true
         binding.settingsToolbar.title = getString(category.title)
         renderSettingsPage()
         binding.settingsNestedScrollview.scrollTo(0, 0)
@@ -177,14 +187,12 @@ class SettingsActivity : SimpleActivity() {
     private fun navigateSettingsBack(): Boolean {
         if (activeSettingsCategory == null) return false
         activeSettingsCategory = null
+        settingsBackCallback.isEnabled = false
         renderSettingsPage()
         binding.settingsNestedScrollview.scrollTo(0, 0)
         return true
     }
 
-    override fun onBackPressed() {
-        if (!navigateSettingsBack()) super.onBackPressed()
-    }
 
     private fun setupSettingItems() {
         setupCustomizeColors()
