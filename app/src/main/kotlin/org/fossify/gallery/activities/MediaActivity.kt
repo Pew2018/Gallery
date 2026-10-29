@@ -1,5 +1,7 @@
 package org.fossify.gallery.activities
 
+import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
+import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import android.app.WallpaperManager
 import android.content.Intent
 import android.graphics.Bitmap
@@ -198,6 +200,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         var mMedia = ArrayList<ThumbnailItem>()
     }
 
+    private var folderUnlockSessionId: String? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
@@ -218,6 +222,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
         try {
             mPath = intent.getStringExtra(DIRECTORY) ?: ""
+            folderUnlockSessionId = intent.getStringExtra(FOLDER_UNLOCK_SESSION)
         } catch (e: Exception) {
             showErrorToast(e)
             finish()
@@ -348,11 +353,17 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             tryLoadGallery()
         } else if (mMedia.isEmpty() || !isRandomSorting ||
             (isRandomSorting && !mWasFullscreenViewOpen)) {
-            if (shouldSkipAuthentication()) {
+            val protectedFolder = FolderUnlockSessionManager.findProtectedAncestor(
+                mPath, config::isFolderProtected
+            )
+            if (protectedFolder == null ||
+                FolderUnlockSessionManager.isFolderAuthorized(folderUnlockSessionId, mPath)
+            ) {
                 tryLoadGallery()
             } else {
-                handleLockedFolderOpening(mPath) { success ->
+                handleLockedFolderOpening(protectedFolder) { success ->
                     if (success) {
+                        folderUnlockSessionId = FolderUnlockSessionManager.createSession(mPath)
                         tryLoadGallery()
                     } else {
                         finish()
@@ -402,6 +413,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     override fun onDestroy() {
+        if (isFinishing && !isChangingConfigurations) {
+            FolderUnlockSessionManager.revokeSession(folderUnlockSessionId)
+        }
         super.onDestroy()
         if (mShowAll && !isChangingConfigurations) {
             config.temporarilyShowHidden = false
@@ -514,7 +528,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             hideKeyboard()
             Intent(this, ViewPagerActivity::class.java).apply {
                 val item = mMedia.firstOrNull { it is Medium } as? Medium ?: return
-                putExtra(SKIP_AUTHENTICATION, shouldSkipAuthentication())
+                if (FolderUnlockSessionManager.isMediaAuthorized(
+                        folderUnlockSessionId, item.path, config::isFolderProtected
+                    )) {
+                    putExtra(FOLDER_UNLOCK_SESSION, folderUnlockSessionId)
+                }
+                putExtra(IS_FROM_GALLERY, true)
                 putExtra(PATH, item.path)
                 putExtra(SHOW_ALL, mShowAll)
                 putExtra(SLIDESHOW_START_ON_ENTER, true)
@@ -1214,13 +1233,21 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
 
             // Never consult the legacy system-player preference for internal taps.
-            if (config.gestureVideoPlayer) launchGesturePlayer(path) else openInViewPager(path)
+            if (config.gestureVideoPlayer) {
+                launchGesturePlayer(path, folderSessionId = folderUnlockSessionId)
+            } else {
+                openInViewPager(path)
+            }
         }
     }
 
     private fun openInViewPager(path: String) {
         Intent(this, ViewPagerActivity::class.java).apply {
-            putExtra(SKIP_AUTHENTICATION, shouldSkipAuthentication())
+            if (FolderUnlockSessionManager.isMediaAuthorized(
+                    folderUnlockSessionId, path, config::isFolderProtected
+                )) {
+                putExtra(FOLDER_UNLOCK_SESSION, folderUnlockSessionId)
+            }
             putExtra(PATH, path)
             putExtra(SHOW_ALL, mShowAll)
             putExtra(SHOW_FAVORITES, mPath == FAVORITES)
