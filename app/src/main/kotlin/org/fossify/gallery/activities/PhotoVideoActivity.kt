@@ -1,5 +1,7 @@
 package org.fossify.gallery.activities
 
+import org.fossify.gallery.helpers.FOLDER_UNLOCK_MEDIA_PATH
+import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
@@ -290,6 +292,10 @@ open class PhotoVideoActivity : BaseViewerActivity(), ViewPagerFragment.Fragment
             if (intent.extras != null) {
                 putExtras(intent.extras!!)
             }
+            // This Activity may receive requests through exported subclasses.
+            // Never forward caller-supplied internal unlock capabilities.
+            removeExtra(FOLDER_UNLOCK_SESSION)
+            removeExtra(FOLDER_UNLOCK_MEDIA_PATH)
 
             startActivity(this)
         }
