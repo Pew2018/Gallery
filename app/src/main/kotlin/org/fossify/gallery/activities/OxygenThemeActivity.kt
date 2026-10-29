@@ -23,6 +23,11 @@ import org.fossify.gallery.helpers.*
 
 /** Flat classic settings. Rebind colors/selection in place; rebuild only on page navigation. */
 class OxygenThemeActivity : SimpleActivity() {
+    companion object {
+        const val EXTRA_ICON_COLORS = "org.fossify.gallery.extra.ICON_COLORS"
+    }
+
+    private var iconColorPage = false
     private lateinit var root: LinearLayout
     private lateinit var titleBar: LinearLayout
     private lateinit var backIcon: ImageView
@@ -66,6 +71,7 @@ class OxygenThemeActivity : SimpleActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        iconColorPage = intent.getBooleanExtra(EXTRA_ICON_COLORS, false)
         moreColors = savedInstanceState?.getBoolean("theme_more") ?: false
         mainScroll = savedInstanceState?.getInt("theme_main_scroll") ?: 0
         root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -317,8 +323,14 @@ class OxygenThemeActivity : SimpleActivity() {
     private fun buildPage() {
         binders.clear()
         body.removeAllViews()
-        titleText.setText(if (moreColors) R.string.classic_more_colors else R.string.classic_theme_title)
-        if (moreColors) {
+        titleText.setText(when {
+            iconColorPage -> R.string.classic_app_icon
+            moreColors -> R.string.classic_more_colors
+            else -> R.string.classic_theme_title
+        })
+        if (iconColorPage) {
+            buildIconColorPage()
+        } else if (moreColors) {
             section(R.string.classic_palette_classic)
             colorGrid(OxygenThemePresets.group("classic"))
             divider()
@@ -345,6 +357,87 @@ class OxygenThemeActivity : SimpleActivity() {
             }
         }
         bindPage()
+    }
+
+    private fun buildIconColorPage() {
+        section(R.string.classic_app_icon)
+
+        val iconIds = getAppIconIDs()
+        val iconColors = getAppIconColors()
+        val currentIndex = iconColors.indexOf(config.appIconColor).coerceAtLeast(0)
+        val preview = ImageView(this).apply {
+            setImageResource(iconIds.getOrElse(currentIndex) { iconIds.first() })
+            contentDescription = getString(R.string.classic_app_icon)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        body.addView(preview, LinearLayout.LayoutParams(dp(64), dp(64)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            topMargin = dp(8)
+        })
+
+        val hex = text(OxygenThemeEngine.formatHex(config.appIconColor), 12f).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(16), dp(4), dp(16), dp(12))
+        }
+        body.addView(hex, LinearLayout.LayoutParams(-1, -2))
+        binders.add { hex.setTextColor(colors.secondaryText) }
+
+        val columns = ((resources.configuration.screenWidthDp - 48) / 68).coerceIn(3, 5)
+        val grid = GridLayout(this).apply {
+            columnCount = columns
+            setPadding(dp(16), 0, dp(16), dp(8))
+        }
+        iconIds.forEachIndexed { index, iconId ->
+            val color = iconColors.getOrNull(index) ?: return@forEachIndexed
+            val cell = FrameLayout(this).apply {
+                isClickable = true
+                isFocusable = true
+                contentDescription = getString(R.string.classic_icon_option, index + 1)
+                setOnClickListener {
+                    config.appIconColor = color
+                    checkAppIconColor()
+                    buildPage()
+                }
+            }
+            val icon = ImageView(this).apply {
+                setImageResource(iconId)
+                contentDescription = null
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
+            cell.addView(icon, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER))
+            grid.addView(cell, GridLayout.LayoutParams(
+                GridLayout.spec(index / columns), GridLayout.spec(index % columns, 1f)
+            ).apply {
+                width = 0
+                height = dp(64)
+                setMargins(dp(2), dp(2), dp(2), dp(2))
+                setGravity(Gravity.FILL)
+            })
+            binders.add {
+                val selected = config.appIconColor == color
+                cell.isSelected = selected
+                ViewCompat.setStateDescription(cell, getString(
+                    if (selected) R.string.classic_selected else R.string.classic_not_selected
+                ))
+                cell.background = GradientDrawable().apply {
+                    setColor(if (selected) OxygenThemeColors.blend(
+                        colors.pageBackground, colors.interactiveAccent, 0.08
+                    ) else colors.pageBackground)
+                    cornerRadius = dp(3).toFloat()
+                    if (selected) setStroke(dp(2), colors.interactiveAccent)
+                }
+                cell.foreground = RippleDrawable(
+                    ColorStateList.valueOf(ColorUtils.setAlphaComponent(colors.interactiveAccent, 28)),
+                    null,
+                    GradientDrawable().apply {
+                        setColor(android.graphics.Color.WHITE)
+                        cornerRadius = dp(3).toFloat()
+                    }
+                )
+            }
+        }
+        body.addView(grid, LinearLayout.LayoutParams(-1, -2))
     }
 
     private fun bindPage() {
