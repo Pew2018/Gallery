@@ -93,7 +93,8 @@ object OxygenClassicControls {
         override fun getIntrinsicHeight() = (24 * density + 0.5f).toInt()
         override fun isStateful() = true
         override fun onStateChange(state: IntArray): Boolean { invalidateSelf(); return true }
-        override fun setAlpha(alpha: Int) { opacity = alpha; invalidateSelf() }
+        override fun setAlpha(alpha: Int) { opacity = alpha.coerceIn(0, 255); invalidateSelf() }
+        override fun getAlpha(): Int = opacity
         override fun setColorFilter(filter: ColorFilter?) { paint.colorFilter = filter; invalidateSelf() }
         @Deprecated("Deprecated in Android")
         override fun getOpacity() = PixelFormat.TRANSLUCENT
@@ -104,31 +105,47 @@ object OxygenClassicControls {
             val bg = colors.pageBackground
             val fg = colors.primaryText
             val accent = colors.interactiveAccent
-            val off = OxygenThemeColors.blend(bg, fg, if (colors.dark) 0.48 else 0.32)
-            val active = if (enabled) accent else OxygenThemeColors.blend(bg, accent, 0.32)
-            val inactive = if (enabled) off else OxygenThemeColors.blend(bg, fg, 0.16)
-            val outline = if (enabled) OxygenThemeColors.blend(bg, fg, 0.60) else inactive
+            // Light-mode off track: #FAFAFA -> #212121 at 16% is #D7D7D7.
+            // Disabled is a separate semantic state, not the same as unchecked.
+            val off = OxygenThemeColors.blend(bg, fg, if (colors.dark) 0.38 else 0.16)
+            val active = if (enabled) accent else OxygenThemeColors.blend(bg, accent, 0.30)
+            val inactive = if (enabled) off else OxygenThemeColors.blend(bg, fg, if (colors.dark) 0.19 else 0.09)
+            val outline = OxygenThemeColors.blend(bg, fg,
+                if (!enabled) 0.22 else if (colors.dark) 0.58 else 0.46)
             val cx = bounds.exactCenterX()
             val cy = bounds.exactCenterY()
-            fun color(value: Int) { paint.color = value; paint.alpha = opacity; paint.style = Paint.Style.FILL }
+            fun color(value: Int) {
+                paint.color = value
+                // Keep ARGB alpha: resetting Paint.alpha to 255 made the
+                // intended translucent thumb shadow render as opaque black.
+                paint.alpha = (Color.alpha(value) * opacity + 127) / 255
+                paint.style = Paint.Style.FILL
+            }
             fun circle(radius: Float, value: Int) { color(value); canvas.drawCircle(cx, cy, radius * density, paint) }
             when (kind) {
                 "track" -> {
-                    color(if (checked) OxygenThemeColors.blend(bg, accent, if (enabled) 0.38 else 0.16) else inactive)
-                    canvas.drawRoundRect(bounds.left + 2 * density, cy - 5 * density,
-                        bounds.right - 2 * density, cy + 5 * density, 5 * density, 5 * density, paint)
+                    color(if (checked) OxygenThemeColors.blend(bg, accent,
+                        if (enabled) 0.38 else 0.15) else inactive)
+                    // Intrinsic sizes alone do not prevent SwitchCompat from
+                    // assigning stretched bounds; cap the visible rail to 36dp.
+                    val halfRail = minOf(18f * density,
+                        (bounds.width() / 2f - 2f * density).coerceAtLeast(0f))
+                    canvas.drawRoundRect(cx - halfRail, cy - 5 * density,
+                        cx + halfRail, cy + 5 * density, 5 * density, 5 * density, paint)
                 }
                 "thumb" -> {
-                    color(0x30000000)
-                    canvas.drawCircle(cx, cy + density, 10 * density, paint)
+                    // Soft under-shadow within the 24dp optical box; never
+                    // replace its ARGB alpha with full opacity.
+                    color(0x18000000)
+                    canvas.drawCircle(cx, cy + 1.25f * density, 10 * density, paint)
                     val face = if (checked) active else if (enabled) {
-                        if (colors.dark) 0xFFCCCCCC.toInt() else 0xFFF1F1F1.toInt()
-                    } else OxygenThemeColors.blend(bg, fg, 0.24)
-                    circle(9.8f, if (pressed && enabled) OxygenThemeColors.blend(face, bg, 0.08) else face)
-                    color(OxygenThemeColors.blend(face, fg, 0.16))
+                        if (colors.dark) 0xFFCCCCCC.toInt() else 0xFFEEEEEE.toInt()
+                    } else OxygenThemeColors.blend(bg, fg, if (colors.dark) 0.29 else 0.20)
+                    circle(9.7f, if (pressed && enabled) OxygenThemeColors.blend(face, bg, 0.07) else face)
+                    color(OxygenThemeColors.blend(face, fg, if (colors.dark) 0.10 else 0.08))
                     paint.style = Paint.Style.STROKE
-                    paint.strokeWidth = 0.5f * density
-                    canvas.drawCircle(cx, cy, 9.5f * density, paint)
+                    paint.strokeWidth = 0.35f * density
+                    canvas.drawCircle(cx, cy, 9.45f * density, paint)
                 }
                 "radio" -> {
                     color(if (checked) active else outline)
@@ -137,17 +154,19 @@ object OxygenClassicControls {
                     if (checked) circle(5f, active)
                 }
                 "check" -> {
-                    color(if (checked) active else outline)
+                    // One consistent 18dp box in every state, not two
+                    // differently sized nested squares on selection.
+                    val fill = if (enabled) OxygenThemeColors.toolbarBackground(colors.rawAccent)
+                        else OxygenThemeColors.blend(bg, fg, 0.49)
+                    color(if (checked) fill else outline)
                     paint.style = if (checked) Paint.Style.FILL else Paint.Style.STROKE
                     paint.strokeWidth = 2 * density
-                    canvas.drawRoundRect(cx - 8 * density, cy - 8 * density,
-                        cx + 8 * density, cy + 8 * density, density, density, paint)
+                    canvas.drawRoundRect(cx - 9 * density, cy - 9 * density,
+                        cx + 9 * density, cy + 9 * density, density, density, paint)
                     if (checked) {
-                        // The fill is darkened only when needed for a visible white check.
-                        color(if (enabled) OxygenThemeColors.toolbarBackground(accent) else active)
-                        canvas.drawRoundRect(cx - 9 * density, cy - 9 * density,
-                            cx + 9 * density, cy + 9 * density, density, density, paint)
                         color(Color.WHITE); paint.style = Paint.Style.STROKE; paint.strokeWidth = 2 * density
+                        paint.strokeCap = Paint.Cap.ROUND
+                        paint.strokeJoin = Paint.Join.ROUND
                         val path = Path().apply {
                             moveTo(cx - 5 * density, cy); lineTo(cx - density, cy + 4 * density)
                             lineTo(cx + 6 * density, cy - 4 * density)

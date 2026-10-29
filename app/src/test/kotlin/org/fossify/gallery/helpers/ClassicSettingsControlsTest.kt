@@ -250,4 +250,92 @@ class ClassicSettingsControlsTest {
             assertEquals(preset.color, OxygenThemeEngine.accent(org.fossify.gallery.helpers.Config.newInstance(ctx)))
         }
     }
+
+    @Test fun offTrackAndThumbShadowUseRealRasterColorsAndTransparency() {
+        val ctx = context()
+        val density = ctx.resources.displayMetrics.density
+        val t = tokens(false)
+        val control = ClassicSettingsSwitch(ctx)
+        skin(control, false)
+        val track = control.trackDrawable
+        val width = (40f * density + 0.5f).toInt()
+        val height = (24f * density + 0.5f).toInt()
+        track.setBounds(0, 0, width, height)
+        val image = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        track.state = intArrayOf(android.R.attr.state_enabled)
+        track.draw(Canvas(image))
+        val expected = OxygenThemeColors.blend(t.pageBackground, t.primaryText, 0.16)
+        assertEquals("Off rail must follow screenshot-derived #D7D7D7 baseline",
+            expected, image.getPixel(width / 2, height / 2))
+        track.state = intArrayOf()
+        image.eraseColor(android.graphics.Color.TRANSPARENT)
+        track.draw(Canvas(image))
+        assertNotEquals(expected, image.getPixel(width / 2, height / 2))
+
+        val thumb = control.thumbDrawable
+        val thumbWidth = (24f * density + 0.5f).toInt()
+        thumb.setBounds(0, 0, thumbWidth, thumbWidth)
+        val shadow = Bitmap.createBitmap(thumbWidth, thumbWidth, Bitmap.Config.ARGB_8888)
+        thumb.state = intArrayOf(android.R.attr.state_enabled)
+        thumb.draw(Canvas(shadow))
+        val haloY = (thumbWidth / 2f + 10f * density).toInt().coerceAtMost(thumbWidth - 1)
+        val shadowAlpha = android.graphics.Color.alpha(shadow.getPixel(thumbWidth / 2, haloY))
+        assertTrue("Thumb shadow must not be opaque: $shadowAlpha", shadowAlpha < 96)
+        assertTrue("Thumb face is not opaque",
+            android.graphics.Color.alpha(shadow.getPixel(thumbWidth / 2, thumbWidth / 2)) >= 250)
+    }
+
+    @Test fun switchedThemeReplacesDrawablesWithoutTouchingCheckedEnabledOrCallbacks() {
+        val ctx = context()
+        val row = LinearLayout(ctx)
+        val control = ClassicSettingsSwitch(ctx).apply {
+            text = "Automatic playback"; isChecked = true; isEnabled = false
+        }
+        row.addView(control)
+        var callbackCount = 0
+        row.setOnClickListener { callbackCount++ }
+        val t = tokens(false)
+        OxygenClassicControls.applySwitches(row, 0xFF0071CD.toInt(), t.primaryText, t.pageBackground)
+        val oldThumb = control.thumbDrawable
+        val oldTrack = control.trackDrawable
+        OxygenClassicControls.applySwitches(row, 0xFF7DC22F.toInt(), t.primaryText, t.pageBackground)
+        assertNotSame(oldThumb, control.thumbDrawable)
+        assertNotSame(oldTrack, control.trackDrawable)
+        assertTrue(control.isChecked)
+        assertFalse(control.isEnabled)
+        assertEquals(0, callbackCount)
+        val nextThumb = control.thumbDrawable
+        OxygenClassicControls.applySwitches(row, 0xFF7DC22F.toInt(), t.primaryText, t.pageBackground)
+        assertSame(nextThumb, control.thumbDrawable)
+        control.performClick()
+        assertEquals(0, callbackCount)
+    }
+
+    @Test fun checkboxAndRadioShareStableGeometryAcrossStateAndTheme() {
+        val ctx = context()
+        val panel = LinearLayout(ctx)
+        val checkbox = AppCompatCheckBox(ctx)
+        val radio = AppCompatRadioButton(ctx)
+        panel.addView(checkbox)
+        panel.addView(radio)
+        for (dark in listOf(false, true)) {
+            skin(panel, dark)
+            val checkDrawable = checkbox.buttonDrawable!!
+            val radioDrawable = radio.buttonDrawable!!
+            assertEquals((24f * ctx.resources.displayMetrics.density + 0.5f).toInt(),
+                checkDrawable.intrinsicWidth)
+            assertEquals(checkDrawable.intrinsicWidth, radioDrawable.intrinsicWidth)
+            for (enabled in listOf(true, false)) for (checked in listOf(true, false)) {
+                checkbox.isEnabled = enabled
+                checkbox.isChecked = checked
+                radio.isEnabled = enabled
+                radio.isChecked = checked
+                assertEquals(checkDrawable.intrinsicWidth, checkbox.buttonDrawable!!.intrinsicWidth)
+                assertEquals(radioDrawable.intrinsicWidth, radio.buttonDrawable!!.intrinsicWidth)
+                assertEquals(checked, checkbox.isChecked)
+                assertEquals(checked, radio.isChecked)
+            }
+        }
+    }
+
 }
