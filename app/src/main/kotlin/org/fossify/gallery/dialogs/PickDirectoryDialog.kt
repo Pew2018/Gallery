@@ -4,6 +4,7 @@ import android.graphics.Color
 import android.content.res.ColorStateList
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
+import com.google.android.material.shape.RelativeCornerSize
 import androidx.activity.addCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.RecyclerView
@@ -16,6 +17,7 @@ import org.fossify.commons.extensions.getAlertDialogBuilder
 import org.fossify.commons.extensions.getDefaultCopyDestinationPath
 import org.fossify.commons.extensions.getProperPrimaryColor
 import org.fossify.commons.extensions.getProperBackgroundColor
+import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.commons.extensions.handleHiddenFolderPasswordProtection
 import org.fossify.commons.extensions.handleLockedFolderOpening
 import org.fossify.commons.extensions.hideKeyboard
@@ -39,6 +41,7 @@ import org.fossify.gallery.extensions.getSortedDirectories
 import org.fossify.gallery.models.Directory
 import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.helpers.OxygenClassicPalette
+import org.fossify.gallery.helpers.OxygenThemeColors
 
 class PickDirectoryDialog(
     val activity: BaseSimpleActivity,
@@ -87,6 +90,18 @@ class PickDirectoryDialog(
             activity.setupDialogStuff(binding.root, this, org.fossify.commons.R.string.select_destination) { alertDialog ->
                 dialog = alertDialog
                 OxygenClassicDialog.apply(activity, alertDialog, binding.root)
+                binding.directoriesCurrentPath.setTextColor(activity.getProperTextColor())
+                binding.directoriesShowHidden.apply {
+                    // Commons is a Material FAB. Restore the circular 2017 shape
+                    // without replacing its ripple, touch handling or action.
+                    shapeAppearanceModel = shapeAppearanceModel.toBuilder()
+                        .setAllCornerSizes(RelativeCornerSize(0.5f)).build()
+                    backgroundTintList = ColorStateList.valueOf(
+                        OxygenThemeColors.toolbarBackground(activity.getProperPrimaryColor())
+                    )
+                    clearColorFilter()
+                    imageTintList = ColorStateList.valueOf(Color.WHITE)
+                }
                 binding.directoriesShowHidden.beVisibleIf(!context.config.shouldShowHidden)
                 binding.directoriesShowHidden.setOnClickListener {
                     activity.handleHiddenFolderPasswordProtection {
