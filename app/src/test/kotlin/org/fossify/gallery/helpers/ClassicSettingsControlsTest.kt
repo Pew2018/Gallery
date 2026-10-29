@@ -184,10 +184,22 @@ class ClassicSettingsControlsTest {
         assertSame(original, label(R.string.classic_more_colors))
         assertEquals(3, children(root).filterIsInstance<RadioButton>().size)
         label(R.string.classic_more_colors).performClick()
-        assertEquals(23, children(root).filterIsInstance<RadioButton>().size)
-        label(R.string.theme_material_red).performClick()
+        // More colors is now a bounded 23-swatch grid, not 23 RadioButtons.
+        val palette = children(root).filterIsInstance<LinearLayout>().filter {
+            it.isClickable && it.contentDescription != null
+        }
+        assertEquals(23, palette.size)
+        assertEquals(0, children(root).filterIsInstance<RadioButton>().size)
+        assertEquals(1, palette.count { it.isSelected })
+        assertEquals(activity.getString(R.string.theme_oxygen_jade_green),
+            palette.single { it.isSelected }.contentDescription.toString())
+        palette.single {
+            it.contentDescription.toString() == activity.getString(R.string.theme_material_red)
+        }.performClick()
         assertEquals("material_red", config.oxygenThemePresetId)
-        assertEquals(1, children(root).filterIsInstance<RadioButton>().count { it.isChecked })
+        assertEquals(1, palette.count { it.isSelected })
+        assertEquals(activity.getString(R.string.theme_material_red),
+            palette.single { it.isSelected }.contentDescription.toString())
         activity.onBackPressedDispatcher.onBackPressed()
         label(R.string.classic_custom_color).performClick()
         val dialog = org.robolectric.shadows.ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog
