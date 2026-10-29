@@ -546,6 +546,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun refreshMenuItems() {
         if (!mIsThirdPartyIntent) {
             binding.mainMenu.requireToolbar().menu.apply {
+                findItem(R.id.show_all).title = if (mShowingFolderFavorites)
+                    "文件视图" else getString(R.string.show_all)
                 findItem(R.id.manage_unavailable_folder_favorites).isVisible = mShowingFolderFavorites
                 findItem(R.id.favorite_always_show_excluded).apply {
                     isVisible = mShowingFolderFavorites

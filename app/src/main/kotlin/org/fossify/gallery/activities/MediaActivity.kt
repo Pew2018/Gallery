@@ -380,7 +380,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             findItem(R.id.empty_disable_recycle_bin).isVisible = mPath == RECYCLE_BIN
             findItem(R.id.restore_all_files).isVisible = mPath == RECYCLE_BIN
 
-            findItem(R.id.folder_view).isVisible = mGallerySection != null
+            findItem(R.id.folder_view).isVisible = mGallerySection != null || mShowAll
             findItem(R.id.open_camera).isVisible = mShowAll
             findItem(R.id.about).isVisible = mShowAll
             findItem(R.id.create_new_folder).isVisible =
@@ -691,7 +691,17 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun switchToFolderView() {
-        val section = mGallerySection ?: return
+        val section = mGallerySection
+        if (section == null) {
+            // Keep the legacy chooser's folder-switch action functional; it is
+            // not part of the remembered bottom navigation state.
+            hideKeyboard()
+            config.lastMainViewAll = false
+            config.showAll = false
+            GalleryBottomBar.open(this, Intent(this, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true), finishCurrent = true)
+            return
+        }
         if (section == GallerySection.ALL) config.lastMainViewAll = false
         else config.lastFavoritesViewFiles = false
         openGalleryRoot(section)
