@@ -2,6 +2,12 @@
 
 package org.fossify.gallery.activities
 
+import org.fossify.commons.helpers.REAL_FILE_PATH
+import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
+import org.fossify.gallery.helpers.FOLDER_UNLOCK_MEDIA_PATH
+import org.fossify.gallery.helpers.FolderUnlockSessionManager
+import org.fossify.commons.extensions.handleLockedFolderOpening
+import org.fossify.commons.extensions.getRealPathFromURI
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -167,7 +173,49 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
         )
         setupOptionsMenu()
         setupOrientation()
-        initPlayer()
+        authenticateThenInitPlayer()
+    }
+
+    /**
+     * The video player is internal, but it can be reached through exported
+     * photo/video routing. Never treat forwarded Intent flags as authentication.
+     */
+    private fun authenticateThenInitPlayer() {
+        val uri = intent.data
+        val uriPath = when (uri?.scheme) {
+            "file" -> uri.path
+            "content" -> uri?.let { applicationContext.getRealPathFromURI(it) }
+            else -> null
+        }?.takeIf { it.startsWith("/") }
+        // Only the internal player launch helper supplies this path. Never use
+        // an unverified REAL_FILE_PATH forwarded by an exported entry point.
+        val mediaPath = uriPath ?: intent.getStringExtra(FOLDER_UNLOCK_MEDIA_PATH)
+        if (mediaPath.isNullOrBlank()) {
+            // Do not play an unresolved Gallery-owned provider URI: its real
+            // file could belong to a protected folder.
+            if (uri?.authority == "${org.fossify.gallery.BuildConfig.APPLICATION_ID}.provider") {
+                finish()
+            } else {
+                initPlayer()
+            }
+            return
+        }
+        val protectedFolder = FolderUnlockSessionManager.findProtectedAncestor(
+            java.io.File(mediaPath).parent ?: "", config::isFolderProtected
+        )
+        if (protectedFolder == null ||
+            FolderUnlockSessionManager.isMediaAuthorized(
+                intent.getStringExtra(FOLDER_UNLOCK_SESSION),
+                mediaPath,
+                config::isFolderProtected
+            )
+        ) {
+            initPlayer()
+        } else {
+            handleLockedFolderOpening(protectedFolder) { success ->
+                if (success) initPlayer() else finish()
+            }
+        }
     }
 
     override fun onResume() {
