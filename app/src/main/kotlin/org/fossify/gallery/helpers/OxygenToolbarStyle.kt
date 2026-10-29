@@ -1,6 +1,7 @@
 package org.fossify.gallery.helpers
 
 import android.app.Activity
+import android.os.Build
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
@@ -13,6 +14,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.RelativeLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
@@ -87,6 +89,16 @@ object OxygenToolbarStyle {
         }
         container.background = ColorDrawable(surface)
         preparePopup(activity, menu)
+        // The ActionMenu presenter owns the trailing 48dp action slots.
+        // Remove Commons' extra end margin/insets so search aligns immediately
+        // before the action menu instead of competing with its internal padding.
+        actions.layoutParams = (actions.layoutParams as RelativeLayout.LayoutParams).apply {
+            width = ViewGroup.LayoutParams.WRAP_CONTENT
+            height = ViewGroup.LayoutParams.MATCH_PARENT
+            addRule(RelativeLayout.ALIGN_PARENT_END)
+            marginStart = 0
+            marginEnd = 0
+        }
         actions.visibility = if (opened) View.GONE else View.VISIBLE
         menu.minimumHeight = rowHeight
         applyToolbar(activity, actions)
@@ -96,6 +108,11 @@ object OxygenToolbarStyle {
         icon.imageTintList = ColorStateList.valueOf(foreground)
         input.setTextColor(foreground)
         input.setHintTextColor(ColorUtils.setAlphaComponent(foreground, 160))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            input.textCursorDrawable = input.textCursorDrawable?.mutate()?.also {
+                it.setTint(foreground)
+            }
+        }
 
         // Closed search icon is to the left of menu actions; open arrow is leading.
         icon.layoutParams = (icon.layoutParams as RelativeLayout.LayoutParams).apply {
@@ -158,6 +175,11 @@ object OxygenToolbarStyle {
             container.addView(it)
         }
         back.imageTintList = ColorStateList.valueOf(foreground)
+        back.background = RippleDrawable(
+            ColorStateList.valueOf(ColorUtils.setAlphaComponent(foreground, 28)),
+            ColorDrawable(Color.TRANSPARENT), null
+        )
+        // GONE removes both the hit target and accessibility node during search.
         back.visibility = if (state.back && !opened) View.VISIBLE else View.GONE
         back.layoutParams = RelativeLayout.LayoutParams(dp(48), ViewGroup.LayoutParams.MATCH_PARENT).apply {
             addRule(RelativeLayout.ALIGN_PARENT_START)
@@ -202,6 +224,11 @@ object OxygenToolbarStyle {
         }
         toolbar.isTitleCentered = false
         toolbar.isSubtitleCentered = false
+        // Commons' top-toolbar has no visible title; its content insets would
+        // otherwise leave a phantom gap before the overflow action.
+        toolbar.setContentInsetsRelative(0, 0)
+        toolbar.contentInsetEndWithActions = 0
+        toolbar.contentInsetStartWithNavigation = 0
         // Use the exact opaque color tested by WCAG, without a Material elevation overlay.
         toolbar.backgroundTintList = null
         toolbar.background = ColorDrawable(colors.toolbarBackground)
@@ -227,6 +254,47 @@ object OxygenToolbarStyle {
         toolbar.setPopupTheme(if (colors.dark) org.fossify.gallery.R.style.OxygenClassicPopupTheme_Dark
             else org.fossify.gallery.R.style.OxygenClassicPopupTheme_Light)
         tintMenu(toolbar.menu, foreground)
+    }
+
+    /** Apply the same tokens, title typography and 48dp navigation target to
+     * the settings theme sub-page, which intentionally has no search menu.
+     */
+    fun applyStandaloneToolbar(
+        activity: Activity, bar: LinearLayout, back: ImageView, title: TextView
+    ) {
+        val colors = OxygenThemeEngine.snapshot(activity, activity.config)
+        val density = activity.resources.displayMetrics.density
+        fun dp(value: Int) = (value * density + 0.5f).toInt()
+        val height = maxOf(dp(56),
+            (20 * activity.resources.displayMetrics.scaledDensity + dp(24)).toInt())
+        bar.layoutParams?.let { params ->
+            if (params.height != height) {
+                params.height = height
+                bar.layoutParams = params
+            }
+        }
+        bar.minimumHeight = height
+        bar.setBackgroundColor(colors.toolbarBackground)
+        back.layoutParams?.let { params ->
+            if (params.width != dp(48) || params.height != height) {
+                params.width = dp(48)
+                params.height = height
+                back.layoutParams = params
+            }
+        }
+        back.setPadding(dp(12), dp(12), dp(12), dp(12))
+        back.imageTintList = ColorStateList.valueOf(colors.toolbarForeground)
+        back.background = RippleDrawable(
+            ColorStateList.valueOf(ColorUtils.setAlphaComponent(colors.toolbarForeground, 28)),
+            ColorDrawable(Color.TRANSPARENT), null
+        )
+        title.textSize = 20f
+        title.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        title.gravity = Gravity.CENTER_VERTICAL
+        title.includeFontPadding = false
+        title.maxLines = 1
+        title.ellipsize = TextUtils.TruncateAt.END
+        title.setTextColor(colors.toolbarForeground)
     }
 
     fun tintMenu(menu: Menu?, foreground: Int = Color.WHITE) {

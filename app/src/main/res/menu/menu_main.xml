@@ -8,7 +8,7 @@
         android:orderInCategory="0"
         android:icon="@drawable/ic_camera_vector"
         android:title="@string/open_camera"
-        app:showAsAction="always" />
+        app:showAsAction="never" />
     <item
         android:id="@+id/show_all"
         android:orderInCategory="1"

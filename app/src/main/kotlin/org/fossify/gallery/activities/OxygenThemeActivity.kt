@@ -292,10 +292,7 @@ class OxygenThemeActivity : SimpleActivity() {
         val tokens = colors
         root.setBackgroundColor(tokens.pageBackground)
         body.setBackgroundColor(tokens.pageBackground)
-        titleBar.setBackgroundColor(tokens.toolbarBackground)
-        backIcon.imageTintList = ColorStateList.valueOf(tokens.toolbarForeground)
-        titleText.setTextColor(tokens.toolbarForeground)
-        ripple(backIcon)
+        OxygenToolbarStyle.applyStandaloneToolbar(this, titleBar, backIcon, titleText)
         binders.forEach { it() }
         OxygenClassicControls.applySwitches(body, tokens.rawAccent, tokens.primaryText, tokens.pageBackground)
         OxygenSystemBars.apply(this)

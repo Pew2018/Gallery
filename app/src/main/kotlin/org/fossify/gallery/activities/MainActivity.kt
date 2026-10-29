@@ -423,7 +423,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             promptProtectedFavoriteFilters()
         }
 
-        if (config.searchAllFilesByDefault) {
+        if (config.searchAllFilesByDefault && !mShowingFolderFavorites) {
             binding.mainMenu.updateHintText(getString(org.fossify.commons.R.string.search_files))
         } else {
             binding.mainMenu.updateHintText(getString(org.fossify.commons.R.string.search_folders))
@@ -594,7 +594,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         binding.mainMenu.setupMenu()
 
         binding.mainMenu.onSearchOpenListener = {
-            if (config.searchAllFilesByDefault) {
+            // Favorites always searches its own folder scope; never silently
+            // switch to the global all-files search Activity.
+            if (config.searchAllFilesByDefault && !mShowingFolderFavorites) {
                 launchSearchActivity()
             }
         }

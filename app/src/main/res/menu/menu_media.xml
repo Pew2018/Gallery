@@ -8,7 +8,7 @@
         android:orderInCategory="0"
         android:icon="@drawable/ic_label_vector"
         android:title="@string/toggle_filename"
-        app:showAsAction="always" />
+        app:showAsAction="never" />
     <item
         android:id="@+id/folder_view"
         android:orderInCategory="1"

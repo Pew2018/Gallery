@@ -532,7 +532,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
             binding.mediaMenu.updateHintText(searchHint)
             if (mGallerySection == null && !mShowAll) {
-                binding.mediaMenu.toggleForceArrowBackIcon(true)
+                // OxygenToolbarStyle owns the single closed-search back control.
+                // Commons owns the search arrow only while search is expanded.
                 binding.mediaMenu.onNavigateBackClickListener = {
                     OxygenSearchNavigation.hideImeAndClearFocus(this, binding.mediaMenu)
                     performDefaultBack()
