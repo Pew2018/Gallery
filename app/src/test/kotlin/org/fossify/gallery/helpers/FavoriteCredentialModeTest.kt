@@ -1,5 +1,6 @@
 package org.fossify.gallery.helpers
 
+import android.app.Application
 import org.fossify.commons.helpers.PROTECTION_FINGERPRINT
 import org.fossify.commons.helpers.PROTECTION_PATTERN
 import org.fossify.commons.helpers.PROTECTION_PIN
@@ -12,8 +13,10 @@ import org.junit.runner.RunWith
 import org.fossify.commons.extensions.getSharedPrefs
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28], application = Application::class)
 class FavoriteCredentialModeTest {
     @Test fun enabledModeAndCredentialConfigurationAreIndependentStates() {
         val configuredButOff = Config.FavoriteCredentialSnapshot(
