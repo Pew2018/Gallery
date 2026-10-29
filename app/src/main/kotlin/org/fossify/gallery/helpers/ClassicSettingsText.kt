@@ -26,7 +26,15 @@ object ClassicSettingsText {
                     view.backgroundTintList = ColorStateList.valueOf(tokens.interactiveAccent)
                 }
             }
-            if (view.id != View.NO_ID && view.resources.getResourceEntryName(view.id).endsWith("_divider")) {
+            // View.generateViewId() IDs (e.g. dynamic RadioGroups) are not
+            // names in the compiled resource table. Do not crash the skin pass
+            // when such controls appear in dialogs or dynamically built pages.
+            val isDivider = view.id != View.NO_ID && try {
+                view.resources.getResourceEntryName(view.id).endsWith("_divider")
+            } catch (_: android.content.res.Resources.NotFoundException) {
+                false
+            }
+            if (isDivider) {
                 view.alpha = 1f
                 view.setBackgroundColor(OxygenThemeColors.blend(tokens.pageBackground, tokens.primaryText, 0.10))
             }
