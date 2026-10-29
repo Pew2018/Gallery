@@ -4,6 +4,7 @@ import android.app.Application
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.ContextThemeWrapper
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -71,7 +72,7 @@ class ClassicToolbarLayoutTest {
         for (mode in listOf("light", "dark")) {
             activity.config.oxygenAppearanceMode = mode
             OxygenToolbarStyle.applyViewerPopup(activity, toolbar)
-            val attributes = toolbar.popupContext.obtainStyledAttributes(
+            val attributes = ContextThemeWrapper(activity, toolbar.popupTheme).obtainStyledAttributes(
                 intArrayOf(android.R.attr.textColorPrimary))
             val text = attributes.getColorStateList(0)!!.defaultColor
             attributes.recycle()
