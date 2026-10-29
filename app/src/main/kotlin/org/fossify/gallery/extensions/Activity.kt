@@ -1,5 +1,7 @@
 package org.fossify.gallery.extensions
 
+import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
+import org.fossify.gallery.helpers.FOLDER_UNLOCK_MEDIA_PATH
 import android.app.Activity
 import android.content.ContentProviderOperation
 import android.content.ContentValues
@@ -77,7 +79,11 @@ fun Activity.openPath(path: String, forceChooser: Boolean, extras: HashMap<Strin
     openPathIntent(path, forceChooser, BuildConfig.APPLICATION_ID, extras = extras)
 }
 
-fun Activity.launchGesturePlayer(path: String, extras: HashMap<String, Boolean> = HashMap()) {
+fun Activity.launchGesturePlayer(
+    path: String,
+    extras: HashMap<String, Boolean> = HashMap(),
+    folderSessionId: String? = null
+) {
     ensureBackgroundThread {
         val newUri = getFinalUriFromPath(path, BuildConfig.APPLICATION_ID)
         if (newUri == null) {
@@ -90,6 +96,8 @@ fun Activity.launchGesturePlayer(path: String, extras: HashMap<String, Boolean> 
             Intent(applicationContext, VideoPlayerActivity::class.java).apply {
                 setDataAndType(newUri, mimeType)
                 for ((key, value) in extras) putExtra(key, value)
+                putExtra(FOLDER_UNLOCK_MEDIA_PATH, path)
+                if (folderSessionId != null) putExtra(FOLDER_UNLOCK_SESSION, folderSessionId)
                 startActivity(this)
             }
         }
