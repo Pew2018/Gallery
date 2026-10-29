@@ -6,6 +6,10 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FavoriteAccessPolicyTest {
+    private val locks = linkedMapOf<String, FavoriteAccessSessionManager.Protection>()
+    private val pinA = FavoriteAccessSessionManager.Protection(1, "hash-A")
+    private fun snapshot(path: String) = FavoriteAccessSessionManager.captureSnapshot(listOf(path), locks::get)
+
     private fun session(): String {
         val snapshot = FavoriteAccessSessionManager.captureSnapshot(listOf("/allowed/a.jpg", "/allowed/v.mp4")) { null }
         return FavoriteAccessSessionManager.createSession("album", snapshot, emptySet()) { null }!!
