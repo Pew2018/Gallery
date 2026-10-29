@@ -69,7 +69,7 @@ class GalleryCaseSensitivePathsTest {
             media.updateFavorite(upper, true)
             assertEquals(listOf(upper), media.getFavorites().map { it.path })
             media.deleteMediumPath(upper)
-            assertEquals(listOf(lower), media.getAll().map { it.path })
+            assertEquals(listOf(lower), media.getAllMedia().map { it.path })
 
             val directories = db.DirectoryDao()
             for (path in listOf("/Pictures/Travel", "/Pictures/travel")) {
