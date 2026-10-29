@@ -466,7 +466,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 mPath == RECYCLE_BIN -> getString(org.fossify.commons.R.string.recycle_bin)
                 else -> getHumanizedFilename(mPath)
             },
-            backButton = mGallerySection == null
+            backButton = mGallerySection == null && !mShowAll
         )
     }
 
@@ -531,7 +531,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
 
             binding.mediaMenu.updateHintText(searchHint)
-            if (mGallerySection == null) {
+            if (mGallerySection == null && !mShowAll) {
                 binding.mediaMenu.toggleForceArrowBackIcon(true)
                 binding.mediaMenu.onNavigateBackClickListener = {
                     OxygenSearchNavigation.hideImeAndClearFocus(this, binding.mediaMenu)
