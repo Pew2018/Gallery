@@ -146,6 +146,27 @@ class ClassicSettingsControlsTest {
         }
     }
 
+    @Test fun brightAndDarkCustomSeedsRemainVisibleAndPressedAndDisabledAreDistinct() {
+        val control = ClassicSettingsSwitch(context()).apply { isChecked = true }
+        for (dark in listOf(false, true)) for (seed in listOf(-1, 0xFF000000.toInt(), 0xFF7DC22F.toInt())) {
+            val t = tokens(dark)
+            OxygenClassicControls.applySwitches(control, seed, t.primaryText, t.pageBackground)
+            val drawable = control.thumbDrawable
+            fun pixel(vararg states: Int): Int {
+                drawable.state = states
+                drawable.setBounds(0, 0, 40, 48)
+                val bitmap = Bitmap.createBitmap(40, 48, Bitmap.Config.ARGB_8888)
+                drawable.draw(Canvas(bitmap))
+                return bitmap.getPixel(20, 24)
+            }
+            val normal = pixel(android.R.attr.state_enabled, android.R.attr.state_checked)
+            assertTrue(OxygenThemeColors.contrastRatio(normal, t.pageBackground) >= 4.5)
+            assertNotEquals(normal, pixel(android.R.attr.state_enabled, android.R.attr.state_checked, android.R.attr.state_pressed))
+            assertNotEquals(normal, pixel(android.R.attr.state_checked))
+            assertNotEquals(pixel(android.R.attr.state_checked), pixel())
+        }
+    }
+
     @Test fun themePageSelectsInPlaceKeepsAllPresetsAndRejectsInvalidCustomColor() {
         val app = RuntimeEnvironment.getApplication()
         val config = org.fossify.gallery.helpers.Config.newInstance(app)

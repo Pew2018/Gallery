@@ -103,10 +103,11 @@ object OxygenClassicControls {
             val pressed = state.contains(android.R.attr.state_pressed)
             val bg = colors.pageBackground
             val fg = colors.primaryText
-            val accent = colors.rawAccent or 0xFF000000.toInt()
+            val accent = colors.interactiveAccent
             val off = OxygenThemeColors.blend(bg, fg, if (colors.dark) 0.48 else 0.32)
             val active = if (enabled) accent else OxygenThemeColors.blend(bg, accent, 0.32)
             val inactive = if (enabled) off else OxygenThemeColors.blend(bg, fg, 0.16)
+            val outline = if (enabled) OxygenThemeColors.blend(bg, fg, 0.60) else inactive
             val cx = bounds.exactCenterX()
             val cy = bounds.exactCenterY()
             fun color(value: Int) { paint.color = value; paint.alpha = opacity; paint.style = Paint.Style.FILL }
@@ -130,13 +131,13 @@ object OxygenClassicControls {
                     canvas.drawCircle(cx, cy, 9.5f * density, paint)
                 }
                 "radio" -> {
-                    color(if (checked) active else inactive)
+                    color(if (checked) active else outline)
                     paint.style = Paint.Style.STROKE; paint.strokeWidth = 2 * density
                     canvas.drawCircle(cx, cy, 9 * density, paint)
                     if (checked) circle(5f, active)
                 }
                 "check" -> {
-                    color(if (checked) active else inactive)
+                    color(if (checked) active else outline)
                     paint.style = if (checked) Paint.Style.FILL else Paint.Style.STROKE
                     paint.strokeWidth = 2 * density
                     canvas.drawRoundRect(cx - 8 * density, cy - 8 * density,
