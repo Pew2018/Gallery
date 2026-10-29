@@ -31,7 +31,6 @@ class OxygenThemeActivity : SimpleActivity() {
     private val binders = mutableListOf<() -> Unit>()
     private var moreColors = false
     private var mainScroll = 0
-    private var navigating = false
     private val colors get() = OxygenThemeEngine.snapshot(this, config)
     private fun dp(n: Int) = (resources.displayMetrics.density * n + 0.5f).toInt()
     private fun label(preset: OxygenPreset): String {
@@ -115,8 +114,8 @@ class OxygenThemeActivity : SimpleActivity() {
     }
 
     private fun navigateColors(open: Boolean) {
-        if (navigating || moreColors == open) return
-        navigating = true
+        if (moreColors == open) return
+        // Back must be available even while the entrance animation is running.
         scroll.animate().cancel()
         if (open) mainScroll = scroll.scrollY
         moreColors = open
@@ -126,8 +125,7 @@ class OxygenThemeActivity : SimpleActivity() {
         val distance = dp(12).toFloat() * if (open) 1 else -1
         scroll.translationX = distance
         scroll.alpha = 0.72f
-        scroll.animate().translationX(0f).alpha(1f).setDuration(200L)
-            .withEndAction { navigating = false }.start()
+        scroll.animate().translationX(0f).alpha(1f).setDuration(200L).start()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
