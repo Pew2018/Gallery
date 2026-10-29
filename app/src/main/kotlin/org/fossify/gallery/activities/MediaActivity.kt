@@ -94,6 +94,8 @@ import org.fossify.gallery.helpers.GridSpacingItemDecoration
 import org.fossify.gallery.helpers.IS_IN_RECYCLE_BIN
 import org.fossify.gallery.helpers.MAX_COLUMN_COUNT
 import org.fossify.gallery.helpers.GalleryBottomBar
+import org.fossify.gallery.helpers.GalleryNavigation
+import org.fossify.gallery.helpers.GallerySection
 import org.fossify.gallery.helpers.OxygenToolbarStyle
 import org.fossify.gallery.helpers.OxygenSystemBars
 import org.fossify.gallery.helpers.OxygenSearchNavigation
@@ -131,6 +133,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mIsGettingMedia = false
     private var mAllowPickingMultiple = false
     private var mShowAll = false
+    // Null means a single folder or external picker, not a root navigation page.
+    private var mGallerySection: GallerySection? = null
     private var mLoadedInitialPhotos = false
     private var mShowLoadingIndicator = true
     private var mWasFullscreenViewOpen = false
@@ -181,20 +185,28 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             return
         }
 
+        val isPicker = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent || isSetWallpaperIntent()
+        mGallerySection = if (isPicker) null else when (mPath) {
+            FAVORITES -> GallerySection.FAVORITES
+            "" -> GallerySection.ALL
+            else -> null
+        }
+        if (savedInstanceState == null && mGallerySection != null) {
+            // The legacy shared list can belong to the previous root tab.
+            mMedia = ArrayList()
+        }
         setupOptionsMenu()
         refreshMenuItems()
         storeStateVariables()
-        if (mShowAll && !mIsGetImageIntent && !mIsGetVideoIntent && !mIsGetAnyIntent) {
-            GalleryBottomBar.attach(this, binding.root, GalleryBottomBar.Tab.ALL) { tab ->
+        if (mGallerySection != null) {
+            GalleryBottomBar.attach(this, binding.root,
+                if (mGallerySection == GallerySection.FAVORITES)
+                    GalleryBottomBar.Tab.FAVORITES else GalleryBottomBar.Tab.ALL
+            ) { tab ->
                 getMediaAdapter()?.finishActMode()
-                when (tab) {
-                    GalleryBottomBar.Tab.ALL -> binding.mediaGrid.scrollToPosition(0)
-                    GalleryBottomBar.Tab.FAVORITE_FOLDERS -> {
-                        GalleryBottomBar.open(this, Intent(this, MainActivity::class.java)
-                            .putExtra(MainActivity.EXTRA_FOLDER_FAVORITES, true), finishCurrent = true)
-                    }
-
-                }
+                val section = if (tab == GalleryBottomBar.Tab.FAVORITES)
+                    GallerySection.FAVORITES else GallerySection.ALL
+                openGalleryRoot(section)
             }
             val bottom = resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height)
             binding.mediaGrid.setPadding(
@@ -280,7 +292,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
         // do not refresh Random sorted files after opening a fullscreen image and going Back
         val isRandomSorting = config.getFolderSorting(mPath) and SORT_BY_RANDOM != 0
-        if (mMedia.isEmpty() || !isRandomSorting || (isRandomSorting && !mWasFullscreenViewOpen)) {
+        if (mPath == FAVORITES || mMedia.isEmpty() || !isRandomSorting ||
+            (isRandomSorting && !mWasFullscreenViewOpen)) {
             if (shouldSkipAuthentication()) {
                 tryLoadGallery()
             } else {
@@ -338,7 +351,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             OxygenSearchNavigation.closeInlineSearch(this, binding.mediaMenu)
             true
         } else {
-            if (config.showAll) {
+            if (mGallerySection != null) {
                 appLockManager.lock()
             }
 
@@ -367,7 +380,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             findItem(R.id.empty_disable_recycle_bin).isVisible = mPath == RECYCLE_BIN
             findItem(R.id.restore_all_files).isVisible = mPath == RECYCLE_BIN
 
-            findItem(R.id.folder_view).isVisible = mShowAll
+            findItem(R.id.folder_view).isVisible = mGallerySection != null
             findItem(R.id.open_camera).isVisible = mShowAll
             findItem(R.id.about).isVisible = mShowAll
             findItem(R.id.create_new_folder).isVisible =
@@ -453,7 +466,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 mPath == RECYCLE_BIN -> getString(org.fossify.commons.R.string.recycle_bin)
                 else -> getHumanizedFilename(mPath)
             },
-            backButton = !mShowAll
+            backButton = mGallerySection == null
         )
     }
 
@@ -468,7 +481,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             mStoredMarkFavoriteItems = markFavoriteItems
             mStoredThumbnailSpacing = thumbnailSpacing
             mStoredRoundedCorners = fileRoundedCorners
-            mShowAll = showAll && mPath != RECYCLE_BIN
+            mShowAll = mPath.isEmpty() && (showAll || mGallerySection == GallerySection.ALL)
         }
     }
 
@@ -518,7 +531,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
 
             binding.mediaMenu.updateHintText(searchHint)
-            if (!mShowAll) {
+            if (mGallerySection == null) {
                 binding.mediaMenu.toggleForceArrowBackIcon(true)
                 binding.mediaMenu.onNavigateBackClickListener = {
                     OxygenSearchNavigation.hideImeAndClearFocus(this, binding.mediaMenu)
@@ -659,12 +672,29 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         getMediaAdapter()?.updateDisplayFilenames(config.displayFileNames)
     }
 
-    private fun switchToFolderView() {
+    private fun openGalleryRoot(section: GallerySection) {
+        val files = if (section == GallerySection.ALL)
+            config.lastMainViewAll else config.lastFavoritesViewFiles
+        // The old global flag is never allowed to select the FAVORITES scan range.
+        config.showAll = section == GallerySection.ALL && files
+        val destination = if (files) {
+            Intent(this, MediaActivity::class.java)
+                .putExtra(DIRECTORY, if (section == GallerySection.FAVORITES) FAVORITES else "")
+        } else {
+            Intent(this, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true)
+                .putExtra(MainActivity.EXTRA_FOLDER_FAVORITES, section == GallerySection.FAVORITES)
+        }
+        destination.putExtra(GalleryNavigation.EXTRA_SECTION, section.name)
         hideKeyboard()
-        config.lastMainViewAll = false
-        config.showAll = false
-        GalleryBottomBar.open(this, Intent(this, MainActivity::class.java)
-            .putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true), finishCurrent = true)
+        GalleryBottomBar.open(this, destination, finishCurrent = true)
+    }
+
+    private fun switchToFolderView() {
+        val section = mGallerySection ?: return
+        if (section == GallerySection.ALL) config.lastMainViewAll = false
+        else config.lastFavoritesViewFiles = false
+        openGalleryRoot(section)
     }
 
     private fun changeViewType() {
@@ -1085,7 +1115,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             binding.mediaEmptyTextPlaceholder2.beVisibleIf(media.isEmpty() && !isFromCache)
 
             if (binding.mediaEmptyTextPlaceholder.isVisible()) {
-                binding.mediaEmptyTextPlaceholder.text = getString(R.string.no_media_with_filters)
+                binding.mediaEmptyTextPlaceholder.text = if (mPath == FAVORITES)
+                    getString(org.fossify.commons.R.string.no_items_found)
+                else getString(R.string.no_media_with_filters)
+                if (mPath == FAVORITES) binding.mediaEmptyTextPlaceholder2.beGone()
             }
             binding.mediaFastscroller.beVisibleIf(binding.mediaEmptyTextPlaceholder.isGone())
             setupAdapter()

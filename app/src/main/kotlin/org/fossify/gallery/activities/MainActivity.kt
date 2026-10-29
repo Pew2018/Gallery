@@ -134,6 +134,10 @@ import org.fossify.gallery.helpers.LOCATION_INTERNAL
 import org.fossify.gallery.helpers.MAX_COLUMN_COUNT
 import org.fossify.gallery.helpers.MONTH_MILLISECONDS
 import org.fossify.gallery.helpers.GalleryBottomBar
+import org.fossify.gallery.helpers.GalleryNavigation
+import org.fossify.gallery.helpers.GalleryScreen
+import org.fossify.gallery.helpers.GallerySection
+import org.fossify.gallery.helpers.GalleryContentView
 import org.fossify.gallery.helpers.OxygenToolbarStyle
 import org.fossify.gallery.helpers.OxygenSystemBars
 import org.fossify.gallery.helpers.OxygenSearchNavigation
@@ -181,7 +185,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mIsSetWallpaperIntent = false
     private var mAllowPickingMultiple = false
     private var mIsThirdPartyIntent = false
-    private var mShowingFolderFavorites = false
+    private var mGallerySection = GallerySection.ALL
+    private val mShowingFolderFavorites get() = mGallerySection == GallerySection.FAVORITES
     // Sensitive categories are opt-in for the current Activity session only.
     private var mFolderVisibility = booleanArrayOf(false, false, false, true)
     private fun isSpecialFolderFilterActive() = mFolderVisibility[0] ||
@@ -259,7 +264,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 || mIsGetAnyContentIntent
                 || mIsSetWallpaperIntent
 
-        mShowingFolderFavorites = !mIsThirdPartyIntent && intent.getBooleanExtra(EXTRA_FOLDER_FAVORITES, false)
+        mGallerySection = if (mIsThirdPartyIntent) GallerySection.ALL else
+            GalleryNavigation.resolveSection(
+                intent.getStringExtra(GalleryNavigation.EXTRA_SECTION),
+                intent.getBooleanExtra(EXTRA_FOLDER_FAVORITES, false)
+            )
         // The launcher honors the last All Photos / folder-view choice. Only
         // explicit navigation requests override it; never reset it on cold start.
         when {
@@ -276,34 +285,14 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         if (!mIsThirdPartyIntent) {
             GalleryBottomBar.attach(this, binding.root,
-                if (mShowingFolderFavorites) GalleryBottomBar.Tab.FAVORITE_FOLDERS else GalleryBottomBar.Tab.ALL
+                if (mShowingFolderFavorites) GalleryBottomBar.Tab.FAVORITES else GalleryBottomBar.Tab.ALL
             ) { tab ->
                 getRecyclerAdapter()?.finishActMode()
-                when (tab) {
-                    GalleryBottomBar.Tab.ALL -> {
-                        if (mShowingFolderFavorites) {
-                            if (config.lastMainViewAll) {
-                                showAllMedia()
-                            } else {
-                                GalleryBottomBar.open(this, Intent(this, MainActivity::class.java)
-                                    .putExtra(EXTRA_SHOW_FOLDERS, true), finishCurrent = true)
-                            }
-                        } else {
-                            // Preserve the existing Photos action when ALL is
-                            // tapped from the ordinary folder view.
-                            showAllMedia()
-                        }
-                    }
-                    GalleryBottomBar.Tab.FAVORITE_FOLDERS -> {
-                        if (mShowingFolderFavorites) {
-                            binding.directoriesGrid.scrollToPosition(0)
-                        } else {
-                            GalleryBottomBar.open(this, Intent(this, MainActivity::class.java)
-                                .putExtra(EXTRA_FOLDER_FAVORITES, true), finishCurrent = true)
-                        }
-                    }
-
-                }
+                val section = if (tab == GalleryBottomBar.Tab.FAVORITES)
+                    GallerySection.FAVORITES else GallerySection.ALL
+                openGalleryRoot(GalleryNavigation.remembered(
+                    section, config.lastMainViewAll, config.lastFavoritesViewFiles
+                ))
             }
             val bottom = resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height)
             binding.directoriesGrid.setPadding(
@@ -1119,18 +1108,39 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 
+    /** Called only by root navigation; leave third-party picker contracts untouched. */
+    private fun openGalleryRoot(screen: GalleryScreen) {
+        if (screen.section == GallerySection.ALL) {
+            config.lastMainViewAll = screen.view == GalleryContentView.FILES
+        } else {
+            config.lastFavoritesViewFiles = screen.view == GalleryContentView.FILES
+        }
+        // Retain the legacy flag for older callers, but the destination owns scope.
+        config.showAll = screen.isAllFiles
+        val destination = if (screen.view == GalleryContentView.FILES) {
+            Intent(this, MediaActivity::class.java).putExtra(
+                DIRECTORY, if (screen.isFavoriteFiles) FAVORITES else ""
+            )
+        } else {
+            Intent(this, MainActivity::class.java)
+                .putExtra(EXTRA_SHOW_FOLDERS, true)
+                .putExtra(EXTRA_FOLDER_FAVORITES, screen.section == GallerySection.FAVORITES)
+        }
+        destination.putExtra(GalleryNavigation.EXTRA_SECTION, screen.section.name)
+        hideKeyboard()
+        GalleryBottomBar.open(this, destination, finishCurrent = true)
+    }
+
     private fun showAllMedia() {
-        if (!mIsThirdPartyIntent) config.lastMainViewAll = true
+        if (!mIsThirdPartyIntent) {
+            openGalleryRoot(GalleryScreen(mGallerySection, GalleryContentView.FILES))
+            return
+        }
+        // Legacy chooser/wallpaper flow: no bottom navigation or remembered tab.
         config.showAll = true
         Intent(this, MediaActivity::class.java).apply {
             putExtra(DIRECTORY, "")
-
-            if (mIsThirdPartyIntent) {
-                handleMediaIntent(this)
-            } else {
-                hideKeyboard()
-                GalleryBottomBar.open(this@MainActivity, this, finishCurrent = true)
-            }
+            handleMediaIntent(this)
         }
     }
 
