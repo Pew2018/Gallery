@@ -13,10 +13,10 @@ import org.junit.runner.RunWith
 import org.fossify.commons.extensions.getSharedPrefs
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
-import org.robolectric.annotation.Config
+import org.robolectric.annotation.Config as RobolectricConfig
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28], application = Application::class)
+@RobolectricConfig(sdk = [28], application = Application::class)
 class FavoriteCredentialModeTest {
     @Test fun enabledModeAndCredentialConfigurationAreIndependentStates() {
         val configuredButOff = Config.FavoriteCredentialSnapshot(
