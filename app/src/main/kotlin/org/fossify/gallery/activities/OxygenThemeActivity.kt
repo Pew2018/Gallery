@@ -189,7 +189,7 @@ class OxygenThemeActivity : SimpleActivity() {
 
     /** A masked, bounded ripple: never an unbounded halo behind color swatches. */
     private fun ripple(view: View) {
-        val tint = ColorUtils.setAlphaComponent(tokens.interactiveAccent, 28)
+        val tint = ColorUtils.setAlphaComponent(colors.interactiveAccent, 28)
         view.background = RippleDrawable(
             ColorStateList.valueOf(tint),
             android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT),
@@ -430,7 +430,7 @@ class OxygenThemeActivity : SimpleActivity() {
                     if (selected) setStroke(dp(2), tokens.interactiveAccent)
                 }
                 cell.foreground = RippleDrawable(
-                    ColorStateList.valueOf(ColorUtils.setAlphaComponent(colors.interactiveAccent, 28)),
+                    ColorStateList.valueOf(ColorUtils.setAlphaComponent(tokens.interactiveAccent, 28)),
                     null,
                     GradientDrawable().apply {
                         setColor(android.graphics.Color.WHITE)
