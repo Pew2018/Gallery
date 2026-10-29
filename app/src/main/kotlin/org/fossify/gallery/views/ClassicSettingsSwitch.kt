@@ -5,6 +5,7 @@ import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.accessibility.AccessibilityEvent
 import androidx.appcompat.widget.SwitchCompat
 import kotlin.math.abs
 
@@ -22,14 +23,14 @@ class ClassicSettingsSwitch @JvmOverloads constructor(
         val row = parent as? View ?: return false
         if (!isEnabled || !row.isEnabled) return false
 
-        // Honor View's accessibility click contract. CompoundButton's base
-        // implementation also toggles its own checked state, but this setting
-        // row is the sole owner of authorization and persistence. Restore the
-        // transient native toggle before forwarding exactly one row click.
-        val previousChecked = isChecked
-        val accessibilityHandled = super.performClick()
-        if (isChecked != previousChecked) isChecked = previousChecked
-        return row.performClick() || accessibilityHandled
+        // CompoundButton.performClick() toggles before dispatching its click.
+        // Never call it here: the parent row is the only authorization and
+        // persistence owner, and a transient native toggle causes double animation.
+        // Keep the switch accessible for keyboard/TalkBack while dispatching
+        // exactly one action to the row.
+        val handled = row.performClick()
+        if (handled) sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_CLICKED)
+        return handled
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {

@@ -282,9 +282,7 @@ class SettingsActivity : SimpleActivity() {
         binding.settingsCoordinator.setBackgroundColor(colors.pageBackground)
         binding.settingsHolder.setBackgroundColor(colors.pageBackground)
         // Commons does not visit ordinary SwitchCompat; apply semantic text to every row.
-        OxygenClassicControls.applySwitches(
-            binding.settingsHolder, colors.rawAccent, colors.primaryText, colors.pageBackground
-        )
+        OxygenClassicControls.applySwitches(binding.settingsHolder, colors)
         ClassicSettingsText.apply(binding.settingsHolder, colors)
 
     }

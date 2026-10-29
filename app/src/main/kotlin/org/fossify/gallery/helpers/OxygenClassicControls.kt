@@ -12,25 +12,20 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.widget.SwitchCompat
-import androidx.core.graphics.ColorUtils
 import org.fossify.gallery.R
 
 /** Shared control skin. No listeners or preference writes; each view owns its drawables. */
 object OxygenClassicControls {
-    fun applySwitches(root: View, accent: Int, text: Int, surface: Int) {
-        val key = listOf(accent, text, surface, root.resources.displayMetrics.density.toBits())
+    fun applySwitches(root: View, colors: OxygenThemeTokens) {
         val density = root.resources.displayMetrics.density
         fun dp(n: Int) = (n * density + 0.5f).toInt()
-        val dark = ColorUtils.calculateLuminance(surface) < 0.5
-        val colors = OxygenThemeColors.resolve(
-            classic = true, mode = if (dark) "dark" else "light", systemDark = dark,
-            rawAccent = accent, legacyBackground = surface, legacyText = text
-        )
         val animationsEnabled = runCatching {
             Settings.Global.getFloat(
                 root.context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f
             ) > 0f
         }.getOrDefault(true)
+        // Re-skin if mode, selected accent, page tokens, density or animation scale changes.
+        val key = listOf(colors, density.toBits(), animationsEnabled)
         val labelColors = ColorStateList(
             arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
             intArrayOf(colors.disabledText, colors.primaryText)
@@ -89,7 +84,7 @@ object OxygenClassicControls {
     }
 
     /** Paint geometry is centered in the assigned bounds, never stretched vertically by SwitchCompat.
-     * A 40x24 layout box contains a 36x10 track and 20dp thumb. Native SwitchCompat
+     * A 40x24 layout box contains a 30x10 visible track and 20dp thumb. Native SwitchCompat
      * still owns measurement, RTL placement, checked state and thumb animation.
      */
     private class ClassicDrawable(
@@ -97,6 +92,7 @@ object OxygenClassicControls {
         private val animationsEnabled: Boolean
     ) : Drawable() {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val switchPalette = OxygenThemeColors.switchPalette(colors)
         private var opacity = 255
         private var animatedColor: Int? = null
         private var colorAnimator: ValueAnimator? = null
@@ -122,7 +118,7 @@ object OxygenClassicControls {
                 } else {
                     colorAnimator?.cancel()
                     colorAnimator = ValueAnimator.ofArgb(current, target).apply {
-                        duration = 150L
+                        duration = 200L
                         addUpdateListener { animator ->
                             animatedColor = animator.animatedValue as Int
                             invalidateSelf()
@@ -149,23 +145,24 @@ object OxygenClassicControls {
             val enabled = state.contains(android.R.attr.state_enabled)
             val checked = state.contains(android.R.attr.state_checked)
             val pressed = state.contains(android.R.attr.state_pressed)
-            val bg = colors.pageBackground
-            val fg = colors.primaryText
-            val accent = colors.interactiveAccent
-            if (kind == "track") {
-                return if (checked) OxygenThemeColors.blend(bg, accent,
-                    if (enabled) 0.52 else 0.17)
-                else if (enabled) OxygenThemeColors.blend(bg, fg, if (colors.dark) 0.38 else 0.16)
-                else OxygenThemeColors.blend(bg, fg, if (colors.dark) 0.19 else 0.09)
+            val base = when (kind) {
+                "track" -> when {
+                    !enabled && checked -> switchPalette.disabledOnTrack
+                    !enabled -> switchPalette.disabledOffTrack
+                    checked -> switchPalette.onTrack
+                    else -> switchPalette.offTrack
+                }
+                "thumb" -> when {
+                    !enabled && checked -> switchPalette.disabledOnThumb
+                    !enabled -> switchPalette.disabledOffThumb
+                    checked -> switchPalette.onThumb
+                    else -> switchPalette.offThumb
+                }
+                else -> colors.primaryText
             }
-            val face = when {
-                checked && enabled -> accent
-                checked -> OxygenThemeColors.blend(bg, accent, 0.30)
-                enabled && colors.dark -> 0xFFCCCCCC.toInt()
-                enabled -> 0xFFEEEEEE.toInt()
-                else -> OxygenThemeColors.blend(bg, fg, if (colors.dark) 0.29 else 0.20)
-            }
-            return if (pressed && enabled) OxygenThemeColors.blend(face, bg, 0.07) else face
+            return if (kind == "thumb" && pressed && enabled)
+                OxygenThemeColors.blend(base, colors.pageBackground, 0.07)
+            else base
         }
         override fun draw(canvas: Canvas) {
             val enabled = state.contains(android.R.attr.state_enabled)
@@ -199,9 +196,9 @@ object OxygenClassicControls {
                     color(animatedColor ?: stateColor(state))
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = 1.5f * density
-                    // Intrinsic sizes alone do not prevent SwitchCompat from
-                    // assigning stretched bounds; cap visible rail to 36x10dp.
-                    val halfRail = minOf(18f * density,
+                    // SwitchCompat may assign stretched bounds. Keep its 40dp
+                    // measurement/touch behavior, but cap the visible rail to 30x10dp.
+                    val halfRail = minOf(15f * density,
                         (bounds.width() / 2f - 2f * density).coerceAtLeast(0f))
                     val inset = paint.strokeWidth / 2f
                     canvas.drawRoundRect(cx - halfRail + inset, cy - 5 * density + inset,
@@ -212,10 +209,13 @@ object OxygenClassicControls {
                     // Soft under-shadow within the 24dp optical box; never
                     // replace its ARGB alpha with full opacity.
                     color(0x18000000)
-                    canvas.drawCircle(cx, cy + 1.25f * density, 10 * density, paint)
+                    canvas.drawCircle(cx, cy + 1f * density, 10 * density, paint)
                     val face = animatedColor ?: stateColor(state)
                     circle(9.7f, face)
-                    color(OxygenThemeColors.blend(face, fg, if (colors.dark) 0.10 else 0.08))
+                    // Pale custom accents need a visible hairline on light pages.
+                    val lowContrast = OxygenThemeColors.contrastRatio(face, bg) < 1.5
+                    color(OxygenThemeColors.blend(face, fg,
+                        if (lowContrast) 0.35 else if (colors.dark) 0.10 else 0.08))
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = 0.35f * density
                     canvas.drawCircle(cx, cy, 9.45f * density, paint)

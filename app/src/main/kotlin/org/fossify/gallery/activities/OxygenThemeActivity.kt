@@ -448,7 +448,7 @@ class OxygenThemeActivity : SimpleActivity() {
         body.setBackgroundColor(tokens.pageBackground)
         OxygenToolbarStyle.applyStandaloneToolbar(this, titleBar, backIcon, titleText)
         binders.forEach { it() }
-        OxygenClassicControls.applySwitches(body, tokens.rawAccent, tokens.primaryText, tokens.pageBackground)
+        OxygenClassicControls.applySwitches(body, tokens)
         OxygenSystemBars.apply(this)
     }
 

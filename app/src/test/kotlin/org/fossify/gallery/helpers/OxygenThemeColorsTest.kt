@@ -14,6 +14,43 @@ class OxygenThemeColorsTest {
         OxygenThemeColors.resolve(classic, mode, systemDark, seed,
             0xFFFAFAFA.toInt(), 0xFF212121.toInt())
 
+    @Test fun switchKnobPreservesOriginalThemeRgbAcrossPresetsAndCustomColors() {
+        val accents = seeds + OxygenThemePresets.all.map { it.color } +
+            listOf("#FFFFFF", "#000000", "#FFFF00", "#00FFFF", "#FF5722").map {
+                OxygenThemeEngine.parseHex(it)!!
+            }
+        for (seed in accents) for (mode in listOf("light", "dark", "system")) {
+            for (systemDark in listOf(false, true)) {
+                val tokens = resolve(seed, mode, systemDark)
+                val palette = OxygenThemeColors.switchPalette(tokens)
+                assertEquals("switch on thumb must keep theme RGB", OxygenThemeColors.opaque(seed), palette.onThumb)
+                assertEquals(seed, tokens.rawAccent)
+                for (color in listOf(palette.onThumb, palette.onTrack, palette.offThumb,
+                    palette.offTrack, palette.disabledOnThumb, palette.disabledOnTrack,
+                    palette.disabledOffThumb, palette.disabledOffTrack)) {
+                    assertEquals(255, color ushr 24)
+                }
+                assertNotEquals(palette.onTrack, palette.offTrack)
+                assertNotEquals(palette.onThumb, palette.disabledOnThumb)
+            }
+        }
+    }
+
+    @Test fun switchUsesThemeSeedRatherThanTextContrastAdjustment() {
+        val brightBlue = 0xFF42A5F5.toInt()
+        val green = 0xFF7DC22F.toInt()
+        val blueTokens = resolve(brightBlue, "light", false)
+        val greenTokens = resolve(green, "light", false)
+        assertEquals(brightBlue, OxygenThemeColors.switchPalette(blueTokens).onThumb)
+        assertEquals(green, OxygenThemeColors.switchPalette(greenTokens).onThumb)
+        assertNotEquals(blueTokens.interactiveAccent,
+            OxygenThemeColors.switchPalette(blueTokens).onThumb)
+        assertNotEquals(OxygenThemeColors.switchPalette(blueTokens).onTrack,
+            OxygenThemeColors.switchPalette(greenTokens).onTrack)
+        assertEquals(OxygenThemeColors.switchPalette(blueTokens).offTrack,
+            OxygenThemeColors.switchPalette(greenTokens).offTrack)
+    }
+
     @Test fun progressPaletteMatchesContentAndThemeInEveryAppearanceMode() {
         val accents = seeds + OxygenThemePresets.all.map { it.color } +
             listOf("#00FFFF", "#FFFF00", "#FFFFFF", "#000000").map {
