@@ -389,7 +389,15 @@ class ClassicSettingsControlsTest {
         skin(group, true)
         assertFalse(first.isChecked); assertTrue(second.isChecked)
         second.isEnabled = false
-        second.performClick()
+        val now = SystemClock.uptimeMillis()
+        // Programmatic performClick() on Android CompoundButton can bypass
+        // isEnabled; test a disabled user's touch instead.
+        val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, 5f, 5f, 0)
+        val up = MotionEvent.obtain(now, now + 40L, MotionEvent.ACTION_UP, 5f, 5f, 0)
+        second.onTouchEvent(down)
+        second.onTouchEvent(up)
+        down.recycle()
+        up.recycle()
         assertTrue(second.isChecked)
     }
 
