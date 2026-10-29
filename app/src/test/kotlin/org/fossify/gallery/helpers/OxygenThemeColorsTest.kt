@@ -14,6 +14,22 @@ class OxygenThemeColorsTest {
         OxygenThemeColors.resolve(classic, mode, systemDark, seed,
             0xFFFAFAFA.toInt(), 0xFF212121.toInt())
 
+    @Test fun progressLineUsesToolbarForegroundAcrossLightDarkAndCustomAccents() {
+        for (seed in seeds) for (mode in listOf("light", "dark", "system")) {
+            for (systemDark in listOf(false, true)) {
+                val colors = resolve(seed, mode, systemDark)
+                val indicator = colors.toolbarForeground
+                val track = OxygenThemeColors.progressTrackColor(indicator)
+                assertEquals(OxygenThemeColors.WHITE, indicator)
+                assertEquals(0x33FFFFFF, track)
+                assertEquals(0x33, track ushr 24)
+                assertTrue(OxygenThemeColors.contrastRatio(indicator,
+                    colors.toolbarBackground) >= 4.5)
+            }
+        }
+        assertEquals(0x33000000, OxygenThemeColors.progressTrackColor(0xFF000000.toInt()))
+    }
+
     @Test fun allRequiredSeedsPassInBothModesWithoutChangingSeed() {
         for (seed in seeds) for (mode in listOf("light", "dark", "system")) {
             for (systemDark in listOf(false, true)) {

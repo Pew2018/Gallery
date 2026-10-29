@@ -28,6 +28,10 @@ object OxygenThemeColors {
 
     fun opaque(color: Int): Int = color or BLACK
 
+    /** A subtle, 20%-opacity inactive line using the toolbar foreground RGB. */
+    fun progressTrackColor(toolbarForeground: Int): Int =
+        (toolbarForeground and 0x00FFFFFF) or 0x33000000
+
     fun resolvedDark(mode: String, systemDark: Boolean): Boolean = when (mode) {
         "dark" -> true
         "light" -> false

@@ -120,6 +120,7 @@ import org.fossify.gallery.extensions.updateWidgets
 import org.fossify.gallery.helpers.FavoriteFolderRules
 import org.fossify.gallery.helpers.OxygenFastScroller
 import org.fossify.gallery.helpers.OxygenThemeEngine
+import org.fossify.gallery.helpers.OxygenProgressStyle
 import org.fossify.gallery.helpers.MediaCachePrunePolicy
 import org.fossify.gallery.helpers.FavoriteFolderLoadCoordinator
 import org.fossify.gallery.helpers.FavoriteFolderLoadKey
@@ -239,15 +240,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         directoryHeaderProgress = com.google.android.material.progressindicator.LinearProgressIndicator(this).apply {
             isIndeterminate = true
             visibility = View.GONE
-            val toolbarSurface = OxygenThemeEngine.toolbarSurface(this@MainActivity, config)
-            val foreground = OxygenThemeEngine.autoForeground(toolbarSurface)
-            setIndicatorColor(foreground)
-            setTrackColor(if (foreground == android.graphics.Color.WHITE) 0x55FFFFFF else 0x55000000)
-            trackThickness = (3 * resources.displayMetrics.density + 0.5f).toInt()
+            OxygenProgressStyle.apply(this@MainActivity, config, this)
         }.also { indicator ->
             binding.mainMenu.addView(indicator, android.widget.LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                (3 * resources.displayMetrics.density + 0.5f).toInt()
+                OxygenProgressStyle.thicknessPx(this)
             ))
         }
     }
@@ -255,10 +252,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun setDirectoryLoading(loading: Boolean) {
         val update = {
             directoryHeaderProgress?.apply {
-                val toolbarSurface = OxygenThemeEngine.toolbarSurface(this@MainActivity, config)
-                val foreground = OxygenThemeEngine.autoForeground(toolbarSurface)
-                setIndicatorColor(foreground)
-                setTrackColor(if (foreground == android.graphics.Color.WHITE) 0x55FFFFFF else 0x55000000)
+                OxygenProgressStyle.apply(this@MainActivity, config, this)
                 visibility = if (loading) View.VISIBLE else View.GONE
             }
             getRecyclerAdapter()?.setRefreshLoading(loading)
@@ -409,6 +403,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     override fun onResume() {
         super.onResume()
         updateMenuColors()
+        directoryHeaderProgress?.let { OxygenProgressStyle.apply(this, config, it) }
         GalleryBottomBar.recolor(this)
         config.isThirdPartyIntent = false
         mDateFormat = config.dateFormat

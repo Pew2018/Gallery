@@ -98,6 +98,7 @@ import org.fossify.gallery.helpers.MAX_COLUMN_COUNT
 import org.fossify.gallery.helpers.GalleryBottomBar
 import org.fossify.gallery.helpers.OxygenFastScroller
 import org.fossify.gallery.helpers.OxygenThemeEngine
+import org.fossify.gallery.helpers.OxygenProgressStyle
 import org.fossify.gallery.helpers.GalleryNavigation
 import org.fossify.gallery.helpers.GallerySection
 import org.fossify.gallery.helpers.OxygenToolbarStyle
@@ -177,25 +178,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mediaHeaderProgress = com.google.android.material.progressindicator.LinearProgressIndicator(this).apply {
             isIndeterminate = true
             visibility = View.GONE
-            val toolbarSurface = OxygenThemeEngine.toolbarSurface(this@MediaActivity, config)
-            val foreground = OxygenThemeEngine.autoForeground(toolbarSurface)
-            setIndicatorColor(foreground)
-            setTrackColor(if (foreground == android.graphics.Color.WHITE) 0x55FFFFFF else 0x55000000)
-            trackThickness = (3 * resources.displayMetrics.density + 0.5f).toInt()
+            OxygenProgressStyle.apply(this@MediaActivity, config, this)
         }.also { indicator ->
             binding.mediaMenu.addView(indicator, android.widget.LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                (3 * resources.displayMetrics.density + 0.5f).toInt()
+                OxygenProgressStyle.thicknessPx(this)
             ))
         }
     }
 
     private fun setMediaLoading(loading: Boolean) {
         mediaHeaderProgress?.apply {
-            val toolbarSurface = OxygenThemeEngine.toolbarSurface(this@MediaActivity, config)
-            val foreground = OxygenThemeEngine.autoForeground(toolbarSurface)
-            setIndicatorColor(foreground)
-            setTrackColor(if (foreground == android.graphics.Color.WHITE) 0x55FFFFFF else 0x55000000)
+            OxygenProgressStyle.apply(this@MediaActivity, config, this)
             visibility = if (loading) View.VISIBLE else View.GONE
         }
     }
@@ -286,6 +280,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     override fun onResume() {
         super.onResume()
         updateMenuColors()
+        mediaHeaderProgress?.let { OxygenProgressStyle.apply(this, config, it) }
         GalleryBottomBar.recolor(this)
         if (mStoredAnimateGifs != config.animateGifs) {
             getMediaAdapter()?.updateAnimateGifs(config.animateGifs)
