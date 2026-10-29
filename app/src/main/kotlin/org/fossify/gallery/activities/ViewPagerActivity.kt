@@ -61,6 +61,8 @@ import org.fossify.commons.extensions.getResolution
 import org.fossify.commons.extensions.getUriMimeType
 import org.fossify.commons.extensions.handleDeletePasswordProtection
 import org.fossify.commons.extensions.handleLockedFolderOpening
+import org.fossify.gallery.extensions.handleExcludedFolderPasswordProtection
+import org.fossify.gallery.helpers.FavoriteFolderRules
 import org.fossify.commons.extensions.hasPermission
 import org.fossify.commons.extensions.hideKeyboard
 import org.fossify.commons.extensions.internalStoragePath
@@ -472,12 +474,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             )) {
             initContinue()
         } else {
-            handleLockedFolderOpening(mPath.getParentPath()) { success ->
-                if (success) {
-                    initContinue()
-                } else {
-                    finish()
+            val authenticateFolder = {
+                handleLockedFolderOpening(mPath.getParentPath()) { success ->
+                    if (success) initContinue() else finish()
                 }
+            }
+            // External VIEW Intents can target a path in an excluded folder.
+            // Apply its password gate before the ordinary folder lock, just as
+            // MainActivity does when navigating from an album.
+            if (FavoriteFolderRules.isExcluded(mPath.getParentPath(), config.excludedFolders)) {
+                handleExcludedFolderPasswordProtection { authenticateFolder() }
+            } else {
+                authenticateFolder()
             }
         }
     }
