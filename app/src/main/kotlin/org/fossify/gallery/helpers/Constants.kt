@@ -160,6 +160,8 @@ const val PICKED_PATHS = "picked_paths"
 const val SHOULD_INIT_FRAGMENT = "should_init_fragment"
 const val PORTRAIT_PATH = "portrait_path"
 const val SKIP_AUTHENTICATION = "skip_authentication"
+const val FOLDER_UNLOCK_SESSION = "folder_unlock_session"
+const val FOLDER_UNLOCK_MEDIA_PATH = "folder_unlock_media_path"
 
 // editor
 const val TEMP_FOLDER_NAME = "images"
