@@ -1,12 +1,15 @@
 package org.fossify.gallery.helpers
 
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.InsetDrawable
 import android.util.TypedValue
+import android.view.TouchDelegate
 import android.view.View
 import androidx.recyclerview.widget.RecyclerView
 import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 import org.fossify.gallery.R
+import kotlin.math.abs
 
 /** Style the library's existing viewport and popup without replacing its scroll logic. */
 object OxygenFastScroller {
@@ -45,25 +48,51 @@ object OxygenFastScroller {
         scroller.requestLayout()
 
         val track = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.trackView)
+        val vertical = scroller.fastScrollDirection == RecyclerViewFastScroller.FastScrollDirection.VERTICAL
         var tapPosition = 0f
+        var touchStart = 0f
+        var moved = false
         track.isClickable = true
-        track.setOnTouchListener { _, event ->
-            if (event.actionMasked == android.view.MotionEvent.ACTION_UP) {
-                tapPosition = if (scroller.fastScrollDirection ==
-                    RecyclerViewFastScroller.FastScrollDirection.VERTICAL) event.y else event.x
-            }
-            false
-        }
-        track.setOnClickListener {
-            val adapter = recycler.adapter ?: return@setOnClickListener
+
+        fun seekTo(position: Float) {
+            val adapter = recycler.adapter ?: return
             val count = adapter.itemCount
-            if (count < 2) return@setOnClickListener
-            val vertical = scroller.fastScrollDirection == RecyclerViewFastScroller.FastScrollDirection.VERTICAL
+            if (count < 2) return
             val length = if (vertical) track.height else track.width
             val handle = if (vertical) scroller.handleHeight else scroller.handleWidth
             val usable = (length - handle).coerceAtLeast(1)
-            val fraction = ((tapPosition - handle / 2f) / usable).coerceIn(0f, 1f)
+            val fraction = ((position - handle / 2f) / usable).coerceIn(0f, 1f)
             recycler.scrollToPosition(((count - 1) * fraction).toInt())
+        }
+
+        track.setOnTouchListener { view, event ->
+            val position = if (vertical) event.y else event.x
+            when (event.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    tapPosition = position
+                    touchStart = position
+                    moved = false
+                    true
+                }
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    if (abs(position - touchStart) > dp(5)) moved = true
+                    if (moved) seekTo(position)
+                    true
+                }
+                android.view.MotionEvent.ACTION_UP -> {
+                    tapPosition = position
+                    if (moved) seekTo(position) else view.performClick()
+                    true
+                }
+                android.view.MotionEvent.ACTION_CANCEL -> true
+                else -> true
+            }
+        }
+        track.setOnClickListener { seekTo(tapPosition) }
+        scroller.post {
+            if (!scroller.isAttachedToWindow || track.width == 0 || track.height == 0) return@post
+            val hitBounds = Rect(track.left - dp(10), track.top, track.right + dp(10), track.bottom)
+            scroller.touchDelegate = TouchDelegate(hitBounds, track)
         }
 
         if (scroller.getTag(R.id.classic_fast_scroll_observer) != true) {
