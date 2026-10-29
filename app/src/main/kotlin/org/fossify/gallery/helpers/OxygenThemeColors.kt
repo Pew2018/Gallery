@@ -3,6 +3,13 @@ package org.fossify.gallery.helpers
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
+/** Classic Oxygen-era progress: the activity-colored segment sits on a neutral content strip. */
+data class OxygenProgressPalette(
+    val surface: Int,
+    val indicator: Int,
+    val track: Int
+)
+
 /** Immutable semantic colors. rawAccent is the exact saved value, including alpha. */
 data class OxygenThemeTokens(
     val dark: Boolean,
@@ -28,9 +35,27 @@ object OxygenThemeColors {
 
     fun opaque(color: Int): Int = color or BLACK
 
-    /** A subtle, 20%-opacity inactive line using the toolbar foreground RGB. */
-    fun progressTrackColor(toolbarForeground: Int): Int =
-        (toolbarForeground and 0x00FFFFFF) or 0x33000000
+    /**
+     * The 2017 OxygenOS installer/file-manager references show a tinted active segment
+     * over a lighter inactive line on a separate content-colored surface, not over the
+     * brand-colored toolbar. Dark mode retains the same color family with more luminance.
+     *
+     * Resolve against both the page and the inactive track so pale and custom accents
+     * remain visible, without changing the user's saved accent or toolbar color.
+     */
+    fun progressPalette(colors: OxygenThemeTokens): OxygenProgressPalette {
+        val track = if (colors.dark) 0xFF484848.toInt() else 0xFFE0E0E0.toInt()
+        val target = if (colors.dark) WHITE else BLACK
+        val indicator = towardContrast(colors.interactiveAccent, target) {
+            contrastRatio(it, colors.pageBackground) >= 4.5 &&
+                contrastRatio(it, track) >= 3.0
+        }
+        return OxygenProgressPalette(
+            surface = colors.pageBackground,
+            indicator = indicator,
+            track = track
+        )
+    }
 
     fun resolvedDark(mode: String, systemDark: Boolean): Boolean = when (mode) {
         "dark" -> true

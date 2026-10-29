@@ -14,20 +14,40 @@ class OxygenThemeColorsTest {
         OxygenThemeColors.resolve(classic, mode, systemDark, seed,
             0xFFFAFAFA.toInt(), 0xFF212121.toInt())
 
-    @Test fun progressLineUsesToolbarForegroundAcrossLightDarkAndCustomAccents() {
-        for (seed in seeds) for (mode in listOf("light", "dark", "system")) {
+    @Test fun progressPaletteMatchesContentAndThemeInEveryAppearanceMode() {
+        val accents = seeds + OxygenThemePresets.all.map { it.color } +
+            listOf("#00FFFF", "#FFFF00", "#FFFFFF", "#000000").map {
+                OxygenThemeEngine.parseHex(it)!!
+            }
+        for (seed in accents) for (mode in listOf("light", "dark", "system")) {
             for (systemDark in listOf(false, true)) {
                 val colors = resolve(seed, mode, systemDark)
-                val indicator = colors.toolbarForeground
-                val track = OxygenThemeColors.progressTrackColor(indicator)
-                assertEquals(OxygenThemeColors.WHITE, indicator)
-                assertEquals(0x33FFFFFF, track)
-                assertEquals(0x33, track ushr 24)
-                assertTrue(OxygenThemeColors.contrastRatio(indicator,
-                    colors.toolbarBackground) >= 4.5)
+                val progress = OxygenThemeColors.progressPalette(colors)
+                assertEquals(colors.pageBackground, progress.surface)
+                assertEquals(255, progress.indicator ushr 24)
+                assertEquals(255, progress.track ushr 24)
+                assertEquals(if (colors.dark) 0xFF484848.toInt() else 0xFFE0E0E0.toInt(),
+                    progress.track)
+                assertTrue("indicator on page: seed=$seed mode=$mode",
+                    OxygenThemeColors.contrastRatio(progress.indicator, progress.surface) >= 4.5)
+                assertTrue("indicator on track: seed=$seed mode=$mode",
+                    OxygenThemeColors.contrastRatio(progress.indicator, progress.track) >= 3.0)
+                assertTrue(progress.indicator != progress.track)
+                assertEquals(seed, colors.rawAccent)
             }
         }
-        assertEquals(0x33000000, OxygenThemeColors.progressTrackColor(0xFF000000.toInt()))
+    }
+
+    @Test fun progressColorsFollowBlueAndTealThemesRatherThanToolbarWhite() {
+        for (seed in listOf(0xFF0071CD.toInt(), 0xFF01998C.toInt())) {
+            val light = OxygenThemeColors.progressPalette(resolve(seed, "light", false))
+            val dark = OxygenThemeColors.progressPalette(resolve(seed, "dark", false))
+            assertEquals(0xFFE0E0E0.toInt(), light.track)
+            assertEquals(0xFF484848.toInt(), dark.track)
+            assertNotEquals(OxygenThemeColors.WHITE, light.indicator)
+            assertNotEquals(OxygenThemeColors.WHITE, dark.indicator)
+            assertNotEquals(light.indicator, dark.indicator)
+        }
     }
 
     @Test fun allRequiredSeedsPassInBothModesWithoutChangingSeed() {
