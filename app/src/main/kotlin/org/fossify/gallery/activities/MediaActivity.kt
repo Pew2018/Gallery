@@ -796,13 +796,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 deleteDBDirectory()
             }
 
-            if (mPath == FAVORITES) {
-                ensureBackgroundThread {
-                    directoryDB.deleteDirPath(FAVORITES)
-                }
-            }
-
-            if (mPath == RECYCLE_BIN) {
+            // A favorite album can scan empty when its storage is temporarily
+            // unavailable. Keep the virtual folder and saved relationships.
+            if (mPath == RECYCLE_BIN || mPath == FAVORITES) {
                 binding.mediaEmptyTextPlaceholder.setText(org.fossify.commons.R.string.no_items_found)
                 binding.mediaEmptyTextPlaceholder.beVisible()
                 binding.mediaEmptyTextPlaceholder2.beGone()
