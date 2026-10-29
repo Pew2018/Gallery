@@ -169,7 +169,7 @@ class SettingsActivity : SimpleActivity() {
             view.visibility = if (selected != null && index in selected.first..selected.last &&
                 settingsPageInitialVisibility[index] == View.VISIBLE) View.VISIBLE else View.GONE
         }
-        binding.settingsToolbar.title = getString(selected?.title ?: R.string.settings)
+        binding.settingsToolbar.title = getString(selected?.title ?: org.fossify.commons.R.string.settings)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
