@@ -100,7 +100,7 @@ object GalleryBottomBar {
 
         val byId = mapOf(
             Tab.ALL to Triple(Tab.ALL, activity.getString(R.string.gallery_nav_all_images), R.drawable.ic_files_vector),
-            Tab.FAVORITES to Triple(Tab.FAVORITES, activity.getString(org.fossify.commons.R.string.favorites), R.drawable.ic_star_outline_vector)
+            Tab.FAVORITES to Triple(Tab.FAVORITES, activity.getString(org.fossify.commons.R.string.favorites), org.fossify.commons.R.drawable.ic_star_outline_vector)
         )
         val tabs = activity.config.bottomNavigationOrder.mapNotNull { id ->
             Tab.values().firstOrNull { it.name == id }?.let(byId::get)
