@@ -8,7 +8,8 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import java.util.WeakHashMap
 import org.fossify.commons.dialogs.SecurityDialog
-import org.fossify.commons.extensions.ensureBackgroundThread
+import org.fossify.commons.extensions.toast
+import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.commons.extensions.getAlertDialogBuilder
 import org.fossify.commons.extensions.isBiometricAuthSupported
 import org.fossify.commons.helpers.PROTECTION_FINGERPRINT

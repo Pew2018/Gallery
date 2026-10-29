@@ -1212,7 +1212,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }.getOrNull() ?: return false
         val entry = snapshot.entries[path] ?: return false
         return entry.locks.isEmpty() || FolderUnlockSessionManager.isMediaAuthorized(
-            folderUnlockSessionId, path, config::isFolderProtected
+            intent.getStringExtra(FOLDER_UNLOCK_SESSION), path, config::isFolderProtected
         )
     }
 
