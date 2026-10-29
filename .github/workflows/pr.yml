@@ -12,4 +12,4 @@ jobs:
     call-pr-workflow:
         uses: FossifyOrg/.github/.github/workflows/pr.yml@main
         with:
-            test_task: ":app:testFossDebugUnitTest"
+            test_task: ":app:testFossReleaseUnitTest"
