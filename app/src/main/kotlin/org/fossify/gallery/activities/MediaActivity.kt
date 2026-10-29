@@ -8,6 +8,7 @@ import org.fossify.gallery.helpers.FAVORITE_PROTECTION_TYPE
 import org.fossify.gallery.helpers.FAVORITE_FALLBACK_PASSWORD_HASH
 import org.fossify.gallery.helpers.FAVORITE_FALLBACK_PROTECTION_TYPE
 import org.fossify.gallery.helpers.FavoriteAccessSessionManager
+import org.fossify.gallery.helpers.FavoriteAccessPolicy
 import org.fossify.gallery.extensions.favoriteProtection
 import org.fossify.gallery.extensions.authenticateFavoritePassword
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
@@ -214,6 +215,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var favoriteSessionId: String? = null
     private var favoriteOwnerId = java.util.UUID.randomUUID().toString()
     private var favoriteAuthGeneration = 0L
+    private var sourceProtectionRefreshPending = false
     private val favoriteListenerId = java.util.UUID.randomUUID().toString()
     private val favoriteProtectionListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == FAVORITE_PASSWORD_ENABLED || key == FAVORITE_PASSWORD_HASH || key == FAVORITE_PROTECTION_TYPE) {
@@ -222,7 +224,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             FavoriteAccessSessionManager.revokeAll()
         } else if (key == null || key.startsWith(org.fossify.commons.helpers.PROTECTED_FOLDER_HASH) ||
             key.startsWith(org.fossify.commons.helpers.PROTECTED_FOLDER_TYPE)) {
-            favoriteSessionId?.let { FavoriteAccessSessionManager.getAllowedPaths(it) }
+            favoriteSessionId?.let {
+                sourceProtectionRefreshPending = true
+                FavoriteAccessSessionManager.revokeSession(it)
+            }
         }
     }
     private val favoriteObserverLock = Any()
@@ -279,9 +284,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 }
             }
             favoriteOwnerId = savedInstanceState?.getString("favoriteOwnerId") ?: favoriteOwnerId
-            favoriteSessionId = savedInstanceState?.getString(FAVORITE_ACCESS_SESSION)?.takeIf {
-                FavoriteAccessSessionManager.isOwnedBy(it, favoriteOwnerId)
-            }
+            favoriteSessionId = FavoriteAccessSessionManager.tokenForOwner(favoriteOwnerId)
             favoriteAccessPaths = FavoriteAccessSessionManager.getAllowedPaths(favoriteSessionId)
             // No old shared thumbnails may survive process death or a fresh entry.
             mMedia = ArrayList()
@@ -292,6 +295,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     mMedia = ArrayList()
                     if (FavoriteAccessSessionManager.isActive(revoked)) {
                         favoriteAccessPaths = FavoriteAccessSessionManager.getAllowedPaths(revoked)
+                        favoritesNeedReload = true
+                        mLoadedInitialPhotos = false
+                        if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                            favoritesNeedReload = false
+                            getMedia()
+                        }
+                    } else if (sourceProtectionRefreshPending) {
+                        sourceProtectionRefreshPending = false
+                        favoriteSessionId = null
+                        favoriteAccessPaths = null
                         favoritesNeedReload = true
                         mLoadedInitialPhotos = false
                         if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
@@ -486,7 +499,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("favoriteOwnerId", favoriteOwnerId)
-        outState.putString(FAVORITE_ACCESS_SESSION, favoriteSessionId)
         super.onSaveInstanceState(outState)
     }
 
@@ -1068,44 +1080,86 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         fun current() = generation == favoriteAuthGeneration && !isFinishing && !isDestroyed
         ensureBackgroundThread {
             val paths = app.getFavoritePaths().toSet()
-            val snapshot = runCatching {
+            val fullSnapshot = runCatching {
                 FavoriteAccessSessionManager.captureSnapshot(paths, app::favoriteProtection)
             }.getOrNull()
+            val protectionEnabled = app.config.isFavoritePasswordProtectionOn
+            val visibleSnapshot = fullSnapshot?.let {
+                if (protectionEnabled) it else FavoriteAccessPolicy.unprotectedSnapshot(it)
+            }
             runOnUiThread {
                 if (!current()) return@runOnUiThread
-                if (snapshot == null) { resolvingFavoriteAccess = false; finish(); return@runOnUiThread }
-                // The dedicated album credential is the sole authentication step,
-                // regardless of how many differently protected source folders exist.
-                authenticateFavoritePassword { credential ->
-                    if (!current()) return@authenticateFavoritePassword
-                    if (credential == null) {
-                        resolvingFavoriteAccess = false
-                        finish()
-                        return@authenticateFavoritePassword
-                    }
-                    // Database and source protection state may change while the dialog is open.
+                if (fullSnapshot == null || visibleSnapshot == null) {
+                    resolvingFavoriteAccess = false
+                    finish()
+                    return@runOnUiThread
+                }
+
+                fun publish(credential: org.fossify.gallery.helpers.Config.FavoriteCredentialProof?) {
                     ensureBackgroundThread {
-                        val unchanged = app.getFavoritePaths().toSet() == paths
+                        val latestPaths = app.getFavoritePaths().toSet()
+                        val latestSnapshot = runCatching {
+                            FavoriteAccessSessionManager.captureSnapshot(paths, app::favoriteProtection)
+                        }.getOrNull()
+                        val stable = latestPaths == paths && latestSnapshot == fullSnapshot &&
+                            app.config.isFavoritePasswordProtectionOn == protectionEnabled
                         runOnUiThread {
                             if (!current()) return@runOnUiThread
                             resolvingFavoriteAccess = false
-                            val token = if (unchanged) FavoriteAccessSessionManager.createFavoritesSession(
-                                favoriteOwnerId, snapshot,
-                                authenticationSucceeded = true,
-                                credentialGeneration = credential.sessionGeneration,
-                                credentialIsCurrent = {
-                                    app.config.isFavoriteCredentialCurrent(credential.credential)
-                                },
-                                protection = app::favoriteProtection
-                            ) else null
-                            if (token == null) { finish(); return@runOnUiThread }
+                            val token = when {
+                                !stable -> null
+                                protectionEnabled && credential != null ->
+                                    FavoriteAccessSessionManager.createFavoritesSession(
+                                        favoriteOwnerId,
+                                        fullSnapshot,
+                                        authenticationSucceeded = true,
+                                        credentialGeneration = credential.sessionGeneration,
+                                        credentialIsCurrent = {
+                                            app.config.isFavoriteCredentialCurrent(credential.credential)
+                                        },
+                                        protection = app::favoriteProtection
+                                    )
+                                !protectionEnabled ->
+                                    FavoriteAccessSessionManager.createSession(
+                                        favoriteOwnerId, visibleSnapshot, emptySet(), app::favoriteProtection
+                                    )
+                                else -> null
+                            }
+                            if (token == null) {
+                                finish()
+                                return@runOnUiThread
+                            }
                             favoriteSessionId = token
-                            onResolved(paths)
+                            onResolved(visibleSnapshot.entries.keys)
                         }
                     }
                 }
+
+                if (protectionEnabled) {
+                    authenticateFavoritePassword { credential ->
+                        if (!current()) return@authenticateFavoritePassword
+                        if (credential == null) {
+                            resolvingFavoriteAccess = false
+                            finish()
+                            return@authenticateFavoritePassword
+                        }
+                        publish(credential)
+                    }
+                } else {
+                    publish(null)
+                }
             }
         }
+    }
+
+    fun canAddFavoriteFromSource(path: String): Boolean {
+        val snapshot = runCatching {
+            FavoriteAccessSessionManager.captureSnapshot(listOf(path), applicationContext::favoriteProtection)
+        }.getOrNull() ?: return false
+        val entry = snapshot.entries[path] ?: return false
+        return entry.locks.isEmpty() || FolderUnlockSessionManager.isMediaAuthorized(
+            folderUnlockSessionId, path, config::isFolderProtected
+        )
     }
 
     private fun isDirEmpty(): Boolean {

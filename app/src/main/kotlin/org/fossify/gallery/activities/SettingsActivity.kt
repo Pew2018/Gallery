@@ -665,43 +665,93 @@ class SettingsActivity : SimpleActivity() {
     private fun setupFavoritePasswordProtection() {
         fun updateStatus() {
             binding.settingsFavoritePasswordStatus.setText(
-                if (config.isFavoritePasswordProtectionOn) R.string.favorite_password_set
-                else R.string.favorite_password_not_set
+                when {
+                    !config.isFavoritePasswordProtectionOn -> R.string.favorite_password_not_set
+                    config.favoriteCredentialSnapshot().isConfigured -> R.string.favorite_password_set
+                    else -> R.string.favorite_password_enabled_invalid
+                }
             )
         }
         updateStatus()
         binding.settingsFavoritePasswordHolder.setOnClickListener {
+            if (config.isFavoritePasswordProtectionOn && !config.favoriteCredentialSnapshot().isConfigured) {
+                toast(R.string.favorite_password_invalid)
+                return@setOnClickListener
+            }
             if (!config.isFavoritePasswordProtectionOn) {
-                ensureFavoritePasswordConfigured { configured ->
-                    updateStatus()
-                    if (configured != null) toast(R.string.favorite_password_saved)
-                }
+                getAlertDialogBuilder()
+                    .setTitle(R.string.favorite_password_title)
+                    .setItems(arrayOf(
+                        getString(R.string.favorite_password_enable),
+                        getString(R.string.favorite_password_remain_off)
+                    )) { _, which ->
+                        if (which == 0) configureFavoritePassword { configured ->
+                            updateStatus()
+                            if (configured != null) toast(R.string.favorite_password_saved)
+                        }
+                    }
+                    .show()
                 return@setOnClickListener
             }
 
             authenticateFavoritePassword { authenticated ->
                 if (authenticated == null || isFinishing || isDestroyed) return@authenticateFavoritePassword
-                val options = arrayOf(
-                    getString(R.string.favorite_password_change),
-                    getString(R.string.favorite_password_disable)
-                )
                 getAlertDialogBuilder()
                     .setTitle(R.string.favorite_password_manage_title)
-                    .setItems(options) { _, which ->
+                    .setItems(arrayOf(
+                        getString(R.string.favorite_password_change),
+                        getString(R.string.favorite_password_disable)
+                    )) { _, which ->
                         if (which == 0) {
-                            FavoriteAccessSessionManager.revokeAll()
                             configureFavoritePassword { configured ->
                                 updateStatus()
                                 if (configured != null) toast(R.string.favorite_password_saved)
                             }
                         } else if (which == 1) {
-                            config.clearFavoriteCredential()
-                            FavoriteAccessSessionManager.revokeAll()
-                            updateStatus()
-                            toast(R.string.favorite_password_disabled)
+                            disableFavoritePasswordSafely {
+                                updateStatus()
+                                toast(R.string.favorite_password_disabled)
+                            }
                         }
                     }
                     .show()
+            }
+        }
+    }
+
+    private fun disableFavoritePasswordSafely(onDisabled: () -> Unit) {
+        val credential = config.favoriteCredentialSnapshot()
+        ensureBackgroundThread {
+            val firstPaths = applicationContext.getFavoritePaths().toSet()
+            val firstSnapshot = runCatching {
+                FavoriteAccessSessionManager.captureSnapshot(firstPaths, applicationContext::favoriteProtection)
+            }.getOrNull()
+            val latestPaths = applicationContext.getFavoritePaths().toSet()
+            val latestSnapshot = runCatching {
+                FavoriteAccessSessionManager.captureSnapshot(latestPaths, applicationContext::favoriteProtection)
+            }.getOrNull()
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                val stable = firstSnapshot != null &&
+                    firstPaths == latestPaths &&
+                    firstSnapshot == latestSnapshot &&
+                    config.isFavoritePasswordProtectionOn &&
+                    config.isFavoriteCredentialCurrent(credential)
+                if (!stable) {
+                    toast(R.string.favorite_password_disable_retry)
+                    return@runOnUiThread
+                }
+                if (FavoriteAccessPolicy.hasProtectedFavorites(latestSnapshot!!)) {
+                    getAlertDialogBuilder()
+                        .setTitle(R.string.favorite_password_title)
+                        .setMessage(R.string.favorite_password_disable_blocked)
+                        .setPositiveButton(org.fossify.commons.R.string.ok, null)
+                        .show()
+                    return@runOnUiThread
+                }
+                config.clearFavoriteCredential()
+                FavoriteAccessSessionManager.revokeAll()
+                onDisabled()
             }
         }
     }
@@ -1112,38 +1162,45 @@ class SettingsActivity : SimpleActivity() {
 
         ensureBackgroundThread {
             try {
-                // Legacy TXT is one path per line. Do not introduce a header or
-                // change the export format: stock Fossify must read our exports.
                 val paths = FavoriteBackupCodec.decodeMediaPaths(FavoriteBackupCodec.readLimited(inputStream))
                 val candidates = paths.filter { path ->
                     runCatching { getDoesFilePathExist(path) && !File(path).isDirectory }
                         .getOrDefault(false)
                 }
-                val skipped = paths.size - candidates.size
-                val existing = favoritesDB.getValidFavoritePaths().toHashSet()
-                val newPaths = candidates.filterNot { it in existing }
-                val importCandidates = {
-                    ensureBackgroundThread {
-                        val database = GalleryDatabase.getInstance(applicationContext)
-                        var added = 0
-                        database.runInTransaction {
-                            added = favoritesDB.insertAllIgnore(newPaths.map { getFavoriteFromPath(it) })
-                                .count { it >= 0L }
-                            // Media flags are cached metadata; maintain them alongside
-                            // the authoritative favorites table, even on repeat import.
-                            candidates.forEach { mediaDB.updateFavorite(it, true) }
-                        }
-                        runOnUiThread {
-                            toast(getString(R.string.favorite_media_import_summary, added,
-                                candidates.size - added, skipped))
-                        }
-                    }
+                val unlockedCandidates = candidates.filter { path ->
+                    runCatching {
+                        FavoriteAccessSessionManager.captureSnapshot(
+                            listOf(path), applicationContext::favoriteProtection
+                        ).entries[path]?.locks?.isEmpty() == true
+                    }.getOrDefault(false)
                 }
-                if (newPaths.isEmpty()) {
-                    importCandidates()
-                } else {
+                val protectedSourceSkipped = candidates.size - unlockedCandidates.size
+                var protectionChangedDuringImport = 0
+                var skipped = paths.size - unlockedCandidates.size
+                ensureBackgroundThread {
+                    val database = GalleryDatabase.getInstance(applicationContext)
+                    var added = 0
+                    database.runInTransaction {
+                        val stillUnlocked = unlockedCandidates.filter { path ->
+                            runCatching {
+                                FavoriteAccessSessionManager.captureSnapshot(
+                                    listOf(path), applicationContext::favoriteProtection
+                                ).entries[path]?.locks?.isEmpty() == true
+                            }.getOrDefault(false)
+                        }
+                        skipped += unlockedCandidates.size - stillUnlocked.size
+                        val existing = favoritesDB.getValidFavoritePaths().toHashSet()
+                        val stillNew = stillUnlocked.filterNot { it in existing }
+                        added = favoritesDB.insertAllIgnore(stillNew.map { getFavoriteFromPath(it) })
+                            .count { it >= 0L }
+                        stillUnlocked.forEach { mediaDB.updateFavorite(it, true) }
+                    }
                     runOnUiThread {
-                        ensureFavoritePasswordConfigured { ready -> if (ready != null) importCandidates() }
+                        if (protectedSourceSkipped > 0 || protectionChangedDuringImport > 0) {
+                            toast(R.string.favorite_import_protected_skipped)
+                        }
+                        toast(getString(R.string.favorite_media_import_summary, added,
+                            unlockedCandidates.size - added, skipped))
                     }
                 }
             } catch (error: Exception) {

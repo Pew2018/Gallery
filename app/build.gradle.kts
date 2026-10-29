@@ -200,6 +200,9 @@ dependencies {
     // Test-only Android View measurement, interaction and native Canvas rendering.
     testImplementation("org.robolectric:robolectric:4.16.1")
     implementation(libs.fossify.commons)
+    // Match Commons 7.1.3 while distinguishing retryable biometric mismatch
+    // callbacks from terminal system errors.
+    implementation("androidx.biometric:biometric-ktx:1.4.0-alpha02")
     implementation(libs.androidx.print)
     implementation(libs.android.image.cropper)
     implementation(libs.exif)

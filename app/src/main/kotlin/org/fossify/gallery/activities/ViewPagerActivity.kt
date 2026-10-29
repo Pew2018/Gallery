@@ -61,6 +61,7 @@ import org.fossify.commons.extensions.getFinalUriFromPath
 import org.fossify.commons.extensions.getImageResolution
 import org.fossify.commons.extensions.getIsPathDirectory
 import org.fossify.commons.extensions.getParentPath
+import org.fossify.commons.extensions.getSharedPrefs
 import org.fossify.commons.extensions.getProperBackgroundColor
 import org.fossify.commons.extensions.getResolution
 import org.fossify.commons.extensions.getUriMimeType
@@ -133,7 +134,7 @@ import org.fossify.gallery.extensions.tryCopyMoveFilesTo
 import org.fossify.gallery.extensions.tryDeleteFileDirItem
 import org.fossify.gallery.extensions.updateDBMediaPath
 import org.fossify.gallery.extensions.updateFavorite
-import org.fossify.gallery.extensions.ensureFavoritePasswordConfigured
+import org.fossify.gallery.extensions.ensureFavoriteAddAllowed
 import org.fossify.gallery.extensions.updateFavoritePaths
 import org.fossify.gallery.fragments.PhotoFragment
 import org.fossify.gallery.fragments.VideoFragment
@@ -219,6 +220,20 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var mIsOrientationLocked = false
 
     private val favoriteListenerId = java.util.UUID.randomUUID().toString()
+    private val favoriteProtectionPrefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == null || key.startsWith(org.fossify.commons.helpers.PROTECTED_FOLDER_HASH) ||
+            key.startsWith(org.fossify.commons.helpers.PROTECTED_FOLDER_TYPE) ||
+            key == org.fossify.gallery.helpers.FAVORITE_PASSWORD_ENABLED ||
+            key == org.fossify.gallery.helpers.FAVORITE_PASSWORD_HASH ||
+            key == org.fossify.gallery.helpers.FAVORITE_PROTECTION_TYPE ||
+            key == org.fossify.gallery.helpers.FAVORITE_FALLBACK_PASSWORD_HASH ||
+            key == org.fossify.gallery.helpers.FAVORITE_FALLBACK_PROTECTION_TYPE) {
+            if (isFavoriteRequest) {
+                val allowed = FavoriteAccessSessionManager.getAllowedPaths(favoriteSessionId)
+                if (allowed == null || getCurrentMedium()?.path !in allowed) closeUnauthorizedFavorites()
+            }
+        }
+    }
     private val favoriteSessionId get() = intent.getStringExtra(FAVORITE_ACCESS_SESSION)
     private val isFavoriteRequest get() = intent.getBooleanExtra(SHOW_FAVORITES, false) || intent.hasExtra(FAVORITE_ACCESS_SESSION)
     private var viewerLoadGeneration = 0L
@@ -262,6 +277,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         super.onCreate(if (isFavoriteRequest) null else savedInstanceState)
         setContentView(binding.root)
         if (!checkFavoriteAccess()) return
+        if (isFavoriteRequest) getSharedPrefs().registerOnSharedPreferenceChangeListener(favoriteProtectionPrefsListener)
         FavoriteAccessSessionManager.addRevocationListener(favoriteListenerId) { revoked ->
             if (revoked == favoriteSessionId) binding.root.post {
                     if (isFinishing || isDestroyed || revoked != favoriteSessionId) return@post
@@ -322,6 +338,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun onDestroy() {
+        getSharedPrefs().unregisterOnSharedPreferenceChangeListener(favoriteProtectionPrefsListener)
         FavoriteAccessSessionManager.removeRevocationListener(favoriteListenerId)
         viewerLoadGeneration++
         viewerLoadTask?.stopFetching()
@@ -1189,25 +1206,41 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         binding.bottomActions.bottomChangeOrientation.setImageResource(getChangeOrientationIcon())
     }
 
+    private fun canAddFavoriteFromSource(path: String): Boolean {
+        val snapshot = runCatching {
+            FavoriteAccessSessionManager.captureSnapshot(listOf(path), applicationContext::favoriteProtection)
+        }.getOrNull() ?: return false
+        val entry = snapshot.entries[path] ?: return false
+        return entry.locks.isEmpty() || FolderUnlockSessionManager.isMediaAuthorized(
+            folderUnlockSessionId, path, config::isFolderProtected
+        )
+    }
+
     private fun toggleFavorite() {
         val medium = getCurrentMedium() ?: return
+        val adding = !medium.isFavorite
+        val sourceCheck: (String) -> Boolean = ::canAddFavoriteFromSource
         val applyChange = {
-            medium.isFavorite = !medium.isFavorite
             ensureBackgroundThread {
-                updateFavorite(medium.path, medium.isFavorite)
-                if (medium.isFavorite) {
-                    mFavoritePaths.add(medium.path)
-                } else {
-                    mFavoritePaths.remove(medium.path)
-                }
-
+                val changed = updateFavorite(medium.path, adding, sourceCheck)
                 runOnUiThread {
+                    if (changed) {
+                        medium.isFavorite = adding
+                        if (adding) mFavoritePaths.add(medium.path) else mFavoritePaths.remove(medium.path)
+                    } else if (adding) {
+                        toast(org.fossify.gallery.R.string.favorite_add_blocked_changed)
+                    }
                     refreshMenuItems()
                 }
             }
         }
-        if (!medium.isFavorite) ensureFavoritePasswordConfigured { ready -> if (ready != null) applyChange() }
-        else applyChange()
+        if (adding) {
+            ensureFavoriteAddAllowed(listOf(medium.path), sourceCheck) { allowed ->
+                if (allowed) applyChange()
+            }
+        } else {
+            applyChange()
+        }
     }
 
     private fun printFile() {

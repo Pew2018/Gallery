@@ -1115,22 +1115,29 @@ fun Context.getFavoriteFromPath(path: String): Favorite {
     return Favorite(null, path, path.getFilenameFromPath(), path.getParentPath())
 }
 
-fun Context.updateFavorite(path: String, isFavorite: Boolean) {
-    // UI entry points must finish the shared credential setup first. Keep the
-    // persistence boundary fail-closed for any future or legacy caller.
-    if (isFavorite && !config.isFavoritePasswordProtectionOn) return
+fun Context.updateFavorite(
+    path: String,
+    isFavorite: Boolean,
+    sourceAccessCheck: (String) -> Boolean = { false }
+): Boolean {
+    if (isFavorite) {
+        val snapshot = runCatching {
+            FavoriteAccessSessionManager.captureSnapshot(listOf(path), applicationContext::favoriteProtection)
+        }.getOrNull() ?: return false
+        val entry = snapshot.entries[path] ?: return false
+        if (entry.locks.isNotEmpty() &&
+            (!config.isFavoritePasswordProtectionOn || !sourceAccessCheck(path))
+        ) return false
+    }
     if (!isFavorite) FavoriteAccessSessionManager.revokePath(path)
-    try {
-        if (isFavorite) {
-            favoritesDB.insert(getFavoriteFromPath(path))
-        } else {
-            favoritesDB.deleteFavoritePath(path)
-        }
-        // The secondary media flag must match the durable favorites table,
-        // including immediately after an explicit unfavorite operation.
+    return try {
+        if (isFavorite) favoritesDB.insert(getFavoriteFromPath(path))
+        else favoritesDB.deleteFavoritePath(path)
         mediaDB.updateFavorite(path, isFavorite)
+        true
     } catch (e: Exception) {
         toast(org.fossify.commons.R.string.unknown_error_occurred)
+        false
     }
 }
 

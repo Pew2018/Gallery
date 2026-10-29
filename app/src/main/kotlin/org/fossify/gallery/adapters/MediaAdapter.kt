@@ -51,6 +51,7 @@ import org.fossify.commons.helpers.sumByLong
 import org.fossify.commons.models.FileDirItem
 import org.fossify.commons.views.MyRecyclerView
 import org.fossify.gallery.R
+import org.fossify.gallery.activities.MediaActivity
 import org.fossify.gallery.activities.ViewPagerActivity
 import org.fossify.gallery.databinding.PhotoItemGridBinding
 import org.fossify.gallery.databinding.PhotoItemListBinding
@@ -79,7 +80,7 @@ import org.fossify.gallery.extensions.tryCopyMoveFilesTo
 import org.fossify.gallery.extensions.updateDBMediaPath
 import org.fossify.gallery.extensions.updateFavorite
 import org.fossify.gallery.extensions.updateFavoritePaths
-import org.fossify.gallery.extensions.ensureFavoritePasswordConfigured
+import org.fossify.gallery.extensions.ensureFavoriteAddAllowed
 import org.fossify.gallery.helpers.OxygenThumbnailPlaceholder
 import org.fossify.gallery.helpers.OxygenSelectionMode
 import org.fossify.gallery.helpers.PATH
@@ -385,20 +386,32 @@ class MediaAdapter(
     }
 
     private fun toggleFavorites(add: Boolean) {
+        val items = getSelectedItems()
+        val toAdd = if (add) items.filterNot { it.isFavorite } else emptyList()
+        val sourceCheck: (String) -> Boolean = { path ->
+            (activity as? MediaActivity)?.canAddFavoriteFromSource(path) == true
+        }
         val applyChange = {
             ensureBackgroundThread {
-                getSelectedItems().forEach {
-                    it.isFavorite = add
-                    activity.updateFavorite(it.path, add)
+                var failedAdds = 0
+                items.forEach { item ->
+                    val updated = activity.updateFavorite(item.path, add, sourceCheck)
+                    if (updated) item.isFavorite = add else if (add) failedAdds++
                 }
                 activity.runOnUiThread {
+                    if (failedAdds > 0) activity.toast(org.fossify.gallery.R.string.favorite_add_blocked_changed)
                     listener?.refreshItems()
                     finishActMode()
                 }
             }
         }
-        if (add) activity.ensureFavoritePasswordConfigured { ready -> if (ready != null) applyChange() }
-        else applyChange()
+        if (add) {
+            activity.ensureFavoriteAddAllowed(toAdd.map { it.path }, sourceCheck) { allowed ->
+                if (allowed) applyChange()
+            }
+        } else {
+            applyChange()
+        }
     }
 
     private fun restoreFiles() {

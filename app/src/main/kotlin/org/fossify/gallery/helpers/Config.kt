@@ -34,9 +34,9 @@ class Config(context: Context) : BaseConfig(context) {
         val fallbackType: Int
     ) {
         val isConfigured: Boolean
-            get() = enabled && (if (type == PROTECTION_FINGERPRINT) {
+            get() = if (type == PROTECTION_FINGERPRINT) {
                 fallbackHash.isNotBlank() && fallbackType in 0..1
-            } else hash.isNotBlank() && type in 0..1)
+            } else hash.isNotBlank() && type in 0..1
     }
 
     internal data class FavoriteCredentialProof(
@@ -56,12 +56,12 @@ class Config(context: Context) : BaseConfig(context) {
     }
 
     internal fun isFavoriteCredentialCurrent(snapshot: FavoriteCredentialSnapshot): Boolean =
-        snapshot.isConfigured && favoriteCredentialSnapshot() == snapshot
+        snapshot.enabled && snapshot.isConfigured && favoriteCredentialSnapshot() == snapshot
 
     /** Credential for the virtual media-favorites album, independent of folder locks. */
     var isFavoritePasswordProtectionOn: Boolean
-        get() = favoriteCredentialSnapshot().isConfigured
-        set(value) = prefs.edit().putBoolean(FAVORITE_PASSWORD_ENABLED, value).apply()
+        get() = prefs.getBoolean(FAVORITE_PASSWORD_ENABLED, false)
+        private set(value) = prefs.edit().putBoolean(FAVORITE_PASSWORD_ENABLED, value).apply()
 
     var favoritePasswordHash: String
         get() = prefs.getString(FAVORITE_PASSWORD_HASH, "") ?: ""

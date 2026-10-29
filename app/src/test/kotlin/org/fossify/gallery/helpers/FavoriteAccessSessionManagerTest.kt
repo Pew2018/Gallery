@@ -215,6 +215,19 @@ class FavoriteAccessSessionManagerTest {
         assertEquals(emptySet<String>(), FavoriteAccessSessionManager.retainFavorites(token, setOf("/a/old.jpg")))
     }
 
+    @Test fun liveSessionCanBeReattachedByOwnerWithoutPersistingItsToken() {
+        val token = FavoriteAccessSessionManager.createSession(
+            "rotating-owner",
+            snapshot("/public/photo.jpg"),
+            emptySet(),
+            locks::get
+        )!!
+        assertEquals(token, FavoriteAccessSessionManager.tokenForOwner("rotating-owner"))
+        assertNull(FavoriteAccessSessionManager.tokenForOwner("other-owner"))
+        FavoriteAccessSessionManager.revokeSession(token)
+        assertNull(FavoriteAccessSessionManager.tokenForOwner("rotating-owner"))
+    }
+
     @Test fun tokensAreIndependentRandomCapabilities() {
         val first = session("/a/a.jpg")
         val second = session("/a/a.jpg")

@@ -67,6 +67,7 @@ import org.fossify.commons.extensions.fadeOut
 import org.fossify.commons.extensions.getColoredDrawableWithColor
 import org.fossify.commons.extensions.getFilenameFromUri
 import org.fossify.commons.extensions.getFormattedDuration
+import org.fossify.commons.extensions.getSharedPrefs
 import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.commons.extensions.onGlobalLayout
 import org.fossify.commons.extensions.setDrawablesRelativeWithIntrinsicBounds
@@ -152,6 +153,17 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
         get() = binding.videoAppbar
 
     private val favoriteListenerId = java.util.UUID.randomUUID().toString()
+    private val favoriteProtectionPrefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == null || key.startsWith(org.fossify.commons.helpers.PROTECTED_FOLDER_HASH) ||
+            key.startsWith(org.fossify.commons.helpers.PROTECTED_FOLDER_TYPE) ||
+            key == org.fossify.gallery.helpers.FAVORITE_PASSWORD_ENABLED ||
+            key == org.fossify.gallery.helpers.FAVORITE_PASSWORD_HASH ||
+            key == org.fossify.gallery.helpers.FAVORITE_PROTECTION_TYPE ||
+            key == org.fossify.gallery.helpers.FAVORITE_FALLBACK_PASSWORD_HASH ||
+            key == org.fossify.gallery.helpers.FAVORITE_FALLBACK_PROTECTION_TYPE) {
+            if (intent.hasExtra(FAVORITE_ACCESS_SESSION)) checkFavoriteVideo()
+        }
+    }
     private var favoriteMediaPath: String? = null
     private val favoriteSessionId get() = intent.getStringExtra(FAVORITE_ACCESS_SESSION)
 
@@ -189,6 +201,9 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
         )
         setupOptionsMenu()
         setupOrientation()
+        if (intent.hasExtra(FAVORITE_ACCESS_SESSION)) {
+            getSharedPrefs().registerOnSharedPreferenceChangeListener(favoriteProtectionPrefsListener)
+        }
         FavoriteAccessSessionManager.addRevocationListener(favoriteListenerId) { revoked ->
             if (revoked == favoriteSessionId) runOnUiThread {
                 if (!checkFavoriteVideo()) finish()
@@ -268,6 +283,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
     }
 
     override fun onDestroy() {
+        getSharedPrefs().unregisterOnSharedPreferenceChangeListener(favoriteProtectionPrefsListener)
         FavoriteAccessSessionManager.removeRevocationListener(favoriteListenerId)
         super.onDestroy()
         if (!isChangingConfigurations) {

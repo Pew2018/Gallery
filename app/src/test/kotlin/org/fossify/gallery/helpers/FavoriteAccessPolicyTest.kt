@@ -52,6 +52,28 @@ class FavoriteAccessPolicyTest {
         }
     }
 
+    @Test fun disabledPasswordShowsOnlyUnprotectedFavoritesAndKeepsSavedRows() {
+        locks["/private"] = pinA
+        val paths = listOf("/public/photo.jpg", "/private/secret.jpg")
+        val all = FavoriteAccessSessionManager.captureSnapshot(paths, locks::get)
+        val visible = FavoriteAccessPolicy.unprotectedSnapshot(all)
+        assertEquals(setOf("/public/photo.jpg"), visible.entries.keys)
+        assertEquals(setOf("/public/photo.jpg", "/private/secret.jpg"), all.entries.keys)
+        assertTrue(FavoriteAccessPolicy.hasProtectedFavorites(all))
+        val token = FavoriteAccessSessionManager.createSession("owner", visible, emptySet(), locks::get)!!
+        val published = FavoriteAccessPolicy.authorizedItems(token, paths) { it }
+        assertEquals(listOf("/public/photo.jpg"), published)
+        assertFalse(FavoriteAccessSessionManager.isMediaAuthorized(token, "/private/secret.jpg"))
+    }
+
+    @Test fun removingSourceProtectionAllowsFreshNoPasswordSnapshotToRestoreFavorite() {
+        val path = "/source/photo.jpg"
+        locks["/source"] = pinA
+        assertTrue(FavoriteAccessPolicy.unprotectedSnapshot(snapshot(path)).entries.isEmpty())
+        locks.clear()
+        assertEquals(setOf(path), FavoriteAccessPolicy.unprotectedSnapshot(snapshot(path)).entries.keys)
+    }
+
     @Test fun authorizedGroupedAlbumKeepsOnlyNonMediaSectionHeadersWithoutPaths() {
         val token = session()
         val headers = listOf(ThumbnailSection("Today"))

@@ -107,6 +107,10 @@ internal object FavoriteAccessSessionManager {
 
     fun isOwnedBy(token: String?, ownerId: String): Boolean = token?.let(sessions::get)?.owner == ownerId
 
+    /** Resolve a live token after configuration recreation without saving it in Bundle state. */
+    fun tokenForOwner(ownerId: String): String? =
+        sessions.entries.firstOrNull { it.value.owner == ownerId }?.key
+
     fun isMediaAuthorized(token: String?, path: String): Boolean {
         val session = token?.let(sessions::get) ?: return false
         if (!session.credentialIsCurrent()) {
