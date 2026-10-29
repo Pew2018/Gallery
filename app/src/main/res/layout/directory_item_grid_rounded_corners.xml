@@ -74,15 +74,6 @@
             android:src="@drawable/ic_drag_handle_vector" />
 
 
-    <com.google.android.material.progressindicator.LinearProgressIndicator
-        android:id="@+id/dir_loading_progress"
-        android:layout_width="match_parent"
-        android:layout_height="2dp"
-        android:layout_alignParentTop="true"
-        android:indeterminate="true"
-        android:visibility="gone"
-        app:trackThickness="2dp" />
-
 </RelativeLayout>
 
     <ImageView
