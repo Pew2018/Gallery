@@ -12,6 +12,8 @@
     <string name="classic_restore_default">Restore default colors</string>
     <string name="classic_advanced_colors">Advanced color settings</string>
     <string name="classic_palette">All colors</string>
+    <string name="classic_palette_classic">Classic colors</string>
+    <string name="classic_palette_material">Material Design colors</string>
     <string name="classic_selected">Selected</string>
     <string name="classic_not_selected">Not selected</string>
     <string name="classic_original_colors">Original colors</string>

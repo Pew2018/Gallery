@@ -13,6 +13,31 @@ class OxygenThemePresetsTest {
         assertEquals(12, OxygenThemePresets.all.count { it.group == "material" })
         assertTrue(OxygenThemePresets.all.all { it.hex.matches(Regex("^#[0-9A-Fa-f]{6}$")) })
     }
+    @Test fun featuredGridAndBothPaletteSectionsKeepStableSelections() {
+        assertEquals(7, OxygenThemePresets.featured.size)
+        assertEquals(11, OxygenThemePresets.group("classic").size)
+        assertEquals(12, OxygenThemePresets.group("material").size)
+        assertTrue(OxygenThemePresets.featured.all { it in OxygenThemePresets.all })
+        assertEquals(OxygenThemePresets.all,
+            OxygenThemePresets.group("classic") + OxygenThemePresets.group("material"))
+        assertTrue(OxygenThemePresets.byId.containsKey(OxygenThemePresets.DEFAULT_ID))
+        for (candidate in OxygenThemePresets.all) {
+            assertTrue(OxygenThemePresets.isSelected(true, candidate.id, candidate.id))
+            assertEquals(1, OxygenThemePresets.all.count {
+                OxygenThemePresets.isSelected(true, candidate.id, it.id)
+            })
+            assertTrue(OxygenThemePresets.all.none {
+                OxygenThemePresets.isSelected(false, candidate.id, it.id)
+            })
+        }
+        assertTrue(OxygenThemePresets.all.none {
+            OxygenThemePresets.isSelected(true, "custom", it.id)
+        })
+        assertEquals(4, OxygenThemePresets.columnsForWidth(360, 1f))
+        assertTrue(OxygenThemePresets.columnsForWidth(360, 1.5f) < 4)
+        assertEquals(1, OxygenThemePresets.columnsForWidth(100, 2f))
+    }
+
     @Test fun appearanceModeIsIndependentFromSystemAndAccent() {
         assertTrue(OxygenThemeEngine.resolvedDark("dark", false))
         assertTrue(OxygenThemeEngine.resolvedDark("dark", true))

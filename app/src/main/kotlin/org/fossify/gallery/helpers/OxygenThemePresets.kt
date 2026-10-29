@@ -39,4 +39,17 @@ object OxygenThemePresets {
         OxygenPreset("material_light_green", "浅绿", "#8BC34A", "material")
     )
     val byId: Map<String, OxygenPreset> = all.associateBy { it.id }
+
+    /** Filter without sorting: persisted IDs and visual order remain stable. */
+    fun group(id: String): List<OxygenPreset> = all.filter { it.group == id }
+
+    /** A saved custom color cannot select a similar-looking preset by RGB. */
+    fun isSelected(activated: Boolean, savedId: String, swatchId: String): Boolean =
+        activated && savedId == swatchId && byId.containsKey(swatchId)
+
+    /** Four columns at 360dp; shrink for narrow screens or larger system fonts. */
+    fun columnsForWidth(widthDp: Int, fontScale: Float): Int {
+        val minimumCell = (80f * fontScale.coerceAtLeast(1f)).toInt().coerceAtLeast(80)
+        return ((widthDp - 32).coerceAtLeast(0) / minimumCell).coerceIn(1, 4)
+    }
 }

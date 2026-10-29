@@ -35,6 +35,28 @@ class OxygenThemeColorsTest {
         }
     }
 
+    @Test fun all23PresetsAndRequiredCustomColorsMeetContrastAndStatusHierarchy() {
+        val custom = listOf("#FFFFFF", "#000000", "#FFFF00", "#00FF00", "#00FFFF",
+            "#FF00FF", "#808080", "#42A5F5", "#0071CD")
+        val all = OxygenThemePresets.all.map { it.color } + custom.map {
+            OxygenThemeEngine.parseHex(it)!!
+        }
+        assertEquals(32, all.size)
+        for (seed in all) for (dark in listOf(false, true)) {
+            val tokens = resolve(seed, if (dark) "dark" else "light", dark)
+            assertTrue(OxygenThemeColors.contrastRatio(OxygenThemeColors.WHITE,
+                tokens.toolbarBackground) >= 4.5)
+            assertTrue(OxygenThemeColors.contrastRatio(tokens.interactiveAccent,
+                tokens.pageBackground) >= 4.5)
+            assertTrue(OxygenThemeColors.contrastRatio(OxygenThemeColors.WHITE,
+                tokens.statusBarBackground) >= OxygenThemeColors.contrastRatio(
+                OxygenThemeColors.WHITE, tokens.toolbarBackground))
+            assertTrue(tokens.lightStatusBarIcons)
+            assertEquals(!dark, tokens.darkNavigationBarIcons)
+            assertEquals(seed, tokens.rawAccent)
+        }
+    }
+
     @Test fun sufficientlyDarkSeedsAreUnchangedAndLightSeedsOnlyGetDarker() {
         for (seed in seeds) {
             val result = OxygenThemeColors.toolbarBackground(seed)

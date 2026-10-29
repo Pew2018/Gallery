@@ -12,6 +12,7 @@ import android.widget.*
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.AppCompatRadioButton
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.doAfterTextChanged
@@ -128,7 +129,8 @@ class OxygenThemeActivity : SimpleActivity() {
 
     private fun change(action: () -> Unit) {
         action()
-        OxygenThemeEngine.apply(this, config)
+        // refreshThemeIfNeeded applies Commons colors exactly once and recreates only
+        // when the appearance resources change. Accent-only edits stay in place.
         if (!refreshThemeIfNeeded()) bindPage()
     }
 
@@ -156,9 +158,14 @@ class OxygenThemeActivity : SimpleActivity() {
         binders.add { line.setBackgroundColor(OxygenThemeColors.blend(colors.pageBackground, colors.primaryText, 0.10)) }
     }
 
+    /** A masked, bounded ripple: never an unbounded halo behind color swatches. */
     private fun ripple(view: View) {
-        view.background = RippleDrawable(ColorStateList.valueOf(
-            (colors.interactiveAccent and 0xFFFFFF) or 0x20000000), null, null)
+        val tint = ColorUtils.setAlphaComponent(colors.interactiveAccent, 28)
+        view.background = RippleDrawable(
+            ColorStateList.valueOf(tint),
+            android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT),
+            android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE)
+        )
     }
 
     private fun actionRow(id: Int, action: () -> Unit) {
@@ -172,83 +179,116 @@ class OxygenThemeActivity : SimpleActivity() {
         binders.add { row.setTextColor(colors.primaryText); ripple(row) }
     }
 
-    private fun radioRow(label: String, selected: () -> Boolean, swatch: Int? = null, action: () -> Unit) {
+    private fun radioRow(label: String, selected: () -> Boolean, action: () -> Unit) {
         val row = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = dp(56)
             setPadding(dp(16), dp(4), dp(16), dp(4))
+            isClickable = true
+            setOnClickListener { action() }
         }
         val radio = AppCompatRadioButton(this).apply {
             text = label
             textSize = 16f
             gravity = Gravity.CENTER_VERTICAL
-            compoundDrawablePadding = dp(16)
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
             setPadding(0, dp(8), 0, dp(8))
-            // Each native radio is one accessibility target with label + checked semantics.
             setOnClickListener { action() }
         }
-        row.addView(radio, LinearLayout.LayoutParams(0, -2, 1f))
-        if (swatch != null) row.addView(View(this).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL; setColor(swatch)
-                setStroke(dp(1), OxygenThemeColors.blend(swatch, OxygenThemeColors.autoForeground(swatch), 0.3))
-            }
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginStart = dp(16) })
-        row.setOnClickListener { action() }
+        row.addView(radio, LinearLayout.LayoutParams(-1, -2))
         body.addView(row, LinearLayout.LayoutParams(-1, -2))
-        binders.add { radio.isChecked = selected(); ripple(radio) }
+        binders.add {
+            radio.isChecked = selected()
+            radio.setTextColor(colors.primaryText)
+            ripple(row)
+        }
     }
 
-    private fun colorGrid() {
+    /** Same cells, dimensions and selection semantics on both palette pages. */
+    private fun colorGrid(presets: List<OxygenPreset>, showCurrentColor: Boolean = false) {
+        val columns = OxygenThemePresets.columnsForWidth(
+            resources.configuration.screenWidthDp.coerceAtLeast(240),
+            resources.configuration.fontScale
+        )
         val grid = GridLayout(this).apply {
-            columnCount = 4; setPadding(dp(8), 0, dp(8), 0)
+            columnCount = columns
+            setPadding(dp(16), 0, dp(16), 0)
         }
-        OxygenThemePresets.featured.forEachIndexed { index, preset ->
+        presets.forEachIndexed { index, preset ->
             val cell = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
-                minimumHeight = dp(80); isFocusable = true
-                setPadding(dp(4), dp(8), dp(4), dp(8))
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                minimumHeight = dp(80)
+                isClickable = true
+                isFocusable = true
+                setPadding(dp(3), dp(8), dp(3), dp(8))
                 contentDescription = label(preset)
                 setOnClickListener { activatePreset(preset) }
             }
-            val swatch = text("", 20f).apply {
+            val swatch = text("", 18f).apply {
                 gravity = Gravity.CENTER
+                includeFontPadding = false
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }
-            cell.addView(swatch, LinearLayout.LayoutParams(dp(32), dp(32)))
-            val name = text(label(preset), 12f).apply { gravity = Gravity.CENTER }
-            cell.addView(name, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+            cell.addView(swatch, LinearLayout.LayoutParams(dp(36), dp(36)))
+            val name = text(label(preset), 12f).apply {
+                gravity = Gravity.CENTER
+                maxLines = 2
+                textAlignment = View.TEXT_ALIGNMENT_CENTER
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            cell.addView(name, LinearLayout.LayoutParams(-1, -2).apply {
+                topMargin = dp(5)
+            })
             grid.addView(cell, GridLayout.LayoutParams(
-                GridLayout.spec(index / 4), GridLayout.spec(index % 4, 1f)
-            ).apply { width = 0; height = -2; setGravity(Gravity.FILL) })
+                GridLayout.spec(index / columns), GridLayout.spec(index % columns, 1f)
+            ).apply {
+                width = 0
+                height = -2
+                setGravity(Gravity.FILL)
+            })
             binders.add {
-                val selected = config.oxygenThemeActivated && config.oxygenThemePresetId == preset.id
+                val tokens = colors
+                val selected = OxygenThemePresets.isSelected(
+                    config.oxygenThemeActivated, config.oxygenThemePresetId, preset.id
+                )
                 cell.isSelected = selected
-                ViewCompat.setStateDescription(cell, getString(if (selected) R.string.classic_selected else R.string.classic_not_selected))
+                ViewCompat.setStateDescription(cell, getString(
+                    if (selected) R.string.classic_selected else R.string.classic_not_selected
+                ))
                 swatch.text = if (selected) "✓" else ""
                 swatch.setTextColor(OxygenThemeColors.autoForeground(preset.color))
                 swatch.background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL; setColor(preset.color)
-                    setStroke(dp(if (selected) 2 else 1), if (selected) this@OxygenThemeActivity.colors.primaryText
-                        else OxygenThemeColors.blend(this@OxygenThemeActivity.colors.pageBackground, this@OxygenThemeActivity.colors.primaryText, 0.3))
+                    shape = GradientDrawable.OVAL
+                    setColor(preset.color)
+                    setStroke(
+                        dp(if (selected) 2 else 1),
+                        if (selected) tokens.primaryText else
+                            OxygenThemeColors.blend(preset.color, tokens.primaryText, 0.23)
+                    )
                 }
-                name.setTextColor(colors.primaryText)
+                name.setTextColor(tokens.primaryText)
                 ripple(cell)
             }
         }
         body.addView(grid, LinearLayout.LayoutParams(-1, -2))
-        val current = text("", 12f).apply { setPadding(dp(16), dp(8), dp(16), dp(8)) }
-        body.addView(current)
-        binders.add {
-            val preset = OxygenThemePresets.byId[config.oxygenThemePresetId]
-            val name = when {
-                !config.oxygenThemeActivated -> getString(R.string.classic_original_colors)
-                preset != null -> label(preset)
-                else -> OxygenThemeEngine.formatHex(colors.rawAccent)
+        if (showCurrentColor) {
+            val current = text("", 12f).apply {
+                setPadding(dp(16), dp(6), dp(16), dp(8))
             }
-            current.text = getString(R.string.classic_current_color, name)
-            current.setTextColor(colors.secondaryText)
+            body.addView(current)
+            binders.add {
+                val active = config.oxygenThemeActivated
+                val preset = OxygenThemePresets.byId[config.oxygenThemePresetId]
+                val currentName = when {
+                    !active -> getString(R.string.classic_original_colors)
+                    preset != null -> label(preset)
+                    else -> getString(R.string.classic_custom_color) +
+                        " (" + OxygenThemeEngine.formatHex(config.oxygenCustomAccent) + ")"
+                }
+                current.text = getString(R.string.classic_current_color, currentName)
+                current.setTextColor(colors.secondaryText)
+            }
         }
     }
 
@@ -257,27 +297,30 @@ class OxygenThemeActivity : SimpleActivity() {
         body.removeAllViews()
         titleText.setText(if (moreColors) R.string.classic_more_colors else R.string.classic_theme_title)
         if (moreColors) {
-            section(R.string.classic_palette)
-            OxygenThemePresets.all.forEach { preset ->
-                radioRow(label(preset), { config.oxygenThemeActivated && config.oxygenThemePresetId == preset.id }, preset.color) {
-                    activatePreset(preset)
-                }
-            }
+            section(R.string.classic_palette_classic)
+            colorGrid(OxygenThemePresets.group("classic"))
+            divider()
+            section(R.string.classic_palette_material)
+            colorGrid(OxygenThemePresets.group("material"))
         } else {
             section(R.string.classic_appearance)
             listOf("system" to R.string.classic_system, "light" to R.string.classic_light,
                 "dark" to R.string.classic_dark).forEach { (mode, id) ->
-                radioRow(getString(id), { config.oxygenThemeActivated && config.oxygenAppearanceMode == mode }) {
+                radioRow(getString(id), { config.oxygenThemeActivated &&
+                    config.oxygenAppearanceMode == mode }) {
                     change { config.oxygenAppearanceMode = mode; config.oxygenThemeActivated = true }
                 }
             }
             divider()
             section(R.string.classic_accent)
-            colorGrid()
+            colorGrid(OxygenThemePresets.featured, showCurrentColor = true)
             divider()
             section(R.string.classic_other)
             actionRow(R.string.classic_more_colors) {
-                mainScroll = scroll.scrollY; moreColors = true; buildPage(); scroll.scrollTo(0, 0)
+                mainScroll = scroll.scrollY
+                moreColors = true
+                buildPage()
+                scroll.scrollTo(0, 0)
             }
             actionRow(R.string.classic_custom_color) { chooseColor() }
             actionRow(R.string.classic_restore_default) {
@@ -318,13 +361,13 @@ class OxygenThemeActivity : SimpleActivity() {
             setSingleLine(true)
             hint = "#RRGGBB"
             contentDescription = getString(R.string.classic_custom_color)
-            setText(OxygenThemeEngine.formatHex(tokens.rawAccent)); selectAll()
+            setText(OxygenThemeEngine.formatHex(config.oxygenCustomAccent)); selectAll()
             setTextColor(tokens.primaryText); setHintTextColor(tokens.secondaryText)
             backgroundTintList = ColorStateList.valueOf(tokens.interactiveAccent)
         }
         container.addView(preview, LinearLayout.LayoutParams(-1, dp(32)))
         container.addView(field, LinearLayout.LayoutParams(-1, -2))
-        preview.setBackgroundColor(tokens.rawAccent)
+        preview.setBackgroundColor(config.oxygenCustomAccent)
         field.doAfterTextChanged {
             OxygenThemeEngine.parseHex(it.toString().trim())?.let { color -> preview.setBackgroundColor(color) }
         }

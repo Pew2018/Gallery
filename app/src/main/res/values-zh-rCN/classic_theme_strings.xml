@@ -12,6 +12,8 @@
     <string name="classic_restore_default">恢复默认配色</string>
     <string name="classic_advanced_colors">高级颜色设置</string>
     <string name="classic_palette">全部颜色</string>
+    <string name="classic_palette_classic">经典配色</string>
+    <string name="classic_palette_material">Material Design 配色</string>
     <string name="classic_selected">已选中</string>
     <string name="classic_not_selected">未选中</string>
     <string name="classic_original_colors">原有配色</string>

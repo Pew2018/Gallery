@@ -16,9 +16,6 @@ import android.widget.TextView
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import org.fossify.commons.extensions.getProperBackgroundColor
-import org.fossify.commons.extensions.getProperPrimaryColor
-import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.gallery.R
 
 /**
@@ -43,11 +40,11 @@ object GalleryBottomBar {
     fun recolor(activity: Activity) {
         val bar = bars[activity]?.get() ?: return
         if (activity.isFinishing || activity.isDestroyed) return
-        val surface = activity.getProperBackgroundColor()
-        val foreground = activity.getProperTextColor()
-        val accent = activity.getProperPrimaryColor()
-        val selected = OxygenClassicPalette.readableAccent(accent, surface)
-        val quiet = Color.argb(138, Color.red(foreground), Color.green(foreground), Color.blue(foreground))
+        val tokens = OxygenThemeEngine.snapshot(activity, activity.config)
+        val surface = tokens.pageBackground
+        val accent = tokens.rawAccent
+        val selected = tokens.interactiveAccent
+        val quiet = tokens.secondaryText
         bar.setBackgroundColor(surface)
         for (i in 0 until bar.childCount) {
             val item = bar.getChildAt(i) as? LinearLayout ?: continue
@@ -80,11 +77,11 @@ object GalleryBottomBar {
     ) {
         val density = activity.resources.displayMetrics.density
         fun dp(value: Int) = (value * density + 0.5f).toInt()
-        val background = activity.getProperBackgroundColor()
-        val foreground = activity.getProperTextColor()
-        val primary = activity.getProperPrimaryColor()
-        val selectedText = OxygenClassicPalette.readableAccent(primary, background)
-        val quiet = Color.argb(138, Color.red(foreground), Color.green(foreground), Color.blue(foreground))
+        val tokens = OxygenThemeEngine.snapshot(activity, activity.config)
+        val background = tokens.pageBackground
+        val primary = tokens.rawAccent
+        val selectedText = tokens.interactiveAccent
+        val quiet = tokens.secondaryText
 
         // Reattaching after a configuration-driven rebuild must not duplicate the bar.
         parent.findViewWithTag<android.view.View>("oxygen_classic_bottom_bar")?.let(parent::removeView)
