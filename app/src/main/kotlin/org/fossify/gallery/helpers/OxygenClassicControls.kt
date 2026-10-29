@@ -113,7 +113,8 @@ object OxygenClassicControls {
                 val target = stateColor(state)
                 val current = animatedColor
                 val checked = state.contains(android.R.attr.state_checked)
-                val animateCheckedChange = lastChecked != null && lastChecked != checked
+                val animateCheckedChange = lastChecked != null && lastChecked != checked &&
+                    state.contains(android.R.attr.state_enabled)
                 lastChecked = checked
                 if (!animateCheckedChange || current == null || !animationsEnabled || current == target) {
                     colorAnimator?.cancel()
