@@ -92,6 +92,12 @@ object OxygenClassicDialog {
             setColor(surface)
             cornerRadius = 3f * dp
         }
+        // Commons dialogs use apply() directly; preserve host screenshot protection.
+        if (activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0) {
+            dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        dialog.window?.setDimAmount(0.60f)
         dialog.window?.setBackgroundDrawable(shape)
         val width = (activity.resources.displayMetrics.widthPixels - 48f * dp).toInt()
             .coerceAtMost((560f * dp).toInt())

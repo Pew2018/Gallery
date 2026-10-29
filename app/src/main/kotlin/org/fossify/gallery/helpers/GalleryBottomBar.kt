@@ -99,8 +99,8 @@ object GalleryBottomBar {
         }
 
         val byId = mapOf(
-            Tab.ALL to Triple(Tab.ALL, "所有图片", R.drawable.ic_files_vector),
-            Tab.FAVORITES to Triple(Tab.FAVORITES, "收藏", R.drawable.ic_folders_vector)
+            Tab.ALL to Triple(Tab.ALL, activity.getString(R.string.gallery_nav_all_images), R.drawable.ic_files_vector),
+            Tab.FAVORITES to Triple(Tab.FAVORITES, activity.getString(org.fossify.commons.R.string.favorites), R.drawable.ic_star_outline_vector)
         )
         val tabs = activity.config.bottomNavigationOrder.mapNotNull { id ->
             Tab.values().firstOrNull { it.name == id }?.let(byId::get)
@@ -139,11 +139,13 @@ object GalleryBottomBar {
                 text = label
                 gravity = Gravity.CENTER
                 textSize = 12f
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
                 setTextColor(tint)
                 typeface = Typeface.create(if (selected) "sans-serif-medium" else "sans-serif", Typeface.NORMAL)
                 includeFontPadding = false
                 importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }, LinearLayout.LayoutParams(-1, dp(22)))
+            }, LinearLayout.LayoutParams(-1, dp(20)).apply { topMargin = dp(3) })
             bar.addView(item, LinearLayout.LayoutParams(0, itemHeight, 1f).apply {
                 marginStart = dp(2)
                 marginEnd = dp(2)

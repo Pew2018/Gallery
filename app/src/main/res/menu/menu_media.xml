@@ -5,7 +5,7 @@
     tools:ignore="AppCompatResource">
     <item
         android:id="@+id/toggle_filename"
-        android:orderInCategory="0"
+        android:orderInCategory="32"
         android:icon="@drawable/ic_label_vector"
         android:title="@string/toggle_filename"
         app:showAsAction="never" />

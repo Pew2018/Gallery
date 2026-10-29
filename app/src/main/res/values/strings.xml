@@ -307,4 +307,5 @@
     <string name="oxygen_favorite_show_hidden">Always show hidden items</string>
     <string name="oxygen_favorite_show_excluded">Always show excluded items</string>
     <string name="oxygen_selected_count">Selected %1$d items</string>
+    <string name="gallery_nav_all_images">All images</string>
 </resources>

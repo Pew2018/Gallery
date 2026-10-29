@@ -4,6 +4,8 @@ import android.graphics.Color
 import android.content.res.ColorStateList
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
+import java.util.concurrent.atomic.AtomicBoolean
+import org.fossify.gallery.helpers.OxygenThemeEngine
 import com.google.android.material.shape.RelativeCornerSize
 import androidx.activity.addCallback
 import androidx.appcompat.app.AlertDialog
@@ -53,6 +55,13 @@ class PickDirectoryDialog(
     val callback: (path: String) -> Unit
 ) {
     private var dialog: AlertDialog? = null
+    private val selectionDelivered = AtomicBoolean(false)
+    private var directoryLoadVersion = 0
+    private var isLoadingDirectories = false
+
+    private fun deliverSelectionOnce(path: String) {
+        if (selectionDelivered.compareAndSet(false, true)) callback(path)
+    }
     private var shownDirectories = ArrayList<Directory>()
     private var allDirectories = ArrayList<Directory>()
     private var openedSubfolders = arrayListOf("")
@@ -90,6 +99,7 @@ class PickDirectoryDialog(
             activity.setupDialogStuff(binding.root, this, org.fossify.commons.R.string.select_destination) { alertDialog ->
                 dialog = alertDialog
                 OxygenClassicDialog.apply(activity, alertDialog, binding.root)
+                binding.root.setBackgroundColor(OxygenThemeEngine.dialogSurface(activity, config))
                 binding.directoriesCurrentPath.setTextColor(activity.getProperTextColor())
                 binding.directoriesShowHidden.apply {
                     // Commons is a Material FAB. Restore the circular 2017 shape
@@ -195,21 +205,33 @@ class PickDirectoryDialog(
     }
 
     private fun checkPlaceholderVisibility(dirs: ArrayList<Directory>) = with(binding) {
-        directoriesEmptyPlaceholder.beVisibleIf(dirs.isEmpty())
-        if (dirs.isEmpty()) {
+        // Loading is not empty: distinguish the two without covering cached rows.
+        val empty = dirs.isEmpty() && !isLoadingDirectories
+        directoriesEmptyPlaceholder.beVisibleIf(empty)
+        if (empty) {
             directoriesEmptyPlaceholder.text = root.context.getString(org.fossify.commons.R.string.no_items_found)
         }
-        directoriesFastscroller.beVisibleIf(directoriesEmptyPlaceholder.isGone())
+        directoriesFastscroller.beVisibleIf(dirs.isNotEmpty())
     }
 
     private fun fetchDirectories(forceShowHiddenAndExcluded: Boolean) {
-        binding.directoriesLoading.visibility = android.view.View.VISIBLE
+        val requestVersion = ++directoryLoadVersion
+        isLoadingDirectories = true
+        // Preserve already visible directories during a hidden-folder refresh.
+        binding.directoriesLoading.visibility =
+            if (shownDirectories.isEmpty()) android.view.View.VISIBLE else android.view.View.GONE
+        if (shownDirectories.isEmpty()) {
+            binding.directoriesEmptyPlaceholder.beGone()
+            binding.directoriesFastscroller.beGone()
+        }
         activity.getCachedDirectories(forceShowHidden = forceShowHiddenAndExcluded, forceShowExcluded = forceShowHiddenAndExcluded) { directories ->
             directories.forEach { directory ->
                 directory.subfoldersMediaCount = directory.mediaCnt
             }
             activity.runOnUiThread {
-                if (activity.isDestroyed) return@runOnUiThread
+                if (activity.isDestroyed || directoryLoadVersion != requestVersion ||
+                    dialog?.isShowing == false) return@runOnUiThread
+                isLoadingDirectories = false
                 binding.directoriesLoading.visibility = android.view.View.GONE
                 allDirectories.clear()
                 gotDirectories(activity.addTempFolderIfNeeded(directories))
@@ -230,7 +252,7 @@ class PickDirectoryDialog(
             config.lastCopyPath = it
             activity.handleLockedFolderOpening(it) { success ->
                 if (success) {
-                    callback(it)
+                    deliverSelectionOnce(it)
                 }
             }
         }
@@ -268,7 +290,7 @@ class PickDirectoryDialog(
                 } else {
                     activity.handleLockedFolderOpening(path) { success ->
                         if (success) {
-                            callback(path)
+                            deliverSelectionOnce(path)
                         }
                     }
                     dialog?.dismiss()

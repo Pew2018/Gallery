@@ -121,6 +121,8 @@
             android:alpha="0.88"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:ellipsize="end"
             android:textColor="@android:color/white"
             android:textSize="@dimen/smaller_text_size"
             tools:text="36" />
