@@ -215,8 +215,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             favoriteSessionId?.let { FavoriteAccessSessionManager.getAllowedPaths(it) }
         }
     }
+    private val favoriteObserverLock = Any()
+    @Volatile private var favoriteObserverDisposed = false
+    private var favoriteObservedTracker: androidx.room.InvalidationTracker? = null
     private val favoriteDatabaseObserver = object : androidx.room.InvalidationTracker.Observer("favorites") {
         override fun onInvalidated(tables: Set<String>) {
+            if (favoriteObserverDisposed) return
             val token = favoriteSessionId ?: return
             val app = applicationContext
             ensureBackgroundThread {
@@ -254,7 +258,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
         if (mPath == FAVORITES) {
             getSharedPrefs().registerOnSharedPreferenceChangeListener(favoriteProtectionListener)
-            GalleryDatabase.getInstance(applicationContext).invalidationTracker.addObserver(favoriteDatabaseObserver)
+            val app = applicationContext
+            ensureBackgroundThread {
+                synchronized(favoriteObserverLock) {
+                    if (!favoriteObserverDisposed) {
+                        favoriteObservedTracker = GalleryDatabase.getInstance(app).invalidationTracker.also {
+                            it.addObserver(favoriteDatabaseObserver)
+                        }
+                    }
+                }
+            }
             favoriteOwnerId = savedInstanceState?.getString("favoriteOwnerId") ?: favoriteOwnerId
             favoriteSessionId = savedInstanceState?.getString(FAVORITE_ACCESS_SESSION)?.takeIf {
                 FavoriteAccessSessionManager.isOwnedBy(it, favoriteOwnerId)
@@ -480,7 +493,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         FavoriteAccessSessionManager.removeRevocationListener(favoriteListenerId)
         if (mPath == FAVORITES) {
             getSharedPrefs().unregisterOnSharedPreferenceChangeListener(favoriteProtectionListener)
-            GalleryDatabase.getInstance(applicationContext).invalidationTracker.removeObserver(favoriteDatabaseObserver)
+            favoriteObserverDisposed = true
+            ensureBackgroundThread {
+                synchronized(favoriteObserverLock) {
+                    favoriteObservedTracker?.removeObserver(favoriteDatabaseObserver)
+                    favoriteObservedTracker = null
+                }
+            }
         }
         if (isFinishing && !isChangingConfigurations) {
             FavoriteAccessSessionManager.revokeSession(favoriteSessionId)
