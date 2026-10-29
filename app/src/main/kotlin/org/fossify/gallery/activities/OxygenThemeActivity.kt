@@ -230,8 +230,8 @@ class OxygenThemeActivity : SimpleActivity() {
                 swatch.setTextColor(OxygenThemeColors.autoForeground(preset.color))
                 swatch.background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL; setColor(preset.color)
-                    setStroke(dp(if (selected) 2 else 1), if (selected) colors.primaryText
-                        else OxygenThemeColors.blend(colors.pageBackground, colors.primaryText, 0.3))
+                    setStroke(dp(if (selected) 2 else 1), if (selected) this@OxygenThemeActivity.colors.primaryText
+                        else OxygenThemeColors.blend(this@OxygenThemeActivity.colors.pageBackground, this@OxygenThemeActivity.colors.primaryText, 0.3))
                 }
                 name.setTextColor(colors.primaryText)
                 ripple(cell)

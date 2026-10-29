@@ -48,6 +48,7 @@ object OxygenClassicControls {
                 is RadioButton, is CheckBox -> {
                     val button = view as CompoundButton
                     button.buttonTintList = null
+                    if (button is androidx.core.widget.TintableCompoundButton) button.supportButtonTintList = null
                     if (changed) button.buttonDrawable = skin(if (view is RadioButton) "radio" else "check")
                 }
                 is SeekBar -> {
