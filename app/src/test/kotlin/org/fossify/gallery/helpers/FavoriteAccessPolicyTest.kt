@@ -10,9 +10,9 @@ class FavoriteAccessPolicyTest {
     private val pinA = FavoriteAccessSessionManager.Protection(1, "hash-A")
     private fun snapshot(path: String) = FavoriteAccessSessionManager.captureSnapshot(listOf(path), locks::get)
 
-    private fun session(): String {
-        val snapshot = FavoriteAccessSessionManager.captureSnapshot(listOf("/allowed/a.jpg", "/allowed/v.mp4")) { null }
-        return FavoriteAccessSessionManager.createSession("album", snapshot, emptySet()) { null }!!
+    private fun session(protection: (String) -> FavoriteAccessSessionManager.Protection? = { null }): String {
+        val snapshot = FavoriteAccessSessionManager.captureSnapshot(listOf("/allowed/a.jpg", "/allowed/v.mp4"), protection)
+        return FavoriteAccessSessionManager.createSession("album", snapshot, emptySet(), protection)!!
     }
     @After fun cleanup() { FavoriteAccessSessionManager.revokeAll() }
 
@@ -74,7 +74,7 @@ class FavoriteAccessPolicyTest {
         FavoriteAccessSessionManager.revokePath("/allowed/a.jpg")
         assertFalse(FavoriteAccessSessionManager.isValidationCurrent(batch.validation))
 
-        val changed = session()
+        val changed = session(locks::get)
         val changedBatch = FavoriteAccessPolicy.validateItems(changed, listOf("/allowed/a.jpg"), { it })!!
         locks["/allowed"] = pinA
         assertTrue(FavoriteAccessPolicy.authorizedItems(changed, listOf("/allowed/a.jpg"), { it }).isEmpty())
