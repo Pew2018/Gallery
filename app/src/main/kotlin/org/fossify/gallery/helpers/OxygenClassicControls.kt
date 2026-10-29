@@ -100,6 +100,7 @@ object OxygenClassicControls {
         private var opacity = 255
         private var animatedColor: Int? = null
         private var colorAnimator: ValueAnimator? = null
+        private var lastChecked: Boolean? = null
         override fun getIntrinsicWidth() = ((when (kind) {
             "track" -> 40
             "thumb" -> 20
@@ -111,7 +112,10 @@ object OxygenClassicControls {
             if (kind == "track" || kind == "thumb") {
                 val target = stateColor(state)
                 val current = animatedColor
-                if (current == null || !animationsEnabled || current == target) {
+                val checked = state.contains(android.R.attr.state_checked)
+                val animateCheckedChange = lastChecked != null && lastChecked != checked
+                lastChecked = checked
+                if (!animateCheckedChange || current == null || !animationsEnabled || current == target) {
                     colorAnimator?.cancel()
                     animatedColor = target
                 } else {
@@ -131,6 +135,12 @@ object OxygenClassicControls {
         }
         override fun setAlpha(alpha: Int) { opacity = alpha.coerceIn(0, 255); invalidateSelf() }
         override fun getAlpha(): Int = opacity
+        override fun jumpToCurrentState() {
+            colorAnimator?.cancel()
+            colorAnimator = null
+            animatedColor = stateColor(state)
+            invalidateSelf()
+        }
         override fun setColorFilter(filter: ColorFilter?) { paint.colorFilter = filter; invalidateSelf() }
         @Deprecated("Deprecated in Android")
         override fun getOpacity() = PixelFormat.TRANSLUCENT

@@ -11,7 +11,7 @@
     <dimen name="selection_check_size">22dp</dimen>
     <dimen name="drag_handle_size">34dp</dimen>
     <dimen name="play_outline_size_big">96dp</dimen>
-    <dimen name="tmb_shadow_height">60dp</dimen>
+    <dimen name="tmb_shadow_height">68dp</dimen>
     <dimen name="media_side_slider_width">60dp</dimen>
     <dimen name="video_player_play_pause_size">60dp</dimen>
     <dimen name="video_player_button_width">68dp</dimen>
