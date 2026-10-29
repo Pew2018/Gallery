@@ -124,14 +124,21 @@ object OxygenClassicControls {
             fun circle(radius: Float, value: Int) { color(value); canvas.drawCircle(cx, cy, radius * density, paint) }
             when (kind) {
                 "track" -> {
+                    // The original OxygenOS 4.5.15 reference (205249 and
+                    // 205801) has a fine outlined rail, not an opaque capsule.
+                    // Keep its center transparent so the actual row surface shows.
                     color(if (checked) OxygenThemeColors.blend(bg, accent,
-                        if (enabled) 0.38 else 0.15) else inactive)
+                        if (enabled) 0.52 else 0.17) else inactive)
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = 1.5f * density
                     // Intrinsic sizes alone do not prevent SwitchCompat from
-                    // assigning stretched bounds; cap the visible rail to 36dp.
+                    // assigning stretched bounds; cap visible rail to 36x10dp.
                     val halfRail = minOf(18f * density,
                         (bounds.width() / 2f - 2f * density).coerceAtLeast(0f))
-                    canvas.drawRoundRect(cx - halfRail, cy - 5 * density,
-                        cx + halfRail, cy + 5 * density, 5 * density, 5 * density, paint)
+                    val inset = paint.strokeWidth / 2f
+                    canvas.drawRoundRect(cx - halfRail + inset, cy - 5 * density + inset,
+                        cx + halfRail - inset, cy + 5 * density - inset,
+                        5 * density - inset, 5 * density - inset, paint)
                 }
                 "thumb" -> {
                     // Soft under-shadow within the 24dp optical box; never

@@ -265,12 +265,18 @@ class ClassicSettingsControlsTest {
         track.state = intArrayOf(android.R.attr.state_enabled)
         track.draw(Canvas(image))
         val expected = OxygenThemeColors.blend(t.pageBackground, t.primaryText, 0.16)
-        assertEquals("Off rail must follow screenshot-derived #D7D7D7 baseline",
-            expected, image.getPixel(width / 2, height / 2))
+        assertEquals("OxygenOS outlined track must not fill the inside", 0,
+            android.graphics.Color.alpha(image.getPixel(width / 2, height / 2)))
+        val edge = (0 until height).map { image.getPixel(width / 2, it) }
+            .first { android.graphics.Color.alpha(it) >= 128 }
+        assertTrue("Off rail should be near screenshot-derived #D7D7D7",
+            kotlin.math.abs(android.graphics.Color.red(edge) - android.graphics.Color.red(expected)) <= 18)
         track.state = intArrayOf()
         image.eraseColor(android.graphics.Color.TRANSPARENT)
         track.draw(Canvas(image))
-        assertNotEquals(expected, image.getPixel(width / 2, height / 2))
+        val disabledEdge = (0 until height).map { image.getPixel(width / 2, it) }
+            .first { android.graphics.Color.alpha(it) >= 128 }
+        assertNotEquals(edge, disabledEdge)
 
         val thumb = control.thumbDrawable
         val thumbWidth = (24f * density + 0.5f).toInt()
@@ -336,6 +342,55 @@ class ClassicSettingsControlsTest {
                 assertEquals(checked, radio.isChecked)
             }
         }
+    }
+
+
+    @Test fun seekbarKeepsValuesAndCallbackWhenReskinned() {
+        val ctx = context()
+        val bar = SeekBar(ctx).apply { max = 137; progress = 42 }
+        var updates = 0
+        bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) { updates++ }
+            override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar) = Unit
+        })
+        skin(bar, false)
+        assertEquals(137, bar.max)
+        assertEquals(42, bar.progress)
+        val originalDrawable = bar.progressDrawable
+        bar.progress = 0
+        assertEquals(0, bar.progress)
+        bar.progress = 137
+        assertEquals(137, bar.progress)
+        assertTrue(updates >= 2)
+        skin(bar, false)
+        assertSame(originalDrawable, bar.progressDrawable)
+        assertEquals(137, bar.progress)
+        skin(bar, true)
+        assertNotSame(originalDrawable, bar.progressDrawable)
+        assertEquals(137, bar.max)
+        assertEquals(137, bar.progress)
+        assertTrue(bar.thumb.intrinsicWidth <=
+            (24 * ctx.resources.displayMetrics.density + 0.5f).toInt())
+    }
+
+    @Test fun classicRadioGroupKeepsSingleSelectionAndLabelClick() {
+        val ctx = context()
+        val group = RadioGroup(ctx)
+        val first = AppCompatRadioButton(ctx).apply { id = View.generateViewId(); text = "Light" }
+        val second = AppCompatRadioButton(ctx).apply { id = View.generateViewId(); text = "Dark" }
+        group.addView(first)
+        group.addView(second)
+        skin(group, false)
+        first.performClick()
+        assertTrue(first.isChecked); assertFalse(second.isChecked)
+        second.performClick()
+        assertFalse(first.isChecked); assertTrue(second.isChecked)
+        skin(group, true)
+        assertFalse(first.isChecked); assertTrue(second.isChecked)
+        second.isEnabled = false
+        second.performClick()
+        assertTrue(second.isChecked)
     }
 
 }
