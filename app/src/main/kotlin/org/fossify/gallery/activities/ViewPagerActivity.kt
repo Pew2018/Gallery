@@ -164,6 +164,7 @@ import org.fossify.gallery.helpers.SHOW_NEXT_ITEM
 import org.fossify.gallery.helpers.SHOW_PREV_ITEM
 import org.fossify.gallery.helpers.SHOW_RECYCLE_BIN
 import org.fossify.gallery.helpers.SKIP_AUTHENTICATION
+import org.fossify.gallery.helpers.ViewerAuthenticationPolicy
 import org.fossify.gallery.helpers.SLIDESHOW_ANIMATION_FADE
 import org.fossify.gallery.helpers.SLIDESHOW_ANIMATION_NONE
 import org.fossify.gallery.helpers.SLIDESHOW_ANIMATION_SLIDE
@@ -458,7 +459,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
         showSystemUI()
 
-        if (intent.getBooleanExtra(SKIP_AUTHENTICATION, false)) {
+        // This viewer is exported for external VIEW/REVIEW Intents. The skip
+        // extra is caller-controlled and must never bypass the folder lock.
+        // A missing manifest lookup fails closed; the normal auth callback
+        // still owns all password decisions.
+        @Suppress("DEPRECATION")
+        val exportedOrUnknown = runCatching {
+            packageManager.getActivityInfo(componentName, 0).exported
+        }.getOrDefault(true)
+        if (ViewerAuthenticationPolicy.mayHonorSkipExtra(
+                intent.getBooleanExtra(SKIP_AUTHENTICATION, false), exportedOrUnknown
+            )) {
             initContinue()
         } else {
             handleLockedFolderOpening(mPath.getParentPath()) { success ->
