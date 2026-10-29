@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/dir_holder"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -122,4 +123,14 @@
             android:visibility="gone" />
 
     </LinearLayout>
+
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        android:id="@+id/dir_loading_progress"
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:layout_alignParentTop="true"
+        android:indeterminate="true"
+        android:visibility="gone"
+        app:trackThickness="2dp" />
+
 </RelativeLayout>

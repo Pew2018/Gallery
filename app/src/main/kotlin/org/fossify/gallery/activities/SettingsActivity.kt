@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Bundle
+import android.view.View
 import androidx.core.graphics.ColorUtils
 import org.fossify.gallery.helpers.OxygenThemeEngine
 import android.text.TextUtils
@@ -35,6 +36,27 @@ class SettingsActivity : SimpleActivity() {
 
     private var mRecycleBinContentSize = 0L
     private val binding by viewBinding(ActivitySettingsBinding::inflate)
+    private var activeSettingsCategory: String? = null
+    private val settingsPageViews = mutableListOf<View>()
+    private val settingsPageInitialVisibility = mutableListOf<Int>()
+    private lateinit var settingsHub: android.widget.LinearLayout
+
+    private data class SettingsCategory(
+        val id: String, val title: Int, val summary: Int, val icon: Int, val first: Int, val last: Int
+    )
+
+    private val settingsCategories by lazy {
+        listOf(
+            SettingsCategory("appearance", R.string.classic_settings_appearance, R.string.settings_hub_appearance_summary, R.drawable.ic_photo_filter_vector, 0, 7),
+            SettingsCategory("gallery", R.string.settings_hub_gallery, R.string.settings_hub_gallery_summary, R.drawable.ic_folders_vector, 8, 10),
+            SettingsCategory("photos", R.string.settings_hub_photos, R.string.settings_hub_photos_summary, R.drawable.ic_portrait_photo_vector, 11, 24),
+            SettingsCategory("controls", R.string.settings_hub_controls, R.string.settings_hub_controls_summary, R.drawable.ic_aspect_ratio_vector, 25, 30),
+            SettingsCategory("videos", R.string.classic_settings_video, R.string.settings_hub_videos_summary, R.drawable.ic_play_vector, 31, 39),
+            SettingsCategory("files", R.string.classic_settings_files, R.string.settings_hub_files_summary, R.drawable.ic_files_vector, 40, 53),
+            SettingsCategory("security", R.string.classic_settings_security, R.string.settings_hub_security_summary, org.fossify.commons.R.drawable.ic_lock_vector, 54, 59),
+            SettingsCategory("advanced", R.string.classic_settings_advanced, R.string.settings_hub_advanced_summary, org.fossify.commons.R.drawable.ic_settings_cog_vector, 60, 70)
+        )
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,6 +79,111 @@ class SettingsActivity : SimpleActivity() {
         OxygenSystemBars.apply(this)
         setupSettingItems()
         setupBottomNavigationOrder()
+        setupSettingsHub()
+        binding.settingsToolbar.setNavigationOnClickListener {
+            if (!navigateSettingsBack()) finish()
+        }
+    }
+
+    private fun setupSettingsHub() {
+        if (settingsPageViews.isEmpty()) {
+            settingsPageViews.addAll((0 until binding.settingsHolder.childCount).map { binding.settingsHolder.getChildAt(it) })
+            settingsPageInitialVisibility.addAll(settingsPageViews.map { it.visibility })
+            settingsHub = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setPadding(0, dp(8), 0, dp(16))
+            }
+            binding.settingsHolder.addView(settingsHub, 0)
+        }
+
+        val colors = OxygenThemeEngine.snapshot(this, config)
+        settingsHub.removeAllViews()
+        settingsHub.addView(android.widget.TextView(this).apply {
+            text = getString(R.string.settings_hub_intro)
+            textSize = 12f
+            setTextColor(colors.secondaryText)
+            setPadding(dp(16), dp(8), dp(16), dp(12))
+        }, android.widget.LinearLayout.LayoutParams(-1, -2))
+
+        settingsCategories.forEachIndexed { index, category ->
+            val row = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                isClickable = true
+                isFocusable = true
+                val value = android.util.TypedValue()
+                theme.resolveAttribute(android.R.attr.selectableItemBackground, value, true)
+                background = androidx.appcompat.content.res.AppCompatResources.getDrawable(this@SettingsActivity, value.resourceId)
+                setPadding(dp(16), dp(10), dp(16), dp(10))
+                minimumHeight = dp(68)
+                setOnClickListener { openSettingsCategory(category) }
+            }
+            row.addView(android.widget.ImageView(this).apply {
+                setImageResource(category.icon)
+                imageTintList = android.content.res.ColorStateList.valueOf(colors.interactiveAccent)
+                contentDescription = null
+            }, android.widget.LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(20) })
+            val textColumn = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.VERTICAL }
+            textColumn.addView(android.widget.TextView(this).apply {
+                text = getString(category.title)
+                textSize = 16f
+                setTextColor(colors.primaryText)
+                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            })
+            textColumn.addView(android.widget.TextView(this).apply {
+                text = getString(category.summary)
+                textSize = 12f
+                setTextColor(colors.secondaryText)
+                setPadding(0, dp(3), 0, 0)
+            })
+            row.addView(textColumn, android.widget.LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(android.widget.ImageView(this).apply {
+                setImageResource(org.fossify.commons.R.drawable.ic_chevron_right_vector)
+                imageTintList = android.content.res.ColorStateList.valueOf(colors.secondaryText)
+                contentDescription = null
+            }, android.widget.LinearLayout.LayoutParams(dp(20), dp(20)))
+            settingsHub.addView(row, android.widget.LinearLayout.LayoutParams(-1, -2))
+            if (index < settingsCategories.lastIndex) {
+                settingsHub.addView(View(this).apply {
+                    setBackgroundColor(org.fossify.gallery.helpers.OxygenThemeColors.blend(
+                        colors.pageBackground, colors.primaryText, 0.10
+                    ))
+                },
+                    android.widget.LinearLayout.LayoutParams(-1, dp(1)).apply { marginStart = dp(60) })
+            }
+        }
+        renderSettingsPage()
+    }
+
+    private fun openSettingsCategory(category: SettingsCategory) {
+        activeSettingsCategory = category.id
+        binding.settingsToolbar.title = getString(category.title)
+        renderSettingsPage()
+        binding.settingsNestedScrollview.scrollTo(0, 0)
+    }
+
+    private fun renderSettingsPage() {
+        val selected = settingsCategories.firstOrNull { it.id == activeSettingsCategory }
+        settingsHub.visibility = if (selected == null) View.VISIBLE else View.GONE
+        settingsPageViews.forEachIndexed { index, view ->
+            view.visibility = if (selected != null && index in selected.first..selected.last &&
+                settingsPageInitialVisibility[index] == View.VISIBLE) View.VISIBLE else View.GONE
+        }
+        binding.settingsToolbar.title = getString(selected?.title ?: R.string.settings)
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
+
+    private fun navigateSettingsBack(): Boolean {
+        if (activeSettingsCategory == null) return false
+        activeSettingsCategory = null
+        renderSettingsPage()
+        binding.settingsNestedScrollview.scrollTo(0, 0)
+        return true
+    }
+
+    override fun onBackPressed() {
+        if (!navigateSettingsBack()) super.onBackPressed()
     }
 
     private fun setupSettingItems() {
@@ -629,6 +756,8 @@ class SettingsActivity : SimpleActivity() {
 
     private fun setupEnablePullToRefresh() {
         binding.settingsEnablePullToRefresh.isChecked = config.enablePullToRefresh
+        // Pull-to-refresh is now a core navigation affordance in every gallery view.
+        binding.settingsEnablePullToRefreshHolder.beGone()
         binding.settingsEnablePullToRefreshHolder.setOnClickListener {
             binding.settingsEnablePullToRefresh.toggle()
             config.enablePullToRefresh = binding.settingsEnablePullToRefresh.isChecked

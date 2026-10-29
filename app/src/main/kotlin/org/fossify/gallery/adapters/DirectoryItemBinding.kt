@@ -3,6 +3,7 @@ package org.fossify.gallery.adapters
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import org.fossify.commons.views.MySquareImageView
 import org.fossify.gallery.databinding.DirectoryItemGridRoundedCornersBinding
 import org.fossify.gallery.databinding.DirectoryItemGridSquareBinding
@@ -21,6 +22,7 @@ interface DirectoryItemBinding {
     val dirLocation: ImageView
     val dirDragHandle: ImageView
     val dirDragHandleWrapper: ViewGroup?
+    val dirLoadingProgress: LinearProgressIndicator
 }
 
 class ListDirectoryItemBinding(val binding: DirectoryItemListBinding) : DirectoryItemBinding {
@@ -36,6 +38,7 @@ class ListDirectoryItemBinding(val binding: DirectoryItemListBinding) : Director
     override val dirLocation: ImageView = binding.dirLocation
     override val dirDragHandle: ImageView = binding.dirDragHandle
     override val dirDragHandleWrapper: ViewGroup? = null
+    override val dirLoadingProgress: LinearProgressIndicator = binding.dirLoadingProgress
 }
 
 fun DirectoryItemListBinding.toItemBinding() = ListDirectoryItemBinding(this)
@@ -53,6 +56,7 @@ class GridDirectoryItemSquareBinding(val binding: DirectoryItemGridSquareBinding
     override val dirLocation: ImageView = binding.dirLocation
     override val dirDragHandle: ImageView = binding.dirDragHandle
     override val dirDragHandleWrapper: ViewGroup = binding.dirDragHandleWrapper
+    override val dirLoadingProgress: LinearProgressIndicator = binding.dirLoadingProgress
 }
 
 fun DirectoryItemGridSquareBinding.toItemBinding() = GridDirectoryItemSquareBinding(this)
@@ -70,6 +74,7 @@ class GridDirectoryItemRoundedCornersBinding(val binding: DirectoryItemGridRound
     override val dirLocation: ImageView = binding.dirLocation
     override val dirDragHandle: ImageView = binding.dirDragHandle
     override val dirDragHandleWrapper: ViewGroup = binding.dirDragHandleWrapper
+    override val dirLoadingProgress: LinearProgressIndicator = binding.dirLoadingProgress
 }
 
 fun DirectoryItemGridRoundedCornersBinding.toItemBinding() = GridDirectoryItemRoundedCornersBinding(this)

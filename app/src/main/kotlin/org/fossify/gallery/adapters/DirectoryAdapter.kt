@@ -138,6 +138,7 @@ class DirectoryAdapter(
     private var lockedFolderPaths = ArrayList<String>()
     @Volatile private var favoriteFolderPaths: Set<String> = emptySet()
     private var isDragAndDropping = false
+    private var isRefreshLoading = false
     private var startReorderDragListener: StartReorderDragListener? = null
 
     private var showMediaCount = config.showFolderMediaCount
@@ -179,6 +180,12 @@ class DirectoryAdapter(
     }
 
     override fun getItemCount() = dirs.size
+
+    fun setRefreshLoading(loading: Boolean) {
+        if (isRefreshLoading == loading) return
+        isRefreshLoading = loading
+        if (itemCount > 0) notifyItemChanged(0)
+    }
 
     override fun prepareActionMode(menu: Menu) {
         val selectedPaths = getSelectedPaths()
@@ -898,6 +905,8 @@ class DirectoryAdapter(
     private fun setupView(view: View, directory: Directory, holder: ViewHolder) {
         val isSelected = selectedKeys.contains(directory.path.hashCode())
         bindItem(view).apply {
+            dirLoadingProgress.visibility = if (isRefreshLoading && holder.bindingAdapterPosition == 0) View.VISIBLE else View.GONE
+            dirLoadingProgress.setIndicatorColor(properPrimaryColor)
             dirPath?.text = "${directory.path.substringBeforeLast("/")}/"
             val thumbnailType = when {
                 directory.tmb.isVideoFast() -> TYPE_VIDEOS
@@ -1062,7 +1071,7 @@ class DirectoryAdapter(
     }
 
     override fun onRowClear(myViewHolder: ViewHolder?) {
-        swipeRefreshLayout?.isEnabled = activity.config.enablePullToRefresh
+        swipeRefreshLayout?.isEnabled = true
     }
 
     override fun onChange(position: Int) = dirs.getOrNull(position)?.getBubbleText(directorySorting, activity, dateFormat, timeFormat) ?: ""

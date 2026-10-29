@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.os.Handler
+import android.view.View
 import android.view.ViewGroup
 import android.widget.RelativeLayout
 import androidx.core.net.toUri
@@ -169,6 +170,29 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mStoredThumbnailSpacing = 0
 
     private val binding by viewBinding(ActivityMediaBinding::inflate)
+    private var mediaHeaderProgress: com.google.android.material.progressindicator.LinearProgressIndicator? = null
+
+    private fun setupMediaProgressIndicator() {
+        if (mediaHeaderProgress != null) return
+        mediaHeaderProgress = com.google.android.material.progressindicator.LinearProgressIndicator(this).apply {
+            isIndeterminate = true
+            visibility = View.GONE
+            setIndicatorColor(getProperPrimaryColor())
+            trackThickness = (2 * resources.displayMetrics.density + 0.5f).toInt()
+        }.also { indicator ->
+            binding.mediaMenu.addView(indicator, android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (2 * resources.displayMetrics.density + 0.5f).toInt()
+            ))
+        }
+    }
+
+    private fun setMediaLoading(loading: Boolean) {
+        mediaHeaderProgress?.apply {
+            setIndicatorColor(getProperPrimaryColor())
+            visibility = if (loading) View.VISIBLE else View.GONE
+        }
+    }
 
     companion object {
         var mMedia = ArrayList<ThumbnailItem>()
@@ -177,6 +201,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
+        setupMediaProgressIndicator()
+        binding.mediaRefreshLayout.setColorSchemeColors(getProperPrimaryColor())
+        binding.mediaRefreshLayout.isEnabled = true
 
         intent.apply {
             mIsGetImageIntent = getBooleanExtra(GET_IMAGE_INTENT, false)
@@ -299,7 +326,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
         binding.mediaFastscroller.updateColors(primaryColor)
         styleFastScroller()
-        binding.mediaRefreshLayout.isEnabled = config.enablePullToRefresh
+        binding.mediaRefreshLayout.isEnabled = true
         getMediaAdapter()?.apply {
             dateFormat = config.dateFormat
             timeFormat = getTimeFormat()
@@ -333,6 +360,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     override fun onPause() {
         super.onPause()
         mIsGettingMedia = false
+        setMediaLoading(false)
         mediaLoadRequests.invalidate()
         mediaScanGeneration++
         binding.mediaRefreshLayout.isRefreshing = false
@@ -445,7 +473,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         binding.mediaMenu.onSearchTextChangedListener = { text ->
             mLastSearchedText = text
             searchQueryChanged(text)
-            binding.mediaRefreshLayout.isEnabled = text.isEmpty() && config.enablePullToRefresh
+            binding.mediaRefreshLayout.isEnabled = text.isEmpty()
         }
 
         binding.mediaMenu.requireToolbar().setOnMenuItemClickListener { menuItem ->
@@ -793,6 +821,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val request = mediaLoadRequests.begin()
         mCurrAsyncTask?.stopFetching()
         mIsGettingMedia = true
+        setMediaLoading(true)
         if (mLoadedInitialPhotos) {
             startAsyncTask(request)
         } else {
@@ -835,6 +864,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 runOnUiThread {
                     if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed) {
                         mIsGettingMedia = false
+                        setMediaLoading(false)
                         binding.loadingIndicator.hide()
                         binding.mediaRefreshLayout.isRefreshing = false
                         // Preserve cached items and do not misreport scan failure as an empty album.
@@ -1215,6 +1245,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
             if (!isFromCache) {
                 mIsGettingMedia = false
+                setMediaLoading(false)
                 completedMediaRequest = request
             }
             checkLastMediaChanged()

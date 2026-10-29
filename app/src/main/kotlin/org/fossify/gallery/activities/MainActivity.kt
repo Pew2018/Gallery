@@ -9,6 +9,7 @@ import android.provider.MediaStore
 import android.provider.MediaStore.Images
 import android.provider.MediaStore.Video
 import android.view.ViewGroup
+import android.view.View
 import android.widget.RelativeLayout
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -231,10 +232,41 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mStoredPrimaryColor = 0
     private var mStoredStyleString = ""
     private val binding by viewBinding(ActivityMainBinding::inflate)
+    private var directoryHeaderProgress: com.google.android.material.progressindicator.LinearProgressIndicator? = null
+
+    private fun setupDirectoryProgressIndicator() {
+        if (directoryHeaderProgress != null) return
+        directoryHeaderProgress = com.google.android.material.progressindicator.LinearProgressIndicator(this).apply {
+            isIndeterminate = true
+            visibility = View.GONE
+            setIndicatorColor(getProperPrimaryColor())
+            trackThickness = (2 * resources.displayMetrics.density + 0.5f).toInt()
+        }.also { indicator ->
+            binding.mainMenu.addView(indicator, android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (2 * resources.displayMetrics.density + 0.5f).toInt()
+            ))
+        }
+    }
+
+    private fun setDirectoryLoading(loading: Boolean) {
+        val update = {
+            directoryHeaderProgress?.apply {
+                setIndicatorColor(getProperPrimaryColor())
+                visibility = if (loading) View.VISIBLE else View.GONE
+            }
+            getRecyclerAdapter()?.setRefreshLoading(loading)
+        }
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) update()
+        else runOnUiThread { update() }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
+        setupDirectoryProgressIndicator()
+        binding.directoriesRefreshLayout.setColorSchemeColors(getProperPrimaryColor())
+        binding.directoriesRefreshLayout.isEnabled = true
         appLaunched(BuildConfig.APPLICATION_ID)
 
         if (savedInstanceState == null) {
@@ -408,7 +440,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         binding.directoriesFastscroller.updateColors(primaryColor)
         styleFastScroller()
-        binding.directoriesRefreshLayout.isEnabled = config.enablePullToRefresh
+        binding.directoriesRefreshLayout.isEnabled = true
         getRecyclerAdapter()?.apply {
             dateFormat = config.dateFormat
             timeFormat = getTimeFormat()
@@ -441,6 +473,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         if (!mShowingFolderFavorites) {
             binding.directoriesRefreshLayout.isRefreshing = false
             mIsGettingDirs = false
+            setDirectoryLoading(false)
         }
         storeStateVariables()
         mLastMediaHandler.removeCallbacksAndMessages(null)
@@ -451,6 +484,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         favoriteViewForeground = false
         if (mShowingFolderFavorites) {
             favoriteLoad.invalidate()
+            mIsGettingDirs = false
+            setDirectoryLoading(false)
             mFavoriteHiddenAuthorized = false
             mFavoriteExcludedAuthorized = false
             // A canceled external authentication has no failure callback in
@@ -606,8 +641,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         binding.mainMenu.onSearchTextChangedListener = { text ->
             setupAdapter(mDirsIgnoringSearch, text)
-            binding.directoriesRefreshLayout.isEnabled =
-                text.isEmpty() && config.enablePullToRefresh
+            binding.directoriesRefreshLayout.isEnabled = text.isEmpty()
             binding.directoriesSwitchSearching.beVisibleIf(text.isNotEmpty())
         }
 
@@ -782,6 +816,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         mShouldStopFetching = true
         mIsGettingDirs = true
+        setDirectoryLoading(true)
         val getImages = mIsPickImageIntent || mIsGetImageContentIntent
         val getVideos = mIsPickVideoIntent || mIsGetVideoContentIntent
         getCachedDirectories(getVideos && !getImages, getImages && !getVideos) {
@@ -861,6 +896,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             FavoriteFolderLoadKey(showHidden, showExcluded, authorizationPending, excludedRoots),
             force
         ) ?: return
+        mIsGettingDirs = true
+        setDirectoryLoading(true)
 
         ensureBackgroundThread {
             try {
@@ -924,6 +961,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     mDirs = selected
                     mDirsIgnoringSearch = ArrayList(selected)
                     mLoadedInitialPhotos = true
+                    mIsGettingDirs = false
+                    setDirectoryLoading(false)
                     setupAdapter(selected)
                     checkPlaceholderVisibility(selected)
                     if (selected.isEmpty() && authorizationPending) {
@@ -937,6 +976,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 runOnUiThread {
                     if (!favoriteViewForeground || isFinishing || isDestroyed ||
                         !favoriteLoad.fail(request)) return@runOnUiThread
+                    mIsGettingDirs = false
+                    setDirectoryLoading(false)
                     binding.directoriesRefreshLayout.isRefreshing = false
                     android.widget.Toast.makeText(this,
                         "收藏文件夹加载失败，请下拉重试", android.widget.Toast.LENGTH_LONG).show()
@@ -1023,6 +1064,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     mLastMediaFetcher?.shouldStop = true
                     mShouldStopFetching = true
                     mIsGettingDirs = false
+                    setDirectoryLoading(false)
                     binding.directoriesGrid.adapter = null
                     getDirectories()
                 }
@@ -1044,6 +1086,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun loadCategorizedFolders() {
         if (mIsGettingDirs) return
         mIsGettingDirs = true
+        setDirectoryLoading(true)
         val requestVersion = ++categorizedLoadVersion
         val requestedVisibility = mFolderVisibility.copyOf()
         mLastMediaFetcher?.shouldStop = true
@@ -1088,6 +1131,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     mDirsIgnoringSearch = ArrayList(visible)
                     mLoadedInitialPhotos = true
                     mIsGettingDirs = false
+                    setDirectoryLoading(false)
                     setupAdapter(visible)
                     checkPlaceholderVisibility(visible)
                     binding.directoriesRefreshLayout.isRefreshing = false
@@ -1098,6 +1142,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     if (isFinishing || isDestroyed || requestVersion != categorizedLoadVersion)
                         return@runOnUiThread
                     mIsGettingDirs = false
+                    setDirectoryLoading(false)
                     binding.directoriesRefreshLayout.isRefreshing = false
                     android.widget.Toast.makeText(this, "文件夹加载失败，请下拉重试",
                         android.widget.Toast.LENGTH_LONG).show()
@@ -1578,6 +1623,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             return
         }
         mIsGettingDirs = false
+        setDirectoryLoading(false)
         mShouldStopFetching = false
 
         // if hidden item showing is disabled but all Favorite items are hidden, hide the Favorites folder
@@ -2046,6 +2092,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 }
             }.apply {
                 setupZoomListener(mZoomListener)
+                setRefreshLoading(mIsGettingDirs)
                 runOnUiThread {
                     binding.directoriesGrid.adapter = this
                     setupScrollDirection()
