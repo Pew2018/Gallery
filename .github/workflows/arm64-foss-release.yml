@@ -72,6 +72,9 @@ jobs:
       - name: Release unit tests
         run: ./gradlew :app:testFossReleaseUnitTest -PABI_SPLITS=true -PABI_TARGET=arm64-v8a --stacktrace
 
+      - name: Android lint (FOSS Release)
+        run: ./gradlew :app:lintFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a --stacktrace
+
       - name: Assemble FOSS arm64-v8a Release ONLY
         run: ./gradlew :app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a --stacktrace
 
@@ -103,6 +106,8 @@ jobs:
           fi
           mkdir -p ci-apk
           cp "$APK" ci-apk/gallery-foss-arm64-v8a-release.apk
+          echo "Verified source commit: $GITHUB_SHA"
+          echo "APK SHA-256: $(sha256sum "$APK" | awk '{print $1}')"
           echo "Signing mode: $SIGNING_MODE"
 
       - name: Upload installable arm64 Release APK
