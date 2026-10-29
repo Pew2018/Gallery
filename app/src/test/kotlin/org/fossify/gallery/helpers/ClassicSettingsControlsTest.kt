@@ -457,7 +457,10 @@ class ClassicSettingsControlsTest {
     @Test fun realLayoutRippleReceivesTouchStateAndReleasesWithoutDuplicateWrites() {
         val ctx = context()
         for (dark in listOf(false, true)) for (rtl in listOf(false, true)) {
+            val controller = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).setup()
             val page = LayoutInflater.from(ctx).inflate(R.layout.activity_settings, null)
+            // Ancestor visibility/lifecycle dispatch requires a real attached hierarchy.
+            controller.get().setContentView(page)
             val row = page.findViewById<ViewGroup>(R.id.settings_show_hidden_items_holder)
             val control = page.findViewById<ClassicSettingsSwitch>(R.id.settings_show_hidden_items)
             row.layoutDirection = if (rtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
@@ -465,6 +468,7 @@ class ClassicSettingsControlsTest {
             skin(row, dark)
             measure(row, (360 * ctx.resources.displayMetrics.density).toInt())
             assertSame(row, control.parent)
+            assertTrue("Lifecycle test needs an attached row", row.isAttachedToWindow)
             val ripple = row.background
             assertTrue("Runtime row must own a RippleDrawable", ripple is android.graphics.drawable.RippleDrawable)
             assertFalse(control.background is android.graphics.drawable.RippleDrawable)
@@ -538,9 +542,18 @@ class ClassicSettingsControlsTest {
             event(MotionEvent.ACTION_DOWN, 20f)
             control.dispatchWindowVisibilityChanged(View.GONE)
             assertReleased()
+            control.dispatchWindowVisibilityChanged(View.VISIBLE)
+            val holder = row.parent as ViewGroup
+            val rowIndex = holder.indexOfChild(row)
+            event(MotionEvent.ACTION_DOWN, 20f)
+            holder.removeView(row)
+            assertReleased()
+            holder.addView(row, rowIndex)
+            measure(row, (360 * ctx.resources.displayMetrics.density).toInt())
             event(MotionEvent.ACTION_DOWN, 20f)
             row.visibility = View.GONE
             assertReleased()
+            controller.pause().stop().destroy()
         }
     }
 
