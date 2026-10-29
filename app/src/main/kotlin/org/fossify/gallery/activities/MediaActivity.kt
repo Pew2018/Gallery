@@ -605,7 +605,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun styleFastScroller() {
-        OxygenFastScroller.apply(binding.mediaFastscroller,
+        OxygenFastScroller.apply(binding.mediaFastscroller, binding.mediaGrid,
             OxygenThemeEngine.snapshot(this, config),
             if (mGallerySection == null) 0 else resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height))
     }

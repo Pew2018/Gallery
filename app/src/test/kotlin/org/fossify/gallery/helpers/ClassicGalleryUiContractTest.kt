@@ -31,10 +31,13 @@ class ClassicGalleryUiContractTest {
             assertNotNull(root.findViewById<ImageView>(R.id.dir_check))
             assertNotNull(root.findViewById<ImageView>(R.id.dir_pin))
             assertNotNull(root.findViewById<ImageView>(R.id.dir_lock))
+            val lock = root.findViewById<ImageView>(R.id.dir_lock)
+            assertEquals(ImageView.ScaleType.CENTER, lock.scaleType)
+            assertEquals(0, lock.paddingLeft)
         }
         val dp = activity.resources.getDimension(R.dimen.tmb_shadow_height) /
             activity.resources.displayMetrics.density
-        assertTrue(dp in 68f..84f)
+        assertTrue(dp in 64f..72f)
         val scrim = activity.getDrawable(R.drawable.oxygen_classic_folder_label)
         assertTrue(scrim is GradientDrawable)
         val colors = (scrim as GradientDrawable).colors

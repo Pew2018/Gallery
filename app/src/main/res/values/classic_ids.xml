@@ -1,3 +1,4 @@
 <resources>
     <item type="id" name="classic_control_skin" />
+    <item type="id" name="classic_fast_scroll_observer" />
 </resources>

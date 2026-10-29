@@ -116,7 +116,8 @@ object GalleryBottomBar {
                 isFocusable = true
                 isSelected = selected
                 val accessibilityLabel = label
-                contentDescription = if (selected) "$accessibilityLabel，当前页面" else accessibilityLabel
+                contentDescription = if (selected) "$accessibilityLabel, ${activity.getString(R.string.classic_selected)}"
+                    else accessibilityLabel
                 this.background = RippleDrawable(
                     ColorStateList.valueOf(Color.argb(32, Color.red(primary), Color.green(primary), Color.blue(primary))),
                     ColorDrawable(Color.TRANSPARENT),

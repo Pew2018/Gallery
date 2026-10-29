@@ -56,11 +56,13 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
         binding.searchEmptyTextPlaceholder.setTextColor(getProperTextColor())
         getAllMedia()
         binding.searchFastscroller.updateColors(getProperPrimaryColor())
+        styleFastScroller()
     }
 
     override fun onResume() {
         super.onResume()
         updateMenuColors()
+        styleFastScroller()
     }
 
     override fun onStop() {
@@ -243,6 +245,14 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
         val viewType = config.getFolderViewType(SHOW_ALL)
         val scrollHorizontally = config.scrollHorizontally && viewType == VIEW_TYPE_GRID
         binding.searchFastscroller.setScrollVertically(!scrollHorizontally)
+        styleFastScroller()
+    }
+
+    private fun styleFastScroller() {
+        org.fossify.gallery.helpers.OxygenFastScroller.apply(
+            binding.searchFastscroller, binding.searchGrid,
+            org.fossify.gallery.helpers.OxygenThemeEngine.snapshot(this, config)
+        )
     }
 
     private fun getAllMedia() {

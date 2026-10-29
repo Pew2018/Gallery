@@ -22,6 +22,12 @@ import org.fossify.gallery.models.ThumbnailItem
 import org.fossify.gallery.models.ThumbnailSection
 
 class PickMediumDialog(val activity: BaseSimpleActivity, val path: String, val callback: (path: String) -> Unit) {
+    private fun styleFastScroller() {
+        org.fossify.gallery.helpers.OxygenFastScroller.apply(
+            binding.mediaFastscroller, binding.mediaGrid,
+            org.fossify.gallery.helpers.OxygenThemeEngine.snapshot(activity, config)
+        )
+    }
     private var dialog: AlertDialog? = null
     private var shownMedia = ArrayList<ThumbnailItem>()
     private val binding = DialogMediumPickerBinding.inflate(activity.layoutInflater)
@@ -36,6 +42,7 @@ class PickMediumDialog(val activity: BaseSimpleActivity, val path: String, val c
         }
 
         binding.mediaFastscroller.updateColors(activity.getProperPrimaryColor())
+        styleFastScroller()
 
         activity.getAlertDialogBuilder()
             .setPositiveButton(org.fossify.commons.R.string.ok, null)
@@ -85,6 +92,7 @@ class PickMediumDialog(val activity: BaseSimpleActivity, val path: String, val c
         binding.apply {
             mediaGrid.adapter = adapter
             mediaFastscroller.setScrollVertically(!scrollHorizontally)
+            styleFastScroller()
         }
         handleGridSpacing(media)
     }

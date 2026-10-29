@@ -54,6 +54,12 @@ class PickDirectoryDialog(
     val isPickingFolderForWidget: Boolean,
     val callback: (path: String) -> Unit
 ) {
+    private fun styleFastScroller() {
+        org.fossify.gallery.helpers.OxygenFastScroller.apply(
+            binding.directoriesFastscroller, binding.directoriesGrid,
+            org.fossify.gallery.helpers.OxygenThemeEngine.snapshot(activity, activity.config)
+        )
+    }
     private var dialog: AlertDialog? = null
     private val selectionDelivered = AtomicBoolean(false)
     private var directoryLoadVersion = 0
@@ -81,6 +87,7 @@ class PickDirectoryDialog(
         }
 
         binding.directoriesFastscroller.updateColors(activity.getProperPrimaryColor())
+        styleFastScroller()
         binding.directoriesLoading.indeterminateTintList = ColorStateList.valueOf(
             OxygenClassicPalette.readableAccent(activity.getProperPrimaryColor(), activity.getProperBackgroundColor())
         )
@@ -99,7 +106,11 @@ class PickDirectoryDialog(
             activity.setupDialogStuff(binding.root, this, org.fossify.commons.R.string.select_destination) { alertDialog ->
                 dialog = alertDialog
                 OxygenClassicDialog.apply(activity, alertDialog, binding.root)
-                binding.root.setBackgroundColor(OxygenThemeEngine.dialogSurface(activity, config))
+                binding.root.background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(OxygenThemeEngine.dialogSurface(activity, config))
+                    cornerRadius = 3f * activity.resources.displayMetrics.density
+                }
+                binding.root.clipToOutline = true
                 binding.directoriesCurrentPath.setTextColor(activity.getProperTextColor())
                 binding.directoriesShowHidden.apply {
                     // Commons is a Material FAB. Restore the circular 2017 shape
@@ -306,6 +317,7 @@ class PickDirectoryDialog(
         binding.apply {
             directoriesGrid.adapter = adapter
             directoriesFastscroller.setScrollVertically(!scrollHorizontally)
+            styleFastScroller()
         }
     }
 }

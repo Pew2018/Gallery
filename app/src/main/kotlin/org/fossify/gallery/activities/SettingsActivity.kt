@@ -159,7 +159,8 @@ class SettingsActivity : SimpleActivity() {
             val colors = getAppIconColors()
             val tokens = OxygenThemeEngine.snapshot(this, config)
             val grid = android.widget.GridLayout(this).apply {
-                columnCount = 4
+                val widthDp = resources.displayMetrics.widthPixels / density
+                columnCount = ((widthDp - 72f) / 72f).toInt().coerceIn(2, 4)
                 setPadding(dp(12), dp(8), dp(12), dp(8))
             }
             val builder = OxygenClassicDialog.builder(this, getString(R.string.classic_app_icon))

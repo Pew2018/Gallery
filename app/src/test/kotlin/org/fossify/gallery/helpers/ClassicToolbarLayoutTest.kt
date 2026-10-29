@@ -7,8 +7,10 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.appbar.MaterialToolbar
 import org.fossify.commons.views.MySearchMenu
 import org.fossify.gallery.R
+import org.fossify.gallery.extensions.config
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -60,5 +62,21 @@ class ClassicToolbarLayoutTest {
         val navigation = page.findViewById<TextView>(R.id.settings_bottom_navigation_order)
         assertEquals(navigation.left, theme.left)
         assertEquals(16f, theme.textSize / activity.resources.displayMetrics.scaledDensity, 0.2f)
+    }
+
+    @Test fun viewerPopupTextIsReadableInBothAppearanceModes() {
+        val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
+        val toolbar = MaterialToolbar(activity)
+        activity.config.oxygenThemeActivated = true
+        for (mode in listOf("light", "dark")) {
+            activity.config.oxygenAppearanceMode = mode
+            OxygenToolbarStyle.applyViewerPopup(activity, toolbar)
+            val attributes = toolbar.popupContext.obtainStyledAttributes(
+                intArrayOf(android.R.attr.textColorPrimary))
+            val text = attributes.getColorStateList(0)!!.defaultColor
+            attributes.recycle()
+            val surface = if (mode == "light") 0xFFFFFFFF.toInt() else 0xFF303030.toInt()
+            assertTrue(OxygenThemeColors.contrastRatio(text, surface) >= 4.5)
+        }
     }
 }

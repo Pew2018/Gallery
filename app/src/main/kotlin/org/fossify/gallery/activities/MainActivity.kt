@@ -2083,7 +2083,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     private fun styleFastScroller() {
-        OxygenFastScroller.apply(binding.directoriesFastscroller,
+        OxygenFastScroller.apply(binding.directoriesFastscroller, binding.directoriesGrid,
             OxygenThemeEngine.snapshot(this, config),
             if (mIsThirdPartyIntent) 0 else resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height))
     }
