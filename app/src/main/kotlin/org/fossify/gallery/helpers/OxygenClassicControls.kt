@@ -160,9 +160,14 @@ object OxygenClassicControls {
                 }
                 else -> colors.primaryText
             }
-            return if (kind == "thumb" && pressed && enabled)
-                OxygenThemeColors.blend(base, colors.pageBackground, 0.07)
-            else base
+            if (kind == "thumb" && pressed && enabled) {
+                val pressedFace = OxygenThemeColors.blend(base, colors.pageBackground, 0.07)
+                // Near-white accents can quantize to the unchanged RGB.
+                return if (pressedFace == base)
+                    OxygenThemeColors.blend(base, colors.primaryText, 0.08)
+                else pressedFace
+            }
+            return base
         }
         override fun draw(canvas: Canvas) {
             val enabled = state.contains(android.R.attr.state_enabled)

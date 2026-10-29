@@ -30,11 +30,12 @@ import java.io.File
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ClassicSettingsControlsTest {
     private fun context(): Context = ContextThemeWrapper(RuntimeEnvironment.getApplication(), R.style.AppTheme)
-    private fun tokens(dark: Boolean) = OxygenThemeColors.resolve(true, if (dark) "dark" else "light",
-        false, 0xFF42A5F5.toInt(), -1, 0xFF212121.toInt())
+    private fun tokens(dark: Boolean, accent: Int = 0xFF42A5F5.toInt()) =
+        OxygenThemeColors.resolve(true, if (dark) "dark" else "light",
+            false, accent, -1, 0xFF212121.toInt())
     private fun skin(view: View, dark: Boolean) {
         val t = tokens(dark)
-        OxygenClassicControls.applySwitches(view, t.rawAccent, t.primaryText, t.pageBackground)
+        OxygenClassicControls.applySwitches(view, t)
         ClassicSettingsText.apply(view, t)
     }
     private fun measure(view: View, width: Int) {
@@ -149,8 +150,8 @@ class ClassicSettingsControlsTest {
     @Test fun brightAndDarkCustomSeedsRemainVisibleAndPressedAndDisabledAreDistinct() {
         val control = ClassicSettingsSwitch(context()).apply { isChecked = true }
         for (dark in listOf(false, true)) for (seed in listOf(-1, 0xFF000000.toInt(), 0xFF7DC22F.toInt())) {
-            val t = tokens(dark)
-            OxygenClassicControls.applySwitches(control, seed, t.primaryText, t.pageBackground)
+            val t = tokens(dark, seed)
+            OxygenClassicControls.applySwitches(control, t)
             val drawable = control.thumbDrawable
             fun pixel(vararg states: Int): Int {
                 drawable.state = states
@@ -160,7 +161,8 @@ class ClassicSettingsControlsTest {
                 return bitmap.getPixel(20, 24)
             }
             val normal = pixel(android.R.attr.state_enabled, android.R.attr.state_checked)
-            assertTrue(OxygenThemeColors.contrastRatio(normal, t.pageBackground) >= 4.5)
+            // Knob keeps the user's exact RGB; it is not adjusted as if it were text.
+            assertEquals(OxygenThemeColors.opaque(seed), normal)
             assertNotEquals(normal, pixel(android.R.attr.state_enabled, android.R.attr.state_checked, android.R.attr.state_pressed))
             assertNotEquals(normal, pixel(android.R.attr.state_checked))
             assertNotEquals(pixel(android.R.attr.state_checked), pixel())
@@ -300,18 +302,17 @@ class ClassicSettingsControlsTest {
         row.addView(control)
         var callbackCount = 0
         row.setOnClickListener { callbackCount++ }
-        val t = tokens(false)
-        OxygenClassicControls.applySwitches(row, 0xFF0071CD.toInt(), t.primaryText, t.pageBackground)
+        OxygenClassicControls.applySwitches(row, tokens(false, 0xFF0071CD.toInt()))
         val oldThumb = control.thumbDrawable
         val oldTrack = control.trackDrawable
-        OxygenClassicControls.applySwitches(row, 0xFF7DC22F.toInt(), t.primaryText, t.pageBackground)
+        OxygenClassicControls.applySwitches(row, tokens(false, 0xFF7DC22F.toInt()))
         assertNotSame(oldThumb, control.thumbDrawable)
         assertNotSame(oldTrack, control.trackDrawable)
         assertTrue(control.isChecked)
         assertFalse(control.isEnabled)
         assertEquals(0, callbackCount)
         val nextThumb = control.thumbDrawable
-        OxygenClassicControls.applySwitches(row, 0xFF7DC22F.toInt(), t.primaryText, t.pageBackground)
+        OxygenClassicControls.applySwitches(row, tokens(false, 0xFF7DC22F.toInt()))
         assertSame(nextThumb, control.thumbDrawable)
         control.performClick()
         assertEquals(0, callbackCount)
