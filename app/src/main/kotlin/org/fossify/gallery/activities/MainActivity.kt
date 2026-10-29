@@ -1,5 +1,7 @@
 package org.fossify.gallery.activities
 
+import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
+import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
@@ -1576,11 +1578,16 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     private fun itemClicked(path: String) {
+        val protectedFolder = FolderUnlockSessionManager.findProtectedAncestor(
+            path, config::isFolderProtected
+        )
         val openAuthenticated = {
-            handleLockedFolderOpening(path) { success ->
+            handleLockedFolderOpening(protectedFolder ?: path) { success ->
                 if (success) {
                     Intent(this, MediaActivity::class.java).apply {
-                        putExtra(SKIP_AUTHENTICATION, true)
+                        if (protectedFolder != null) {
+                            putExtra(FOLDER_UNLOCK_SESSION, FolderUnlockSessionManager.createSession(path))
+                        }
                         putExtra(DIRECTORY, path)
                         handleMediaIntent(this)
                     }
