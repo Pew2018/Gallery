@@ -5,7 +5,6 @@ import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
-import android.view.accessibility.AccessibilityEvent
 import androidx.appcompat.widget.SwitchCompat
 import kotlin.math.abs
 
@@ -18,19 +17,28 @@ class ClassicSettingsSwitch @JvmOverloads constructor(
 ) : SwitchCompat(context, attrs) {
     private var downX = 0f
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
+    private var dispatchingAccessibleClick = false
+
+    override fun toggle() {
+        // Suppress only CompoundButton.performClick's implicit toggle.
+        // The permission-aware parent row remains the sole state/persistence owner.
+        if (!dispatchingAccessibleClick) super.toggle()
+    }
 
     override fun performClick(): Boolean {
         val row = parent as? View ?: return false
         if (!isEnabled || !row.isEnabled) return false
 
-        // CompoundButton.performClick() toggles before dispatching its click.
-        // Never call it here: the parent row is the only authorization and
-        // persistence owner, and a transient native toggle causes double animation.
-        // Keep the switch accessible for keyboard/TalkBack while dispatching
-        // exactly one action to the row.
-        val handled = row.performClick()
-        if (handled) sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_CLICKED)
-        return handled
+        // Call the platform click contract for keyboard and accessibility.
+        // A guarded toggle() avoids the transient native checked state and
+        // duplicate animation before the parent row authorizes the real change.
+        dispatchingAccessibleClick = true
+        val accessibilityHandled = try {
+            super.performClick()
+        } finally {
+            dispatchingAccessibleClick = false
+        }
+        return row.performClick() || accessibilityHandled
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
