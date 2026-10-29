@@ -5,6 +5,8 @@ package org.fossify.gallery.activities
 import org.fossify.commons.helpers.REAL_FILE_PATH
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_MEDIA_PATH
+import org.fossify.gallery.helpers.FAVORITE_ACCESS_SESSION
+import org.fossify.gallery.helpers.FavoriteAccessSessionManager
 import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import org.fossify.commons.extensions.handleLockedFolderOpening
 import org.fossify.commons.extensions.getRealPathFromURI
@@ -149,6 +151,20 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
     override val appBarLayout: AppBarLayout
         get() = binding.videoAppbar
 
+    private val favoriteListenerId = java.util.UUID.randomUUID().toString()
+    private var favoriteMediaPath: String? = null
+    private val favoriteSessionId get() = intent.getStringExtra(FAVORITE_ACCESS_SESSION)
+
+    private fun checkFavoriteVideo(): Boolean {
+        if (!intent.hasExtra(FAVORITE_ACCESS_SESSION)) return true
+        val path = favoriteMediaPath ?: return false
+        if (FavoriteAccessSessionManager.isMediaAuthorized(favoriteSessionId, path)) return true
+        pauseVideo()
+        releaseExoPlayer()
+        finish()
+        return false
+    }
+
     public override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
@@ -173,6 +189,11 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
         )
         setupOptionsMenu()
         setupOrientation()
+        FavoriteAccessSessionManager.addRevocationListener(favoriteListenerId) { revoked ->
+            if (revoked == favoriteSessionId) runOnUiThread {
+                if (!checkFavoriteVideo()) finish()
+            }
+        }
         authenticateThenInitPlayer()
     }
 
@@ -190,6 +211,12 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
         // Only the internal player launch helper supplies this path. Never use
         // an unverified REAL_FILE_PATH forwarded by an exported entry point.
         val mediaPath = uriPath ?: intent.getStringExtra(FOLDER_UNLOCK_MEDIA_PATH)
+        if (intent.hasExtra(FAVORITE_ACCESS_SESSION)) {
+            favoriteMediaPath = mediaPath
+            if (mediaPath == null || !checkFavoriteVideo()) { finish(); return }
+            initPlayer()
+            return
+        }
         if (mediaPath.isNullOrBlank()) {
             // Do not play an unresolved Gallery-owned provider URI: its real
             // file could belong to a protected folder.
@@ -220,6 +247,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
 
     override fun onResume() {
         super.onResume()
+        if (!checkFavoriteVideo()) return
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         if (config.blackBackground) {
@@ -240,6 +268,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
     }
 
     override fun onDestroy() {
+        FavoriteAccessSessionManager.removeRevocationListener(favoriteListenerId)
         super.onDestroy()
         if (!isChangingConfigurations) {
             pauseVideo()
@@ -966,3 +995,4 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
 
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
 }
+

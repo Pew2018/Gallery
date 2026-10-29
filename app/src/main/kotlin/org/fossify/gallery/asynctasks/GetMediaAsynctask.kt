@@ -6,6 +6,7 @@ import org.fossify.commons.helpers.FAVORITES
 import org.fossify.commons.helpers.SORT_BY_DATE_MODIFIED
 import org.fossify.commons.helpers.SORT_BY_DATE_TAKEN
 import org.fossify.commons.helpers.SORT_BY_SIZE
+import org.fossify.gallery.extensions.favoriteProtection
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.getFavoritePaths
 import org.fossify.gallery.helpers.*
@@ -16,6 +17,7 @@ class GetMediaAsynctask(
     val context: Context, val mPath: String, val isPickImage: Boolean = false, val isPickVideo: Boolean = false,
     val showAll: Boolean, val onFailure: (Exception) -> Unit = {},
     private val favoritePathsOverride: ArrayList<String>? = null,
+    private val favoriteSessionId: String? = null,
     val callback: (media: ArrayList<ThumbnailItem>) -> Unit
 ) :
     AsyncTask<Void, Void, ArrayList<ThumbnailItem>>() {
@@ -36,7 +38,18 @@ class GetMediaAsynctask(
             folderGrouping and GROUP_BY_LAST_MODIFIED_MONTHLY != 0
 
         val getProperFileSize = folderSorting and SORT_BY_SIZE != 0
-        val favoritePaths = favoritePathsOverride ?: context.getFavoritePaths()
+        val savedFavorites = context.getFavoritePaths()
+        val favoritePaths = if (mPath == FAVORITES) {
+            val allowed = if (favoriteSessionId != null) {
+                FavoriteAccessSessionManager.retainFavorites(favoriteSessionId, savedFavorites.toSet()).orEmpty()
+            } else {
+                savedFavorites.filter { path ->
+                    FavoriteAccessSessionManager.captureSnapshot(listOf(path), context::favoriteProtection)
+                        .entries.values.all { it.locks.isEmpty() }
+                }.toSet()
+            }
+            (favoritePathsOverride ?: savedFavorites).filter { it in allowed }.toCollection(ArrayList())
+        } else favoritePathsOverride ?: savedFavorites
         val getVideoDurations = context.config.showThumbnailVideoDuration
         val lastModifieds = if (getProperLastModified) mediaFetcher.getLastModifieds() else HashMap()
         val dateTakens = if (getProperDateTaken) mediaFetcher.getDateTakens() else HashMap()
@@ -82,7 +95,12 @@ class GetMediaAsynctask(
         super.onPostExecute(media)
         if (!isCancelled) {
             val error = scanFailure
-            if (error == null) callback(media) else onFailure(error)
+            if (error == null) {
+                val safe = if (mPath == FAVORITES && favoriteSessionId != null) {
+                    FavoriteAccessPolicy.authorizedItems(favoriteSessionId, media) { (it as? Medium)?.path }
+                } else media
+                callback(safe)
+            } else onFailure(error)
         }
     }
 
@@ -91,3 +109,4 @@ class GetMediaAsynctask(
         cancel(true)
     }
 }
+

@@ -23,6 +23,7 @@ class MyPagerAdapter(val activity: ViewPagerActivity, fm: FragmentManager, val m
 
     override fun getItem(position: Int): Fragment {
         val medium = media[position]
+        if (!activity.mayLoadFavoritePath(medium.path)) return Fragment()
         val bundle = Bundle()
         bundle.putSerializable(MEDIUM, medium)
         bundle.putBoolean(SHOULD_INIT_FRAGMENT, shouldInitFragment)
@@ -39,7 +40,9 @@ class MyPagerAdapter(val activity: ViewPagerActivity, fm: FragmentManager, val m
     override fun getItemPosition(item: Any) = PagerAdapter.POSITION_NONE
 
     override fun instantiateItem(container: ViewGroup, position: Int): Any {
-        val fragment = super.instantiateItem(container, position) as ViewPagerFragment
+        val item = super.instantiateItem(container, position)
+        if (!activity.mayLoadFavoritePath(media[position].path)) return item
+        val fragment = item as? ViewPagerFragment ?: return item
 
         // getItem() might not be called if the activity is recreated, so the listener must be set here
         fragment.listener = activity
@@ -68,3 +71,4 @@ class MyPagerAdapter(val activity: ViewPagerActivity, fm: FragmentManager, val m
         return bundle
     }
 }
+

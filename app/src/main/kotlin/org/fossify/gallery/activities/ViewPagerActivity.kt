@@ -1,6 +1,9 @@
 package org.fossify.gallery.activities
 
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
+import org.fossify.gallery.extensions.favoriteProtection
+import org.fossify.gallery.helpers.FAVORITE_ACCESS_SESSION
+import org.fossify.gallery.helpers.FavoriteAccessSessionManager
 import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import android.animation.Animator
 import android.animation.ValueAnimator
@@ -214,6 +217,32 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private var mIsOrientationLocked = false
 
+    private val favoriteListenerId = java.util.UUID.randomUUID().toString()
+    private val favoriteSessionId get() = intent.getStringExtra(FAVORITE_ACCESS_SESSION)
+    private val isFavoriteRequest get() = intent.getBooleanExtra(SHOW_FAVORITES, false) || intent.hasExtra(FAVORITE_ACCESS_SESSION)
+    private var viewerLoadGeneration = 0L
+    private var viewerLoadTask: GetMediaAsynctask? = null
+
+    private fun closeUnauthorizedFavorites() {
+        stopSlideshow()
+        viewerLoadGeneration++
+        viewerLoadTask?.stopFetching()
+        binding.viewPager.adapter = null
+        mMediaFiles.clear()
+        mSlideshowMedia.clear()
+        finish()
+    }
+
+    fun mayLoadFavoritePath(path: String): Boolean = checkFavoriteAccess(path)
+
+    private fun checkFavoriteAccess(path: String? = null): Boolean {
+        if (!isFavoriteRequest) return true
+        val valid = if (path == null) FavoriteAccessSessionManager.isActive(favoriteSessionId)
+            else FavoriteAccessSessionManager.isMediaAuthorized(favoriteSessionId, path)
+        if (!valid) binding.root.post { if (!isFinishing && !isDestroyed) closeUnauthorizedFavorites() }
+        return valid
+    }
+
     private var mMediaFiles = ArrayList<Medium>()
     private var mFavoritePaths = ArrayList<String>()
     private var mIgnoredPaths = ArrayList<String>()
@@ -228,8 +257,27 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         get() = binding.mediumViewerAppbar
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+        // Never restore media fragments before validating a process-local capability.
+        super.onCreate(if (isFavoriteRequest) null else savedInstanceState)
         setContentView(binding.root)
+        if (!checkFavoriteAccess()) return
+        FavoriteAccessSessionManager.addRevocationListener(favoriteListenerId) { revoked ->
+            if (revoked == favoriteSessionId) binding.root.post {
+                    if (isFinishing || isDestroyed || revoked != favoriteSessionId) return@post
+                if (!FavoriteAccessSessionManager.isActive(revoked)) closeUnauthorizedFavorites()
+                else {
+                    stopSlideshow()
+                    binding.viewPager.adapter = null
+                    mSlideshowMedia.clear()
+                    mAreSlideShowMediaVisible = false
+                    mRandomSlideshowStopped = false
+                    mMediaFiles = org.fossify.gallery.helpers.FavoriteAccessPolicy.authorizedItems(
+                        revoked, mMediaFiles
+                    ) { it.path }
+                    if (mMediaFiles.isEmpty()) finish() else refreshUI(mMediaFiles, true)
+                }
+            }
+        }
         setupEdgeToEdge(
             padBottomSystem = listOf(binding.bottomActions.bottomActionsWrapper),
         )
@@ -251,6 +299,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     override fun onResume() {
         super.onResume()
+        if (!checkFavoriteAccess()) return
         OxygenToolbarStyle.applyViewerPopup(this, binding.mediumViewerToolbar)
         if (!hasPermission(getPermissionToRequest())) {
             finish()
@@ -272,6 +321,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun onDestroy() {
+        FavoriteAccessSessionManager.removeRevocationListener(favoriteListenerId)
+        viewerLoadGeneration++
+        viewerLoadTask?.stopFetching()
         super.onDestroy()
         ColorModeHelper.resetColorMode(this)
 
@@ -476,6 +528,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val exportedOrUnknown = runCatching {
             packageManager.getActivityInfo(componentName, 0).exported
         }.getOrDefault(true)
+        if (isFavoriteRequest) {
+            if (!checkFavoriteAccess(mPath)) return
+            mShowAll = false
+            mMediaFiles = org.fossify.gallery.helpers.FavoriteAccessPolicy.authorizedItems(
+                favoriteSessionId, mMediaFiles
+            ) { it.path }
+            initContinue()
+            return
+        }
         val folderSessionId = intent.getStringExtra(FOLDER_UNLOCK_SESSION)
         if (FolderUnlockSessionManager.isMediaAuthorized(
                 folderSessionId, mPath, config::isFolderProtected
@@ -494,6 +555,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             )) {
             initContinue()
         } else {
+            // Shared metadata is never proof of authorization for an exported
+            // request. Locked cache entries need this request's own capability.
+            mMediaFiles.removeAll { medium ->
+                runCatching {
+                    FavoriteAccessSessionManager.captureSnapshot(listOf(medium.path), applicationContext::favoriteProtection)
+                        .entries.values.any { it.locks.isNotEmpty() }
+                }.getOrDefault(true)
+            }
             val authenticateFolder = {
                 val protectedFolder = FavoriteMediaLoadPolicy.protectedFolderForPath(
                     mPath, config::isFolderProtected
@@ -524,7 +593,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             config.isThirdPartyIntent = true
         }
 
-        val isShowingFavorites = intent.getBooleanExtra(SHOW_FAVORITES, false)
+        val isShowingFavorites = isFavoriteRequest
         val isShowingRecycleBin = intent.getBooleanExtra(SHOW_RECYCLE_BIN, false)
         mDirectory = when {
             isShowingFavorites -> FAVORITES
@@ -620,6 +689,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun updatePagerItems(media: MutableList<Medium>) {
+        if (!checkFavoriteAccess()) return
+        if (isFavoriteRequest) media.removeAll { !FavoriteAccessSessionManager.isMediaAuthorized(favoriteSessionId, it.path) }
+        if (!checkFavoriteAccess()) return
         val pagerAdapter = MyPagerAdapter(this, supportFragmentManager, media)
         if (!isDestroyed) {
             pagerAdapter.shouldInitFragment = mPos < 5
@@ -778,6 +850,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun swipeToNextMedium() {
+        if (!checkFavoriteAccess()) return
         if (config.slideshowAnimation == SLIDESHOW_ANIMATION_NONE) {
             goToNextMedium(!mSlideshowMoveBackwards)
         } else {
@@ -786,6 +859,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun getMediaForSlideshow(): Boolean {
+        if (!checkFavoriteAccess()) return false
+        if (isFavoriteRequest) mMediaFiles = org.fossify.gallery.helpers.FavoriteAccessPolicy.authorizedItems(
+                favoriteSessionId, mMediaFiles
+            ) { it.path }
+        if (!checkFavoriteAccess()) return false
         mSlideshowMedia = mMediaFiles.filter {
             it.isImage() || it.isPortrait() || (config.slideshowIncludeVideos && it.isVideo() || (config.slideshowIncludeGIFs && it.isGIF()))
         }.toMutableList()
@@ -1359,17 +1437,29 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun refreshViewPager(refetchPosition: Boolean = false) {
+        if (!checkFavoriteAccess()) return
         val isRandomSorting = config.getFolderSorting(mDirectory) and SORT_BY_RANDOM != 0
         if (!isRandomSorting || isExternalIntent()) {
-            GetMediaAsynctask(applicationContext, mDirectory, isPickImage = false, isPickVideo = false, showAll = mShowAll) {
-                gotMedia(it, refetchViewPagerPosition = refetchPosition)
-            }.execute()
+            val request = ++viewerLoadGeneration
+            viewerLoadTask?.stopFetching()
+            viewerLoadTask = GetMediaAsynctask(
+                applicationContext, mDirectory, isPickImage = false, isPickVideo = false, showAll = mShowAll,
+                favoritePathsOverride = if (isFavoriteRequest)
+                    FavoriteAccessSessionManager.getAllowedPaths(favoriteSessionId).orEmpty().toCollection(ArrayList()) else null,
+                favoriteSessionId = if (isFavoriteRequest) favoriteSessionId else null
+            ) {
+                if (request == viewerLoadGeneration && !isFinishing && !isDestroyed && checkFavoriteAccess()) {
+                    gotMedia(it, refetchViewPagerPosition = refetchPosition)
+                }
+            }.also { it.execute() }
         }
     }
 
     private fun gotMedia(thumbnailItems: ArrayList<ThumbnailItem>, ignorePlayingVideos: Boolean = false, refetchViewPagerPosition: Boolean = false) {
+        if (!checkFavoriteAccess()) return
         val media = thumbnailItems.asSequence().filter {
-            it is Medium && !mIgnoredPaths.contains(it.path)
+            it is Medium && !mIgnoredPaths.contains(it.path) &&
+                (!isFavoriteRequest || FavoriteAccessSessionManager.isMediaAuthorized(favoriteSessionId, it.path))
         }.map { it as Medium }.toMutableList() as ArrayList<Medium>
 
         if (isDirEmpty(media) || media.hashCode() == mPrevHashcode) {
@@ -1487,6 +1577,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun launchViewVideoIntent(path: String) {
+        if (!checkFavoriteAccess(path)) return
         hideKeyboard()
         ensureBackgroundThread {
             val newUri = getFinalUriFromPath(path, BuildConfig.APPLICATION_ID) ?: return@ensureBackgroundThread
@@ -1565,6 +1656,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override fun onPageScrolled(position: Int, positionOffset: Float, positionOffsetPixels: Int) {}
 
     override fun onPageSelected(position: Int) {
+        if (!checkFavoriteAccess(getCurrentMedia().getOrNull(position)?.path)) return
         if (mPos != position) {
             mPos = position
             updateActionbarTitle()
@@ -1583,3 +1675,4 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         return !intent.getBooleanExtra(IS_FROM_GALLERY, false)
     }
 }
+

@@ -1,0 +1,172 @@
+package org.fossify.gallery.helpers
+
+import java.nio.file.Files
+import org.junit.After
+import org.junit.Assert.*
+import org.junit.Test
+
+class FavoriteAccessSessionManagerTest {
+    private val locks = linkedMapOf<String, FavoriteAccessSessionManager.Protection>()
+    private val pinA = FavoriteAccessSessionManager.Protection(1, "hash-A")
+    private val pinB = FavoriteAccessSessionManager.Protection(1, "hash-B")
+    private fun snapshot(vararg paths: String) = FavoriteAccessSessionManager.captureSnapshot(paths.toList(), locks::get)
+    private fun session(vararg paths: String): String {
+        val snapshot = snapshot(*paths)
+        return FavoriteAccessSessionManager.createSession("owner", snapshot,
+            snapshot.entries.values.flatMap { it.locks.keys }.toSet(), locks::get)!!
+    }
+
+    @After fun cleanup() { FavoriteAccessSessionManager.revokeAll() }
+
+    @Test fun ordinaryFavoritesNeedNoChallengesAndHaveExactScope() {
+        val snapshot = snapshot("/public/a.jpg", "/public/b.mp4")
+        assertTrue(FavoriteAccessSessionManager.challenges(snapshot).isEmpty())
+        val token = session(*snapshot.entries.keys.toTypedArray())
+        assertEquals(snapshot.entries.keys, FavoriteAccessSessionManager.getAllowedPaths(token))
+        assertFalse(FavoriteAccessSessionManager.isMediaAuthorized(token, "/public/other.jpg"))
+    }
+
+    @Test fun protectedSourceRequiresSuccessBeforeCreatingAnyCapability() {
+        locks["/private"] = pinA
+        val snapshot = snapshot("/private/a.jpg", "/public/a.jpg")
+        assertEquals(listOf(setOf("/private")), FavoriteAccessSessionManager.challenges(snapshot))
+        assertNull(FavoriteAccessSessionManager.createSession("owner", snapshot, emptySet(), locks::get))
+        assertFalse(FavoriteAccessSessionManager.isMediaAuthorized(null, "/private/a.jpg"))
+    }
+
+    @Test fun onlyEqualNonemptySameTypeSecretsDeduplicate() {
+        locks["/a"] = pinA
+        locks["/b"] = pinA
+        locks["/c"] = pinB
+        locks["/d"] = FavoriteAccessSessionManager.Protection(0, pinA.hash)
+        val snapshot = snapshot("/a/1.jpg", "/b/2.jpg", "/c/3.jpg", "/d/4.jpg")
+        assertEquals(listOf(setOf("/a", "/b"), setOf("/c"), setOf("/d")),
+            FavoriteAccessSessionManager.challenges(snapshot))
+        assertNull(FavoriteAccessSessionManager.createSession("owner", snapshot, setOf("/a", "/b"), locks::get))
+    }
+
+    @Test fun biometricsAndEmptyHashesNeverDeduplicate() {
+        listOf("/a", "/b").forEach { locks[it] = FavoriteAccessSessionManager.Protection(2, "") }
+        listOf("/c", "/d").forEach { locks[it] = FavoriteAccessSessionManager.Protection(1, "") }
+        assertEquals(4, FavoriteAccessSessionManager.challenges(snapshot("/a/1", "/b/2", "/c/3", "/d/4")).size)
+    }
+
+    @Test fun repeatedImagesVideosAndSlidesShareOneAlbumLifetime() {
+        locks["/a"] = pinA
+        val paths = arrayOf("/a/photo.jpg", "/a/movie.mp4", "/public/slide.png")
+        val token = session(*paths)
+        repeat(4) { paths.forEach { assertTrue(FavoriteAccessSessionManager.isMediaAuthorized(token, it)) } }
+        assertTrue(FavoriteAccessSessionManager.isOwnedBy(token, "owner")) // recreation/return
+        assertFalse(FavoriteAccessSessionManager.isOwnedBy(token, "another-owner"))
+        FavoriteAccessSessionManager.revokeSession(token) // true exit
+        paths.forEach { assertFalse(FavoriteAccessSessionManager.isMediaAuthorized(token, it)) }
+        assertNotEquals(token, session(*paths))
+    }
+
+    @Test fun forgedTokensAndProcessRestartCannotReviveCapabilities() {
+        val token = session("/public/a.jpg")
+        assertFalse(FavoriteAccessSessionManager.isMediaAuthorized("IS_FROM_GALLERY=true", "/public/a.jpg"))
+        assertNull(FavoriteAccessSessionManager.getAllowedPaths("forged"))
+        FavoriteAccessSessionManager.revokeAll()
+        assertFalse(FavoriteAccessSessionManager.isMediaAuthorized(token, "/public/a.jpg"))
+    }
+
+    @Test fun nestedLocksRequireAllAncestorsIncludingDifferentCredentials() {
+        locks["/a"] = pinA
+        locks["/a/nested"] = pinB
+        val snapshot = snapshot("/a/nested/photo.jpg")
+        assertEquals(setOf("/a", "/a/nested"), snapshot.entries.values.single().locks.keys)
+        assertNull(FavoriteAccessSessionManager.createSession("owner", snapshot, setOf("/a/nested"), locks::get))
+        assertTrue(FavoriteAccessSessionManager.isMediaAuthorized(session("/a/nested/photo.jpg"), "/a/nested/photo.jpg"))
+    }
+
+    @Test fun traversalPrefixAndAlternateSpellingCannotExpandScope() {
+        locks["/a"] = pinA
+        val token = session("/a/photo.jpg")
+        listOf("/a2/photo.jpg", "/b/photo.jpg", "/a/../b/photo.jpg", "/a/./photo.jpg")
+            .forEach { assertFalse(FavoriteAccessSessionManager.isMediaAuthorized(token, it)) }
+    }
+
+    @Test fun protectionAdditionRemovalOrHashChangeInvalidatesOldSession() {
+        for (change in 0..2) {
+            locks.clear()
+            if (change != 0) locks["/a"] = pinA
+            val token = session("/a/photo.jpg")
+            if (change == 1) locks.clear() else locks["/a"] = pinB
+            assertNull(FavoriteAccessSessionManager.getAllowedPaths(token))
+        }
+    }
+
+    @Test fun configurationChangedDuringDialogCannotCreateStaleSession() {
+        locks["/a"] = pinA
+        val snapshot = snapshot("/a/photo.jpg")
+        locks["/a"] = pinB
+        assertNull(FavoriteAccessSessionManager.createSession("owner", snapshot, setOf("/a"), locks::get))
+    }
+
+    @Test fun symlinkChecksBothSourceAndTargetAndRetargetingRevokes() {
+        val dir = Files.createTempDirectory("favorite-session")
+        try {
+            val a = Files.createDirectory(dir.resolve("a"))
+            val b = Files.createDirectory(dir.resolve("b"))
+            val c = Files.createDirectory(dir.resolve("c"))
+            val link = a.resolve("alias")
+            Files.createSymbolicLink(link, b)
+            locks[a.toString()] = pinA
+            locks[b.toString()] = pinB
+            val path = link.resolve("image.jpg").toString()
+            assertEquals(setOf(a.toString(), b.toString()), snapshot(path).entries[path]!!.locks.keys)
+            val token = session(path)
+            Files.delete(link)
+            Files.createSymbolicLink(link, c)
+            assertFalse(FavoriteAccessSessionManager.isMediaAuthorized(token, path))
+        } finally { dir.toFile().deleteRecursively() }
+    }
+
+    @Test fun movedAndUnfavoritedPathsRevokeActiveConsumers() {
+        var notifications = 0
+        FavoriteAccessSessionManager.addRevocationListener("test") { notifications++ }
+        try {
+            val token = session("/a/photo.jpg", "/a/movie.mp4")
+            FavoriteAccessSessionManager.revokePath("/a/photo.jpg")
+            assertEquals(setOf("/a/movie.mp4"), FavoriteAccessSessionManager.getAllowedPaths(token))
+            assertFalse(FavoriteAccessSessionManager.isMediaAuthorized(token, "/a/photo.jpg"))
+            assertEquals(1, notifications)
+            val next = session("/a/photo.jpg", "/a/movie.mp4")
+            assertEquals(setOf("/a/movie.mp4"), FavoriteAccessSessionManager.retainFavorites(next, setOf("/a/movie.mp4")))
+            assertEquals(2, notifications)
+        } finally { FavoriteAccessSessionManager.removeRevocationListener("test") }
+    }
+    @Test fun concurrentUnfavoriteOnlyShrinksAndCannotLoseEitherRemoval() {
+        val paths = (1..40).map { "/a/$it.jpg" }
+        val token = session(*paths.toTypedArray())
+        val start = java.util.concurrent.CountDownLatch(1)
+        val threads = paths.map { path -> Thread { start.await(); FavoriteAccessSessionManager.revokePath(path) } }
+        threads.forEach { it.start() }
+        start.countDown()
+        threads.forEach { it.join() }
+        assertEquals(emptySet<String>(), FavoriteAccessSessionManager.getAllowedPaths(token))
+        assertTrue(FavoriteAccessSessionManager.isActive(token))
+        paths.forEach { assertFalse(FavoriteAccessSessionManager.isMediaAuthorized(token, it)) }
+    }
+
+    @Test fun addingFavoritesDoesNotExpandAnExistingCapability() {
+        val token = session("/a/old.jpg")
+        val allowed = FavoriteAccessSessionManager.retainFavorites(token, setOf("/a/old.jpg", "/a/new.jpg"))
+        assertEquals(setOf("/a/old.jpg"), allowed)
+        assertFalse(FavoriteAccessSessionManager.isMediaAuthorized(token, "/a/new.jpg"))
+        FavoriteAccessSessionManager.revokePath("/a/old.jpg")
+        assertEquals(emptySet<String>(), FavoriteAccessSessionManager.retainFavorites(token, setOf("/a/old.jpg")))
+    }
+
+    @Test fun tokensAreIndependentRandomCapabilities() {
+        val first = session("/a/a.jpg")
+        val second = session("/a/a.jpg")
+        assertEquals(64, first.length)
+        assertNotEquals(first, second)
+        FavoriteAccessSessionManager.revokeSession(first)
+        assertFalse(FavoriteAccessSessionManager.isActive(first))
+        assertTrue(FavoriteAccessSessionManager.isActive(second))
+    }
+
+}

@@ -1,5 +1,6 @@
 package org.fossify.gallery.extensions
 
+import org.fossify.gallery.helpers.FAVORITE_ACCESS_SESSION
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_MEDIA_PATH
 import android.app.Activity
@@ -82,7 +83,8 @@ fun Activity.openPath(path: String, forceChooser: Boolean, extras: HashMap<Strin
 fun Activity.launchGesturePlayer(
     path: String,
     extras: HashMap<String, Boolean> = HashMap(),
-    folderSessionId: String? = null
+    folderSessionId: String? = null,
+    favoriteSessionId: String? = null
 ) {
     ensureBackgroundThread {
         val newUri = getFinalUriFromPath(path, BuildConfig.APPLICATION_ID)
@@ -98,6 +100,7 @@ fun Activity.launchGesturePlayer(
                 for ((key, value) in extras) putExtra(key, value)
                 putExtra(FOLDER_UNLOCK_MEDIA_PATH, path)
                 if (folderSessionId != null) putExtra(FOLDER_UNLOCK_SESSION, folderSessionId)
+                if (favoriteSessionId != null) putExtra(FAVORITE_ACCESS_SESSION, favoriteSessionId)
                 startActivity(this)
             }
         }
@@ -1080,3 +1083,4 @@ fun Activity.proposeNewFilePath(uri: Uri): Pair<String, Boolean> {
 
     return Pair(newPath, shouldAppendFilename)
 }
+

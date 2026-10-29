@@ -1,5 +1,9 @@
 package org.fossify.gallery.activities
 
+import org.fossify.commons.extensions.getSharedPrefs
+import org.fossify.gallery.helpers.FAVORITE_ACCESS_SESSION
+import org.fossify.gallery.helpers.FavoriteAccessSessionManager
+import org.fossify.gallery.extensions.favoriteProtection
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import android.app.WallpaperManager
@@ -201,6 +205,25 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private var folderUnlockSessionId: String? = null
+    private var favoriteSessionId: String? = null
+    private var favoriteOwnerId = java.util.UUID.randomUUID().toString()
+    private var favoriteAuthGeneration = 0L
+    private val favoriteListenerId = java.util.UUID.randomUUID().toString()
+    private val favoriteProtectionListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == null || key.startsWith(org.fossify.commons.helpers.PROTECTED_FOLDER_HASH) ||
+            key.startsWith(org.fossify.commons.helpers.PROTECTED_FOLDER_TYPE)) {
+            favoriteSessionId?.let { FavoriteAccessSessionManager.getAllowedPaths(it) }
+        }
+    }
+    private val favoriteDatabaseObserver = object : androidx.room.InvalidationTracker.Observer("favorites") {
+        override fun onInvalidated(tables: Set<String>) {
+            val token = favoriteSessionId ?: return
+            val app = applicationContext
+            ensureBackgroundThread {
+                FavoriteAccessSessionManager.retainFavorites(token, app.getFavoritePaths().toSet())
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -227,6 +250,34 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             showErrorToast(e)
             finish()
             return
+        }
+
+        if (mPath == FAVORITES) {
+            getSharedPrefs().registerOnSharedPreferenceChangeListener(favoriteProtectionListener)
+            GalleryDatabase.getInstance(applicationContext).invalidationTracker.addObserver(favoriteDatabaseObserver)
+            favoriteOwnerId = savedInstanceState?.getString("favoriteOwnerId") ?: favoriteOwnerId
+            favoriteSessionId = savedInstanceState?.getString(FAVORITE_ACCESS_SESSION)?.takeIf {
+                FavoriteAccessSessionManager.isOwnedBy(it, favoriteOwnerId)
+            }
+            favoriteAccessPaths = FavoriteAccessSessionManager.getAllowedPaths(favoriteSessionId)
+            // No old shared thumbnails may survive process death or a fresh entry.
+            mMedia = ArrayList()
+            FavoriteAccessSessionManager.addRevocationListener(favoriteListenerId) { revoked ->
+                if (revoked == favoriteSessionId) binding.root.post {
+                    if (isFinishing || isDestroyed || revoked != favoriteSessionId) return@post
+                    binding.mediaGrid.adapter = null
+                    mMedia = ArrayList()
+                    if (FavoriteAccessSessionManager.isActive(revoked)) {
+                        favoriteAccessPaths = FavoriteAccessSessionManager.getAllowedPaths(revoked)
+                        favoritesNeedReload = true
+                        mLoadedInitialPhotos = false
+                        if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                            favoritesNeedReload = false
+                            getMedia()
+                        }
+                    } else finish()
+                }
+            }
         }
 
         val isPicker = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent || isSetWallpaperIntent()
@@ -389,14 +440,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         super.onStop()
 
         if (mPath == FAVORITES && !isFinishing && !isChangingConfigurations && !resolvingFavoriteAccess) {
-            // A stopped favorites page has no reusable authorization session.
-            // Drop its adapter and data before it can return to the foreground.
+            // Discard rendering/cache state, retaining the album capability while a viewer is open.
             mediaLoadRequests.invalidate()
             mediaScanGeneration++
             mCurrAsyncTask?.stopFetching()
             binding.mediaGrid.adapter = null
             mMedia = ArrayList()
-            favoriteAccessPaths = null
             favoritesNeedReload = true
             mLoadedInitialPhotos = false
         }
@@ -412,7 +461,30 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("favoriteOwnerId", favoriteOwnerId)
+        outState.putString(FAVORITE_ACCESS_SESSION, favoriteSessionId)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun finish() {
+        favoriteAuthGeneration++
+        val revoked = favoriteSessionId
+        favoriteSessionId = null
+        FavoriteAccessSessionManager.revokeSession(revoked)
+        super.finish()
+    }
+
     override fun onDestroy() {
+        favoriteAuthGeneration++
+        FavoriteAccessSessionManager.removeRevocationListener(favoriteListenerId)
+        if (mPath == FAVORITES) {
+            getSharedPrefs().unregisterOnSharedPreferenceChangeListener(favoriteProtectionListener)
+            GalleryDatabase.getInstance(applicationContext).invalidationTracker.removeObserver(favoriteDatabaseObserver)
+        }
+        if (isFinishing && !isChangingConfigurations) {
+            FavoriteAccessSessionManager.revokeSession(favoriteSessionId)
+        }
         if (isFinishing && !isChangingConfigurations) {
             FolderUnlockSessionManager.revokeSession(folderUnlockSessionId)
         }
@@ -435,6 +507,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         } else {
             if (mGallerySection != null && mPath != FAVORITES) {
                 appLockManager.lock()
+            }
+            if (mPath == FAVORITES) {
+                favoriteAuthGeneration++
+                FavoriteAccessSessionManager.revokeSession(favoriteSessionId)
             }
 
             false
@@ -528,6 +604,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             hideKeyboard()
             Intent(this, ViewPagerActivity::class.java).apply {
                 val item = mMedia.firstOrNull { it is Medium } as? Medium ?: return
+                if (mPath == FAVORITES) {
+                    if (!FavoriteAccessSessionManager.isMediaAuthorized(favoriteSessionId, item.path)) { finish(); return }
+                    putExtra(FAVORITE_ACCESS_SESSION, favoriteSessionId)
+                    putExtra(SHOW_FAVORITES, true)
+                }
                 if (FolderUnlockSessionManager.isMediaAuthorized(
                         folderUnlockSessionId, item.path, config::isFolderProtected
                     )) {
@@ -584,7 +665,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 runOnUiThread {
                     // An earlier background search must not overwrite a newer query.
                     if (isFinishing || isDestroyed || mLastSearchedText != text) return@runOnUiThread
-                    if (grouped.isEmpty()) {
+                    val safeGrouped = if (mPath == FAVORITES) org.fossify.gallery.helpers.FavoriteAccessPolicy.authorizedItems(
+                        favoriteSessionId, grouped
+                    ) { (it as? Medium)?.path } else grouped
+                    if (mPath == FAVORITES && !FavoriteAccessSessionManager.isActive(favoriteSessionId)) return@runOnUiThread
+                    if (safeGrouped.isEmpty()) {
                         binding.mediaEmptyTextPlaceholder.text =
                             getString(org.fossify.commons.R.string.no_items_found)
                         binding.mediaEmptyTextPlaceholder.beVisible()
@@ -594,8 +679,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         binding.mediaFastscroller.beVisible()
                     }
 
-                    handleGridSpacing(grouped)
-                    getMediaAdapter()?.updateMedia(grouped)
+                    handleGridSpacing(safeGrouped)
+                    getMediaAdapter()?.updateMedia(safeGrouped)
                 }
             } catch (ignored: Exception) {
             }
@@ -640,6 +725,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun getMediaAdapter() = binding.mediaGrid.adapter as? MediaAdapter
 
     private fun setupAdapter() {
+        if (mPath == FAVORITES) {
+            if (!FavoriteAccessSessionManager.isActive(favoriteSessionId)) return
+            mMedia = org.fossify.gallery.helpers.FavoriteAccessPolicy.authorizedItems(favoriteSessionId, mMedia) { (it as? Medium)?.path }
+            if (!FavoriteAccessSessionManager.isActive(favoriteSessionId)) return
+        }
         if (!mShowAll && isDirEmpty()) {
             return
         }
@@ -768,6 +858,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun openGalleryRoot(section: GallerySection) {
+        favoriteAuthGeneration++
+        FavoriteAccessSessionManager.revokeSession(favoriteSessionId)
         val screen = GalleryNavigation.bottomDestination(section, config.lastMainViewAll)
         config.showAll = screen.isAllFiles
         val destination = if (screen.isAllFiles) {
@@ -830,6 +922,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun getMedia() {
+        if (mPath == FAVORITES && favoriteSessionId != null) {
+            favoriteAccessPaths = FavoriteAccessSessionManager.getAllowedPaths(favoriteSessionId)
+            if (favoriteAccessPaths == null) { finish(); return }
+        }
         if (mPath == FAVORITES && favoriteAccessPaths == null) {
             resolveFavoriteAccess { allowedPaths ->
                 favoriteAccessPaths = allowedPaths
@@ -880,6 +976,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             showAll = mShowAll,
             favoritePathsOverride = if (mPath == FAVORITES)
                 favoriteAccessPaths?.toCollection(ArrayList()) else null,
+            favoriteSessionId = if (mPath == FAVORITES) favoriteSessionId else null,
             onFailure = { error ->
                 android.util.Log.e("GalleryMedia", "Media scan failed", error)
                 runOnUiThread {
@@ -933,47 +1030,52 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mCurrAsyncTask!!.execute()
     }
 
-    /** Authenticate each protected favorite source folder before reading its
-     * cached thumbnails or scanning its media. Failed/canceled folders are
-     * omitted while ordinary and successfully authorized favorites remain.
-     */
+    /** Resolve the whole virtual album before publishing cache, adapter or scan data. */
     private fun resolveFavoriteAccess(onResolved: (Set<String>) -> Unit) {
-        if (resolvingFavoriteAccess) return
+        if (resolvingFavoriteAccess || isFinishing || isDestroyed) return
         resolvingFavoriteAccess = true
+        val generation = ++favoriteAuthGeneration
+        val app = applicationContext
+        fun current() = generation == favoriteAuthGeneration && !isFinishing && !isDestroyed
         ensureBackgroundThread {
-            val favoritePaths = getFavoritePaths()
-            val protectedByPath = favoritePaths.associateWith { path ->
-                FavoriteMediaLoadPolicy.protectedFolderForPath(path, config::isFolderProtected)
-            }
-            val allowed = favoritePaths.filterTo(LinkedHashSet()) { protectedByPath[it] == null }
-            val folders = protectedByPath.values.filterNotNull().distinct()
+            val paths = app.getFavoritePaths().toSet()
+            val snapshot = runCatching {
+                FavoriteAccessSessionManager.captureSnapshot(paths, app::favoriteProtection)
+            }.getOrNull()
             runOnUiThread {
-                if (isFinishing || isDestroyed) {
-                    resolvingFavoriteAccess = false
-                    return@runOnUiThread
-                }
-                // Authenticate the folder sources before a single load. Publishing
-                // the initially unprotected subset caused a misleading one-item
-                // screen and competing partial scans while unlock dialogs ran.
+                if (!current()) return@runOnUiThread
+                if (snapshot == null) { resolvingFavoriteAccess = false; finish(); return@runOnUiThread }
+                val challenges = FavoriteAccessSessionManager.challenges(snapshot)
+                val authorized = linkedSetOf<String>()
                 fun authenticate(index: Int) {
-                    if (isFinishing || isDestroyed) {
-                        resolvingFavoriteAccess = false
-                        return
-                    }
-                    if (index >= folders.size) {
-                        resolvingFavoriteAccess = false
-                        // A canceled/failed unlock still excludes that folder.
-                        onResolved(allowed.toSet())
-                        return
-                    }
-                    val folder = folders[index]
-                    handleLockedFolderOpening(folder) { success ->
-                        if (success) {
-                            protectedByPath.forEach { (path, protectedFolder) ->
-                                if (protectedFolder == folder) allowed.add(path)
+                    if (!current()) return
+                    if (index == challenges.size) {
+                        // Database and protection state may have changed while dialogs were open.
+                        ensureBackgroundThread {
+                            val unchanged = app.getFavoritePaths().toSet() == paths
+                            runOnUiThread {
+                                if (!current()) return@runOnUiThread
+                                resolvingFavoriteAccess = false
+                                val token = if (unchanged) FavoriteAccessSessionManager.createSession(
+                                    favoriteOwnerId, snapshot, authorized, app::favoriteProtection
+                                ) else null
+                                if (token == null) { finish(); return@runOnUiThread }
+                                favoriteSessionId = token
+                                onResolved(paths)
                             }
                         }
-                        authenticate(index + 1)
+                        return
+                    }
+                    val roots = challenges[index]
+                    handleLockedFolderOpening(roots.first()) { success ->
+                        if (!current()) return@handleLockedFolderOpening
+                        if (!success) {
+                            resolvingFavoriteAccess = false
+                            finish()
+                        } else {
+                            authorized.addAll(roots)
+                            authenticate(index + 1)
+                        }
                     }
                 }
                 authenticate(0)
@@ -1189,6 +1291,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun isSetWallpaperIntent() = intent.getBooleanExtra(SET_WALLPAPER_INTENT, false)
 
     private fun itemClicked(path: String) {
+        if (mPath == FAVORITES && !FavoriteAccessSessionManager.isMediaAuthorized(favoriteSessionId, path)) {
+            finish(); return
+        }
         hideKeyboard()
         if (isSetWallpaperIntent()) {
             toast(R.string.setting_wallpaper)
@@ -1234,7 +1339,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
             // Never consult the legacy system-player preference for internal taps.
             if (config.gestureVideoPlayer) {
-                launchGesturePlayer(path, folderSessionId = folderUnlockSessionId)
+                launchGesturePlayer(path, folderSessionId = folderUnlockSessionId,
+                    favoriteSessionId = if (mPath == FAVORITES) favoriteSessionId else null)
             } else {
                 openInViewPager(path)
             }
@@ -1242,12 +1348,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun openInViewPager(path: String) {
+        if (mPath == FAVORITES && !FavoriteAccessSessionManager.isMediaAuthorized(favoriteSessionId, path)) {
+            finish(); return
+        }
         Intent(this, ViewPagerActivity::class.java).apply {
             if (FolderUnlockSessionManager.isMediaAuthorized(
                     folderUnlockSessionId, path, config::isFolderProtected
                 )) {
                 putExtra(FOLDER_UNLOCK_SESSION, folderUnlockSessionId)
             }
+            if (mPath == FAVORITES) putExtra(FAVORITE_ACCESS_SESSION, favoriteSessionId)
             putExtra(PATH, path)
             putExtra(SHOW_ALL, mShowAll)
             putExtra(SHOW_FAVORITES, mPath == FAVORITES)
@@ -1278,8 +1388,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 setMediaLoading(false)
                 completedMediaRequest = request
             }
+            if (mPath == FAVORITES && FavoriteAccessSessionManager.getAllowedPaths(favoriteSessionId) == null) {
+                finish(); return@runOnUiThread
+            }
             checkLastMediaChanged()
-            mMedia = ArrayList(media)
+            mMedia = if (mPath == FAVORITES) org.fossify.gallery.helpers.FavoriteAccessPolicy.authorizedItems(
+                favoriteSessionId, media
+            ) { (it as? Medium)?.path } else ArrayList(media)
             binding.loadingIndicator.hide()
             binding.mediaRefreshLayout.isRefreshing = false
             binding.mediaEmptyTextPlaceholder.beVisibleIf(media.isEmpty() && !isFromCache)
@@ -1423,3 +1538,4 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         refreshMenuItems()
     }
 }
+

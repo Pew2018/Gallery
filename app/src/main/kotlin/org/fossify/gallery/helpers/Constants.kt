@@ -279,3 +279,6 @@ fun getPermissionsToRequest(): Collection<Int> {
 
     return permissions
 }
+
+
+const val FAVORITE_ACCESS_SESSION = "favorite_access_session"

@@ -1,5 +1,7 @@
 package org.fossify.gallery.extensions
 
+import org.fossify.gallery.helpers.FavoriteAccessSessionManager
+
 import android.annotation.SuppressLint
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
@@ -984,8 +986,9 @@ fun Context.getCachedMedia(
             // Cached metadata can contain protected media from an earlier
             // authorized session. It is never authorization by itself.
             media.addAll(mediaDB.getCachedFavoriteMedia().filter { item ->
-                FavoriteMediaLoadPolicy.protectedFolderForPath(item.path, config::isFolderProtected) == null ||
-                    item.path in allowedFavoritePaths.orEmpty()
+                if (allowedFavoritePaths != null) item.path in allowedFavoritePaths
+                else FavoriteAccessSessionManager.captureSnapshot(listOf(item.path), ::favoriteProtection)
+                    .entries.values.all { it.locks.isEmpty() }
             })
         }
 
@@ -1067,6 +1070,7 @@ fun Context.removeInvalidDBDirectories(dirs: ArrayList<Directory>? = null) {
 }
 
 fun Context.updateDBMediaPath(oldPath: String, newPath: String) {
+    FavoriteAccessSessionManager.revokePath(oldPath)
     val newFilename = newPath.getFilenameFromPath()
     val newParentPath = newPath.getParentPath()
     try {
@@ -1112,6 +1116,7 @@ fun Context.getFavoriteFromPath(path: String): Favorite {
 }
 
 fun Context.updateFavorite(path: String, isFavorite: Boolean) {
+    if (!isFavorite) FavoriteAccessSessionManager.revokePath(path)
     try {
         if (isFavorite) {
             favoritesDB.insert(getFavoriteFromPath(path))
@@ -1467,3 +1472,10 @@ fun Context.resolveUriScheme(
         else -> onUnknown()
     }
 }
+
+
+/** Captures only verification identity; never stores the user's entered secret. */
+internal fun Context.favoriteProtection(path: String): FavoriteAccessSessionManager.Protection? =
+    if (config.isFolderProtected(path)) FavoriteAccessSessionManager.Protection(
+        config.getFolderProtectionType(path), config.getFolderProtectionHash(path)
+    ) else null
