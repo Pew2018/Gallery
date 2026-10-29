@@ -56,6 +56,31 @@ class FavoriteAccessPolicyTest {
         }
     }
 
+    @Test fun batchValidationKeepsOnlyCapturedPathsAndCanRequireTheClickedMedia() {
+        val token = session()
+        val batch = FavoriteAccessPolicy.validateItems(
+            token,
+            listOf("/allowed/a.jpg", "/allowed/v.mp4", "/added/later.jpg"),
+            { it },
+            requiredPaths = listOf("/allowed/v.mp4")
+        )
+        assertEquals(listOf("/allowed/a.jpg", "/allowed/v.mp4"), batch?.items)
+        assertTrue(FavoriteAccessSessionManager.isValidationCurrent(batch?.validation))
+    }
+
+    @Test fun narrowingOrChangingTheProtectionInvalidatesAnEarlierBatch() {
+        val token = session()
+        val batch = FavoriteAccessPolicy.validateItems(token, listOf("/allowed/a.jpg"), { it })!!
+        FavoriteAccessSessionManager.revokePath("/allowed/a.jpg")
+        assertFalse(FavoriteAccessSessionManager.isValidationCurrent(batch.validation))
+
+        val changed = session()
+        val changedBatch = FavoriteAccessPolicy.validateItems(changed, listOf("/allowed/a.jpg"), { it })!!
+        locks["/allowed"] = pinA
+        assertTrue(FavoriteAccessPolicy.authorizedItems(changed, listOf("/allowed/a.jpg"), { it }).isEmpty())
+        assertFalse(FavoriteAccessSessionManager.isValidationCurrent(changedBatch.validation))
+    }
+
     @Test fun disabledPasswordShowsOnlyUnprotectedFavoritesAndKeepsSavedRows() {
         locks["/private"] = pinA
         val paths = listOf("/public/photo.jpg", "/private/secret.jpg")

@@ -2,6 +2,7 @@ package org.fossify.gallery.activities
 
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.FolderUnlockSessionManager
+import org.fossify.gallery.helpers.ViewerAccessCoordinator
 import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
@@ -14,6 +15,7 @@ import android.view.ViewGroup
 import android.view.View
 import android.widget.RelativeLayout
 import android.widget.Toast
+import java.util.concurrent.Future
 import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.commons.dialogs.CreateNewFolderDialog
@@ -513,6 +515,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     override fun onDestroy() {
+        folderOpenGeneration++
+        ViewerAccessCoordinator.cancel(folderOpenTask)
         super.onDestroy()
         if (!isChangingConfigurations) {
             config.temporarilyShowHidden = false
@@ -1577,29 +1581,64 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         resultIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
 
+    @Volatile
+    private var folderOpenGeneration = 0L
+    private var folderOpenTask: Future<*>? = null
+
     private fun itemClicked(path: String) {
-        val protectedFolder = FolderUnlockSessionManager.findProtectedAncestor(
-            path, config::isFolderProtected
-        )
-        val openAuthenticated = {
-            handleLockedFolderOpening(protectedFolder ?: path) { success ->
-                if (success) {
-                    Intent(this, MediaActivity::class.java).apply {
-                        if (protectedFolder != null) {
-                            putExtra(FOLDER_UNLOCK_SESSION, FolderUnlockSessionManager.createSession(path))
+        val request = ++folderOpenGeneration
+        val app = applicationContext
+        ViewerAccessCoordinator.cancel(folderOpenTask)
+        folderOpenTask = try { ViewerAccessCoordinator.submit {
+            if (request != folderOpenGeneration || Thread.currentThread().isInterrupted) return@submit
+            val protectedFolder = FolderUnlockSessionManager.findProtectedAncestor(
+                path, app.config::isFolderProtected
+            )
+            runOnUiThread {
+                if (request != folderOpenGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                val launch = {
+                    val openActivity = { sessionId: String? ->
+                        if (request != folderOpenGeneration || isFinishing || isDestroyed) {
+                            FolderUnlockSessionManager.revokeSession(sessionId)
+                        } else {
+                            Intent(this, MediaActivity::class.java).apply {
+                                sessionId?.let { putExtra(FOLDER_UNLOCK_SESSION, it) }
+                                putExtra(DIRECTORY, path)
+                                handleMediaIntent(this)
+                            }
                         }
-                        putExtra(DIRECTORY, path)
-                        handleMediaIntent(this)
+                    }
+                    handleLockedFolderOpening(protectedFolder ?: path) { success ->
+                        if (!success) return@handleLockedFolderOpening
+                        if (protectedFolder == null) {
+                            openActivity(null)
+                        } else {
+                            ViewerAccessCoordinator.cancel(folderOpenTask)
+                            folderOpenTask = try { ViewerAccessCoordinator.submit {
+                                val token = FolderUnlockSessionManager.createSession(path)
+                                runOnUiThread {
+                                    if (request != folderOpenGeneration || isFinishing || isDestroyed) {
+                                        FolderUnlockSessionManager.revokeSession(token)
+                                    } else openActivity(token)
+                                }
+                            } } catch (_: java.util.concurrent.RejectedExecutionException) {
+                                finish()
+                                return@handleLockedFolderOpening
+                            }
+                        }
                     }
                 }
+                // Displaying excluded metadata never bypasses the existing
+                // excluded folders password gate when the user opens a folder.
+                if (FavoriteFolderRules.isExcluded(path, config.excludedFolders)) {
+                    handleExcludedFolderPasswordProtection { launch() }
+                } else {
+                    launch()
+                }
             }
-        }
-        // Displaying excluded metadata never bypasses the existing excluded
-        // folders password gate when the user actually opens the folder.
-        if (FavoriteFolderRules.isExcluded(path, config.excludedFolders)) {
-            handleExcludedFolderPasswordProtection { openAuthenticated() }
-        } else {
-            openAuthenticated()
+        } } catch (_: java.util.concurrent.RejectedExecutionException) {
+            finish()
+            return
         }
     }
 

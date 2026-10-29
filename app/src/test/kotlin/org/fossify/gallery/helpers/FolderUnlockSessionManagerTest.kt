@@ -50,4 +50,20 @@ class FolderUnlockSessionManagerTest {
         assertFalse(FolderUnlockSessionManager.isFolderAuthorized(first, root))
         assertTrue(FolderUnlockSessionManager.isFolderAuthorized(second, root))
     }
+
+    @Test fun batchAuthorizationMatchesIndividualChecksAndKeepsNestedBoundaries() {
+        val token = FolderUnlockSessionManager.createSession(root)
+        val protected = setOf(root, "$root/child")
+        val paths = listOf(
+            "$root/a.jpg",
+            "$root/child/b.png",
+            "/storage/emulated/0/Pictures/PrivateA2/other.jpg"
+        )
+        val batch = FolderUnlockSessionManager.authorizedPaths(token, paths) { it in protected }
+        assertEquals(setOf("$root/a.jpg"), batch)
+        val individual = paths.filter { path ->
+            FolderUnlockSessionManager.isMediaAuthorized(token, path) { candidate -> candidate in protected }
+        }.toSet()
+        assertEquals(individual, batch)
+    }
 }

@@ -41,12 +41,12 @@ class GetMediaAsynctask(
         val savedFavorites = context.getFavoritePaths()
         val favoritePaths = if (mPath == FAVORITES) {
             val allowed = if (favoriteSessionId != null) {
-                FavoriteAccessSessionManager.retainFavorites(favoriteSessionId, savedFavorites.toSet()).orEmpty()
+                FavoriteAccessSessionManager.validatePaths(favoriteSessionId, savedFavorites)?.paths.orEmpty()
             } else {
-                savedFavorites.filter { path ->
-                    FavoriteAccessSessionManager.captureSnapshot(listOf(path), context::favoriteProtection)
-                        .entries.values.all { it.locks.isEmpty() }
-                }.toSet()
+                runCatching {
+                    FavoriteAccessSessionManager.captureSnapshot(savedFavorites, context::favoriteProtection)
+                        .entries.filterValues { it.locks.isEmpty() }.keys
+                }.getOrDefault(emptySet())
             }
             (favoritePathsOverride ?: savedFavorites).filter { it in allowed }.toCollection(ArrayList())
         } else favoritePathsOverride ?: savedFavorites
@@ -81,10 +81,20 @@ class GetMediaAsynctask(
         }
 
         val result = mediaFetcher.groupMedia(media, pathToUse)
+        val safeResult = if (mPath == FAVORITES && favoriteSessionId != null) {
+            // Revalidate the complete captured snapshot once after scanning,
+            // then use the returned capability set for a pure in-memory filter.
+            val currentFavorites = context.getFavoritePaths().toSet()
+            val allowed = FavoriteAccessSessionManager.retainFavorites(favoriteSessionId, currentFavorites).orEmpty()
+            if (allowed.isEmpty()) ArrayList() else ArrayList(result.filter { item ->
+                val path = (item as? Medium)?.path
+                path == null || path in allowed
+            })
+        } else result
         if (mPath == FAVORITES && context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-            android.util.Log.d("GalleryFavorites", "savedPaths=${favoritePaths.size}, scannedMedia=${result.count { it is Medium }}")
+            android.util.Log.d("GalleryFavorites", "savedPaths=${favoritePaths.size}, scannedMedia=${safeResult.count { it is Medium }}")
         }
-        result
+        safeResult
         } catch (error: Exception) {
             scanFailure = error
             ArrayList()
@@ -96,10 +106,7 @@ class GetMediaAsynctask(
         if (!isCancelled) {
             val error = scanFailure
             if (error == null) {
-                val safe = if (mPath == FAVORITES && favoriteSessionId != null) {
-                    FavoriteAccessPolicy.authorizedItems(favoriteSessionId, media) { (it as? Medium)?.path }
-                } else media
-                callback(safe)
+                callback(media)
             } else onFailure(error)
         }
     }

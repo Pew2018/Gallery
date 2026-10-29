@@ -16,7 +16,9 @@ internal object FolderUnlockSessionManager {
     private val sessions = ConcurrentHashMap<String, Session>()
 
     fun createSession(folderPath: String): String {
+        if (Thread.currentThread().isInterrupted) throw InterruptedException("Folder session creation cancelled")
         val root = canonical(folderPath)
+        if (Thread.currentThread().isInterrupted) throw InterruptedException("Folder session creation cancelled")
         val bytes = ByteArray(32).also(random::nextBytes)
         val token = bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }
         sessions[token] = Session(root)
@@ -34,7 +36,35 @@ internal object FolderUnlockSessionManager {
         isFolderProtected: (String) -> Boolean
     ): Boolean {
         val session = token?.let(sessions::get) ?: return false
-        val target = canonical(mediaPath)
+        return isMediaAuthorized(session, mediaPath, isFolderProtected, ::canonical)
+    }
+
+    /** Batch counterpart with caches scoped to this call only. */
+    fun authorizedPaths(
+        token: String?,
+        mediaPaths: Collection<String>,
+        isFolderProtected: (String) -> Boolean
+    ): Set<String> {
+        val session = token?.let(sessions::get) ?: return emptySet()
+        val canonicalCache = hashMapOf<String, String>()
+        val protectionCache = hashMapOf<String, Boolean>()
+        fun cachedCanonical(path: String): String = canonicalCache.getOrPut(path) { canonical(path) }
+        fun cachedProtected(path: String): Boolean = protectionCache.getOrPut(path) { isFolderProtected(path) }
+        val authorized = LinkedHashSet<String>()
+        mediaPaths.forEach { path ->
+            if (Thread.currentThread().isInterrupted) return emptySet()
+            if (isMediaAuthorized(session, path, ::cachedProtected, ::cachedCanonical)) authorized.add(path)
+        }
+        return authorized
+    }
+
+    private fun isMediaAuthorized(
+        session: Session,
+        mediaPath: String,
+        isFolderProtected: (String) -> Boolean,
+        canonicalPath: (String) -> String
+    ): Boolean {
+        val target = canonicalPath(mediaPath)
         if (target == session.root || !isInside(session.root, target)) return false
 
         // Respect additional folder locks inside the unlocked folder, including
@@ -42,11 +72,11 @@ internal object FolderUnlockSessionManager {
         val rawParent = File(mediaPath).parent ?: return false
         val resolvedParent = File(target).parent ?: return false
         val protectedAncestors = listOfNotNull(
-            findProtectedAncestor(rawParent, isFolderProtected),
-            findProtectedAncestor(resolvedParent, isFolderProtected)
+            findProtectedAncestor(rawParent, isFolderProtected, canonicalPath),
+            findProtectedAncestor(resolvedParent, isFolderProtected, canonicalPath)
         )
         for (protectedAncestor in protectedAncestors) {
-            val protectedRoot = canonical(protectedAncestor)
+            val protectedRoot = canonicalPath(protectedAncestor)
             if (protectedRoot != session.root && isInside(session.root, protectedRoot)) {
                 return false
             }
@@ -60,11 +90,18 @@ internal object FolderUnlockSessionManager {
     fun findProtectedAncestor(
         folderPath: String,
         isFolderProtected: (String) -> Boolean
+    ): String? = findProtectedAncestor(folderPath, isFolderProtected, ::canonical)
+
+    private fun findProtectedAncestor(
+        folderPath: String,
+        isFolderProtected: (String) -> Boolean,
+        canonicalPath: (String) -> String
     ): String? {
         var candidate: File? = File(folderPath).absoluteFile
         while (candidate != null) {
+            if (Thread.currentThread().isInterrupted) return null
             val rawPath = candidate.path
-            val resolved = canonical(rawPath)
+            val resolved = canonicalPath(rawPath)
             if (isFolderProtected(rawPath) || isFolderProtected(resolved)) return rawPath
             candidate = candidate.parentFile
         }

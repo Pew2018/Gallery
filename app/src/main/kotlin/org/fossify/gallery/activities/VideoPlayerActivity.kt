@@ -8,6 +8,7 @@ import org.fossify.gallery.helpers.FOLDER_UNLOCK_MEDIA_PATH
 import org.fossify.gallery.helpers.FAVORITE_ACCESS_SESSION
 import org.fossify.gallery.helpers.FavoriteAccessSessionManager
 import org.fossify.gallery.helpers.FolderUnlockSessionManager
+import org.fossify.gallery.helpers.ViewerAccessCoordinator
 import org.fossify.commons.extensions.handleLockedFolderOpening
 import org.fossify.commons.extensions.getRealPathFromURI
 import android.annotation.SuppressLint
@@ -104,6 +105,7 @@ import org.fossify.gallery.helpers.VideoGestureCallbacks
 import org.fossify.gallery.helpers.VideoGestureHelper
 import org.fossify.gallery.interfaces.PlaybackSpeedListener
 import java.text.DecimalFormat
+import java.util.concurrent.Future
 import kotlin.math.max
 import kotlin.math.min
 
@@ -164,13 +166,29 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
             if (intent.hasExtra(FAVORITE_ACCESS_SESSION)) checkFavoriteVideo()
         }
     }
+    private val folderProtectionPrefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == null || key.startsWith(org.fossify.commons.helpers.PROTECTED_FOLDER_HASH) ||
+            key.startsWith(org.fossify.commons.helpers.PROTECTED_FOLDER_TYPE)) {
+            FavoriteAccessSessionManager.revokeAll()
+            videoAuthorizationGeneration++
+            favoriteValidationGeneration++
+            ViewerAccessCoordinator.cancel(videoAuthorizationTask)
+            FolderUnlockSessionManager.revokeAll()
+            pauseVideo()
+            releaseExoPlayer()
+            finish()
+        }
+    }
     private var favoriteMediaPath: String? = null
+    private var favoriteValidationGeneration = 0L
+    private var videoAuthorizationTask: Future<*>? = null
+    private var videoAuthorizationGeneration = 0L
     private val favoriteSessionId get() = intent.getStringExtra(FAVORITE_ACCESS_SESSION)
 
     private fun checkFavoriteVideo(): Boolean {
         if (!intent.hasExtra(FAVORITE_ACCESS_SESSION)) return true
         val path = favoriteMediaPath ?: return false
-        if (FavoriteAccessSessionManager.isMediaAuthorized(favoriteSessionId, path)) return true
+        if (FavoriteAccessSessionManager.isCapturedPath(favoriteSessionId, path)) return true
         pauseVideo()
         releaseExoPlayer()
         finish()
@@ -201,9 +219,8 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
         )
         setupOptionsMenu()
         setupOrientation()
-        if (intent.hasExtra(FAVORITE_ACCESS_SESSION)) {
-            getSharedPrefs().registerOnSharedPreferenceChangeListener(favoriteProtectionPrefsListener)
-        }
+        getSharedPrefs().registerOnSharedPreferenceChangeListener(favoriteProtectionPrefsListener)
+        getSharedPrefs().registerOnSharedPreferenceChangeListener(folderProtectionPrefsListener)
         FavoriteAccessSessionManager.addRevocationListener(favoriteListenerId) { revoked ->
             if (revoked == favoriteSessionId) runOnUiThread {
                 if (!checkFavoriteVideo()) finish()
@@ -217,19 +234,45 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
      * photo/video routing. Never treat forwarded Intent flags as authentication.
      */
     private fun authenticateThenInitPlayer() {
+        val request = ++videoAuthorizationGeneration
         val uri = intent.data
-        val uriPath = when (uri?.scheme) {
-            "file" -> uri.path
-            "content" -> uri?.let { applicationContext.getRealPathFromURI(it) }
-            else -> null
-        }?.takeIf { it.startsWith("/") }
+        val fallbackPath = intent.getStringExtra(FOLDER_UNLOCK_MEDIA_PATH)
+        val app = applicationContext
+        submitVideoAuthorization(request) {
+            val uriPath = when (uri?.scheme) {
+                "file" -> uri.path
+                "content" -> uri?.let { app.getRealPathFromURI(it) }
+                else -> null
+            }?.takeIf { it.startsWith("/") }
+            val mediaPath = uriPath ?: fallbackPath
+            runOnUiThread {
+                if (request != videoAuthorizationGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                authenticateResolvedMedia(mediaPath, uri)
+            }
+        }
+    }
+
+    private fun authenticateResolvedMedia(mediaPath: String?, uri: Uri?) {
         // Only the internal player launch helper supplies this path. Never use
         // an unverified REAL_FILE_PATH forwarded by an exported entry point.
-        val mediaPath = uriPath ?: intent.getStringExtra(FOLDER_UNLOCK_MEDIA_PATH)
         if (intent.hasExtra(FAVORITE_ACCESS_SESSION)) {
             favoriteMediaPath = mediaPath
-            if (mediaPath == null || !checkFavoriteVideo()) { finish(); return }
-            initPlayer()
+            if (mediaPath == null) { finish(); return }
+            val request = ++favoriteValidationGeneration
+            val token = favoriteSessionId
+            val authorizationRequest = videoAuthorizationGeneration
+            submitVideoAuthorization(authorizationRequest) {
+                val validation = FavoriteAccessSessionManager.validatePaths(token, listOf(mediaPath))
+                val allowed = validation != null && FavoriteAccessSessionManager.isInValidatedPaths(validation, mediaPath)
+                runOnUiThread {
+                    if (request != favoriteValidationGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                    if (!allowed || !FavoriteAccessSessionManager.isValidationCurrent(validation)) {
+                        finish()
+                        return@runOnUiThread
+                    }
+                    initPlayer()
+                }
+            }
             return
         }
         if (mediaPath.isNullOrBlank()) {
@@ -242,21 +285,38 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
             }
             return
         }
-        val protectedFolder = FolderUnlockSessionManager.findProtectedAncestor(
-            java.io.File(mediaPath).parent ?: "", config::isFolderProtected
-        )
-        if (protectedFolder == null ||
-            FolderUnlockSessionManager.isMediaAuthorized(
-                intent.getStringExtra(FOLDER_UNLOCK_SESSION),
-                mediaPath,
-                config::isFolderProtected
+        val folderToken = intent.getStringExtra(FOLDER_UNLOCK_SESSION)
+        val app = applicationContext
+        val authorizationRequest = videoAuthorizationGeneration
+        submitVideoAuthorization(authorizationRequest) {
+            val protectedFolder = FolderUnlockSessionManager.findProtectedAncestor(
+                java.io.File(mediaPath).parent ?: "", app.config::isFolderProtected
             )
-        ) {
-            initPlayer()
-        } else {
-            handleLockedFolderOpening(protectedFolder) { success ->
-                if (success) initPlayer() else finish()
+            val folderAuthorized = protectedFolder != null && FolderUnlockSessionManager.isMediaAuthorized(
+                folderToken, mediaPath, app.config::isFolderProtected
+            )
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (protectedFolder == null || folderAuthorized) {
+                    initPlayer()
+                } else {
+                    handleLockedFolderOpening(protectedFolder) { success ->
+                        if (success) initPlayer() else finish()
+                    }
+                }
             }
+        }
+    }
+
+    private fun submitVideoAuthorization(request: Long, work: () -> Unit) {
+        ViewerAccessCoordinator.cancel(videoAuthorizationTask)
+        videoAuthorizationTask = try {
+            ViewerAccessCoordinator.submit {
+                if (request == videoAuthorizationGeneration && !Thread.currentThread().isInterrupted) work()
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            if (request == videoAuthorizationGeneration) finish()
+            null
         }
     }
 
@@ -283,7 +343,11 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
     }
 
     override fun onDestroy() {
+        favoriteValidationGeneration++
+        videoAuthorizationGeneration++
+        ViewerAccessCoordinator.cancel(videoAuthorizationTask)
         getSharedPrefs().unregisterOnSharedPreferenceChangeListener(favoriteProtectionPrefsListener)
+        getSharedPrefs().unregisterOnSharedPreferenceChangeListener(folderProtectionPrefsListener)
         FavoriteAccessSessionManager.removeRevocationListener(favoriteListenerId)
         super.onDestroy()
         if (!isChangingConfigurations) {

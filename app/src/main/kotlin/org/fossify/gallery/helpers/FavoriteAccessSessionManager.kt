@@ -23,6 +23,13 @@ internal object FavoriteAccessSessionManager {
         val credentialIsCurrent: () -> Boolean = { true }
     )
 
+    /** A batch result is valid only while the exact session value remains installed. */
+    data class ValidatedPaths internal constructor(
+        val token: String,
+        val paths: Set<String>,
+        internal val session: Any
+    )
+
     private val random = SecureRandom()
     private val generation = AtomicLong()
     private val sessions = ConcurrentHashMap<String, Session>()
@@ -34,7 +41,9 @@ internal object FavoriteAccessSessionManager {
             if (!protectionCache.containsKey(path)) protectionCache[path] = protection(path)
             return protectionCache[path]
         }
-        return Snapshot(paths.associateWith { path ->
+        val entries = LinkedHashMap<String, Entry>(paths.size)
+        paths.forEach { path ->
+            if (Thread.currentThread().isInterrupted) throw InterruptedException("Favorite snapshot capture cancelled")
             require(File(path).isAbsolute)
             val canonical = File(path).canonicalPath
             val locks = linkedMapOf<String, Protection>()
@@ -50,14 +59,16 @@ internal object FavoriteAccessSessionManager {
             }
             val canonicalFile = File(canonical)
             val stat = runCatching { android.system.Os.stat(canonical) }.getOrNull()
-            Entry(
+            val exists = canonicalFile.exists()
+            entries[path] = Entry(
                 canonical,
                 stat?.let { "${it.st_dev}:${it.st_ino}" },
-                canonicalFile.takeIf { it.exists() }?.length(),
-                canonicalFile.takeIf { it.exists() }?.lastModified(),
+                canonicalFile.takeIf { exists }?.length(),
+                canonicalFile.takeIf { exists }?.lastModified(),
                 locks
             )
-        })
+        }
+        return Snapshot(entries)
     }
 
     /** Commons 7.1.3: only nonempty pattern/PIN hashes are comparable.
@@ -126,7 +137,80 @@ internal object FavoriteAccessSessionManager {
         return sessions[token]?.snapshot?.entries?.get(path) == expected
     }
 
+    /**
+     * Re-checks the complete captured snapshot once, then returns the requested
+     * members. Call this from a worker thread. Keeping the full snapshot check
+     * preserves the original rule that any identity or lock-boundary change
+     * invalidates the whole favorites capability.
+     */
+    fun validatePaths(token: String?, requestedPaths: Collection<String>): ValidatedPaths? {
+        val session = token?.let(sessions::get) ?: return null
+        if (!session.credentialIsCurrent()) {
+            revokeSession(token)
+            return null
+        }
+        // Requested entries are captured first so callers can put the clicked
+        // media ahead of the remaining batch. The full captured set is still
+        // compared before any result is accepted.
+        val orderedPaths = LinkedHashSet<String>().apply {
+            addAll(requestedPaths.filter { it in session.snapshot.entries })
+            addAll(session.snapshot.entries.keys)
+        }
+        val fresh = try {
+            captureSnapshot(orderedPaths, session.protection)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return null
+        } catch (_: Exception) {
+            null
+        }
+        if (Thread.currentThread().isInterrupted) return null
+        if (fresh != session.snapshot) {
+            revokeSession(token)
+            return null
+        }
+        if (sessions[token] !== session || !session.credentialIsCurrent()) return null
+        return ValidatedPaths(
+            token = token,
+            paths = session.snapshot.entries.keys.intersect(requestedPaths.toSet()),
+            session = session
+        )
+    }
+
+    /** Cheap membership check for an item whose batch was already validated. */
+    fun isInValidatedPaths(validation: ValidatedPaths?, path: String): Boolean {
+        val token = validation?.token ?: return false
+        val expected = validation.session as? Session ?: return false
+        return sessions[token] === expected && expected.credentialIsCurrent() && path in validation.paths
+    }
+
+    fun isValidationCurrent(validation: ValidatedPaths?): Boolean {
+        val token = validation?.token ?: return false
+        val expected = validation.session as? Session ?: return false
+        return sessions[token] === expected && expected.credentialIsCurrent()
+    }
+
+    /** Cheap capability membership for adapters after a validated batch was published. */
+    fun isCapturedPath(token: String?, path: String): Boolean {
+        val session = token?.let(sessions::get) ?: return false
+        if (!session.credentialIsCurrent()) {
+            revokeSession(token)
+            return false
+        }
+        return sessions[token] === session && path in session.snapshot.entries
+    }
+
     fun isActive(token: String?): Boolean = token != null && sessions.containsKey(token)
+
+    /** Snapshot membership only; callers still need a worker-thread batch validation before publication. */
+    fun getCapturedPaths(token: String?): Set<String>? {
+        val session = token?.let(sessions::get) ?: return null
+        if (!session.credentialIsCurrent()) {
+            revokeSession(token)
+            return null
+        }
+        return if (sessions[token] === session) session.snapshot.entries.keys.toSet() else null
+    }
 
     fun getAllowedPaths(token: String?): Set<String>? {
         val session = token?.let(sessions::get) ?: return null
@@ -143,10 +227,14 @@ internal object FavoriteAccessSessionManager {
 
     /** Called with a fresh database result on the background loading path. */
     fun retainFavorites(token: String?, current: Set<String>): Set<String>? {
-        val allowed = getAllowedPaths(token) ?: return null
-        (allowed - current).forEach(::revokePath)
-        return getAllowedPaths(token)
+        val validation = validatePaths(token, current) ?: return null
+        (sessionPaths(validation) - current).forEach(::revokePath)
+        val session = sessions[token] ?: return null
+        return if (session.credentialIsCurrent()) session.snapshot.entries.keys.toSet() else null
     }
+
+    private fun sessionPaths(validation: ValidatedPaths): Set<String> =
+        (validation.session as? Session)?.snapshot?.entries?.keys.orEmpty()
 
     fun revokePath(path: String) {
         sessions.keys.toList().forEach { token ->
