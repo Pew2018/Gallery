@@ -44,13 +44,12 @@ class MediaFetcher(val context: Context) {
             }
         } else {
             if (curPath != FAVORITES && curPath != RECYCLE_BIN && isRPlus() && !isExternalStorageManager()) {
-                if (android11Files?.containsKey(curPath.lowercase(Locale.getDefault())) == true) {
-                    curMedia.addAll(android11Files[curPath.lowercase(Locale.getDefault())]!!)
+                val folderKey = MediaStoreFolderKey.of(curPath)
+                if (android11Files?.containsKey(folderKey) == true) {
+                    curMedia.addAll(android11Files[folderKey]!!)
                 } else if (android11Files == null) {
                     val files = getAndroid11FolderMedia(isPickImage, isPickVideo, favoritePaths, false, getProperDateTaken, dateTakens)
-                    if (files.containsKey(curPath.lowercase(Locale.getDefault()))) {
-                        curMedia.addAll(files[curPath.lowercase(Locale.getDefault())]!!)
-                    }
+                    files[folderKey]?.let { curMedia.addAll(it) }
                 }
             }
 
@@ -529,7 +528,7 @@ class MediaFetcher(val context: Context) {
                 val isFavorite = path in favoritePathSet
                 val medium =
                     Medium(null, filename, path, path.getParentPath(), lastModified, dateTaken, size, type, videoDuration, isFavorite, 0L, mediaStoreId)
-                val parent = medium.parentPath.lowercase(Locale.getDefault())
+                val parent = MediaStoreFolderKey.of(medium.parentPath)
                 val currentFolderMedia = media[parent]
                 if (currentFolderMedia == null) {
                     media[parent] = ArrayList<Medium>()
