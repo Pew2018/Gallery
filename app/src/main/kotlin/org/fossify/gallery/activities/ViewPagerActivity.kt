@@ -1,5 +1,7 @@
 package org.fossify.gallery.activities
 
+import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
+import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import android.animation.Animator
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
@@ -474,7 +476,20 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val exportedOrUnknown = runCatching {
             packageManager.getActivityInfo(componentName, 0).exported
         }.getOrDefault(true)
-        if (ViewerAuthenticationPolicy.mayHonorSkipExtra(
+        val folderSessionId = intent.getStringExtra(FOLDER_UNLOCK_SESSION)
+        if (FolderUnlockSessionManager.isMediaAuthorized(
+                folderSessionId, mPath, config::isFolderProtected
+            )) {
+            // A valid unlock is scoped to the current folder only. Never load
+            // the global gallery list or adjacent locked folders in this viewer.
+            mShowAll = false
+            mMediaFiles.removeAll { medium ->
+                !FolderUnlockSessionManager.isMediaAuthorized(
+                    folderSessionId, medium.path, config::isFolderProtected
+                )
+            }
+            initContinue()
+        } else if (ViewerAuthenticationPolicy.mayHonorSkipExtra(
                 intent.getBooleanExtra(SKIP_AUTHENTICATION, false), exportedOrUnknown
             )) {
             initContinue()
