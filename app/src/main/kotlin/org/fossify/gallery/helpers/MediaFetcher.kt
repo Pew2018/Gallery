@@ -61,13 +61,23 @@ class MediaFetcher(val context: Context) {
                 )
 
                 if (curPath == FAVORITES && isRPlus() && !isExternalStorageManager()) {
-                    val files =
-                        getAndroid11FolderMedia(isPickImage, isPickVideo, favoritePaths, true, getProperDateTaken, dateTakens.clone() as HashMap<String, Long>)
-                    // Index once instead of comparing every favorite against every
-                    // MediaStore entry. Exact path matching preserves case.
+                    // Scoped storage can expose a valid favorite via MediaStore
+                    // even when File.length()/exists() cannot see it. Reconcile
+                    // both sources by exact path without dropping either one.
+                    val files = getAndroid11FolderMedia(
+                        isPickImage, isPickVideo, favoritePaths, true, getProperDateTaken,
+                        dateTakens.clone() as HashMap<String, Long>
+                    )
                     FavoriteMediaSizeReconciler.apply(newMedia, files)
+                    val indexedFavorites = files.values.flatten().filter {
+                        context.config.shouldShowHidden || !it.path.contains("/.")
+                    }
+                    curMedia.addAll(FavoriteMediaLoadPolicy.mergeByPath(
+                        newMedia, indexedFavorites, { it.path }
+                    ))
+                } else {
+                    curMedia.addAll(newMedia)
                 }
-                curMedia.addAll(newMedia)
             }
         }
 
@@ -434,6 +444,7 @@ class MediaFetcher(val context: Context) {
 
         val filterMedia = context.config.filterMedia
         val showHidden = context.config.shouldShowHidden
+        val favoritePathSet = favoritePaths.toHashSet()
 
         val projection = arrayOf(
             Images.Media._ID,
@@ -456,7 +467,7 @@ class MediaFetcher(val context: Context) {
                 val mediaStoreId = cursor.getLongValue(Images.Media._ID)
                 val filename = cursor.getStringValue(Images.Media.DISPLAY_NAME)
                 val path = cursor.getStringValue(Images.Media.DATA)
-                if (getFavoritePathsOnly && !favoritePaths.contains(path)) {
+                if (getFavoritePathsOnly && path !in favoritePathSet) {
                     return@queryCursor
                 }
 
@@ -486,7 +497,7 @@ class MediaFetcher(val context: Context) {
                 if (isSvg && filterMedia and TYPE_SVGS == 0)
                     return@queryCursor
 
-                if (!showHidden && filename.startsWith('.'))
+                if (!showHidden && (filename.startsWith('.') || (getFavoritePathsOnly && path.contains("/."))))
                     return@queryCursor
 
                 val size = cursor.getLongValue(Images.Media.SIZE)
@@ -515,7 +526,7 @@ class MediaFetcher(val context: Context) {
                 }
 
                 val videoDuration = Math.round(cursor.getIntValue(MediaStore.MediaColumns.DURATION) / 1000.toDouble()).toInt()
-                val isFavorite = favoritePaths.contains(path)
+                val isFavorite = path in favoritePathSet
                 val medium =
                     Medium(null, filename, path, path.getParentPath(), lastModified, dateTaken, size, type, videoDuration, isFavorite, 0L, mediaStoreId)
                 val parent = medium.parentPath.lowercase(Locale.getDefault())

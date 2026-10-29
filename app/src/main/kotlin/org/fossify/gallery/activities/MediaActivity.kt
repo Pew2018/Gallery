@@ -105,6 +105,7 @@ import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.SET_WALLPAPER_INTENT
 import org.fossify.gallery.helpers.SHOW_ALL
 import org.fossify.gallery.helpers.SHOW_FAVORITES
+import org.fossify.gallery.helpers.FavoriteMediaLoadRequests
 import org.fossify.gallery.helpers.SHOW_RECYCLE_BIN
 import org.fossify.gallery.helpers.SHOW_TEMP_HIDDEN_DURATION
 import org.fossify.gallery.helpers.SKIP_AUTHENTICATION
@@ -140,6 +141,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mTempShowHiddenHandler = Handler()
     private var mCurrAsyncTask: GetMediaAsynctask? = null
     @Volatile private var mediaScanGeneration = 0L
+    private val mediaLoadRequests = FavoriteMediaLoadRequests()
+    private var completedMediaRequest = -1L
     private var mZoomListener: MyRecyclerView.MyZoomListener? = null
 
     private var mStoredAnimateGifs = true
@@ -295,13 +298,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     override fun onPause() {
         super.onPause()
         mIsGettingMedia = false
+        mediaLoadRequests.invalidate()
+        mediaScanGeneration++
         binding.mediaRefreshLayout.isRefreshing = false
         storeStateVariables()
         mLastMediaHandler.removeCallbacksAndMessages(null)
-
-        if (!mMedia.isEmpty()) {
-            mCurrAsyncTask?.stopFetching()
-        }
+        mCurrAsyncTask?.stopFetching()
     }
 
     override fun onStop() {
@@ -696,34 +698,36 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun getMedia() {
-        if (mIsGettingMedia) {
-            return
-        }
-
+        // Every refresh has a separate request identity, including the cache step.
+        // A late cache response must never launch an older scan or replace new UI.
+        val request = mediaLoadRequests.begin()
+        mCurrAsyncTask?.stopFetching()
         mIsGettingMedia = true
         if (mLoadedInitialPhotos) {
-            startAsyncTask()
+            startAsyncTask(request)
         } else {
             getCachedMedia(
                 mPath,
                 mIsGetVideoIntent && !mIsGetImageIntent,
                 mIsGetImageIntent && !mIsGetVideoIntent
-            ) {
-                if (it.isEmpty()) {
+            ) { cached ->
+                if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return@getCachedMedia
+                if (cached.isEmpty()) {
                     runOnUiThread {
-                        binding.mediaRefreshLayout.isRefreshing = true
+                        if (mediaLoadRequests.isCurrent(request)) binding.mediaRefreshLayout.isRefreshing = true
                     }
                 } else {
-                    gotMedia(it, true)
+                    gotMedia(cached, true, request)
                 }
-                startAsyncTask()
+                startAsyncTask(request)
             }
         }
 
         mLoadedInitialPhotos = true
     }
 
-    private fun startAsyncTask() {
+    private fun startAsyncTask(request: Long) {
+        if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return
         // A canceled or superseded scan must not change the visible list or cached data.
         val scanGeneration = ++mediaScanGeneration
         mCurrAsyncTask?.stopFetching()
@@ -732,24 +736,35 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             mPath = mPath,
             isPickImage = mIsGetImageIntent && !mIsGetVideoIntent,
             isPickVideo = mIsGetVideoIntent && !mIsGetImageIntent,
-            showAll = mShowAll
+            showAll = mShowAll,
+            onFailure = { error ->
+                android.util.Log.e("GalleryMedia", "Media scan failed", error)
+                runOnUiThread {
+                    if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed) {
+                        mIsGettingMedia = false
+                        binding.loadingIndicator.hide()
+                        binding.mediaRefreshLayout.isRefreshing = false
+                        // Preserve cached items and do not misreport scan failure as an empty album.
+                    }
+                }
+            }
         ) { scannedMedia ->
             ensureBackgroundThread {
-                if (scanGeneration != mediaScanGeneration || isFinishing || isDestroyed) {
+                if (scanGeneration != mediaScanGeneration || !mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) {
                     return@ensureBackgroundThread
                 }
                 try {
                     val oldMedia = mMedia.filterIsInstance<Medium>()
                     val newPaths = scannedMedia.filterIsInstance<Medium>()
                         .mapTo(HashSet()) { it.path }
-                    gotMedia(scannedMedia, false)
+                    gotMedia(scannedMedia, false, request)
 
                     // A filtered/partial/permission-limited scan is NOT evidence that an
                     // old file was deleted. Never clear a favorite relationship here.
                     // Only prune cached metadata for files confirmed absent from an
                     // accessible parent directory.
                     oldMedia.forEach { old ->
-                        if (scanGeneration != mediaScanGeneration) return@ensureBackgroundThread
+                        if (scanGeneration != mediaScanGeneration || !mediaLoadRequests.isCurrent(request)) return@ensureBackgroundThread
                         val file = File(old.path)
                         val parentReadable = file.parentFile?.let {
                             it.isDirectory && it.canRead()
@@ -1057,12 +1072,17 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         )
     }
 
-    private fun gotMedia(media: ArrayList<ThumbnailItem>, isFromCache: Boolean) {
-        mIsGettingMedia = false
-        checkLastMediaChanged()
-        mMedia = ArrayList(media)
-
+    private fun gotMedia(media: ArrayList<ThumbnailItem>, isFromCache: Boolean, request: Long) {
         runOnUiThread {
+            if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed ||
+                (isFromCache && completedMediaRequest == request)) return@runOnUiThread
+
+            if (!isFromCache) {
+                mIsGettingMedia = false
+                completedMediaRequest = request
+            }
+            checkLastMediaChanged()
+            mMedia = ArrayList(media)
             binding.loadingIndicator.hide()
             binding.mediaRefreshLayout.isRefreshing = false
             binding.mediaEmptyTextPlaceholder.beVisibleIf(media.isEmpty() && !isFromCache)
@@ -1073,19 +1093,27 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
             binding.mediaFastscroller.beVisibleIf(binding.mediaEmptyTextPlaceholder.isGone())
             setupAdapter()
-        }
 
-        mLatestMediaId = getLatestMediaId()
-        mLatestMediaDateId = getLatestMediaByDateId()
-        if (!isFromCache) {
-            val mediaToInsert = mMedia
-                .filter { it is Medium && it.deletedTS == 0L }.map { it as Medium }
-            Thread {
-                try {
-                    mediaDB.insertAll(mediaToInsert)
-                } catch (e: Exception) {
+            if (mPath == FAVORITES && applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+                android.util.Log.d("GalleryFavorites", "source=${if (isFromCache) "cache" else "scan"}, adapterMedia=${mMedia.count { it is Medium }}")
+            }
+            if (!isFromCache) {
+                // Never let a previous request persist stale favorites after a new refresh.
+                val mediaToInsert = mMedia.filterIsInstance<Medium>().filter { it.deletedTS == 0L }
+                ensureBackgroundThread {
+                    if (mediaLoadRequests.isCurrent(request)) {
+                        try {
+                            mediaDB.insertAll(mediaToInsert)
+                        } catch (error: Exception) {
+                            android.util.Log.e("GalleryMedia", "Cannot cache scanned media", error)
+                        }
+                    }
                 }
-            }.start()
+            }
+        }
+        if (mediaLoadRequests.isCurrent(request)) {
+            mLatestMediaId = getLatestMediaId()
+            mLatestMediaDateId = getLatestMediaByDateId()
         }
     }
 

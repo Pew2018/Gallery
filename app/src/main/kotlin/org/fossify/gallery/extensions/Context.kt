@@ -104,6 +104,7 @@ import org.fossify.gallery.helpers.TYPE_PORTRAITS
 import org.fossify.gallery.helpers.TYPE_RAWS
 import org.fossify.gallery.helpers.TYPE_SVGS
 import org.fossify.gallery.helpers.TYPE_VIDEOS
+import org.fossify.gallery.helpers.FavoriteMediaLoadPolicy
 import org.fossify.gallery.interfaces.DateTakensDao
 import org.fossify.gallery.interfaces.DirectoryDao
 import org.fossify.gallery.interfaces.FavoriteFoldersDao
@@ -979,7 +980,7 @@ fun Context.getCachedMedia(
 
         var media = ArrayList<Medium>()
         if (path == FAVORITES) {
-            media.addAll(mediaDB.getFavorites())
+            media.addAll(mediaDB.getCachedFavoriteMedia())
         }
 
         if (path == RECYCLE_BIN) {
@@ -1028,33 +1029,10 @@ fun Context.getCachedMedia(
         mediaFetcher.sortMedia(media, config.getFolderSorting(pathToUse))
         val grouped = mediaFetcher.groupMedia(media, pathToUse)
         callback(grouped.clone() as ArrayList<ThumbnailItem>)
-        val OTGPath = config.OTGPath
-
-        try {
-            val mediaToDelete = ArrayList<Medium>()
-            // creating a new thread intentionally, do not reuse the common background thread
-            Thread {
-                media.filter { !getDoesFilePathExist(it.path, OTGPath) }.forEach {
-                    if (it.path.startsWith(recycleBinPath)) {
-                        deleteDBPath(it.path)
-                    } else {
-                        mediaToDelete.add(it)
-                    }
-                }
-
-                if (mediaToDelete.isNotEmpty()) {
-                    try {
-                        mediaDB.deleteMedia(*mediaToDelete.toTypedArray())
-
-                        mediaToDelete.filter { it.isFavorite }.forEach {
-                            favoritesDB.deleteFavoritePath(it.path)
-                        }
-                    } catch (ignored: Exception) {
-                    }
-                }
-            }.start()
-        } catch (ignored: Exception) {
-        }
+        // Cached metadata is not proof of file existence. Missing permissions,
+        // transient unmounted volumes and incomplete MediaStore scans must never
+        // delete media favorites. Confirmed cache pruning is handled by the
+        // guarded MediaCachePrunePolicy in the scan path.
     }
 }
 
@@ -1116,8 +1094,9 @@ fun Context.getOTGFolderChildrenNames(path: String): MutableList<String?>? {
 
 fun Context.getFavoritePaths(): ArrayList<String> {
     return try {
-        favoritesDB.getValidFavoritePaths() as ArrayList<String>
+        FavoriteMediaLoadPolicy.distinctSavedPaths(favoritesDB.getValidFavoritePaths())
     } catch (e: Exception) {
+        android.util.Log.e("GalleryFavorites", "Cannot read saved media favorites", e)
         ArrayList()
     }
 }
@@ -1133,6 +1112,9 @@ fun Context.updateFavorite(path: String, isFavorite: Boolean) {
         } else {
             favoritesDB.deleteFavoritePath(path)
         }
+        // The secondary media flag must match the durable favorites table,
+        // including immediately after an explicit unfavorite operation.
+        mediaDB.updateFavorite(path, isFavorite)
     } catch (e: Exception) {
         toast(org.fossify.commons.R.string.unknown_error_occurred)
     }

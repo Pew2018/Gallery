@@ -91,6 +91,7 @@ import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.createDirectoryFromMedia
 import org.fossify.gallery.extensions.directoryDB
 import org.fossify.gallery.extensions.favoriteFoldersDB
+import org.fossify.gallery.extensions.favoritesDB
 import org.fossify.gallery.extensions.getCachedDirectories
 import org.fossify.gallery.extensions.getCachedMedia
 import org.fossify.gallery.extensions.getDirectorySortingValue
@@ -1623,7 +1624,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
 
         if (dirs.map { it.path }.contains(FAVORITES)) {
-            if (mediaDB.getFavoritesCount() > 0) {
+            if (favoritesDB.getFavoritesCount() > 0) {
                 val favorites = Directory().apply {
                     path = FAVORITES
                     name = getString(org.fossify.commons.R.string.favorites)

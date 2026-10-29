@@ -14,12 +14,14 @@ import org.fossify.gallery.models.ThumbnailItem
 
 class GetMediaAsynctask(
     val context: Context, val mPath: String, val isPickImage: Boolean = false, val isPickVideo: Boolean = false,
-    val showAll: Boolean, val callback: (media: ArrayList<ThumbnailItem>) -> Unit
+    val showAll: Boolean, val onFailure: (Exception) -> Unit = {}, val callback: (media: ArrayList<ThumbnailItem>) -> Unit
 ) :
     AsyncTask<Void, Void, ArrayList<ThumbnailItem>>() {
     private val mediaFetcher = MediaFetcher(context)
+    private var scanFailure: Exception? = null
 
     override fun doInBackground(vararg params: Void): ArrayList<ThumbnailItem> {
+        return try {
         val pathToUse = if (showAll) SHOW_ALL else mPath
         val folderGrouping = context.config.getFolderGrouping(pathToUse)
         val folderSorting = context.config.getFolderSorting(pathToUse)
@@ -63,12 +65,23 @@ class GetMediaAsynctask(
             )
         }
 
-        return mediaFetcher.groupMedia(media, pathToUse)
+        val result = mediaFetcher.groupMedia(media, pathToUse)
+        if (mPath == FAVORITES && context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            android.util.Log.d("GalleryFavorites", "savedPaths=${favoritePaths.size}, scannedMedia=${result.count { it is Medium }}")
+        }
+        result
+        } catch (error: Exception) {
+            scanFailure = error
+            ArrayList()
+        }
     }
 
     override fun onPostExecute(media: ArrayList<ThumbnailItem>) {
         super.onPostExecute(media)
-        if (!isCancelled) callback(media)
+        if (!isCancelled) {
+            val error = scanFailure
+            if (error == null) callback(media) else onFailure(error)
+        }
     }
 
     fun stopFetching() {

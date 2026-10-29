@@ -14,8 +14,11 @@ interface FavoritesDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertAll(favorites: List<Favorite>)
 
-    @Query("SELECT favorites.full_path FROM favorites INNER JOIN media ON favorites.full_path = media.full_path WHERE media.deleted_ts = 0")
+    @Query("SELECT full_path FROM favorites")
     fun getValidFavoritePaths(): List<String>
+
+    @Query("SELECT COUNT(*) FROM favorites")
+    fun getFavoritesCount(): Long
 
     @Query("SELECT id FROM favorites WHERE full_path = :path COLLATE NOCASE")
     fun isFavorite(path: String): Boolean

@@ -17,6 +17,10 @@ interface MediumDao {
     @Query("SELECT COUNT(filename) FROM media WHERE deleted_ts = 0 AND is_favorite = 1")
     fun getFavoritesCount(): Long
 
+    // The relationship table is authoritative; media.is_favorite is cached metadata.
+    @Query("SELECT media.* FROM media INNER JOIN favorites ON media.full_path = favorites.full_path WHERE media.deleted_ts = 0")
+    fun getCachedFavoriteMedia(): List<Medium>
+
     @Query("SELECT filename, full_path, parent_path, last_modified, date_taken, size, type, video_duration, is_favorite, deleted_ts, media_store_id FROM media WHERE deleted_ts != 0")
     fun getDeletedMedia(): List<Medium>
 
