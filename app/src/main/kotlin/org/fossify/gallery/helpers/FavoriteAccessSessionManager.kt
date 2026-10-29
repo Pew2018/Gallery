@@ -187,6 +187,16 @@ internal object FavoriteAccessSessionManager {
     fun isValidationCurrent(validation: ValidatedPaths?): Boolean {
         val token = validation?.token ?: return false
         val expected = validation.session as? Session ?: return false
+        if (sessions[token] !== expected || !expected.credentialIsCurrent()) return false
+        // Recheck the captured file identity and source protection before an async
+        // result is published. This closes the gap between worker validation and UI delivery.
+        val fresh = runCatching {
+            captureSnapshot(expected.snapshot.entries.keys, expected.protection)
+        }.getOrNull()
+        if (fresh != expected.snapshot) {
+            revokeSession(token)
+            return false
+        }
         return sessions[token] === expected && expected.credentialIsCurrent()
     }
 
