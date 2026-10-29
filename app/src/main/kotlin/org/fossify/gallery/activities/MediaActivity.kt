@@ -419,7 +419,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             OxygenSearchNavigation.closeInlineSearch(this, binding.mediaMenu)
             true
         } else {
-            if (mGallerySection != null) {
+            if (mGallerySection != null && mPath != FAVORITES) {
                 appLockManager.lock()
             }
 
@@ -599,7 +599,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
 
             binding.mediaMenu.updateHintText(searchHint)
-            if (mGallerySection == null && !mShowAll) {
+            if ((mGallerySection == null || mPath == FAVORITES) && !mShowAll) {
                 // OxygenToolbarStyle owns the single closed-search back control.
                 // Commons owns the search arrow only while search is expanded.
                 binding.mediaMenu.onNavigateBackClickListener = {
