@@ -21,7 +21,15 @@ class ClassicSettingsSwitch @JvmOverloads constructor(
     override fun performClick(): Boolean {
         val row = parent as? View ?: return false
         if (!isEnabled || !row.isEnabled) return false
-        return row.performClick()
+
+        // Honor View's accessibility click contract. CompoundButton's base
+        // implementation also toggles its own checked state, but this setting
+        // row is the sole owner of authorization and persistence. Restore the
+        // transient native toggle before forwarding exactly one row click.
+        val previousChecked = isChecked
+        val accessibilityHandled = super.performClick()
+        if (isChecked != previousChecked) isChecked = previousChecked
+        return row.performClick() || accessibilityHandled
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
