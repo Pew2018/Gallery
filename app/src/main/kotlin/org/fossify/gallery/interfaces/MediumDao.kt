@@ -8,7 +8,7 @@ interface MediumDao {
     @Query("SELECT filename, full_path, parent_path, last_modified, date_taken, size, type, video_duration, is_favorite, deleted_ts, media_store_id FROM media WHERE deleted_ts = 0")
     fun getAllMedia(): List<Medium>
 
-    @Query("SELECT filename, full_path, parent_path, last_modified, date_taken, size, type, video_duration, is_favorite, deleted_ts, media_store_id FROM media WHERE deleted_ts = 0 AND parent_path = :path COLLATE NOCASE")
+    @Query("SELECT filename, full_path, parent_path, last_modified, date_taken, size, type, video_duration, is_favorite, deleted_ts, media_store_id FROM media WHERE deleted_ts = 0 AND parent_path = :path")
     fun getMediaFromPath(path: String): List<Medium>
 
     @Query("SELECT filename, full_path, parent_path, last_modified, date_taken, size, type, video_duration, is_favorite, deleted_ts, media_store_id FROM media WHERE deleted_ts = 0 AND is_favorite = 1")
@@ -39,19 +39,19 @@ interface MediumDao {
     @Delete
     fun deleteMedia(vararg medium: Medium)
 
-    @Query("DELETE FROM media WHERE full_path = :path COLLATE NOCASE")
+    @Query("DELETE FROM media WHERE full_path = :path")
     fun deleteMediumPath(path: String)
 
-    @Query("UPDATE OR REPLACE media SET filename = :newFilename, full_path = :newFullPath, parent_path = :newParentPath WHERE full_path = :oldPath COLLATE NOCASE")
+    @Query("UPDATE OR REPLACE media SET filename = :newFilename, full_path = :newFullPath, parent_path = :newParentPath WHERE full_path = :oldPath")
     fun updateMedium(oldPath: String, newParentPath: String, newFilename: String, newFullPath: String)
 
-    @Query("UPDATE OR REPLACE media SET full_path = :newPath, deleted_ts = :deletedTS WHERE full_path = :oldPath COLLATE NOCASE")
+    @Query("UPDATE OR REPLACE media SET full_path = :newPath, deleted_ts = :deletedTS WHERE full_path = :oldPath")
     fun updateDeleted(newPath: String, deletedTS: Long, oldPath: String)
 
-    @Query("UPDATE media SET date_taken = :dateTaken WHERE full_path = :path COLLATE NOCASE")
+    @Query("UPDATE media SET date_taken = :dateTaken WHERE full_path = :path")
     fun updateFavoriteDateTaken(path: String, dateTaken: Long)
 
-    @Query("UPDATE media SET is_favorite = :isFavorite WHERE full_path = :path COLLATE NOCASE")
+    @Query("UPDATE media SET is_favorite = :isFavorite WHERE full_path = :path")
     fun updateFavorite(path: String, isFavorite: Boolean)
 
     @Query("UPDATE media SET is_favorite = 0")
