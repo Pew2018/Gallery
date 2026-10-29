@@ -324,8 +324,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 getRecyclerAdapter()?.finishActMode()
                 val section = if (tab == GalleryBottomBar.Tab.FAVORITES)
                     GallerySection.FAVORITES else GallerySection.ALL
-                openGalleryRoot(GalleryNavigation.remembered(
-                    section, config.lastMainViewAll, config.lastFavoritesViewFiles
+                openGalleryRoot(GalleryNavigation.bottomDestination(
+                    section, config.lastMainViewAll
                 ))
             }
             val bottom = resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height)
@@ -1166,9 +1166,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun openGalleryRoot(screen: GalleryScreen) {
         if (screen.section == GallerySection.ALL) {
             config.lastMainViewAll = screen.view == GalleryContentView.FILES
-        } else {
-            config.lastFavoritesViewFiles = screen.view == GalleryContentView.FILES
         }
+        // The pinned favorite-files album must not change the saved favorite-folder tab.
         // Retain the legacy flag for older callers, but the destination owns scope.
         config.showAll = screen.isAllFiles
         val destination = if (screen.view == GalleryContentView.FILES) {

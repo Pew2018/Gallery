@@ -226,8 +226,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
         val isPicker = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent || isSetWallpaperIntent()
         mGallerySection = if (isPicker) null else when (mPath) {
-            FAVORITES -> GallerySection.FAVORITES
-            "" -> GallerySection.ALL
+            // Favorite media is a pinned virtual album in All, not the bottom
+            // Favorites tab (which exclusively contains favorite folders).
+            FAVORITES, "" -> GallerySection.ALL
             else -> null
         }
         if (mGallerySection == GallerySection.FAVORITES ||
@@ -533,7 +534,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 mPath == RECYCLE_BIN -> getString(org.fossify.commons.R.string.recycle_bin)
                 else -> getHumanizedFilename(mPath)
             },
-            backButton = mGallerySection == null && !mShowAll
+            backButton = mPath == FAVORITES || (mGallerySection == null && !mShowAll)
         )
     }
 
@@ -748,19 +749,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun openGalleryRoot(section: GallerySection) {
-        val files = if (section == GallerySection.ALL)
-            config.lastMainViewAll else config.lastFavoritesViewFiles
-        // The old global flag is never allowed to select the FAVORITES scan range.
-        config.showAll = section == GallerySection.ALL && files
-        val destination = if (files) {
-            Intent(this, MediaActivity::class.java)
-                .putExtra(DIRECTORY, if (section == GallerySection.FAVORITES) FAVORITES else "")
+        val screen = GalleryNavigation.bottomDestination(section, config.lastMainViewAll)
+        config.showAll = screen.isAllFiles
+        val destination = if (screen.isAllFiles) {
+            Intent(this, MediaActivity::class.java).putExtra(DIRECTORY, "")
         } else {
             Intent(this, MainActivity::class.java)
                 .putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true)
-                .putExtra(MainActivity.EXTRA_FOLDER_FAVORITES, section == GallerySection.FAVORITES)
+                .putExtra(MainActivity.EXTRA_FOLDER_FAVORITES, screen.section == GallerySection.FAVORITES)
         }
-        destination.putExtra(GalleryNavigation.EXTRA_SECTION, section.name)
+        destination.putExtra(GalleryNavigation.EXTRA_SECTION, screen.section.name)
         hideKeyboard()
         GalleryBottomBar.open(this, destination, finishCurrent = true)
     }
@@ -935,16 +933,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     resolvingFavoriteAccess = false
                     return@runOnUiThread
                 }
-                // Ordinary favorites remain available even if a protected
-                // folder's external password dialog is canceled.
-                onResolved(allowed.toSet())
-                if (folders.isEmpty()) {
-                    resolvingFavoriteAccess = false
-                    return@runOnUiThread
-                }
+                // Authenticate the folder sources before a single load. Publishing
+                // the initially unprotected subset caused a misleading one-item
+                // screen and competing partial scans while unlock dialogs ran.
                 fun authenticate(index: Int) {
-                    if (index >= folders.size || isFinishing || isDestroyed) {
+                    if (isFinishing || isDestroyed) {
                         resolvingFavoriteAccess = false
+                        return
+                    }
+                    if (index >= folders.size) {
+                        resolvingFavoriteAccess = false
+                        // A canceled/failed unlock still excludes that folder.
+                        onResolved(allowed.toSet())
                         return
                     }
                     val folder = folders[index]
@@ -953,7 +953,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             protectedByPath.forEach { (path, protectedFolder) ->
                                 if (protectedFolder == folder) allowed.add(path)
                             }
-                            onResolved(allowed.toSet())
                         }
                         authenticate(index + 1)
                     }

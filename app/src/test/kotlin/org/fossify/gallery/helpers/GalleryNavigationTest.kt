@@ -40,6 +40,16 @@ class GalleryNavigationTest {
         }
     }
 
+    @Test fun bottomFavoritesAlwaysOpensSavedFoldersEvenWithLegacyFilePreference() {
+        listOf(true, false).forEach { lastAllFiles ->
+            val favorite = GalleryNavigation.bottomDestination(GallerySection.FAVORITES, lastAllFiles)
+            assertEquals(GalleryScreen(GallerySection.FAVORITES, GalleryContentView.FOLDERS), favorite)
+            assertFalse(favorite.isFavoriteFiles)
+            val all = GalleryNavigation.bottomDestination(GallerySection.ALL, lastAllFiles)
+            assertEquals(if (lastAllFiles) GalleryContentView.FILES else GalleryContentView.FOLDERS, all.view)
+        }
+    }
+
     @Test fun explicitAndLegacyNavigationRequestsHaveCorrectPrecedence() {
         assertEquals(GallerySection.FAVORITES, GalleryNavigation.resolveSection(null, true))
         assertEquals(GallerySection.ALL, GalleryNavigation.resolveSection("ALL", true))

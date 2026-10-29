@@ -34,4 +34,13 @@ object GalleryNavigation {
         if (if (section == GallerySection.ALL) lastAllFiles else lastFavoriteFiles)
             GalleryContentView.FILES else GalleryContentView.FOLDERS
     )
+
+    /** Bottom Favorites always means favorite FOLDERS; the pinned album owns favorite FILES. */
+    fun bottomDestination(section: GallerySection, lastAllFiles: Boolean): GalleryScreen =
+        if (section == GallerySection.FAVORITES) {
+            GalleryScreen(GallerySection.FAVORITES, GalleryContentView.FOLDERS)
+        } else {
+            GalleryScreen(GallerySection.ALL,
+                if (lastAllFiles) GalleryContentView.FILES else GalleryContentView.FOLDERS)
+        }
 }
