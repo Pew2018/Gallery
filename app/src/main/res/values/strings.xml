@@ -315,4 +315,16 @@
     <string name="favorite_folders_export_summary">Exported %1$d favorite folders</string>
     <string name="favorite_backup_import_failed">Invalid or unreadable favorites backup. Nothing was imported.</string>
     <string name="favorite_backup_export_failed">Could not export favorites backup.</string>
+    <string name="favorite_password_title">Favorites album password</string>
+    <string name="favorite_password_not_set">Not configured · Tap to set up</string>
+    <string name="favorite_password_set">Configured · Tap to manage</string>
+    <string name="favorite_password_manage_title">Favorites album password</string>
+    <string name="favorite_password_change">Change password</string>
+    <string name="favorite_password_disable">Turn off password</string>
+    <string name="favorite_password_disabled">Favorites album password turned off</string>
+    <string name="favorite_password_saved">Favorites album password saved</string>
+    <string name="favorite_password_auth_choice">Authenticate with biometrics or choose your PIN/pattern fallback.</string>
+    <string name="favorite_password_use_biometric">Use biometrics</string>
+    <string name="favorite_password_use_fallback">Use PIN or pattern</string>
+    <string name="favorite_password_fallback_setup">You chose biometrics. Set up a PIN or pattern as a recovery option in case biometrics become unavailable.</string>
 </resources>

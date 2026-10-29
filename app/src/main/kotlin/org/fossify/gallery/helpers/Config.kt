@@ -6,6 +6,7 @@ import android.os.Environment
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import org.fossify.commons.helpers.BaseConfig
+import org.fossify.commons.helpers.PROTECTION_FINGERPRINT
 import org.fossify.commons.helpers.PROTECTION_PATTERN
 import org.fossify.commons.helpers.SORT_BY_DATE_MODIFIED
 import org.fossify.commons.helpers.SORT_DESCENDING
@@ -23,6 +24,82 @@ class Config(context: Context) : BaseConfig(context) {
         private const val FAVORITE_SHOW_HIDDEN = "oxygen_favorite_show_hidden"
         private const val BOTTOM_NAV_ORDER = "oxygen_bottom_nav_order"
         fun newInstance(context: Context) = Config(context)
+    }
+
+    internal data class FavoriteCredentialSnapshot(
+        val enabled: Boolean,
+        val hash: String,
+        val type: Int,
+        val fallbackHash: String,
+        val fallbackType: Int
+    ) {
+        val isConfigured: Boolean
+            get() = enabled && (if (type == PROTECTION_FINGERPRINT) {
+                fallbackHash.isNotBlank() && fallbackType in 0..1
+            } else hash.isNotBlank() && type in 0..1)
+    }
+
+    internal data class FavoriteCredentialProof(
+        val credential: FavoriteCredentialSnapshot,
+        val sessionGeneration: Long
+    )
+
+    internal fun favoriteCredentialSnapshot(): FavoriteCredentialSnapshot {
+        val values = prefs.all
+        return FavoriteCredentialSnapshot(
+            values[FAVORITE_PASSWORD_ENABLED] as? Boolean ?: false,
+            values[FAVORITE_PASSWORD_HASH] as? String ?: "",
+            values[FAVORITE_PROTECTION_TYPE] as? Int ?: PROTECTION_PATTERN,
+            values[FAVORITE_FALLBACK_PASSWORD_HASH] as? String ?: "",
+            values[FAVORITE_FALLBACK_PROTECTION_TYPE] as? Int ?: PROTECTION_PATTERN
+        )
+    }
+
+    internal fun isFavoriteCredentialCurrent(snapshot: FavoriteCredentialSnapshot): Boolean =
+        snapshot.isConfigured && favoriteCredentialSnapshot() == snapshot
+
+    /** Credential for the virtual media-favorites album, independent of folder locks. */
+    var isFavoritePasswordProtectionOn: Boolean
+        get() = favoriteCredentialSnapshot().isConfigured
+        set(value) = prefs.edit().putBoolean(FAVORITE_PASSWORD_ENABLED, value).apply()
+
+    var favoritePasswordHash: String
+        get() = prefs.getString(FAVORITE_PASSWORD_HASH, "") ?: ""
+        set(value) = prefs.edit().putString(FAVORITE_PASSWORD_HASH, value).apply()
+
+    var favoriteProtectionType: Int
+        get() = prefs.getInt(FAVORITE_PROTECTION_TYPE, PROTECTION_PATTERN)
+        set(value) = prefs.edit().putInt(FAVORITE_PROTECTION_TYPE, value).apply()
+
+    var favoriteFallbackPasswordHash: String
+        get() = prefs.getString(FAVORITE_FALLBACK_PASSWORD_HASH, "") ?: ""
+        private set(value) = prefs.edit().putString(FAVORITE_FALLBACK_PASSWORD_HASH, value).apply()
+
+    var favoriteFallbackProtectionType: Int
+        get() = prefs.getInt(FAVORITE_FALLBACK_PROTECTION_TYPE, PROTECTION_PATTERN)
+        private set(value) = prefs.edit().putInt(FAVORITE_FALLBACK_PROTECTION_TYPE, value).apply()
+
+    fun saveFavoriteCredential(hash: String, type: Int, fallbackHash: String = "", fallbackType: Int = PROTECTION_PATTERN) {
+        val valid = if (type == PROTECTION_FINGERPRINT) fallbackHash.isNotBlank() && fallbackType in 0..1
+        else hash.isNotBlank() && type in 0..1
+        if (!valid) return
+        prefs.edit()
+            .putString(FAVORITE_PASSWORD_HASH, hash)
+            .putInt(FAVORITE_PROTECTION_TYPE, type)
+            .putString(FAVORITE_FALLBACK_PASSWORD_HASH, fallbackHash)
+            .putInt(FAVORITE_FALLBACK_PROTECTION_TYPE, fallbackType)
+            .putBoolean(FAVORITE_PASSWORD_ENABLED, true)
+            .apply()
+    }
+
+    fun clearFavoriteCredential() {
+        prefs.edit()
+            .putBoolean(FAVORITE_PASSWORD_ENABLED, false)
+            .remove(FAVORITE_PASSWORD_HASH)
+            .remove(FAVORITE_PROTECTION_TYPE)
+            .remove(FAVORITE_FALLBACK_PASSWORD_HASH)
+            .remove(FAVORITE_FALLBACK_PROTECTION_TYPE)
+            .apply()
     }
 
     /** The selected main Photos/Folders view, independent of the active bottom tab. */

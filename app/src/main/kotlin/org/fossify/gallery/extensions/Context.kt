@@ -1116,6 +1116,9 @@ fun Context.getFavoriteFromPath(path: String): Favorite {
 }
 
 fun Context.updateFavorite(path: String, isFavorite: Boolean) {
+    // UI entry points must finish the shared credential setup first. Keep the
+    // persistence boundary fail-closed for any future or legacy caller.
+    if (isFavorite && !config.isFavoritePasswordProtectionOn) return
     if (!isFavorite) FavoriteAccessSessionManager.revokePath(path)
     try {
         if (isFavorite) {

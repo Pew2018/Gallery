@@ -79,6 +79,7 @@ import org.fossify.gallery.extensions.tryCopyMoveFilesTo
 import org.fossify.gallery.extensions.updateDBMediaPath
 import org.fossify.gallery.extensions.updateFavorite
 import org.fossify.gallery.extensions.updateFavoritePaths
+import org.fossify.gallery.extensions.ensureFavoritePasswordConfigured
 import org.fossify.gallery.helpers.OxygenThumbnailPlaceholder
 import org.fossify.gallery.helpers.OxygenSelectionMode
 import org.fossify.gallery.helpers.PATH
@@ -384,16 +385,20 @@ class MediaAdapter(
     }
 
     private fun toggleFavorites(add: Boolean) {
-        ensureBackgroundThread {
-            getSelectedItems().forEach {
-                it.isFavorite = add
-                activity.updateFavorite(it.path, add)
-            }
-            activity.runOnUiThread {
-                listener?.refreshItems()
-                finishActMode()
+        val applyChange = {
+            ensureBackgroundThread {
+                getSelectedItems().forEach {
+                    it.isFavorite = add
+                    activity.updateFavorite(it.path, add)
+                }
+                activity.runOnUiThread {
+                    listener?.refreshItems()
+                    finishActMode()
+                }
             }
         }
+        if (add) activity.ensureFavoritePasswordConfigured { ready -> if (ready != null) applyChange() }
+        else applyChange()
     }
 
     private fun restoreFiles() {

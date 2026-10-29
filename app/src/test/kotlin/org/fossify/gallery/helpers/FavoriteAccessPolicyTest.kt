@@ -1,5 +1,6 @@
 package org.fossify.gallery.helpers
 
+import org.fossify.gallery.models.ThumbnailSection
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -49,5 +50,12 @@ class FavoriteAccessPolicyTest {
         for (token in listOf(null, "forged")) {
             assertTrue(FavoriteAccessPolicy.authorizedItems(token, listOf("/allowed/a.jpg", "/other/secret.jpg")) { it }.isEmpty())
         }
+    }
+
+    @Test fun authorizedGroupedAlbumKeepsOnlyNonMediaSectionHeadersWithoutPaths() {
+        val token = session()
+        val headers = listOf(ThumbnailSection("Today"))
+        assertEquals(headers, FavoriteAccessPolicy.authorizedItems(token, headers) { null })
+        assertTrue(FavoriteAccessPolicy.authorizedItems("forged", headers) { null }.isEmpty())
     }
 }

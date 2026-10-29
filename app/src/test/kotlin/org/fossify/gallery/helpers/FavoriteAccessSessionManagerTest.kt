@@ -45,6 +45,62 @@ class FavoriteAccessSessionManagerTest {
         assertNull(FavoriteAccessSessionManager.createSession("owner", snapshot, setOf("/a", "/b"), locks::get))
     }
 
+    @Test fun oneFavoriteCredentialAuthorizesSeveralDifferentlyLockedSources() {
+        locks["/private-a"] = pinA
+        locks["/private-b"] = pinB
+        locks["/private-c"] = FavoriteAccessSessionManager.Protection(0, "pattern-C")
+        val paths = listOf("/private-a/one.jpg", "/private-b/two.mp4", "/private-c/three.jpg")
+        val snapshot = FavoriteAccessSessionManager.captureSnapshot(paths, locks::get)
+
+        val generation = FavoriteAccessSessionManager.currentGeneration()
+        assertNull(FavoriteAccessSessionManager.createFavoritesSession("owner", snapshot, false, generation, { true }, locks::get))
+        val token = FavoriteAccessSessionManager.createFavoritesSession("owner", snapshot, true, generation, { true }, locks::get)!!
+        assertEquals(paths.toSet(), FavoriteAccessSessionManager.getAllowedPaths(token))
+        paths.forEach { assertTrue(FavoriteAccessSessionManager.isMediaAuthorized(token, it)) }
+    }
+
+    @Test fun favoriteCapabilityCannotExpandWhenAnotherPathIsAddedLater() {
+        locks["/private-a"] = pinA
+        locks["/private-b"] = pinB
+        val first = "/private-a/one.jpg"
+        val addedLater = "/private-b/two.jpg"
+        val snapshot = FavoriteAccessSessionManager.captureSnapshot(listOf(first), locks::get)
+        val generation = FavoriteAccessSessionManager.currentGeneration()
+        val token = FavoriteAccessSessionManager.createFavoritesSession("owner", snapshot, true, generation, { true }, locks::get)!!
+
+        assertEquals(setOf(first), FavoriteAccessSessionManager.retainFavorites(token, setOf(first, addedLater)))
+        assertFalse(FavoriteAccessSessionManager.isMediaAuthorized(token, addedLater))
+    }
+
+    @Test fun credentialChangedDuringAuthenticationCannotCreateOrRetainCapability() {
+        var credentialCurrent = true
+        val path = "/private-a/one.jpg"
+        locks["/private-a"] = pinA
+        val snapshot = FavoriteAccessSessionManager.captureSnapshot(listOf(path), locks::get)
+        val generation = FavoriteAccessSessionManager.currentGeneration()
+        val token = FavoriteAccessSessionManager.createFavoritesSession(
+            "owner", snapshot, true, generation, { credentialCurrent }, locks::get
+        )!!
+
+        credentialCurrent = false
+        assertNull(FavoriteAccessSessionManager.getAllowedPaths(token))
+        assertFalse(FavoriteAccessSessionManager.isMediaAuthorized(token, path))
+        assertNull(FavoriteAccessSessionManager.createFavoritesSession(
+            "owner", snapshot, true, generation, { credentialCurrent }, locks::get
+        ))
+    }
+
+    @Test fun staleCredentialGenerationCannotCreateSessionAfterPasswordUpdate() {
+        val path = "/a/photo.jpg"
+        val snapshot = FavoriteAccessSessionManager.captureSnapshot(listOf(path), locks::get)
+        val authenticatedGeneration = FavoriteAccessSessionManager.currentGeneration()
+        FavoriteAccessSessionManager.revokeAll()
+
+        assertNull(FavoriteAccessSessionManager.createFavoritesSession(
+            "owner", snapshot, true, authenticatedGeneration, { true }, locks::get
+        ))
+    }
+
     @Test fun biometricsAndEmptyHashesNeverDeduplicate() {
         listOf("/a", "/b").forEach { locks[it] = FavoriteAccessSessionManager.Protection(2, "") }
         listOf("/c", "/d").forEach { locks[it] = FavoriteAccessSessionManager.Protection(1, "") }

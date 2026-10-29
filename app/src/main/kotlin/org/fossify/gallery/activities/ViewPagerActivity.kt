@@ -133,6 +133,7 @@ import org.fossify.gallery.extensions.tryCopyMoveFilesTo
 import org.fossify.gallery.extensions.tryDeleteFileDirItem
 import org.fossify.gallery.extensions.updateDBMediaPath
 import org.fossify.gallery.extensions.updateFavorite
+import org.fossify.gallery.extensions.ensureFavoritePasswordConfigured
 import org.fossify.gallery.extensions.updateFavoritePaths
 import org.fossify.gallery.fragments.PhotoFragment
 import org.fossify.gallery.fragments.VideoFragment
@@ -1190,19 +1191,23 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun toggleFavorite() {
         val medium = getCurrentMedium() ?: return
-        medium.isFavorite = !medium.isFavorite
-        ensureBackgroundThread {
-            updateFavorite(medium.path, medium.isFavorite)
-            if (medium.isFavorite) {
-                mFavoritePaths.add(medium.path)
-            } else {
-                mFavoritePaths.remove(medium.path)
-            }
+        val applyChange = {
+            medium.isFavorite = !medium.isFavorite
+            ensureBackgroundThread {
+                updateFavorite(medium.path, medium.isFavorite)
+                if (medium.isFavorite) {
+                    mFavoritePaths.add(medium.path)
+                } else {
+                    mFavoritePaths.remove(medium.path)
+                }
 
-            runOnUiThread {
-                refreshMenuItems()
+                runOnUiThread {
+                    refreshMenuItems()
+                }
             }
         }
+        if (!medium.isFavorite) ensureFavoritePasswordConfigured { ready -> if (ready != null) applyChange() }
+        else applyChange()
     }
 
     private fun printFile() {

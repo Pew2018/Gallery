@@ -59,8 +59,8 @@ class SettingsActivity : SimpleActivity() {
             SettingsCategory("controls", R.string.settings_hub_controls, R.string.settings_hub_controls_summary, R.drawable.ic_aspect_ratio_vector, 25, 30),
             SettingsCategory("videos", R.string.classic_settings_video, R.string.settings_hub_videos_summary, R.drawable.ic_play_vector, 31, 39),
             SettingsCategory("files", R.string.classic_settings_files, R.string.settings_hub_files_summary, R.drawable.ic_files_vector, 40, 53),
-            SettingsCategory("security", R.string.classic_settings_security, R.string.settings_hub_security_summary, org.fossify.commons.R.drawable.ic_lock_vector, 54, 59),
-            SettingsCategory("advanced", R.string.classic_settings_advanced, R.string.settings_hub_advanced_summary, org.fossify.commons.R.drawable.ic_settings_cog_vector, 60, 72)
+            SettingsCategory("security", R.string.classic_settings_security, R.string.settings_hub_security_summary, org.fossify.commons.R.drawable.ic_lock_vector, 54, 60),
+            SettingsCategory("advanced", R.string.classic_settings_advanced, R.string.settings_hub_advanced_summary, org.fossify.commons.R.drawable.ic_settings_cog_vector, 61, 73)
         )
     }
 
@@ -244,6 +244,7 @@ class SettingsActivity : SimpleActivity() {
         setupExcludedItemPasswordProtection()
         setupAppPasswordProtection()
         setupFileDeletionPasswordProtection()
+        setupFavoritePasswordProtection()
         setupDeleteEmptyFolders()
         setupKeepScreenOn()
         setupAllowPhotoGestures()
@@ -657,6 +658,50 @@ class SettingsActivity : SimpleActivity() {
                         ConfirmationDialog(this, "", confirmationTextId, org.fossify.commons.R.string.ok, 0) { }
                     }
                 }
+            }
+        }
+    }
+
+    private fun setupFavoritePasswordProtection() {
+        fun updateStatus() {
+            binding.settingsFavoritePasswordStatus.setText(
+                if (config.isFavoritePasswordProtectionOn) R.string.favorite_password_set
+                else R.string.favorite_password_not_set
+            )
+        }
+        updateStatus()
+        binding.settingsFavoritePasswordHolder.setOnClickListener {
+            if (!config.isFavoritePasswordProtectionOn) {
+                ensureFavoritePasswordConfigured { configured ->
+                    updateStatus()
+                    if (configured != null) toast(R.string.favorite_password_saved)
+                }
+                return@setOnClickListener
+            }
+
+            authenticateFavoritePassword { authenticated ->
+                if (authenticated == null || isFinishing || isDestroyed) return@authenticateFavoritePassword
+                val options = arrayOf(
+                    getString(R.string.favorite_password_change),
+                    getString(R.string.favorite_password_disable)
+                )
+                getAlertDialogBuilder()
+                    .setTitle(R.string.favorite_password_manage_title)
+                    .setItems(options) { _, which ->
+                        if (which == 0) {
+                            FavoriteAccessSessionManager.revokeAll()
+                            configureFavoritePassword { configured ->
+                                updateStatus()
+                                if (configured != null) toast(R.string.favorite_password_saved)
+                            }
+                        } else if (which == 1) {
+                            config.clearFavoriteCredential()
+                            FavoriteAccessSessionManager.revokeAll()
+                            updateStatus()
+                            toast(R.string.favorite_password_disabled)
+                        }
+                    }
+                    .show()
             }
         }
     }
@@ -1077,17 +1122,30 @@ class SettingsActivity : SimpleActivity() {
                 val skipped = paths.size - candidates.size
                 val existing = favoritesDB.getValidFavoritePaths().toHashSet()
                 val newPaths = candidates.filterNot { it in existing }
-                val database = GalleryDatabase.getInstance(applicationContext)
-                var added = 0
-                database.runInTransaction {
-                    added = favoritesDB.insertAllIgnore(newPaths.map { getFavoriteFromPath(it) })
-                        .count { it >= 0L }
-                    // Media flags are cached metadata; maintain them alongside
-                    // the authoritative favorites table, even on repeat import.
-                    candidates.forEach { mediaDB.updateFavorite(it, true) }
+                val importCandidates = {
+                    ensureBackgroundThread {
+                        val database = GalleryDatabase.getInstance(applicationContext)
+                        var added = 0
+                        database.runInTransaction {
+                            added = favoritesDB.insertAllIgnore(newPaths.map { getFavoriteFromPath(it) })
+                                .count { it >= 0L }
+                            // Media flags are cached metadata; maintain them alongside
+                            // the authoritative favorites table, even on repeat import.
+                            candidates.forEach { mediaDB.updateFavorite(it, true) }
+                        }
+                        runOnUiThread {
+                            toast(getString(R.string.favorite_media_import_summary, added,
+                                candidates.size - added, skipped))
+                        }
+                    }
                 }
-                toast(getString(R.string.favorite_media_import_summary, added,
-                    candidates.size - added, skipped))
+                if (newPaths.isEmpty()) {
+                    importCandidates()
+                } else {
+                    runOnUiThread {
+                        ensureFavoritePasswordConfigured { ready -> if (ready != null) importCandidates() }
+                    }
+                }
             } catch (error: Exception) {
                 android.util.Log.e("GalleryFavoritesBackup", "Media favorites import failed", error)
                 toast(getString(R.string.favorite_backup_import_failed))
@@ -1306,6 +1364,7 @@ class SettingsActivity : SimpleActivity() {
                 put(THUMBNAIL_SPACING, config.thumbnailSpacing)
                 put(FILE_ROUNDED_CORNERS, config.fileRoundedCorners)
                 put(SEARCH_ALL_FILES_BY_DEFAULT, config.searchAllFilesByDefault)
+                // Favorite credential hashes and biometric fallback remain device-local and are never exported.
             }
 
             exportSettings(configItems)

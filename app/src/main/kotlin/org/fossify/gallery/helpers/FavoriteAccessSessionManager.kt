@@ -2,20 +2,29 @@ package org.fossify.gallery.helpers
 
 import java.io.File
 import java.security.SecureRandom
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ConcurrentHashMap
 
 /** Process-only capabilities for one virtual album, never for a filesystem directory. */
 internal object FavoriteAccessSessionManager {
     data class Protection(val type: Int, val hash: String)
-    data class Entry(val canonicalPath: String, val locks: Map<String, Protection>)
+    data class Entry(
+        val canonicalPath: String,
+        val fileKey: String?,
+        val fileSize: Long?,
+        val fileModified: Long?,
+        val locks: Map<String, Protection>
+    )
     data class Snapshot(val entries: Map<String, Entry>)
     private data class Session(
         val owner: String,
         val snapshot: Snapshot,
-        val protection: (String) -> Protection?
+        val protection: (String) -> Protection?,
+        val credentialIsCurrent: () -> Boolean = { true }
     )
 
     private val random = SecureRandom()
+    private val generation = AtomicLong()
     private val sessions = ConcurrentHashMap<String, Session>()
     private val listeners = ConcurrentHashMap<String, (String) -> Unit>()
 
@@ -39,7 +48,15 @@ internal object FavoriteAccessSessionManager {
                     folder = currentFolder.parentFile
                 }
             }
-            Entry(canonical, locks)
+            val canonicalFile = File(canonical)
+            val stat = runCatching { android.system.Os.stat(canonical) }.getOrNull()
+            Entry(
+                canonical,
+                stat?.let { "${it.st_dev}:${it.st_ino}" },
+                canonicalFile.takeIf { it.exists() }?.length(),
+                canonicalFile.takeIf { it.exists() }?.lastModified(),
+                locks
+            )
         })
     }
 
@@ -67,10 +84,35 @@ internal object FavoriteAccessSessionManager {
         return token
     }
 
+    /** A single favorites credential authorizes every captured source path. */
+    fun createFavoritesSession(
+        ownerId: String,
+        snapshot: Snapshot,
+        authenticationSucceeded: Boolean,
+        credentialGeneration: Long,
+        credentialIsCurrent: () -> Boolean,
+        protection: (String) -> Protection?
+    ): String? {
+        if (!authenticationSucceeded || generation.get() != credentialGeneration || !credentialIsCurrent()) return null
+        if (runCatching { captureSnapshot(snapshot.entries.keys, protection) }.getOrNull() != snapshot) return null
+        if (generation.get() != credentialGeneration || !credentialIsCurrent()) return null
+        val token = ByteArray(32).also(random::nextBytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        sessions[token] = Session(ownerId, snapshot, protection) {
+            generation.get() == credentialGeneration && credentialIsCurrent()
+        }
+        return token
+    }
+
+    fun currentGeneration(): Long = generation.get()
+
     fun isOwnedBy(token: String?, ownerId: String): Boolean = token?.let(sessions::get)?.owner == ownerId
 
     fun isMediaAuthorized(token: String?, path: String): Boolean {
         val session = token?.let(sessions::get) ?: return false
+        if (!session.credentialIsCurrent()) {
+            revokeSession(token)
+            return false
+        }
         val expected = session.snapshot.entries[path] ?: return false
         val actual = runCatching { captureSnapshot(listOf(path), session.protection).entries[path] }.getOrNull()
         if (expected != actual) {
@@ -84,6 +126,10 @@ internal object FavoriteAccessSessionManager {
 
     fun getAllowedPaths(token: String?): Set<String>? {
         val session = token?.let(sessions::get) ?: return null
+        if (!session.credentialIsCurrent()) {
+            revokeSession(token)
+            return null
+        }
         if (runCatching { captureSnapshot(session.snapshot.entries.keys, session.protection) }.getOrNull() != session.snapshot) {
             revokeSession(token)
             return null
@@ -118,5 +164,8 @@ internal object FavoriteAccessSessionManager {
         if (token != null && sessions.remove(token) != null) listeners.values.toList().forEach { it(token) }
     }
 
-    fun revokeAll() { sessions.keys.toList().forEach(::revokeSession) }
+    fun revokeAll() {
+        generation.incrementAndGet()
+        sessions.keys.toList().forEach(::revokeSession)
+    }
 }

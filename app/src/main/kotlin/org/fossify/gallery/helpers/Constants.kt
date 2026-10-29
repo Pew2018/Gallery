@@ -282,3 +282,8 @@ fun getPermissionsToRequest(): Collection<Int> {
 
 
 const val FAVORITE_ACCESS_SESSION = "favorite_access_session"
+const val FAVORITE_PASSWORD_ENABLED = "favorite_password_protection"
+const val FAVORITE_PASSWORD_HASH = "favorite_password_hash"
+const val FAVORITE_PROTECTION_TYPE = "favorite_protection_type"
+const val FAVORITE_FALLBACK_PASSWORD_HASH = "favorite_fallback_password_hash"
+const val FAVORITE_FALLBACK_PROTECTION_TYPE = "favorite_fallback_protection_type"
