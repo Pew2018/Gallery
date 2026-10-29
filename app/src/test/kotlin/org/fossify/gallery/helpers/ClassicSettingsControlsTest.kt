@@ -64,6 +64,13 @@ class ClassicSettingsControlsTest {
             }
             val switches = children(holder).filterIsInstance<SwitchCompat>()
             assertTrue(switches.size > 30)
+            val bitmap = Bitmap.createBitmap(holder.width, holder.height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            canvas.drawColor(t.pageBackground)
+            holder.draw(canvas)
+            val output = File("build/classic-control-renders").apply { mkdirs() }
+            File(output, "settings-${android.os.Build.VERSION.SDK_INT}-${if (dark) "dark" else "light"}-$scale.png")
+                .outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             switches.forEach {
                 assertTrue(it.measuredHeight >= (48 * ctx.resources.displayMetrics.density).toInt())
                 assertTrue(it.compoundPaddingRight >= it.switchMinWidth || it.compoundPaddingLeft >= it.switchMinWidth)
@@ -140,7 +147,7 @@ class ClassicSettingsControlsTest {
     }
 
     @Test fun themePageSelectsInPlaceKeepsAllPresetsAndRejectsInvalidCustomColor() {
-        val app = RuntimeEnvironment.getApplication<Application>()
+        val app = RuntimeEnvironment.getApplication()
         val config = org.fossify.gallery.helpers.Config.newInstance(app)
         config.oxygenAppearanceMode = "light"
         config.oxygenThemeActivated = true
