@@ -31,6 +31,7 @@ class OxygenThemeActivity : SimpleActivity() {
     private val binders = mutableListOf<() -> Unit>()
     private var moreColors = false
     private var mainScroll = 0
+    private var navigating = false
     private val colors get() = OxygenThemeEngine.snapshot(this, config)
     private fun dp(n: Int) = (resources.displayMetrics.density * n + 0.5f).toInt()
     private fun label(preset: OxygenPreset): String {
@@ -110,9 +111,23 @@ class OxygenThemeActivity : SimpleActivity() {
 
     private fun goBack() {
         if (!moreColors) { finish(); return }
-        moreColors = false
+        navigateColors(false)
+    }
+
+    private fun navigateColors(open: Boolean) {
+        if (navigating || moreColors == open) return
+        navigating = true
+        scroll.animate().cancel()
+        if (open) mainScroll = scroll.scrollY
+        moreColors = open
         buildPage()
-        scroll.post { scroll.scrollTo(0, mainScroll) }
+        scroll.scrollTo(0, if (open) 0 else mainScroll)
+        // A short content transition keeps the toolbar fixed and respects disabled animations.
+        val distance = dp(12).toFloat() * if (open) 1 else -1
+        scroll.translationX = distance
+        scroll.alpha = 0.72f
+        scroll.animate().translationX(0f).alpha(1f).setDuration(200L)
+            .withEndAction { navigating = false }.start()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -316,17 +331,11 @@ class OxygenThemeActivity : SimpleActivity() {
             colorGrid(OxygenThemePresets.featured, showCurrentColor = true)
             divider()
             section(R.string.classic_other)
-            actionRow(R.string.classic_more_colors) {
-                mainScroll = scroll.scrollY
-                moreColors = true
-                buildPage()
-                scroll.scrollTo(0, 0)
-            }
+            actionRow(R.string.classic_more_colors) { navigateColors(true) }
             actionRow(R.string.classic_custom_color) { chooseColor() }
             actionRow(R.string.classic_restore_default) {
                 activatePreset(OxygenThemePresets.byId.getValue(OxygenThemePresets.DEFAULT_ID))
             }
-            actionRow(R.string.classic_advanced_colors) { advancedColors() }
         }
         bindPage()
     }
@@ -339,15 +348,6 @@ class OxygenThemeActivity : SimpleActivity() {
         binders.forEach { it() }
         OxygenClassicControls.applySwitches(body, tokens.rawAccent, tokens.primaryText, tokens.pageBackground)
         OxygenSystemBars.apply(this)
-    }
-
-    private fun advancedColors() {
-        val builder = OxygenClassicDialog.builder(this, getString(R.string.classic_advanced_colors))
-            .setItems(arrayOf(getString(R.string.classic_restore_original), getString(R.string.classic_manage_original))) { _, index ->
-                change { config.oxygenThemeActivated = false }
-                if (index == 1) startCustomizationActivity()
-            }.setNegativeButton(R.string.classic_cancel, null)
-        OxygenClassicDialog.show(this, builder)
     }
 
     private fun chooseColor() {

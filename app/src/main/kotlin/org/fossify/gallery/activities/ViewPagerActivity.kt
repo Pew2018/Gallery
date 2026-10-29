@@ -63,6 +63,7 @@ import org.fossify.commons.extensions.handleDeletePasswordProtection
 import org.fossify.commons.extensions.handleLockedFolderOpening
 import org.fossify.gallery.extensions.handleExcludedFolderPasswordProtection
 import org.fossify.gallery.helpers.FavoriteFolderRules
+import org.fossify.gallery.helpers.OxygenToolbarStyle
 import org.fossify.commons.extensions.hasPermission
 import org.fossify.commons.extensions.hideKeyboard
 import org.fossify.commons.extensions.internalStoragePath
@@ -247,6 +248,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     override fun onResume() {
         super.onResume()
+        OxygenToolbarStyle.applyViewerPopup(this, binding.mediumViewerToolbar)
         if (!hasPermission(getPermissionToRequest())) {
             finish()
             return
@@ -338,6 +340,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun setupOptionsMenu() {
         binding.mediumViewerToolbar.apply {
+            OxygenToolbarStyle.applyViewerPopup(this@ViewPagerActivity, this)
             setTitleTextColor(Color.WHITE)
             overflowIcon = resources.getColoredDrawableWithColor(org.fossify.commons.R.drawable.ic_three_dots_vector, Color.WHITE)
             navigationIcon = resources.getColoredDrawableWithColor(org.fossify.commons.R.drawable.ic_arrow_left_vector, Color.WHITE)

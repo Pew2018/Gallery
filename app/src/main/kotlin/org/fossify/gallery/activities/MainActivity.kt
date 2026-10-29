@@ -117,6 +117,8 @@ import org.fossify.gallery.extensions.tryDeleteFileDirItem
 import org.fossify.gallery.extensions.updateDBDirectory
 import org.fossify.gallery.extensions.updateWidgets
 import org.fossify.gallery.helpers.FavoriteFolderRules
+import org.fossify.gallery.helpers.OxygenFastScroller
+import org.fossify.gallery.helpers.OxygenThemeEngine
 import org.fossify.gallery.helpers.MediaCachePrunePolicy
 import org.fossify.gallery.helpers.FavoriteFolderLoadCoordinator
 import org.fossify.gallery.helpers.FavoriteFolderLoadKey
@@ -405,6 +407,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
 
         binding.directoriesFastscroller.updateColors(primaryColor)
+        styleFastScroller()
         binding.directoriesRefreshLayout.isEnabled = config.enablePullToRefresh
         getRecyclerAdapter()?.apply {
             dateFormat = config.dateFormat
@@ -2076,6 +2079,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val scrollHorizontally =
             config.scrollHorizontally && config.viewTypeFolders == VIEW_TYPE_GRID
         binding.directoriesFastscroller.setScrollVertically(!scrollHorizontally)
+        styleFastScroller()
+    }
+
+    private fun styleFastScroller() {
+        OxygenFastScroller.apply(binding.directoriesFastscroller,
+            OxygenThemeEngine.snapshot(this, config),
+            if (mIsThirdPartyIntent) 0 else resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height))
     }
 
     private fun checkInvalidDirectories(dirs: ArrayList<Directory>) {

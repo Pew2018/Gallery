@@ -1,4 +1,12 @@
 <resources>
+    <string name="classic_settings_appearance">外观与界面</string>
+    <string name="classic_app_icon">应用图标</string>
+    <string name="classic_icon_option">应用图标 %1$d</string>
+    <string name="classic_settings_browsing">照片浏览</string>
+    <string name="classic_settings_video">视频播放</string>
+    <string name="classic_settings_files">相册与文件管理</string>
+    <string name="classic_settings_security">隐私与安全</string>
+    <string name="classic_settings_advanced">高级设置与数据</string>
     <string name="classic_theme_title">主题与配色</string>
     <string name="classic_back">返回</string>
     <string name="classic_appearance">外观模式</string>
@@ -10,7 +18,6 @@
     <string name="classic_more_colors">更多颜色</string>
     <string name="classic_custom_color">自定义颜色</string>
     <string name="classic_restore_default">恢复默认配色</string>
-    <string name="classic_advanced_colors">高级颜色设置</string>
     <string name="classic_palette">全部颜色</string>
     <string name="classic_palette_classic">经典配色</string>
     <string name="classic_palette_material">Material Design 配色</string>
@@ -18,8 +25,6 @@
     <string name="classic_not_selected">未选中</string>
     <string name="classic_original_colors">原有配色</string>
     <string name="classic_current_color">当前颜色：%1$s</string>
-    <string name="classic_restore_original">恢复原有配色</string>
-    <string name="classic_manage_original">管理原有配色</string>
     <string name="classic_cancel">取消</string>
     <string name="classic_save">保存</string>
     <string name="classic_invalid_color">请输入 #RRGGBB 格式的颜色</string>

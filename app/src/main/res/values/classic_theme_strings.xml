@@ -1,4 +1,12 @@
 <resources>
+    <string name="classic_settings_appearance">Appearance and interface</string>
+    <string name="classic_app_icon">App icon</string>
+    <string name="classic_icon_option">App icon %1$d</string>
+    <string name="classic_settings_browsing">Photo browsing</string>
+    <string name="classic_settings_video">Video playback</string>
+    <string name="classic_settings_files">Albums and files</string>
+    <string name="classic_settings_security">Privacy and security</string>
+    <string name="classic_settings_advanced">Advanced settings and data</string>
     <string name="classic_theme_title">Theme and colors</string>
     <string name="classic_back">Back</string>
     <string name="classic_appearance">Appearance</string>
@@ -10,7 +18,6 @@
     <string name="classic_more_colors">More colors</string>
     <string name="classic_custom_color">Custom color</string>
     <string name="classic_restore_default">Restore default colors</string>
-    <string name="classic_advanced_colors">Advanced color settings</string>
     <string name="classic_palette">All colors</string>
     <string name="classic_palette_classic">Classic colors</string>
     <string name="classic_palette_material">Material Design colors</string>
@@ -18,8 +25,6 @@
     <string name="classic_not_selected">Not selected</string>
     <string name="classic_original_colors">Original colors</string>
     <string name="classic_current_color">Current color: %1$s</string>
-    <string name="classic_restore_original">Restore original colors</string>
-    <string name="classic_manage_original">Manage original colors</string>
     <string name="classic_cancel">Cancel</string>
     <string name="classic_save">Save</string>
     <string name="classic_invalid_color">Enter a color in #RRGGBB format</string>

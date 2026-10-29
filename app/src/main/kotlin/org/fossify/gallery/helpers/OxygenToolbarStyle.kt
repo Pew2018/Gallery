@@ -256,6 +256,13 @@ object OxygenToolbarStyle {
         tintMenu(toolbar.menu, foreground)
     }
 
+    /** Viewer chrome stays white on black; its popup uses the selected page palette. */
+    fun applyViewerPopup(activity: Activity, toolbar: MaterialToolbar) {
+        val dark = OxygenThemeEngine.snapshot(activity, activity.config).dark
+        toolbar.setPopupTheme(if (dark) org.fossify.gallery.R.style.OxygenClassicPopupTheme_Dark
+            else org.fossify.gallery.R.style.OxygenClassicPopupTheme_Light)
+    }
+
     /** Apply the same tokens, title typography and 48dp navigation target to
      * the settings theme sub-page, which intentionally has no search menu.
      */

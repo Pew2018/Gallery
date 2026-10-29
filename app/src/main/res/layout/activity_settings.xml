@@ -40,7 +40,7 @@
                 style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/color_customization" />
+                android:text="@string/classic_settings_appearance" />
 
             <androidx.constraintlayout.widget.ConstraintLayout
                 android:id="@+id/settings_color_customization_holder"
@@ -74,292 +74,19 @@
                     android:text="@string/oxygen_bottom_navigation_order" />
             </RelativeLayout>
 
-            <include
-                android:id="@+id/settings_color_customization_divider"
-                layout="@layout/divider" />
-
-            <TextView
-                android:id="@+id/settings_general_settings_label"
-                style="@style/OxygenClassicSettingsSection"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/general_settings" />
-
-            <org.fossify.commons.views.PurchaseThankYouItem
-                android:id="@+id/settings_purchase_thank_you_holder"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
             <RelativeLayout
-                android:id="@+id/settings_use_english_holder"
-                style="@style/OxygenClassicSettingsSwitchRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.gallery.views.ClassicSettingsSwitch
-                    android:id="@+id/settings_use_english"
-                    style="@style/OxygenClassicSettingsSwitch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/use_english_language" />
-
-            </RelativeLayout>
-
-            <RelativeLayout
-                android:id="@+id/settings_language_holder"
-                style="@style/OxygenClassicSettingsDetailsRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.commons.views.MyTextView
-                    android:id="@+id/settings_language_label"
-                    style="@style/OxygenClassicSettingsPrimaryText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/language" />
-
-                <org.fossify.commons.views.MyTextView
-                    android:id="@+id/settings_language"
-                    style="@style/OxygenClassicSettingsSecondaryText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_below="@+id/settings_language_label"
-                    tools:text="English" />
-
-            </RelativeLayout>
-
-            <RelativeLayout
-                android:id="@+id/settings_change_date_time_format_holder"
+                android:id="@+id/settings_app_icon_holder"
                 style="@style/OxygenClassicSettingsSingleRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
                 <org.fossify.commons.views.MyTextView
-                    android:id="@+id/settings_change_date_time_format"
+                    android:id="@+id/settings_app_icon_label"
                     style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/change_date_and_time_format" />
-
+                    android:text="@string/classic_app_icon" />
             </RelativeLayout>
-
-            <RelativeLayout
-                android:id="@+id/settings_file_loading_priority_holder"
-                style="@style/OxygenClassicSettingsDetailsRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.commons.views.MyTextView
-                    android:id="@+id/settings_file_loading_priority_label"
-                    style="@style/OxygenClassicSettingsPrimaryText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/file_loading_priority" />
-
-                <org.fossify.commons.views.MyTextView
-                    android:id="@+id/settings_file_loading_priority"
-                    style="@style/OxygenClassicSettingsSecondaryText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_below="@+id/settings_file_loading_priority_label"
-                    tools:text="@string/compromise" />
-
-            </RelativeLayout>
-
-            <RelativeLayout
-                android:id="@+id/settings_manage_included_folders_holder"
-                style="@style/OxygenClassicSettingsSingleRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.commons.views.MyTextView
-                    android:id="@+id/settings_manage_included_folders"
-                    style="@style/OxygenClassicSettingsPrimaryText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/manage_included_folders" />
-
-            </RelativeLayout>
-
-            <RelativeLayout
-                android:id="@+id/settings_manage_excluded_folders_holder"
-                style="@style/OxygenClassicSettingsSingleRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.commons.views.MyTextView
-                    android:id="@+id/settings_manage_excluded_folders"
-                    style="@style/OxygenClassicSettingsPrimaryText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/manage_excluded_folders" />
-
-            </RelativeLayout>
-
-            <RelativeLayout
-                android:id="@+id/settings_manage_hidden_folders_holder"
-                style="@style/OxygenClassicSettingsSingleRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.commons.views.MyTextView
-                    android:id="@+id/settings_manage_hidden_folders"
-                    style="@style/OxygenClassicSettingsPrimaryText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/manage_hidden_folders" />
-
-            </RelativeLayout>
-
-            <RelativeLayout
-                android:id="@+id/settings_show_hidden_items_holder"
-                style="@style/OxygenClassicSettingsSwitchRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.gallery.views.ClassicSettingsSwitch
-                    android:id="@+id/settings_show_hidden_items"
-                    style="@style/OxygenClassicSettingsSwitch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/show_hidden_items" />
-
-            </RelativeLayout>
-
-            <RelativeLayout
-                android:id="@+id/settings_search_all_files_holder"
-                style="@style/OxygenClassicSettingsSwitchRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.gallery.views.ClassicSettingsSwitch
-                    android:id="@+id/settings_search_all_files"
-                    style="@style/OxygenClassicSettingsSwitch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/search_all_files" />
-
-            </RelativeLayout>
-
-            <include
-                android:id="@+id/settings_general_settings_divider"
-                layout="@layout/divider" />
-
-            <TextView
-                android:id="@+id/settings_videos_label"
-                style="@style/OxygenClassicSettingsSection"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/videos" />
-
-            <RelativeLayout
-                android:id="@+id/settings_autoplay_videos_holder"
-                style="@style/OxygenClassicSettingsSwitchRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.gallery.views.ClassicSettingsSwitch
-                    android:id="@+id/settings_autoplay_videos"
-                    style="@style/OxygenClassicSettingsSwitch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/autoplay_videos" />
-
-            </RelativeLayout>
-
-            <RelativeLayout
-                android:id="@+id/settings_remember_last_video_position_holder"
-                style="@style/OxygenClassicSettingsSwitchRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.gallery.views.ClassicSettingsSwitch
-                    android:id="@+id/settings_remember_last_video_position"
-                    style="@style/OxygenClassicSettingsSwitch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/remember_last_video_position" />
-
-            </RelativeLayout>
-
-            <RelativeLayout
-                android:id="@+id/settings_loop_videos_holder"
-                style="@style/OxygenClassicSettingsSwitchRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.gallery.views.ClassicSettingsSwitch
-                    android:id="@+id/settings_loop_videos"
-                    style="@style/OxygenClassicSettingsSwitch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/loop_videos" />
-
-            </RelativeLayout>
-
-            <RelativeLayout
-                android:id="@+id/settings_open_videos_on_separate_screen_holder"
-                style="@style/OxygenClassicSettingsSwitchRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.gallery.views.ClassicSettingsSwitch
-                    android:id="@+id/settings_open_videos_on_separate_screen"
-                    style="@style/OxygenClassicSettingsSwitch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/open_videos_on_separate_screen" />
-
-            </RelativeLayout>
-
-            <RelativeLayout
-                android:id="@+id/settings_allow_video_gestures_holder"
-                style="@style/OxygenClassicSettingsSwitchRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.gallery.views.ClassicSettingsSwitch
-                    android:id="@+id/settings_allow_video_gestures"
-                    style="@style/OxygenClassicSettingsSwitch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/allow_video_gestures" />
-
-            </RelativeLayout>
-
-            <RelativeLayout
-                android:id="@+id/settings_on_video_tap_holder"
-                style="@style/OxygenClassicSettingsDetailsRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.commons.views.MyTextView
-                    android:id="@+id/settings_on_video_tap_label"
-                    style="@style/OxygenClassicSettingsPrimaryText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/on_video_tap" />
-
-                <org.fossify.commons.views.MyTextView
-                    android:id="@+id/settings_on_video_tap"
-                    style="@style/OxygenClassicSettingsSecondaryText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_below="@+id/settings_on_video_tap_label"
-                    tools:text="@string/open_in_app_player" />
-
-            </RelativeLayout>
-
-            <include
-                android:id="@+id/settings_videos_divider"
-                layout="@layout/divider" />
-
-            <TextView
-                android:id="@+id/settings_thumbnails_label"
-                style="@style/OxygenClassicSettingsSection"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/thumbnails" />
 
             <RelativeLayout
                 android:id="@+id/settings_crop_thumbnails_holder"
@@ -373,21 +100,6 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/crop_thumbnails" />
-
-            </RelativeLayout>
-
-            <RelativeLayout
-                android:id="@+id/settings_animate_gifs_holder"
-                style="@style/OxygenClassicSettingsSwitchRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.gallery.views.ClassicSettingsSwitch
-                    android:id="@+id/settings_animate_gifs"
-                    style="@style/OxygenClassicSettingsSwitch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/animate_gifs" />
 
             </RelativeLayout>
 
@@ -430,7 +142,7 @@
             </RelativeLayout>
 
             <include
-                android:id="@+id/settings_thumbnails_divider"
+                android:id="@+id/settings_color_customization_divider"
                 layout="@layout/divider" />
 
             <TextView
@@ -438,7 +150,7 @@
                 style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/scrolling" />
+                android:text="@string/classic_settings_browsing" />
 
             <RelativeLayout
                 android:id="@+id/settings_scroll_horizontally_holder"
@@ -469,17 +181,6 @@
                     android:text="@string/enable_pull_to_refresh" />
 
             </RelativeLayout>
-
-            <include
-                android:id="@+id/settings_scrolling_divider"
-                layout="@layout/divider" />
-
-            <TextView
-                android:id="@+id/settings_fullscreen_media_label"
-                style="@style/OxygenClassicSettingsSection"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/fullscreen_media" />
 
             <RelativeLayout
                 android:id="@+id/settings_max_brightness_holder"
@@ -639,17 +340,6 @@
 
             </RelativeLayout>
 
-            <include
-                android:id="@+id/settings_fullscreen_media_divider"
-                layout="@layout/divider" />
-
-            <TextView
-                android:id="@+id/settings_deep_zoomable_images_label"
-                style="@style/OxygenClassicSettingsSection"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/deep_zoomable_images" />
-
             <RelativeLayout
                 android:id="@+id/settings_allow_zooming_images_holder"
                 style="@style/OxygenClassicSettingsSwitchRow"
@@ -710,17 +400,6 @@
 
             </RelativeLayout>
 
-            <include
-                android:id="@+id/settings_deep_zoomable_images_divider"
-                layout="@layout/divider" />
-
-            <TextView
-                android:id="@+id/settings_extended_details_label"
-                style="@style/OxygenClassicSettingsSection"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/extended_details" />
-
             <RelativeLayout
                 android:id="@+id/settings_show_extended_details_holder"
                 style="@style/OxygenClassicSettingsSwitchRow"
@@ -766,79 +445,162 @@
 
             </RelativeLayout>
 
+            <RelativeLayout
+                android:id="@+id/settings_bottom_actions_checkbox_holder"
+                style="@style/OxygenClassicSettingsSwitchRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.gallery.views.ClassicSettingsSwitch
+                    android:id="@+id/settings_bottom_actions_checkbox"
+                    style="@style/OxygenClassicSettingsSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/show_at_bottom" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_manage_bottom_actions_holder"
+                style="@style/OxygenClassicSettingsSingleRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_manage_bottom_actions"
+                    style="@style/OxygenClassicSettingsPrimaryText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/manage_bottom_actions" />
+
+            </RelativeLayout>
+
             <include
-                android:id="@+id/settings_extended_details_divider"
+                android:id="@+id/settings_scrolling_divider"
                 layout="@layout/divider" />
 
             <TextView
-                android:id="@+id/settings_security_label"
+                android:id="@+id/settings_videos_label"
                 style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/security" />
+                android:text="@string/classic_settings_video" />
 
             <RelativeLayout
-                android:id="@+id/settings_app_password_protection_holder"
+                android:id="@+id/settings_autoplay_videos_holder"
                 style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
                 <org.fossify.gallery.views.ClassicSettingsSwitch
-                    android:id="@+id/settings_app_password_protection"
+                    android:id="@+id/settings_autoplay_videos"
                     style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/password_protect_whole_app" />
+                    android:text="@string/autoplay_videos" />
 
             </RelativeLayout>
 
             <RelativeLayout
-                android:id="@+id/settings_hidden_item_password_protection_holder"
+                android:id="@+id/settings_remember_last_video_position_holder"
                 style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
                 <org.fossify.gallery.views.ClassicSettingsSwitch
-                    android:id="@+id/settings_hidden_item_password_protection"
+                    android:id="@+id/settings_remember_last_video_position"
                     style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/password_protect_hidden_items" />
+                    android:text="@string/remember_last_video_position" />
 
             </RelativeLayout>
 
             <RelativeLayout
-                android:id="@+id/settings_excluded_item_password_protection_holder"
+                android:id="@+id/settings_loop_videos_holder"
                 style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
                 <org.fossify.gallery.views.ClassicSettingsSwitch
-                    android:id="@+id/settings_excluded_item_password_protection"
+                    android:id="@+id/settings_loop_videos"
                     style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/password_protect_excluded" />
+                    android:text="@string/loop_videos" />
 
             </RelativeLayout>
 
             <RelativeLayout
-                android:id="@+id/settings_file_deletion_password_protection_holder"
+                android:id="@+id/settings_open_videos_on_separate_screen_holder"
                 style="@style/OxygenClassicSettingsSwitchRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
                 <org.fossify.gallery.views.ClassicSettingsSwitch
-                    android:id="@+id/settings_file_deletion_password_protection"
+                    android:id="@+id/settings_open_videos_on_separate_screen"
                     style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/password_protect_file_deletion" />
+                    android:text="@string/open_videos_on_separate_screen" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_allow_video_gestures_holder"
+                style="@style/OxygenClassicSettingsSwitchRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.gallery.views.ClassicSettingsSwitch
+                    android:id="@+id/settings_allow_video_gestures"
+                    style="@style/OxygenClassicSettingsSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/allow_video_gestures" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_on_video_tap_holder"
+                style="@style/OxygenClassicSettingsDetailsRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_on_video_tap_label"
+                    style="@style/OxygenClassicSettingsPrimaryText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/on_video_tap" />
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_on_video_tap"
+                    style="@style/OxygenClassicSettingsSecondaryText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_below="@+id/settings_on_video_tap_label"
+                    tools:text="@string/open_in_app_player" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_animate_gifs_holder"
+                style="@style/OxygenClassicSettingsSwitchRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.gallery.views.ClassicSettingsSwitch
+                    android:id="@+id/settings_animate_gifs"
+                    style="@style/OxygenClassicSettingsSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/animate_gifs" />
 
             </RelativeLayout>
 
             <include
-                android:id="@+id/settings_security_divider"
+                android:id="@+id/settings_videos_divider"
                 layout="@layout/divider" />
 
             <TextView
@@ -846,7 +608,82 @@
                 style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/file_operations" />
+                android:text="@string/classic_settings_files" />
+
+            <RelativeLayout
+                android:id="@+id/settings_manage_included_folders_holder"
+                style="@style/OxygenClassicSettingsSingleRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_manage_included_folders"
+                    style="@style/OxygenClassicSettingsPrimaryText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/manage_included_folders" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_manage_excluded_folders_holder"
+                style="@style/OxygenClassicSettingsSingleRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_manage_excluded_folders"
+                    style="@style/OxygenClassicSettingsPrimaryText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/manage_excluded_folders" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_manage_hidden_folders_holder"
+                style="@style/OxygenClassicSettingsSingleRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_manage_hidden_folders"
+                    style="@style/OxygenClassicSettingsPrimaryText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/manage_hidden_folders" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_show_hidden_items_holder"
+                style="@style/OxygenClassicSettingsSwitchRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.gallery.views.ClassicSettingsSwitch
+                    android:id="@+id/settings_show_hidden_items"
+                    style="@style/OxygenClassicSettingsSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/show_hidden_items" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_search_all_files_holder"
+                style="@style/OxygenClassicSettingsSwitchRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.gallery.views.ClassicSettingsSwitch
+                    android:id="@+id/settings_search_all_files"
+                    style="@style/OxygenClassicSettingsSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/search_all_files" />
+
+            </RelativeLayout>
 
             <RelativeLayout
                 android:id="@+id/settings_delete_empty_folders_holder"
@@ -892,58 +729,6 @@
                     android:text="@string/skip_delete_confirmation" />
 
             </RelativeLayout>
-
-            <include
-                android:id="@+id/settings_file_operations_divider"
-                layout="@layout/divider" />
-
-            <TextView
-                android:id="@+id/settings_bottom_actions_label"
-                style="@style/OxygenClassicSettingsSection"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/bottom_actions" />
-
-            <RelativeLayout
-                android:id="@+id/settings_bottom_actions_checkbox_holder"
-                style="@style/OxygenClassicSettingsSwitchRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.gallery.views.ClassicSettingsSwitch
-                    android:id="@+id/settings_bottom_actions_checkbox"
-                    style="@style/OxygenClassicSettingsSwitch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/show_at_bottom" />
-
-            </RelativeLayout>
-
-            <RelativeLayout
-                android:id="@+id/settings_manage_bottom_actions_holder"
-                style="@style/OxygenClassicSettingsSingleRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <org.fossify.commons.views.MyTextView
-                    android:id="@+id/settings_manage_bottom_actions"
-                    style="@style/OxygenClassicSettingsPrimaryText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/manage_bottom_actions" />
-
-            </RelativeLayout>
-
-            <include
-                android:id="@+id/settings_bottom_actions_divider"
-                layout="@layout/divider" />
-
-            <TextView
-                android:id="@+id/settings_recycle_bin_label"
-                style="@style/OxygenClassicSettingsSection"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/recycle_bin" />
 
             <RelativeLayout
                 android:id="@+id/settings_use_recycle_bin_holder"
@@ -1014,7 +799,78 @@
             </RelativeLayout>
 
             <include
-                android:id="@+id/settings_recycle_bin_divider"
+                android:id="@+id/settings_file_operations_divider"
+                layout="@layout/divider" />
+
+            <TextView
+                android:id="@+id/settings_security_label"
+                style="@style/OxygenClassicSettingsSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/classic_settings_security" />
+
+            <RelativeLayout
+                android:id="@+id/settings_app_password_protection_holder"
+                style="@style/OxygenClassicSettingsSwitchRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.gallery.views.ClassicSettingsSwitch
+                    android:id="@+id/settings_app_password_protection"
+                    style="@style/OxygenClassicSettingsSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/password_protect_whole_app" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_hidden_item_password_protection_holder"
+                style="@style/OxygenClassicSettingsSwitchRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.gallery.views.ClassicSettingsSwitch
+                    android:id="@+id/settings_hidden_item_password_protection"
+                    style="@style/OxygenClassicSettingsSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/password_protect_hidden_items" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_excluded_item_password_protection_holder"
+                style="@style/OxygenClassicSettingsSwitchRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.gallery.views.ClassicSettingsSwitch
+                    android:id="@+id/settings_excluded_item_password_protection"
+                    style="@style/OxygenClassicSettingsSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/password_protect_excluded" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_file_deletion_password_protection_holder"
+                style="@style/OxygenClassicSettingsSwitchRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.gallery.views.ClassicSettingsSwitch
+                    android:id="@+id/settings_file_deletion_password_protection"
+                    style="@style/OxygenClassicSettingsSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/password_protect_file_deletion" />
+
+            </RelativeLayout>
+
+            <include
+                android:id="@+id/settings_security_divider"
                 layout="@layout/divider" />
 
             <TextView
@@ -1022,7 +878,88 @@
                 style="@style/OxygenClassicSettingsSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/migrating" />
+                android:text="@string/classic_settings_advanced" />
+
+            <org.fossify.commons.views.PurchaseThankYouItem
+                android:id="@+id/settings_purchase_thank_you_holder"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <RelativeLayout
+                android:id="@+id/settings_use_english_holder"
+                style="@style/OxygenClassicSettingsSwitchRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.gallery.views.ClassicSettingsSwitch
+                    android:id="@+id/settings_use_english"
+                    style="@style/OxygenClassicSettingsSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/use_english_language" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_language_holder"
+                style="@style/OxygenClassicSettingsDetailsRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_language_label"
+                    style="@style/OxygenClassicSettingsPrimaryText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/language" />
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_language"
+                    style="@style/OxygenClassicSettingsSecondaryText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_below="@+id/settings_language_label"
+                    tools:text="English" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_change_date_time_format_holder"
+                style="@style/OxygenClassicSettingsSingleRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_change_date_time_format"
+                    style="@style/OxygenClassicSettingsPrimaryText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/change_date_and_time_format" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_file_loading_priority_holder"
+                style="@style/OxygenClassicSettingsDetailsRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_file_loading_priority_label"
+                    style="@style/OxygenClassicSettingsPrimaryText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/file_loading_priority" />
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_file_loading_priority"
+                    style="@style/OxygenClassicSettingsSecondaryText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_below="@+id/settings_file_loading_priority_label"
+                    tools:text="@string/compromise" />
+
+            </RelativeLayout>
 
             <RelativeLayout
                 android:id="@+id/settings_clear_cache_holder"

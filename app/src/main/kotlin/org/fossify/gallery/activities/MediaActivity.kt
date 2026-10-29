@@ -94,6 +94,8 @@ import org.fossify.gallery.helpers.GridSpacingItemDecoration
 import org.fossify.gallery.helpers.IS_IN_RECYCLE_BIN
 import org.fossify.gallery.helpers.MAX_COLUMN_COUNT
 import org.fossify.gallery.helpers.GalleryBottomBar
+import org.fossify.gallery.helpers.OxygenFastScroller
+import org.fossify.gallery.helpers.OxygenThemeEngine
 import org.fossify.gallery.helpers.GalleryNavigation
 import org.fossify.gallery.helpers.GallerySection
 import org.fossify.gallery.helpers.OxygenToolbarStyle
@@ -279,6 +281,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         refreshMenuItems()
 
         binding.mediaFastscroller.updateColors(primaryColor)
+        styleFastScroller()
         binding.mediaRefreshLayout.isEnabled = config.enablePullToRefresh
         getMediaAdapter()?.apply {
             dateFormat = config.dateFormat
@@ -598,6 +601,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val viewType = config.getFolderViewType(if (mShowAll) SHOW_ALL else mPath)
         val scrollHorizontally = config.scrollHorizontally && viewType == VIEW_TYPE_GRID
         binding.mediaFastscroller.setScrollVertically(!scrollHorizontally)
+        styleFastScroller()
+    }
+
+    private fun styleFastScroller() {
+        OxygenFastScroller.apply(binding.mediaFastscroller,
+            OxygenThemeEngine.snapshot(this, config),
+            if (mGallerySection == null) 0 else resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height))
     }
 
     private fun checkLastMediaChanged() {

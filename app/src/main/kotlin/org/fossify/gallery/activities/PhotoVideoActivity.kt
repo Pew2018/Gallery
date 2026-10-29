@@ -58,6 +58,7 @@ import org.fossify.gallery.fragments.PhotoFragment
 import org.fossify.gallery.fragments.VideoFragment
 import org.fossify.gallery.fragments.ViewPagerFragment
 import org.fossify.gallery.helpers.BOTTOM_ACTION_EDIT
+import org.fossify.gallery.helpers.OxygenToolbarStyle
 import org.fossify.gallery.helpers.BOTTOM_ACTION_PROPERTIES
 import org.fossify.gallery.helpers.BOTTOM_ACTION_SET_AS
 import org.fossify.gallery.helpers.BOTTOM_ACTION_SHARE
@@ -114,6 +115,7 @@ open class PhotoVideoActivity : BaseViewerActivity(), ViewPagerFragment.Fragment
 
     override fun onResume() {
         super.onResume()
+        OxygenToolbarStyle.applyViewerPopup(this, binding.fragmentViewerToolbar)
         if (config.blackBackground) {
             binding.fragmentHolder.background = Color.BLACK.toDrawable()
         }
@@ -138,6 +140,7 @@ open class PhotoVideoActivity : BaseViewerActivity(), ViewPagerFragment.Fragment
 
     private fun setupOptionsMenu() {
         binding.fragmentViewerToolbar.apply {
+            OxygenToolbarStyle.applyViewerPopup(this@PhotoVideoActivity, this)
             setTitleTextColor(Color.WHITE)
             overflowIcon = resources.getColoredDrawableWithColor(org.fossify.commons.R.drawable.ic_three_dots_vector, Color.WHITE)
             navigationIcon = resources.getColoredDrawableWithColor(org.fossify.commons.R.drawable.ic_arrow_left_vector, Color.WHITE)

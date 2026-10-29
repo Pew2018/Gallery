@@ -61,6 +61,7 @@ class SettingsActivity : SimpleActivity() {
 
     private fun setupSettingItems() {
         setupCustomizeColors()
+        setupAppIcon()
         setupUseEnglish()
         setupLanguage()
         setupChangeDateTimeFormat()
@@ -147,6 +148,52 @@ class SettingsActivity : SimpleActivity() {
     private fun setupCustomizeColors() {
         binding.settingsColorCustomizationHolder.setOnClickListener {
             startActivity(Intent(this, OxygenThemeActivity::class.java))
+        }
+    }
+
+    private fun setupAppIcon() {
+        binding.settingsAppIconHolder.setOnClickListener {
+            val density = resources.displayMetrics.density
+            fun dp(value: Int) = (value * density + 0.5f).toInt()
+            val icons = getAppIconIDs()
+            val colors = getAppIconColors()
+            val tokens = OxygenThemeEngine.snapshot(this, config)
+            val grid = android.widget.GridLayout(this).apply {
+                columnCount = 4
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+            }
+            val builder = OxygenClassicDialog.builder(this, getString(R.string.classic_app_icon))
+                .setView(android.widget.ScrollView(this).apply { addView(grid) })
+                .setNegativeButton(R.string.classic_cancel, null)
+            lateinit var dialog: androidx.appcompat.app.AlertDialog
+            icons.forEachIndexed { index, icon ->
+                val selected = colors.getOrNull(index) == config.appIconColor
+                val preview = android.widget.ImageView(this).apply {
+                    setImageResource(icon)
+                    contentDescription = getString(R.string.classic_icon_option, index + 1)
+                    isFocusable = true
+                    isSelected = selected
+                    setPadding(dp(8), dp(8), dp(8), dp(8))
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(tokens.dialogBackground)
+                        cornerRadius = dp(3).toFloat()
+                        if (selected) setStroke(dp(2), tokens.interactiveAccent)
+                    }
+                    setOnClickListener {
+                        colors.getOrNull(index)?.let { color ->
+                            config.appIconColor = color
+                            checkAppIconColor()
+                        }
+                        dialog.dismiss()
+                    }
+                }
+                grid.addView(preview, android.widget.GridLayout.LayoutParams().apply {
+                    width = dp(64)
+                    height = dp(64)
+                    setMargins(dp(4), dp(4), dp(4), dp(4))
+                })
+            }
+            dialog = OxygenClassicDialog.show(this, builder, grid)
         }
     }
 
