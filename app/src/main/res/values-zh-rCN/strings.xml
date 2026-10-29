@@ -302,4 +302,5 @@
     <string name="favorite_password_use_biometric">使用生物识别</string>
     <string name="favorite_password_use_fallback">使用 PIN 或图案</string>
     <string name="favorite_password_fallback_setup">你选择了生物识别。请再设置 PIN 或图案，以便在生物识别不可用时恢复访问。</string>
+    <string name="favorite_password_biometric">生物识别</string>
 </resources>

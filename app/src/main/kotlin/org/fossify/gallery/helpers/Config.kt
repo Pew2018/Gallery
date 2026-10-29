@@ -92,6 +92,25 @@ class Config(context: Context) : BaseConfig(context) {
             .apply()
     }
 
+    /**
+     * Save biometrics as the primary mode and the PIN/pattern only as recovery.
+     * The explicit type prevents a fallback dialog result from replacing the main mode.
+     */
+    internal fun saveFavoriteBiometricCredential(
+        fallbackHash: String,
+        fallbackType: Int
+    ): FavoriteCredentialSnapshot? {
+        if (fallbackHash.isBlank() || fallbackType !in 0..1) return null
+        saveFavoriteCredential("", PROTECTION_FINGERPRINT, fallbackHash, fallbackType)
+        val saved = favoriteCredentialSnapshot()
+        return saved.takeIf {
+            it.type == PROTECTION_FINGERPRINT &&
+                it.fallbackHash == fallbackHash &&
+                it.fallbackType == fallbackType &&
+                isFavoriteCredentialCurrent(it)
+        }
+    }
+
     fun clearFavoriteCredential() {
         prefs.edit()
             .putBoolean(FAVORITE_PASSWORD_ENABLED, false)

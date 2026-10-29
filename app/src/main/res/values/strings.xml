@@ -338,4 +338,5 @@
     <string name="favorite_password_use_biometric">Use biometrics</string>
     <string name="favorite_password_use_fallback">Use PIN or pattern</string>
     <string name="favorite_password_fallback_setup">You chose biometrics. Set up a PIN or pattern as a recovery option in case biometrics become unavailable.</string>
+    <string name="favorite_password_biometric">Biometrics</string>
 </resources>
