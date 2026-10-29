@@ -107,13 +107,6 @@ class SettingsActivity : SimpleActivity() {
 
         val colors = OxygenThemeEngine.snapshot(this, config)
         settingsHub.removeAllViews()
-        settingsHub.addView(android.widget.TextView(this).apply {
-            text = getString(R.string.settings_hub_intro)
-            textSize = 12f
-            setTextColor(colors.secondaryText)
-            setPadding(dp(16), dp(8), dp(16), dp(12))
-        }, android.widget.LinearLayout.LayoutParams(-1, -2))
-
         settingsCategories.forEachIndexed { index, category ->
             val row = android.widget.LinearLayout(this).apply {
                 orientation = android.widget.LinearLayout.HORIZONTAL
@@ -165,11 +158,33 @@ class SettingsActivity : SimpleActivity() {
     }
 
     private fun openSettingsCategory(category: SettingsCategory) {
-        activeSettingsCategory = category.id
-        settingsBackCallback.isEnabled = true
-        binding.settingsToolbar.title = getString(category.title)
-        renderSettingsPage()
-        binding.settingsNestedScrollview.scrollTo(0, 0)
+        animateSettingsPageChange(forward = true) {
+            activeSettingsCategory = category.id
+            settingsBackCallback.isEnabled = true
+            binding.settingsToolbar.title = getString(category.title)
+            renderSettingsPage()
+            binding.settingsNestedScrollview.scrollTo(0, 0)
+        }
+    }
+
+    private fun animateSettingsPageChange(forward: Boolean, changePage: () -> Unit) {
+        val content = binding.settingsNestedScrollview
+        content.animate().cancel()
+        val animationsEnabled = runCatching {
+            android.provider.Settings.Global.getFloat(
+                contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f
+            ) > 0f
+        }.getOrDefault(true)
+        if (!animationsEnabled) {
+            changePage()
+            content.alpha = 1f
+            content.translationX = 0f
+            return
+        }
+        content.alpha = 0.82f
+        content.translationX = dp(if (forward) 14 else -14).toFloat()
+        changePage()
+        content.animate().alpha(1f).translationX(0f).setDuration(180L).start()
     }
 
     private fun renderSettingsPage() {
@@ -186,10 +201,12 @@ class SettingsActivity : SimpleActivity() {
 
     private fun navigateSettingsBack(): Boolean {
         if (activeSettingsCategory == null) return false
-        activeSettingsCategory = null
-        settingsBackCallback.isEnabled = false
-        renderSettingsPage()
-        binding.settingsNestedScrollview.scrollTo(0, 0)
+        animateSettingsPageChange(forward = false) {
+            activeSettingsCategory = null
+            settingsBackCallback.isEnabled = false
+            renderSettingsPage()
+            binding.settingsNestedScrollview.scrollTo(0, 0)
+        }
         return true
     }
 
@@ -324,9 +341,9 @@ class SettingsActivity : SimpleActivity() {
                     }
                 }
                 grid.addView(preview, android.widget.GridLayout.LayoutParams().apply {
-                    width = dp(64)
-                    height = dp(64)
-                    setMargins(dp(4), dp(4), dp(4), dp(4))
+                    width = dp(56)
+                    height = dp(56)
+                    setMargins(dp(6), dp(6), dp(6), dp(6))
                 })
             }
             dialog = OxygenClassicDialog.show(this, builder, grid)

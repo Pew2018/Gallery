@@ -1,6 +1,7 @@
 package org.fossify.gallery.adapters
 
 import android.content.Intent
+import android.graphics.Color
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.Color
@@ -906,7 +907,11 @@ class DirectoryAdapter(
         val isSelected = selectedKeys.contains(directory.path.hashCode())
         bindItem(view).apply {
             dirLoadingProgress.visibility = if (isRefreshLoading && holder.bindingAdapterPosition == 0) View.VISIBLE else View.GONE
-            dirLoadingProgress.setIndicatorColor(properPrimaryColor)
+            dirLoadingProgress.apply {
+                setIndicatorColor(Color.WHITE)
+                setTrackColor(0x99000000.toInt())
+                trackThickness = (3 * activity.resources.displayMetrics.density + 0.5f).toInt()
+            }
             dirPath?.text = "${directory.path.substringBeforeLast("/")}/"
             val thumbnailType = when {
                 directory.tmb.isVideoFast() -> TYPE_VIDEOS

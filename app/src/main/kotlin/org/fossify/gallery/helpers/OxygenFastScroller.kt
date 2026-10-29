@@ -1,6 +1,7 @@
 package org.fossify.gallery.helpers
 
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.util.TypedValue
 import android.view.View
 import androidx.recyclerview.widget.RecyclerView
@@ -32,16 +33,39 @@ object OxygenFastScroller {
         // 24dp target for direct thumb drags.
         scroller.handleWidth = dp(24)
         scroller.handleHeight = dp(36)
-        scroller.handleDrawable = GradientDrawable().apply {
+        scroller.handleDrawable = InsetDrawable(GradientDrawable().apply {
             setColor(tokens.interactiveAccent)
             cornerRadius = dp(2).toFloat()
             setSize(dp(4), dp(36))
-        }
+        }, dp(10), 0, dp(10), 0)
         // The bottom bar overlays the RecyclerView. Shorten only the vertical
         // track so its popup and final touch position stay above that overlay.
         scroller.trackMarginEnd = if (scroller.fastScrollDirection ==
             RecyclerViewFastScroller.FastScrollDirection.VERTICAL) bottomBar else 0
         scroller.requestLayout()
+
+        val track = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.trackView)
+        var tapPosition = 0f
+        track.isClickable = true
+        track.setOnTouchListener { _, event ->
+            if (event.actionMasked == android.view.MotionEvent.ACTION_UP) {
+                tapPosition = if (scroller.fastScrollDirection ==
+                    RecyclerViewFastScroller.FastScrollDirection.VERTICAL) event.y else event.x
+            }
+            false
+        }
+        track.setOnClickListener {
+            val adapter = recycler.adapter ?: return@setOnClickListener
+            val count = adapter.itemCount
+            if (count < 2) return@setOnClickListener
+            val vertical = scroller.fastScrollDirection == RecyclerViewFastScroller.FastScrollDirection.VERTICAL
+            val length = if (vertical) track.height else track.width
+            val handle = if (vertical) scroller.handleHeight else scroller.handleWidth
+            val usable = (length - handle).coerceAtLeast(1)
+            val fraction = ((tapPosition - handle / 2f) / usable).coerceIn(0f, 1f)
+            recycler.scrollToPosition(((count - 1) * fraction).toInt())
+        }
+
         if (scroller.getTag(R.id.classic_fast_scroll_observer) != true) {
             scroller.setTag(R.id.classic_fast_scroll_observer, true)
             fun updateAvailability() {

@@ -239,12 +239,15 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         directoryHeaderProgress = com.google.android.material.progressindicator.LinearProgressIndicator(this).apply {
             isIndeterminate = true
             visibility = View.GONE
-            setIndicatorColor(getProperPrimaryColor())
-            trackThickness = (2 * resources.displayMetrics.density + 0.5f).toInt()
+            val toolbarSurface = OxygenThemeEngine.toolbarSurface(this@MainActivity, config)
+            val foreground = OxygenThemeEngine.autoForeground(toolbarSurface)
+            setIndicatorColor(foreground)
+            setTrackColor(OxygenThemeColors.blend(toolbarSurface, foreground, 0.38))
+            trackThickness = (3 * resources.displayMetrics.density + 0.5f).toInt()
         }.also { indicator ->
             binding.mainMenu.addView(indicator, android.widget.LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                (2 * resources.displayMetrics.density + 0.5f).toInt()
+                (3 * resources.displayMetrics.density + 0.5f).toInt()
             ))
         }
     }
@@ -252,7 +255,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun setDirectoryLoading(loading: Boolean) {
         val update = {
             directoryHeaderProgress?.apply {
-                setIndicatorColor(getProperPrimaryColor())
+                val toolbarSurface = OxygenThemeEngine.toolbarSurface(this@MainActivity, config)
+                val foreground = OxygenThemeEngine.autoForeground(toolbarSurface)
+                setIndicatorColor(foreground)
+                setTrackColor(OxygenThemeColors.blend(toolbarSurface, foreground, 0.38))
                 visibility = if (loading) View.VISIBLE else View.GONE
             }
             getRecyclerAdapter()?.setRefreshLoading(loading)
@@ -342,6 +348,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         )
 
         binding.directoriesRefreshLayout.setOnRefreshListener {
+            binding.directoriesRefreshLayout.isRefreshing = false
             getDirectories(forceFavoriteReload = true)
             promptProtectedFavoriteFilters(force = true)
         }

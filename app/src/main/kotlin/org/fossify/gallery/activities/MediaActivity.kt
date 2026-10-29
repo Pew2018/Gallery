@@ -177,19 +177,25 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mediaHeaderProgress = com.google.android.material.progressindicator.LinearProgressIndicator(this).apply {
             isIndeterminate = true
             visibility = View.GONE
-            setIndicatorColor(getProperPrimaryColor())
-            trackThickness = (2 * resources.displayMetrics.density + 0.5f).toInt()
+            val toolbarSurface = OxygenThemeEngine.toolbarSurface(this@MediaActivity, config)
+            val foreground = OxygenThemeEngine.autoForeground(toolbarSurface)
+            setIndicatorColor(foreground)
+            setTrackColor(OxygenThemeColors.blend(toolbarSurface, foreground, 0.38))
+            trackThickness = (3 * resources.displayMetrics.density + 0.5f).toInt()
         }.also { indicator ->
             binding.mediaMenu.addView(indicator, android.widget.LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                (2 * resources.displayMetrics.density + 0.5f).toInt()
+                (3 * resources.displayMetrics.density + 0.5f).toInt()
             ))
         }
     }
 
     private fun setMediaLoading(loading: Boolean) {
         mediaHeaderProgress?.apply {
-            setIndicatorColor(getProperPrimaryColor())
+            val toolbarSurface = OxygenThemeEngine.toolbarSurface(this@MediaActivity, config)
+            val foreground = OxygenThemeEngine.autoForeground(toolbarSurface)
+            setIndicatorColor(foreground)
+            setTrackColor(OxygenThemeColors.blend(toolbarSurface, foreground, 0.38))
             visibility = if (loading) View.VISIBLE else View.GONE
         }
     }
@@ -212,7 +218,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             mAllowPickingMultiple = getBooleanExtra(Intent.EXTRA_ALLOW_MULTIPLE, false)
         }
 
-        binding.mediaRefreshLayout.setOnRefreshListener { getMedia() }
+        binding.mediaRefreshLayout.setOnRefreshListener {
+            binding.mediaRefreshLayout.isRefreshing = false
+            getMedia()
+        }
         try {
             mPath = intent.getStringExtra(DIRECTORY) ?: ""
         } catch (e: Exception) {

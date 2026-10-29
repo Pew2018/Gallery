@@ -347,6 +347,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             navigationIcon = resources.getColoredDrawableWithColor(org.fossify.commons.R.drawable.ic_arrow_left_vector, Color.WHITE)
         }
 
+        binding.mediumViewerToolbar.inflateMenu(R.menu.menu_viewpager)
         updateMenuItemColors(binding.mediumViewerToolbar.menu, forceWhiteIcons = true)
         binding.mediumViewerToolbar.setOnMenuItemClickListener { menuItem ->
             if (getCurrentMedium() == null) {

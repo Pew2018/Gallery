@@ -240,7 +240,7 @@ class OxygenThemeActivity : SimpleActivity() {
             val cell = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                minimumHeight = dp(80)
+                minimumHeight = dp(88)
                 isClickable = true
                 isFocusable = true
                 setPadding(dp(3), dp(8), dp(3), dp(8))
@@ -252,8 +252,8 @@ class OxygenThemeActivity : SimpleActivity() {
                 includeFontPadding = false
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }
-            cell.addView(swatch, LinearLayout.LayoutParams(dp(36), dp(36)))
-            val name = text(label(preset), 12f).apply {
+            cell.addView(swatch, LinearLayout.LayoutParams(dp(44), dp(44)))
+            val name = text(label(preset), 11f).apply {
                 gravity = Gravity.CENTER
                 maxLines = 2
                 textAlignment = View.TEXT_ALIGNMENT_CENTER

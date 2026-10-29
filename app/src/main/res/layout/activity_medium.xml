@@ -37,7 +37,6 @@
             android:id="@+id/medium_viewer_toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:menu="@menu/menu_viewpager"
             app:navigationIcon="@drawable/ic_arrow_left_vector" />
 
     </com.google.android.material.appbar.AppBarLayout>
