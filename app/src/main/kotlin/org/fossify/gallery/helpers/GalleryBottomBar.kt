@@ -62,7 +62,7 @@ object GalleryBottomBar {
         }
     }
 
-    enum class Tab { ALL, FAVORITE_FOLDERS }
+    enum class Tab { ALL, FAVORITES }
 
     @Suppress("DEPRECATION")
     fun open(activity: Activity, intent: Intent, finishCurrent: Boolean = false) {
@@ -103,7 +103,7 @@ object GalleryBottomBar {
 
         val byId = mapOf(
             Tab.ALL to Triple(Tab.ALL, "所有图片", R.drawable.ic_files_vector),
-            Tab.FAVORITE_FOLDERS to Triple(Tab.FAVORITE_FOLDERS, "收藏", R.drawable.ic_folders_vector)
+            Tab.FAVORITES to Triple(Tab.FAVORITES, "收藏", R.drawable.ic_folders_vector)
         )
         val tabs = activity.config.bottomNavigationOrder.mapNotNull { id ->
             Tab.values().firstOrNull { it.name == id }?.let(byId::get)
@@ -118,7 +118,7 @@ object GalleryBottomBar {
                 isClickable = true
                 isFocusable = true
                 isSelected = selected
-                val accessibilityLabel = if (tab == Tab.FAVORITE_FOLDERS) "收藏文件夹" else label
+                val accessibilityLabel = label
                 contentDescription = if (selected) "$accessibilityLabel，当前页面" else accessibilityLabel
                 this.background = RippleDrawable(
                     ColorStateList.valueOf(Color.argb(32, Color.red(primary), Color.green(primary), Color.blue(primary))),

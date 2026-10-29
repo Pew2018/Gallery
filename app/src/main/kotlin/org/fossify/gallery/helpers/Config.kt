@@ -18,6 +18,7 @@ import java.util.Locale
 class Config(context: Context) : BaseConfig(context) {
     companion object {
         private const val LAST_MAIN_VIEW_ALL = "oxygenos_classic_last_main_view_all"
+        private const val LAST_FAVORITES_VIEW_FILES = "gallery_last_favorites_view_files"
         private const val FAVORITE_SHOW_EXCLUDED = "oxygen_favorite_show_excluded"
         private const val FAVORITE_SHOW_HIDDEN = "oxygen_favorite_show_hidden"
         private const val BOTTOM_NAV_ORDER = "oxygen_bottom_nav_order"
@@ -29,6 +30,11 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getBoolean(LAST_MAIN_VIEW_ALL, if (appRunCount <= 1) true else showAll)
         set(value) = prefs.edit().putBoolean(LAST_MAIN_VIEW_ALL, value).apply()
 
+
+    /** Upgrade default is the existing favorites-folder page; independent of All Photos. */
+    var lastFavoritesViewFiles: Boolean
+        get() = prefs.getBoolean(LAST_FAVORITES_VIEW_FILES, false)
+        set(value) = prefs.edit().putBoolean(LAST_FAVORITES_VIEW_FILES, value).apply()
 
     // Classic appearance preferences are separate from Commons' legacy colors.
     // Existing installations keep their colors until this feature is explicitly used.
@@ -97,14 +103,14 @@ class Config(context: Context) : BaseConfig(context) {
     /** Stable IDs, not the view indices; malformed saved orders fall back safely. */
     var bottomNavigationOrder: List<String>
         get() {
-            val allowed = listOf("ALL", "FAVORITE_FOLDERS")
             val saved = prefs.getString(BOTTOM_NAV_ORDER, "")?.split(",") ?: emptyList()
             return NavigationOrder.normalize(saved)
         }
         set(order) {
-            val allowed = setOf("ALL", "FAVORITE_FOLDERS")
-            if (order.size == 2 && order.toSet() == allowed) {
-                prefs.edit().putString(BOTTOM_NAV_ORDER, order.joinToString(",")).apply()
+            val normalized = NavigationOrder.normalize(order)
+            val allowed = order.map { if (it == "FAVORITE_FOLDERS") "FAVORITES" else it }
+            if (order.size == 2 && allowed.toSet() == NavigationOrder.defaults.toSet()) {
+                prefs.edit().putString(BOTTOM_NAV_ORDER, normalized.joinToString(",")).apply()
             }
         }
 

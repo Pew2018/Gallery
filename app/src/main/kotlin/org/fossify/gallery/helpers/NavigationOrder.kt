@@ -1,8 +1,10 @@
 package org.fossify.gallery.helpers
 
-/** Stable IDs survive removal of retired tabs and preserve the user's relative order. */
+/** Stable section IDs with safe migration from the retired folder-only identifier. */
 object NavigationOrder {
-    val defaults = listOf("ALL", "FAVORITE_FOLDERS")
-    fun normalize(saved: List<String>): List<String> =
-        (saved.filter { it in defaults }.distinct() + defaults).distinct()
+    val defaults = listOf("ALL", "FAVORITES")
+    fun normalize(saved: List<String>): List<String> {
+        val migrated = saved.map { if (it == "FAVORITE_FOLDERS") "FAVORITES" else it }
+        return (migrated.filter { it in defaults }.distinct() + defaults).distinct()
+    }
 }
