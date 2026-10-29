@@ -124,7 +124,7 @@ object OxygenClassicControls {
                     val face = if (checked) active else if (enabled) {
                         if (colors.dark) 0xFFCCCCCC.toInt() else 0xFFF1F1F1.toInt()
                     } else OxygenThemeColors.blend(bg, fg, 0.24)
-                    circle(9.8f, if (pressed && enabled) OxygenThemeColors.blend(face, fg, 0.08) else face)
+                    circle(9.8f, if (pressed && enabled) OxygenThemeColors.blend(face, bg, 0.08) else face)
                     color(OxygenThemeColors.blend(face, fg, 0.16))
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = 0.5f * density
