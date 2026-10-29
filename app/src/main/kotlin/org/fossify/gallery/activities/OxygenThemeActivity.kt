@@ -17,6 +17,7 @@ import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.doAfterTextChanged
+import org.fossify.commons.extensions.*
 import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.helpers.*
@@ -188,7 +189,7 @@ class OxygenThemeActivity : SimpleActivity() {
 
     /** A masked, bounded ripple: never an unbounded halo behind color swatches. */
     private fun ripple(view: View) {
-        val tint = ColorUtils.setAlphaComponent(colors.interactiveAccent, 28)
+        val tint = ColorUtils.setAlphaComponent(tokens.interactiveAccent, 28)
         view.background = RippleDrawable(
             ColorStateList.valueOf(tint),
             android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT),
@@ -415,6 +416,7 @@ class OxygenThemeActivity : SimpleActivity() {
                 setGravity(Gravity.FILL)
             })
             binders.add {
+                val tokens = colors
                 val selected = config.appIconColor == color
                 cell.isSelected = selected
                 ViewCompat.setStateDescription(cell, getString(
@@ -422,10 +424,10 @@ class OxygenThemeActivity : SimpleActivity() {
                 ))
                 cell.background = GradientDrawable().apply {
                     setColor(if (selected) OxygenThemeColors.blend(
-                        colors.pageBackground, colors.interactiveAccent, 0.08
-                    ) else colors.pageBackground)
+                        tokens.pageBackground, tokens.interactiveAccent, 0.08
+                    ) else tokens.pageBackground)
                     cornerRadius = dp(3).toFloat()
-                    if (selected) setStroke(dp(2), colors.interactiveAccent)
+                    if (selected) setStroke(dp(2), tokens.interactiveAccent)
                 }
                 cell.foreground = RippleDrawable(
                     ColorStateList.valueOf(ColorUtils.setAlphaComponent(colors.interactiveAccent, 28)),
