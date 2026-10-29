@@ -266,12 +266,12 @@ class ClassicSettingsControlsTest {
         val image = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         track.state = intArrayOf(android.R.attr.state_enabled)
         track.draw(Canvas(image))
-        val expected = OxygenThemeColors.blend(t.pageBackground, t.primaryText, 0.16)
+        val expected = OxygenThemeColors.blend(t.pageBackground, t.primaryText, 0.125)
         assertEquals("OxygenOS outlined track must not fill the inside", 0,
             android.graphics.Color.alpha(image.getPixel(width / 2, height / 2)))
         val edge = (0 until height).map { image.getPixel(width / 2, it) }
             .first { android.graphics.Color.alpha(it) >= 128 }
-        assertTrue("Off rail should be near screenshot-derived #D7D7D7",
+        assertTrue("Off rail should be near tuned #DFDFDF",
             kotlin.math.abs(android.graphics.Color.red(edge) - android.graphics.Color.red(expected)) <= 18)
         track.state = intArrayOf()
         image.eraseColor(android.graphics.Color.TRANSPARENT)
@@ -400,6 +400,192 @@ class ClassicSettingsControlsTest {
         down.recycle()
         up.recycle()
         assertTrue(second.isChecked)
+    }
+
+    @Test fun offFaceRimRailAndShadowAreSoftWithoutChangingOnGeometryOrSeed() {
+        val ctx = context()
+        val d = ctx.resources.displayMetrics.density
+        val scale = 8
+        for (dark in listOf(false, true)) for (seed in listOf(0xFF0071CD.toInt(),
+            0xFF7DC22F.toInt(), 0xFF9575CD.toInt(), 0xFFFF9800.toInt(), -1, 0xFF123456.toInt())) {
+            val control = ClassicSettingsSwitch(ctx)
+            val t = tokens(dark, seed)
+            OxygenClassicControls.applySwitches(control, t)
+            val palette = OxygenThemeColors.switchPalette(t)
+            val thumb = control.thumbDrawable
+            assertEquals((20 * d + 0.5f).toInt(), thumb.intrinsicWidth)
+            assertEquals((40 * d + 0.5f).toInt(), control.trackDrawable.intrinsicWidth)
+            fun render(checked: Boolean, enabled: Boolean): Bitmap {
+                thumb.state = listOfNotNull(android.R.attr.state_checked.takeIf { checked },
+                    android.R.attr.state_enabled.takeIf { enabled }).toIntArray()
+                thumb.jumpToCurrentState()
+                val box = (24 * d + 0.5f).toInt()
+                thumb.setBounds(0, 0, box, box)
+                return Bitmap.createBitmap(box * scale, box * scale, Bitmap.Config.ARGB_8888).also {
+                    val canvas = Canvas(it)
+                    canvas.scale(scale.toFloat(), scale.toFloat())
+                    thumb.draw(canvas)
+                }
+            }
+            val off = render(false, true)
+            val on = render(true, true)
+            val disabled = render(false, false)
+            val c = off.width / 2
+            assertEquals(palette.offThumb, off.getPixel(c, c))
+            assertEquals(OxygenThemeColors.opaque(seed), on.getPixel(c, c))
+            assertNotEquals(off.getPixel(c, c), disabled.getPixel(c, c))
+            // Supersample the 0.35dp hairline rather than depending on one mdpi edge pixel.
+            val rimX = (c + 9.45f * d * scale).toInt()
+            val rim = off.getPixel(rimX, c)
+            val expected = OxygenThemeColors.blend(palette.offThumb, t.primaryText,
+                if (dark) 0.10 else 0.11)
+            assertTrue("Soft neutral rim: dark=$dark pixel=$rim",
+                kotlin.math.abs(android.graphics.Color.red(expected) - android.graphics.Color.red(rim)) <= 5)
+            val shadowY = (c + 10.4f * d * scale).toInt()
+            assertEquals(16, android.graphics.Color.alpha(off.getPixel(c, shadowY)))
+            assertEquals(24, android.graphics.Color.alpha(on.getPixel(c, shadowY)))
+            assertEquals(8, android.graphics.Color.alpha(disabled.getPixel(c, shadowY)))
+            val output = File("build/classic-control-renders").apply { mkdirs() }
+            if (seed == 0xFF0071CD.toInt()) {
+                File(output, "off-thumb-${android.os.Build.VERSION.SDK_INT}-$dark.png").outputStream().use {
+                    off.compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+        }
+    }
+
+    @Test fun realLayoutRippleReceivesTouchStateAndReleasesWithoutDuplicateWrites() {
+        val ctx = context()
+        for (dark in listOf(false, true)) for (rtl in listOf(false, true)) {
+            val page = LayoutInflater.from(ctx).inflate(R.layout.activity_settings, null)
+            val row = page.findViewById<ViewGroup>(R.id.settings_show_hidden_items_holder)
+            val control = page.findViewById<ClassicSettingsSwitch>(R.id.settings_show_hidden_items)
+            row.layoutDirection = if (rtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+            control.layoutDirection = row.layoutDirection
+            skin(row, dark)
+            measure(row, (360 * ctx.resources.displayMetrics.density).toInt())
+            assertSame(row, control.parent)
+            val ripple = row.background
+            assertTrue("Runtime row must own a RippleDrawable", ripple is android.graphics.drawable.RippleDrawable)
+            assertFalse(control.background is android.graphics.drawable.RippleDrawable)
+            var saves = 0
+            var allowed = true
+            row.setOnClickListener { if (allowed) { control.toggle(); saves++ } }
+            fun event(action: Int, x: Float, y: Float = control.height / 2f) {
+                val now = SystemClock.uptimeMillis()
+                val e = MotionEvent.obtain(now, now, action, x, y, 0)
+                // Dispatch through the real parent/child hierarchy, not performClick.
+                e.offsetLocation(control.left.toFloat(), control.top.toFloat())
+                row.dispatchTouchEvent(e)
+                e.recycle()
+            }
+            fun assertReleased() {
+                assertFalse(row.isPressed)
+                assertFalse(ripple.state.contains(android.R.attr.state_pressed))
+            }
+            for (x in listOf(control.width * 0.15f, control.width * 0.90f)) {
+                repeat(3) {
+                    val before = saves
+                    event(MotionEvent.ACTION_DOWN, x)
+                    assertTrue(row.isPressed)
+                    assertTrue(ripple.state.contains(android.R.attr.state_pressed))
+                    event(MotionEvent.ACTION_UP, x)
+                    assertEquals(before + 1, saves)
+                    assertReleased()
+                }
+            }
+            control.isChecked = false
+            val from = control.width * if (rtl) 0.8f else 0.2f
+            val to = control.width * if (rtl) 0.2f else 0.8f
+            val beforeDrag = saves
+            event(MotionEvent.ACTION_DOWN, from)
+            assertTrue(row.isPressed)
+            event(MotionEvent.ACTION_MOVE, to)
+            assertReleased()
+            event(MotionEvent.ACTION_UP, to)
+            assertTrue(control.isChecked)
+            assertEquals(beforeDrag + 1, saves)
+            val before = saves
+            event(MotionEvent.ACTION_DOWN, 20f)
+            event(MotionEvent.ACTION_CANCEL, 20f)
+            event(MotionEvent.ACTION_UP, 20f)
+            assertEquals(before, saves); assertReleased()
+            event(MotionEvent.ACTION_DOWN, 20f)
+            event(MotionEvent.ACTION_MOVE, 20f, control.height * 0.95f)
+            event(MotionEvent.ACTION_UP, 20f, control.height * 0.95f)
+            assertEquals(before, saves); assertReleased()
+            event(MotionEvent.ACTION_DOWN, 20f)
+            control.isEnabled = false
+            assertReleased()
+            event(MotionEvent.ACTION_UP, 20f)
+            assertEquals(before, saves)
+            control.isEnabled = true
+            allowed = false
+            event(MotionEvent.ACTION_DOWN, 20f)
+            event(MotionEvent.ACTION_UP, 20f)
+            assertEquals(before, saves); assertReleased()
+            // TalkBack ACTION_CLICK routes through the same authorization gate.
+            control.performAccessibilityAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK, null)
+            assertEquals(before, saves)
+            allowed = true
+            control.performAccessibilityAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK, null)
+            assertEquals(before + 1, saves)
+            event(MotionEvent.ACTION_DOWN, 20f)
+            control.onWindowFocusChanged(false)
+            assertReleased()
+            event(MotionEvent.ACTION_UP, 20f)
+            assertEquals(before + 1, saves)
+            event(MotionEvent.ACTION_DOWN, 20f)
+            control.dispatchWindowVisibilityChanged(View.GONE)
+            assertReleased()
+            event(MotionEvent.ACTION_DOWN, 20f)
+            row.visibility = View.GONE
+            assertReleased()
+        }
+    }
+
+    // Newer Android patterned ripples require a hardware Canvas. API 28's
+    // real RippleDrawable supports this native Bitmap Canvas pixel assertion;
+    // the hierarchy/state test above still runs on both API 28 and API 35.
+    @Config(sdk = [28])
+    @Test fun pressedRuntimeRippleDrawsVisibleFeedbackOnTheWholeRow() {
+        val controller = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).setup()
+        val activity = controller.get()
+        val page = LayoutInflater.from(context()).inflate(R.layout.activity_settings, null)
+        val row = page.findViewById<ViewGroup>(R.id.settings_show_hidden_items_holder)
+        val control = page.findViewById<ClassicSettingsSwitch>(R.id.settings_show_hidden_items)
+        (row.parent as ViewGroup).removeView(row)
+        activity.setContentView(row)
+        row.setOnClickListener { control.toggle() }
+        skin(row, false)
+        measure(row, 360)
+        fun raster(): Bitmap = Bitmap.createBitmap(row.width, row.height, Bitmap.Config.ARGB_8888).also {
+            val canvas = Canvas(it)
+            canvas.drawColor(tokens(false).pageBackground)
+            row.draw(canvas)
+        }
+        val before = raster()
+        val now = SystemClock.uptimeMillis()
+        val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, 60f, row.height / 2f, 0)
+        row.dispatchTouchEvent(down)
+        down.recycle()
+        raster() // Start the real drawable before advancing its animation clock.
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+            .idleFor(java.time.Duration.ofMillis(100))
+        val pressed = raster()
+        // Compare outside the thumb/text so only the parent's rectangular ripple can explain it.
+        assertTrue("Runtime ripple must paint visible row feedback", (0 until row.width).any { x ->
+            before.getPixel(x, 2) != pressed.getPixel(x, 2)
+        })
+        val output = File("build/classic-control-renders").apply { mkdirs() }
+        File(output, "row-ripple-${android.os.Build.VERSION.SDK_INT}.png").outputStream().use {
+            pressed.compress(Bitmap.CompressFormat.PNG, 100, it)
+        }
+        val cancel = MotionEvent.obtain(now, now + 120, MotionEvent.ACTION_CANCEL, 60f, row.height / 2f, 0)
+        row.dispatchTouchEvent(cancel)
+        cancel.recycle()
+        assertFalse(row.isPressed)
+        controller.pause().stop().destroy()
     }
 
 }

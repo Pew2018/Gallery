@@ -213,14 +213,21 @@ object OxygenClassicControls {
                 "thumb" -> {
                     // Soft under-shadow within the 24dp optical box; never
                     // replace its ARGB alpha with full opacity.
-                    color(0x18000000)
+                    color(if (!enabled) 0x08000000 else if (checked) 0x18000000 else 0x10000000)
                     canvas.drawCircle(cx, cy + 1f * density, 10 * density, paint)
                     val face = animatedColor ?: stateColor(state)
                     circle(9.7f, face)
-                    // Pale custom accents need a visible hairline on light pages.
+                    // Only checked custom accents need the stronger visibility guard.
+                    // The neutral off face keeps a soft hairline in either appearance.
                     val lowContrast = OxygenThemeColors.contrastRatio(face, bg) < 1.5
                     color(OxygenThemeColors.blend(face, fg,
-                        if (lowContrast) 0.35 else if (colors.dark) 0.10 else 0.08))
+                        when {
+                            !enabled -> 0.06
+                            !checked -> if (colors.dark) 0.10 else 0.11
+                            lowContrast -> 0.35
+                            colors.dark -> 0.10
+                            else -> 0.08
+                        }))
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = 0.35f * density
                     canvas.drawCircle(cx, cy, 9.45f * density, paint)

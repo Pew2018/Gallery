@@ -199,4 +199,18 @@ class OxygenThemeColorsTest {
         assertEquals(-1, colors.toolbarForeground)
         assertTrue(OxygenThemeColors.contrastRatio(-1, colors.toolbarBackground) >= 4.5)
     }
+    @Test fun offSwitchPaletteIsNeutralAndSeparatelyWeakenedInBothAppearances() {
+        for (mode in listOf("light", "dark")) {
+            val palettes = seeds.map { OxygenThemeColors.switchPalette(resolve(it, mode, false)) }
+            assertEquals(1, palettes.map { it.offThumb }.distinct().size)
+            assertEquals(1, palettes.map { it.offTrack }.distinct().size)
+            assertEquals(1, palettes.map { it.disabledOffThumb }.distinct().size)
+            val p = palettes.first()
+            assertEquals(if (mode == "light") 0xFFEEEEEE.toInt() else 0xFFCCCCCC.toInt(), p.offThumb)
+            assertEquals(if (mode == "light") 0xFFDFDFDF.toInt() else 0xFF737373.toInt(), p.offTrack)
+            assertNotEquals(p.offThumb, p.disabledOffThumb)
+            assertNotEquals(p.offTrack, p.disabledOffTrack)
+        }
+    }
+
 }

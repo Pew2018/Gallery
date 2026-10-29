@@ -70,7 +70,7 @@ object OxygenThemeColors {
             onThumb = seed,
             onTrack = visibleRail,
             offThumb = if (colors.dark) 0xFFCCCCCC.toInt() else 0xFFEEEEEE.toInt(),
-            offTrack = blend(page, text, if (colors.dark) 0.38 else 0.16),
+            offTrack = blend(page, text, if (colors.dark) 0.38 else 0.125),
             disabledOnThumb = blend(page, seed, if (colors.dark) 0.42 else 0.28),
             disabledOnTrack = blend(page, seed, if (colors.dark) 0.22 else 0.16),
             disabledOffThumb = blend(page, text, if (colors.dark) 0.26 else 0.17),
