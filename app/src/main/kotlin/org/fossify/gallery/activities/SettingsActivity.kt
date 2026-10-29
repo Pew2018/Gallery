@@ -299,13 +299,13 @@ class SettingsActivity : SimpleActivity() {
             exportFavoritesTo(outputStream)
         } else if (requestCode == SELECT_IMPORT_FAVORITES_FILE_INTENT && resultCode == Activity.RESULT_OK && resultData?.data != null) {
             runCatching { contentResolver.openInputStream(resultData.data!!) }
-                .onSuccess(::importFavorites).onFailure { showErrorToast(it) }
+                .onSuccess(::importFavorites).onFailure { error -> showErrorToast(error as? Exception ?: Exception(error)) }
         } else if (requestCode == SELECT_EXPORT_FAVORITE_FOLDERS_INTENT && resultCode == Activity.RESULT_OK && resultData?.data != null) {
             runCatching { contentResolver.openOutputStream(resultData.data!!) }
-                .onSuccess(::exportFavoriteFoldersTo).onFailure { showErrorToast(it) }
+                .onSuccess(::exportFavoriteFoldersTo).onFailure { error -> showErrorToast(error as? Exception ?: Exception(error)) }
         } else if (requestCode == SELECT_IMPORT_FAVORITE_FOLDERS_INTENT && resultCode == Activity.RESULT_OK && resultData?.data != null) {
             runCatching { contentResolver.openInputStream(resultData.data!!) }
-                .onSuccess(::importFavoriteFolders).onFailure { showErrorToast(it) }
+                .onSuccess(::importFavoriteFolders).onFailure { error -> showErrorToast(error as? Exception ?: Exception(error)) }
         }
     }
 
