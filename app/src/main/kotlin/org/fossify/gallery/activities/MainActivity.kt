@@ -242,7 +242,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             val toolbarSurface = OxygenThemeEngine.toolbarSurface(this@MainActivity, config)
             val foreground = OxygenThemeEngine.autoForeground(toolbarSurface)
             setIndicatorColor(foreground)
-            setTrackColor(OxygenThemeColors.blend(toolbarSurface, foreground, 0.38))
+            setTrackColor(if (foreground == android.graphics.Color.WHITE) 0x55FFFFFF else 0x55000000)
             trackThickness = (3 * resources.displayMetrics.density + 0.5f).toInt()
         }.also { indicator ->
             binding.mainMenu.addView(indicator, android.widget.LinearLayout.LayoutParams(
@@ -258,7 +258,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 val toolbarSurface = OxygenThemeEngine.toolbarSurface(this@MainActivity, config)
                 val foreground = OxygenThemeEngine.autoForeground(toolbarSurface)
                 setIndicatorColor(foreground)
-                setTrackColor(OxygenThemeColors.blend(toolbarSurface, foreground, 0.38))
+                setTrackColor(if (foreground == android.graphics.Color.WHITE) 0x55FFFFFF else 0x55000000)
                 visibility = if (loading) View.VISIBLE else View.GONE
             }
             getRecyclerAdapter()?.setRefreshLoading(loading)

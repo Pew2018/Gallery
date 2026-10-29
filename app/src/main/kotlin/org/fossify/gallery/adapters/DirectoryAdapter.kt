@@ -1,7 +1,6 @@
 package org.fossify.gallery.adapters
 
 import android.content.Intent
-import android.graphics.Color
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.Color
