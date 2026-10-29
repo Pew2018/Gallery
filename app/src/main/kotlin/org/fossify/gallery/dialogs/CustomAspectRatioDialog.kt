@@ -8,6 +8,7 @@ import org.fossify.commons.extensions.setupDialogStuff
 import org.fossify.commons.extensions.showKeyboard
 import org.fossify.commons.extensions.value
 import org.fossify.gallery.databinding.DialogCustomAspectRatioBinding
+import org.fossify.gallery.helpers.OxygenClassicDialog
 
 class CustomAspectRatioDialog(
     val activity: BaseSimpleActivity, val defaultCustomAspectRatio: Pair<Float, Float>?, val callback: (aspectRatio: Pair<Float, Float>) -> Unit
@@ -23,6 +24,7 @@ class CustomAspectRatioDialog(
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
                 activity.setupDialogStuff(binding.root, this) { alertDialog ->
+                    OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                     alertDialog.showKeyboard(binding.aspectRatioWidth)
                     alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         val width = getViewValue(binding.aspectRatioWidth)

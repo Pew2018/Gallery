@@ -64,7 +64,9 @@ object OxygenClassicDialog {
         val foreground = activity.getProperTextColor()
         field.setTextColor(foreground)
         field.setHintTextColor(ColorUtils.blendARGB(surface, foreground, 0.58f))
-        field.backgroundTintList = ColorStateList.valueOf(activity.getProperPrimaryColor())
+        field.backgroundTintList = ColorStateList.valueOf(
+            OxygenClassicPalette.readableAccent(activity.getProperPrimaryColor(), surface)
+        )
     }
 
     fun apply(activity: Activity, dialog: AlertDialog, content: View) {
@@ -97,11 +99,16 @@ object OxygenClassicDialog {
 
         // Preserve semantic, disabled, link and hint text: only skin actual controls.
         fun visit(v: View) {
+            if (v is EditText) styleInput(activity, v)
             if (v is RadioButton || v is CheckBox) {
                 val button = v as android.widget.CompoundButton
                 CompoundButtonCompat.setButtonTintList(button, tints)
                 button.minHeight = (48f * dp).toInt()
                 (button as TextView).setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                button.setTextColor(ColorStateList(
+                    arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
+                    intArrayOf(disabled, dialogText)
+                ))
             }
             if (v is ViewGroup) {
                 for (i in 0 until v.childCount) visit(v.getChildAt(i))

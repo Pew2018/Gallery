@@ -10,6 +10,7 @@ import org.fossify.commons.extensions.*
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.DialogResizeImageWithPathBinding
 import org.fossify.gallery.extensions.config
+import org.fossify.gallery.helpers.OxygenClassicDialog
 
 class ResizeWithPathDialog(val activity: BaseSimpleActivity, val size: Point, val path: String, val callback: (newSize: Point, newPath: String) -> Unit) {
     init {
@@ -73,6 +74,7 @@ class ResizeWithPathDialog(val activity: BaseSimpleActivity, val size: Point, va
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
                 activity.setupDialogStuff(binding.root, this) { alertDialog ->
+                    OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                     alertDialog.showKeyboard(binding.resizeImageWidth)
                     alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         val width = getViewValue(widthView)

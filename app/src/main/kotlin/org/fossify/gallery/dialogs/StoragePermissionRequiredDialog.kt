@@ -5,6 +5,7 @@ import org.fossify.commons.extensions.getAlertDialogBuilder
 import org.fossify.commons.extensions.setupDialogStuff
 import org.fossify.gallery.activities.SimpleActivity
 import org.fossify.gallery.databinding.DialogStoragePermissionRequiredBinding
+import org.fossify.gallery.helpers.OxygenClassicDialog
 
 class StoragePermissionRequiredDialog(
     val activity: SimpleActivity,
@@ -29,7 +30,10 @@ class StoragePermissionRequiredDialog(
                     view = binding.root,
                     dialog = this,
                     cancelOnTouchOutside = false,
-                    callback = callback
+                    callback = { alertDialog ->
+                        OxygenClassicDialog.apply(activity, alertDialog, binding.root)
+                        callback(alertDialog)
+                    }
                 )
             }
     }

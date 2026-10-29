@@ -6,6 +6,7 @@ import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.extensions.getAlertDialogBuilder
 import org.fossify.commons.extensions.setupDialogStuff
 import org.fossify.gallery.R
+import org.fossify.gallery.helpers.OxygenClassicDialog
 
 class AllFilesPermissionDialog(
     val activity: BaseSimpleActivity, message: String = "", val callback: (result: Boolean) -> Unit, val neutralPressed: () -> Unit
@@ -21,6 +22,7 @@ class AllFilesPermissionDialog(
             .apply {
                 activity.setupDialogStuff(view, this) { alertDialog ->
                     dialog = alertDialog
+                    OxygenClassicDialog.apply(activity, alertDialog, view)
                 }
             }
     }

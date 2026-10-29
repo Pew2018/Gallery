@@ -7,6 +7,7 @@ import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.commons.extensions.setupDialogStuff
 import org.fossify.gallery.databinding.DialogGrantAllFilesBinding
 import org.fossify.gallery.extensions.launchGrantAllFilesIntent
+import org.fossify.gallery.helpers.OxygenClassicDialog
 
 class GrantAllFilesDialog(val activity: BaseSimpleActivity) {
     init {
@@ -17,7 +18,9 @@ class GrantAllFilesDialog(val activity: BaseSimpleActivity) {
             .setPositiveButton(org.fossify.commons.R.string.ok) { dialog, which -> activity.launchGrantAllFilesIntent() }
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
-                activity.setupDialogStuff(binding.root, this) { alertDialog -> }
+                activity.setupDialogStuff(binding.root, this) { alertDialog ->
+                    OxygenClassicDialog.apply(activity, alertDialog, binding.root)
+                }
             }
     }
 }

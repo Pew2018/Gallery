@@ -10,6 +10,7 @@ import org.fossify.commons.extensions.getBasePath
 import org.fossify.commons.extensions.setupDialogStuff
 import org.fossify.gallery.databinding.DialogExcludeFolderBinding
 import org.fossify.gallery.extensions.config
+import org.fossify.gallery.helpers.OxygenClassicDialog
 
 class ExcludeFolderDialog(val activity: BaseSimpleActivity, val selectedPaths: List<String>, val callback: () -> Unit) {
     private val alternativePaths = getAlternativePathsList()
@@ -36,7 +37,9 @@ class ExcludeFolderDialog(val activity: BaseSimpleActivity, val selectedPaths: L
             .setPositiveButton(org.fossify.commons.R.string.ok) { dialog, which -> dialogConfirmed() }
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
-                activity.setupDialogStuff(binding.root, this)
+                activity.setupDialogStuff(binding.root, this) { alertDialog ->
+                    OxygenClassicDialog.apply(activity, alertDialog, binding.root)
+                }
             }
     }
 

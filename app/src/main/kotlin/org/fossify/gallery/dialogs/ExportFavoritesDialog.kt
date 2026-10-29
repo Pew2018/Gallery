@@ -8,6 +8,7 @@ import org.fossify.commons.extensions.*
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.DialogExportFavoritesBinding
 import org.fossify.gallery.extensions.config
+import org.fossify.gallery.helpers.OxygenClassicDialog
 
 class ExportFavoritesDialog(
     val activity: BaseSimpleActivity, val defaultFilename: String, val hidePath: Boolean,
@@ -43,6 +44,7 @@ class ExportFavoritesDialog(
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
                 activity.setupDialogStuff(binding.root, this, R.string.export_favorite_paths) { alertDialog ->
+                    OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                     alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         var filename = binding.exportFavoritesFilename.value
                         if (filename.isEmpty()) {
