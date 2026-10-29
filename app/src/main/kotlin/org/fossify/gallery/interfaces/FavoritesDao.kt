@@ -20,13 +20,13 @@ interface FavoritesDao {
     @Query("SELECT COUNT(*) FROM favorites")
     fun getFavoritesCount(): Long
 
-    @Query("SELECT id FROM favorites WHERE full_path = :path COLLATE NOCASE")
+    @Query("SELECT id FROM favorites WHERE full_path = :path")
     fun isFavorite(path: String): Boolean
 
-    @Query("UPDATE OR REPLACE favorites SET filename = :newFilename, full_path = :newFullPath, parent_path = :newParentPath WHERE full_path = :oldPath COLLATE NOCASE")
+    @Query("UPDATE OR REPLACE favorites SET filename = :newFilename, full_path = :newFullPath, parent_path = :newParentPath WHERE full_path = :oldPath")
     fun updateFavorite(newFilename: String, newFullPath: String, newParentPath: String, oldPath: String)
 
-    @Query("DELETE FROM favorites WHERE full_path = :path COLLATE NOCASE")
+    @Query("DELETE FROM favorites WHERE full_path = :path")
     fun deleteFavoritePath(path: String)
 
     @Query("DELETE FROM favorites")
