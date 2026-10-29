@@ -3,6 +3,7 @@ package org.fossify.gallery.adapters
 import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
+import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Icon
 import android.text.TextUtils
@@ -1008,10 +1009,17 @@ class DirectoryAdapter(
                 if (directory.folderStatuses.isNotEmpty()) append(" · ${directory.folderStatuses}")
             }
 
-            if (isListViewType || folderStyle == FOLDER_STYLE_ROUNDED_CORNERS) {
+            // Rounded grid labels are drawn over the photo scrim except when
+            // horizontal scrolling places the caption below the thumbnail.
+            // In the overlay case, normal page text would be unreadable.
+            if (isListViewType || (folderStyle == FOLDER_STYLE_ROUNDED_CORNERS && scrollHorizontally)) {
                 photoCnt.setTextColor(textColor)
                 dirName.setTextColor(textColor)
                 dirLocation.applyColorFilter(textColor)
+            } else if (folderStyle == FOLDER_STYLE_ROUNDED_CORNERS) {
+                photoCnt.setTextColor(Color.WHITE)
+                dirName.setTextColor(Color.WHITE)
+                dirLocation.applyColorFilter(Color.WHITE)
             }
 
             if (isListViewType) {

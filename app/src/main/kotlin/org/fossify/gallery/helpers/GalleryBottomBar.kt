@@ -118,7 +118,8 @@ object GalleryBottomBar {
                 isClickable = true
                 isFocusable = true
                 isSelected = selected
-                contentDescription = if (selected) "$label，当前页面" else label
+                val accessibilityLabel = if (tab == Tab.FAVORITE_FOLDERS) "收藏文件夹" else label
+                contentDescription = if (selected) "$accessibilityLabel，当前页面" else accessibilityLabel
                 this.background = RippleDrawable(
                     ColorStateList.valueOf(Color.argb(32, Color.red(primary), Color.green(primary), Color.blue(primary))),
                     ColorDrawable(Color.TRANSPARENT),
@@ -142,7 +143,7 @@ object GalleryBottomBar {
                 gravity = Gravity.CENTER
                 textSize = 12f
                 setTextColor(tint)
-                setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
+                typeface = Typeface.create(if (selected) "sans-serif-medium" else "sans-serif", Typeface.NORMAL)
                 includeFontPadding = false
                 importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }, LinearLayout.LayoutParams(-1, dp(22)))

@@ -14,6 +14,7 @@ import org.fossify.gallery.asynctasks.GetMediaAsynctask
 import org.fossify.gallery.databinding.DialogMediumPickerBinding
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.getCachedMedia
+import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.helpers.GridSpacingItemDecoration
 import org.fossify.gallery.helpers.SHOW_ALL
 import org.fossify.gallery.models.Medium
@@ -43,6 +44,7 @@ class PickMediumDialog(val activity: BaseSimpleActivity, val path: String, val c
             .apply {
                 activity.setupDialogStuff(binding.root, this, org.fossify.commons.R.string.select_photo) { alertDialog ->
                     dialog = alertDialog
+                    OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                 }
             }
 

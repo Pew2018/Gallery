@@ -1,6 +1,7 @@
 package org.fossify.gallery.dialogs
 
 import android.graphics.Color
+import android.content.res.ColorStateList
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
 import androidx.activity.addCallback
@@ -14,6 +15,7 @@ import org.fossify.commons.extensions.beVisibleIf
 import org.fossify.commons.extensions.getAlertDialogBuilder
 import org.fossify.commons.extensions.getDefaultCopyDestinationPath
 import org.fossify.commons.extensions.getProperPrimaryColor
+import org.fossify.commons.extensions.getProperBackgroundColor
 import org.fossify.commons.extensions.handleHiddenFolderPasswordProtection
 import org.fossify.commons.extensions.handleLockedFolderOpening
 import org.fossify.commons.extensions.hideKeyboard
@@ -35,6 +37,8 @@ import org.fossify.gallery.extensions.getDirsToShow
 import org.fossify.gallery.extensions.getDistinctPath
 import org.fossify.gallery.extensions.getSortedDirectories
 import org.fossify.gallery.models.Directory
+import org.fossify.gallery.helpers.OxygenClassicDialog
+import org.fossify.gallery.helpers.OxygenClassicPalette
 
 class PickDirectoryDialog(
     val activity: BaseSimpleActivity,
@@ -65,6 +69,9 @@ class PickDirectoryDialog(
         }
 
         binding.directoriesFastscroller.updateColors(activity.getProperPrimaryColor())
+        binding.directoriesLoading.indeterminateTintList = ColorStateList.valueOf(
+            OxygenClassicPalette.readableAccent(activity.getProperPrimaryColor(), activity.getProperBackgroundColor())
+        )
 
         configureSearchView()
 
@@ -79,6 +86,7 @@ class PickDirectoryDialog(
         builder.apply {
             activity.setupDialogStuff(binding.root, this, org.fossify.commons.R.string.select_destination) { alertDialog ->
                 dialog = alertDialog
+                OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                 binding.directoriesShowHidden.beVisibleIf(!context.config.shouldShowHidden)
                 binding.directoriesShowHidden.setOnClickListener {
                     activity.handleHiddenFolderPasswordProtection {
@@ -173,25 +181,23 @@ class PickDirectoryDialog(
 
     private fun checkPlaceholderVisibility(dirs: ArrayList<Directory>) = with(binding) {
         directoriesEmptyPlaceholder.beVisibleIf(dirs.isEmpty())
-
-        if (folderSearchView.isSearchOpen) {
+        if (dirs.isEmpty()) {
             directoriesEmptyPlaceholder.text = root.context.getString(org.fossify.commons.R.string.no_items_found)
         }
-
         directoriesFastscroller.beVisibleIf(directoriesEmptyPlaceholder.isGone())
     }
 
     private fun fetchDirectories(forceShowHiddenAndExcluded: Boolean) {
-        activity.getCachedDirectories(forceShowHidden = forceShowHiddenAndExcluded, forceShowExcluded = forceShowHiddenAndExcluded) {
-            if (it.isNotEmpty()) {
-                it.forEach {
-                    it.subfoldersMediaCount = it.mediaCnt
-                }
-
-                activity.runOnUiThread {
-                    allDirectories.clear()
-                    gotDirectories(activity.addTempFolderIfNeeded(it))
-                }
+        binding.directoriesLoading.visibility = android.view.View.VISIBLE
+        activity.getCachedDirectories(forceShowHidden = forceShowHiddenAndExcluded, forceShowExcluded = forceShowHiddenAndExcluded) { directories ->
+            directories.forEach { directory ->
+                directory.subfoldersMediaCount = directory.mediaCnt
+            }
+            activity.runOnUiThread {
+                if (activity.isDestroyed) return@runOnUiThread
+                binding.directoriesLoading.visibility = android.view.View.GONE
+                allDirectories.clear()
+                gotDirectories(activity.addTempFolderIfNeeded(directories))
             }
         }
     }
@@ -224,6 +230,11 @@ class PickDirectoryDialog(
             .toMutableList() as ArrayList<Directory>
         val sortedDirs = activity.getSortedDirectories(distinctDirs)
         val dirs = activity.getDirsToShow(sortedDirs, allDirectories, currentPathPrefix).clone() as ArrayList<Directory>
+        binding.directoriesCurrentPath.apply {
+            text = currentPathPrefix
+            beVisibleIf(currentPathPrefix.isNotEmpty())
+        }
+        checkPlaceholderVisibility(dirs)
         if (dirs.hashCode() == shownDirectories.hashCode()) {
             return
         }
