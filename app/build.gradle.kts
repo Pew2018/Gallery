@@ -73,6 +73,21 @@ android {
     }
 
     testBuildType = "release"
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            it.jvmArgs(
+                "--add-opens=java.base/java.lang=ALL-UNNAMED",
+                "--add-opens=java.base/java.util=ALL-UNNAMED",
+                "--add-opens=java.base/java.io=ALL-UNNAMED",
+                "--add-opens=java.base/java.net=ALL-UNNAMED",
+                "--add-opens=java.base/java.security=ALL-UNNAMED",
+                "--add-opens=java.base/java.text=ALL-UNNAMED",
+                "--add-opens=java.base/jdk.internal.access=ALL-UNNAMED",
+                "--add-opens=java.desktop/java.awt.font=ALL-UNNAMED"
+            )
+        }
+    }
 
     buildTypes {
         debug {
@@ -182,6 +197,8 @@ detekt {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    // Test-only Android View measurement, interaction and native Canvas rendering.
+    testImplementation("org.robolectric:robolectric:4.16.1")
     implementation(libs.fossify.commons)
     implementation(libs.androidx.print)
     implementation(libs.android.image.cropper)

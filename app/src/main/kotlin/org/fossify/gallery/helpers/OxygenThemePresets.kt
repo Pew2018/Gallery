@@ -8,6 +8,11 @@ data class OxygenPreset(val id: String, val label: String, val hex: String, val 
 }
 
 object OxygenThemePresets {
+    const val DEFAULT_ID = "oxygen_blue"
+    private val featuredIds = listOf("oxygen_blue", "oxygen_deep_sea_blue", "oxygen_grass_green",
+        "oxygen_jade_green", "oxygen_indigo_blue", "oxygen_golden", "oxygen_charm_purple")
+    val featured: List<OxygenPreset> get() = featuredIds.map { byId.getValue(it) }
+
     val all: List<OxygenPreset> = listOf(
         OxygenPreset("oxygen_blue", "晴空蓝", "#42A5F5", "classic"),
         OxygenPreset("oxygen_deep_sea_blue", "深海蓝", "#0071CD", "classic"),

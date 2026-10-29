@@ -14,8 +14,8 @@
     <dimen name="oxygen_classic_horizontal_margin">16dp</dimen>
     <dimen name="oxygen_classic_single_row">56dp</dimen>
     <dimen name="oxygen_classic_details_row">72dp</dimen>
-    <dimen name="oxygen_classic_switch_width">42dp</dimen>
-    <dimen name="oxygen_classic_switch_thumb_size">24dp</dimen>
+    <dimen name="oxygen_classic_switch_width">40dp</dimen>
+    <dimen name="oxygen_classic_switch_thumb_size">20dp</dimen>
 
     <style name="OxygenClassicToolbarTitle" parent="TextAppearance.Widget.AppCompat.Toolbar.Title">
         <item name="android:textSize">20sp</item>
@@ -24,7 +24,11 @@
         <item name="android:ellipsize">end</item>
     </style>
 
-    <style name="OxygenClassicSettingsSection" parent="SettingsSectionLabelStyle">
+    <style name="OxygenClassicSettingsSection">
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:tag">classic_section</item>
         <item name="android:minHeight">48dp</item>
         <item name="android:textSize">12sp</item>
         <item name="android:gravity">center_vertical</item>
@@ -35,16 +39,16 @@
         <item name="android:minHeight">@dimen/oxygen_classic_single_row</item>
         <item name="android:paddingStart">16dp</item>
         <item name="android:paddingEnd">16dp</item>
-        <item name="android:paddingTop">0dp</item>
-        <item name="android:paddingBottom">0dp</item>
+        <item name="android:paddingTop">4dp</item>
+        <item name="android:paddingBottom">4dp</item>
         <item name="android:gravity">center_vertical</item>
     </style>
     <style name="OxygenClassicSettingsSingleRow" parent="SettingsHolderTextViewOneLinerStyle">
         <item name="android:minHeight">@dimen/oxygen_classic_single_row</item>
         <item name="android:paddingStart">16dp</item>
         <item name="android:paddingEnd">16dp</item>
-        <item name="android:paddingTop">0dp</item>
-        <item name="android:paddingBottom">0dp</item>
+        <item name="android:paddingTop">8dp</item>
+        <item name="android:paddingBottom">8dp</item>
         <item name="android:gravity">center_vertical</item>
     </style>
     <style name="OxygenClassicSettingsDetailsRow" parent="SettingsHolderTextViewStyle">
@@ -55,9 +59,36 @@
         <item name="android:paddingBottom">8dp</item>
         <item name="android:gravity">center_vertical</item>
     </style>
-    <style name="OxygenClassicSettingsSecondaryText" parent="SettingsTextValueStyle">
+    <style name="OxygenClassicSettingsSecondaryText">
         <item name="android:textSize">12sp</item>
-        <item name="android:alpha">0.54</item>
+        <item name="android:alpha">1</item>
+        <item name="android:tag">classic_secondary</item>
+        <item name="android:layout_marginTop">4dp</item>
+        <item name="android:fontFamily">sans-serif</item>
+    </style>
+
+    <style name="OxygenClassicSettingsPrimaryText">
+        <item name="android:textSize">16sp</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:clickable">false</item>
+        <item name="android:focusable">false</item>
+        <item name="android:gravity">center_vertical</item>
+    </style>
+    <style name="OxygenClassicSettingsSwitch" parent="Widget.AppCompat.CompoundButton.Switch">
+        <item name="android:textSize">16sp</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:paddingTop">4dp</item>
+        <item name="android:paddingBottom">4dp</item>
+        <item name="android:paddingStart">0dp</item>
+        <item name="android:paddingEnd">0dp</item>
+        <item name="android:singleLine">false</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="android:background">?attr/selectableItemBackground</item>
+        <item name="showText">false</item>
+        <item name="switchPadding">16dp</item>
     </style>
 
     <!-- Theme is applied after Commons has selected the saved dark/light palette.

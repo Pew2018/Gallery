@@ -93,6 +93,13 @@ open class SimpleActivity : BaseSimpleActivity() {
         val current = OxygenThemeEngine.snapshot(this, config)
         val appearance = config.oxygenThemeActivated to config.oxygenAppearanceMode
         if (!recreatesForTheme || (inflatedTheme == current && inflatedAppearance == appearance)) return false
+        // Theme picker owns and recolors its existing Views. Accent-only changes do not
+        // need resource reinflation; appearance/activation changes still recreate normally.
+        if (this is OxygenThemeActivity && inflatedAppearance == appearance && inflatedTheme?.dark == current.dark) {
+            inflatedTheme = current
+            applyClassicOverlay()
+            return false
+        }
         if (!themeRecreationRequested) {
             themeRecreationRequested = true
             window.decorView.setBackgroundColor(current.pageBackground)

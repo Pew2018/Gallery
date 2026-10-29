@@ -113,6 +113,18 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Upload unit test and control rendering evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gallery-classic-control-test-evidence
+          path: |
+            app/build/reports/tests/testFossReleaseUnitTest/
+            app/build/test-results/testFossReleaseUnitTest/
+            app/build/classic-control-renders/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Delete transient CI keystore
         if: always()
         shell: bash

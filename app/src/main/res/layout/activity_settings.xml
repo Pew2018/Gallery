@@ -50,11 +50,13 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_color_customization_label"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/customize_colors"
+                    android:text="@string/classic_theme_title"
                     app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintBottom_toBottomOf="parent"
                     app:layout_constraintTop_toTopOf="parent" />
 
             </androidx.constraintlayout.widget.ConstraintLayout>
@@ -67,7 +69,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_bottom_navigation_order"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/oxygen_bottom_navigation_order" />
@@ -95,9 +97,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_use_english"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/use_english_language" />
@@ -112,7 +114,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_language_label"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/language" />
@@ -135,7 +137,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_change_date_time_format"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/change_date_and_time_format" />
@@ -150,7 +152,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_file_loading_priority_label"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/file_loading_priority" />
@@ -173,7 +175,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_manage_included_folders"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/manage_included_folders" />
@@ -188,7 +190,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_manage_excluded_folders"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/manage_excluded_folders" />
@@ -203,7 +205,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_manage_hidden_folders"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/manage_hidden_folders" />
@@ -216,9 +218,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_show_hidden_items"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/show_hidden_items" />
@@ -231,9 +233,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_search_all_files"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/search_all_files" />
@@ -257,9 +259,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_autoplay_videos"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/autoplay_videos" />
@@ -272,9 +274,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_remember_last_video_position"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/remember_last_video_position" />
@@ -287,9 +289,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_loop_videos"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/loop_videos" />
@@ -302,9 +304,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_open_videos_on_separate_screen"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/open_videos_on_separate_screen" />
@@ -317,9 +319,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_allow_video_gestures"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/allow_video_gestures" />
@@ -334,7 +336,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_on_video_tap_label"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/on_video_tap" />
@@ -366,9 +368,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_crop_thumbnails"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/crop_thumbnails" />
@@ -381,9 +383,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_animate_gifs"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/animate_gifs" />
@@ -398,7 +400,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_file_thumbnail_style_label"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/file_thumbnail_style" />
@@ -413,7 +415,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_folder_thumbnail_style_label"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/folder_thumbnail_style" />
@@ -445,9 +447,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_scroll_horizontally"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/scroll_thumbnails_horizontally" />
@@ -460,9 +462,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_enable_pull_to_refresh"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/enable_pull_to_refresh" />
@@ -486,9 +488,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_max_brightness"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/max_brightness" />
@@ -501,9 +503,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_ultra_hdr_rendering"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/render_ultra_hdr_photos" />
@@ -516,9 +518,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_black_background"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/black_background_at_fullscreen" />
@@ -531,9 +533,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_hide_system_ui"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/hide_system_ui_at_fullscreen" />
@@ -546,9 +548,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_allow_instant_change"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/allow_instant_change" />
@@ -561,9 +563,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_keep_screen_on_fullscreen_photos"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/keep_screen_on_fullscreen_photos" />
@@ -576,9 +578,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_allow_photo_gestures"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/allow_photo_gestures" />
@@ -591,9 +593,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_allow_down_gesture"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/allow_down_gesture" />
@@ -606,9 +608,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_show_notch"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/show_notch" />
@@ -623,7 +625,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_screen_rotation_label"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/screen_rotation_by" />
@@ -655,9 +657,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_allow_zooming_images"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/allow_deep_zooming_images" />
@@ -670,9 +672,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_allow_rotating_with_gestures"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/allow_rotating_gestures" />
@@ -685,9 +687,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_show_highest_quality"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/show_highest_quality" />
@@ -700,9 +702,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_allow_one_to_one_zoom"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/allow_one_to_one_zoom" />
@@ -726,9 +728,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_show_extended_details"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/show_extended_details" />
@@ -741,9 +743,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_hide_extended_details"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/hide_extended_details" />
@@ -758,7 +760,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_manage_extended_details"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/manage_extended_details" />
@@ -782,9 +784,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_app_password_protection"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/password_protect_whole_app" />
@@ -797,9 +799,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_hidden_item_password_protection"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/password_protect_hidden_items" />
@@ -812,9 +814,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_excluded_item_password_protection"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/password_protect_excluded" />
@@ -827,9 +829,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_file_deletion_password_protection"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/password_protect_file_deletion" />
@@ -853,9 +855,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_delete_empty_folders"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/delete_empty_folders" />
@@ -868,9 +870,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_keep_last_modified"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/keep_last_modified" />
@@ -883,9 +885,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_skip_delete_confirmation"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/skip_delete_confirmation" />
@@ -909,9 +911,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_bottom_actions_checkbox"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/show_at_bottom" />
@@ -926,7 +928,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_manage_bottom_actions"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/manage_bottom_actions" />
@@ -950,9 +952,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_use_recycle_bin"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/move_items_into_recycle_bin" />
@@ -965,9 +967,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_show_recycle_bin"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/show_recycle_bin" />
@@ -980,9 +982,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 
-                <androidx.appcompat.widget.SwitchCompat
+                <org.fossify.gallery.views.ClassicSettingsSwitch
                     android:id="@+id/settings_show_recycle_bin_last"
-                    style="@style/SettingsSwitchStyle"
+                    style="@style/OxygenClassicSettingsSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/show_recycle_bin_last" />
@@ -997,7 +999,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_empty_recycle_bin_label"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/empty_recycle_bin" />
@@ -1031,7 +1033,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_clear_cache_label"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/clear_cache" />
@@ -1054,7 +1056,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_export_favorites"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/export_favorite_paths" />
@@ -1069,7 +1071,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_import_favorites"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/import_favorite_paths" />
@@ -1084,7 +1086,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_export"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/export_settings" />
@@ -1099,7 +1101,7 @@
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_import"
-                    style="@style/SettingsTextLabelStyle"
+                    style="@style/OxygenClassicSettingsPrimaryText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/import_settings" />

@@ -119,28 +119,15 @@ class SettingsActivity : SimpleActivity() {
         setupExportSettings()
         setupImportSettings()
 
-        arrayOf(
-            binding.settingsColorCustomizationSectionLabel,
-            binding.settingsGeneralSettingsLabel,
-            binding.settingsVideosLabel,
-            binding.settingsThumbnailsLabel,
-            binding.settingsScrollingLabel,
-            binding.settingsFullscreenMediaLabel,
-            binding.settingsDeepZoomableImagesLabel,
-            binding.settingsExtendedDetailsLabel,
-            binding.settingsSecurityLabel,
-            binding.settingsFileOperationsLabel,
-            binding.settingsBottomActionsLabel,
-            binding.settingsRecycleBinLabel,
-            binding.settingsMigratingLabel
-        ).forEach {
-            it.setTextColor(OxygenClassicPalette.readableAccent(getProperPrimaryColor(), getProperBackgroundColor()))
-        }
-        // Commons applies MaterialSwitch colors in updateTextColors(); restore
-        // the classic geometry/tints afterwards without changing row callbacks.
+        val colors = OxygenThemeEngine.snapshot(this, config)
+        binding.settingsCoordinator.setBackgroundColor(colors.pageBackground)
+        binding.settingsHolder.setBackgroundColor(colors.pageBackground)
+        // Commons does not visit ordinary SwitchCompat; apply semantic text to every row.
         OxygenClassicControls.applySwitches(
-            binding.settingsHolder, getProperPrimaryColor(), getProperTextColor(), getProperBackgroundColor()
+            binding.settingsHolder, colors.rawAccent, colors.primaryText, colors.pageBackground
         )
+        ClassicSettingsText.apply(binding.settingsHolder, colors)
+
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, resultData: Intent?) {

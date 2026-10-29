@@ -1,31 +1,25 @@
 package org.fossify.gallery.activities
 
 import android.content.res.ColorStateList
-import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
-import android.widget.EditText
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.ScrollView
-import android.widget.TextView
+import android.widget.*
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
-import androidx.core.graphics.ColorUtils
+import androidx.appcompat.widget.AppCompatRadioButton
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.widget.doAfterTextChanged
+import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
-import org.fossify.commons.extensions.getProperBackgroundColor
-import org.fossify.commons.extensions.getProperTextColor
-import org.fossify.gallery.helpers.OxygenSystemBars
-import org.fossify.gallery.helpers.OxygenClassicDialog
-import org.fossify.gallery.helpers.OxygenClassicPalette
-import org.fossify.gallery.helpers.OxygenThemeEngine
-import org.fossify.gallery.helpers.OxygenThemePresets
+import org.fossify.gallery.helpers.*
 
-/** A classic View settings screen: no Material3 or Compose widgets. */
+/** Flat classic settings. Rebind colors/selection in place; rebuild only on page navigation. */
 class OxygenThemeActivity : SimpleActivity() {
     private lateinit var root: LinearLayout
     private lateinit var titleBar: LinearLayout
@@ -33,258 +27,327 @@ class OxygenThemeActivity : SimpleActivity() {
     private lateinit var titleText: TextView
     private lateinit var scroll: ScrollView
     private lateinit var body: LinearLayout
-
+    private val binders = mutableListOf<() -> Unit>()
+    private var moreColors = false
+    private var mainScroll = 0
+    private val colors get() = OxygenThemeEngine.snapshot(this, config)
     private fun dp(n: Int) = (resources.displayMetrics.density * n + 0.5f).toInt()
-    private val bg get() = OxygenThemeEngine.pageSurface(this, config)
-    private val fg get() = OxygenThemeEngine.snapshot(this, config).primaryText
-    private val secondary get() = OxygenThemeEngine.snapshot(this, config).secondaryText
-    private val accent get() = OxygenThemeEngine.snapshot(this, config).rawAccent
+    private fun label(preset: OxygenPreset): String {
+        val id = when (preset.id) {
+            "oxygen_blue" -> R.string.theme_oxygen_blue
+            "oxygen_deep_sea_blue" -> R.string.theme_oxygen_deep_sea_blue
+            "oxygen_golden" -> R.string.theme_oxygen_golden
+            "oxygen_lemon_yellow" -> R.string.theme_oxygen_lemon_yellow
+            "oxygen_grass_green" -> R.string.theme_oxygen_grass_green
+            "oxygen_jade_green" -> R.string.theme_oxygen_jade_green
+            "oxygen_charm_purple" -> R.string.theme_oxygen_charm_purple
+            "oxygen_indigo_blue" -> R.string.theme_oxygen_indigo_blue
+            "oxygen_sky_blue" -> R.string.theme_oxygen_sky_blue
+            "oxygen_vigour_red" -> R.string.theme_oxygen_vigour_red
+            "oxygen_fashion_pink" -> R.string.theme_oxygen_fashion_pink
+            "material_blue" -> R.string.theme_material_blue
+            "material_teal" -> R.string.theme_material_teal
+            "material_green" -> R.string.theme_material_green
+            "material_red" -> R.string.theme_material_red
+            "material_orange" -> R.string.theme_material_orange
+            "material_purple" -> R.string.theme_material_purple
+            "material_cyan" -> R.string.theme_material_cyan
+            "material_indigo" -> R.string.theme_material_indigo
+            "material_pink" -> R.string.theme_material_pink
+            "material_blue_grey" -> R.string.theme_material_blue_grey
+            "material_deep_orange" -> R.string.theme_material_deep_orange
+            "material_light_green" -> R.string.theme_material_light_green
+            else -> return preset.label
+        }
+        return getString(id)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        moreColors = savedInstanceState?.getBoolean("theme_more") ?: false
+        mainScroll = savedInstanceState?.getInt("theme_main_scroll") ?: 0
         root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        titleBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
+        titleBar = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         backIcon = ImageView(this).apply {
             setImageResource(org.fossify.commons.R.drawable.ic_arrow_left_vector)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setPadding(dp(12), dp(12), dp(12), dp(12))
-            contentDescription = "返回"
-            isClickable = true
+            contentDescription = getString(R.string.classic_back)
             isFocusable = true
-            setOnClickListener { finish() }
+            setOnClickListener { goBack() }
         }
         titleText = TextView(this).apply {
-            text = "经典主题与配色"
             textSize = 20f
-            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             gravity = Gravity.CENTER_VERTICAL
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
         titleBar.addView(backIcon, LinearLayout.LayoutParams(dp(48), dp(56)))
         titleBar.addView(titleText, LinearLayout.LayoutParams(0, -1, 1f).apply {
-            marginStart = dp(16)
-            marginEnd = dp(16)
+            marginStart = dp(16); marginEnd = dp(16)
         })
-        val toolbarHeight = maxOf(dp(56), (20 * resources.displayMetrics.scaledDensity + dp(24)).toInt())
-        root.addView(titleBar, LinearLayout.LayoutParams(-1, toolbarHeight))
+        root.addView(titleBar, LinearLayout.LayoutParams(-1, dp(56)))
         scroll = ScrollView(this).apply { isFillViewport = true }
-        body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, dp(16)) }
         scroll.addView(body)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val system = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(0, system.top, 0, system.bottom)
+            view.setPadding(system.left, system.top, system.right, system.bottom)
             insets
         }
         ViewCompat.requestApplyInsets(root)
-        render()
-        savedInstanceState?.getInt("classic_theme_scroll")?.let { y ->
-            scroll.post { scroll.scrollTo(0, y) }
-        }
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() = goBack()
+        })
+        buildPage()
+        val y = savedInstanceState?.getInt("classic_theme_scroll") ?: 0
+        scroll.post { scroll.scrollTo(0, y) }
+    }
+
+    private fun goBack() {
+        if (!moreColors) { finish(); return }
+        moreColors = false
+        buildPage()
+        scroll.post { scroll.scrollTo(0, mainScroll) }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("theme_more", moreColors)
+        outState.putInt("theme_main_scroll", mainScroll)
         outState.putInt("classic_theme_scroll", scroll.scrollY)
         super.onSaveInstanceState(outState)
     }
 
-    private fun section(label: String) {
-        body.addView(TextView(this).apply {
-            text = label
-            textSize = 12f
-            setTextColor(OxygenClassicPalette.readableAccent(accent, bg))
-            gravity = Gravity.BOTTOM
-            setPadding(dp(16), dp(24), dp(16), dp(8))
-        }, LinearLayout.LayoutParams(-1, dp(54)))
+    override fun onResume() {
+        super.onResume()
+        if (::root.isInitialized) bindPage()
     }
 
-    private fun item(textValue: String, selected: Boolean = false, color: Int? = null, action: () -> Unit) {
+    private fun change(action: () -> Unit) {
+        action()
+        OxygenThemeEngine.apply(this, config)
+        if (!refreshThemeIfNeeded()) bindPage()
+    }
+
+    private fun activatePreset(preset: OxygenPreset) = change {
+        config.oxygenThemePresetId = preset.id
+        config.oxygenThemeActivated = true
+    }
+
+    private fun text(value: CharSequence, size: Float = 16f) = TextView(this).apply {
+        text = value; textSize = size; gravity = Gravity.CENTER_VERTICAL
+    }
+
+    private fun section(id: Int) {
+        val label = text(getString(id), 12f).apply {
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setPadding(dp(16), dp(20), dp(16), dp(8))
+        }
+        body.addView(label, LinearLayout.LayoutParams(-1, -2))
+        binders.add { label.setTextColor(colors.interactiveAccent) }
+    }
+
+    private fun divider() {
+        val line = View(this)
+        body.addView(line, LinearLayout.LayoutParams(-1, dp(1)).apply { topMargin = dp(8) })
+        binders.add { line.setBackgroundColor(OxygenThemeColors.blend(colors.pageBackground, colors.primaryText, 0.10)) }
+    }
+
+    private fun ripple(view: View) {
+        view.background = RippleDrawable(ColorStateList.valueOf(
+            (colors.interactiveAccent and 0xFFFFFF) or 0x20000000), null, null)
+    }
+
+    private fun actionRow(id: Int, action: () -> Unit) {
+        val row = text(getString(id)).apply {
+            minimumHeight = dp(56)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            isFocusable = true
+            setOnClickListener { action() }
+        }
+        body.addView(row, LinearLayout.LayoutParams(-1, -2))
+        binders.add { row.setTextColor(colors.primaryText); ripple(row) }
+    }
+
+    private fun radioRow(label: String, selected: () -> Boolean, swatch: Int? = null, action: () -> Unit) {
         val row = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
-            orientation = LinearLayout.HORIZONTAL
-            // Preserve the 56dp classic row at default font scale while
-            // allowing multi-line labels to expand for large text or narrow screens.
             minimumHeight = dp(56)
             setPadding(dp(16), dp(4), dp(16), dp(4))
-            isClickable = true
-            isFocusable = true
         }
-        if (color != null) {
-            row.addView(View(this).apply {
-                background = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(color)
-                    setStroke(dp(1), secondary)
-                }
-            }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginEnd = dp(16) })
-        }
-        row.addView(TextView(this).apply {
-            text = textValue
+        val radio = AppCompatRadioButton(this).apply {
+            text = label
             textSize = 16f
-            setTextColor(fg)
             gravity = Gravity.CENTER_VERTICAL
-        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        row.addView(RadioButton(this).apply {
-            isChecked = selected
-            isClickable = false
-            isFocusable = false
-            buttonTintList = ColorStateList(
-                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-                intArrayOf(OxygenClassicPalette.readableAccent(accent, bg), secondary))
-        }, LinearLayout.LayoutParams(dp(40), dp(48)))
+            compoundDrawablePadding = dp(16)
+            setPadding(0, dp(8), 0, dp(8))
+            // Each native radio is one accessibility target with label + checked semantics.
+            setOnClickListener { action() }
+        }
+        row.addView(radio, LinearLayout.LayoutParams(0, -2, 1f))
+        if (swatch != null) row.addView(View(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL; setColor(swatch)
+                setStroke(dp(1), OxygenThemeColors.blend(swatch, OxygenThemeColors.autoForeground(swatch), 0.3))
+            }
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginStart = dp(16) })
         row.setOnClickListener { action() }
-        body.addView(row, LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT))
+        body.addView(row, LinearLayout.LayoutParams(-1, -2))
+        binders.add { radio.isChecked = selected(); ripple(radio) }
     }
 
-    private fun chooseColor(title: String, initial: Int, defaultColor: Int, save: (Int) -> Unit) {
-        val field = EditText(this).apply {
-            setSingleLine(true)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
-            setText(OxygenThemeEngine.formatHex(initial))
-            selectAll()
-            setPadding(dp(24), dp(8), dp(24), dp(8))
-            setTextColor(fg)
-            setHintTextColor(secondary)
+    private fun colorGrid() {
+        val grid = GridLayout(this).apply {
+            columnCount = 4; setPadding(dp(8), 0, dp(8), 0)
         }
-        val builder = OxygenClassicDialog.builder(this, title)
-            .setView(field)
-            .setNegativeButton("取消", null)
-            .setPositiveButton("保存", null)
-            .setNeutralButton("恢复默认", null)
-        val dialog = OxygenClassicDialog.show(this, builder, field)
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+        OxygenThemePresets.featured.forEachIndexed { index, preset ->
+            val cell = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                minimumHeight = dp(80); isFocusable = true
+                setPadding(dp(4), dp(8), dp(4), dp(8))
+                contentDescription = label(preset)
+                setOnClickListener { activatePreset(preset) }
+            }
+            val swatch = text("", 20f).apply {
+                gravity = Gravity.CENTER
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            cell.addView(swatch, LinearLayout.LayoutParams(dp(32), dp(32)))
+            val name = text(label(preset), 12f).apply { gravity = Gravity.CENTER }
+            cell.addView(name, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+            grid.addView(cell, GridLayout.LayoutParams(
+                GridLayout.spec(index / 4), GridLayout.spec(index % 4, 1f)
+            ).apply { width = 0; height = -2; setGravity(Gravity.FILL) })
+            binders.add {
+                val selected = config.oxygenThemeActivated && config.oxygenThemePresetId == preset.id
+                cell.isSelected = selected
+                ViewCompat.setStateDescription(cell, getString(if (selected) R.string.classic_selected else R.string.classic_not_selected))
+                swatch.text = if (selected) "✓" else ""
+                swatch.setTextColor(OxygenThemeColors.autoForeground(preset.color))
+                swatch.background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL; setColor(preset.color)
+                    setStroke(dp(if (selected) 2 else 1), if (selected) colors.primaryText
+                        else OxygenThemeColors.blend(colors.pageBackground, colors.primaryText, 0.3))
+                }
+                name.setTextColor(colors.primaryText)
+                ripple(cell)
+            }
+        }
+        body.addView(grid, LinearLayout.LayoutParams(-1, -2))
+        val current = text("", 12f).apply { setPadding(dp(16), dp(8), dp(16), dp(8)) }
+        body.addView(current)
+        binders.add {
+            val preset = OxygenThemePresets.byId[config.oxygenThemePresetId]
+            val name = when {
+                !config.oxygenThemeActivated -> getString(R.string.classic_original_colors)
+                preset != null -> label(preset)
+                else -> OxygenThemeEngine.formatHex(colors.rawAccent)
+            }
+            current.text = getString(R.string.classic_current_color, name)
+            current.setTextColor(colors.secondaryText)
+        }
+    }
+
+    private fun buildPage() {
+        binders.clear()
+        body.removeAllViews()
+        titleText.setText(if (moreColors) R.string.classic_more_colors else R.string.classic_theme_title)
+        if (moreColors) {
+            section(R.string.classic_palette)
+            OxygenThemePresets.all.forEach { preset ->
+                radioRow(label(preset), { config.oxygenThemeActivated && config.oxygenThemePresetId == preset.id }, preset.color) {
+                    activatePreset(preset)
+                }
+            }
+        } else {
+            section(R.string.classic_appearance)
+            listOf("system" to R.string.classic_system, "light" to R.string.classic_light,
+                "dark" to R.string.classic_dark).forEach { (mode, id) ->
+                radioRow(getString(id), { config.oxygenThemeActivated && config.oxygenAppearanceMode == mode }) {
+                    change { config.oxygenAppearanceMode = mode; config.oxygenThemeActivated = true }
+                }
+            }
+            divider()
+            section(R.string.classic_accent)
+            colorGrid()
+            divider()
+            section(R.string.classic_other)
+            actionRow(R.string.classic_more_colors) {
+                mainScroll = scroll.scrollY; moreColors = true; buildPage(); scroll.scrollTo(0, 0)
+            }
+            actionRow(R.string.classic_custom_color) { chooseColor() }
+            actionRow(R.string.classic_restore_default) {
+                activatePreset(OxygenThemePresets.byId.getValue(OxygenThemePresets.DEFAULT_ID))
+            }
+            actionRow(R.string.classic_advanced_colors) { advancedColors() }
+        }
+        bindPage()
+    }
+
+    private fun bindPage() {
+        val tokens = colors
+        root.setBackgroundColor(tokens.pageBackground)
+        body.setBackgroundColor(tokens.pageBackground)
+        titleBar.setBackgroundColor(tokens.toolbarBackground)
+        backIcon.imageTintList = ColorStateList.valueOf(tokens.toolbarForeground)
+        titleText.setTextColor(tokens.toolbarForeground)
+        ripple(backIcon)
+        binders.forEach { it() }
+        OxygenClassicControls.applySwitches(body, tokens.rawAccent, tokens.primaryText, tokens.pageBackground)
+        OxygenSystemBars.apply(this)
+    }
+
+    private fun advancedColors() {
+        val builder = OxygenClassicDialog.builder(this, getString(R.string.classic_advanced_colors))
+            .setItems(arrayOf(getString(R.string.classic_restore_original), getString(R.string.classic_manage_original))) { _, index ->
+                change { config.oxygenThemeActivated = false }
+                if (index == 1) startCustomizationActivity()
+            }.setNegativeButton(R.string.classic_cancel, null)
+        OxygenClassicDialog.show(this, builder)
+    }
+
+    private fun chooseColor() {
+        val tokens = colors
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(24), dp(8), dp(24), dp(8))
+        }
+        val preview = View(this)
+        val field = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+            setSingleLine(true)
+            hint = "#RRGGBB"
+            contentDescription = getString(R.string.classic_custom_color)
+            setText(OxygenThemeEngine.formatHex(tokens.rawAccent)); selectAll()
+            setTextColor(tokens.primaryText); setHintTextColor(tokens.secondaryText)
+            backgroundTintList = ColorStateList.valueOf(tokens.interactiveAccent)
+        }
+        container.addView(preview, LinearLayout.LayoutParams(-1, dp(32)))
+        container.addView(field, LinearLayout.LayoutParams(-1, -2))
+        preview.setBackgroundColor(tokens.rawAccent)
+        field.doAfterTextChanged {
+            OxygenThemeEngine.parseHex(it.toString().trim())?.let { color -> preview.setBackgroundColor(color) }
+        }
+        val builder = OxygenClassicDialog.builder(this, getString(R.string.classic_custom_color))
+            .setView(container).setNegativeButton(R.string.classic_cancel, null)
+            .setPositiveButton(R.string.classic_save, null).setNeutralButton(R.string.classic_restore_default, null)
+        val dialog = OxygenClassicDialog.show(this, builder, container)
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val parsed = OxygenThemeEngine.parseHex(field.text.toString().trim())
-            if (parsed == null) field.error = "请输入 #RRGGBB 格式的颜色"
+            if (parsed == null) field.error = getString(R.string.classic_invalid_color)
             else {
-                save(parsed)
+                change {
+                    config.oxygenCustomAccent = parsed; config.oxygenThemePresetId = "custom"
+                    config.oxygenThemeActivated = true
+                }
                 dialog.dismiss()
             }
         }
-        dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
-            field.setText(OxygenThemeEngine.formatHex(defaultColor))
-            field.selectAll()
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+            field.setText(OxygenThemePresets.byId.getValue(OxygenThemePresets.DEFAULT_ID).hex); field.selectAll()
         }
-    }
-
-    private fun changeAndRender(action: () -> Unit) {
-        val y = scroll.scrollY
-        action()
-        OxygenThemeEngine.apply(this, config)
-        if (refreshThemeIfNeeded()) return
-        render()
-        scroll.post { scroll.scrollTo(0, y) }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        if (::root.isInitialized) render()
-    }
-
-    private fun render() {
-        val surface = bg
-        val textColor = fg
-        root.setBackgroundColor(surface)
-        body.removeAllViews()
-        body.setBackgroundColor(surface)
-        val toolbarColor = OxygenThemeEngine.toolbarSurface(this, config)
-        val toolbarText = OxygenThemeEngine.toolbarForeground(this, config)
-        titleBar.setBackgroundColor(toolbarColor)
-        backIcon.imageTintList = ColorStateList.valueOf(toolbarText)
-        titleText.setTextColor(toolbarText)
-        OxygenSystemBars.apply(this)
-
-        section("外观模式")
-        listOf("system" to "跟随系统", "light" to "浅色模式", "dark" to "深色模式").forEach { (mode, label) ->
-            item(label, config.oxygenAppearanceMode == mode) {
-                changeAndRender {
-                    config.oxygenAppearanceMode = mode
-                    config.oxygenThemeActivated = true
-                }
-            }
-        }
-        section("经典配色")
-        OxygenThemePresets.all.filter { it.group == "classic" }.forEach { preset ->
-            item(preset.label, config.oxygenThemePresetId == preset.id, preset.color) {
-                changeAndRender {
-                    config.oxygenThemePresetId = preset.id
-                    config.oxygenThemeActivated = true
-                }
-            }
-        }
-        section("Material Design 配色")
-        OxygenThemePresets.all.filter { it.group == "material" }.forEach { preset ->
-            item(preset.label, config.oxygenThemePresetId == preset.id, preset.color) {
-                changeAndRender {
-                    config.oxygenThemePresetId = preset.id
-                    config.oxygenThemeActivated = true
-                }
-            }
-        }
-        section("主题强调色与自定义配色")
-        item("自定义强调色：" + OxygenThemeEngine.formatHex(accent),
-            config.oxygenThemePresetId == "custom", accent) {
-            chooseColor("应用强调色", accent, Color.rgb(33, 150, 243)) { color ->
-                changeAndRender {
-                    config.oxygenCustomAccent = color
-                    config.oxygenThemePresetId = "custom"
-                    config.oxygenThemeActivated = true
-                }
-            }
-        }
-        section("顶栏背景")
-        item("顶栏背景：跟随强调色", !config.oxygenCustomToolbarEnabled) {
-            changeAndRender {
-                config.oxygenCustomToolbarEnabled = false
-                config.oxygenThemeActivated = true
-            }
-        }
-        item("顶栏背景：旧版自定义值（保留记录）", config.oxygenCustomToolbarEnabled,
-            config.oxygenToolbarColor) {
-            chooseColor("顶栏背景颜色", config.oxygenToolbarColor, OxygenThemeEngine.CLASSIC_TOOLBAR) { color ->
-                changeAndRender {
-                    config.oxygenToolbarColor = color
-                    config.oxygenCustomToolbarEnabled = true
-                    config.oxygenThemeActivated = true
-                }
-            }
-        }
-        section("顶栏文字与图标")
-        item("顶栏文字与图标：白色（自动保证对比度）", !config.oxygenManualToolbarText) {
-            changeAndRender { config.oxygenManualToolbarText = false }
-        }
-        item("顶栏文字与图标：旧版手动值（保留记录）", config.oxygenManualToolbarText,
-            config.oxygenToolbarTextColor) {
-            chooseColor("顶栏文字与图标颜色", config.oxygenToolbarTextColor, Color.WHITE) { color ->
-                changeAndRender {
-                    config.oxygenToolbarTextColor = color
-                    config.oxygenManualToolbarText = true
-                }
-            }
-        }
-        section("恢复与兼容")
-        item("恢复原有 Fossify 配色", !config.oxygenThemeActivated) {
-            changeAndRender { config.oxygenThemeActivated = false }
-        }
-        item("打开原有 Fossify 颜色管理") {
-            changeAndRender { config.oxygenThemeActivated = false }
-            startCustomizationActivity()
-        }
-        body.addView(TextView(this).apply {
-            text = "首次启用经典主题时，会备份原来的 Fossify 颜色设置；恢复后可继续用原版颜色管理页面调整。"
-            textSize = 12f
-            setTextColor(secondary)
-            setPadding(dp(16), dp(12), dp(16), dp(8))
-        })
-        body.addView(TextView(this).apply {
-            text = "强调色保留原值；顶栏跟随强调色并按需加深，标题与图标始终为白色。旧版独立顶栏颜色仅保留记录，不再控制显示。"
-            textSize = 12f
-            setTextColor(secondary)
-            setPadding(dp(16), dp(12), dp(16), dp(24))
-        })
     }
 }
