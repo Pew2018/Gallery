@@ -8,7 +8,7 @@ data class GalleryScreen(
     val section: GallerySection,
     val view: GalleryContentView
 ) {
-    val bottomSelection: GallerySection get() = section
+    val bottomSelection: GallerySection get() = if (isFavoriteFiles) GallerySection.ALL else section
     val isAllFiles: Boolean get() = section == GallerySection.ALL && view == GalleryContentView.FILES
     val isFavoriteFiles: Boolean get() = section == GallerySection.FAVORITES && view == GalleryContentView.FILES
     fun switchView(): GalleryScreen = copy(

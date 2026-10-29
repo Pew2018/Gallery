@@ -11,7 +11,9 @@ class GalleryNavigationTest {
         assertEquals(4, screens.size)
         assertEquals(1, screens.count { it.isAllFiles })
         assertEquals(1, screens.count { it.isFavoriteFiles })
-        screens.forEach { assertEquals(it.section, it.bottomSelection) }
+        screens.forEach {
+            assertEquals(if (it.isFavoriteFiles) GallerySection.ALL else it.section, it.bottomSelection)
+        }
     }
 
     @Test fun switchingViewsKeepsSection() {
