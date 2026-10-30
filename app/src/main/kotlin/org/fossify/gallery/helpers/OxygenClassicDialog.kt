@@ -56,7 +56,8 @@ object OxygenClassicDialog {
 
     fun show(activity: Activity, builder: AlertDialog.Builder, content: View? = null): AlertDialog {
         val dialog = builder.create()
-        if (activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0) {
+        if (activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0 &&
+            dialog.window?.attributes?.flags?.and(WindowManager.LayoutParams.FLAG_SECURE) == 0) {
             dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
         dialog.show()
@@ -113,7 +114,8 @@ object OxygenClassicDialog {
             cornerRadius = 3f * dp
         }
         // Commons dialogs use apply() directly; preserve host screenshot protection.
-        if (activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0) {
+        if (activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0 &&
+            dialog.window?.attributes?.flags?.and(WindowManager.LayoutParams.FLAG_SECURE) == 0) {
             dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
         val palette = listOf(surface, readableAccent)
@@ -160,7 +162,7 @@ object OxygenClassicDialog {
                     v.setSelectedTabIndicatorColor(readableAccent)
                     v.setSelectedTabIndicatorHeight((2f * dp).toInt())
                     v.tabRippleColor = ColorStateList.valueOf(ColorUtils.setAlphaComponent(dialogText, 24))
-                    v.isUnboundedRipple = false
+                    v.setUnboundedRipple(false)
                 }
                 if (v is FloatingActionButton) {
                     v.shapeAppearanceModel = v.shapeAppearanceModel.toBuilder()

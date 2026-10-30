@@ -116,3 +116,7 @@ Searched pattern: `AlertDialog|MaterialAlertDialogBuilder|getAlertDialogBuilder|
 * `app/src/main/kotlin/org/fossify/gallery/helpers/GalleryBottomBar.kt`
 * `app/src/main/kotlin/org/fossify/gallery/helpers/OxygenClassicDialog.kt`
 * `app/src/main/kotlin/org/fossify/gallery/helpers/OxygenToolbarStyle.kt`
+
+## CI correction history
+
+Initial run 41009677924 stopped during Gradle configuration: a compile-only AGP dependency left AsmClassVisitorFactory unavailable to buildSrc at runtime. The adapter now depends on AGP's public gradle-api artifact at runtime, avoiding inclusion of the whole plugin. Review also replaced a Java synthetic property with its explicit TabLayout setter and guarded redundant FLAG_SECURE updates to avoid repeated window traversals.
