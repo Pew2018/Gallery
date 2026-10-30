@@ -2240,13 +2240,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 ) { open(it as Directory) }
                 mHomePinnedAdapter = DirectoryAdapter(
                     this, expandedItems, this, binding.directoriesGrid, false,
-                    allowDragSelection = false,
+                    allowDragSelection = false, homeGrid = true,
                     fullVisibleAlbumOrder = { mHomeSourceDirs.map { it.path } }
                 ) { open(it as Directory) }
                 mHomeOtherAdapter = DirectoryAdapter(
                     this, ArrayList(others), this, binding.directoriesGrid,
                     false, binding.directoriesRefreshLayout,
-                    allowDragSelection = false,
+                    allowDragSelection = false, homeGrid = true,
                     fullVisibleAlbumOrder = { mHomeSourceDirs.map { it.path } }
                 ) { open(it as Directory) }.apply {
                     setupZoomListener(mZoomListener)
@@ -2257,7 +2257,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     { recycler, entries, width ->
                         DirectoryAdapter(
                             this, entries, this, recycler, false,
-                            embeddedPinnedWidthPx = width,
+                            embeddedPinnedWidthPx = width, homeGrid = true,
                             fullVisibleAlbumOrder = { mHomeSourceDirs.map { it.path } }
                         ) { open(it as Directory) }
                     },
