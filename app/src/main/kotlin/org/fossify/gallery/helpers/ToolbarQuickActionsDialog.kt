@@ -1,26 +1,36 @@
 package org.fossify.gallery.helpers
 
 import android.app.Activity
+import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.CheckBox
+import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.content.res.AppCompatResources
+import androidx.core.widget.CompoundButtonCompat
+import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
+import java.util.Collections
 
-/** Classic two-scope chooser. Changes are committed together only on Done. */
+/** One classic dialog; home and folder layouts are edited transactionally. */
 object ToolbarQuickActionsDialog {
     fun show(activity: Activity) {
         val palette = OxygenThemeEngine.snapshot(activity, activity.config)
-        var shown: AlertDialog? = null
         val home = activity.config.toolbarHomeActions.toMutableList()
         val folder = activity.config.toolbarFolderActions.toMutableList()
-        var currentScope = ToolbarQuickScope.HOME
+        var scope = ToolbarQuickScope.HOME
+        fun current(): MutableList<String> = if (scope == ToolbarQuickScope.HOME) home else folder
+        fun entries(): List<String> = current() + ToolbarQuickActions.options(scope)
+            .filterNot { it in current() }
         val density = activity.resources.displayMetrics.density
         fun dp(n: Int) = (n * density + 0.5f).toInt()
 
@@ -34,68 +44,132 @@ object ToolbarQuickActionsDialog {
         val count = TextView(activity).apply {
             textSize = 13f
             setTextColor(palette.secondaryText)
-            setPadding(dp(8), dp(10), dp(8), dp(6))
+            setPadding(dp(8), dp(8), dp(8), dp(8))
         }
-        val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(activity).apply {
-            isFillViewport = false
-            addView(list)
+        val list = RecyclerView(activity).apply {
+            layoutManager = LinearLayoutManager(activity)
+            overScrollMode = RecyclerView.OVER_SCROLL_NEVER
+            itemAnimator = null
         }
-        fun active(): MutableList<String> = if (currentScope == ToolbarQuickScope.HOME) home else folder
+        class Holder(row: LinearLayout, val check: CheckBox, val drag: ImageView) :
+            RecyclerView.ViewHolder(row)
 
-        fun tab(label: TextView, title: Int) {
-            label.text = activity.getString(title)
-            label.textSize = 15f
-            label.setTextColor(palette.primaryText)
-            label.gravity = Gravity.CENTER
-            label.minHeight = dp(48)
-            label.setPadding(dp(6), 0, dp(6), 0)
-            tabs.addView(label, LinearLayout.LayoutParams(0, dp(48), 1f))
-        }
-        tab(homeTab, R.string.quick_toolbar_home)
-        tab(folderTab, R.string.quick_toolbar_folder)
-        root.addView(tabs)
-        root.addView(count)
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        // Limit dialog content height without modifying the classic dialog window.
-        root.layoutParams = ViewGroup.LayoutParams(-1, dp(470))
-
+        lateinit var adapter: RecyclerView.Adapter<Holder>
         fun render() {
-            homeTab.typeface = if (currentScope == ToolbarQuickScope.HOME) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            folderTab.typeface = if (currentScope == ToolbarQuickScope.FOLDER) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            val actions = active()
-            count.text = activity.getString(R.string.quick_toolbar_count, actions.size)
-            list.removeAllViews()
-            ToolbarQuickActions.options(currentScope).forEach { action ->
-                val checkbox = CheckBox(activity).apply {
-                    text = activity.getString(ToolbarQuickActions.titleRes(action))
-                    textSize = 16f
-                    setTextColor(palette.primaryText)
-                    isChecked = action in actions
-                    minHeight = dp(52)
+            val selected = current().size
+            count.text = activity.getString(R.string.quick_toolbar_count, selected)
+            homeTab.typeface = if (scope == ToolbarQuickScope.HOME) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            folderTab.typeface = if (scope == ToolbarQuickScope.FOLDER) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            adapter.notifyDataSetChanged()
+        }
+
+        adapter = object : RecyclerView.Adapter<Holder>() {
+            override fun getItemCount(): Int = ToolbarQuickActions.options(scope).size
+
+            override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
+                val row = LinearLayout(activity).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    orientation = LinearLayout.HORIZONTAL
                     setPadding(dp(8), 0, dp(8), 0)
+                    layoutParams = RecyclerView.LayoutParams(-1, dp(56))
                 }
-                checkbox.setOnCheckedChangeListener { button, checked ->
-                    val pending = active()
-                    val nextCount = pending.size + if (checked) 1 else -1
-                    if (nextCount !in 1..5) {
+                val check = CheckBox(activity).apply {
+                    textSize = 16f
+                    minHeight = dp(56)
+                    setTextColor(palette.primaryText)
+                    buttonDrawable = AppCompatResources.getDrawable(
+                        activity, androidx.appcompat.R.drawable.abc_btn_check_material
+                    )
+                    CompoundButtonCompat.setButtonTintList(
+                        this, ColorStateList.valueOf(palette.interactiveAccent)
+                    )
+                }
+                val drag = ImageView(activity).apply {
+                    setImageResource(R.drawable.oxygen_classic_drag_handle)
+                    imageTintList = ColorStateList.valueOf(palette.secondaryText)
+                    contentDescription = activity.getString(R.string.quick_toolbar_drag)
+                    setPadding(0, 0, 0, 0)
+                }
+                row.addView(check, LinearLayout.LayoutParams(0, dp(56), 1f))
+                row.addView(drag, LinearLayout.LayoutParams(dp(24), dp(24)))
+                return Holder(row, check, drag)
+            }
+
+            override fun onBindViewHolder(holder: Holder, position: Int) {
+                val action = entries()[position]
+                val isChosen = action in current()
+                holder.check.setOnCheckedChangeListener(null)
+                holder.check.text = activity.getString(ToolbarQuickActions.titleRes(action))
+                holder.check.isChecked = isChosen
+                val canDrag = isChosen && action != ToolbarQuickActions.SEARCH
+                holder.drag.visibility = if (canDrag) View.VISIBLE else View.INVISIBLE
+                holder.itemView.contentDescription = activity.getString(
+                    if (canDrag) R.string.quick_toolbar_drag_row else R.string.quick_toolbar_choose_row,
+                    holder.check.text
+                )
+                holder.check.setOnCheckedChangeListener { button, checked ->
+                    val selected = current()
+                    val nextSize = selected.size + if (checked) 1 else -1
+                    if (nextSize !in 1..5) {
                         button.setOnCheckedChangeListener(null)
                         button.isChecked = !checked
                         Toast.makeText(activity, R.string.quick_toolbar_limit, Toast.LENGTH_SHORT).show()
-                        render()
                     } else {
-                        if (checked) pending.add(action) else pending.remove(action)
+                        if (checked) selected.add(action) else selected.remove(action)
+                        val normalized = ToolbarQuickActions.normalize(scope, selected)
+                        selected.clear()
+                        selected.addAll(normalized)
                         render()
                     }
                 }
-                list.addView(checkbox, LinearLayout.LayoutParams(-1, dp(52)))
             }
-            shown?.let { OxygenClassicDialog.apply(activity, it, root) }
         }
-        homeTab.setOnClickListener { currentScope = ToolbarQuickScope.HOME; render() }
-        folderTab.setOnClickListener { currentScope = ToolbarQuickScope.FOLDER; render() }
+        list.adapter = adapter
+        ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
+            ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0
+        ) {
+            override fun onMove(
+                rv: RecyclerView, source: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder
+            ): Boolean {
+                val from = source.bindingAdapterPosition
+                val to = target.bindingAdapterPosition
+                val selected = current()
+                if (from !in selected.indices || to !in selected.indices) return false
+                if (selected[from] == ToolbarQuickActions.SEARCH ||
+                    selected[to] == ToolbarQuickActions.SEARCH) return false
+                Collections.swap(selected, from, to)
+                adapter.notifyItemMoved(from, to)
+                return true
+            }
+
+            override fun onSwiped(holder: RecyclerView.ViewHolder, direction: Int) = Unit
+            override fun isLongPressDragEnabled() = true
+        }).attachToRecyclerView(list)
+
+        fun addTab(textView: TextView, title: Int, target: ToolbarQuickScope) {
+            textView.text = activity.getString(title)
+            textView.textSize = 15f
+            textView.setTextColor(palette.primaryText)
+            textView.gravity = Gravity.CENTER
+            textView.minHeight = dp(48)
+            tabs.addView(textView, LinearLayout.LayoutParams(0, dp(48), 1f))
+            textView.setOnClickListener {
+                scope = target
+                list.scrollToPosition(0)
+                render()
+            }
+        }
+        addTab(homeTab, R.string.quick_toolbar_home, ToolbarQuickScope.HOME)
+        addTab(folderTab, R.string.quick_toolbar_folder, ToolbarQuickScope.FOLDER)
+        root.addView(tabs)
+        root.addView(count)
+        root.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
+        val maxDp = (activity.resources.displayMetrics.heightPixels / density).toInt() - 180
+        root.layoutParams = ViewGroup.LayoutParams(-1, dp(minOf(520, maxDp.coerceAtLeast(260))))
         render()
-        val dialog = OxygenClassicDialog.show(activity,
+
+        val dialog = OxygenClassicDialog.show(
+            activity,
             OxygenClassicDialog.builder(activity, activity.getString(R.string.quick_toolbar_title))
                 .setView(root)
                 .setNegativeButton(android.R.string.cancel, null)
@@ -103,14 +177,12 @@ object ToolbarQuickActionsDialog {
                     activity.config.toolbarHomeActions = home
                     activity.config.toolbarFolderActions = folder
                 }
-                .setNeutralButton(R.string.quick_toolbar_reset, null), root)
-        shown = dialog
+                .setNeutralButton(R.string.quick_toolbar_reset, null),
+            root
+        )
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
-            if (currentScope == ToolbarQuickScope.HOME) {
-                home.clear(); home.addAll(ToolbarQuickActions.defaults)
-            } else {
-                folder.clear(); folder.addAll(ToolbarQuickActions.defaults)
-            }
+            current().clear()
+            current().addAll(ToolbarQuickActions.defaults)
             render()
         }
     }
