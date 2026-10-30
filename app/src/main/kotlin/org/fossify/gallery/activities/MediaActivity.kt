@@ -1,5 +1,8 @@
 package org.fossify.gallery.activities
 
+import org.fossify.gallery.helpers.PhotoProfileAccessSessionManager
+import org.fossify.gallery.extensions.unlockPhotoProfile
+
 import org.fossify.commons.extensions.getSharedPrefs
 import org.fossify.gallery.helpers.FAVORITE_ACCESS_SESSION
 import org.fossify.gallery.helpers.FAVORITE_PASSWORD_ENABLED
@@ -161,9 +164,26 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mPath = ""
     private val isPhotoProfiles get() = mPath == PhotoProfileMediaLoader.PATH
     private var photoProfileId: String? = null
-    private fun profileDialogs() = PhotoProfileDialogs(this) { reloadPhotoProfile() }
+    private val photoDialogs by lazy { PhotoProfileDialogs(this) { reloadPhotoProfile() } }
+    private fun profileDialogs() = photoDialogs
+    private var photoHasContent = false
+    private var photoNeedsUnlock = false
+    private fun photoToken() = PhotoProfileAccessSessionManager.currentToken(applicationContext)
+    private fun unlockPhotoSources() = unlockPhotoProfile(photoProfileId) { reloadPhotoProfile() }
+    private fun onPhotoAccessRevoked() {
+        if (!isPhotoProfiles || isDestroyed) return
+        runOnUiThread {
+            mediaLoadRequests.invalidate()
+            mCurrAsyncTask?.stopFetching()
+            binding.mediaGrid.adapter = null
+            mMedia = ArrayList()
+            photoHasContent = false
+            if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) getMedia()
+        }
+    }
 
     private fun reloadPhotoProfile() {
+        photoHasContent = false
         mediaSearchGeneration++
         mLastSearchedText = ""
         if (binding.mediaMenu.isSearchOpen) OxygenSearchNavigation.closeInlineSearch(this, binding.mediaMenu)
@@ -176,6 +196,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun getPhotoProfileMedia() {
+        if (photoToken() != null) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         val profile = PhotoProfileRepository.of(this).state().current
         photoProfileId = profile?.id
         val request = mediaLoadRequests.begin()
@@ -196,12 +217,32 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             binding.mediaFastscroller.beGone()
             return
         }
+        val requestedToken = photoToken()
+        ensureBackgroundThread {
+            val needsUnlock = runCatching {
+                val roots = PhotoProfileAccessSessionManager.profileLocks(applicationContext, profile)
+                !PhotoProfileAccessSessionManager.bindingsAuthorize(roots, config.photoSourceBindings,
+                    PhotoProfileAccessSessionManager.isActive(applicationContext, requestedToken)) ||
+                    (profile.sources.any { it.type == org.fossify.gallery.helpers.PhotoSourceType.FAVORITES } &&
+                        !PhotoProfileAccessSessionManager.favoritesAuthorized(applicationContext, requestedToken))
+            }.getOrDefault(true)
+            runOnUiThread {
+                if (mediaLoadRequests.isCurrent(request) && !isDestroyed && !isFinishing) {
+                    photoNeedsUnlock = needsUnlock
+                    refreshMenuItems()
+                    if (binding.mediaEmptyTextPlaceholder.isVisible()) {
+                        binding.mediaEmptyTextPlaceholder2.setText(if (needsUnlock) R.string.photo_password_unlock else R.string.photo_profiles_edit)
+                        binding.mediaEmptyTextPlaceholder2.beVisible()
+                    }
+                }
+            }
+        }
         mIsGettingMedia = true
         setMediaLoading(true)
         binding.mediaEmptyTextPlaceholder.beGone()
         binding.mediaEmptyTextPlaceholder2.beGone()
         mCurrAsyncTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
-            showAll = false, photoProfileId = profile.id,
+            showAll = false, photoProfileId = profile.id, photoSessionId = photoToken(),
             onFailure = {
                 if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed) {
                     publishMedia(arrayListOf(), false, request)
@@ -297,7 +338,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var sourceProtectionRefreshPending = false
     private val favoriteListenerId = java.util.UUID.randomUUID().toString()
     private val favoriteProtectionListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (isPhotoProfiles && (key == null || key.contains("protect", true) || key.contains("favorite", true) || key.contains("excluded", true))) {
+        if (isPhotoProfiles && (key == null || key.contains("protect", true) || key.contains("favorite", true) || key.contains("excluded", true) || key.startsWith("photo_protect_"))) {
+            PhotoProfileAccessSessionManager.revokeAll()
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
             binding.mediaGrid.adapter = null
@@ -342,6 +384,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
         setupMediaProgressIndicator()
+        PhotoProfileAccessSessionManager.addListener(favoriteListenerId, ::onPhotoAccessRevoked)
         binding.mediaRefreshLayout.setColorSchemeColors(getProperPrimaryColor())
         binding.mediaRefreshLayout.isEnabled = true
 
@@ -369,6 +412,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             return
         }
 
+        if (isPhotoProfiles) {
+            binding.mediaEmptyTextPlaceholder.setTypeface(null, android.graphics.Typeface.NORMAL)
+            savedInstanceState?.getString("photoDraft")?.let { draft ->
+                binding.root.post { if (!isFinishing && !isDestroyed) photoDialogs.restoreDraft(draft) }
+            }
+        }
         favoritesScroll.read(savedInstanceState)
         if (mPath == FAVORITES && savedInstanceState?.getBoolean("favoritesReturnPending") == true) {
             showFavoritesReturnCover()
@@ -470,7 +519,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         binding.mediaEmptyTextPlaceholder2.setOnClickListener {
-            if (isPhotoProfiles) { profileDialogs().edit(); return@setOnClickListener }
+            if (isPhotoProfiles) {
+                if (PhotoProfileRepository.of(this).state().current == null) profileDialogs().edit()
+                else if (photoNeedsUnlock) unlockPhotoSources() else profileDialogs().edit(PhotoProfileRepository.of(this).state().current)
+                return@setOnClickListener
+            }
             showFilterMediaDialog()
         }
 
@@ -714,6 +767,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             favoritesScroll.save(outState)
             outState.putBoolean("favoritesReturnPending", favoritesReturnCover?.covering == true)
         }
+        if (isPhotoProfiles) outState.putString("photoDraft", photoDialogs.saveDraft())
         outState.putString("favoriteOwnerId", favoriteOwnerId)
         super.onSaveInstanceState(outState)
     }
@@ -732,6 +786,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     override fun onDestroy() {
+        PhotoProfileAccessSessionManager.removeListener(favoriteListenerId)
         favoritesReturnCover?.let {
             it.dismiss()
             binding.mediaCoordinator.removeView(it)
@@ -810,6 +865,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             findItem(R.id.empty_disable_recycle_bin).isVisible = mPath == RECYCLE_BIN
             findItem(R.id.restore_all_files).isVisible = mPath == RECYCLE_BIN
             findItem(R.id.photo_profiles_manage).isVisible = isPhotoProfiles
+            findItem(R.id.photo_profiles_unlock).isVisible = isPhotoProfiles && photoNeedsUnlock && photoProfileId != null
+            findItem(R.id.photo_profiles_lock).isVisible = isPhotoProfiles && photoToken() != null
 
             findItem(R.id.folder_view).isVisible = hasFixedBrowseSwitch
             findItem(R.id.open_camera).isVisible = mShowAll
@@ -834,10 +891,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             findItem(R.id.column_count).isVisible = viewType == VIEW_TYPE_GRID
             findItem(R.id.toggle_filename).isVisible = viewType == VIEW_TYPE_GRID
             if (isPhotoProfiles) {
-                listOf(R.id.filter, R.id.group, R.id.create_new_folder, R.id.set_as_default_folder,
+                listOf(R.id.group, R.id.create_new_folder, R.id.set_as_default_folder,
                     R.id.unset_as_default_folder, R.id.temporarily_show_hidden, R.id.stop_showing_hidden,
                     R.id.temporarily_show_excluded, R.id.stop_showing_excluded).forEach { findItem(it)?.isVisible = false }
-                findItem(R.id.slideshow).isVisible = mMedia.any { it is Medium }
+                findItem(R.id.slideshow).isVisible = mMedia.filterIsInstance<Medium>().any { org.fossify.gallery.helpers.PhotoPlaybackPolicy.canPlay(it.type, config.slideshowIncludeVideos, config.slideshowIncludeGIFs) }
             }
         }
         updateMenuColors()
@@ -877,6 +934,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     showKeyboard(binding.mediaMenu.binding.topToolbarSearch)
                 }
                 R.id.photo_profiles_manage -> profileDialogs().manage()
+                R.id.photo_profiles_unlock -> unlockPhotoSources()
+                R.id.photo_profiles_lock -> PhotoProfileAccessSessionManager.revokeAll()
                 R.id.sort -> showSortingDialog()
                 R.id.filter -> showFilterMediaDialog()
                 R.id.empty_recycle_bin -> emptyRecycleBin()
@@ -918,7 +977,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 folderUnlockSessionId?.let { putExtra(FOLDER_UNLOCK_SESSION, it) }
                 putExtra(IS_FROM_GALLERY, true)
                 putExtra(PATH, item.path)
-                if (isPhotoProfiles) putExtra(PhotoProfileMediaLoader.EXTRA_ID, photoProfileId)
+                if (isPhotoProfiles) {
+                    putExtra(PhotoProfileMediaLoader.EXTRA_ID, photoProfileId)
+                    putExtra(PhotoProfileAccessSessionManager.EXTRA_SESSION, photoToken())
+                }
                 putExtra(SHOW_ALL, mShowAll)
                 putExtra(SLIDESHOW_START_ON_ENTER, true)
                 startActivity(this)
@@ -942,18 +1004,17 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         )
         val picker = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent || isSetWallpaperIntent()
         if (!picker && mPath != RECYCLE_BIN) {
-            val isHome = mPath.isEmpty() || isPhotoProfiles
+            val isHome = mPath.isEmpty() || (isPhotoProfiles && org.fossify.gallery.helpers.PhotoPlaybackPolicy.toolbarScope(photoHasContent) == org.fossify.gallery.helpers.ToolbarQuickScope.HOME)
             val viewType = config.getFolderViewType(if (isHome && !isPhotoProfiles) SHOW_ALL else mPath)
             org.fossify.gallery.helpers.ToolbarQuickActions.apply(
                 this, binding.mediaMenu,
                 if (isHome) org.fossify.gallery.helpers.ToolbarQuickScope.HOME
                     else org.fossify.gallery.helpers.ToolbarQuickScope.FOLDER,
                 if (isHome) config.toolbarHomeActions else config.toolbarFolderActions,
-                hasBack = !isHome,
+                hasBack = !isHome && !isPhotoProfiles,
                 fixedActionCount = if (hasFixedBrowseSwitch) 1 else 0,
                 supported = { action ->
                     if (isPhotoProfiles && action in listOf(
-                        org.fossify.gallery.helpers.ToolbarQuickActions.FILTER,
                         org.fossify.gallery.helpers.ToolbarQuickActions.HIDDEN,
                         org.fossify.gallery.helpers.ToolbarQuickActions.EXCLUDED,
                         org.fossify.gallery.helpers.ToolbarQuickActions.GROUP)) false else when (action) {
@@ -961,7 +1022,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         org.fossify.gallery.helpers.ToolbarQuickActions.FILENAME -> viewType == VIEW_TYPE_GRID
                         org.fossify.gallery.helpers.ToolbarQuickActions.GROUP -> !config.scrollHorizontally
                         org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW ->
-                            mMedia.any { it is Medium }
+                            mMedia.filterIsInstance<Medium>().any { org.fossify.gallery.helpers.PhotoPlaybackPolicy.canPlay(it.type, config.slideshowIncludeVideos, config.slideshowIncludeGIFs) }
                         else -> true
                     }
                 }
@@ -1165,7 +1226,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun showFilterMediaDialog() {
-        FilterMediaDialog(this) {
+        FilterMediaDialog(this, photoProfile = isPhotoProfiles) {
             mLoadedInitialPhotos = false
             binding.mediaRefreshLayout.isRefreshing = true
             binding.mediaGrid.adapter = null
@@ -1789,7 +1850,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
 
             // Never consult the legacy system-player preference for internal taps.
-            if (config.gestureVideoPlayer) {
+            if (config.gestureVideoPlayer && !isPhotoProfiles) {
                 launchGesturePlayer(path, folderSessionId = folderUnlockSessionId,
                     favoriteSessionId = if (mPath == FAVORITES) favoriteSessionId else null)
             } else {
@@ -1814,7 +1875,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     if (folderAuthorized) putExtra(FOLDER_UNLOCK_SESSION, folderToken)
                     if (mPath == FAVORITES) putExtra(FAVORITE_ACCESS_SESSION, favoriteSessionId)
                     putExtra(PATH, path)
-                    if (isPhotoProfiles) putExtra(PhotoProfileMediaLoader.EXTRA_ID, photoProfileId)
+                    if (isPhotoProfiles) {
+                    putExtra(PhotoProfileMediaLoader.EXTRA_ID, photoProfileId)
+                    putExtra(PhotoProfileAccessSessionManager.EXTRA_SESSION, photoToken())
+                }
                     putExtra(SHOW_ALL, mShowAll)
                     putExtra(SHOW_FAVORITES, mPath == FAVORITES)
                     putExtra(SHOW_RECYCLE_BIN, mPath == RECYCLE_BIN)
@@ -1876,6 +1940,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
             checkLastMediaChanged()
             mMedia = ArrayList(media)
+            if (isPhotoProfiles && !isFromCache) photoHasContent = media.any { it is Medium }
             // The slideshow shortcut is only useful once at least one authorized
             // media item has been published; refresh after cache and final scan.
             if (isPhotoProfiles || org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW in
@@ -1896,7 +1961,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 if (mPath == FAVORITES) binding.mediaEmptyTextPlaceholder2.beGone()
                 if (isPhotoProfiles) {
                     binding.mediaEmptyTextPlaceholder.setText(R.string.photo_profiles_no_accessible_media)
-                    binding.mediaEmptyTextPlaceholder2.beGone()
+                    binding.mediaEmptyTextPlaceholder2.setText(if (photoNeedsUnlock) R.string.photo_password_unlock else R.string.photo_profiles_edit)
+                    binding.mediaEmptyTextPlaceholder2.beVisible()
                 }
             }
             binding.mediaFastscroller.beVisibleIf(binding.mediaEmptyTextPlaceholder.isGone())

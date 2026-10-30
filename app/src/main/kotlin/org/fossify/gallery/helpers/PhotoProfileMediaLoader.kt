@@ -11,12 +11,13 @@ import org.fossify.gallery.models.ThumbnailItem
 class PhotoProfileMediaLoader(
     private val context: Context,
     private val cancellationFetcher: MediaFetcher = MediaFetcher(context),
+    private val sessionId: String? = null,
     private val cancelled: () -> Boolean = { false }
 ) {
     companion object {
         const val PATH = "__photo_profiles__"
         const val EXTRA_ID = "org.fossify.gallery.PHOTO_PROFILE_ID"
-        val IMAGE_TYPES = TYPE_IMAGES or TYPE_GIFS or TYPE_RAWS or TYPE_SVGS or TYPE_PORTRAITS
+        val MEDIA_TYPES = TYPE_VIDEOS or TYPE_IMAGES or TYPE_GIFS or TYPE_RAWS or TYPE_SVGS or TYPE_PORTRAITS
     }
     private val config get() = context.config
     private val noMediaFolders by lazy { context.getNoMediaFoldersSync() }
@@ -26,12 +27,11 @@ class PhotoProfileMediaLoader(
     fun folderAllowed(path: String): Boolean = runCatching {
         path.startsWith('/') && !path.contains("/.") && !FavoriteFolderRules.hasNoMediaAncestor(path) &&
             !FavoriteFolderRules.isExcluded(path, config.excludedFolders) &&
-            FolderUnlockSessionManager.findProtectedAncestor(path, config::isFolderProtected) == null &&
-            !config.isFolderProtected(path) &&
+            PhotoProfileAccessSessionManager.folderAuthorized(context, path, sessionId) &&
             !noMediaFolders.any { parent -> path == parent || path.startsWith("$parent/") }
     }.getOrDefault(false)
 
-    fun favoritesAllowed(): Boolean = !config.isFavoritePasswordProtectionOn && !config.isFolderProtected(FAVORITES)
+    fun favoritesAllowed(): Boolean = PhotoProfileAccessSessionManager.favoritesAuthorized(context, sessionId)
 
     /** Applied again immediately before publishing; preferences can change during a scan. */
     fun permitted(profileId: String?, items: List<Medium>): ArrayList<Medium> {
@@ -41,7 +41,7 @@ class PhotoProfileMediaLoader(
             context.getFavoritePaths().toSet() else emptySet()
         val folderStatus = HashMap<String, Boolean>()
         return PhotoProfilePolicy.unique(items.filter { item ->
-            item.type and IMAGE_TYPES != 0 && item.deletedTS == 0L && !item.path.contains("/.") &&
+            item.type and config.photoMediaFilter and MEDIA_TYPES != 0 && item.deletedTS == 0L && !item.path.contains("/.") &&
                 PhotoProfilePolicy.includes(item.path, folders, favorites, true) {
                     folderStatus.getOrPut(item.parentPath) { folderAllowed(item.parentPath) }
                 }
@@ -54,15 +54,15 @@ class PhotoProfileMediaLoader(
         val includeFavorites = profile.sources.any { it.type == PhotoSourceType.FAVORITES } && favoritesAllowed()
         val folders = (profile.sources.filter { it.type == PhotoSourceType.FOLDER }.mapNotNull { it.path } +
             if (includeFavorites) favorites.map { it.substringBeforeLast('/') } else emptyList()).distinct().filter(::folderAllowed)
-        val fetcher = MediaFetcher(context, IMAGE_TYPES, ::stopped)
+        val fetcher = MediaFetcher(context, config.photoMediaFilter and MEDIA_TYPES, ::stopped)
         if (stopped()) return arrayListOf()
         val dates = fetcher.getDateTakens()
         val modified = fetcher.getLastModifieds()
-        val grouped = fetcher.getAndroid11FolderMedia(true, false, favorites, false, true, HashMap(dates))
+        val grouped = fetcher.getAndroid11FolderMedia(false, false, favorites, false, true, HashMap(dates))
         val media = ArrayList<Medium>()
         for (folder in folders) {
             if (stopped()) { fetcher.shouldStop = true; return arrayListOf() }
-            media.addAll(fetcher.getFilesFrom(folder, true, false, true, true, true, favorites, false, modified, dates, grouped))
+            media.addAll(fetcher.getFilesFrom(folder, false, false, true, true, true, favorites, config.showThumbnailVideoDuration, modified, dates, grouped))
         }
         if (stopped()) return arrayListOf()
         val safe = permitted(profileId, media)

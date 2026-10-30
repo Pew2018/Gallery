@@ -20,6 +20,7 @@ class GetMediaAsynctask(
     private val favoritePathsOverride: ArrayList<String>? = null,
     private val favoriteSessionId: String? = null,
     private val photoProfileId: String? = null,
+    private val photoSessionId: String? = null,
     val callback: (media: ArrayList<ThumbnailItem>) -> Unit
 ) :
     AsyncTask<Void, Void, ArrayList<ThumbnailItem>>() {
@@ -31,7 +32,7 @@ class GetMediaAsynctask(
         return try {
         if (mPath == PhotoProfileMediaLoader.PATH || photoProfileId != null) {
             profilePreferences = context.getSharedPrefs().all
-            return PhotoProfileMediaLoader(context, mediaFetcher) { isCancelled }.load(photoProfileId)
+            return PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId) { isCancelled }.load(photoProfileId)
         }
         val pathToUse = if (showAll) SHOW_ALL else mPath
         val folderGrouping = context.config.getFolderGrouping(pathToUse)
@@ -114,7 +115,8 @@ class GetMediaAsynctask(
         if (!isCancelled) {
             val error = scanFailure
             if (error == null) {
-                callback(if (profilePreferences != null && profilePreferences != context.getSharedPrefs().all) arrayListOf() else media)
+                callback(if (profilePreferences != null && (profilePreferences != context.getSharedPrefs().all ||
+                    (photoSessionId != null && !PhotoProfileAccessSessionManager.isActive(context, photoSessionId)))) arrayListOf() else media)
             } else onFailure(error)
         }
     }

@@ -142,6 +142,134 @@ class Config(context: Context) : BaseConfig(context) {
             .apply()
     }
 
+    internal data class PhotoCredentialSnapshot(
+        val enabled: Boolean,
+        val hash: String,
+        val type: Int,
+        val fallbackHash: String,
+        val fallbackType: Int,
+        val biometricPrimary: Boolean = type == PROTECTION_FINGERPRINT
+    ) {
+        val isConfigured: Boolean
+            get() = if (biometricPrimary) {
+                type == PROTECTION_FINGERPRINT && fallbackHash.isNotBlank() && fallbackType in 0..1
+            } else {
+                hash.isNotBlank() && type in 0..1
+            }
+    }
+
+    internal data class PhotoCredentialProof(
+        val credential: PhotoCredentialSnapshot,
+        val sessionGeneration: Long
+    )
+
+    internal fun photoCredentialSnapshot(): PhotoCredentialSnapshot {
+        val values = prefs.all
+        val type = values["photo_protect_protection_type"] as? Int ?: PROTECTION_PATTERN
+        return PhotoCredentialSnapshot(
+            enabled = values["photo_protect_password_enabled"] as? Boolean ?: false,
+            hash = values["photo_protect_password_hash"] as? String ?: "",
+            type = type,
+            fallbackHash = values["photo_protect_fallback_password_hash"] as? String ?: "",
+            fallbackType = values["photo_protect_fallback_protection_type"] as? Int ?: PROTECTION_PATTERN,
+            // Upgrade legacy installs that only persisted the integer type.
+            biometricPrimary = values["photo_protect_biometric_primary"] as? Boolean ?: (type == PROTECTION_FINGERPRINT)
+        )
+    }
+
+    internal fun isPhotoCredentialCurrent(snapshot: PhotoCredentialSnapshot): Boolean =
+        snapshot.enabled && snapshot.isConfigured && photoCredentialSnapshot() == snapshot
+
+    /** Credential for the photo browsing profiles, independent of folder locks. */
+    var isPhotoPasswordProtectionOn: Boolean
+        get() = prefs.getBoolean("photo_protect_password_enabled", false)
+        private set(value) = prefs.edit().putBoolean("photo_protect_password_enabled", value).apply()
+
+    var photoPasswordHash: String
+        get() = prefs.getString("photo_protect_password_hash", "") ?: ""
+        set(value) = prefs.edit().putString("photo_protect_password_hash", value).apply()
+
+    var photoProtectionType: Int
+        get() = prefs.getInt("photo_protect_protection_type", PROTECTION_PATTERN)
+        set(value) = prefs.edit().putInt("photo_protect_protection_type", value).apply()
+
+    var photoFallbackPasswordHash: String
+        get() = prefs.getString("photo_protect_fallback_password_hash", "") ?: ""
+        private set(value) = prefs.edit().putString("photo_protect_fallback_password_hash", value).apply()
+
+    var photoFallbackProtectionType: Int
+        get() = prefs.getInt("photo_protect_fallback_protection_type", PROTECTION_PATTERN)
+        private set(value) = prefs.edit().putInt("photo_protect_fallback_protection_type", value).apply()
+
+    fun savePhotoCredential(hash: String, type: Int, fallbackHash: String = "", fallbackType: Int = PROTECTION_PATTERN) {
+        val valid = if (type == PROTECTION_FINGERPRINT) fallbackHash.isNotBlank() && fallbackType in 0..1
+        else hash.isNotBlank() && type in 0..1
+        if (!valid) return
+        if (!isPhotoPasswordProtectionOn) photoSourceBindings = emptyMap()
+        prefs.edit()
+            .putString("photo_protect_password_hash", hash)
+            .putInt("photo_protect_protection_type", type)
+            .putString("photo_protect_fallback_password_hash", fallbackHash)
+            .putInt("photo_protect_fallback_protection_type", fallbackType)
+            .putBoolean("photo_protect_biometric_primary", type == PROTECTION_FINGERPRINT)
+            .putBoolean("photo_protect_password_enabled", true)
+            .apply()
+    }
+
+    /**
+     * Save biometrics as the primary mode and the PIN/pattern only as recovery.
+     * The explicit type prevents a fallback dialog result from replacing the main mode.
+     */
+    internal fun savePhotoBiometricCredential(
+        fallbackHash: String,
+        fallbackType: Int
+    ): PhotoCredentialSnapshot? {
+        if (fallbackHash.isBlank() || fallbackType !in 0..1) return null
+        if (!isPhotoPasswordProtectionOn) photoSourceBindings = emptyMap()
+        val persisted = prefs.edit()
+            .putString("photo_protect_password_hash", "")
+            .putInt("photo_protect_protection_type", PROTECTION_FINGERPRINT)
+            .putString("photo_protect_fallback_password_hash", fallbackHash)
+            .putInt("photo_protect_fallback_protection_type", fallbackType)
+            .putBoolean("photo_protect_biometric_primary", true)
+            .putBoolean("photo_protect_password_enabled", true)
+            .commit()
+        if (!persisted) return null
+
+        val saved = photoCredentialSnapshot()
+        return saved.takeIf {
+            it.enabled &&
+                it.biometricPrimary &&
+                it.type == PROTECTION_FINGERPRINT &&
+                it.fallbackHash == fallbackHash &&
+                it.fallbackType == fallbackType &&
+                isPhotoCredentialCurrent(it)
+        }
+    }
+
+    fun clearPhotoCredential() {
+        photoSourceBindings = emptyMap()
+        prefs.edit()
+            .putBoolean("photo_protect_password_enabled", false)
+            .remove("photo_protect_password_hash")
+            .remove("photo_protect_protection_type")
+            .remove("photo_protect_fallback_password_hash")
+            .remove("photo_protect_fallback_protection_type")
+            .remove("photo_protect_biometric_primary")
+            .apply()
+    }
+
+    var photoMediaFilter: Int
+        get() = prefs.getInt("photo_media_filter", PhotoProfileMediaLoader.MEDIA_TYPES)
+        set(value) = prefs.edit().putInt("photo_media_filter", value).apply()
+
+    internal var photoSourceBindings: Map<String, String>
+        get() = runCatching {
+            Gson().fromJson<Map<String, String>>(prefs.getString("photo_source_bindings", "{}"),
+                object : TypeToken<Map<String, String>>() {}.type) ?: emptyMap()
+        }.getOrDefault(emptyMap())
+        set(value) = prefs.edit().putString("photo_source_bindings", Gson().toJson(value)).apply()
+
     /** The selected main Photos/Folders view, independent of the active bottom tab. */
     var lastMainViewAll: Boolean
         get() = prefs.getBoolean(LAST_MAIN_VIEW_ALL, if (appRunCount <= 1) true else showAll)

@@ -7,11 +7,23 @@ import androidx.appcompat.app.AlertDialog
 import org.fossify.commons.extensions.*
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.gallery.R
+import org.fossify.gallery.extensions.config
+import org.fossify.gallery.extensions.getNoMediaFoldersSync
 import java.io.File
 import java.util.UUID
 
 /** Classic dialogs, with a private mutable draft until Save is explicitly pressed. */
 class PhotoProfileDialogs(private val activity: Activity, private val changed: () -> Unit) {
+    private data class Draft(val profile: PhotoProfile, val scrollY: Int, val creating: Boolean)
+    private var draftProvider: (() -> Draft)? = null
+    private var restoredScroll = 0
+    fun saveDraft(): String? = draftProvider?.invoke()?.let { com.google.gson.Gson().toJson(it) }
+    fun restoreDraft(json: String) {
+        runCatching { com.google.gson.Gson().fromJson(json, Draft::class.java) }.getOrNull()?.let {
+            restoredScroll = it.scrollY
+            edit(it.profile, it.creating)
+        }
+    }
     private val store = PhotoProfileRepository.of(activity)
     private fun text(id: Int) = activity.getString(id)
     private fun alive() = !activity.isFinishing && !activity.isDestroyed
@@ -30,12 +42,16 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
     }
 
     fun manage() {
-        val profiles = store.state().profiles
-        val labels = profiles.map { activity.getString(R.string.photo_profiles_summary, it.name, it.sources.size) }
+        val state = store.state()
+        val profiles = state.profiles
+        val labels = profiles.map {
+            activity.getString(R.string.photo_profiles_summary, it.name, it.sources.size) +
+                if (it.id == state.current?.id) " · ${text(R.string.photo_profiles_current)}" else ""
+        }
         val builder = OxygenClassicDialog.builder(activity, text(R.string.photo_profiles_manage))
             .setItems(labels.toTypedArray()) { _, index -> actions(profiles[index]) }
             .setPositiveButton(R.string.photo_profiles_create) { _, _ -> edit() }
-            .setNegativeButton(org.fossify.commons.R.string.cancel, null)
+            .setNegativeButton(R.string.photo_profiles_done, null)
         OxygenClassicDialog.show(activity, builder)
     }
 
@@ -56,7 +72,7 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
     }
 
     private fun rename(profile: PhotoProfile) {
-        val field = EditText(activity).apply { setText(profile.name); setSingleLine(); hint = text(R.string.photo_profiles_name) }
+        val field = EditText(OxygenClassicDialog.builder(activity, "").context).apply { setText(profile.name); setSingleLine(); hint = text(R.string.photo_profiles_name) }
         val dialog = OxygenClassicDialog.show(activity, OxygenClassicDialog.builder(activity, text(R.string.photo_profiles_rename))
             .setView(field).setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .setPositiveButton(R.string.photo_profiles_save, null), field)
@@ -67,30 +83,46 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
         }
     }
 
-    fun edit(profile: PhotoProfile? = null) {
-        val builder = OxygenClassicDialog.builder(activity, text(if (profile == null) R.string.photo_profiles_create else R.string.photo_profiles_edit))
+    fun edit(profile: PhotoProfile? = null, creating: Boolean = profile == null) {
+        val builder = OxygenClassicDialog.builder(activity, text(if (creating) R.string.photo_profiles_create else R.string.photo_profiles_edit))
         val context = builder.context
         val body = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(24), dp(8), dp(24), dp(8)) }
         val name = EditText(context).apply {
             hint = text(R.string.photo_profiles_name); setSingleLine(); setText(profile?.name.orEmpty())
         }
+        body.addView(TextView(context).apply {
+            setText(R.string.photo_profiles_name); textSize = 13f; setTextColor(activity.getProperPrimaryColor())
+        })
         body.addView(name, LinearLayout.LayoutParams(-1, -2))
+        body.addView(TextView(context).apply {
+            setText(R.string.photo_profiles_sources_title); textSize = 13f
+            setPadding(0, dp(16), 0, dp(8)); setTextColor(activity.getProperPrimaryColor())
+        })
         val selected = profile?.sources?.toMutableList() ?: mutableListOf()
         val sourceList = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         body.addView(sourceList)
-        val sourceStatus = HashMap<PhotoSource, Boolean>()
+        val sourceStatuses = HashMap<PhotoSource, Int>()
         fun render() {
             sourceList.removeAllViews()
             selected.toList().forEach { source ->
                 val row = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(56) }
-                val label = TextView(context).apply {
+                row.setPadding(0, dp(8), 0, dp(8))
+                val labels = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+                labels.addView(TextView(context).apply {
                     textSize = 16f
-                    text = (if (source.type == PhotoSourceType.FAVORITES) text(R.string.photo_profiles_favorites) else
-                        "${File(source.path.orEmpty()).name}\n${source.path}") +
-                        if (sourceStatus[source] == false) "\n${text(R.string.photo_profiles_unavailable)}" else ""
+                    text = if (source.type == PhotoSourceType.FAVORITES) text(R.string.photo_profiles_favorites)
+                        else File(source.path.orEmpty()).name
                     setTextColor(activity.getProperTextColor())
-                }
-                row.addView(label, LinearLayout.LayoutParams(0, -2, 1f))
+                })
+                if (source.type == PhotoSourceType.FOLDER) labels.addView(TextView(context).apply {
+                    textSize = 12f; text = source.path
+                    setTextColor(androidx.core.graphics.ColorUtils.setAlphaComponent(activity.getProperTextColor(), 170))
+                })
+                labels.addView(TextView(context).apply {
+                    textSize = 12f; setText(sourceStatuses[source] ?: R.string.photo_profiles_loading)
+                    setTextColor(androidx.core.graphics.ColorUtils.setAlphaComponent(activity.getProperTextColor(), 170))
+                })
+                row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
                 row.addView(ImageButton(context).apply {
                     setImageResource(org.fossify.commons.R.drawable.ic_cross_vector)
                     imageTintList = android.content.res.ColorStateList.valueOf(activity.getProperTextColor())
@@ -104,16 +136,15 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
         fun updateStatus() {
             val snapshot = selected.toList()
             ensureBackgroundThread {
-                val loader = PhotoProfileMediaLoader(activity.applicationContext)
-                val indexedFolders = MediaFetcher(activity.applicationContext, PhotoProfileMediaLoader.IMAGE_TYPES).getFoldersToScan().toSet()
-                val statuses = snapshot.associateWith { source ->
-                    if (source.type == PhotoSourceType.FAVORITES) loader.favoritesAllowed()
-                    else source.path?.let { loader.folderAllowed(it) && (File(it).isDirectory || it in indexedFolders) } == true
-                }
-                activity.runOnUiThread { if (alive() && body.isAttachedToWindow) { sourceStatus.putAll(statuses); render() } }
+                val statuses = snapshot.associateWith { source -> sourceStatus(source) }
+                activity.runOnUiThread { if (alive() && body.isAttachedToWindow) { sourceStatuses.putAll(statuses); render() } }
             }
         }
-        body.addView(Button(context).apply {
+        body.addView(TextView(context).apply {
+            gravity = Gravity.CENTER_VERTICAL; textSize = 14f
+            setTextColor(activity.getProperPrimaryColor())
+            background = OxygenClassicDialog.ripple(activity.getProperPrimaryColor(), activity.resources.displayMetrics.density)
+            isClickable = true; isFocusable = true
             setText(R.string.photo_profiles_add_source)
             setOnClickListener { chooseSources(selected.toList()) { sources -> selected.clear(); selected.addAll(sources); render(); updateStatus() } }
         }, LinearLayout.LayoutParams(-1, dp(48)))
@@ -124,6 +155,9 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
         val dialog = OxygenClassicDialog.show(activity, builder.setView(scroll)
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .setPositiveButton(R.string.photo_profiles_save, null), scroll)
+        draftProvider = { Draft(PhotoProfile(profile?.id ?: UUID.randomUUID().toString(), name.text.toString(), selected.toList()), scroll.scrollY, creating) }
+        dialog.setOnDismissListener { draftProvider = null }
+        scroll.post { scroll.scrollTo(0, restoredScroll); restoredScroll = 0 }
         render(); updateStatus()
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             if (name.text.toString().isBlank()) { name.error = text(R.string.photo_profiles_name_required); return@setOnClickListener }
@@ -133,18 +167,36 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
         }
     }
 
+    private fun sourceStatus(source: PhotoSource): Int = runCatching {
+        val app = activity.applicationContext
+        val config = app.config
+        val token = PhotoProfileAccessSessionManager.currentToken(app)
+        if (source.type == PhotoSourceType.FAVORITES) {
+            if (PhotoProfileAccessSessionManager.favoritesAuthorized(app, token)) R.string.photo_source_ready
+            else if (config.photoCredentialSnapshot().enabled) R.string.photo_source_locked else R.string.photo_source_setup
+        } else {
+            val path = source.path.orEmpty()
+            when {
+                path.contains("/.") || FavoriteFolderRules.hasNoMediaAncestor(path) ||
+                    app.getNoMediaFoldersSync().any { path == it || path.startsWith("$it/") } -> R.string.photo_source_hidden
+                FavoriteFolderRules.isExcluded(path, config.excludedFolders) -> R.string.photo_source_excluded
+                !PhotoProfileAccessSessionManager.folderAuthorized(app, path, token) ->
+                    if (config.photoCredentialSnapshot().enabled) R.string.photo_source_locked else R.string.photo_source_setup
+                !File(path).isDirectory && path !in MediaFetcher(app, PhotoProfileMediaLoader.MEDIA_TYPES).getFoldersToScan() -> R.string.photo_source_missing
+                else -> R.string.photo_source_ready
+            }
+        }
+    }.getOrDefault(R.string.photo_source_unknown)
+
     private fun chooseSources(selected: List<PhotoSource>, done: (List<PhotoSource>) -> Unit) {
         val waiting = OxygenClassicDialog.show(activity, OxygenClassicDialog.builder(activity, text(R.string.photo_profiles_add_source))
             .setMessage(R.string.photo_profiles_loading).setNegativeButton(org.fossify.commons.R.string.cancel, null))
         ensureBackgroundThread {
-            val loader = PhotoProfileMediaLoader(activity.applicationContext)
             // Existing media indexing yields real paths, never treating a SAF URI as File.
-            val folders = MediaFetcher(activity.applicationContext, PhotoProfileMediaLoader.IMAGE_TYPES).getFoldersToScan()
+            val folders = MediaFetcher(activity.applicationContext, PhotoProfileMediaLoader.MEDIA_TYPES).getFoldersToScan()
                 .filter { it != org.fossify.commons.helpers.FAVORITES && it != RECYCLE_BIN && it.startsWith('/') }
             val choices = (listOf(PhotoSource(PhotoSourceType.FAVORITES)) + folders.sorted().map { PhotoSource(PhotoSourceType.FOLDER, it) } + selected).distinct()
-            val allowed = choices.associateWith {
-                if (it.type == PhotoSourceType.FAVORITES) loader.favoritesAllowed() else loader.folderAllowed(it.path.orEmpty())
-            }
+            val statuses = choices.associateWith(::sourceStatus)
             activity.runOnUiThread {
                 if (!alive() || !waiting.isShowing) return@runOnUiThread
                 waiting.dismiss()
@@ -152,7 +204,7 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
                 val labels = choices.map { source ->
                     (if (source.type == PhotoSourceType.FAVORITES) text(R.string.photo_profiles_favorites) else
                         "${File(source.path.orEmpty()).name}\n${source.path}") +
-                        if (allowed[source] == false) "\n${text(R.string.photo_profiles_unavailable)}" else ""
+                        "\n${text(statuses.getValue(source))}"
                 }.toTypedArray()
                 OxygenClassicDialog.show(activity, OxygenClassicDialog.builder(activity, text(R.string.photo_profiles_add_source))
                     .setMultiChoiceItems(labels, checked) { _, index, value -> checked[index] = value }

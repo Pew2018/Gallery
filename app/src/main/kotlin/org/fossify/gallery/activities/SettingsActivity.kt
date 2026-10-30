@@ -1,5 +1,9 @@
 package org.fossify.gallery.activities
 
+import org.fossify.gallery.extensions.configurePhotoPassword
+import org.fossify.gallery.extensions.authenticatePhotoPassword
+import org.fossify.gallery.extensions.showPhotoPasswordDialog
+
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
@@ -252,6 +256,7 @@ class SettingsActivity : SimpleActivity() {
         setupAppPasswordProtection()
         setupFileDeletionPasswordProtection()
         setupFavoritePasswordProtection()
+        setupPhotoPasswordProtection()
         setupDeleteEmptyFolders()
         setupKeepScreenOn()
         setupAllowPhotoGestures()
@@ -666,6 +671,30 @@ class SettingsActivity : SimpleActivity() {
                         val confirmationTextId = if (config.deleteProtectionType == PROTECTION_FINGERPRINT)
                             org.fossify.commons.R.string.fingerprint_setup_successfully else org.fossify.commons.R.string.protection_setup_successfully
                         ConfirmationDialog(this, "", confirmationTextId, org.fossify.commons.R.string.ok, 0) { }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun setupPhotoPasswordProtection() {
+        fun status() {
+            binding.settingsPhotoPasswordStatus.setText(if (config.photoCredentialSnapshot().enabled)
+                R.string.photo_password_set else R.string.photo_password_not_set)
+        }
+        status()
+        binding.settingsPhotoPasswordHolder.setOnClickListener {
+            if (!config.photoCredentialSnapshot().enabled) {
+                configurePhotoPassword { status() }
+            } else authenticatePhotoPassword { proof ->
+                if (proof != null) showPhotoPasswordDialog(R.string.photo_password_title) {
+                    setItems(arrayOf(getString(R.string.photo_password_change), getString(R.string.photo_password_disable))) { _, index ->
+                        if (index == 0) configurePhotoPassword { status() }
+                        else {
+                            config.clearPhotoCredential()
+                            org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.revokeAll()
+                            status()
+                        }
                     }
                 }
             }

@@ -1,5 +1,8 @@
 package org.fossify.gallery.activities
 
+import org.fossify.gallery.helpers.PhotoProfileAccessSessionManager
+import org.fossify.gallery.helpers.PhotoPlaybackPolicy
+
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.extensions.favoriteProtection
 import org.fossify.gallery.helpers.FAVORITE_ACCESS_SESSION
@@ -224,7 +227,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private val favoriteListenerId = java.util.UUID.randomUUID().toString()
     private val favoriteProtectionPrefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (isPhotoProfile && (key == null || key == PhotoProfileRepository.KEY || key.contains("protect", true) || key.contains("favorite", true) || key.contains("excluded", true))) {
+        if (isPhotoProfile && (key == null || key == PhotoProfileRepository.KEY || key.contains("protect", true) || key.contains("favorite", true) || key.contains("excluded", true) || key.startsWith("photo_protect_"))) {
             closeUnauthorizedFavorites()
             return@OnSharedPreferenceChangeListener
         }
@@ -253,6 +256,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             }
         }
     }
+    private val photoSessionId get() = intent.getStringExtra(PhotoProfileAccessSessionManager.EXTRA_SESSION)
+    private var slideshowEntryConsumed = false
     private val photoProfileId get() = intent.getStringExtra(PhotoProfileMediaLoader.EXTRA_ID)
     private val isPhotoProfile get() = intent.hasExtra(PhotoProfileMediaLoader.EXTRA_ID)
     private val favoriteSessionId get() = intent.getStringExtra(FAVORITE_ACCESS_SESSION)
@@ -278,6 +283,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     fun mayLoadFavoritePath(path: String): Boolean = checkFavoriteAccess(path)
 
     private fun checkFavoriteAccess(path: String? = null): Boolean {
+        if (isPhotoProfile && photoSessionId != null && !PhotoProfileAccessSessionManager.isActive(applicationContext, photoSessionId)) {
+            binding.root.post { if (!isFinishing && !isDestroyed) closeUnauthorizedFavorites() }
+            return false
+        }
         if (!isFavoriteRequest) return true
         val valid = if (path == null) FavoriteAccessSessionManager.isActive(favoriteSessionId)
             else FavoriteAccessSessionManager.isCapturedPath(favoriteSessionId, path)
@@ -303,6 +312,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         // flow validates the viewer request.
         super.onCreate(null)
         setContentView(binding.root)
+        PhotoProfileAccessSessionManager.addListener(favoriteListenerId) {
+            if (isPhotoProfile && photoSessionId != null) runOnUiThread { closeUnauthorizedFavorites() }
+        }
         if (!checkFavoriteAccess()) return
         getSharedPrefs().registerOnSharedPreferenceChangeListener(favoriteProtectionPrefsListener)
         FavoriteAccessSessionManager.addRevocationListener(favoriteListenerId) { revoked ->
@@ -363,6 +375,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun onDestroy() {
+        PhotoProfileAccessSessionManager.removeListener(favoriteListenerId)
         getSharedPrefs().unregisterOnSharedPreferenceChangeListener(favoriteProtectionPrefsListener)
         FavoriteAccessSessionManager.removeRevocationListener(favoriteListenerId)
         viewerAccessGeneration++
@@ -584,11 +597,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun authenticateViewerRequest() {
         showSystemUI()
         if (isPhotoProfile) {
+            if (photoSessionId != null) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
             mShowAll = false
             val request = ++viewerLoadGeneration
             viewerLoadTask?.stopFetching()
             viewerLoadTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
-                showAll = false, photoProfileId = photoProfileId, onFailure = { finish() }) { items ->
+                showAll = false, photoProfileId = photoProfileId, photoSessionId = photoSessionId, onFailure = { finish() }) { items ->
                 if (request != viewerLoadGeneration || isFinishing || isDestroyed) return@GetMediaAsynctask
                 val media = items.filterIsInstance<Medium>()
                 if (media.none { it.path == mPath }) { finish(); return@GetMediaAsynctask }
@@ -783,7 +797,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             gotMedia(mMediaFiles as ArrayList<ThumbnailItem>, refetchViewPagerPosition = true)
         }
 
-        refreshViewPager(true)
+        if (!isPhotoProfile) refreshViewPager(true)
         binding.viewPager.offscreenPageLimit = 2
 
         if (config.blackBackground) {
@@ -852,7 +866,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun updatePagerItems(media: MutableList<Medium>) {
         if (!checkFavoriteAccess()) return
-        if (!checkFavoriteAccess()) return
         val pagerAdapter = MyPagerAdapter(this, supportFragmentManager, media)
         if (!isDestroyed) {
             pagerAdapter.shouldInitFragment = mPos < 5
@@ -868,7 +881,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun checkSlideshowOnEnter() {
-        if (intent.getBooleanExtra(SLIDESHOW_START_ON_ENTER, false)) {
+        if (!slideshowEntryConsumed && intent.getBooleanExtra(SLIDESHOW_START_ON_ENTER, false)) {
+            slideshowEntryConsumed = true
             initSlideshow()
         }
     }
@@ -982,6 +996,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun stopSlideshow() {
         if (mIsSlideshowActive) {
+            val stoppedPath = getCurrentPath()
             binding.viewPager.setPageTransformer(false, DefaultPageTransformer())
             mIsSlideshowActive = false
             showSystemUI()
@@ -989,9 +1004,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             mAreSlideShowMediaVisible = false
 
-            if (config.slideshowRandomOrder) {
-                mRandomSlideshowStopped = true
-            }
+            mRandomSlideshowStopped = false
+            mPos = mMediaFiles.indexOfFirst { it.path == stoppedPath }.takeIf { it >= 0 }
+                ?: mPos.coerceIn(0, (mMediaFiles.size - 1).coerceAtLeast(0))
+            if (mMediaFiles.isNotEmpty() && !isDestroyed) updatePagerItems(mMediaFiles.toMutableList())
         }
     }
 
@@ -1021,9 +1037,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun getMediaForSlideshow(): Boolean {
         if (!checkFavoriteAccess()) return false
-        if (!checkFavoriteAccess()) return false
         mSlideshowMedia = mMediaFiles.filter {
-            it.isImage() || it.isPortrait() || (config.slideshowIncludeVideos && it.isVideo() || (config.slideshowIncludeGIFs && it.isGIF()))
+            PhotoPlaybackPolicy.canPlay(it.type, config.slideshowIncludeVideos, config.slideshowIncludeGIFs)
         }.toMutableList()
 
         if (config.slideshowRandomOrder) {
@@ -1351,7 +1366,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             FavoriteAccessSessionManager.captureSnapshot(listOf(path), applicationContext::favoriteProtection)
         }.getOrNull() ?: return false
         val entry = snapshot.entries[path] ?: return false
-        return entry.locks.isEmpty() || FolderUnlockSessionManager.isMediaAuthorized(
+        return entry.locks.isEmpty() || (isPhotoProfile &&
+            PhotoProfileAccessSessionManager.isActive(applicationContext, photoSessionId) &&
+            entry.locks.all { (root, lock) -> config.photoSourceBindings[root] == PhotoProfileAccessSessionManager.fingerprint(lock.type, lock.hash) }) || FolderUnlockSessionManager.isMediaAuthorized(
             activeFolderUnlockSessionId, path, config::isFolderProtected
         )
     }
@@ -1626,6 +1643,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 favoritePathsOverride = null,
                 favoriteSessionId = if (isFavoriteRequest) favoriteSessionId else null,
                 photoProfileId = photoProfileId,
+                photoSessionId = photoSessionId,
                 onFailure = { if (isPhotoProfile) finish() }
             ) {
                 if (request == viewerLoadGeneration && !isFinishing && !isDestroyed && checkFavoriteAccess()) {
@@ -1666,7 +1684,19 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
 
         updateActionbarTitle()
-        updatePagerItems(mMediaFiles.toMutableList())
+        if (mIsSlideshowActive) {
+            val currentPath = getCurrentPath()
+            val fresh = mMediaFiles.filter { PhotoPlaybackPolicy.canPlay(it.type, config.slideshowIncludeVideos, config.slideshowIncludeGIFs) }
+            mSlideshowMedia = if (config.slideshowRandomOrder) {
+                val byPath = fresh.associateBy { it.path }
+                (mSlideshowMedia.mapNotNull { byPath[it.path] } + fresh.filter { candidate -> mSlideshowMedia.none { it.path == candidate.path } }).toMutableList()
+            } else fresh.toMutableList()
+            if (mSlideshowMedia.isEmpty()) { stopSlideshow(); finish(); return }
+            mPos = mSlideshowMedia.indexOfFirst { it.path == currentPath }.takeIf { it >= 0 }
+                ?: mPos.coerceIn(0, mSlideshowMedia.lastIndex)
+            updatePagerItems(mSlideshowMedia)
+            scheduleSwipe()
+        } else updatePagerItems(mMediaFiles.toMutableList())
 
         refreshMenuItems()
         checkOrientation()
