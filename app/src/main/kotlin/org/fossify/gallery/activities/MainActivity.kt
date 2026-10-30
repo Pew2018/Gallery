@@ -1591,7 +1591,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         ViewerAccessCoordinator.cancel(folderOpenTask)
         folderOpenTask = try { ViewerAccessCoordinator.submit {
             if (request != folderOpenGeneration || Thread.currentThread().isInterrupted) return@submit
-            val protectedFolder = FolderUnlockSessionManager.findProtectedAncestor(
+            val protectedFolder = if (path == FAVORITES) null else FolderUnlockSessionManager.findProtectedAncestor(
                 path, app.config::isFolderProtected
             )
             runOnUiThread {
@@ -1608,7 +1608,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                             }
                         }
                     }
-                    handleLockedFolderOpening(protectedFolder ?: path) { success ->
+                    if (path == FAVORITES) {
+                        // MediaActivity prepares/migrates the virtual album's
+                        // dedicated protection before publishing any contents.
+                        openActivity(null)
+                    } else handleLockedFolderOpening(protectedFolder ?: path) { success ->
                         if (!success) return@handleLockedFolderOpening
                         if (protectedFolder == null) {
                             openActivity(null)
@@ -2399,3 +2403,4 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 }
+

@@ -280,6 +280,8 @@
     <string name="favorite_backup_import_failed">收藏备份格式不正确或无法读取，未导入任何内容</string>
     <string name="favorite_backup_export_failed">收藏备份导出失败</string>
     <string name="favorite_password_title">收藏相册密码</string>
+    <string name="favorite_password_legacy_status">旧版收藏锁 · 点击合并保护设置</string>
+    <string name="favorite_password_migrate_legacy">请验证一次旧版收藏锁以合并保护设置，当前收藏的主验证方式将予以保留。</string>
     <string name="favorite_import_protected_skipped">已跳过来自受保护文件夹的文件。请先进入来源文件夹完成验证，再从图库中添加。</string>
     <string name="favorite_password_mode_off">收藏密码保护已关闭</string>
     <string name="favorite_password_enable">启用收藏密码保护</string>
@@ -306,3 +308,4 @@
     <string name="favorite_password_fallback_setup">你选择了生物识别。请再设置 PIN 或图案，以便在生物识别不可用时恢复访问。</string>
     <string name="favorite_password_biometric">生物识别</string>
 </resources>
+

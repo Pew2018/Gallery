@@ -10,6 +10,9 @@ permissions:
 
 jobs:
     call-pr-workflow:
+        # This branch is compiled by arm64-foss-release.yml; device testing is local.
+        if: github.head_ref != 'feature/oxygenos-gallery-nav-vault-performance'
         uses: FossifyOrg/.github/.github/workflows/pr.yml@main
         with:
             test_task: ":app:testFossReleaseUnitTest"
+

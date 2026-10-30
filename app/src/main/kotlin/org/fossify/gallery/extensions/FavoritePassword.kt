@@ -15,10 +15,13 @@ import org.fossify.commons.extensions.isBiometricAuthSupported
 import org.fossify.commons.helpers.PROTECTION_FINGERPRINT
 import org.fossify.commons.helpers.PROTECTION_PATTERN
 import org.fossify.commons.helpers.PROTECTION_PIN
+import org.fossify.commons.helpers.FAVORITES
 import org.fossify.gallery.R
 import org.fossify.gallery.activities.SettingsActivity
 import org.fossify.gallery.helpers.Config
 import org.fossify.gallery.helpers.FavoriteAccessSessionManager
+
+internal const val MANAGE_FAVORITE_PASSWORD = "manage_favorite_password"
 
 private object FavoritePasswordSetupRequests {
     private val active = WeakHashMap<Activity, Boolean>()
@@ -87,9 +90,11 @@ private fun Activity.configureFavoritePasswordType(
     type: Int,
     onReady: (Config.FavoriteCredentialSnapshot?) -> Unit
 ) {
+    val expectedCredential = config.favoriteCredentialSnapshot()
     SecurityDialog(this, "", type) { hash, confirmedType, success ->
         if (isFinishing || isDestroyed) return@SecurityDialog
-        if (!success || hash.isBlank() || confirmedType != type) {
+        if (!success || hash.isBlank() || confirmedType != type ||
+            config.favoriteCredentialSnapshot() != expectedCredential) {
             onReady(null)
             return@SecurityDialog
         }
@@ -105,6 +110,7 @@ private fun Activity.configureFavoritePasswordType(
 private fun Activity.configureFavoriteBiometricPassword(
     onReady: (Config.FavoriteCredentialSnapshot?) -> Unit
 ) {
+    val expectedCredential = config.favoriteCredentialSnapshot()
     val host = this as? FragmentActivity
     if (host == null || !isBiometricAuthSupported()) {
         onReady(null)
@@ -117,7 +123,7 @@ private fun Activity.configureFavoriteBiometricPassword(
         object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 if (isFinishing || isDestroyed) return
-                chooseFavoriteFallbackCredential(onReady)
+                chooseFavoriteFallbackCredential(expectedCredential, onReady)
             }
 
             override fun onAuthenticationFailed() = Unit
@@ -139,30 +145,106 @@ private fun Activity.configureFavoriteBiometricPassword(
 }
 
 private fun Activity.chooseFavoriteFallbackCredential(
+    expectedCredential: Config.FavoriteCredentialSnapshot,
     onReady: (Config.FavoriteCredentialSnapshot?) -> Unit
 ) {
     if (isFinishing || isDestroyed) return
+    fun configureFallback(fallbackType: Int) {
+        SecurityDialog(this, "", fallbackType) { fallbackHash, confirmedType, success ->
+            if (isFinishing || isDestroyed) return@SecurityDialog
+            if (!success || fallbackHash.isBlank() || confirmedType != fallbackType ||
+                config.favoriteCredentialSnapshot() != expectedCredential) {
+                onReady(null)
+                return@SecurityDialog
+            }
+            val credential = config.saveFavoriteBiometricCredential(fallbackHash, confirmedType)
+            if (credential != null) FavoriteAccessSessionManager.revokeAll()
+            onReady(credential)
+        }
+    }
+
     getAlertDialogBuilder()
         .setTitle(R.string.favorite_password_title)
         .setMessage(R.string.favorite_password_fallback_setup)
-        .setItems(arrayOf(
-            getString(org.fossify.commons.R.string.pattern),
-            getString(org.fossify.commons.R.string.pin)
-        )) { _, which ->
-            val fallbackType = if (which == 0) PROTECTION_PATTERN else PROTECTION_PIN
-            SecurityDialog(this, "", fallbackType) { fallbackHash, confirmedType, success ->
-                if (isFinishing || isDestroyed) return@SecurityDialog
-                if (!success || fallbackHash.isBlank() || confirmedType != fallbackType) {
-                    onReady(null)
-                    return@SecurityDialog
-                }
-                val credential = config.saveFavoriteBiometricCredential(fallbackHash, confirmedType)
-                if (credential != null) FavoriteAccessSessionManager.revokeAll()
-                onReady(credential)
-            }
+        // AlertDialog displays its message instead of its items list. Use buttons
+        // so both recovery choices remain reachable while showing the explanation.
+        .setPositiveButton(org.fossify.commons.R.string.pin) { _, _ ->
+            configureFallback(PROTECTION_PIN)
         }
+        .setNeutralButton(org.fossify.commons.R.string.pattern) { _, _ ->
+            configureFallback(PROTECTION_PATTERN)
+        }
+        .setNegativeButton(org.fossify.commons.R.string.cancel) { _, _ -> onReady(null) }
         .setOnCancelListener { onReady(null) }
         .show()
+}
+
+/** Move the virtual album's old folder lock into its single dedicated policy. */
+internal fun Activity.prepareFavoritePasswordProtection(onReady: (Boolean) -> Unit) {
+    if (isFinishing || isDestroyed) return
+    if (!config.isFolderProtected(FAVORITES)) {
+        onReady(true)
+        return
+    }
+    if (!FavoritePasswordSetupRequests.begin(this)) {
+        onReady(false)
+        return
+    }
+    val legacyHash = config.getFolderProtectionHash(FAVORITES)
+    val legacyType = config.getFolderProtectionType(FAVORITES)
+    val existing = config.favoriteCredentialSnapshot()
+    fun complete(success: Boolean) {
+        FavoritePasswordSetupRequests.finish(this)
+        if (!isFinishing && !isDestroyed) onReady(success)
+    }
+    fun migrate(credential: Config.FavoriteCredentialSnapshot?) {
+        if (isFinishing || isDestroyed) {
+            complete(false)
+            return
+        }
+        if (credential == null || !config.isFavoriteCredentialCurrent(credential) ||
+            config.getFolderProtectionHash(FAVORITES) != legacyHash ||
+            config.getFolderProtectionType(FAVORITES) != legacyType) {
+            complete(false)
+            return
+        }
+        // A valid replacement is present before removing the legacy gate.
+        config.removeFolderProtection(FAVORITES)
+        FavoriteAccessSessionManager.revokeAll()
+        complete(true)
+    }
+    when {
+        legacyType !in listOf(PROTECTION_PATTERN, PROTECTION_PIN, PROTECTION_FINGERPRINT) ||
+            (legacyType != PROTECTION_FINGERPRINT && legacyHash.isBlank()) -> {
+            toast(R.string.favorite_password_invalid)
+            complete(false)
+        }
+        existing.enabled && !existing.isConfigured -> {
+            toast(R.string.favorite_password_invalid)
+            complete(false)
+        }
+        existing.enabled -> {
+            // Both locks exist: authorize retiring the old one without changing
+            // the dedicated primary/fallback credential selected by the user.
+            toast(R.string.favorite_password_migrate_legacy)
+            SecurityDialog(this, legacyHash, legacyType) { _, _, success ->
+                if (success) migrate(existing) else complete(false)
+            }
+        }
+        legacyType in listOf(PROTECTION_PATTERN, PROTECTION_PIN) && legacyHash.isNotBlank() -> {
+            // Preserve the exact credential. Entry still authenticates it below.
+            config.saveFavoriteCredential(legacyHash, legacyType)
+            migrate(config.favoriteCredentialSnapshot())
+        }
+        legacyType == PROTECTION_FINGERPRINT -> {
+            // Verify biometrics and confirm a recovery PIN/pattern before migration.
+            configureFavoriteBiometricPassword { migrate(it) }
+        }
+        else -> {
+            toast(R.string.favorite_password_invalid)
+            complete(false)
+        }
+    }
 }
 
 /** Preflight all added paths and give the user a useful explanation on refusal. */
@@ -212,6 +294,13 @@ internal fun Activity.ensureFavoriteAddAllowed(
 
 /** Verify the enabled virtual-album credential; disabled mode never opens setup UI here. */
 internal fun Activity.authenticateFavoritePassword(onAuthenticated: (Config.FavoriteCredentialProof?) -> Unit) {
+    prepareFavoritePasswordProtection { prepared ->
+        if (prepared) authenticatePreparedFavoritePassword(onAuthenticated)
+        else onAuthenticated(null)
+    }
+}
+
+private fun Activity.authenticatePreparedFavoritePassword(onAuthenticated: (Config.FavoriteCredentialProof?) -> Unit) {
     if (isFinishing || isDestroyed) return
     if (!config.isFavoritePasswordProtectionOn) {
         onAuthenticated(null)
@@ -279,14 +368,19 @@ internal fun Activity.authenticateFavoritePassword(onAuthenticated: (Config.Favo
             override fun onAuthenticationFailed() = Unit
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                askForFallback()
+                when (errorCode) {
+                    BiometricPrompt.ERROR_NEGATIVE_BUTTON -> authenticateFallback()
+                    BiometricPrompt.ERROR_USER_CANCELED, BiometricPrompt.ERROR_CANCELED -> complete(false)
+                    else -> askForFallback()
+                }
             }
         }
     )
     val promptInfo = BiometricPrompt.PromptInfo.Builder()
         .setTitle(getString(org.fossify.commons.R.string.authenticate))
-        .setNegativeButtonText(getString(org.fossify.commons.R.string.cancel))
+        .setNegativeButtonText(getString(R.string.favorite_password_use_fallback))
         .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK)
         .build()
     prompt.authenticate(promptInfo)
 }
+

@@ -316,6 +316,8 @@
     <string name="favorite_backup_import_failed">Invalid or unreadable favorites backup. Nothing was imported.</string>
     <string name="favorite_backup_export_failed">Could not export favorites backup.</string>
     <string name="favorite_password_title">Favorites album password</string>
+    <string name="favorite_password_legacy_status">Legacy favorites lock · Tap to merge protection</string>
+    <string name="favorite_password_migrate_legacy">Verify the old favorites lock once to merge protection. Your current favorites authentication method will be kept.</string>
     <string name="favorite_import_protected_skipped">Files from protected folders were skipped. Unlock each source folder and add those files from the gallery.</string>
     <string name="favorite_password_mode_off">Favorites password protection is off</string>
     <string name="favorite_password_enable">Enable favorites password</string>
@@ -342,3 +344,4 @@
     <string name="favorite_password_fallback_setup">You chose biometrics. Set up a PIN or pattern as a recovery option in case biometrics become unavailable.</string>
     <string name="favorite_password_biometric">Biometrics</string>
 </resources>
+

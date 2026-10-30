@@ -30,6 +30,8 @@ import org.fossify.commons.dialogs.PropertiesDialog
 import org.fossify.commons.dialogs.RenameItemDialog
 import org.fossify.commons.dialogs.RenameItemsDialog
 import org.fossify.commons.dialogs.SecurityDialog
+import org.fossify.gallery.activities.SettingsActivity
+import org.fossify.gallery.extensions.MANAGE_FAVORITE_PASSWORD
 import org.fossify.commons.extensions.applyColorFilter
 import org.fossify.commons.extensions.beGone
 import org.fossify.commons.extensions.beVisible
@@ -201,8 +203,15 @@ class DirectoryAdapter(
             findItem(R.id.cab_rename).isVisible = !selectedPaths.contains(FAVORITES) && !selectedPaths.contains(RECYCLE_BIN)
             findItem(R.id.cab_change_cover_image).isVisible = isOneItemSelected
 
-            findItem(R.id.cab_lock).isVisible = selectedPaths.any { !config.isFolderProtected(it) }
-            findItem(R.id.cab_unlock).isVisible = selectedPaths.any { config.isFolderProtected(it) }
+            val includesFavorites = FAVORITES in selectedPaths
+            val onlyFavorites = includesFavorites && selectedPaths.size == 1
+            val favoritesProtected = config.isFavoritePasswordProtectionOn || config.isFolderProtected(FAVORITES)
+            findItem(R.id.cab_lock).isVisible = if (includesFavorites) {
+                onlyFavorites && !favoritesProtected
+            } else selectedPaths.any { !config.isFolderProtected(it) }
+            findItem(R.id.cab_unlock).isVisible = if (includesFavorites) {
+                onlyFavorites && favoritesProtected
+            } else selectedPaths.any { config.isFolderProtected(it) }
 
             findItem(R.id.cab_empty_recycle_bin).isVisible = isOneItemSelected && selectedPaths.first() == RECYCLE_BIN
             findItem(R.id.cab_empty_disable_recycle_bin).isVisible = isOneItemSelected && selectedPaths.first() == RECYCLE_BIN
@@ -547,6 +556,7 @@ class DirectoryAdapter(
     }
 
     private fun tryLockFolder() {
+        if (openFavoritePasswordSettingsIfSelected()) return
         if (config.wasFolderLockingNoticeShown) {
             lockFolder()
         } else {
@@ -559,7 +569,7 @@ class DirectoryAdapter(
     private fun lockFolder() {
         SecurityDialog(activity, "", SHOW_ALL_TABS) { hash, type, success ->
             if (success) {
-                getSelectedPaths().filter { !config.isFolderProtected(it) }.forEach {
+                getSelectedPaths().filter { it != FAVORITES && !config.isFolderProtected(it) }.forEach {
                     config.addFolderProtection(it, hash, type)
                     lockedFolderPaths.add(it)
                 }
@@ -571,13 +581,14 @@ class DirectoryAdapter(
     }
 
     private fun unlockFolder() {
+        if (openFavoritePasswordSettingsIfSelected()) return
         val paths = getSelectedPaths()
         val firstPath = paths.first()
         val tabToShow = config.getFolderProtectionType(firstPath)
         val hashToCheck = config.getFolderProtectionHash(firstPath)
         SecurityDialog(activity, hashToCheck, tabToShow) { hash, type, success ->
             if (success) {
-                paths.filter { config.isFolderProtected(it) && config.getFolderProtectionType(it) == tabToShow && config.getFolderProtectionHash(it) == hashToCheck }
+                paths.filter { it != FAVORITES && config.isFolderProtected(it) && config.getFolderProtectionType(it) == tabToShow && config.getFolderProtectionHash(it) == hashToCheck }
                     .forEach {
                         config.removeFolderProtection(it)
                         lockedFolderPaths.remove(it)
@@ -587,6 +598,18 @@ class DirectoryAdapter(
                 finishActMode()
             }
         }
+    }
+
+    /** Virtual favorites uses the same management flow as its settings row. */
+    private fun openFavoritePasswordSettingsIfSelected(): Boolean {
+        val paths = getSelectedPaths()
+        if (FAVORITES !in paths) return false
+        if (paths.size == 1) {
+            activity.startActivity(Intent(activity, SettingsActivity::class.java)
+                .putExtra(MANAGE_FAVORITE_PASSWORD, true))
+            finishActMode()
+        }
+        return true
     }
 
     private fun pinFolders(pin: Boolean) {
@@ -1088,3 +1111,4 @@ class DirectoryAdapter(
         }
     }
 }
+

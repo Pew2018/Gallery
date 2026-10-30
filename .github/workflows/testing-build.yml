@@ -14,5 +14,8 @@ on:
 
 jobs:
     call-testing-build-workflow:
+        # Avoid a second runner/build for the dedicated arm64 development branch.
+        if: github.head_ref != 'feature/oxygenos-gallery-nav-vault-performance'
         uses: FossifyOrg/.github/.github/workflows/testing-build.yml@main
         secrets: inherit
+

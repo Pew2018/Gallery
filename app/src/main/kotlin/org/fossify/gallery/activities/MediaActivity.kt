@@ -11,6 +11,7 @@ import org.fossify.gallery.helpers.FavoriteAccessSessionManager
 import org.fossify.gallery.helpers.FavoriteAccessPolicy
 import org.fossify.gallery.extensions.favoriteProtection
 import org.fossify.gallery.extensions.authenticateFavoritePassword
+import org.fossify.gallery.extensions.prepareFavoritePasswordProtection
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import org.fossify.gallery.helpers.ViewerAccessCoordinator
@@ -1103,6 +1104,20 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun resolveFavoriteAccess(onResolved: (Set<String>) -> Unit) {
         if (resolvingFavoriteAccess || isFinishing || isDestroyed) return
         resolvingFavoriteAccess = true
+        // Include shortcuts/direct intents: migrate before reading the enabled
+        // flag so a legacy-only lock cannot be mistaken for unprotected mode.
+        prepareFavoritePasswordProtection { prepared ->
+            if (isFinishing || isDestroyed) return@prepareFavoritePasswordProtection
+            if (!prepared) {
+                resolvingFavoriteAccess = false
+                finish()
+            } else {
+                resolvePreparedFavoriteAccess(onResolved)
+            }
+        }
+    }
+
+    private fun resolvePreparedFavoriteAccess(onResolved: (Set<String>) -> Unit) {
         val generation = ++favoriteAuthGeneration
         val app = applicationContext
         fun current() = generation == favoriteAuthGeneration && !isFinishing && !isDestroyed
@@ -1674,4 +1689,5 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         refreshMenuItems()
     }
 }
+
 

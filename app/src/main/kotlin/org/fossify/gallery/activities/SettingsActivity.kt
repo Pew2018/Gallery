@@ -93,6 +93,13 @@ class SettingsActivity : SimpleActivity() {
         setupSettingItems()
         setupBottomNavigationOrder()
         setupSettingsHub()
+        if (intent.getBooleanExtra(MANAGE_FAVORITE_PASSWORD, false)) {
+            intent.removeExtra(MANAGE_FAVORITE_PASSWORD)
+            openSettingsCategory(settingsCategories.first { it.id == "security" })
+            binding.settingsFavoritePasswordHolder.post {
+                binding.settingsFavoritePasswordHolder.performClick()
+            }
+        }
         binding.settingsToolbar.setNavigationOnClickListener {
             if (!navigateSettingsBack()) finish()
         }
@@ -666,6 +673,8 @@ class SettingsActivity : SimpleActivity() {
         fun updateStatus() {
             val credential = config.favoriteCredentialSnapshot()
             binding.settingsFavoritePasswordStatus.text = when {
+                !credential.enabled && config.isFolderProtected(FAVORITES) ->
+                    getString(R.string.favorite_password_legacy_status)
                 !credential.enabled -> getString(R.string.favorite_password_not_set)
                 !credential.isConfigured -> getString(R.string.favorite_password_enabled_invalid)
                 credential.biometricPrimary -> getString(
@@ -686,47 +695,51 @@ class SettingsActivity : SimpleActivity() {
         }
         updateStatus()
         binding.settingsFavoritePasswordHolder.setOnClickListener {
-            if (config.isFavoritePasswordProtectionOn && !config.favoriteCredentialSnapshot().isConfigured) {
-                toast(R.string.favorite_password_invalid)
-                return@setOnClickListener
-            }
-            if (!config.isFavoritePasswordProtectionOn) {
-                getAlertDialogBuilder()
-                    .setTitle(R.string.favorite_password_title)
-                    .setItems(arrayOf(
-                        getString(R.string.favorite_password_enable),
-                        getString(R.string.favorite_password_remain_off)
-                    )) { _, which ->
-                        if (which == 0) configureFavoritePassword { configured ->
-                            updateStatus()
-                            if (configured != null) toast(R.string.favorite_password_saved)
-                        }
-                    }
-                    .show()
-                return@setOnClickListener
-            }
-
-            authenticateFavoritePassword { authenticated ->
-                if (authenticated == null || isFinishing || isDestroyed) return@authenticateFavoritePassword
-                getAlertDialogBuilder()
-                    .setTitle(R.string.favorite_password_manage_title)
-                    .setItems(arrayOf(
-                        getString(R.string.favorite_password_change),
-                        getString(R.string.favorite_password_disable)
-                    )) { _, which ->
-                        if (which == 0) {
-                            configureFavoritePassword { configured ->
+            prepareFavoritePasswordProtection protectionReady@{ prepared ->
+                updateStatus()
+                if (!prepared) return@protectionReady
+                if (config.isFavoritePasswordProtectionOn && !config.favoriteCredentialSnapshot().isConfigured) {
+                    toast(R.string.favorite_password_invalid)
+                    return@protectionReady
+                }
+                if (!config.isFavoritePasswordProtectionOn) {
+                    getAlertDialogBuilder()
+                        .setTitle(R.string.favorite_password_title)
+                        .setItems(arrayOf(
+                            getString(R.string.favorite_password_enable),
+                            getString(R.string.favorite_password_remain_off)
+                        )) { _, which ->
+                            if (which == 0) configureFavoritePassword { configured ->
                                 updateStatus()
                                 if (configured != null) toast(R.string.favorite_password_saved)
                             }
-                        } else if (which == 1) {
-                            disableFavoritePasswordSafely {
-                                updateStatus()
-                                toast(R.string.favorite_password_disabled)
+                        }
+                        .show()
+                    return@protectionReady
+                }
+
+                authenticateFavoritePassword { authenticated ->
+                    if (authenticated == null || isFinishing || isDestroyed) return@authenticateFavoritePassword
+                    getAlertDialogBuilder()
+                        .setTitle(R.string.favorite_password_manage_title)
+                        .setItems(arrayOf(
+                            getString(R.string.favorite_password_change),
+                            getString(R.string.favorite_password_disable)
+                        )) { _, which ->
+                            if (which == 0) {
+                                configureFavoritePassword { configured ->
+                                    updateStatus()
+                                    if (configured != null) toast(R.string.favorite_password_saved)
+                                }
+                            } else if (which == 1) {
+                                disableFavoritePasswordSafely {
+                                    updateStatus()
+                                    toast(R.string.favorite_password_disabled)
+                                }
                             }
                         }
-                    }
-                    .show()
+                        .show()
+                }
             }
         }
     }
@@ -1600,3 +1613,4 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 }
+
