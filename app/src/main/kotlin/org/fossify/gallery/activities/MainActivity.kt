@@ -2339,7 +2339,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 getRecyclerAdapter()?.updateDirs(visible)
             }
             (binding.directoriesGrid.layoutManager as? MyGridLayoutManager)?.spanSizeLookup =
-                GridLayoutManager.DefaultSpanSizeLookup()
+                object : GridLayoutManager.SpanSizeLookup() {
+                    override fun getSpanSize(position: Int) = 1
+                }
         }
 
         binding.directoriesGrid.postDelayed({
