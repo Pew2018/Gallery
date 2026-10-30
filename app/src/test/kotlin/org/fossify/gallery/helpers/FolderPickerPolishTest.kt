@@ -73,12 +73,21 @@ class FolderPickerPolishTest {
         val thumb = scroller.findViewById<ImageView>(com.qtalk.recyclerviewfastscroller.R.id.thumbIV)
         assertNotNull("Quiph thumb must exist before styling", thumb)
         OxygenFastScroller.ensureTouchableHandle(scroller)
-        val expectedWidth = (40 * activity.resources.displayMetrics.density + 0.5f).toInt()
+        val expectedWidth = (28 * activity.resources.displayMetrics.density + 0.5f).toInt()
         assertEquals(expectedWidth, scroller.handleWidth)
         assertEquals(ImageView.ScaleType.CENTER, thumb.scaleType)
         val firstParams = thumb.layoutParams
         OxygenFastScroller.ensureTouchableHandle(scroller)
         assertSame("Touch target setup is idempotent", firstParams, thumb.layoutParams)
+    }
+
+    @Test fun pickerDragUsesTrackLocalCoordinatesWithoutStatusBarJump() {
+        assertEquals(0, OxygenFastScroller.positionForPickerDrag(0f, 600, 36, 40))
+        assertEquals(20, OxygenFastScroller.positionForPickerDrag(282f, 600, 36, 40))
+        assertEquals(39, OxygenFastScroller.positionForPickerDrag(564f, 600, 36, 40))
+        assertEquals(39, OxygenFastScroller.positionForPickerDrag(999f, 600, 36, 40))
+        assertEquals(0, OxygenFastScroller.positionForPickerDrag(-500f, 600, 36, 40))
+        assertEquals(0, OxygenFastScroller.positionForPickerDrag(10f, 0, 0, 0))
     }
 
     @Test fun popupThemesKeepReadableTextAgainstTheirActualSurfaces() {

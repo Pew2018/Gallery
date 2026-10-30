@@ -63,6 +63,9 @@ class PickDirectoryDialog(
             binding.directoriesFastscroller, binding.directoriesGrid,
             org.fossify.gallery.helpers.OxygenThemeEngine.snapshot(activity, activity.config)
         )
+        org.fossify.gallery.helpers.OxygenFastScroller.installPickerTouchHandling(
+            binding.directoriesFastscroller, binding.directoriesGrid
+        )
     }
     private var dialog: AlertDialog? = null
     private val selectionDelivered = AtomicBoolean(false)
@@ -199,12 +202,26 @@ class PickDirectoryDialog(
         val primaryText = if (light) Color.rgb(33, 33, 33) else Color.rgb(250, 250, 250)
         val secondaryText = if (light) Color.rgb(117, 117, 117) else Color.rgb(189, 189, 189)
         val underline = if (light) Color.rgb(189, 189, 189) else Color.rgb(117, 117, 117)
-        binding.toolbarContainer.background = LayerDrawable(
-            arrayOf(ColorDrawable(surface), ColorDrawable(underline))
-        ).apply {
-            setLayerGravity(1, Gravity.BOTTOM)
-            setLayerHeight(1, (dp + 0.5f).toInt().coerceAtLeast(1))
+        searchEditText.background = ColorDrawable(Color.TRANSPARENT)
+        searchEditText.backgroundTintList = null
+        fun paintUnderline(focused: Boolean) {
+            val stroke = if (focused)
+                OxygenClassicPalette.readableAccent(activity.getProperPrimaryColor(), surface)
+                else underline
+            val height = ((if (focused) 2f else 1f) * dp + 0.5f).toInt().coerceAtLeast(1)
+            binding.toolbarContainer.background = LayerDrawable(
+                arrayOf(ColorDrawable(surface), ColorDrawable(stroke))
+            ).apply {
+                setLayerGravity(1, Gravity.BOTTOM)
+                setLayerHeight(1, height)
+            }
         }
+        val originalFocusListener = searchEditText.onFocusChangeListener
+        searchEditText.onFocusChangeListener = android.view.View.OnFocusChangeListener { v, focused ->
+            originalFocusListener?.onFocusChange(v, focused)
+            paintUnderline(focused)
+        }
+        paintUnderline(searchEditText.hasFocus())
         binding.topToolbarSearchIcon.setColorFilter(primaryText)
         searchEditText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
         searchEditText.setTextColor(primaryText)

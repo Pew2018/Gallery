@@ -194,7 +194,9 @@ object OxygenClassicDialog {
                     v.defaultHintTextColor = ColorStateList.valueOf(inactive)
                     v.hintTextColor = ColorStateList.valueOf(readableAccent)
                 }
-                if (v is EditText) {
+                if (v is EditText && v.id != org.fossify.commons.R.id.top_toolbar_search) {
+                    // The picker search owns a single OxygenOS underline; the
+                    // global EditText skin would paint a second, competing rule.
                     v.background = AppCompatResources.getDrawable(v.context, androidx.appcompat.R.drawable.abc_edit_text_material)
                     styleInput(activity, v)
                 }

@@ -1,7 +1,12 @@
 package org.fossify.gallery.helpers
 
 import android.content.Context
-import android.graphics.Rect
+import android.app.Activity
+import android.content.ContextWrapper
+import android.os.Build
+import android.view.WindowInsets
+import android.view.WindowManager
+import androidx.core.view.ViewCompat
 import android.util.AttributeSet
 import android.view.View
 import android.widget.ScrollView
@@ -12,9 +17,9 @@ import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 /** Bounds only the scrolling content, leaving title/actions available at large font scales. */
 class ClassicDialogScrollView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : ScrollView(context, attrs) {
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val visible = Rect()
-        getWindowVisibleDisplayFrame(visible)
-        val available = visible.height().takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
+        // The visible frame includes IME changes. Parent AT_MOST already constrains
+        // this view while typing; never persist the keyboard-sized frame as a cap.
+        val available = resources.displayMetrics.heightPixels
         val limit = (available * 0.60f).toInt().coerceAtLeast(1)
         val mode = View.MeasureSpec.getMode(heightMeasureSpec)
         val size = View.MeasureSpec.getSize(heightMeasureSpec)
@@ -34,16 +39,57 @@ class ClassicDialogPickerLayout @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : CoordinatorLayout(context, attrs) {
     private fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
+    private var imeVisible = false
+    private var normalViewportHeight = 0
+
+    /** Use the host window, not the resized dialog's visible frame. */
+    private fun hostViewportHeight(): Int {
+        var owner: Context = context
+        while (owner is ContextWrapper && owner !is Activity) {
+            val base = owner.baseContext
+            if (base === owner) break
+            owner = base
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && owner is Activity) {
+            val metrics = owner.windowManager.currentWindowMetrics
+            val bars = metrics.windowInsets.getInsetsIgnoringVisibility(
+                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+            )
+            return (metrics.bounds.height() - bars.top - bars.bottom).coerceAtLeast(1)
+        }
+        return resources.displayMetrics.heightPixels.coerceAtLeast(1)
+    }
+
+    override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val nowVisible = insets.isVisible(WindowInsets.Type.ime())
+            if (imeVisible != nowVisible) {
+                imeVisible = nowVisible
+                // A wrap-content AlertDialog can retain its previous compact height.
+                // Re-measure both the picker and its parent after an IME transition.
+                post {
+                    requestLayout()
+                    (parent as? View)?.requestLayout()
+                }
+            }
+        }
+        return super.onApplyWindowInsets(insets)
+    }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        ViewCompat.requestApplyInsets(this)
         // Commons' FilePickerDialog doesn't call Gallery's shared scroller skin.
         // Install the same thumb hit target after Commons has attached its
         // original touch listeners, without replacing those listeners.
         post {
             if (!isAttachedToWindow) return@post
-            findViewById<RecyclerViewFastScroller>(org.fossify.commons.R.id.filepicker_fastscroller)
-                ?.let(OxygenFastScroller::ensureTouchableHandle)
+            val scroller = findViewById<RecyclerViewFastScroller>(org.fossify.commons.R.id.filepicker_fastscroller)
+            val list = findViewById<androidx.recyclerview.widget.RecyclerView>(org.fossify.commons.R.id.filepicker_list)
+            if (scroller != null && list != null) {
+                OxygenFastScroller.ensureTouchableHandle(scroller)
+                OxygenFastScroller.installPickerTouchHandling(scroller, list)
+            }
         }
     }
 
@@ -83,9 +129,12 @@ class ClassicDialogPickerLayout @JvmOverloads constructor(
         )
         reserveFabSpace(R.id.directories_grid, null)
 
-        val visible = Rect()
-        getWindowVisibleDisplayFrame(visible)
-        val available = visible.height().takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
+        // IME resizing is already reflected by the incoming AT_MOST parent spec.
+        // Measuring against getWindowVisibleDisplayFrame() here caused a second,
+        // sometimes sticky, shrink when the soft keyboard opened and closed.
+        val hostHeight = hostViewportHeight()
+        if (!imeVisible || normalViewportHeight == 0) normalViewportHeight = hostHeight
+        val available = normalViewportHeight
         // The alert's title and action buttons live outside this view.
         val limit = minOf((available * 0.62f).toInt(), available - dp(136)).coerceAtLeast(1)
         val mode = View.MeasureSpec.getMode(heightMeasureSpec)
