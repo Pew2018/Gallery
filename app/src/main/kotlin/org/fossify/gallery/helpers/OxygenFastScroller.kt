@@ -283,7 +283,7 @@ object OxygenFastScroller {
             val fraction = when {
                 scrollable == 0 || (if (vertical) !recycler.canScrollVertically(-1) else !recycler.canScrollHorizontally(-1)) -> 0f
                 if (vertical) !recycler.canScrollVertically(1) else !recycler.canScrollHorizontally(1) -> 1f
-                else -> metric.offset.toFloat().coerceIn(0f, scrollable.toFloat()) / scrollable
+                else -> metric.offset.toFloat().coerceIn(0f, scrollable.toFloat()) / scrollable.toFloat()
             }
             val desired = (fraction * travel).roundToInt().coerceIn(0, travel)
 
@@ -305,7 +305,8 @@ object OxygenFastScroller {
                 val vertical = scroller.fastScrollDirection == RecyclerViewFastScroller.FastScrollDirection.VERTICAL
                 val m = metrics(vertical)
                 val scrollable = (m.range - m.extent).coerceAtLeast(0)
-                if (scrollable == 0) 0f else m.offset.toFloat().coerceIn(0, scrollable.toFloat()) / scrollable
+                if (scrollable == 0) 0f else m.offset.toFloat()
+                    .coerceIn(0f, scrollable.toFloat()) / scrollable.toFloat()
             }) * (count - 1)).roundToInt()).coerceIn(0, count - 1)
             val label = (recycler.adapter as? RecyclerViewFastScroller.OnPopupTextUpdate)?.onChange(position)
             scroller.popupTextView.text = label ?: (position + 1).toString()
