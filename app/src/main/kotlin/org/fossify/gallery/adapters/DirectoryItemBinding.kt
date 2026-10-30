@@ -7,6 +7,7 @@ import com.google.android.material.progressindicator.LinearProgressIndicator
 import org.fossify.commons.views.MySquareImageView
 import org.fossify.gallery.databinding.DirectoryItemGridRoundedCornersBinding
 import org.fossify.gallery.databinding.DirectoryItemGridSquareBinding
+import org.fossify.gallery.databinding.DirectoryItemHomeGridBinding
 import org.fossify.gallery.databinding.DirectoryItemListBinding
 
 interface DirectoryItemBinding {
@@ -78,3 +79,22 @@ class GridDirectoryItemRoundedCornersBinding(val binding: DirectoryItemGridRound
 }
 
 fun DirectoryItemGridRoundedCornersBinding.toItemBinding() = GridDirectoryItemRoundedCornersBinding(this)
+
+/** Only used for the OxygenOS album-home cover + caption layout. */
+class HomeDirectoryItemBinding(val binding: DirectoryItemHomeGridBinding) : DirectoryItemBinding {
+    override val root: ViewGroup = binding.root
+    override val dirThumbnail: MySquareImageView = binding.dirThumbnail
+    override val dirPath: TextView? = null
+    override val dirCheck: ImageView = binding.dirCheck
+    override val dirHolder: ViewGroup = binding.dirHolder
+    override val photoCnt: TextView = binding.photoCnt
+    override val dirName: TextView = binding.dirName
+    override val dirLock: ImageView = binding.dirLock
+    override val dirPin: ImageView = binding.dirPin
+    override val dirLocation: ImageView = binding.dirLocation
+    override val dirDragHandle: ImageView = binding.dirDragHandle
+    override val dirDragHandleWrapper: ViewGroup = binding.dirDragHandleWrapper
+    override val dirLoadingProgress: LinearProgressIndicator = binding.dirLoadingProgress
+}
+
+fun DirectoryItemHomeGridBinding.toItemBinding() = HomeDirectoryItemBinding(this)
