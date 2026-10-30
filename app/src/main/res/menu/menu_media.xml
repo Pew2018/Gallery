@@ -124,6 +124,16 @@
         android:title="@string/about"
         app:showAsAction="never" />
     <item
+        android:id="@+id/temporarily_show_excluded"
+        android:orderInCategory="42"
+        android:title="@string/temporarily_show_excluded"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/stop_showing_excluded"
+        android:orderInCategory="43"
+        android:title="@string/stop_showing_excluded"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/quick_toolbar_slot_0"
         android:orderInCategory="2"
         android:icon="@drawable/ic_sort_vector"
