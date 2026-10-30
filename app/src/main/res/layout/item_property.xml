@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/property_holder"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <org.fossify.commons.views.MyTextView
+        android:id="@+id/property_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="0dp"
+        android:layout_marginTop="@dimen/classic_dialog_content_padding"
+        android:alpha="0.6"
+        android:textSize="14sp"
+        tools:text="@string/date_taken" />
+
+    <org.fossify.commons.views.MyTextView
+        android:id="@+id/property_value"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="0dp"
+        android:layout_marginEnd="0dp"
+        android:textSize="16sp"
+        tools:text="01.01.2021" />
+
+</LinearLayout>

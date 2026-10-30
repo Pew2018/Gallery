@@ -236,3 +236,17 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     detektPlugins(libs.compose.detekt)
 }
+
+// Commons owns internal/nested dialogs too. Patch only its 7.1.3 presentation boundary.
+check(libs.versions.commons.get() == "7.1.3") { "Review classic Commons compatibility before upgrading" }
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.instrumentation.transformClassesWith(
+            org.fossify.gallery.build.ClassicCommonsVisitorFactory::class.java,
+            com.android.build.api.instrumentation.InstrumentationScope.ALL
+        ) {}
+        variant.instrumentation.setAsmFramesComputationMode(
+            com.android.build.api.instrumentation.FramesComputationMode.COMPUTE_FRAMES_FOR_INSTRUMENTED_METHODS
+        )
+    }
+}

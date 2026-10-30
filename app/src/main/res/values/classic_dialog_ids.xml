@@ -1,0 +1,8 @@
+<resources>
+    <item name="classic_dialog_observer" type="id" />
+    <item name="classic_control_styled" type="id" />
+    <item name="classic_dialog_palette" type="id" />
+    <item name="classic_dialog_action" type="id" />
+    <dimen name="classic_dialog_content_padding">24dp</dimen>
+    <dimen name="classic_dialog_touch_height">48dp</dimen>
+</resources>

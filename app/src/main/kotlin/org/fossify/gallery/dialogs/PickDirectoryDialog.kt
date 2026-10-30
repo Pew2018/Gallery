@@ -6,7 +6,6 @@ import android.view.inputmethod.EditorInfo
 import android.widget.Toast
 import java.util.concurrent.atomic.AtomicBoolean
 import org.fossify.gallery.helpers.OxygenThemeEngine
-import com.google.android.material.shape.RelativeCornerSize
 import androidx.activity.addCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.RecyclerView
@@ -106,17 +105,8 @@ class PickDirectoryDialog(
             activity.setupDialogStuff(binding.root, this, org.fossify.commons.R.string.select_destination) { alertDialog ->
                 dialog = alertDialog
                 OxygenClassicDialog.apply(activity, alertDialog, binding.root)
-                binding.root.background = android.graphics.drawable.GradientDrawable().apply {
-                    setColor(OxygenThemeEngine.dialogSurface(activity, config))
-                    cornerRadius = 3f * activity.resources.displayMetrics.density
-                }
-                binding.root.clipToOutline = true
                 binding.directoriesCurrentPath.setTextColor(activity.getProperTextColor())
                 binding.directoriesShowHidden.apply {
-                    // Commons is a Material FAB. Restore the circular 2017 shape
-                    // without replacing its ripple, touch handling or action.
-                    shapeAppearanceModel = shapeAppearanceModel.toBuilder()
-                        .setAllCornerSizes(RelativeCornerSize(0.5f)).build()
                     backgroundTintList = ColorStateList.valueOf(
                         OxygenThemeColors.toolbarBackground(activity.getProperPrimaryColor())
                     )

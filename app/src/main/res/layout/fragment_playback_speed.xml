@@ -17,8 +17,9 @@
 
     <ImageView
         android:id="@+id/playback_speed_slow"
-        android:layout_width="@dimen/smaller_icon_size"
-        android:layout_height="@dimen/smaller_icon_size"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:padding="12dp"
         android:layout_below="@+id/playback_speed_title"
         android:layout_alignStart="@+id/playback_speed_seekbar"
         android:background="?attr/selectableItemBackgroundBorderless"
@@ -36,8 +37,9 @@
 
     <ImageView
         android:id="@+id/playback_speed_fast"
-        android:layout_width="@dimen/smaller_icon_size"
-        android:layout_height="@dimen/smaller_icon_size"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:padding="12dp"
         android:layout_below="@+id/playback_speed_title"
         android:layout_alignEnd="@+id/playback_speed_seekbar"
         android:background="?attr/selectableItemBackgroundBorderless"

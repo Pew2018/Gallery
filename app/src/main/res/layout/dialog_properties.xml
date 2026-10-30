@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<org.fossify.gallery.helpers.ClassicDialogScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/properties_scrollview"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:id="@+id/properties_holder"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingLeft="@dimen/classic_dialog_content_padding"
+        android:paddingRight="@dimen/classic_dialog_content_padding"/>
+</org.fossify.gallery.helpers.ClassicDialogScrollView>

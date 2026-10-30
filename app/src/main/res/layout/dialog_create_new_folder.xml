@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/dialog_holder"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingLeft="@dimen/classic_dialog_content_padding"
+    android:paddingTop="@dimen/classic_dialog_content_padding"
+    android:paddingRight="@dimen/classic_dialog_content_padding">
+
+    <org.fossify.commons.views.MyTextInputLayout
+        android:id="@+id/folder_path_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="@dimen/classic_dialog_content_padding"
+        android:hint="@string/folder">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/folder_path"
+            style="@style/UnclickableEditText"
+            android:singleLine="false"
+            android:textIsSelectable="true"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+    </org.fossify.commons.views.MyTextInputLayout>
+
+    <org.fossify.commons.views.MyTextInputLayout
+        android:id="@+id/folder_name_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="@string/title">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/folder_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textCapSentences"
+            android:singleLine="true"
+            android:maxLines="1"
+            android:textSize="@dimen/bigger_text_size" />
+
+    </org.fossify.commons.views.MyTextInputLayout>
+</LinearLayout>

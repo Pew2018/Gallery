@@ -1,11 +1,13 @@
 package org.fossify.gallery.fragments
 
-import android.graphics.drawable.LayerDrawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.Color
+import androidx.core.graphics.ColorUtils
+import org.fossify.gallery.helpers.OxygenClassicDialog
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import androidx.core.content.res.ResourcesCompat
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -36,9 +38,11 @@ class PlaybackSpeedFragment : BottomSheetDialogFragment() {
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         val config = requireContext().config
         val binding = FragmentPlaybackSpeedBinding.inflate(inflater, container, false)
-        val background = ResourcesCompat.getDrawable(resources, org.fossify.commons.R.drawable.bottom_sheet_bg, requireContext().theme)
-        (background as LayerDrawable).findDrawableByLayerId(org.fossify.commons.R.id.bottom_sheet_background)
-            .applyColorFilter(requireContext().getProperBackgroundColor())
+        val light = ColorUtils.calculateLuminance(requireContext().getProperBackgroundColor()) >= 0.5
+        val background = GradientDrawable().apply {
+            setColor(if (light) Color.WHITE else Color.rgb(48, 48, 48))
+            cornerRadius = 3f * resources.displayMetrics.density
+        }
 
         binding.apply {
             seekBar = playbackSpeedSeekbar
@@ -46,6 +50,12 @@ class PlaybackSpeedFragment : BottomSheetDialogFragment() {
             requireContext().updateTextColors(playbackSpeedHolder)
             playbackSpeedSlow.applyColorFilter(requireContext().getProperTextColor())
             playbackSpeedFast.applyColorFilter(requireContext().getProperTextColor())
+            playbackSpeedTitle.textSize = 20f
+            listOf(playbackSpeedSlow, playbackSpeedFast).forEach {
+                it.background = OxygenClassicDialog.ripple(requireContext().getProperTextColor(), resources.displayMetrics.density)
+                it.minimumWidth = (48f * resources.displayMetrics.density).toInt()
+                it.minimumHeight = (48f * resources.displayMetrics.density).toInt()
+            }
             playbackSpeedSlow.setOnClickListener { reduceSpeed() }
             playbackSpeedFast.setOnClickListener { increaseSpeed() }
             initSeekbar(playbackSpeedSeekbar, playbackSpeedLabel, config)

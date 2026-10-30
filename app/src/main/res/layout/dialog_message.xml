@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<org.fossify.gallery.helpers.ClassicDialogScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/message_scrollview"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <org.fossify.commons.views.MyTextView
+        android:id="@+id/message"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:lineSpacingExtra="@dimen/small_margin"
+        android:paddingLeft="@dimen/classic_dialog_content_padding"
+        android:paddingTop="@dimen/classic_dialog_content_padding"
+        android:paddingRight="@dimen/classic_dialog_content_padding"
+        android:paddingBottom="@dimen/classic_dialog_content_padding"
+        android:textSize="16sp" />
+
+</org.fossify.gallery.helpers.ClassicDialogScrollView>
