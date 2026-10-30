@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="favorites_return_retry">Couldn’t restore this view. Tap to retry.</string>
+</resources>

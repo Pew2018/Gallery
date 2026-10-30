@@ -10,6 +10,8 @@ import org.fossify.gallery.BuildConfig
 
 /** Retains only navigation metadata while the album's thumbnail adapter is discarded. */
 internal class FavoritesScrollRestorer {
+    enum class RestoreResult { POSITIONED, NO_ANCHOR, EMPTY, UNCONFIRMED }
+
     data class Anchor(val path: String, val ordinal: Int, val offset: Int, val orientation: Int)
 
     var pending: Anchor? = null
@@ -67,20 +69,22 @@ internal class FavoritesScrollRestorer {
     }
 
     fun restore(recycler: RecyclerView, paths: List<String?>, finalResult: Boolean,
-                isCurrent: () -> Boolean) {
+                onResult: (RestoreResult) -> Unit = {}, isCurrent: () -> Boolean) {
         cancelLayout()
-        val anchor = pending ?: return
+        val anchor = pending
         if (!isCurrent()) return
         val mediaPositions = paths.indices.filter { paths[it] != null }
         if (mediaPositions.isEmpty()) {
-            if (finalResult) pending = null
+            if (finalResult) { pending = null; onResult(RestoreResult.EMPTY) }
             return
         }
-        val position = paths.indexOf(anchor.path).takeIf { it >= 0 }
-            ?: mediaPositions[anchor.ordinal.coerceIn(0, mediaPositions.lastIndex)]
+        val position = anchor?.let {
+            paths.indexOf(it.path).takeIf { index -> index >= 0 }
+                ?: mediaPositions[it.ordinal.coerceIn(0, mediaPositions.lastIndex)]
+        }
         val manager = recycler.layoutManager as? LinearLayoutManager ?: return
         val adapter = recycler.adapter ?: return
-        val offset = if (anchor.orientation == manager.orientation) anchor.offset else 0
+        val offset = if (anchor?.orientation == manager.orientation) anchor.offset else 0
         val axis = OrientationHelper.createOrientationHelper(manager, manager.orientation)
         val observer = recycler.viewTreeObserver
         var attempts = 0
@@ -92,7 +96,13 @@ internal class FavoritesScrollRestorer {
                     return true
                 }
                 if (recycler.isLayoutRequested || recycler.isComputingLayout) return true
-                val view = manager.findViewByPosition(position)
+                if (anchor == null) {
+                    if (recycler.childCount == 0) return true
+                    cancelLayout()
+                    onResult(RestoreResult.NO_ANCHOR)
+                    return true
+                }
+                val view = position?.let(manager::findViewByPosition)
                 val visible = view != null && axis.getDecoratedEnd(view) > axis.startAfterPadding &&
                     axis.getDecoratedStart(view) < axis.endAfterPadding
                 val aligned = view != null && kotlin.math.abs(
@@ -106,6 +116,7 @@ internal class FavoritesScrollRestorer {
                 if (visible && (aligned || atBoundary)) {
                     cancelLayout()
                     if (finalResult) pending = null
+                    onResult(RestoreResult.POSITIONED)
                     if (BuildConfig.DEBUG) Log.d("GalleryFavorites", "Scroll confirmed: final=$finalResult, position=$position")
                     return true
                 }
@@ -113,9 +124,10 @@ internal class FavoritesScrollRestorer {
                     cancelLayout()
                     // Keep the anchor for a later successful reload; never silently consume it.
                     Log.w("GalleryFavorites", "Scroll restore not confirmed; anchor retained")
+                    onResult(RestoreResult.UNCONFIRMED)
                     return true
                 }
-                manager.scrollToPositionWithOffset(position, offset)
+                position?.let { manager.scrollToPositionWithOffset(it, offset) }
                 return false
             }
         }
@@ -125,7 +137,7 @@ internal class FavoritesScrollRestorer {
             else recycler.viewTreeObserver.removeOnPreDrawListener(listener)
         }
         // Set the pending position before the next layout, rather than posting after it.
-        manager.scrollToPositionWithOffset(position, offset)
+        position?.let { manager.scrollToPositionWithOffset(it, offset) }
         recycler.requestLayout()
     }
 }

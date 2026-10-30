@@ -168,4 +168,33 @@ class FavoritesScrollRestorerTest {
         assertNull(restorer.pending)
         assertEquals(0, manager.findFirstVisibleItemPosition())
     }
+    @Test fun returnReadinessIsReportedOnlyAfterThePositionedLayout() {
+        remember()
+        replace(paths.toList())
+        val results = ArrayList<FavoritesScrollRestorer.RestoreResult>()
+        restorer.restore(recycler, paths, true, onResult = { results.add(it) }) { true }
+        assertTrue(results.isEmpty())
+        frame()
+        assertEquals(listOf(FavoritesScrollRestorer.RestoreResult.POSITIONED), results)
+    }
+
+    @Test fun missingAnchorStillReportsReadinessAfterLayout() {
+        val results = ArrayList<FavoritesScrollRestorer.RestoreResult>()
+        restorer.restore(recycler, paths, true, onResult = { results.add(it) }) { true }
+        assertTrue(results.isEmpty())
+        frame()
+        assertEquals(listOf(FavoritesScrollRestorer.RestoreResult.NO_ANCHOR), results)
+    }
+
+    @Test fun supersededLayoutCannotRevealTheReturnSurface() {
+        remember()
+        var current = true
+        val results = ArrayList<FavoritesScrollRestorer.RestoreResult>()
+        restorer.restore(recycler, paths, true, onResult = { results.add(it) }) { current }
+        current = false
+        frame()
+        assertTrue(results.isEmpty())
+        assertNotNull(restorer.pending)
+    }
+
 }

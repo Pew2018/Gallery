@@ -71,7 +71,7 @@ jobs:
 
 
       - name: Run favorites scroll, access and fast scroller regression tests
-        run: ./gradlew :app:testFossReleaseUnitTest --tests org.fossify.gallery.helpers.FastScrollerBubbleTest --tests org.fossify.gallery.helpers.FavoritesScrollRestorerTest --tests org.fossify.gallery.helpers.FavoriteMediaLoadPolicyTest --tests org.fossify.gallery.helpers.FavoriteAccessPolicyTest --stacktrace
+        run: ./gradlew :app:testFossReleaseUnitTest --tests org.fossify.gallery.helpers.FastScrollerBubbleTest --tests org.fossify.gallery.helpers.FavoritesReturnCoverTest --tests org.fossify.gallery.helpers.FavoritesScrollRestorerTest --tests org.fossify.gallery.helpers.FavoriteMediaLoadPolicyTest --tests org.fossify.gallery.helpers.FavoriteAccessPolicyTest --stacktrace
 
       - name: Assemble FOSS arm64-v8a Release ONLY
         run: ./gradlew :app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a --stacktrace

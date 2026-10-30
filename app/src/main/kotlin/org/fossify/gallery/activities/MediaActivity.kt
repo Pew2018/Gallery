@@ -129,6 +129,7 @@ import org.fossify.gallery.helpers.SET_WALLPAPER_INTENT
 import org.fossify.gallery.helpers.SHOW_ALL
 import org.fossify.gallery.helpers.SHOW_FAVORITES
 import org.fossify.gallery.helpers.FavoriteMediaLoadRequests
+import org.fossify.gallery.helpers.FavoritesReturnCover
 import org.fossify.gallery.helpers.FavoritesScrollRestorer
 import org.fossify.gallery.helpers.FavoriteMediaLoadPolicy
 import org.fossify.gallery.helpers.SHOW_RECYCLE_BIN
@@ -176,6 +177,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var resolvingFavoriteAccess = false
     private var favoritesNeedReload = false
     private val favoritesScroll = FavoritesScrollRestorer()
+    private var favoritesReturnCover: FavoritesReturnCover? = null
     private var displayedMediaRequest = -1L
     private var displayedMediaIsFinal = false
     private var mediaSearchGeneration = 0L
@@ -290,6 +292,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         favoritesScroll.read(savedInstanceState)
+        if (mPath == FAVORITES && savedInstanceState?.getBoolean("favoritesReturnPending") == true) {
+            showFavoritesReturnCover()
+        }
         binding.mediaGrid.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                 if (newState == RecyclerView.SCROLL_STATE_DRAGGING) favoritesScroll.clear()
@@ -315,6 +320,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             FavoriteAccessSessionManager.addRevocationListener(favoriteListenerId) { revoked ->
                 if (revoked == favoriteSessionId) binding.root.post {
                     if (isFinishing || isDestroyed || revoked != favoriteSessionId) return@post
+                    prepareFavoritesReturnCover()
+                    showFavoritesReturnCover()
                     binding.mediaGrid.adapter = null
                     mMedia = ArrayList()
                     if (FavoriteAccessSessionManager.isActive(revoked)) {
@@ -396,6 +403,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun onResume() {
         super.onResume()
+        if (mPath == FAVORITES && favoritesReturnCover?.covering == true) showFavoritesReturnCover()
         updateMenuColors()
         mediaHeaderProgress?.let { OxygenProgressStyle.apply(this, config, it) }
         GalleryBottomBar.recolor(this)
@@ -505,6 +513,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     override fun onPause() {
         if (mPath == FAVORITES) rememberFavoritesScrollAnchor()
         favoritesScroll.cancelLayout()
+        favoritesReturnCover?.pause()
         mediaSearchGeneration++
         super.onPause()
         mIsGettingMedia = false
@@ -523,6 +532,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (mPath == FAVORITES && !isFinishing && !isChangingConfigurations && !resolvingFavoriteAccess) {
             // Discard rendering/cache state, retaining the album capability while a viewer is open.
             rememberFavoritesScrollAnchor()
+            prepareFavoritesReturnCover()
+            showFavoritesReturnCover()
             mediaLoadRequests.invalidate()
             mediaScanGeneration++
             mCurrAsyncTask?.stopFetching()
@@ -548,27 +559,77 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         favoritesScroll.remember(binding.mediaGrid, adapter.media.map { (it as? Medium)?.path })
     }
 
+    private fun prepareFavoritesReturnCover() {
+        if (mPath != FAVORITES) return
+        val adapter = getMediaAdapter() ?: return
+        val cover = getFavoritesReturnCover()
+        cover.prepare(binding.mediaCoordinator, binding.mediaGrid) {
+            adapter.media.getOrNull(it) is Medium
+        }
+    }
+
+    private fun getFavoritesReturnCover(): FavoritesReturnCover {
+        return favoritesReturnCover ?: FavoritesReturnCover(this).also {
+            favoritesReturnCover = it
+            binding.mediaCoordinator.addView(it, androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+            ))
+            it.elevation = 32 * resources.displayMetrics.density
+        }
+    }
+
+    private fun showFavoritesReturnCover() {
+        if (mPath != FAVORITES) return
+        val corners = if (config.fileRoundedCorners) resources.getDimension(
+            org.fossify.commons.R.dimen.rounded_corner_radius_big) else 0f
+        getFavoritesReturnCover().show(OxygenThemeEngine.pageSurface(this, config), getProperTextColor(), corners)
+    }
+
+    private fun isFavoritesReturnCurrent(request: Long, token: String?): Boolean =
+        mediaLoadRequests.isCurrent(request) && favoriteSessionId == token &&
+            FavoriteAccessSessionManager.isActive(token) && !isFinishing && !isDestroyed &&
+            lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+
+    private fun retryFavoritesReturn() {
+        if (isFinishing || isDestroyed || !lifecycle.currentState.isAtLeast(
+                androidx.lifecycle.Lifecycle.State.RESUMED)) return
+        showFavoritesReturnCover()
+        getMedia()
+    }
+
     private fun restoreFavoritesScrollAnchor(request: Long, finalResult: Boolean) {
         if (mPath != FAVORITES) return
         val adapter = getMediaAdapter() ?: return
         val token = favoriteSessionId
-        favoritesScroll.restore(binding.mediaGrid, adapter.media.map { (it as? Medium)?.path }, finalResult) {
-            mediaLoadRequests.isCurrent(request) && favoriteSessionId == token &&
-                FavoriteAccessSessionManager.isActive(token) && !isFinishing && !isDestroyed &&
-                lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
-        }
+        favoritesScroll.restore(binding.mediaGrid, adapter.media.map { (it as? Medium)?.path }, finalResult,
+            onResult = { result ->
+                if (isFavoritesReturnCurrent(request, token) && binding.mediaGrid.adapter === adapter) {
+                    when (result) {
+                        FavoritesScrollRestorer.RestoreResult.POSITIONED,
+                        FavoritesScrollRestorer.RestoreResult.NO_ANCHOR ->
+                            favoritesReturnCover?.reveal { isFavoritesReturnCurrent(request, token) &&
+                                binding.mediaGrid.adapter === adapter }
+                        FavoritesScrollRestorer.RestoreResult.EMPTY ->
+                            favoritesReturnCover?.revealAfterLayout { isFavoritesReturnCurrent(request, token) }
+                        FavoritesScrollRestorer.RestoreResult.UNCONFIRMED ->
+                            favoritesReturnCover?.showError(::retryFavoritesReturn)
+                    }
+                }
+            }, isCurrent = { isFavoritesReturnCurrent(request, token) })
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         if (mPath == FAVORITES) {
             rememberFavoritesScrollAnchor()
             favoritesScroll.save(outState)
+            outState.putBoolean("favoritesReturnPending", favoritesReturnCover?.covering == true)
         }
         outState.putString("favoriteOwnerId", favoriteOwnerId)
         super.onSaveInstanceState(outState)
     }
 
     override fun finish() {
+        favoritesReturnCover?.dismiss()
         favoritesScroll.clear()
         favoriteAuthGeneration++
         folderAuthGeneration++
@@ -581,6 +642,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     override fun onDestroy() {
+        favoritesReturnCover?.let {
+            it.dismiss()
+            binding.mediaCoordinator.removeView(it)
+        }
+        favoritesReturnCover = null
         favoritesScroll.cancelLayout()
         mediaSearchGeneration++
         favoriteAuthGeneration++
@@ -871,7 +937,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
 
             val viewType = config.getFolderViewType(if (mShowAll) SHOW_ALL else mPath)
-            if (viewType == VIEW_TYPE_LIST && areSystemAnimationsEnabled) {
+            val returningToFavorites = mPath == FAVORITES && favoritesReturnCover?.covering == true
+            if (returningToFavorites) binding.mediaGrid.clearAnimation()
+            if (viewType == VIEW_TYPE_LIST && areSystemAnimationsEnabled && !returningToFavorites) {
                 binding.mediaGrid.scheduleLayoutAnimation()
             }
 
@@ -1053,6 +1121,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         // Every refresh has a separate request identity, including the cache step.
         // A late cache response must never launch an older scan or replace new UI.
         val request = mediaLoadRequests.begin()
+        if (mPath == FAVORITES && favoritesReturnCover?.covering == true) {
+            val token = favoriteSessionId
+            favoritesReturnCover?.pause()
+            favoritesReturnCover?.armTimeout({ isFavoritesReturnCurrent(request, token) }, ::retryFavoritesReturn)
+        }
         mCurrAsyncTask?.stopFetching()
         mIsGettingMedia = true
         setMediaLoading(true)
@@ -1113,6 +1186,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             binding.mediaEmptyTextPlaceholder.beVisible()
                             binding.mediaEmptyTextPlaceholder2.beGone()
                             binding.mediaFastscroller.beGone()
+                            favoritesReturnCover?.showError(::retryFavoritesReturn)
                         }
                     }
                 }
@@ -1478,6 +1552,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             !mIsGetImageIntent && !mIsGetVideoIntent && !mIsGetAnyIntent) {
             binding.mediaGrid.stopScroll()
             rememberFavoritesScrollAnchor()
+            prepareFavoritesReturnCover()
         }
         hideKeyboard()
         if (isSetWallpaperIntent()) {
@@ -1626,6 +1701,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             if (mPath == FAVORITES && media.isEmpty() && !isFromCache) {
                 binding.mediaGrid.adapter = null
                 favoritesScroll.clear()
+                val token = favoriteSessionId
+                favoritesReturnCover?.revealAfterLayout { isFavoritesReturnCurrent(request, token) }
             } else {
                 setupAdapter()
             }
