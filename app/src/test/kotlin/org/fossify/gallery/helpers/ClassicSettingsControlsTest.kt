@@ -733,8 +733,14 @@ class ClassicSettingsControlsTest {
                 val visualCenter = if (checked xor rtl) 34f else 14f
                 val centerX = (visualCenter * density + 0.5f).toInt()
                 val centerY = (24f * density + 0.5f).toInt()
-                assertEquals(if (checked) OxygenThemeColors.opaque(tokens(false).rawAccent)
-                    else 0xFFE6E6E6.toInt(), bitmap.getPixel(centerX, centerY))
+                val expectedThumbPixel = if (checked)
+                    OxygenThemeColors.opaque(tokens(false).rawAccent) else 0xFFE6E6E6.toInt()
+                val actualThumbPixel = bitmap.getPixel(centerX, centerY)
+                assertEquals(
+                    "Native thumb rtl=$rtl checked=$checked center=($centerX,$centerY) " +
+                        "enabled=${control.isEnabled} drawableState=${control.thumbDrawable.state.contentToString()}",
+                    expectedThumbPixel, actualThumbPixel
+                )
                 val palette = OxygenThemeColors.switchPalette(tokens(false))
                 val railColor = if (checked) palette.onTrack else palette.offTrack
                 val expectedRail = OxygenThemeColors.blend(page, railColor,
@@ -742,9 +748,12 @@ class ClassicSettingsControlsTest {
                 val railX = ((if (checked xor rtl) 19f else 29f) * density + 0.5f).toInt()
                 val rail = bitmap.getPixel(railX, (17f * density + 0.5f).toInt())
                 for (shift in listOf(16, 8, 0)) {
-                    assertTrue("Native SwitchCompat rail pixel rtl=$rtl checked=$checked",
+                    assertTrue(
+                        "Native rail rtl=$rtl checked=$checked channel=$shift " +
+                            "expected=0x${Integer.toHexString(expectedRail)} actual=0x${Integer.toHexString(rail)}",
                         kotlin.math.abs(((expectedRail ushr shift) and 255) -
-                            ((rail ushr shift) and 255)) <= 8)
+                            ((rail ushr shift) and 255)) <= 8
+                    )
                 }
             }
         }
