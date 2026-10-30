@@ -48,6 +48,7 @@ import org.fossify.commons.extensions.hasAllPermissions
 import org.fossify.commons.extensions.hasOTGConnected
 import org.fossify.commons.extensions.hasPermission
 import org.fossify.commons.extensions.hideKeyboard
+import org.fossify.commons.extensions.showKeyboard
 import org.fossify.commons.extensions.internalStoragePath
 import org.fossify.commons.extensions.isExternalStorageManager
 import org.fossify.commons.extensions.isGif
@@ -323,6 +324,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         setupOptionsMenu()
         refreshMenuItems()
+        binding.mainMenu.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+            if (right - left != oldRight - oldLeft) updateMenuColors()
+        }
 
         if (!mIsThirdPartyIntent) {
             GalleryBottomBar.attach(this, binding.root,
@@ -661,6 +665,16 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         binding.mainMenu.requireToolbar().setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
+                R.id.quick_toolbar_search_overflow -> {
+                    binding.mainMenu.focusView()
+                    showKeyboard(binding.mainMenu.binding.topToolbarSearch)
+                }
+                R.id.quick_toolbar_sort -> showSortingDialog()
+                R.id.quick_toolbar_filter -> showFilterMediaDialog()
+                R.id.quick_toolbar_view -> changeViewType()
+                R.id.quick_toolbar_columns -> changeColumnCount()
+                R.id.quick_toolbar_hidden -> tryToggleTemporarilyShowHidden()
+                R.id.quick_toolbar_excluded -> tryToggleTemporarilyShowExcluded()
                 R.id.sort -> showSortingDialog()
                 R.id.filter -> showFilterMediaDialog()
                 R.id.folder_visibility -> showFolderVisibilityDialog()
@@ -712,6 +726,18 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             if (mShowingFolderFavorites) getString(org.fossify.commons.R.string.favorites)
             else getString(R.string.app_launcher_name)
         )
+        if (!mIsThirdPartyIntent) {
+            org.fossify.gallery.helpers.ToolbarQuickActions.apply(
+                this, binding.mainMenu,
+                org.fossify.gallery.helpers.ToolbarQuickScope.HOME,
+                config.toolbarHomeActions, hasBack = false, fixedActionCount = 1,
+                supported = { action ->
+                    action != org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW &&
+                        (action != org.fossify.gallery.helpers.ToolbarQuickActions.COLUMNS ||
+                            config.viewTypeFolders == VIEW_TYPE_GRID)
+                }
+            )
+        }
     }
 
     private fun getRecyclerAdapter() = binding.directoriesGrid.adapter as? DirectoryAdapter
@@ -861,7 +887,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             isFinishing || isDestroyed || (mFavoriteAuthRequested && !force)) return
         val needHidden = config.favoriteShowHidden && config.isHiddenPasswordProtectionOn &&
             !mFavoriteHiddenAuthorized
-        val needExcluded = config.favoriteShowExcluded && config.isExcludedPasswordProtectionOn &&
+        val needExcluded = (config.favoriteShowExcluded || config.temporarilyShowExcluded) &&
+            config.isExcludedPasswordProtectionOn &&
             !mFavoriteExcludedAuthorized
         if (!needHidden && !needExcluded) {
             mFavoriteAuthRequested = false
@@ -870,7 +897,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         mFavoriteAuthRequested = true
         val askExcluded = {
-            if (config.favoriteShowExcluded && config.isExcludedPasswordProtectionOn &&
+            if ((config.favoriteShowExcluded || config.temporarilyShowExcluded) &&
+                config.isExcludedPasswordProtectionOn &&
                 !mFavoriteExcludedAuthorized && favoriteViewForeground) {
                 handleExcludedFolderPasswordProtection {
                     if (favoriteViewForeground && !isFinishing && !isDestroyed) {
@@ -901,10 +929,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val excludedProtected = config.isExcludedPasswordProtectionOn
         val showHidden = config.favoriteShowHidden &&
             (!hiddenProtected || mFavoriteHiddenAuthorized)
-        val showExcluded = config.favoriteShowExcluded &&
+        val showExcluded = (config.favoriteShowExcluded || config.temporarilyShowExcluded) &&
             (!excludedProtected || mFavoriteExcludedAuthorized)
         val authorizationPending = (config.favoriteShowHidden && hiddenProtected && !mFavoriteHiddenAuthorized) ||
-            (config.favoriteShowExcluded && excludedProtected && !mFavoriteExcludedAuthorized)
+            ((config.favoriteShowExcluded || config.temporarilyShowExcluded) &&
+                excludedProtected && !mFavoriteExcludedAuthorized)
         val excludedRoots = config.excludedFolders.toSet()
         val request = favoriteLoad.begin(
             FavoriteFolderLoadKey(showHidden, showExcluded, authorizationPending, excludedRoots),
@@ -1253,8 +1282,15 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun toggleTemporarilyShowExcluded(show: Boolean) {
         mLoadedInitialPhotos = false
         config.temporarilyShowExcluded = show
-        binding.directoriesGrid.adapter = null
-        getDirectories()
+        if (mShowingFolderFavorites) {
+            if (show) mFavoriteExcludedAuthorized = true
+            else if (!config.favoriteShowExcluded) mFavoriteExcludedAuthorized = false
+            clearFavoriteDirectoryViews()
+            getDirectories(forceFavoriteReload = true)
+        } else {
+            binding.directoriesGrid.adapter = null
+            getDirectories()
+        }
         refreshMenuItems()
     }
 
