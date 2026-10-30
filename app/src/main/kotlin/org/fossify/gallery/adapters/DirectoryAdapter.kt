@@ -124,15 +124,17 @@ class DirectoryAdapter(
     recyclerView: MyRecyclerView,
     val isPickIntent: Boolean,
     val swipeRefreshLayout: SwipeRefreshLayout? = null,
+    val embeddedPinnedWidthPx: Int = 0,
+    val compactVirtualFavorite: Boolean = false,
     itemClick: (Any) -> Unit
 ) :
     MyRecyclerViewAdapter(activity, recyclerView, itemClick), ItemTouchHelperContract,
     RecyclerViewFastScroller.OnPopupTextUpdate {
 
     private val config = activity.config
-    private val isListViewType = config.viewTypeFolders == VIEW_TYPE_LIST
+    private val isListViewType = compactVirtualFavorite || (config.viewTypeFolders == VIEW_TYPE_LIST && embeddedPinnedWidthPx == 0)
     private var pinnedFolders = config.pinnedFolders
-    private var scrollHorizontally = config.scrollHorizontally
+    private var scrollHorizontally = config.scrollHorizontally || embeddedPinnedWidthPx > 0
     private var animateGifs = config.animateGifs
     private var cropThumbnails = config.cropThumbnails
     private var groupDirectSubfolders = config.groupDirectSubfolders
@@ -170,6 +172,11 @@ class DirectoryAdapter(
             else -> DirectoryItemGridRoundedCornersBinding.inflate(layoutInflater, parent, false)
         }
 
+        if (embeddedPinnedWidthPx > 0) {
+            binding.root.layoutParams = RecyclerView.LayoutParams(
+                embeddedPinnedWidthPx, embeddedPinnedWidthPx
+            )
+        }
         return createViewHolder(binding.root)
     }
 
@@ -943,6 +950,7 @@ class DirectoryAdapter(
                 trackThickness = (3 * activity.resources.displayMetrics.density + 0.5f).toInt()
             }
             dirPath?.text = "${directory.path.substringBeforeLast("/")}/"
+            if (compactVirtualFavorite) dirPath?.beGone()
             val thumbnailType = when {
                 directory.tmb.isVideoFast() -> TYPE_VIDEOS
                 directory.tmb.isGif() -> TYPE_GIFS
