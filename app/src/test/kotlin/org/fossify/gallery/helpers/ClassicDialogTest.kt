@@ -7,6 +7,7 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.view.View
+import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.RadioButton
@@ -101,6 +102,61 @@ class ClassicDialogTest {
             .setMessage("Body").setPositiveButton("OK", null))
         val surface = Color.rgb(48, 48, 48)
         assertTrue(ColorUtils.calculateContrast(dialog.getButton(AlertDialog.BUTTON_POSITIVE).currentTextColor, surface) >= 4.5)
+        dialog.dismiss()
+    }
+
+    @Test fun biometricActionGetsClassicSkinWithoutChangingWindowGeometryOrClickBehavior() {
+        var clicks = 0
+        val biometric = Button(activity).apply {
+            id = org.fossify.commons.R.id.open_biometric_dialog
+            text = "Use biometrics"
+            setOnClickListener { clicks++ }
+        }
+        val unrelated = Button(activity).apply { text = "Leave unchanged" }
+        val content = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(biometric)
+            addView(unrelated)
+        }
+        val unrelatedBackground = unrelated.background
+        val dialog = AlertDialog.Builder(activity).setView(content).create()
+        OxygenClassicDialog.prepareWindow(activity, dialog)
+        dialog.show()
+        layoutFrame(dialog)
+        val decor = dialog.window!!.decorView
+        val originalWidth = decor.width
+        val originalHeight = decor.height
+        val originalLayoutWidth = biometric.layoutParams.width
+        val originalLayoutHeight = biometric.layoutParams.height
+        val originalTopPadding = biometric.paddingTop
+        val originalBottomPadding = biometric.paddingBottom
+
+        OxygenClassicDialog.apply(activity, dialog, content)
+        layoutFrame(dialog)
+
+        assertEquals(originalWidth, decor.width)
+        assertEquals(originalHeight, decor.height)
+        assertEquals(originalLayoutWidth, biometric.layoutParams.width)
+        assertEquals(originalLayoutHeight, biometric.layoutParams.height)
+        assertEquals(originalTopPadding, biometric.paddingTop)
+        assertEquals(originalBottomPadding, biometric.paddingBottom)
+        assertTrue(biometric.background is RippleDrawable)
+        assertTrue(ColorUtils.calculateContrast(biometric.currentTextColor, Color.WHITE) >= 4.5)
+        assertEquals(activity.getString(R.string.favorite_password_use_biometric), biometric.text.toString())
+
+        val icon = biometric.compoundDrawablesRelative[0]
+        assertNotNull(icon)
+        assertEquals((20f * activity.resources.displayMetrics.density).toInt(), icon!!.bounds.width())
+        val readableAccent = OxygenClassicPalette.readableAccent(activity.baseConfig.primaryColor, Color.WHITE)
+        assertTrue(ColorUtils.calculateContrast(readableAccent, Color.WHITE) >= 4.5)
+
+        val styledBackground = biometric.background
+        OxygenClassicDialog.apply(activity, dialog, content)
+        assertSame(styledBackground, biometric.background)
+        assertSame(unrelatedBackground, unrelated.background)
+        assertEquals("Leave unchanged", unrelated.text.toString())
+        biometric.performClick()
+        assertEquals(1, clicks)
         dialog.dismiss()
     }
 
