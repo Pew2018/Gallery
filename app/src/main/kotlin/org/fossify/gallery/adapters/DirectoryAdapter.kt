@@ -1043,7 +1043,20 @@ class DirectoryAdapter(
                 dirThumbnail.setImageDrawable(null)
                 dirThumbnail.tag = null
                 dirLock.beVisible()
-                if (inHomeCard) {
+                if (inHomeCard || compactVirtualFavorite) {
+                    if (compactVirtualFavorite) {
+                        // The old list overlay is MATCH_PARENT. Restrict the
+                        // virtual favorite lock to its small thumbnail.
+                        val thumbnailSize = activity.resources.getDimensionPixelSize(
+                            R.dimen.list_view_folder_thumbnail_size
+                        )
+                        val params = dirLock.layoutParams as RelativeLayout.LayoutParams
+                        params.width = thumbnailSize
+                        params.height = thumbnailSize
+                        dirLock.layoutParams = params
+                        val padding = (12 * activity.resources.displayMetrics.density + 0.5f).toInt()
+                        dirLock.setPadding(padding, padding, padding, padding)
+                    }
                     val theme = OxygenThemeEngine.snapshot(activity, config)
                     val shade = ColorUtils.blendARGB(theme.pageBackground, theme.primaryText,
                         if (theme.dark) 0.15f else 0.06f)
