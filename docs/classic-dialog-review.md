@@ -119,6 +119,8 @@ Searched pattern: `AlertDialog|MaterialAlertDialogBuilder|getAlertDialogBuilder|
 
 ## CI correction history
 
-Initial run 41009677924 stopped during Gradle configuration: a compile-only AGP dependency left AsmClassVisitorFactory unavailable to buildSrc at runtime. The adapter now depends on AGP's public gradle-api artifact at runtime, avoiding inclusion of the whole plugin. Review also replaced a Java synthetic property with its explicit TabLayout setter and guarded redundant FLAG_SECURE updates to avoid repeated window traversals.
+Initial run 41009677924 stopped during Gradle configuration: a compile-only AGP dependency left AsmClassVisitorFactory unavailable to buildSrc at runtime. The first classpath correction tried the public gradle-api artifact; the following run required the single shared full-plugin classpath described below. Review also replaced a Java synthetic property with its explicit TabLayout setter and guarded redundant FLAG_SECURE updates to avoid repeated window traversals.
 
 Run 41009845076 exposed an AGP plugin marker already present with an unknown version on buildSrc's shared classpath. AGP 9.2.1 is now loaded once by buildSrc, and root/app use the unversioned plugin ID from that classpath; no AGP upgrade. A follow-up review identified the original sticky-root algorithm's LTR-only threshold. Its five-method presentation patch now positions the root against the appropriate viewport edge in both LTR and RTL; a regression covers both directions.
+
+Run 41010070679 passed Gradle configuration and resource processing, then found Kotlin's Java-property access to FAB maxImageSize was private. This now calls the public setMaxImageSize API. The same correction includes scrollable new-folder content (preserving the original LinearLayout root and every binding ID) and stronger secondary/disabled text contrast.

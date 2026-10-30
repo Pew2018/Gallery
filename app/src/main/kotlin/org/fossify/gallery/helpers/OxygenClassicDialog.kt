@@ -99,7 +99,7 @@ object OxygenClassicDialog {
         val readableAccent = OxygenClassicPalette.readableAccent(accent, surface)
         val dialogText = if (light) Color.rgb(33, 33, 33) else Color.WHITE
         val inactive = ColorUtils.blendARGB(surface, dialogText, 0.55f)
-        val disabled = ColorUtils.blendARGB(surface, dialogText, 0.25f)
+        val disabled = ColorUtils.blendARGB(surface, dialogText, 0.38f)
         val tints = ColorStateList(
             arrayOf(
                 intArrayOf(-android.R.attr.state_enabled),
@@ -168,13 +168,13 @@ object OxygenClassicDialog {
                     v.shapeAppearanceModel = v.shapeAppearanceModel.toBuilder()
                         .setAllCornerSizes(RelativeCornerSize(0.5f)).build()
                     v.customSize = (56f * dp).toInt()
-                    v.maxImageSize = (24f * dp).toInt()
+                    v.setMaxImageSize((24f * dp).toInt())
                 }
                 if (v is TextView && v !is EditText && v !is android.widget.Button) {
                     when (v.id) {
                         org.fossify.commons.R.id.property_label -> {
                             v.alpha = 1f
-                            v.setTextColor(inactive)
+                            v.setTextColor(ColorUtils.blendARGB(surface, dialogText, 0.65f))
                             v.textSize = 14f
                         }
                         org.fossify.commons.R.id.property_value -> {
