@@ -144,7 +144,9 @@ class ClassicDialogTest {
         val root = TextView(activity)
         val leaf = TextView(activity)
         scroll.addView(items); items.addView(root); items.addView(leaf)
+        leaf.isActivated = true
         ClassicCommonsHooks.styleBreadcrumbs(scroll)
+        assertTrue(ColorUtils.calculateContrast(leaf.currentTextColor, Color.WHITE) >= 4.5)
         assertNotSame(root.background, leaf.background)
         val ripple = leaf.background as RippleDrawable
         assertNotNull(ripple.findDrawableByLayerId(android.R.id.mask))

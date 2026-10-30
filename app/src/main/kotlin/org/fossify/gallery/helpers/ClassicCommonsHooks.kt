@@ -2,6 +2,8 @@ package org.fossify.gallery.helpers
 
 import android.app.Activity
 import android.content.ContextWrapper
+import android.content.res.ColorStateList
+import androidx.core.widget.TextViewCompat
 import android.graphics.Color
 import android.view.View
 import android.view.ViewGroup
@@ -12,6 +14,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.core.graphics.ColorUtils
 import org.fossify.commons.extensions.getProperBackgroundColor
+import org.fossify.commons.extensions.getProperPrimaryColor
 
 /** Public, version-pinned build hooks. No reflection or access to Commons private state. */
 object ClassicCommonsHooks {
@@ -121,6 +124,10 @@ object ClassicCommonsHooks {
         val items = view.getChildAt(0) as? ViewGroup ?: return
         val light = ColorUtils.calculateLuminance(view.context.getProperBackgroundColor()) >= 0.5
         val surface = if (light) Color.WHITE else Color.rgb(48, 48, 48)
+        val text = if (light) Color.rgb(33, 33, 33) else Color.WHITE
+        val accent = OxygenClassicPalette.readableAccent(view.context.getProperPrimaryColor(), surface)
+        val textColors = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_activated), intArrayOf()),
+            intArrayOf(accent, text))
         for (index in 0 until items.childCount) {
             val item = items.getChildAt(index)
             // A new instance per item prevents shared bounds/hotspot/pressed state.
@@ -132,6 +139,8 @@ object ClassicCommonsHooks {
             // Keep Commons' root elevation and opaque fill: it overlays scrolled items.
             // Its old accent stroke and pill radius are purely decorative.
             (item as? android.widget.TextView)?.apply {
+                setTextColor(textColors)
+                TextViewCompat.setCompoundDrawableTintList(this, textColors)
                 minHeight = (48 * resources.displayMetrics.density).toInt()
                 setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16f)
             }
