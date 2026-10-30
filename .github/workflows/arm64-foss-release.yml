@@ -9,6 +9,7 @@ on:
       - fix/20261030-size-bubble-favorites-menu
       - feature/customizable-toolbar-actions
       - feature/oxygen-theme
+      - fix/bottom-bar-tap-ripple
     paths:
       - "app/**"
       - "buildSrc/**"
