@@ -343,5 +343,9 @@
     <string name="favorite_password_use_fallback">Use PIN or pattern</string>
     <string name="favorite_password_fallback_setup">You chose biometrics. Set up a PIN or pattern as a recovery option in case biometrics become unavailable.</string>
     <string name="favorite_password_biometric">Biometrics</string>
+    <string name="picker_more_options">More folder options</string>
+    <string name="picker_show_hidden_excluded_folders">Show hidden and excluded folders</string>
+    <string name="picker_restore_default_folders">Restore default folder visibility</string>
+    <string name="picker_show_hidden_folders">Show hidden folders</string>
 </resources>
 

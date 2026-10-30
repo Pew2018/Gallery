@@ -24,7 +24,7 @@
                 android:minHeight="@dimen/breadcrumbs_layout_height"
                 android:paddingStart="@dimen/activity_margin"
                 android:paddingTop="@dimen/small_margin"
-                android:paddingEnd="@dimen/small_margin"
+                android:paddingEnd="56dp"
                 android:paddingBottom="@dimen/small_margin" />
 
             <org.fossify.commons.views.MyTextView
@@ -86,6 +86,19 @@
         </RelativeLayout>
     </RelativeLayout>
 
+    <org.fossify.gallery.helpers.ClassicFilePickerOverflowButton
+        android:id="@+id/filepicker_overflow_menu"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="8dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/picker_more_options"
+        android:padding="12dp"
+        android:src="@drawable/ic_three_dots_vector"
+        android:visibility="gone" />
+
     <LinearLayout
         android:id="@+id/filepicker_fabs_holder"
         android:layout_width="wrap_content"
@@ -103,10 +116,11 @@
 
         <org.fossify.commons.views.MyFloatingActionButton
             android:id="@+id/filepicker_fab_show_hidden"
-            android:layout_width="@dimen/fab_size"
-            android:layout_height="@dimen/fab_size"
-            android:layout_marginEnd="@dimen/activity_margin"
-            android:layout_marginBottom="@dimen/activity_margin"
+            android:layout_width="1dp"
+            android:layout_height="1dp"
+            android:alpha="0"
+            android:layout_marginEnd="0dp"
+            android:layout_marginBottom="0dp"
             android:src="@drawable/ic_unhide_vector" />
 
     </LinearLayout>

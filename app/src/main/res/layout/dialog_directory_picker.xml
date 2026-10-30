@@ -15,8 +15,21 @@
         <org.fossify.commons.views.MySearchMenu
             android:id="@+id/folder_search_view"
             android:layout_width="match_parent"
+            android:layout_marginEnd="48dp"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/medium_margin" />
+
+        <ImageView
+            android:id="@+id/directories_overflow_menu"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_alignParentEnd="true"
+            android:layout_alignParentTop="true"
+            android:layout_marginTop="@dimen/medium_margin"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/picker_more_options"
+            android:padding="12dp"
+            android:src="@drawable/ic_three_dots_vector" />
 
         <TextView
             android:id="@+id/directories_current_path"
@@ -72,15 +85,5 @@
             android:visibility="gone" />
 
     </RelativeLayout>
-
-    <org.fossify.commons.views.MyFloatingActionButton
-        android:id="@+id/directories_show_hidden"
-        android:layout_width="56dp"
-        android:layout_height="56dp"
-        android:contentDescription="@string/temporarily_show_hidden"
-        android:layout_gravity="bottom|end"
-        android:layout_margin="@dimen/activity_margin"
-        android:src="@drawable/ic_unhide_vector"
-        android:visibility="gone" />
 
 </org.fossify.gallery.helpers.ClassicDialogPickerLayout>

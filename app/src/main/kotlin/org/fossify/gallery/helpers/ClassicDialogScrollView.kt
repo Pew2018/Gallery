@@ -53,8 +53,9 @@ class ClassicDialogPickerLayout @JvmOverloads constructor(
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        // The Commons hidden-folder FAB is a 1dp invisible action delegate for
+        // the compact toolbar menu, not an overlay that needs scrolling clearance.
         val filePickerFabs = intArrayOf(
-            org.fossify.commons.R.id.filepicker_fab_show_hidden,
             org.fossify.commons.R.id.filepicker_fab_show_favorites
         )
         reserveFabSpace(
@@ -67,7 +68,7 @@ class ClassicDialogPickerLayout @JvmOverloads constructor(
             org.fossify.commons.R.id.filepicker_fab,
             *filePickerFabs
         )
-        reserveFabSpace(R.id.directories_grid, null, R.id.directories_show_hidden)
+        reserveFabSpace(R.id.directories_grid, null)
 
         val visible = Rect()
         getWindowVisibleDisplayFrame(visible)

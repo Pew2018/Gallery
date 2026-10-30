@@ -1,6 +1,9 @@
 package org.fossify.gallery.dialogs
 
 import android.graphics.Color
+import android.view.ContextThemeWrapper
+import android.view.Gravity
+import androidx.appcompat.widget.PopupMenu
 import android.content.res.ColorStateList
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
@@ -22,7 +25,6 @@ import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.commons.extensions.handleHiddenFolderPasswordProtection
 import org.fossify.commons.extensions.handleLockedFolderOpening
 import org.fossify.commons.extensions.hideKeyboard
-import org.fossify.commons.extensions.isGone
 import org.fossify.commons.extensions.isInDownloadDir
 import org.fossify.commons.extensions.isRestrictedWithSAFSdk30
 import org.fossify.commons.extensions.setupDialogStuff
@@ -42,7 +44,6 @@ import org.fossify.gallery.extensions.getSortedDirectories
 import org.fossify.gallery.models.Directory
 import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.helpers.OxygenClassicPalette
-import org.fossify.gallery.helpers.OxygenThemeColors
 
 class PickDirectoryDialog(
     val activity: BaseSimpleActivity,
@@ -73,6 +74,7 @@ class PickDirectoryDialog(
     private var binding = DialogDirectoryPickerBinding.inflate(activity.layoutInflater)
     private var isGridViewType = activity.config.viewTypeFolders == VIEW_TYPE_GRID
     private var showHidden = activity.config.shouldShowHidden
+    private var temporarilyRevealAll = false
     private var currentPathPrefix = ""
     private val config = activity.config
     private val searchView = binding.folderSearchView
@@ -106,20 +108,10 @@ class PickDirectoryDialog(
                 dialog = alertDialog
                 OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                 binding.directoriesCurrentPath.setTextColor(activity.getProperTextColor())
-                binding.directoriesShowHidden.apply {
-                    backgroundTintList = ColorStateList.valueOf(
-                        OxygenThemeColors.toolbarBackground(activity.getProperPrimaryColor())
-                    )
-                    clearColorFilter()
-                    imageTintList = ColorStateList.valueOf(Color.WHITE)
-                }
-                binding.directoriesShowHidden.beVisibleIf(!context.config.shouldShowHidden)
-                binding.directoriesShowHidden.setOnClickListener {
-                    activity.handleHiddenFolderPasswordProtection {
-                        binding.directoriesShowHidden.beGone()
-                        showHidden = true
-                        fetchDirectories(true)
-                    }
+                binding.directoriesOverflowMenu.apply {
+                    val dark = OxygenThemeEngine.snapshot(activity, config).dark
+                    imageTintList = ColorStateList.valueOf(if (dark) Color.WHITE else Color.rgb(33, 33, 33))
+                    setOnClickListener { showPickerOptions() }
                 }
 
                 alertDialog.onBackPressedDispatcher.addCallback(alertDialog) {
@@ -143,6 +135,39 @@ class PickDirectoryDialog(
         }
 
         fetchDirectories(false)
+    }
+
+    /** A reversible, dialog-local reveal; Commons preferences are never rewritten. */
+    private fun showPickerOptions() {
+        val dark = OxygenThemeEngine.snapshot(activity, config).dark
+        val theme = if (dark) R.style.OxygenClassicPopupTheme_Dark else R.style.OxygenClassicPopupTheme_Light
+        val popup = PopupMenu(ContextThemeWrapper(activity, theme), binding.directoriesOverflowMenu, Gravity.END)
+        popup.menu.add(
+            0, 1, 0,
+            if (temporarilyRevealAll) R.string.picker_restore_default_folders
+            else R.string.picker_show_hidden_excluded_folders
+        )
+        popup.setOnMenuItemClickListener {
+            if (temporarilyRevealAll) {
+                temporarilyRevealAll = false
+                showHidden = config.shouldShowHidden
+                // A previously visible excluded ancestor may no longer exist after restoring filters.
+                currentPathPrefix = ""
+                openedSubfolders.clear()
+                openedSubfolders.add("")
+                fetchDirectories(false)
+            } else {
+                activity.handleHiddenFolderPasswordProtection {
+                    if (dialog?.isShowing == true) {
+                        temporarilyRevealAll = true
+                        showHidden = true
+                        fetchDirectories(true)
+                    }
+                }
+            }
+            true
+        }
+        popup.show()
     }
 
     private fun configureSearchView() = with(searchView) {
@@ -236,6 +261,7 @@ class PickDirectoryDialog(
                 binding.directoriesLoading.visibility = android.view.View.GONE
                 allDirectories.clear()
                 gotDirectories(activity.addTempFolderIfNeeded(directories))
+                filterFolderListBySearchQuery(searchEditText.text?.toString().orEmpty())
             }
         }
     }

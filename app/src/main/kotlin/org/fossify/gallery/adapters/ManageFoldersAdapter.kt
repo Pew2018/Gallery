@@ -4,7 +4,8 @@ import android.view.*
 import androidx.appcompat.widget.PopupMenu
 import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.adapters.MyRecyclerViewAdapter
-import org.fossify.commons.extensions.getPopupMenuTheme
+import org.fossify.gallery.helpers.OxygenThemeEngine
+import org.fossify.gallery.R
 import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.commons.extensions.setupViewBackground
 import org.fossify.commons.interfaces.RefreshRecyclerViewListener
@@ -83,7 +84,11 @@ class ManageFoldersAdapter(
 
     private fun showPopupMenu(view: View, folder: String) {
         finishActMode()
-        val theme = activity.getPopupMenuTheme()
+        val theme = if (OxygenThemeEngine.snapshot(activity, config).dark) {
+            R.style.OxygenClassicPopupTheme_Dark
+        } else {
+            R.style.OxygenClassicPopupTheme_Light
+        }
         val contextTheme = ContextThemeWrapper(activity, theme)
 
         PopupMenu(contextTheme, view, Gravity.END).apply {
