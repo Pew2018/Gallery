@@ -456,11 +456,23 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         if (mStoredTextColor != getProperTextColor()) {
             getRecyclerAdapter()?.updateTextColor(getProperTextColor())
+            if (mHomeGroupedActive) {
+                mHomeFavoriteAdapter?.updateTextColor(getProperTextColor())
+                mHomePinnedAdapter?.updateTextColor(getProperTextColor())
+                mHomeHeader?.notifyDataSetChanged()
+                mHomeOtherLabel?.notifyDataSetChanged()
+            }
         }
 
         val primaryColor = getProperPrimaryColor()
         if (mStoredPrimaryColor != primaryColor) {
             getRecyclerAdapter()?.updatePrimaryColor()
+            if (mHomeGroupedActive) {
+                mHomeFavoriteAdapter?.updatePrimaryColor()
+                mHomePinnedAdapter?.updatePrimaryColor()
+                mHomeHeader?.notifyDataSetChanged()
+                mHomeOtherLabel?.notifyDataSetChanged()
+            }
         }
 
         val styleString =
