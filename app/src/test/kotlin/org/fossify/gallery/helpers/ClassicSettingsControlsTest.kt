@@ -163,6 +163,7 @@ class ClassicSettingsControlsTest {
             val drawable = control.thumbDrawable
             fun pixel(vararg states: Int): Int {
                 drawable.state = states
+                drawable.jumpToCurrentState()
                 drawable.setBounds(0, 0, 28, 28)
                 val bitmap = Bitmap.createBitmap(28, 28, Bitmap.Config.ARGB_8888)
                 drawable.draw(Canvas(bitmap))
@@ -283,6 +284,7 @@ class ClassicSettingsControlsTest {
         assertTrue("Light off rail must render #D6D6D6",
             kotlin.math.abs(android.graphics.Color.red(edge) - android.graphics.Color.red(expected)) <= 18)
         track.state = intArrayOf()
+        track.jumpToCurrentState()
         image.eraseColor(android.graphics.Color.TRANSPARENT)
         track.draw(Canvas(image))
         val disabledEdge = (0 until height).map { image.getPixel(width / 2, it) }
@@ -673,7 +675,9 @@ class ClassicSettingsControlsTest {
                 val thumbCenter = thumbLeft + (14f * density + 0.5f).toInt()
                 val centerY = (14f * density + 0.5f).toInt()
                 assertEquals(expectedThumb, bitmap.getPixel(thumbCenter, centerY))
-                val railX = (24f * density + 0.5f).toInt()
+                // Sample the rail segment opposite the thumb so its soft shadow
+                // cannot darken the translucent track pixel under test.
+                val railX = ((if (checked) 19f else 29f) * density + 0.5f).toInt()
                 val railY = (7f * density + 0.5f).toInt()
                 val rail = bitmap.getPixel(railX, railY)
                 val expectedRailColor = when {
@@ -705,6 +709,7 @@ class ClassicSettingsControlsTest {
                 setPadding(0, 0, 0, 0)
                 layoutDirection = if (rtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
             }
+            control.isEnabled = true
             skin(control, false)
             val exact = (48f * density + 0.5f).toInt()
             control.measure(
@@ -716,6 +721,10 @@ class ClassicSettingsControlsTest {
             val page = tokens(false).pageBackground
             for (checked in listOf(false, true)) {
                 control.isChecked = checked
+                control.refreshDrawableState()
+                assertTrue("Native test control must remain enabled", control.isEnabled)
+                assertTrue("Native thumb must receive state_enabled",
+                    control.thumbDrawable.state.contains(android.R.attr.state_enabled))
                 control.jumpDrawablesToCurrentState()
                 val bitmap = Bitmap.createBitmap(exact, control.measuredHeight, Bitmap.Config.ARGB_8888)
                 val canvas = Canvas(bitmap)
@@ -730,8 +739,8 @@ class ClassicSettingsControlsTest {
                 val railColor = if (checked) palette.onTrack else palette.offTrack
                 val expectedRail = OxygenThemeColors.blend(page, railColor,
                     (railColor ushr 24) / 255.0)
-                val rail = bitmap.getPixel((24f * density + 0.5f).toInt(),
-                    (17f * density + 0.5f).toInt())
+                val railX = ((if (checked xor rtl) 19f else 29f) * density + 0.5f).toInt()
+                val rail = bitmap.getPixel(railX, (17f * density + 0.5f).toInt())
                 for (shift in listOf(16, 8, 0)) {
                     assertTrue("Native SwitchCompat rail pixel rtl=$rtl checked=$checked",
                         kotlin.math.abs(((expectedRail ushr shift) and 255) -
