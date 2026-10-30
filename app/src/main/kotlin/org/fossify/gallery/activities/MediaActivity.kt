@@ -862,6 +862,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         org.fossify.gallery.helpers.ToolbarQuickActions.COLUMNS,
                         org.fossify.gallery.helpers.ToolbarQuickActions.FILENAME -> viewType == VIEW_TYPE_GRID
                         org.fossify.gallery.helpers.ToolbarQuickActions.GROUP -> !config.scrollHorizontally
+                        org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW ->
+                            mMedia.any { it is Medium }
                         else -> true
                     }
                 }
@@ -1760,6 +1762,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
             checkLastMediaChanged()
             mMedia = ArrayList(media)
+            // The slideshow shortcut is only useful once at least one authorized
+            // media item has been published; refresh after cache and final scan.
+            if (org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW in
+                (if (mPath.isEmpty()) config.toolbarHomeActions else config.toolbarFolderActions)) {
+                refreshMenuItems()
+            }
             displayedMediaRequest = request
             displayedMediaIsFinal = !isFromCache
             binding.loadingIndicator.hide()
