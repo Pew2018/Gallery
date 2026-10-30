@@ -103,13 +103,7 @@ object ToolbarQuickActionsDialog {
             isFocusable = false
             contentDescription = activity.getString(R.string.quick_toolbar_fixed_browse_accessibility)
         }
-        val lock = ImageView(activity).apply {
-            setImageResource(R.drawable.ic_quick_lock_vector)
-            imageTintList = ColorStateList.valueOf(palette.secondaryText)
-            contentDescription = activity.getString(R.string.quick_toolbar_always_visible)
-        }
         browseRow.addView(browseCheck, LinearLayout.LayoutParams(0, dp(56), 1f))
-        browseRow.addView(lock, LinearLayout.LayoutParams(dp(24), dp(24)))
         fixedRows.addView(searchRow)
         fixedRows.addView(browseRow)
 
@@ -194,6 +188,9 @@ object ToolbarQuickActionsDialog {
                 val drag = ImageView(activity).apply {
                     setImageResource(R.drawable.oxygen_classic_drag_handle)
                     imageTintList = ColorStateList.valueOf(palette.secondaryText)
+                    // Keep a 48dp touch target while drawing the same 24dp glyph
+                    // used by the bottom-navigation ordering dialog.
+                    scaleType = ImageView.ScaleType.CENTER
                     contentDescription = activity.getString(R.string.quick_toolbar_drag)
                     isClickable = true
                     isFocusable = true

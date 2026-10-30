@@ -358,7 +358,6 @@
     <string name="quick_toolbar_optional_section">Optional shortcuts</string>
     <string name="quick_toolbar_browse_view">Switch browse view</string>
     <string name="quick_toolbar_fixed_browse_accessibility">Switch browse view, always visible</string>
-    <string name="quick_toolbar_always_visible">Always visible</string>
     <string name="quick_toolbar_done">Save</string>
     <string name="quick_toolbar_reset">Reset</string>
     <string name="quick_action_sort">Sort by</string>
