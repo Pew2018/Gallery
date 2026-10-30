@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="album_home_pinned">置顶相册</string>
+    <string name="album_home_other">其他相册</string>
+    <string name="album_home_expand">查看全部</string>
+    <string name="album_home_collapse">收起</string>
+    <string name="album_home_expand_description">展开全部置顶相册</string>
+    <string name="album_home_collapse_description">收起置顶相册</string>
     <string name="app_launcher_name">图库</string>
     <string name="edit">编辑</string>
     <string name="open_camera">打开相机</string>
