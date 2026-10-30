@@ -34,7 +34,8 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
                     methods++;
                     return new MethodVisitor(Opcodes.ASM9, target) {
                         @Override public void visitMethodInsn(int opcode, String owner, String called, String descriptor, boolean itf) {
-                            boolean show = opcode == Opcodes.INVOKEVIRTUAL && owner.equals("androidx/appcompat/app/AlertDialog")
+                            boolean show = opcode == Opcodes.INVOKEVIRTUAL && (owner.equals("androidx/appcompat/app/AlertDialog") || owner.equals("android/app/Dialog")
+                                || owner.equals("androidx/appcompat/app/AppCompatDialog"))
                                 && called.equals("show") && descriptor.equals("()V");
                             if (show) super.visitInsn(Opcodes.DUP);
                             super.visitMethodInsn(opcode, owner, called, descriptor, itf);
@@ -48,6 +49,17 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
                             }
                         }
                     };
+                }
+                if (breadcrumbs && method.equals("handleRootStickiness") && desc.equals("(I)V")) {
+                    methods++;
+                    target.visitCode();
+                    target.visitVarInsn(Opcodes.ALOAD, 0);
+                    target.visitVarInsn(Opcodes.ILOAD, 1);
+                    target.visitMethodInsn(Opcodes.INVOKESTATIC, hook, "positionBreadcrumbRoot", "(Landroid/view/ViewGroup;I)V", false);
+                    target.visitInsn(Opcodes.RETURN);
+                    target.visitMaxs(2, 2);
+                    target.visitEnd();
+                    return null;
                 }
                 if (breadcrumbs && (method.equals("recomputeStickyRootLocation") || method.equals("setBreadcrumb")
                     || method.equals("onScrollChanged") || method.equals("scrollToSelectedItem"))) {
@@ -93,7 +105,7 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
             }
             @Override public void visitEnd() {
                 // Fail closed if a future Commons update changes the patched structure.
-                if ((activity && (methods != 1 || shows != 2)) || (breadcrumbs && methods != 4)) {
+                if ((activity && (methods != 1 || shows != 2)) || (breadcrumbs && methods != 5)) {
                     throw new IllegalStateException("Commons 7.1.3 classic patch mismatch: " + name + " methods=" + methods + " shows=" + shows);
                 }
                 super.visitEnd();

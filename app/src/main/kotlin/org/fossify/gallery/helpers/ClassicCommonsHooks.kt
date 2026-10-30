@@ -65,6 +65,18 @@ object ClassicCommonsHooks {
     }
 
     @JvmStatic
+    fun positionBreadcrumbRoot(view: ViewGroup, scrollX: Int) {
+        val items = view.getChildAt(0) as? ViewGroup ?: return
+        val root = items.getChildAt(0) ?: return
+        val offset = if (view.layoutDirection == View.LAYOUT_DIRECTION_RTL) {
+            minOf(0, scrollX + view.width - view.paddingRight - items.left - root.right)
+        } else {
+            maxOf(0, scrollX + view.paddingLeft - items.left - root.left)
+        }
+        root.translationX = offset.toFloat()
+    }
+
+    @JvmStatic
     fun hasBreadcrumbItems(view: ViewGroup): Boolean =
         ((view.getChildAt(0) as? ViewGroup)?.childCount ?: 0) > 0
 

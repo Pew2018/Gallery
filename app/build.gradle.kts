@@ -5,7 +5,7 @@ import org.jetbrains.kotlin.konan.properties.Properties
 import java.io.FileInputStream
 
 plugins {
-    alias(libs.plugins.android)
+    id("com.android.application")
     alias(libs.plugins.ksp)
     alias(libs.plugins.detekt)
 }

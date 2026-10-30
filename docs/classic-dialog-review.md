@@ -4,7 +4,7 @@ Base: `c4032b0c5c97dec3969308085edb749083cba038`; Commons `7.1.3` (upstream tag 
 
 ## Adaptation choice
 
-Resource overlays alone cannot win over Commons setupDialogStuff's late Window background or repair Breadcrumbs Kotlin coordinates. Copying FilePickerDialog/PropertiesDialog would duplicate SAF, EXIF and security business code. Instead AGP's supported ASM instrumentation API adds a presentation hook at both show sites in that one fixed Commons method, and four narrow Breadcrumbs lifecycle/geometry methods. A version guard and exact method/show-site counts stop an incompatible dependency update. No reflection, replacement library, runtime class loading or private-field access is used. ASM 9.7.1 is build-time only. All existing business callbacks remain in Commons.
+Resource overlays alone cannot win over Commons setupDialogStuff's late Window background or repair Breadcrumbs Kotlin coordinates. Copying FilePickerDialog/PropertiesDialog would duplicate SAF, EXIF and security business code. Instead AGP's supported ASM instrumentation API adds a presentation hook at both show sites in that one fixed Commons method, and five narrow Breadcrumbs lifecycle/geometry methods. A version guard and exact method/show-site counts stop an incompatible dependency update. No reflection, replacement library, runtime class loading or private-field access is used. ASM 9.7.1 is build-time only. All existing business callbacks remain in Commons.
 
 The first pre-draw applies the final neutral surface after Commons background/font/callback passes. Global-layout invalidation handles newly appended EXIF rows; per-view palette tags prevent repeated drawable allocation and ripple resets. The observer removes itself on detach. Gallery direct Builder.show sites use the same hook; existing explicit classic calls remain idempotent.
 
@@ -18,7 +18,7 @@ The first pre-draw applies the final neutral surface after Commons background/fo
 | EXIF and all other confirmations | Commons removeEXIFFromPath(s) + Gallery ConfirmationDialog callers | dialog_message / shared first-draw hook | stacked scrim and return to parent |
 | Create folder | MainActivity, MediaActivity, FilePickerDialog / Commons CreateNewFolderDialog | dialog_create_new_folder / existing MyTextInputLayout API with classic underline | IME, SAF/SD/OTG, long readonly path |
 | Folder and file pickers | All FilePickerDialog callers and PickDirectoryDialog | dialog_filepicker, dialog_directory_picker / ClassicDialogPickerLayout, shared FAB styling | loading/empty/favorites/hidden, permission checks |
-| Breadcrumb ripple | All Commons Breadcrumbs instances, including FilePickerDialog | item_breadcrumb + breadcrumb_button_background + four bounded build hooks | real touch/scroll/RTL recording |
+| Breadcrumb ripple | All Commons Breadcrumbs instances, including FilePickerDialog | item_breadcrumb + breadcrumb_button_background + five bounded build hooks | real touch/scroll/RTL recording |
 
 ## Confirmed source defects and bounded corrections
 
@@ -120,3 +120,5 @@ Searched pattern: `AlertDialog|MaterialAlertDialogBuilder|getAlertDialogBuilder|
 ## CI correction history
 
 Initial run 41009677924 stopped during Gradle configuration: a compile-only AGP dependency left AsmClassVisitorFactory unavailable to buildSrc at runtime. The adapter now depends on AGP's public gradle-api artifact at runtime, avoiding inclusion of the whole plugin. Review also replaced a Java synthetic property with its explicit TabLayout setter and guarded redundant FLAG_SECURE updates to avoid repeated window traversals.
+
+Run 41009845076 exposed an AGP plugin marker already present with an unknown version on buildSrc's shared classpath. AGP 9.2.1 is now loaded once by buildSrc, and root/app use the unversioned plugin ID from that classpath; no AGP upgrade. A follow-up review identified the original sticky-root algorithm's LTR-only threshold. Its five-method presentation patch now positions the root against the appropriate viewport edge in both LTR and RTL; a regression covers both directions.

@@ -105,6 +105,26 @@ class ClassicDialogTest {
         assertEquals(0, ClassicCommonsHooks.breadcrumbRootLeft(scroll))
     }
 
+    @Test fun stickyRootTracksTheViewportInBothLayoutDirections() {
+        val scroll = FrameLayout(activity)
+        val items = LinearLayout(activity)
+        val root = TextView(activity)
+        scroll.addView(items); items.addView(root)
+        scroll.layout(37, 0, 337, 100)
+        items.layout(0, 0, 600, 100)
+        root.layout(0, 0, 100, 48)
+        ClassicCommonsHooks.positionBreadcrumbRoot(scroll, 80)
+        assertEquals(80f, root.translationX, 0f)
+        ClassicCommonsHooks.positionBreadcrumbRoot(scroll, 0)
+        assertEquals(0f, root.translationX, 0f)
+        scroll.layoutDirection = View.LAYOUT_DIRECTION_RTL
+        root.layout(500, 0, 600, 48)
+        ClassicCommonsHooks.positionBreadcrumbRoot(scroll, 300)
+        assertEquals(0f, root.translationX, 0f)
+        ClassicCommonsHooks.positionBreadcrumbRoot(scroll, 200)
+        assertEquals(-100f, root.translationX, 0f)
+    }
+
     @Test fun rebuildAndScrollClearOldPressAndEachItemHasItsOwnBoundedMask() {
         val scroll = FrameLayout(activity)
         val items = LinearLayout(activity)
