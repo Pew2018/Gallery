@@ -4,6 +4,8 @@ import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.Color
+import android.content.res.ColorStateList
+import androidx.core.graphics.ColorUtils
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Icon
 import android.text.TextUtils
@@ -71,6 +73,7 @@ import org.fossify.commons.views.MyRecyclerView
 import org.fossify.gallery.R
 import org.fossify.gallery.activities.MediaActivity
 import org.fossify.gallery.databinding.DirectoryItemGridRoundedCornersBinding
+import org.fossify.gallery.databinding.DirectoryItemHomeGridBinding
 import org.fossify.gallery.databinding.DirectoryItemGridSquareBinding
 import org.fossify.gallery.databinding.DirectoryItemListBinding
 import org.fossify.gallery.dialogs.ConfirmDeleteFolderDialog
@@ -100,6 +103,7 @@ import org.fossify.gallery.helpers.FOLDER_STYLE_SQUARE
 import org.fossify.gallery.helpers.LOCATION_INTERNAL
 import org.fossify.gallery.helpers.LOCATION_SD
 import org.fossify.gallery.helpers.OxygenThumbnailPlaceholder
+import org.fossify.gallery.helpers.OxygenThemeEngine
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.OxygenSelectionMode
@@ -126,6 +130,7 @@ class DirectoryAdapter(
     val swipeRefreshLayout: SwipeRefreshLayout? = null,
     val embeddedPinnedWidthPx: Int = 0,
     val compactVirtualFavorite: Boolean = false,
+    val homeGrid: Boolean = false,
     val allowDragSelection: Boolean = true,
     val fullVisibleAlbumOrder: (() -> List<String>)? = null,
     itemClick: (Any) -> Unit
@@ -135,6 +140,7 @@ class DirectoryAdapter(
 
     private val config = activity.config
     private val isListViewType = compactVirtualFavorite || (config.viewTypeFolders == VIEW_TYPE_LIST && embeddedPinnedWidthPx == 0)
+    private val inHomeCard = homeGrid && !isListViewType
     private var pinnedFolders = config.pinnedFolders
     private var scrollHorizontally = config.scrollHorizontally || embeddedPinnedWidthPx > 0
     private var animateGifs = config.animateGifs
@@ -170,13 +176,14 @@ class DirectoryAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val binding = when {
             isListViewType -> DirectoryItemListBinding.inflate(layoutInflater, parent, false)
+            inHomeCard -> DirectoryItemHomeGridBinding.inflate(layoutInflater, parent, false)
             folderStyle == FOLDER_STYLE_SQUARE -> DirectoryItemGridSquareBinding.inflate(layoutInflater, parent, false)
             else -> DirectoryItemGridRoundedCornersBinding.inflate(layoutInflater, parent, false)
         }
 
         if (embeddedPinnedWidthPx > 0) {
             binding.root.layoutParams = RecyclerView.LayoutParams(
-                embeddedPinnedWidthPx, embeddedPinnedWidthPx
+                embeddedPinnedWidthPx, ViewGroup.LayoutParams.WRAP_CONTENT
             )
         }
         return createViewHolder(binding.root)
@@ -983,7 +990,7 @@ class DirectoryAdapter(
                 dirHolder.isSelected = isSelected
             }
 
-            if (scrollHorizontally && !isListViewType && folderStyle == FOLDER_STYLE_ROUNDED_CORNERS) {
+            if (scrollHorizontally && !isListViewType && !inHomeCard && folderStyle == FOLDER_STYLE_ROUNDED_CORNERS) {
                 (dirThumbnail.layoutParams as RelativeLayout.LayoutParams).addRule(RelativeLayout.ABOVE, dirName.id)
 
                 val photoCntParams = (photoCnt.layoutParams as RelativeLayout.LayoutParams)
@@ -1009,12 +1016,23 @@ class DirectoryAdapter(
                 dirThumbnail.setImageDrawable(null)
                 dirThumbnail.tag = null
                 dirLock.beVisible()
-                dirLock.background = ColorDrawable(root.context.getProperBackgroundColor())
-                dirLock.applyColorFilter(root.context.getProperBackgroundColor().getContrastColor())
+                if (inHomeCard) {
+                    val theme = OxygenThemeEngine.snapshot(activity, config)
+                    val shade = ColorUtils.blendARGB(theme.pageBackground, theme.primaryText,
+                        if (theme.dark) 0.15f else 0.06f)
+                    dirLock.background = ColorDrawable(shade)
+                    dirLock.imageTintList = ColorStateList.valueOf(theme.secondaryText)
+                    dirLock.setImageResource(R.drawable.ic_album_lock_outline)
+                } else {
+                    dirLock.background = ColorDrawable(root.context.getProperBackgroundColor())
+                    dirLock.applyColorFilter(root.context.getProperBackgroundColor().getContrastColor())
+                }
             } else {
                 dirLock.beGone()
                 val roundedCorners = when {
                     isListViewType -> ROUNDED_CORNERS_SMALL
+                    inHomeCard && folderStyle == FOLDER_STYLE_SQUARE -> ROUNDED_CORNERS_NONE
+                    inHomeCard -> ROUNDED_CORNERS_SMALL
                     folderStyle == FOLDER_STYLE_SQUARE -> ROUNDED_CORNERS_NONE
                     else -> ROUNDED_CORNERS_BIG
                 }
@@ -1033,7 +1051,7 @@ class DirectoryAdapter(
                     type = thumbnailType,
                     path = directory.tmb,
                     target = dirThumbnail,
-                    horizontalScroll = scrollHorizontally,
+                    horizontalScroll = scrollHorizontally && !inHomeCard,
                     animateGifs = animateGifs,
                     cropThumbnails = cropThumbnails,
                     roundCorners = roundedCorners,
@@ -1045,7 +1063,7 @@ class DirectoryAdapter(
                 )
             }
 
-            dirPin.beVisibleIf(pinnedFolders.contains(directory.path))
+            dirPin.beVisibleIf(!inHomeCard && pinnedFolders.contains(directory.path))
             dirLocation.beVisibleIf(directory.location != LOCATION_INTERNAL)
             if (dirLocation.isVisible()) {
                 dirLocation.setImageResource(if (directory.location == LOCATION_SD) org.fossify.commons.R.drawable.ic_sd_card_vector else org.fossify.commons.R.drawable.ic_usb_vector)
@@ -1053,16 +1071,23 @@ class DirectoryAdapter(
 
             val favoritesLocked = directory.path == FAVORITES &&
                 (config.isFavoritePasswordProtectionOn || config.isFolderProtected(FAVORITES))
-            photoCnt.text = directory.subfoldersMediaCount.toString()
-            photoCnt.beVisibleIf(!favoritesLocked && showMediaCount == FOLDER_MEDIA_CNT_LINE)
+            val isProtected = lockedFolderPaths.contains(directory.path) || favoritesLocked
+            photoCnt.text = if (inHomeCard) {
+                if (isProtected) activity.getString(R.string.album_home_locked)
+                else activity.getString(R.string.album_home_items, directory.subfoldersMediaCount)
+            } else directory.subfoldersMediaCount.toString()
+            photoCnt.beVisibleIf(
+                if (inHomeCard) isProtected || showMediaCount != 0
+                else !favoritesLocked && showMediaCount == FOLDER_MEDIA_CNT_LINE
+            )
 
-            if (limitFolderTitle) {
+            if (limitFolderTitle && !inHomeCard) {
                 dirName.setSingleLine()
                 dirName.ellipsize = TextUtils.TruncateAt.MIDDLE
             }
 
             var nameCount = directory.name
-            if (!favoritesLocked && showMediaCount == FOLDER_MEDIA_CNT_BRACKETS) {
+            if (!favoritesLocked && !inHomeCard && showMediaCount == FOLDER_MEDIA_CNT_BRACKETS) {
                 nameCount += " (${directory.subfoldersMediaCount})"
             }
 
@@ -1081,7 +1106,12 @@ class DirectoryAdapter(
             // Rounded grid labels are drawn over the photo scrim except when
             // horizontal scrolling places the caption below the thumbnail.
             // In the overlay case, normal page text would be unreadable.
-            if (isListViewType || (folderStyle == FOLDER_STYLE_ROUNDED_CORNERS && scrollHorizontally)) {
+            if (inHomeCard) {
+                val theme = OxygenThemeEngine.snapshot(activity, config)
+                dirName.setTextColor(theme.primaryText)
+                photoCnt.setTextColor(theme.secondaryText)
+                dirLocation.imageTintList = ColorStateList.valueOf(theme.secondaryText)
+            } else if (isListViewType || (folderStyle == FOLDER_STYLE_ROUNDED_CORNERS && scrollHorizontally)) {
                 photoCnt.setTextColor(textColor)
                 dirName.setTextColor(textColor)
                 dirLocation.applyColorFilter(textColor)
@@ -1141,6 +1171,7 @@ class DirectoryAdapter(
     private fun bindItem(view: View): DirectoryItemBinding {
         return when {
             isListViewType -> DirectoryItemListBinding.bind(view).toItemBinding()
+            inHomeCard -> DirectoryItemHomeGridBinding.bind(view).toItemBinding()
             folderStyle == FOLDER_STYLE_SQUARE -> DirectoryItemGridSquareBinding.bind(view).toItemBinding()
             else -> DirectoryItemGridRoundedCornersBinding.bind(view).toItemBinding()
         }
