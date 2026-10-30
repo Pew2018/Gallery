@@ -81,6 +81,7 @@ import org.fossify.gallery.extensions.updateDBMediaPath
 import org.fossify.gallery.extensions.updateFavorite
 import org.fossify.gallery.extensions.updateFavoritePaths
 import org.fossify.gallery.extensions.ensureFavoriteAddAllowed
+import org.fossify.gallery.helpers.FastScrollerBubble
 import org.fossify.gallery.helpers.OxygenThumbnailPlaceholder
 import org.fossify.gallery.helpers.OxygenSelectionMode
 import org.fossify.gallery.helpers.PATH
@@ -798,12 +799,10 @@ class MediaAdapter(
     }
 
     override fun onChange(position: Int): String {
-        var realIndex = position
-        if (isASectionTitle(position)) {
-            realIndex++
-        }
-
-        return (media[realIndex] as? Medium)?.getBubbleText(sorting, activity, dateFormat, timeFormat) ?: ""
+        val mediaPosition = FastScrollerBubble.findMediaIndex(media, position)
+        val medium = mediaPosition?.let { media.getOrNull(it) as? Medium }
+        return medium?.getBubbleText(sorting, activity, dateFormat, timeFormat)
+            ?: activity.getString(R.string.unknown_file_location)
     }
 
     private fun bindItem(view: View, medium: Medium): MediaItemBinding {

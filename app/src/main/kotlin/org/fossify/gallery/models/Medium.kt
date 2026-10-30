@@ -6,6 +6,7 @@ import com.bumptech.glide.signature.ObjectKey
 import org.fossify.commons.extensions.*
 import org.fossify.commons.helpers.*
 import org.fossify.commons.models.FileDirItem
+import org.fossify.gallery.R
 import org.fossify.gallery.helpers.*
 import java.io.File
 import java.io.Serializable
@@ -58,13 +59,20 @@ data class Medium(
 
     fun isHeic() = name.lowercase(Locale.getDefault()).endsWith(".heic") || name.lowercase(Locale.getDefault()).endsWith(".heif")
 
-    fun getBubbleText(sorting: Int, context: Context, dateFormat: String, timeFormat: String) = when {
-        sorting and SORT_BY_NAME != 0 -> name
-        sorting and SORT_BY_PATH != 0 -> path
-        sorting and SORT_BY_SIZE != 0 -> size.formatSize()
-        sorting and SORT_BY_DATE_MODIFIED != 0 -> modified.formatDate(context, dateFormat, timeFormat)
-        sorting and SORT_BY_RANDOM != 0 -> name
-        else -> taken.formatDate(context)
+    fun getBubbleText(sorting: Int, context: Context, dateFormat: String, timeFormat: String): String {
+        val fallback = FastScrollerBubble.displayName(name, path, context.getString(R.string.unknown_file_location))
+        return when {
+            sorting and SORT_BY_NAME != 0 -> fallback
+            sorting and SORT_BY_PATH != 0 -> path.ifBlank { fallback }
+            sorting and SORT_BY_SIZE != 0 -> size.formatSize()
+            sorting and SORT_BY_DATE_MODIFIED != 0 ->
+                FastScrollerBubble.dateOrFallback(modified, fallback) {
+                    modified.formatDate(context, dateFormat, timeFormat)
+                }
+            sorting and SORT_BY_RANDOM != 0 -> fallback
+            sorting and SORT_BY_CUSTOM != 0 -> fallback
+            else -> FastScrollerBubble.dateOrFallback(taken, fallback) { taken.formatDate(context) }
+        }
     }
 
     fun getGroupingKey(groupBy: Int): String {

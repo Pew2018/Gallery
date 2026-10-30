@@ -1,24 +1,24 @@
 package org.fossify.gallery.helpers
 
-import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.InsetDrawable
 import android.util.TypedValue
-import android.view.TouchDelegate
+import android.view.MotionEvent
 import android.view.View
 import androidx.recyclerview.widget.RecyclerView
 import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 import org.fossify.gallery.R
-import kotlin.math.abs
 
-/** Style the library's existing viewport and popup without replacing its scroll logic. */
+/** Keeps the library's drag state machine and popup callbacks while applying the classic Gallery style. */
 object OxygenFastScroller {
     fun apply(
-        scroller: RecyclerViewFastScroller, recycler: RecyclerView,
-        tokens: OxygenThemeTokens, bottomBar: Int = 0
+        scroller: RecyclerViewFastScroller,
+        recycler: RecyclerView,
+        tokens: OxygenThemeTokens,
+        bottomBar: Int = 0
     ) {
         val density = scroller.resources.displayMetrics.density
         fun dp(value: Int) = (value * density + 0.5f).toInt()
+
         scroller.updateColors(tokens.interactiveAccent)
         scroller.popupTextView.apply {
             setPadding(dp(10), dp(6), dp(10), dp(6))
@@ -26,118 +26,104 @@ object OxygenFastScroller {
             setTextColor(tokens.toolbarForeground)
             minWidth = 0
             minHeight = 0
-            maxWidth = (resources.displayMetrics.widthPixels - dp(32)).coerceAtLeast(dp(48))
+            val availableWidth = scroller.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+            maxWidth = (availableWidth - dp(32)).coerceAtLeast(dp(48))
+            setSingleLine(true)
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = android.view.Gravity.CENTER
             background = GradientDrawable().apply {
                 setColor(tokens.toolbarBackground)
                 cornerRadius = dp(3).toFloat()
             }
         }
-        // The drawable remains 4dp wide, while the View provides a forgiving
-        // 24dp target for direct thumb drags.
-        scroller.handleWidth = dp(24)
-        scroller.handleHeight = dp(36)
-        scroller.handleDrawable = InsetDrawable(GradientDrawable().apply {
+
+        val vertical = scroller.fastScrollDirection ==
+            RecyclerViewFastScroller.FastScrollDirection.VERTICAL
+        // The ImageView is the full 48dp hit target; its centered drawable stays 4dp wide.
+        // Horizontal mode uses a 48dp cross-track target and a thin horizontal thumb.
+        scroller.handleWidth = if (vertical) dp(48) else dp(36)
+        scroller.handleHeight = if (vertical) dp(36) else dp(48)
+        val thumb = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.thumbIV)
+        thumb.setPadding(0, 0, 0, 0)
+        scroller.handleDrawable = GradientDrawable().apply {
             setColor(tokens.interactiveAccent)
             cornerRadius = dp(2).toFloat()
-            setSize(dp(4), dp(36))
-        }, dp(10), 0, dp(10), 0)
-        // The bottom bar overlays the RecyclerView. Shorten only the vertical
-        // track so its popup and final touch position stay above that overlay.
-        scroller.trackMarginEnd = if (scroller.fastScrollDirection ==
-            RecyclerViewFastScroller.FastScrollDirection.VERTICAL) bottomBar else 0
+            setSize(if (vertical) dp(4) else dp(36), if (vertical) dp(36) else dp(4))
+        }
+
+        // The bottom bar overlays the RecyclerView; keep the track inside the usable viewport.
+        scroller.trackMarginEnd = if (vertical) bottomBar else 0
         scroller.requestLayout()
 
         val track = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.trackView)
-        val vertical = scroller.fastScrollDirection == RecyclerViewFastScroller.FastScrollDirection.VERTICAL
-        var tapPosition = 0f
-        var touchStart = 0f
-        var moved = false
-        track.isClickable = true
-
-        fun seekTo(position: Float) {
-            val adapter = recycler.adapter ?: return
-            val count = adapter.itemCount
-            if (count < 2) return
-            val length = if (vertical) track.height else track.width
-            val handle = if (vertical) scroller.handleHeight else scroller.handleWidth
-            val usable = (length - handle).coerceAtLeast(1)
-            val fraction = ((position - handle / 2f) / usable).coerceIn(0f, 1f)
-            recycler.scrollToPosition(((count - 1) * fraction).toInt())
-        }
-
-        track.setOnTouchListener { view, event ->
-            val position = if (vertical) event.y else event.x
-            when (event.actionMasked) {
-                android.view.MotionEvent.ACTION_DOWN -> {
-                    tapPosition = position
-                    touchStart = position
-                    moved = false
-                    true
-                }
-                android.view.MotionEvent.ACTION_MOVE -> {
-                    if (abs(position - touchStart) > dp(5)) moved = true
-                    if (moved) seekTo(position)
-                    true
-                }
-                android.view.MotionEvent.ACTION_UP -> {
-                    tapPosition = position
-                    if (moved) seekTo(position) else view.performClick()
-                    true
-                }
-                android.view.MotionEvent.ACTION_CANCEL -> true
-                else -> true
+        // This routes track presses through the library's handle listener. The library owns the
+        // only drag state machine, scroll calculation, popup update and release/cancel callbacks.
+        track.setOnTouchListener { _, event ->
+            val forwarded = MotionEvent.obtain(event)
+            val trackLocation = IntArray(2)
+            val thumbLocation = IntArray(2)
+            track.getLocationInWindow(trackLocation)
+            thumb.getLocationInWindow(thumbLocation)
+            forwarded.offsetLocation(
+                (trackLocation[0] - thumbLocation[0]).toFloat(),
+                (trackLocation[1] - thumbLocation[1]).toFloat()
+            )
+            try {
+                thumb.dispatchTouchEvent(forwarded)
+            } finally {
+                forwarded.recycle()
             }
         }
-        track.setOnClickListener { seekTo(tapPosition) }
-        scroller.post {
-            if (!scroller.isAttachedToWindow || track.width == 0 || track.height == 0) return@post
-            val hitBounds = Rect(track.left - dp(10), track.top, track.right + dp(10), track.bottom)
-            scroller.touchDelegate = TouchDelegate(hitBounds, track)
+
+        fun updateAvailability() {
+            val canScroll = if (scroller.fastScrollDirection ==
+                RecyclerViewFastScroller.FastScrollDirection.VERTICAL
+            ) {
+                recycler.canScrollVertically(-1) || recycler.canScrollVertically(1)
+            } else {
+                recycler.canScrollHorizontally(-1) || recycler.canScrollHorizontally(1)
+            }
+            scroller.isFastScrollEnabled = canScroll
+            track.isEnabled = canScroll
+            thumb.isEnabled = canScroll
+            thumb.isClickable = canScroll
+            thumb.isFocusable = canScroll
+            val scale = if (canScroll) 1f else 0f
+            thumb.scaleX = scale
+            thumb.scaleY = scale
         }
 
+        // Register one observer set per view instance; apply() is called again on resume/theme changes.
         if (scroller.getTag(R.id.classic_fast_scroll_observer) != true) {
             scroller.setTag(R.id.classic_fast_scroll_observer, true)
-            fun updateAvailability() {
-                val vertical = scroller.fastScrollDirection == RecyclerViewFastScroller.FastScrollDirection.VERTICAL
-                val canScroll = if (vertical) recycler.canScrollVertically(-1) || recycler.canScrollVertically(1)
-                    else recycler.canScrollHorizontally(-1) || recycler.canScrollHorizontally(1)
-                scroller.isFastScrollEnabled = canScroll
-                // Keep the touch target and popup in sync with availability.
-                // In particular, restore them when a later adapter update makes
-                // the list scrollable again.
-                val scale = if (canScroll) 1f else 0f
-                scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.thumbIV)?.apply {
-                    scaleX = scale
-                    scaleY = scale
-                    isClickable = canScroll
-                    isFocusable = canScroll
-                }
-                scroller.popupTextView.apply {
-                    scaleX = scale
-                    scaleY = scale
-                }
+            recycler.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                updateAvailability()
             }
-            recycler.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateAvailability() }
             recycler.addOnScrollListener(object : RecyclerView.OnScrollListener() {
                 override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                     updateAvailability()
                 }
             })
-            recycler.post { updateAvailability() }
         }
-        // The library's last-position estimate can stop one row early in a grid.
-        // Correct only an actual endpoint release, leaving ordinary drags alone.
+        scroller.post { updateAvailability() }
+
+        // The dependency estimates positions from item counts, which can stop at a partial grid row.
+        // Correct only an actual endpoint release, using measured remaining scroll range.
         var endpoint = 0
         scroller.setHandleStateListener(object : RecyclerViewFastScroller.HandleStateListener {
-            override fun onEngaged() { endpoint = 0 }
+            override fun onEngaged() {
+                endpoint = 0
+            }
 
             override fun onDragged(offset: Float, position: Int) {
-                val track = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.trackView)
-                val vertical = scroller.fastScrollDirection == RecyclerViewFastScroller.FastScrollDirection.VERTICAL
-                val length = if (vertical) track.height else track.width
-                val handle = if (vertical) scroller.handleHeight else scroller.handleWidth
-                if (length <= handle) { endpoint = 0; return }
+                val length = if (scroller.fastScrollDirection ==
+                    RecyclerViewFastScroller.FastScrollDirection.VERTICAL
+                ) track.height else track.width
+                val handle = if (scroller.fastScrollDirection ==
+                    RecyclerViewFastScroller.FastScrollDirection.VERTICAL
+                ) scroller.handleHeight else scroller.handleWidth
                 endpoint = when {
+                    length <= handle -> 0
                     offset <= dp(2) -> -1
                     offset >= length - handle - dp(2) -> 1
                     else -> 0
@@ -149,16 +135,20 @@ object OxygenFastScroller {
                 endpoint = 0
                 if (edge == 0) return
                 val adapter = recycler.adapter ?: return
-                val count = adapter.itemCount
-                if (count == 0) return
-                recycler.scrollToPosition(if (edge < 0) 0 else count - 1)
+                if (adapter.itemCount == 0) return
+                recycler.scrollToPosition(if (edge < 0) 0 else adapter.itemCount - 1)
                 recycler.post {
-                    if (recycler.adapter !== adapter || !recycler.isAttachedToWindow) return@post
-                    val vertical = scroller.fastScrollDirection == RecyclerViewFastScroller.FastScrollDirection.VERTICAL
-                    val distance = if (vertical) recycler.computeVerticalScrollRange()
+                    if (!recycler.isAttachedToWindow || recycler.adapter !== adapter) return@post
+                    val verticalNow = scroller.fastScrollDirection ==
+                        RecyclerViewFastScroller.FastScrollDirection.VERTICAL
+                    val range = if (verticalNow) recycler.computeVerticalScrollRange()
                         else recycler.computeHorizontalScrollRange()
-                    if (vertical) recycler.scrollBy(0, if (edge < 0) -distance else distance)
-                    else recycler.scrollBy(if (edge < 0) -distance else distance, 0)
+                    val extent = if (verticalNow) recycler.computeVerticalScrollExtent()
+                        else recycler.computeHorizontalScrollExtent()
+                    val offset = if (verticalNow) recycler.computeVerticalScrollOffset()
+                        else recycler.computeHorizontalScrollOffset()
+                    val distance = if (edge < 0) -offset else (range - extent - offset).coerceAtLeast(0)
+                    if (verticalNow) recycler.scrollBy(0, distance) else recycler.scrollBy(distance, 0)
                 }
             }
         })
