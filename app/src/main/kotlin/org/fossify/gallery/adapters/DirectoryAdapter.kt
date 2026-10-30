@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.content.res.ColorStateList
 import androidx.core.graphics.ColorUtils
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.Icon
 import android.text.TextUtils
 import android.view.Menu
@@ -951,6 +952,32 @@ class DirectoryAdapter(
         } ?: RecyclerView.NO_ID
     }
 
+    /**
+     * Pinned-section toggles are small, user-triggered operations. Dispatching
+     * their insert/removal on the UI thread lets RecyclerView animate them in
+     * the same frame as the collapsing / expanding section header. Ordinary
+     * directory refreshes continue to use the asynchronous DiffUtil path.
+     */
+    fun updateHomeExpandedDirs(newDirs: ArrayList<Directory>) {
+        val next = ArrayList(newDirs)
+        val old = ArrayList(dirs)
+        if (old == next) return
+        // Invalidate any in-flight asynchronous diff for this adapter.
+        diffGeneration++
+        val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+            override fun getOldListSize() = old.size
+            override fun getNewListSize() = next.size
+            override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int) =
+                old[oldItemPosition].path == next[newItemPosition].path
+            override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int) =
+                old[oldItemPosition] == next[newItemPosition]
+        })
+        dirs = next
+        currentDirectoriesHash = next.hashCode()
+        fillLockedFolders()
+        diff.dispatchUpdatesTo(this)
+    }
+
     fun updateDirs(newDirs: ArrayList<Directory>) {
         val directories = ArrayList(newDirs)
         if (directories.hashCode() == currentDirectoriesHash) {
@@ -1070,7 +1097,7 @@ class DirectoryAdapter(
                     }
                     val theme = OxygenThemeEngine.snapshot(activity, config)
                     val shade = ColorUtils.blendARGB(theme.pageBackground, theme.primaryText,
-                        if (theme.dark) 0.15f else 0.06f)
+                        if (theme.dark) 0.12f else 0.035f)
                     dirLock.background = ColorDrawable(shade)
                     dirLock.imageTintList = ColorStateList.valueOf(theme.secondaryText)
                     dirLock.setImageResource(R.drawable.ic_album_lock_outline)
@@ -1114,7 +1141,7 @@ class DirectoryAdapter(
                 )
             }
 
-            dirPin.beVisibleIf(!inHomeCard && pinnedFolders.contains(directory.path))
+            dirPin.beVisibleIf(!inHomeCard && !compactVirtualFavorite && pinnedFolders.contains(directory.path))
             dirLocation.beVisibleIf(directory.location != LOCATION_INTERNAL)
             if (dirLocation.isVisible()) {
                 dirLocation.setImageResource(if (directory.location == LOCATION_SD) org.fossify.commons.R.drawable.ic_sd_card_vector else org.fossify.commons.R.drawable.ic_usb_vector)
@@ -1159,6 +1186,15 @@ class DirectoryAdapter(
             // In the overlay case, normal page text would be unreadable.
             if (inHomeCard) {
                 val theme = OxygenThemeEngine.snapshot(activity, config)
+                // The whole tile is clickable. Use a bounded theme-colored
+                // Material ripple rather than relying on a legacy selector.
+                root.foreground = RippleDrawable(
+                    ColorStateList.valueOf(ColorUtils.setAlphaComponent(
+                        theme.interactiveAccent, if (theme.dark) 48 else 32
+                    )),
+                    null,
+                    ColorDrawable(Color.WHITE)
+                )
                 dirName.setTextColor(theme.primaryText)
                 photoCnt.setTextColor(theme.secondaryText)
                 dirLocation.imageTintList = ColorStateList.valueOf(theme.secondaryText)
