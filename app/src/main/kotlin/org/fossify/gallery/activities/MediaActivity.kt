@@ -771,6 +771,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 R.id.quick_toolbar_columns -> changeColumnCount()
                 R.id.quick_toolbar_filename -> toggleFilenameVisibility()
                 R.id.quick_toolbar_hidden -> tryToggleTemporarilyShowHidden()
+                R.id.quick_toolbar_excluded -> tryToggleTemporarilyShowExcluded()
                 R.id.quick_toolbar_slideshow -> startSlideshow()
                 R.id.sort -> showSortingDialog()
                 R.id.filter -> showFilterMediaDialog()
@@ -1422,6 +1423,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         CreateNewFolderDialog(this, mPath) {
             config.tempFolderPath = it
         }
+    }
+
+    private fun tryToggleTemporarilyShowExcluded() {
+        val update: (Boolean) -> Unit = { show ->
+            config.temporarilyShowExcluded = show
+            mLoadedInitialPhotos = false
+            binding.mediaGrid.adapter = null
+            getMedia()
+            refreshMenuItems()
+        }
+        if (config.temporarilyShowExcluded) update(false)
+        else handleExcludedFolderPasswordProtection { update(true) }
     }
 
     private fun tryToggleTemporarilyShowHidden() {
