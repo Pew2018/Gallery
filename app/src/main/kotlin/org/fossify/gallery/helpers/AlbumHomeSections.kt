@@ -10,6 +10,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.commons.views.MyRecyclerView
+import org.fossify.gallery.R
 import org.fossify.gallery.adapters.DirectoryAdapter
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.models.Directory
@@ -109,9 +110,9 @@ class AlbumPinnedHeaderAdapter(
         val theme = OxygenThemeEngine.snapshot(context, (context as android.app.Activity).config)
         holder.title.setTextColor(theme.secondaryText)
         holder.button.setTextColor(theme.interactiveAccent)
-        holder.title.text = "置顶相册 · ${albums.size}"
-        holder.button.text = if (expanded) "收起 ▲" else "查看全部 ▼"
-        holder.button.contentDescription = if (expanded) "收起置顶相册" else "展开全部置顶相册"
+        holder.title.text = "${context.getString(R.string.album_home_pinned)} · ${albums.size}"
+        holder.button.text = if (expanded) "${context.getString(R.string.album_home_collapse)} ▲" else "${context.getString(R.string.album_home_expand)} ▼"
+        holder.button.contentDescription = context.getString(if (expanded) R.string.album_home_collapse_description else R.string.album_home_expand_description)
         holder.strip.visibility = if (expanded) View.GONE else View.VISIBLE
         if (!expanded) {
             // Keep the strip reasonably compact even for a 1- or 2-column home grid.
@@ -163,6 +164,6 @@ class AlbumOtherTitleAdapter(private val context: Context) :
     override fun onBindViewHolder(holder: Holder, position: Int) {
         val theme = OxygenThemeEngine.snapshot(context, (context as android.app.Activity).config)
         holder.label.setTextColor(theme.secondaryText)
-        holder.label.text = "其他相册 · $count"
+        holder.label.text = "${context.getString(R.string.album_home_other)} · $count"
     }
 }
