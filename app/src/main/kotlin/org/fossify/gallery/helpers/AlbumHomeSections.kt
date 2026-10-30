@@ -95,6 +95,7 @@ class AlbumPinnedHeaderAdapter(
         column.addView(heading)
         val strip = MyRecyclerView(context).apply {
             layoutManager = LinearLayoutManager(context, RecyclerView.HORIZONTAL, false)
+            setHasFixedSize(true)
             isNestedScrollingEnabled = false
             overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
             setPadding(dp(12), 0, dp(12), 0)
@@ -116,10 +117,12 @@ class AlbumPinnedHeaderAdapter(
         holder.strip.visibility = if (expanded) View.GONE else View.VISIBLE
         if (!expanded) {
             // Keep the strip reasonably compact even for a 1- or 2-column home grid.
-            val available = context.resources.displayMetrics.widthPixels - dp(32)
+            val available = (holder.container.width.takeIf { it > 0 }
+                ?: context.resources.displayMetrics.widthPixels) - dp(32)
             val width = (available / columns.coerceAtLeast(3)).coerceAtLeast(dp(72))
             holder.strip.layoutParams = (holder.strip.layoutParams as LinearLayout.LayoutParams).apply {
-                height = width + dp(6)
+                // Cover + caption (name/count) + margins, not just the square.
+                height = width + dp(52)
             }
             val current = holder.strip.adapter as? DirectoryAdapter
             if (current == null || holder.stripWidth != width) {
