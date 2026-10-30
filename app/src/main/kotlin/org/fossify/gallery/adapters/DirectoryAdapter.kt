@@ -126,6 +126,7 @@ class DirectoryAdapter(
     val swipeRefreshLayout: SwipeRefreshLayout? = null,
     val embeddedPinnedWidthPx: Int = 0,
     val compactVirtualFavorite: Boolean = false,
+    val allowDragSelection: Boolean = true,
     itemClick: (Any) -> Unit
 ) :
     MyRecyclerViewAdapter(activity, recyclerView, itemClick), ItemTouchHelperContract,
@@ -154,7 +155,7 @@ class DirectoryAdapter(
 
     init {
         actModeCallback = OxygenSelectionMode.wrap(activity, actModeCallback)
-        setupDragListener(true)
+        if (allowDragSelection) setupDragListener(true)
         setHasStableIds(true)
         fillLockedFolders()
         ensureBackgroundThread {
