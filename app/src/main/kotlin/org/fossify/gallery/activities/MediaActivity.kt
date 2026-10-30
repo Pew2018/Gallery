@@ -63,6 +63,7 @@ import org.fossify.commons.helpers.FAVORITES
 import org.fossify.commons.helpers.IS_FROM_GALLERY
 import org.fossify.commons.helpers.REQUEST_EDIT_IMAGE
 import org.fossify.commons.helpers.SORT_BY_RANDOM
+import org.fossify.commons.helpers.SORT_BY_SIZE
 import org.fossify.commons.helpers.VIEW_TYPE_GRID
 import org.fossify.commons.helpers.VIEW_TYPE_LIST
 import org.fossify.commons.helpers.ensureBackgroundThread
@@ -1133,6 +1134,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             binding.mediaEmptyTextPlaceholder.beGone()
             binding.mediaEmptyTextPlaceholder2.beGone()
         }
+        val sortingPath = if (mShowAll) SHOW_ALL else mPath
+        val sortingBySize = config.getFolderSorting(sortingPath) and SORT_BY_SIZE != 0
+
         if (mLoadedInitialPhotos) {
             startAsyncTask(request)
         } else {
@@ -1143,12 +1147,20 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 allowedFavoritePaths = favoriteAccessPaths
             ) { cached ->
                 if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return@getCachedMedia
+
                 if (cached.isEmpty()) {
                     runOnUiThread {
                         if (mediaLoadRequests.isCurrent(request)) binding.mediaRefreshLayout.isRefreshing = true
                     }
                 } else {
-                    gotMedia(cached, true, request)
+                    val cachedHasUnknownSize = cached.asSequence()
+                        .filterIsInstance<Medium>()
+                        .any { it.size <= 0L }
+                    // Cached metadata is allowed for fast display only when it can
+                    // preserve both size ordering and the fast-scroller size label.
+                    if (!sortingBySize || !cachedHasUnknownSize) {
+                        gotMedia(cached, true, request)
+                    }
                 }
                 startAsyncTask(request)
             }
