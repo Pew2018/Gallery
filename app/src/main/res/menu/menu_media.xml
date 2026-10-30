@@ -124,66 +124,38 @@
         android:title="@string/about"
         app:showAsAction="never" />
     <item
-        android:id="@+id/quick_toolbar_sort"
+        android:id="@+id/quick_toolbar_slot_0"
         android:orderInCategory="2"
         android:icon="@drawable/ic_sort_vector"
         android:title="@string/quick_action_sort"
         android:visible="false"
         app:showAsAction="always" />
     <item
-        android:id="@+id/quick_toolbar_filter"
+        android:id="@+id/quick_toolbar_slot_1"
         android:orderInCategory="3"
-        android:icon="@drawable/ic_filter_vector"
-        android:title="@string/quick_action_filter"
+        android:icon="@drawable/ic_sort_vector"
+        android:title="@string/quick_action_sort"
         android:visible="false"
         app:showAsAction="always" />
     <item
-        android:id="@+id/quick_toolbar_view"
+        android:id="@+id/quick_toolbar_slot_2"
         android:orderInCategory="4"
-        android:icon="@drawable/ic_quick_view_vector"
-        android:title="@string/quick_action_view"
+        android:icon="@drawable/ic_sort_vector"
+        android:title="@string/quick_action_sort"
         android:visible="false"
         app:showAsAction="always" />
     <item
-        android:id="@+id/quick_toolbar_columns"
+        android:id="@+id/quick_toolbar_slot_3"
         android:orderInCategory="5"
-        android:icon="@drawable/ic_column_count_vector"
-        android:title="@string/quick_action_columns"
+        android:icon="@drawable/ic_sort_vector"
+        android:title="@string/quick_action_sort"
         android:visible="false"
         app:showAsAction="always" />
     <item
-        android:id="@+id/quick_toolbar_hidden"
+        android:id="@+id/quick_toolbar_slot_4"
         android:orderInCategory="6"
-        android:icon="@drawable/ic_quick_hidden_vector"
-        android:title="@string/quick_action_hidden"
-        android:visible="false"
-        app:showAsAction="always" />
-    <item
-        android:id="@+id/quick_toolbar_slideshow"
-        android:orderInCategory="7"
-        android:icon="@drawable/ic_slideshow_vector"
-        android:title="@string/quick_action_slideshow"
-        android:visible="false"
-        app:showAsAction="always" />
-    <item
-        android:id="@+id/quick_toolbar_group"
-        android:orderInCategory="8"
-        android:icon="@drawable/ic_quick_group_vector"
-        android:title="@string/quick_action_group"
-        android:visible="false"
-        app:showAsAction="always" />
-    <item
-        android:id="@+id/quick_toolbar_filename"
-        android:orderInCategory="9"
-        android:icon="@drawable/ic_label_vector"
-        android:title="@string/quick_action_filename"
-        android:visible="false"
-        app:showAsAction="always" />
-    <item
-        android:id="@+id/quick_toolbar_excluded"
-        android:orderInCategory="10"
-        android:icon="@drawable/ic_quick_excluded_vector"
-        android:title="@string/quick_action_excluded"
+        android:icon="@drawable/ic_sort_vector"
+        android:title="@string/quick_action_sort"
         android:visible="false"
         app:showAsAction="always" />
     <item
