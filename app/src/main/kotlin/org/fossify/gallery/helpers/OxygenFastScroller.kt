@@ -292,9 +292,9 @@ object OxygenFastScroller {
             track.getLocationOnScreen(trackLocation)
             thumb.getLocationOnScreen(thumbLocation)
             if (vertical) {
-                thumb.translationY += trackLocation[1] + desired - thumbLocation[1]
+                thumb.translationY = thumb.translationY + (trackLocation[1] + desired - thumbLocation[1]).toFloat()
             } else {
-                thumb.translationX += trackLocation[0] + desired - thumbLocation[0]
+                thumb.translationX = thumb.translationX + (trackLocation[0] + desired - thumbLocation[0]).toFloat()
             }
         }
 
