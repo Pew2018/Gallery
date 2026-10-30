@@ -23,6 +23,7 @@ import org.fossify.gallery.R
  * animated tab translation; selection is expressed by icon and label color.
  */
 object GalleryBottomBar {
+    private const val NAVIGATION_RIPPLE_DELAY_MS = 120L
     private val bars = java.util.WeakHashMap<Activity, java.lang.ref.WeakReference<LinearLayout>>()
 
     fun refreshAll() {
@@ -126,7 +127,8 @@ object GalleryBottomBar {
                 setOnClickListener {
                     if (tab != active && !navigating) {
                         navigating = true
-                        navigate(tab)
+                        // Keep the tapped item attached long enough for its release ripple to render.
+                        item.postDelayed({ navigate(tab) }, NAVIGATION_RIPPLE_DELAY_MS)
                     }
                 }
             }
