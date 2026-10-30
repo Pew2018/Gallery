@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 20264)
-Total output lines: 1658
-
 package org.fossify.gallery.activities
 
 import org.fossify.gallery.extensions.configurePhotoPassword
@@ -828,7 +825,31 @@ class SettingsActivity : SimpleActivity() {
 
     private fun setupDeleteEmptyFolders() {
         binding.settingsDeleteEmptyFolders.isChecked = config.deleteEmptyFolders
-        binding.settingsDeleteEmptyFoldersHolder.setOnClickLi…264 tokens truncated…oGesturesHolder.setOnClickListener {
+        binding.settingsDeleteEmptyFoldersHolder.setOnClickListener {
+            binding.settingsDeleteEmptyFolders.toggle()
+            config.deleteEmptyFolders = binding.settingsDeleteEmptyFolders.isChecked
+        }
+    }
+
+    private fun setupKeepScreenOn() {
+        binding.settingsKeepScreenOnFullscreenPhotos.isChecked = config.keepScreenOn
+        binding.settingsKeepScreenOnFullscreenPhotosHolder.setOnClickListener {
+            binding.settingsKeepScreenOnFullscreenPhotos.toggle()
+            config.keepScreenOn = binding.settingsKeepScreenOnFullscreenPhotos.isChecked
+        }
+    }
+
+    private fun setupAllowPhotoGestures() {
+        binding.settingsAllowPhotoGestures.isChecked = config.allowPhotoGestures
+        binding.settingsAllowPhotoGesturesHolder.setOnClickListener {
+            binding.settingsAllowPhotoGestures.toggle()
+            config.allowPhotoGestures = binding.settingsAllowPhotoGestures.isChecked
+        }
+    }
+
+    private fun setupAllowVideoGestures() {
+        binding.settingsAllowVideoGestures.isChecked = config.allowVideoGestures
+        binding.settingsAllowVideoGesturesHolder.setOnClickListener {
             binding.settingsAllowVideoGestures.toggle()
             config.allowVideoGestures = binding.settingsAllowVideoGestures.isChecked
         }
