@@ -30,5 +30,6 @@
     <dimen name="full_brush_size">40dp</dimen>
     <dimen name="sample_thumbnail_size">180dp</dimen>
     <dimen name="directory_picker_dialog_min_height">180dp</dimen>
+    <dimen name="classic_filepicker_dialog_min_height">192dp</dimen>
     <dimen name="smaller_icon_size">36dp</dimen>
 </resources>

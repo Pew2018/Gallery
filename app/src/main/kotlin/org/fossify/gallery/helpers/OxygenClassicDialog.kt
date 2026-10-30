@@ -94,10 +94,6 @@ object OxygenClassicDialog {
     /** Called before WindowManager.addView; later only for actual host geometry changes. */
     fun prepareWindow(activity: Activity, dialog: AlertDialog): WindowPreparation {
         val window = requireNotNull(dialog.window)
-        if (activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0 &&
-            window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE == 0) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
         val softInput = window.attributes.softInputMode
         if (softInput and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST != WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE) {
             window.setSoftInputMode((softInput and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or
@@ -112,6 +108,13 @@ object OxygenClassicDialog {
 
     private fun applySurface(activity: Activity, dialog: AlertDialog): Boolean {
         val window = dialog.window ?: return false
+        // Also enforce screenshot protection on already-shown dialogs. Some callers
+        // enter through apply() rather than prepareWindow(), so doing this in the
+        // shared surface pass closes that gap without changing window geometry.
+        if (activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0 &&
+            window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE == 0) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
         val decor = window.decorView
         val light = ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
         val surface = if (light) Color.WHITE else Color.rgb(48, 48, 48)
@@ -191,7 +194,9 @@ object OxygenClassicDialog {
                     v.defaultHintTextColor = ColorStateList.valueOf(inactive)
                     v.hintTextColor = ColorStateList.valueOf(readableAccent)
                 }
-                if (v is EditText) {
+                if (v is EditText && v.id != org.fossify.commons.R.id.top_toolbar_search) {
+                    // The picker search owns a single OxygenOS underline; the
+                    // global EditText skin would paint a second, competing rule.
                     v.background = AppCompatResources.getDrawable(v.context, androidx.appcompat.R.drawable.abc_edit_text_material)
                     styleInput(activity, v)
                 }

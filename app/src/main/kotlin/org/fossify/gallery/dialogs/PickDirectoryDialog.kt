@@ -1,6 +1,13 @@
 package org.fossify.gallery.dialogs
 
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.LayerDrawable
+import android.util.TypedValue
+import androidx.core.graphics.ColorUtils
+import android.view.ContextThemeWrapper
+import android.view.Gravity
+import androidx.appcompat.widget.PopupMenu
 import android.content.res.ColorStateList
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
@@ -22,7 +29,6 @@ import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.commons.extensions.handleHiddenFolderPasswordProtection
 import org.fossify.commons.extensions.handleLockedFolderOpening
 import org.fossify.commons.extensions.hideKeyboard
-import org.fossify.commons.extensions.isGone
 import org.fossify.commons.extensions.isInDownloadDir
 import org.fossify.commons.extensions.isRestrictedWithSAFSdk30
 import org.fossify.commons.extensions.setupDialogStuff
@@ -42,7 +48,6 @@ import org.fossify.gallery.extensions.getSortedDirectories
 import org.fossify.gallery.models.Directory
 import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.helpers.OxygenClassicPalette
-import org.fossify.gallery.helpers.OxygenThemeColors
 
 class PickDirectoryDialog(
     val activity: BaseSimpleActivity,
@@ -57,6 +62,9 @@ class PickDirectoryDialog(
         org.fossify.gallery.helpers.OxygenFastScroller.apply(
             binding.directoriesFastscroller, binding.directoriesGrid,
             org.fossify.gallery.helpers.OxygenThemeEngine.snapshot(activity, activity.config)
+        )
+        org.fossify.gallery.helpers.OxygenFastScroller.installPickerTouchHandling(
+            binding.directoriesFastscroller, binding.directoriesGrid
         )
     }
     private var dialog: AlertDialog? = null
@@ -73,6 +81,7 @@ class PickDirectoryDialog(
     private var binding = DialogDirectoryPickerBinding.inflate(activity.layoutInflater)
     private var isGridViewType = activity.config.viewTypeFolders == VIEW_TYPE_GRID
     private var showHidden = activity.config.shouldShowHidden
+    private var temporarilyRevealAll = false
     private var currentPathPrefix = ""
     private val config = activity.config
     private val searchView = binding.folderSearchView
@@ -106,20 +115,10 @@ class PickDirectoryDialog(
                 dialog = alertDialog
                 OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                 binding.directoriesCurrentPath.setTextColor(activity.getProperTextColor())
-                binding.directoriesShowHidden.apply {
-                    backgroundTintList = ColorStateList.valueOf(
-                        OxygenThemeColors.toolbarBackground(activity.getProperPrimaryColor())
-                    )
-                    clearColorFilter()
-                    imageTintList = ColorStateList.valueOf(Color.WHITE)
-                }
-                binding.directoriesShowHidden.beVisibleIf(!context.config.shouldShowHidden)
-                binding.directoriesShowHidden.setOnClickListener {
-                    activity.handleHiddenFolderPasswordProtection {
-                        binding.directoriesShowHidden.beGone()
-                        showHidden = true
-                        fetchDirectories(true)
-                    }
+                binding.directoriesOverflowMenu.apply {
+                    val dark = OxygenThemeEngine.snapshot(activity, config).dark
+                    imageTintList = ColorStateList.valueOf(if (dark) Color.WHITE else Color.rgb(33, 33, 33))
+                    setOnClickListener { showPickerOptions() }
                 }
 
                 alertDialog.onBackPressedDispatcher.addCallback(alertDialog) {
@@ -145,6 +144,39 @@ class PickDirectoryDialog(
         fetchDirectories(false)
     }
 
+    /** A reversible, dialog-local reveal; Commons preferences are never rewritten. */
+    private fun showPickerOptions() {
+        val dark = OxygenThemeEngine.snapshot(activity, config).dark
+        val theme = if (dark) R.style.OxygenClassicPopupTheme_Dark else R.style.OxygenClassicPopupTheme_Light
+        val popup = PopupMenu(ContextThemeWrapper(activity, theme), binding.directoriesOverflowMenu, Gravity.END)
+        popup.menu.add(
+            0, 1, 0,
+            if (temporarilyRevealAll) R.string.picker_restore_default_folders
+            else R.string.picker_show_hidden_excluded_folders
+        )
+        popup.setOnMenuItemClickListener {
+            if (temporarilyRevealAll) {
+                temporarilyRevealAll = false
+                showHidden = config.shouldShowHidden
+                // A previously visible excluded ancestor may no longer exist after restoring filters.
+                currentPathPrefix = ""
+                openedSubfolders.clear()
+                openedSubfolders.add("")
+                fetchDirectories(false)
+            } else {
+                activity.handleHiddenFolderPasswordProtection {
+                    if (dialog?.isShowing == true) {
+                        temporarilyRevealAll = true
+                        showHidden = true
+                        fetchDirectories(true)
+                    }
+                }
+            }
+            true
+        }
+        popup.show()
+    }
+
     private fun configureSearchView() = with(searchView) {
         updateHintText(context.getString(org.fossify.commons.R.string.search_folders))
         searchEditText.imeOptions = EditorInfo.IME_ACTION_DONE
@@ -160,6 +192,40 @@ class PickDirectoryDialog(
         updateColors()
         setBackgroundColor(Color.TRANSPARENT)
         searchBarContainer.setBackgroundColor(Color.TRANSPARENT)
+
+        // Commons 7.1.3 paints the *inner* toolbar_container with an accent
+        // color-filtered M3 pill. Reset that layer, not just the outer wrapper.
+        // OxygenOS 7.1.1 uses a quiet rectangular search field and 1dp rule.
+        val dp = resources.displayMetrics.density
+        val light = ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
+        val surface = if (light) Color.WHITE else Color.rgb(48, 48, 48)
+        val primaryText = if (light) Color.rgb(33, 33, 33) else Color.rgb(250, 250, 250)
+        val secondaryText = if (light) Color.rgb(117, 117, 117) else Color.rgb(189, 189, 189)
+        val underline = if (light) Color.rgb(189, 189, 189) else Color.rgb(117, 117, 117)
+        searchEditText.background = ColorDrawable(Color.TRANSPARENT)
+        searchEditText.backgroundTintList = null
+        fun paintUnderline(focused: Boolean) {
+            val stroke = if (focused)
+                OxygenClassicPalette.readableAccent(activity.getProperPrimaryColor(), surface)
+                else underline
+            val height = ((if (focused) 2f else 1f) * dp + 0.5f).toInt().coerceAtLeast(1)
+            binding.toolbarContainer.background = LayerDrawable(
+                arrayOf(ColorDrawable(surface), ColorDrawable(stroke))
+            ).apply {
+                setLayerGravity(1, Gravity.BOTTOM)
+                setLayerHeight(1, height)
+            }
+        }
+        val originalFocusListener = searchEditText.onFocusChangeListener
+        searchEditText.onFocusChangeListener = android.view.View.OnFocusChangeListener { v, focused ->
+            originalFocusListener?.onFocusChange(v, focused)
+            paintUnderline(focused)
+        }
+        paintUnderline(searchEditText.hasFocus())
+        binding.topToolbarSearchIcon.setColorFilter(primaryText)
+        searchEditText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        searchEditText.setTextColor(primaryText)
+        searchEditText.setHintTextColor(secondaryText)
     }
 
     private fun MySearchMenu.setSearchViewListeners() {
@@ -236,6 +302,7 @@ class PickDirectoryDialog(
                 binding.directoriesLoading.visibility = android.view.View.GONE
                 allDirectories.clear()
                 gotDirectories(activity.addTempFolderIfNeeded(directories))
+                filterFolderListBySearchQuery(searchEditText.text?.toString().orEmpty())
             }
         }
     }

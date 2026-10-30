@@ -315,5 +315,10 @@
     <string name="favorite_password_use_fallback">使用 PIN 或图案</string>
     <string name="favorite_password_fallback_setup">你选择了生物识别。请再设置 PIN 或图案，以便在生物识别不可用时恢复访问。</string>
     <string name="favorite_password_biometric">生物识别</string>
+    <string name="picker_more_options">更多文件夹选项</string>
+    <string name="picker_show_hidden_excluded_folders">显示隐藏及已排除的文件夹</string>
+    <string name="picker_restore_default_folders">恢复默认显示</string>
+    <string name="picker_show_hidden_folders">显示隐藏文件夹</string>
+    <string name="picker_hidden_folders_visible">已在本次选择中显示隐藏文件夹</string>
 </resources>
 
