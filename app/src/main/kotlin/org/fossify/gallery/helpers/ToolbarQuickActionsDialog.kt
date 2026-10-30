@@ -16,6 +16,8 @@ import org.fossify.gallery.extensions.config
 /** Classic two-scope chooser. Changes are committed together only on Done. */
 object ToolbarQuickActionsDialog {
     fun show(activity: Activity) {
+        val palette = OxygenThemeEngine.snapshot(activity, activity.config)
+        var shown: AlertDialog? = null
         val home = activity.config.toolbarHomeActions.toMutableList()
         val folder = activity.config.toolbarFolderActions.toMutableList()
         var currentScope = ToolbarQuickScope.HOME
@@ -31,6 +33,7 @@ object ToolbarQuickActionsDialog {
         val folderTab = TextView(activity)
         val count = TextView(activity).apply {
             textSize = 13f
+            setTextColor(palette.secondaryText)
             setPadding(dp(8), dp(10), dp(8), dp(6))
         }
         val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
@@ -43,6 +46,7 @@ object ToolbarQuickActionsDialog {
         fun tab(label: TextView, title: Int) {
             label.text = activity.getString(title)
             label.textSize = 15f
+            label.setTextColor(palette.primaryText)
             label.gravity = Gravity.CENTER
             label.minHeight = dp(48)
             label.setPadding(dp(6), 0, dp(6), 0)
@@ -66,6 +70,7 @@ object ToolbarQuickActionsDialog {
                 val checkbox = CheckBox(activity).apply {
                     text = activity.getString(ToolbarQuickActions.titleRes(action))
                     textSize = 16f
+                    setTextColor(palette.primaryText)
                     isChecked = action in actions
                     minHeight = dp(52)
                     setPadding(dp(8), 0, dp(8), 0)
@@ -85,6 +90,7 @@ object ToolbarQuickActionsDialog {
                 }
                 list.addView(checkbox, LinearLayout.LayoutParams(-1, dp(52)))
             }
+            shown?.let { OxygenClassicDialog.apply(activity, it, root) }
         }
         homeTab.setOnClickListener { currentScope = ToolbarQuickScope.HOME; render() }
         folderTab.setOnClickListener { currentScope = ToolbarQuickScope.FOLDER; render() }
@@ -98,6 +104,7 @@ object ToolbarQuickActionsDialog {
                     activity.config.toolbarFolderActions = folder
                 }
                 .setNeutralButton(R.string.quick_toolbar_reset, null), root)
+        shown = dialog
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
             if (currentScope == ToolbarQuickScope.HOME) {
                 home.clear(); home.addAll(ToolbarQuickActions.defaults)
