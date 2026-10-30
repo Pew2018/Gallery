@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.commons.views.MyRecyclerView
 import org.fossify.gallery.adapters.DirectoryAdapter
+import org.fossify.gallery.extensions.config
 import org.fossify.gallery.models.Directory
 
 /**
