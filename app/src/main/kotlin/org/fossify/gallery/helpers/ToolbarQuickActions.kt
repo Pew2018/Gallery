@@ -3,6 +3,7 @@ package org.fossify.gallery.helpers
 import android.app.Activity
 import org.fossify.commons.views.MySearchMenu
 import org.fossify.gallery.R
+import org.fossify.gallery.extensions.config
 import java.util.WeakHashMap
 
 /** Two independent page families sharing one stable catalogue of quick actions. */
