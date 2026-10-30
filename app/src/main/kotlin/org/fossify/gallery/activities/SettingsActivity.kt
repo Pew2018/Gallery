@@ -56,11 +56,11 @@ class SettingsActivity : SimpleActivity() {
             SettingsCategory("appearance", R.string.classic_settings_appearance, R.string.settings_hub_appearance_summary, R.drawable.ic_photo_filter_vector, 0, 7),
             SettingsCategory("gallery", R.string.settings_hub_gallery, R.string.settings_hub_gallery_summary, R.drawable.ic_folders_vector, 8, 10),
             SettingsCategory("photos", R.string.settings_hub_photos, R.string.settings_hub_photos_summary, R.drawable.ic_portrait_photo_vector, 11, 24),
-            SettingsCategory("controls", R.string.settings_hub_controls, R.string.settings_hub_controls_summary, R.drawable.ic_aspect_ratio_vector, 25, 30),
-            SettingsCategory("videos", R.string.classic_settings_video, R.string.settings_hub_videos_summary, R.drawable.ic_play_vector, 31, 39),
-            SettingsCategory("files", R.string.classic_settings_files, R.string.settings_hub_files_summary, R.drawable.ic_files_vector, 40, 53),
-            SettingsCategory("security", R.string.classic_settings_security, R.string.settings_hub_security_summary, org.fossify.commons.R.drawable.ic_lock_vector, 54, 60),
-            SettingsCategory("advanced", R.string.classic_settings_advanced, R.string.settings_hub_advanced_summary, org.fossify.commons.R.drawable.ic_settings_cog_vector, 61, 73)
+            SettingsCategory("controls", R.string.settings_hub_controls, R.string.settings_hub_controls_summary, R.drawable.ic_aspect_ratio_vector, 25, 31),
+            SettingsCategory("videos", R.string.classic_settings_video, R.string.settings_hub_videos_summary, R.drawable.ic_play_vector, 32, 40),
+            SettingsCategory("files", R.string.classic_settings_files, R.string.settings_hub_files_summary, R.drawable.ic_files_vector, 41, 54),
+            SettingsCategory("security", R.string.classic_settings_security, R.string.settings_hub_security_summary, org.fossify.commons.R.drawable.ic_lock_vector, 55, 61),
+            SettingsCategory("advanced", R.string.classic_settings_advanced, R.string.settings_hub_advanced_summary, org.fossify.commons.R.drawable.ic_settings_cog_vector, 62, 74)
         )
     }
 
@@ -273,6 +273,9 @@ class SettingsActivity : SimpleActivity() {
         setupManageExtendedDetails()
         setupSkipDeleteConfirmation()
         setupManageBottomActions()
+        binding.settingsToolbarQuickActionsHolder.setOnClickListener {
+            org.fossify.gallery.helpers.ToolbarQuickActionsDialog.show(this)
+        }
         setupUseRecycleBin()
         setupShowRecycleBin()
         setupShowRecycleBinLast()
