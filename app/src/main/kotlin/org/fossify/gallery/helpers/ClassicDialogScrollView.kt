@@ -34,23 +34,40 @@ class ClassicDialogPickerLayout @JvmOverloads constructor(
 ) : CoordinatorLayout(context, attrs) {
     private fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
 
-    private fun reserveFabSpace(listId: Int, vararg fabIds: Int) {
+    private fun reserveFabSpace(listId: Int, primaryFabId: Int?, vararg secondaryFabIds: Int) {
         val list = findViewById<View>(listId) ?: return
-        val hasVisibleFab = fabIds.any { findViewById<View>(it)?.visibility == View.VISIBLE }
-        val bottom = dp(if (hasVisibleFab) 80 else 12)
+        val secondaryCount = secondaryFabIds.count { findViewById<View>(it)?.visibility == View.VISIBLE }
+        val primaryVisible = primaryFabId?.let { findViewById<View>(it)?.visibility == View.VISIBLE } == true
+        // Commons stacks secondary buttons vertically and lifts them above the
+        // create-folder FAB. Reserve the whole stack, not just the bottom button.
+        val clearance = when {
+            primaryVisible && secondaryCount > 0 -> 96 + secondaryCount * 72
+            primaryVisible -> 80
+            secondaryCount > 0 -> 16 + secondaryCount * 72
+            else -> 12
+        }
+        val bottom = dp(clearance)
         if (list.paddingBottom != bottom) {
             list.setPaddingRelative(list.paddingStart, list.paddingTop, list.paddingEnd, bottom)
         }
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val filePickerFabs = intArrayOf(
+            org.fossify.commons.R.id.filepicker_fab_show_hidden,
+            org.fossify.commons.R.id.filepicker_fab_show_favorites
+        )
         reserveFabSpace(
             org.fossify.commons.R.id.filepicker_list,
-            org.fossify.commons.R.id.filepicker_fab_show_hidden,
-            org.fossify.commons.R.id.filepicker_fab_show_favorites,
-            org.fossify.commons.R.id.filepicker_fab
+            org.fossify.commons.R.id.filepicker_fab,
+            *filePickerFabs
         )
-        reserveFabSpace(R.id.directories_grid, R.id.directories_show_hidden)
+        reserveFabSpace(
+            org.fossify.commons.R.id.filepicker_favorites_list,
+            org.fossify.commons.R.id.filepicker_fab,
+            *filePickerFabs
+        )
+        reserveFabSpace(R.id.directories_grid, null, R.id.directories_show_hidden)
 
         val visible = Rect()
         getWindowVisibleDisplayFrame(visible)
