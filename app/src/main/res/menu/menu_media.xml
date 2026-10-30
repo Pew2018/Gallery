@@ -180,6 +180,13 @@
         android:visible="false"
         app:showAsAction="always" />
     <item
+        android:id="@+id/quick_toolbar_excluded"
+        android:orderInCategory="10"
+        android:icon="@drawable/ic_quick_excluded_vector"
+        android:title="@string/quick_action_excluded"
+        android:visible="false"
+        app:showAsAction="always" />
+    <item
         android:id="@+id/quick_toolbar_search_overflow"
         android:orderInCategory="11"
         android:icon="@drawable/ic_search_vector"
