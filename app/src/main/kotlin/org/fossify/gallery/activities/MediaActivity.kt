@@ -174,6 +174,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var favoriteAccessPaths: Set<String>? = null
     private var resolvingFavoriteAccess = false
     private var favoritesNeedReload = false
+    private data class FavoritesScrollAnchor(val path: String, val position: Int, val offset: Int)
+    private var pendingFavoritesScrollAnchor: FavoritesScrollAnchor? = null
     private var mZoomListener: MyRecyclerView.MyZoomListener? = null
 
     private var mStoredAnimateGifs = true
@@ -508,6 +510,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
         if (mPath == FAVORITES && !isFinishing && !isChangingConfigurations && !resolvingFavoriteAccess) {
             // Discard rendering/cache state, retaining the album capability while a viewer is open.
+            pendingFavoritesScrollAnchor = captureFavoritesScrollAnchor()
             mediaLoadRequests.invalidate()
             mediaScanGeneration++
             mCurrAsyncTask?.stopFetching()
@@ -528,12 +531,41 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
     }
 
+    private fun captureFavoritesScrollAnchor(): FavoritesScrollAnchor? {
+        val layoutManager = binding.mediaGrid.layoutManager as? MyGridLayoutManager ?: return null
+        val firstVisible = layoutManager.findFirstVisibleItemPosition()
+        if (firstVisible == RecyclerView.NO_POSITION) return null
+
+        val position = (firstVisible until mMedia.size)
+            .firstOrNull { mMedia.getOrNull(it) is Medium } ?: return null
+        val medium = mMedia[position] as Medium
+        val view = layoutManager.findViewByPosition(position) ?: return null
+        val offset = if (layoutManager.orientation == RecyclerView.HORIZONTAL) {
+            layoutManager.getDecoratedLeft(view) - binding.mediaGrid.paddingLeft
+        } else {
+            layoutManager.getDecoratedTop(view) - binding.mediaGrid.paddingTop
+        }
+        return FavoritesScrollAnchor(medium.path, position, offset)
+    }
+
+    private fun restoreFavoritesScrollAnchor() {
+        val anchor = pendingFavoritesScrollAnchor ?: return
+        if (mMedia.isEmpty()) return
+
+        val position = mMedia.indexOfFirst { (it as? Medium)?.path == anchor.path }
+            .takeIf { it >= 0 } ?: anchor.position.coerceIn(0, mMedia.lastIndex)
+        val layoutManager = binding.mediaGrid.layoutManager as? MyGridLayoutManager ?: return
+        layoutManager.scrollToPositionWithOffset(position, anchor.offset)
+        pendingFavoritesScrollAnchor = null
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("favoriteOwnerId", favoriteOwnerId)
         super.onSaveInstanceState(outState)
     }
 
     override fun finish() {
+        pendingFavoritesScrollAnchor = null
         favoriteAuthGeneration++
         folderAuthGeneration++
         favoritePublicationGeneration++
@@ -1572,6 +1604,15 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
             binding.mediaFastscroller.beVisibleIf(binding.mediaEmptyTextPlaceholder.isGone())
             setupAdapter()
+
+            // Cached rows are provisional; restore against the completed scan.
+            if (mPath == FAVORITES && !isFromCache) {
+                if (mMedia.isEmpty()) {
+                    pendingFavoritesScrollAnchor = null
+                } else {
+                    binding.mediaGrid.post { restoreFavoritesScrollAnchor() }
+                }
+            }
 
             if (mPath == FAVORITES && applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
                 android.util.Log.d("GalleryFavorites", "source=${if (isFromCache) "cache" else "scan"}, adapterMedia=${mMedia.count { it is Medium }}")
