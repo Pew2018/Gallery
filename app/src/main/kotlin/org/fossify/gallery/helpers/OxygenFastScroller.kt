@@ -5,6 +5,7 @@ import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
+import android.widget.ImageView
 import androidx.recyclerview.widget.RecyclerView
 import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 
@@ -38,8 +39,8 @@ object OxygenFastScroller {
             cornerRadius = dp(2).toFloat()
             // A narrow image inside the library's original 18dp handle bounds.
             setSize(
-                if (vertical) dp(4) else dp(18),
-                if (vertical) dp(18) else dp(4)
+                if (vertical) dp(4) else dp(32),
+                if (vertical) dp(32) else dp(4)
             )
         }
 
@@ -61,9 +62,34 @@ object OxygenFastScroller {
             gravity = Gravity.CENTER
         }
 
+        // Keep the narrow 4dp blue glyph, but expand the receiving thumb/track
+        // from the library's 18dp default to a usable 40dp hit area.
+        ensureTouchableHandle(scroller)
+
         // Only a viewport inset: retain the feature branch's bottom-navigation
         // clearance without changing scroll percentages, endpoints or gestures.
         scroller.trackMarginEnd = if (vertical) bottomBar else 0
         scroller.requestLayout()
+    }
+
+    /**
+     * Quiph's scroller installs its drag listener on thumbIV and trackView,
+     * not on the drawable. A 4dp drawable alone cannot increase the hit box.
+     * This runs for Gallery's grid and for Commons' file picker.
+     */
+    fun ensureTouchableHandle(scroller: RecyclerViewFastScroller) {
+        val density = scroller.resources.displayMetrics.density
+        fun dp(value: Int) = (value * density + 0.5f).toInt()
+        val vertical = scroller.fastScrollDirection ==
+            RecyclerViewFastScroller.FastScrollDirection.VERTICAL
+        val hitWidth = dp(if (vertical) 40 else 44)
+        val hitHeight = dp(if (vertical) 44 else 40)
+        val thumb = scroller.findViewById<ImageView>(com.qtalk.recyclerviewfastscroller.R.id.thumbIV)
+            ?: return
+        // CENTER prevents Android's default FIT_CENTER scaling the 4dp glyph
+        // up to the 40dp touch area. The entire View still receives drag events.
+        thumb.scaleType = ImageView.ScaleType.CENTER
+        if (scroller.handleWidth != hitWidth) scroller.handleWidth = hitWidth
+        if (scroller.handleHeight != hitHeight) scroller.handleHeight = hitHeight
     }
 }

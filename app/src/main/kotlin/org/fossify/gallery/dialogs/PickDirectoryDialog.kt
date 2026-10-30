@@ -1,6 +1,10 @@
 package org.fossify.gallery.dialogs
 
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.LayerDrawable
+import android.util.TypedValue
+import androidx.core.graphics.ColorUtils
 import android.view.ContextThemeWrapper
 import android.view.Gravity
 import androidx.appcompat.widget.PopupMenu
@@ -185,6 +189,26 @@ class PickDirectoryDialog(
         updateColors()
         setBackgroundColor(Color.TRANSPARENT)
         searchBarContainer.setBackgroundColor(Color.TRANSPARENT)
+
+        // Commons 7.1.3 paints the *inner* toolbar_container with an accent
+        // color-filtered M3 pill. Reset that layer, not just the outer wrapper.
+        // OxygenOS 7.1.1 uses a quiet rectangular search field and 1dp rule.
+        val dp = resources.displayMetrics.density
+        val light = ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
+        val surface = if (light) Color.WHITE else Color.rgb(48, 48, 48)
+        val primaryText = if (light) Color.rgb(33, 33, 33) else Color.rgb(250, 250, 250)
+        val secondaryText = if (light) Color.rgb(117, 117, 117) else Color.rgb(189, 189, 189)
+        val underline = if (light) Color.rgb(189, 189, 189) else Color.rgb(117, 117, 117)
+        binding.toolbarContainer.background = LayerDrawable(
+            arrayOf(ColorDrawable(surface), ColorDrawable(underline))
+        ).apply {
+            setLayerGravity(1, Gravity.BOTTOM)
+            setLayerHeight(1, (dp + 0.5f).toInt().coerceAtLeast(1))
+        }
+        binding.topToolbarSearchIcon.setColorFilter(primaryText)
+        searchEditText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        searchEditText.setTextColor(primaryText)
+        searchEditText.setHintTextColor(secondaryText)
     }
 
     private fun MySearchMenu.setSearchViewListeners() {

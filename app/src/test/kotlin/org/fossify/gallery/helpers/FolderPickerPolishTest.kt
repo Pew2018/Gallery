@@ -4,6 +4,8 @@ import android.app.Application
 import android.graphics.Color
 import android.view.ContextThemeWrapper
 import android.view.View
+import android.widget.ImageView
+import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.ColorUtils
@@ -62,6 +64,21 @@ class FolderPickerPolishTest {
         Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         menu.syncVisibility()
         assertEquals(View.GONE, menu.visibility)
+    }
+
+
+    @Test fun classicScrollerKeepsNarrowGlyphButExpandsTouchArea() {
+        val activity = activity()
+        val scroller = RecyclerViewFastScroller(activity)
+        val thumb = scroller.findViewById<ImageView>(com.qtalk.recyclerviewfastscroller.R.id.thumbIV)
+        assertNotNull("Quiph thumb must exist before styling", thumb)
+        OxygenFastScroller.ensureTouchableHandle(scroller)
+        val expectedWidth = (40 * activity.resources.displayMetrics.density + 0.5f).toInt()
+        assertEquals(expectedWidth, scroller.handleWidth)
+        assertEquals(ImageView.ScaleType.CENTER, thumb.scaleType)
+        val firstParams = thumb.layoutParams
+        OxygenFastScroller.ensureTouchableHandle(scroller)
+        assertSame("Touch target setup is idempotent", firstParams, thumb.layoutParams)
     }
 
     @Test fun popupThemesKeepReadableTextAgainstTheirActualSurfaces() {

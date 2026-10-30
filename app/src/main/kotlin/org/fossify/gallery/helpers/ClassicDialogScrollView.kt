@@ -7,6 +7,7 @@ import android.view.View
 import android.widget.ScrollView
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import org.fossify.gallery.R
+import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 
 /** Bounds only the scrolling content, leaving title/actions available at large font scales. */
 class ClassicDialogScrollView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : ScrollView(context, attrs) {
@@ -33,6 +34,18 @@ class ClassicDialogPickerLayout @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : CoordinatorLayout(context, attrs) {
     private fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        // Commons' FilePickerDialog doesn't call Gallery's shared scroller skin.
+        // Install the same thumb hit target after Commons has attached its
+        // original touch listeners, without replacing those listeners.
+        post {
+            if (!isAttachedToWindow) return@post
+            findViewById<RecyclerViewFastScroller>(org.fossify.commons.R.id.filepicker_fastscroller)
+                ?.let(OxygenFastScroller::ensureTouchableHandle)
+        }
+    }
 
     private fun reserveFabSpace(listId: Int, primaryFabId: Int?, vararg secondaryFabIds: Int) {
         val list = findViewById<View>(listId) ?: return
