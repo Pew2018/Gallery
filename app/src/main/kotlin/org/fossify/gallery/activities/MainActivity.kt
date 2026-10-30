@@ -624,15 +624,14 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         binding.mainMenu.requireToolbar().menu.apply {
             findItem(R.id.temporarily_show_hidden).isVisible =
-                !mShowingFolderFavorites && !config.shouldShowHidden
+                !config.shouldShowHidden
             findItem(R.id.stop_showing_hidden).isVisible =
-                !mShowingFolderFavorites &&
-                    (!isRPlus() || isExternalStorageManager()) && config.temporarilyShowHidden
+                (!isRPlus() || isExternalStorageManager()) && config.temporarilyShowHidden
 
             findItem(R.id.temporarily_show_excluded).isVisible =
-                !mShowingFolderFavorites && !config.temporarilyShowExcluded
+                !config.temporarilyShowExcluded
             findItem(R.id.stop_showing_excluded).isVisible =
-                !mShowingFolderFavorites && config.temporarilyShowExcluded
+                config.temporarilyShowExcluded
         }
         updateMenuColors()
     }
