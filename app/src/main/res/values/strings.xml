@@ -347,5 +347,6 @@
     <string name="picker_show_hidden_excluded_folders">Show hidden and excluded folders</string>
     <string name="picker_restore_default_folders">Restore default folder visibility</string>
     <string name="picker_show_hidden_folders">Show hidden folders</string>
+    <string name="picker_hidden_folders_visible">Hidden folders shown for this selection</string>
 </resources>
 

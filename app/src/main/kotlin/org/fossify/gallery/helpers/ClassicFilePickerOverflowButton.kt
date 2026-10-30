@@ -24,6 +24,8 @@ class ClassicFilePickerOverflowButton @JvmOverloads constructor(
 ) : AppCompatImageButton(context, attrs), ViewTreeObserver.OnGlobalLayoutListener {
     private var delegate: View? = null
     private var observer: ViewTreeObserver? = null
+    // Keep the compact menu in place after Commons' one-shot reveal hides its FAB.
+    private var revealWasOffered = false
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -33,7 +35,6 @@ class ClassicFilePickerOverflowButton @JvmOverloads constructor(
                 ?: return@post
             delegate = original
             original.alpha = 0f
-            original.isClickable = false
             original.isFocusable = false
             original.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
             val light = ColorUtils.calculateLuminance(context.getProperBackgroundColor()) >= 0.5
@@ -44,23 +45,38 @@ class ClassicFilePickerOverflowButton @JvmOverloads constructor(
         }
     }
 
+    internal fun currentActionLabel(): Int =
+        if (delegate?.visibility == View.VISIBLE) R.string.picker_show_hidden_folders
+        else R.string.picker_hidden_folders_visible
+
     private fun openOptions(original: View, light: Boolean) {
-        if (original.visibility != View.VISIBLE) return
+        val canReveal = original.visibility == View.VISIBLE
+        if (!canReveal && !revealWasOffered) return
         val style = if (light) R.style.OxygenClassicPopupTheme_Light else R.style.OxygenClassicPopupTheme_Dark
         PopupMenu(ContextThemeWrapper(context, style), this, Gravity.END).apply {
-            menu.add(0, 1, 0, R.string.picker_show_hidden_folders)
+            menu.add(
+                0, 1, 0,
+                currentActionLabel()
+            ).apply {
+                isEnabled = canReveal
+                isCheckable = !canReveal
+                isChecked = !canReveal
+            }
             setOnMenuItemClickListener {
-                // performClick() deliberately invokes Commons' original protected reveal.
-                original.performClick()
-                post { syncVisibility() }
+                if (original.visibility == View.VISIBLE) {
+                    // Commons still owns password validation and the actual list refresh.
+                    original.performClick()
+                    post { syncVisibility() }
+                }
                 true
             }
             show()
         }
     }
 
-    private fun syncVisibility() {
-        val target = if (delegate?.visibility == View.VISIBLE) View.VISIBLE else View.GONE
+    internal fun syncVisibility() {
+        if (delegate?.visibility == View.VISIBLE) revealWasOffered = true
+        val target = if (revealWasOffered) View.VISIBLE else View.GONE
         if (visibility != target) visibility = target
     }
 
@@ -70,6 +86,7 @@ class ClassicFilePickerOverflowButton @JvmOverloads constructor(
         observer?.takeIf { it.isAlive }?.removeOnGlobalLayoutListener(this)
         observer = null
         delegate = null
+        revealWasOffered = false
         super.onDetachedFromWindow()
     }
 }

@@ -1,4 +1,4 @@
-name: Gallery folder picker - compile only (arm64 FOSS)
+name: Gallery folder picker - tests and arm64 FOSS APK
 
 on:
   workflow_dispatch:
@@ -69,7 +69,9 @@ jobs:
           echo "::add-mask::$KEY_PASSWORD"
           echo "::add-mask::$STORE_PASSWORD"
 
-      # Intentionally no unit tests, instrumentation, emulator, or UI testing on Actions.
+      - name: Run focused picker UI regression tests
+        run: ./gradlew :app:testFossReleaseUnitTest --tests org.fossify.gallery.helpers.FolderPickerPolishTest --tests org.fossify.gallery.helpers.ClassicGalleryUiContractTest --stacktrace
+
       - name: Compile FOSS arm64-v8a release APK
         run: ./gradlew :app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a --stacktrace
 
