@@ -50,6 +50,7 @@ import org.fossify.commons.extensions.getTimeFormat
 import org.fossify.commons.extensions.handleHiddenFolderPasswordProtection
 import org.fossify.commons.extensions.handleLockedFolderOpening
 import org.fossify.commons.extensions.hideKeyboard
+import org.fossify.commons.extensions.showKeyboard
 import org.fossify.commons.extensions.isExternalStorageManager
 import org.fossify.commons.extensions.isGone
 import org.fossify.commons.extensions.isMediaFile
@@ -363,6 +364,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
         setupOptionsMenu()
         refreshMenuItems()
+        binding.mediaMenu.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+            if (right - left != oldRight - oldLeft) updateMenuColors()
+        }
         storeStateVariables()
         if (mGallerySection != null) {
             GalleryBottomBar.attach(this, binding.root,
@@ -756,6 +760,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
         binding.mediaMenu.requireToolbar().setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
+                R.id.quick_toolbar_search_overflow -> {
+                    binding.mediaMenu.focusView()
+                    showKeyboard(binding.mediaMenu.binding.topToolbarSearch)
+                }
+                R.id.quick_toolbar_sort -> showSortingDialog()
+                R.id.quick_toolbar_filter -> showFilterMediaDialog()
+                R.id.quick_toolbar_group -> showGroupByDialog()
+                R.id.quick_toolbar_view -> changeViewType()
+                R.id.quick_toolbar_columns -> changeColumnCount()
+                R.id.quick_toolbar_filename -> toggleFilenameVisibility()
+                R.id.quick_toolbar_hidden -> tryToggleTemporarilyShowHidden()
+                R.id.quick_toolbar_slideshow -> startSlideshow()
                 R.id.sort -> showSortingDialog()
                 R.id.filter -> showFilterMediaDialog()
                 R.id.empty_recycle_bin -> emptyRecycleBin()
@@ -815,6 +831,27 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             },
             backButton = mPath == FAVORITES || (mGallerySection == null && !mShowAll)
         )
+        val picker = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent || isSetWallpaperIntent()
+        if (!picker && mPath != RECYCLE_BIN) {
+            val isHome = mPath.isEmpty()
+            val viewType = config.getFolderViewType(if (isHome) SHOW_ALL else mPath)
+            org.fossify.gallery.helpers.ToolbarQuickActions.apply(
+                this, binding.mediaMenu,
+                if (isHome) org.fossify.gallery.helpers.ToolbarQuickScope.HOME
+                    else org.fossify.gallery.helpers.ToolbarQuickScope.FOLDER,
+                if (isHome) config.toolbarHomeActions else config.toolbarFolderActions,
+                hasBack = !isHome,
+                fixedActionCount = if (isHome) 1 else 0,
+                supported = { action ->
+                    when (action) {
+                        org.fossify.gallery.helpers.ToolbarQuickActions.COLUMNS,
+                        org.fossify.gallery.helpers.ToolbarQuickActions.FILENAME -> viewType == VIEW_TYPE_GRID
+                        org.fossify.gallery.helpers.ToolbarQuickActions.GROUP -> !config.scrollHorizontally
+                        else -> true
+                    }
+                }
+            )
+        }
     }
 
     private fun storeStateVariables() {
