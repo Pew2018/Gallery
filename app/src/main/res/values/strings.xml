@@ -365,5 +365,8 @@
     <string name="quick_action_filename">Show / hide file names</string>
     <string name="quick_action_excluded">Temporarily show excluded items</string>
     <string name="quick_toolbar_search_fallback">Search</string>
+    <string name="quick_toolbar_drag">Drag to reorder</string>
+    <string name="quick_toolbar_drag_row">%1$s, long-press to reorder</string>
+    <string name="quick_toolbar_choose_row">%1$s, select shortcut</string>
 </resources>
 
