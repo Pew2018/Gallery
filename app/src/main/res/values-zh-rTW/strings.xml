@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="album_home_locked">已鎖定</string>
+    <string name="album_home_items">%1$d 項</string>
     <string name="album_home_pinned">釘選相簿</string>
     <string name="album_home_other">其他相簿</string>
     <string name="album_home_expand">查看全部</string>
