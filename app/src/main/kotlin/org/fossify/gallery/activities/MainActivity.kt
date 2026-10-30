@@ -149,6 +149,7 @@ import org.fossify.gallery.helpers.MONTH_MILLISECONDS
 import org.fossify.gallery.helpers.GalleryBottomBar
 import org.fossify.gallery.helpers.AlbumPinnedHeaderAdapter
 import org.fossify.gallery.helpers.AlbumOtherTitleAdapter
+import org.fossify.gallery.helpers.AlbumHomeSpanPolicy
 import org.fossify.gallery.helpers.GalleryNavigation
 import org.fossify.gallery.helpers.GalleryScreen
 import org.fossify.gallery.helpers.GallerySection
@@ -1510,22 +1511,18 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         refreshMenuItems()
 
         if (mHomeGroupedActive) {
-            // Span-count changes must invalidate *all* holders in the ConcatAdapter,
-            // including already visible rows. Merely rebinding the 'other'
-            // adapter left the initial two-column rows at their old measured width.
-            // Preserve scroll position while rebuilding the small presentation tree.
-            recycler.itemAnimator?.endAnimations()
-            recycler.recycledViewPool.clear()
-            setupAdapter(ArrayList(mDirs), forceRecreate = true)
+            // GridLayoutManager will remeasure existing holders at their new
+            // spans. Keep the ConcatAdapter, child adapters, image requests and
+            // horizontal strip position alive while updating only strip width.
+            mHomeHeader?.submit(mHomePinnedDirs, mHomePinnedExpanded, config.dirColumnCnt)
             manager.spanSizeLookup.invalidateSpanIndexCache()
-            if (firstVisible != RecyclerView.NO_POSITION) {
-                manager.scrollToPositionWithOffset(firstVisible, firstOffset)
-            }
             recycler.requestLayout()
         } else {
-            getRecyclerAdapter()?.apply { notifyItemRangeChanged(0, dirs.size) }
             manager.spanSizeLookup.invalidateSpanIndexCache()
             recycler.requestLayout()
+        }
+        if (firstVisible != RecyclerView.NO_POSITION) {
+            manager.scrollToPositionWithOffset(firstVisible, firstOffset)
         }
     }
 
@@ -2248,6 +2245,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             textToSearch.isBlank()
 
         if (useHomeSections) {
+            val sectionInset = (12 * resources.displayMetrics.density + 0.5f).toInt()
+            binding.directoriesGrid.setPadding(
+                sectionInset, binding.directoriesGrid.paddingTop,
+                sectionInset, binding.directoriesGrid.paddingBottom
+            )
             mHomeSourceDirs = ArrayList(visible)
             val virtualFavorite = visible.filter { it.path == FAVORITES }
             val pinSet = config.pinnedFolders
@@ -2304,6 +2306,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 ).apply { submit(pinned, mHomePinnedExpanded, config.dirColumnCnt) }
                 mHomeOtherLabel = AlbumOtherTitleAdapter(this).apply { submit(others.size) }
                 mHomeConcat = ConcatAdapter(
+                    ConcatAdapter.Config.Builder()
+                        .setStableIdMode(ConcatAdapter.Config.StableIdMode.ISOLATED_STABLE_IDS)
+                        .build(),
                     mHomeFavoriteAdapter!!, mHomeHeader!!, mHomePinnedAdapter!!,
                     mHomeOtherLabel!!, mHomeOtherAdapter!!
                 )
@@ -2337,23 +2342,23 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             (binding.directoriesGrid.layoutManager as? MyGridLayoutManager)?.let { manager ->
                 manager.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
                     override fun getSpanSize(position: Int): Int {
-                        var index = position
-                        val favorites = mHomeFavoriteAdapter?.itemCount ?: 0
-                        if (index < favorites) return manager.spanCount
-                        index -= favorites
-                        val section = mHomeHeader?.itemCount ?: 0
-                        if (index < section) return manager.spanCount
-                        index -= section
-                        val expanded = mHomePinnedAdapter?.itemCount ?: 0
-                        if (index < expanded) return if (config.viewTypeFolders == VIEW_TYPE_LIST) manager.spanCount else 1
-                        index -= expanded
-                        if (index < (mHomeOtherLabel?.itemCount ?: 0)) return manager.spanCount
-                        return if (config.viewTypeFolders == VIEW_TYPE_LIST) manager.spanCount else 1
+                        return AlbumHomeSpanPolicy.spanSize(
+                            position = position,
+                            spanCount = manager.spanCount,
+                            favoritesCount = mHomeFavoriteAdapter?.itemCount ?: 0,
+                            pinnedHeaderCount = mHomeHeader?.itemCount ?: 0,
+                            expandedPinnedCount = mHomePinnedAdapter?.itemCount ?: 0,
+                            otherTitleCount = mHomeOtherLabel?.itemCount ?: 0,
+                            listMode = config.viewTypeFolders == VIEW_TYPE_LIST
+                        )
                     }
                 }
                 manager.spanSizeLookup.invalidateSpanIndexCache()
             }
         } else {
+            binding.directoriesGrid.setPadding(
+                0, binding.directoriesGrid.paddingTop, 0, binding.directoriesGrid.paddingBottom
+            )
             if (current == null || forceRecreate || wasGrouped) {
                 mHomeGroupedActive = false
                 mHomeConcat = null

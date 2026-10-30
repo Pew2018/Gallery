@@ -14,6 +14,7 @@ import android.graphics.Typeface
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.MotionEvent
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -40,6 +41,12 @@ class AlbumPinnedHeaderAdapter(
     private var albums = arrayListOf<Directory>()
     private var expanded = false
     private var columns = 3
+
+    init {
+        setHasStableIds(true)
+    }
+
+    override fun getItemId(position: Int) = HEADER_STABLE_ID
 
     private fun dp(value: Int) = (context.resources.displayMetrics.density * value + 0.5f).toInt()
 
@@ -69,13 +76,29 @@ class AlbumPinnedHeaderAdapter(
         var stripWidth = 0
         var lastExpanded: Boolean? = null
         var stripAnimator: ValueAnimator? = null
+        var targetHeight = 0
     }
 
     override fun onViewRecycled(holder: Holder) {
-        holder.stripAnimator?.cancel()
-        holder.stripAnimator = null
+        cancelStripAnimation(holder)
+        applyStripState(holder, expanded, holder.targetHeight)
         holder.lastExpanded = null
         super.onViewRecycled(holder)
+    }
+
+    private fun cancelStripAnimation(holder: Holder) {
+        val animator = holder.stripAnimator
+        holder.stripAnimator = null
+        animator?.cancel()
+    }
+
+    private fun applyStripState(holder: Holder, isExpanded: Boolean, height: Int) {
+        val state = AlbumStripStatePolicy.settled(isExpanded, height)
+        val params = holder.strip.layoutParams as LinearLayout.LayoutParams
+        params.height = state.height
+        holder.strip.layoutParams = params
+        holder.strip.alpha = state.alpha
+        holder.strip.visibility = if (state.visible) View.VISIBLE else View.GONE
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
@@ -88,7 +111,7 @@ class AlbumPinnedHeaderAdapter(
         val heading = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(4), dp(16), 0)
+            setPadding(dp(4), dp(4), dp(4), 0)
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48))
         }
         val title = TextView(context).apply {
@@ -112,13 +135,32 @@ class AlbumPinnedHeaderAdapter(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT
         ))
         column.addView(heading)
+        var downX = 0f
+        var downY = 0f
         val strip = MyRecyclerView(context).apply {
             layoutManager = LinearLayoutManager(context, RecyclerView.HORIZONTAL, false)
             setHasFixedSize(false)
             isNestedScrollingEnabled = false
             overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
-            setPadding(dp(12), 0, dp(12), 0)
+            setPadding(0, 0, 0, 0)
             clipToPadding = false
+            setOnTouchListener { view, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        downX = event.x
+                        downY = event.y
+                        view.parent?.requestDisallowInterceptTouchEvent(false)
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = kotlin.math.abs(event.x - downX)
+                        val dy = kotlin.math.abs(event.y - downY)
+                        if (dx > dy) view.parent?.requestDisallowInterceptTouchEvent(true)
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                        view.parent?.requestDisallowInterceptTouchEvent(false)
+                }
+                false
+            }
         }
         column.addView(strip, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(120)
@@ -145,39 +187,45 @@ class AlbumPinnedHeaderAdapter(
         )
 
         val available = (holder.container.width.takeIf { it > 0 }
-            ?: context.resources.displayMetrics.widthPixels) - dp(32)
-        val width = (available / columns.coerceAtLeast(3)).coerceAtLeast(dp(72))
+            ?: (holder.container.parent as? View)?.width?.takeIf { it > 0 }?.minus(dp(24))
+            ?: context.resources.displayMetrics.widthPixels - dp(24))
+        val width = (available / columns.coerceAtLeast(3) - dp(8)).coerceAtLeast(dp(72))
         val targetHeight = width + dp(52)
+        holder.targetHeight = targetHeight
 
-        if (!expanded) {
-            val current = holder.strip.adapter as? DirectoryAdapter
-            if (current == null || holder.stripWidth != width) {
-                holder.strip.adapter = createStripAdapter(holder.strip, ArrayList(albums), width)
+        val current = holder.strip.adapter as? DirectoryAdapter
+        if (current == null) {
+            holder.strip.adapter = createStripAdapter(holder.strip, ArrayList(albums), width)
+            holder.stripWidth = width
+        } else {
+            if (holder.stripWidth != width) {
+                current.updateEmbeddedPinnedWidth(width)
                 holder.stripWidth = width
-            } else {
-                current.updateDirs(ArrayList(albums))
             }
+            current.updateDirs(ArrayList(albums))
         }
 
         // Animate the *actual strip height*, not only opacity. This closes the
         // empty gap while the expanded grid is inserted by the parent adapter.
         val previous = holder.lastExpanded
-        holder.lastExpanded = expanded
         val params = holder.strip.layoutParams as LinearLayout.LayoutParams
-        if (previous == null || previous == expanded) {
-            if (holder.stripAnimator == null) {
-                params.height = if (expanded) 0 else targetHeight
-                holder.strip.layoutParams = params
-                holder.strip.alpha = if (expanded) 0f else 1f
-                holder.strip.visibility = if (expanded) View.GONE else View.VISIBLE
-            }
+        if (previous == null) {
+            cancelStripAnimation(holder)
+            applyStripState(holder, expanded, targetHeight)
+            holder.lastExpanded = expanded
             return
         }
+        if (previous == expanded && holder.stripAnimator == null) {
+            applyStripState(holder, expanded, targetHeight)
+            return
+        }
+        if (previous == expanded && holder.stripAnimator?.isRunning == true) return
 
         val previousHeight = params.height.coerceAtLeast(0)
-        holder.stripAnimator?.cancel()
+        cancelStripAnimation(holder)
         val startHeight = previousHeight.coerceAtMost(targetHeight)
         val endHeight = if (expanded) 0 else targetHeight
+        holder.lastExpanded = expanded
         holder.strip.visibility = View.VISIBLE
         holder.stripAnimator = ValueAnimator.ofInt(startHeight, endHeight).apply {
             duration = 210L
@@ -195,10 +243,10 @@ class AlbumPinnedHeaderAdapter(
                     cancelled = true
                 }
                 override fun onAnimationEnd(animation: Animator) {
-                    if (!cancelled) {
-                        holder.strip.visibility = if (expanded) View.GONE else View.VISIBLE
+                    if (holder.stripAnimator === animation) {
+                        holder.stripAnimator = null
+                        if (!cancelled) applyStripState(holder, expanded, targetHeight)
                     }
-                    if (holder.stripAnimator === animation) holder.stripAnimator = null
                 }
             })
             start()
@@ -211,14 +259,17 @@ class AlbumPinnedHeaderAdapter(
 class AlbumOtherTitleAdapter(private val context: Context) :
     RecyclerView.Adapter<AlbumOtherTitleAdapter.Holder>() {
     private var count = 0
+    init { setHasStableIds(true) }
+    override fun getItemId(position: Int) = OTHER_TITLE_STABLE_ID
     private fun dp(v: Int) = (context.resources.displayMetrics.density * v + 0.5f).toInt()
 
     fun submit(newCount: Int) {
-        val oldVisible = count > 0
+        val oldCount = count
+        val oldVisible = oldCount > 0
         count = newCount
         if (oldVisible != (count > 0)) {
             if (count == 0) notifyItemRemoved(0) else notifyItemInserted(0)
-        } else if (count > 0) notifyItemChanged(0)
+        } else if (oldCount != count && count > 0) notifyItemChanged(0)
     }
 
     override fun getItemCount() = if (count > 0) 1 else 0
@@ -229,7 +280,7 @@ class AlbumOtherTitleAdapter(private val context: Context) :
             layoutParams = RecyclerView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48)
             )
-            setPadding(dp(16), 0, dp(16), 0)
+            setPadding(dp(4), 0, dp(4), 0)
             gravity = Gravity.CENTER_VERTICAL
             textSize = 13f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
@@ -242,3 +293,6 @@ class AlbumOtherTitleAdapter(private val context: Context) :
         holder.label.text = "${context.getString(R.string.album_home_other)} · $count"
     }
 }
+
+private const val HEADER_STABLE_ID = 0x414C42554D484452L
+private const val OTHER_TITLE_STABLE_ID = 0x414C42554D4F5448L

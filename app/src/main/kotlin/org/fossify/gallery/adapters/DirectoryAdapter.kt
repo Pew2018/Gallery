@@ -16,10 +16,12 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.RelativeLayout
+import android.widget.TextView
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.bumptech.glide.Glide
@@ -105,6 +107,7 @@ import org.fossify.gallery.helpers.FOLDER_STYLE_SQUARE
 import org.fossify.gallery.helpers.LOCATION_INTERNAL
 import org.fossify.gallery.helpers.LOCATION_SD
 import org.fossify.gallery.helpers.OxygenThumbnailPlaceholder
+import org.fossify.gallery.helpers.HomeCardLayoutPolicy
 import org.fossify.gallery.helpers.OxygenThemeEngine
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
@@ -130,7 +133,7 @@ class DirectoryAdapter(
     recyclerView: MyRecyclerView,
     val isPickIntent: Boolean,
     val swipeRefreshLayout: SwipeRefreshLayout? = null,
-    val embeddedPinnedWidthPx: Int = 0,
+    embeddedPinnedWidthPx: Int = 0,
     val compactVirtualFavorite: Boolean = false,
     val homeGrid: Boolean = false,
     val allowDragSelection: Boolean = true,
@@ -141,6 +144,8 @@ class DirectoryAdapter(
     RecyclerViewFastScroller.OnPopupTextUpdate {
 
     private val config = activity.config
+    private var embeddedPinnedWidthPx = embeddedPinnedWidthPx
+    private val hostRecyclerView = recyclerView
     private val isListViewType = compactVirtualFavorite || (config.viewTypeFolders == VIEW_TYPE_LIST && embeddedPinnedWidthPx == 0)
     private val inHomeCard = homeGrid && !isListViewType
     private var pinnedFolders = config.pinnedFolders
@@ -149,6 +154,8 @@ class DirectoryAdapter(
     private var cropThumbnails = config.cropThumbnails
     private var groupDirectSubfolders = config.groupDirectSubfolders
     private var currentDirectoriesHash = dirs.hashCode()
+    private val stableIdsByPath = HashMap<String, Long>()
+    private val stablePathsById = HashMap<Long, String>()
     private var lockedFolderPaths = ArrayList<String>()
     @Volatile private var favoriteFolderPaths: Set<String> = emptySet()
     private var isDragAndDropping = false
@@ -947,9 +954,32 @@ class DirectoryAdapter(
     private var diffGeneration = 0
 
     override fun getItemId(position: Int): Long {
-        return dirs.getOrNull(position)?.path?.fold(1469598103934665603L) { hash, ch ->
-            (hash xor ch.code.toLong()) * 1099511628211L
-        } ?: RecyclerView.NO_ID
+        val path = dirs.getOrNull(position)?.path ?: return RecyclerView.NO_ID
+        return stableIdsByPath.getOrPut(path) {
+            var candidate = path.fold(1469598103934665603L) { hash, ch ->
+                (hash xor ch.code.toLong()) * 1099511628211L
+            }
+            while (candidate == RecyclerView.NO_ID ||
+                (stablePathsById[candidate]?.let { it != path } == true)
+            ) candidate++
+            stablePathsById[candidate] = path
+            candidate
+        }
+    }
+
+    /** Resize horizontal pinned cards in place, preserving their holder and scroll state. */
+    fun updateEmbeddedPinnedWidth(widthPx: Int) {
+        if (embeddedPinnedWidthPx <= 0 || widthPx <= 0 || embeddedPinnedWidthPx == widthPx) return
+        embeddedPinnedWidthPx = widthPx
+        for (index in 0 until hostRecyclerView.childCount) {
+            val child = hostRecyclerView.getChildAt(index)
+            val params = child.layoutParams as? RecyclerView.LayoutParams ?: continue
+            if (params.width != widthPx) {
+                params.width = widthPx
+                child.layoutParams = params
+            }
+        }
+        hostRecyclerView.requestLayout()
     }
 
     /**
@@ -1029,6 +1059,7 @@ class DirectoryAdapter(
     private fun setupView(view: View, directory: Directory, holder: ViewHolder) {
         val isSelected = selectedKeys.contains(directory.path.hashCode())
         bindItem(view).apply {
+            val showHomeCount = if (inHomeCard) applyHomeCardDensity(view, dirName, photoCnt, dirLock) else true
             dirLoadingProgress.visibility = if (isRefreshLoading && holder.bindingAdapterPosition == 0) View.VISIBLE else View.GONE
             dirLoadingProgress.apply {
                 setIndicatorColor(Color.WHITE)
@@ -1115,30 +1146,37 @@ class DirectoryAdapter(
                     else -> ROUNDED_CORNERS_BIG
                 }
 
-                OxygenThumbnailPlaceholder.apply(activity, dirThumbnail, roundedCorners)
-                Picasso.get().cancelRequest(dirThumbnail)
                 dirThumbnail.scaleType = if (cropThumbnails) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
-                // Old cached thumbnails must never flash on a different folder.
-                if (dirThumbnail.tag != directory.tmb) {
+                val requestKey = listOf(
+                    directory.path, directory.tmb, directory.modified, cropThumbnails, roundedCorners,
+                    thumbnailType, animateGifs
+                ).joinToString("\u0000")
+                // Keep a successfully displayed image while the same album is rebound
+                // for a span/layout change. A changed album/request still clears first.
+                if (dirThumbnail.tag != requestKey) {
+                    OxygenThumbnailPlaceholder.apply(activity, dirThumbnail, roundedCorners)
+                    Picasso.get().cancelRequest(dirThumbnail)
                     Glide.with(activity).clear(dirThumbnail)
                     dirThumbnail.setImageDrawable(null)
-                    dirThumbnail.tag = directory.tmb
+                    dirThumbnail.tag = requestKey
+                    activity.loadImage(
+                        type = thumbnailType,
+                        path = directory.tmb,
+                        target = dirThumbnail,
+                        horizontalScroll = scrollHorizontally && !inHomeCard,
+                        animateGifs = animateGifs,
+                        cropThumbnails = cropThumbnails,
+                        roundCorners = roundedCorners,
+                        signature = directory.getKey(),
+                        onError = {
+                            // Do not let a late failure overwrite a recycled holder.
+                            if (dirThumbnail.tag == requestKey) {
+                                dirThumbnail.scaleType = ImageView.ScaleType.CENTER
+                                dirThumbnail.setImageDrawable(AppCompatResources.getDrawable(activity, R.drawable.ic_vector_warning_colored))
+                            }
+                        }
+                    )
                 }
-
-                activity.loadImage(
-                    type = thumbnailType,
-                    path = directory.tmb,
-                    target = dirThumbnail,
-                    horizontalScroll = scrollHorizontally && !inHomeCard,
-                    animateGifs = animateGifs,
-                    cropThumbnails = cropThumbnails,
-                    roundCorners = roundedCorners,
-                    signature = directory.getKey(),
-                    onError = {
-                        dirThumbnail.scaleType = ImageView.ScaleType.CENTER
-                        dirThumbnail.setImageDrawable(AppCompatResources.getDrawable(activity, R.drawable.ic_vector_warning_colored))
-                    }
-                )
             }
 
             dirPin.beVisibleIf(!inHomeCard && !compactVirtualFavorite && pinnedFolders.contains(directory.path))
@@ -1158,6 +1196,7 @@ class DirectoryAdapter(
                 if (inHomeCard) isProtected || showMediaCount != 0
                 else !favoritesLocked && showMediaCount == FOLDER_MEDIA_CNT_LINE
             )
+            if (inHomeCard && !showHomeCount) photoCnt.beGone()
 
             if (limitFolderTitle && !inHomeCard) {
                 dirName.setSingleLine()
@@ -1228,6 +1267,40 @@ class DirectoryAdapter(
             }
         }
     }
+
+    private fun applyHomeCardDensity(
+        itemView: View,
+        name: TextView,
+        count: TextView,
+        lock: ImageView
+    ): Boolean {
+        val widthPx = itemView.width.takeIf { it > 0 }
+            ?: itemView.layoutParams?.width?.takeIf { it > 0 }
+            ?: (hostRecyclerView.width / ((hostRecyclerView.layoutManager as? GridLayoutManager)?.spanCount ?: 3))
+        val widthDp = widthPx / activity.resources.displayMetrics.density
+        val (nameSize, countSize, showCount, topGap, countGap) =
+            HomeCardLayoutPolicy.forWidthDp(widthDp)
+        name.textSize = nameSize
+        name.maxLines = 1
+        name.ellipsize = TextUtils.TruncateAt.END
+        count.textSize = countSize
+        count.maxLines = 1
+        count.ellipsize = TextUtils.TruncateAt.END
+        count.visibility = if (showCount) View.VISIBLE else View.GONE
+        (name.layoutParams as? RelativeLayout.LayoutParams)?.let { params ->
+            params.topMargin = dp(topGap)
+            name.layoutParams = params
+        }
+        (count.layoutParams as? RelativeLayout.LayoutParams)?.let { params ->
+            params.topMargin = dp(countGap)
+            count.layoutParams = params
+        }
+        val inset = (widthPx * 0.16f).toInt().coerceIn(dp(3), dp(12))
+        lock.setPadding(inset, inset, inset, inset)
+        return showCount
+    }
+
+    private fun dp(value: Int) = (activity.resources.displayMetrics.density * value + 0.5f).toInt()
 
     override fun onRowMoved(fromPosition: Int, toPosition: Int) {
         if (fromPosition !in dirs.indices || toPosition !in dirs.indices) return
