@@ -1502,15 +1502,30 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     private fun columnCountChanged() {
-        (binding.directoriesGrid.layoutManager as MyGridLayoutManager).spanCount =
-            config.dirColumnCnt
+        val recycler = binding.directoriesGrid
+        val manager = recycler.layoutManager as MyGridLayoutManager
+        val firstVisible = manager.findFirstVisibleItemPosition()
+        val firstOffset = manager.findViewByPosition(firstVisible)?.top?.minus(recycler.paddingTop) ?: 0
+        manager.spanCount = config.dirColumnCnt
         refreshMenuItems()
-        getRecyclerAdapter()?.apply {
-            notifyItemRangeChanged(0, dirs.size)
-        }
+
         if (mHomeGroupedActive) {
-            mHomePinnedAdapter?.notifyDataSetChanged()
-            mHomeHeader?.submit(mHomePinnedDirs, mHomePinnedExpanded, config.dirColumnCnt)
+            // Span-count changes must invalidate *all* holders in the ConcatAdapter,
+            // including already visible rows. Merely rebinding the 'other'
+            // adapter left the initial two-column rows at their old measured width.
+            // Preserve scroll position while rebuilding the small presentation tree.
+            recycler.itemAnimator?.endAnimations()
+            recycler.recycledViewPool.clear()
+            setupAdapter(ArrayList(mDirs), forceRecreate = true)
+            manager.spanSizeLookup.invalidateSpanIndexCache()
+            if (firstVisible != RecyclerView.NO_POSITION) {
+                manager.scrollToPositionWithOffset(firstVisible, firstOffset)
+            }
+            recycler.requestLayout()
+        } else {
+            getRecyclerAdapter()?.apply { notifyItemRangeChanged(0, dirs.size) }
+            manager.spanSizeLookup.invalidateSpanIndexCache()
+            recycler.requestLayout()
         }
     }
 
@@ -2278,10 +2293,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                         mHomeHeader?.submit(
                             mHomePinnedDirs, mHomePinnedExpanded, config.dirColumnCnt
                         )
-                        mHomePinnedAdapter?.updateDirs(
+                        mHomePinnedAdapter?.updateHomeExpandedDirs(
                             if (mHomePinnedExpanded) ArrayList(mHomePinnedDirs)
                             else arrayListOf()
                         )
+                        (binding.directoriesGrid.layoutManager as? MyGridLayoutManager)
+                            ?.spanSizeLookup?.invalidateSpanIndexCache()
                         binding.directoriesGrid.requestLayout()
                     }
                 ).apply { submit(pinned, mHomePinnedExpanded, config.dirColumnCnt) }
@@ -2291,6 +2308,18 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     mHomeOtherLabel!!, mHomeOtherAdapter!!
                 )
                 mHomeGroupedActive = true
+                // Explicitly restore a classic, restrained insertion animation
+                // if another view disabled the recycler's ItemAnimator.
+                if (areSystemAnimationsEnabled && binding.directoriesGrid.itemAnimator == null) {
+                    binding.directoriesGrid.itemAnimator =
+                        androidx.recyclerview.widget.DefaultItemAnimator().apply {
+                            addDuration = 190L
+                            removeDuration = 150L
+                            moveDuration = 200L
+                        }
+                }
+                (binding.directoriesGrid.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)
+                    ?.supportsChangeAnimations = false
                 // ConcatAdapter offsets make the old global drag-range handler
                 // select wrong rows. Normal long-press selection stays enabled.
                 binding.directoriesGrid.setupDragListener(null)
