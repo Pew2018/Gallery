@@ -156,32 +156,27 @@ val Context.dateTakensDB: DateTakensDao
 val Context.recycleBin: File get() = filesDir
 
 fun Context.movePinnedDirectoriesToFront(dirs: ArrayList<Directory>): ArrayList<Directory> {
-    val foundFolders = ArrayList<Directory>()
     val pinnedFolders = config.pinnedFolders
-
-    dirs.forEach {
-        if (pinnedFolders.contains(it.path)) {
-            foundFolders.add(it)
-        }
+    val favorites = dirs.filter { it.path == FAVORITES }
+    val showRecycleBin = config.showRecycleBinAtFolders
+    val recycleBin = if (showRecycleBin) dirs.filter { it.isRecycleBin() } else emptyList()
+    val pinned = dirs.filter {
+        it.path != FAVORITES &&
+            (!showRecycleBin || !it.isRecycleBin()) &&
+            pinnedFolders.contains(it.path)
+    }
+    val regular = dirs.filter {
+        it.path != FAVORITES &&
+            (!showRecycleBin || !it.isRecycleBin()) &&
+            !pinnedFolders.contains(it.path)
     }
 
-    dirs.removeAll(foundFolders)
-    dirs.addAll(0, foundFolders)
-    if (config.tempFolderPath.isNotEmpty()) {
-        val newFolder = dirs.firstOrNull { it.path == config.tempFolderPath }
-        if (newFolder != null) {
-            dirs.remove(newFolder)
-            dirs.add(0, newFolder)
-        }
-    }
-
-    if (config.showRecycleBinAtFolders && config.showRecycleBinLast) {
-        val binIndex = dirs.indexOfFirst { it.isRecycleBin() }
-        if (binIndex != -1) {
-            val bin = dirs.removeAt(binIndex)
-            dirs.add(bin)
-        }
-    }
+    dirs.clear()
+    dirs.addAll(favorites)
+    if (showRecycleBin && !config.showRecycleBinLast) dirs.addAll(recycleBin)
+    dirs.addAll(pinned)
+    dirs.addAll(regular)
+    if (showRecycleBin && config.showRecycleBinLast) dirs.addAll(recycleBin)
     return dirs
 }
 
@@ -204,7 +199,7 @@ fun Context.getSortedDirectories(source: ArrayList<Directory>): ArrayList<Direct
         }
 
         dirs.mapTo(newDirsOrdered, { it })
-        return newDirsOrdered
+        return movePinnedDirectoriesToFront(newDirsOrdered)
     }
 
     dirs.sortWith { o1, o2 ->

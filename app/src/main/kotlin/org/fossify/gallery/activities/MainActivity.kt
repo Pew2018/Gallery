@@ -1702,7 +1702,37 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
         }
 
-        val dirs = getSortedDirectories(newDirs)
+        // Publish every special directory before the first sort so the list
+        // has one stable order throughout the subsequent media scan.
+        val dirs = ArrayList(newDirs.filterNot { it.path == FAVORITES })
+        if (favoritesDB.getFavoritesCount() > 0L) {
+            dirs.add(Directory().apply {
+                path = FAVORITES
+                name = getString(org.fossify.commons.R.string.favorites)
+                location = LOCATION_INTERNAL
+            })
+        }
+
+        if (
+            config.showRecycleBinAtFolders
+            && !config.showRecycleBinLast
+            && dirs.none { it.isRecycleBin() }
+        ) {
+            try {
+                if (mediaDB.getDeletedMediaCount() > 0) {
+                    dirs.add(Directory().apply {
+                        path = RECYCLE_BIN
+                        name = getString(org.fossify.commons.R.string.recycle_bin)
+                        location = LOCATION_INTERNAL
+                    })
+                }
+            } catch (ignored: Exception) {
+            }
+        }
+
+        val orderedDirs = getSortedDirectories(dirs)
+        dirs.clear()
+        dirs.addAll(orderedDirs)
         if (config.groupDirectSubfolders) {
             mDirs = dirs.clone() as ArrayList<Directory>
         }
@@ -1711,7 +1741,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         runOnUiThread {
             checkPlaceholderVisibility(dirs)
-            setupAdapter(dirs.clone() as ArrayList<Directory>)
+            setupAdapter(dirs.clone() as ArrayList<Directory>, sortDirs = false)
         }
 
         // cached folders have been loaded, recheck folders one by one starting with the first displayed
@@ -1731,37 +1761,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val dirPathsToRemove = ArrayList<String>()
         val lastModifieds = mLastMediaFetcher!!.getLastModifieds()
         val dateTakens = mLastMediaFetcher!!.getDateTakens()
-
-        if (
-            config.showRecycleBinAtFolders
-            && !config.showRecycleBinLast
-            && !dirs.map { it.path }.contains(RECYCLE_BIN)
-        ) {
-            try {
-                if (mediaDB.getDeletedMediaCount() > 0) {
-                    val recycleBin = Directory().apply {
-                        path = RECYCLE_BIN
-                        name = getString(org.fossify.commons.R.string.recycle_bin)
-                        location = LOCATION_INTERNAL
-                    }
-
-                    dirs.add(0, recycleBin)
-                }
-            } catch (ignored: Exception) {
-            }
-        }
-
-        if (favoritesDB.getFavoritesCount() == 0L) {
-            dirs.removeAll { it.path == FAVORITES }
-            setupAdapter(dirs)
-        } else if (dirs.map { it.path }.contains(FAVORITES)) {
-            val favorites = Directory().apply {
-                path = FAVORITES
-                name = getString(org.fossify.commons.R.string.favorites)
-                location = LOCATION_INTERNAL
-            }
-            dirs.add(0, favorites)
-        }
 
         // fetch files from MediaStore only, unless the app has the MANAGE_EXTERNAL_STORAGE permission on Android 11+
         val android11Files = mLastMediaFetcher?.getAndroid11FolderMedia(
@@ -1785,7 +1784,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     directory.mediaCnt = 0
                     directory.subfoldersMediaCount = 0
                     updateDBDirectory(directory)
-                    setupAdapter(dirs)
+                    setupAdapter(dirs, sortDirs = false)
                     continue
                 }
 
@@ -1843,7 +1842,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                         directory.mediaCnt = 0
                         directory.subfoldersMediaCount = 0
                         updateDBDirectory(directory)
-                        setupAdapter(dirs)
+                        setupAdapter(dirs, sortDirs = false)
                         continue
                     }
                 }
@@ -1894,7 +1893,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     sortValue = getDirectorySortingValue(curMedia, path, name, size, mediaCnt)
                 }
 
-                setupAdapter(dirs)
+                setupAdapter(dirs, sortDirs = false)
 
                 // Already on the cached-media worker thread: do not create a
                 // short-lived Thread per album during a large library refresh.
@@ -1943,7 +1942,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     directoryDB.deleteDirPath(it.path)
                 }
                 dirs.removeAll(dirsToRemove)
-                setupAdapter(dirs)
+                setupAdapter(dirs, sortDirs = false)
             }
         } catch (ignored: Exception) {
         }
@@ -2047,14 +2046,14 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             foldersSinceUpdate++
             if (foldersSinceUpdate >= 8 || pendingMedia.size >= 1200) {
                 commitBatch()
-                setupAdapter(dirs)
+                setupAdapter(dirs, sortDirs = false)
                 foldersSinceUpdate = 0
             }
         }
 
         commitBatch()
         // One final differential adapter submission, including the last partial batch.
-        setupAdapter(dirs)
+        setupAdapter(dirs, sortDirs = true)
         mLoadedInitialPhotos = true
         if (config.appRunCount > 1) {
             checkLastMediaChanged()
@@ -2156,7 +2155,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun setupAdapter(
         dirs: ArrayList<Directory>,
         textToSearch: String = binding.mainMenu.getCurrentQuery(),
-        forceRecreate: Boolean = false
+        forceRecreate: Boolean = false,
+        sortDirs: Boolean = true
     ) {
         val currAdapter = binding.directoriesGrid.adapter
         val distinctDirs = dirs
@@ -2167,7 +2167,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
             .toMutableList() as ArrayList<Directory>
 
-        val sortedDirs = getSortedDirectories(distinctDirs)
+        val sortedDirs = if (sortDirs) getSortedDirectories(distinctDirs) else distinctDirs
         var dirsToShow = getDirsToShow(
             dirs = sortedDirs,
             allDirs = mDirs,
