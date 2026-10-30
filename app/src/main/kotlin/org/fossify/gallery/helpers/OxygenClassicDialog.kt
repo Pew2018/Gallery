@@ -55,15 +55,82 @@ object OxygenClassicDialog {
     }
 
     fun show(activity: Activity, builder: AlertDialog.Builder, content: View? = null): AlertDialog {
-        val dialog = builder.create()
-        if (activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0 &&
-            dialog.window?.attributes?.flags?.and(WindowManager.LayoutParams.FLAG_SECURE) == 0) {
-            dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
+        val dialog = ClassicCommonsHooks.prepareBuilder(builder).create()
+        ClassicCommonsHooks.beforeDialogShow(activity, dialog, content)
         dialog.show()
-        apply(activity, dialog, dialog.window?.decorView ?: content ?: activity.window.decorView)
-        ClassicCommonsHooks.onDialogShown(activity, dialog, content ?: dialog.window!!.decorView)
+        // Immediate control availability is retained for callers configuring actions.
+        // This pass never changes window width or soft-input mode.
+        apply(activity, dialog, dialog.window!!.decorView)
+        ClassicCommonsHooks.onDialogShown(activity, dialog, content)
         return dialog
+    }
+
+    data class StyleResult(val windowChanged: Boolean = false, val layoutRequested: Boolean = false)
+    data class WindowPreparation(val width: Int, val geometryChanged: Boolean)
+    private data class SurfaceState(val colors: List<Int>, val drawable: android.graphics.drawable.Drawable?)
+
+    internal fun widthFor(availableWidth: Int, density: Float): Int =
+        (availableWidth - 48f * density).toInt().coerceAtLeast(1)
+            .coerceAtMost((560f * density).toInt().coerceAtLeast(1))
+
+    /** Window bounds/system insets exclude IME geometry, including in multi-window mode. */
+    internal fun availableWidth(activity: Activity): Int {
+        if (Build.VERSION.SDK_INT >= 30) {
+            val metrics = activity.windowManager.currentWindowMetrics
+            val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
+                android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout()
+            )
+            return (metrics.bounds.width() - insets.left - insets.right).coerceAtLeast(1)
+        }
+        val host = activity.window.decorView
+        val insets = androidx.core.view.ViewCompat.getRootWindowInsets(host)?.getInsetsIgnoringVisibility(
+            androidx.core.view.WindowInsetsCompat.Type.systemBars() or
+                androidx.core.view.WindowInsetsCompat.Type.displayCutout()
+        )
+        val width = host.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels
+        return (width - (insets?.left ?: 0) - (insets?.right ?: 0)).coerceAtLeast(1)
+    }
+
+    /** Called before WindowManager.addView; later only for actual host geometry changes. */
+    fun prepareWindow(activity: Activity, dialog: AlertDialog): WindowPreparation {
+        val window = requireNotNull(dialog.window)
+        if (activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0 &&
+            window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE == 0) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        val softInput = window.attributes.softInputMode
+        if (softInput and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST != WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE) {
+            window.setSoftInputMode((softInput and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        }
+        val width = widthFor(availableWidth(activity), activity.resources.displayMetrics.density)
+        val changed = window.attributes.width != width
+        if (changed) window.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+        applySurface(activity, dialog)
+        return WindowPreparation(width, changed)
+    }
+
+    private fun applySurface(activity: Activity, dialog: AlertDialog): Boolean {
+        val window = dialog.window ?: return false
+        val decor = window.decorView
+        val light = ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
+        val surface = if (light) Color.WHITE else Color.rgb(48, 48, 48)
+        val accent = OxygenClassicPalette.readableAccent(activity.getProperPrimaryColor(), surface)
+        val palette = listOf(surface, accent)
+        val state = decor.getTag(R.id.classic_dialog_palette) as? SurfaceState
+        if (state != null && state.colors == palette && state.drawable === decor.background) return false
+        val shape = GradientDrawable().apply {
+            setColor(surface)
+            cornerRadius = 3f * activity.resources.displayMetrics.density
+        }
+        if (window.attributes.flags and WindowManager.LayoutParams.FLAG_DIM_BEHIND == 0) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        }
+        if (window.attributes.dimAmount != 0.60f) window.setDimAmount(0.60f)
+        window.setBackgroundDrawable(shape)
+        // Record the actual decor drawable; platforms may wrap the supplied background.
+        decor.setTag(R.id.classic_dialog_palette, SurfaceState(palette, decor.background))
+        return true
     }
 
     fun ripple(color: Int, density: Float, fill: Int = Color.TRANSPARENT): RippleDrawable {
@@ -90,7 +157,7 @@ object OxygenClassicDialog {
         if (Build.VERSION.SDK_INT >= 29) field.textCursorDrawable?.mutate()?.setTint(accent)
     }
 
-    fun apply(activity: Activity, dialog: AlertDialog, content: View) {
+    fun apply(activity: Activity, dialog: AlertDialog, content: View): StyleResult {
         val dp = activity.resources.displayMetrics.density
         val background = activity.getProperBackgroundColor()
         val accent = activity.getProperPrimaryColor()
@@ -109,36 +176,8 @@ object OxygenClassicDialog {
             intArrayOf(disabled, readableAccent, inactive)
         )
 
-        val shape = GradientDrawable().apply {
-            setColor(surface)
-            cornerRadius = 3f * dp
-        }
-        // Commons dialogs use apply() directly; preserve host screenshot protection.
-        if (activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0 &&
-            dialog.window?.attributes?.flags?.and(WindowManager.LayoutParams.FLAG_SECURE) == 0) {
-            dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
+        val windowChanged = applySurface(activity, dialog)
         val palette = listOf(surface, readableAccent)
-        val decor = dialog.window?.decorView
-        if (decor?.getTag(R.id.classic_dialog_palette) != palette) {
-            dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-            dialog.window?.setDimAmount(0.60f)
-            dialog.window?.setBackgroundDrawable(shape)
-            decor?.setTag(R.id.classic_dialog_palette, palette)
-        }
-        val softInput = dialog.window?.attributes?.softInputMode ?: 0
-        if (softInput and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST != WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE) {
-            dialog.window?.setSoftInputMode((softInput and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or
-                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-        }
-        val visible = android.graphics.Rect()
-        activity.window.decorView.getWindowVisibleDisplayFrame(visible)
-        val safeWidth = visible.width().takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels
-        val width = (safeWidth - 48f * dp).toInt()
-            .coerceAtMost((560f * dp).toInt())
-        if (width > 0 && dialog.window?.attributes?.width != width) {
-            dialog.window?.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
 
         // Preserve semantic, disabled, link and hint text: only skin actual controls.
         fun visit(v: View) {
@@ -226,5 +265,6 @@ object OxygenClassicDialog {
                 this.background = ripple(readableAccent, dp)
             }
         }
+        return StyleResult(windowChanged, content.isLayoutRequested)
     }
 }

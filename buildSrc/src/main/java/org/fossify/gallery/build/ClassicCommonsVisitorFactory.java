@@ -24,6 +24,8 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
     public static ClassVisitor visitor(String name, ClassVisitor next) {
         return new ClassVisitor(Opcodes.ASM9, next) {
             private int shows = 0;
+            private int beforeShows = 0;
+            private int afterShows = 0;
             private int methods = 0;
             private final boolean activity = name.equals("org.fossify.commons.extensions.ActivityKt");
             private final boolean breadcrumbs = name.equals("org.fossify.commons.views.Breadcrumbs");
@@ -47,10 +49,21 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
                             boolean show = opcode == Opcodes.INVOKEVIRTUAL && (owner.equals("androidx/appcompat/app/AlertDialog") || owner.equals("android/app/Dialog")
                                 || owner.equals("androidx/appcompat/app/AppCompatDialog"))
                                 && called.equals("show") && descriptor.equals("()V");
-                            if (show) super.visitInsn(Opcodes.DUP);
+                            if (show) {
+                                // Keep the original receiver below the before-show arguments.
+                                super.visitInsn(Opcodes.DUP);
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitInsn(Opcodes.SWAP);
+                                super.visitVarInsn(Opcodes.ALOAD, 1);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, hook, "beforeDialogShow",
+                                    "(Landroid/app/Activity;Landroidx/appcompat/app/AlertDialog;Landroid/view/View;)V", false);
+                                beforeShows++;
+                                super.visitInsn(Opcodes.DUP);
+                            }
                             super.visitMethodInsn(opcode, owner, called, descriptor, itf);
                             if (show) {
                                 shows++;
+                                afterShows++;
                                 super.visitVarInsn(Opcodes.ALOAD, 0);
                                 super.visitInsn(Opcodes.SWAP);
                                 super.visitVarInsn(Opcodes.ALOAD, 1);
@@ -102,12 +115,13 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
                 }
                 if (!activity && !breadcrumbs) return new MethodVisitor(Opcodes.ASM9, target) {
                     @Override public void visitMethodInsn(int opcode, String owner, String called, String descriptor, boolean itf) {
-                        super.visitMethodInsn(opcode, owner, called, descriptor, itf);
                         if (opcode == Opcodes.INVOKEVIRTUAL && owner.equals("androidx/appcompat/app/AlertDialog$Builder")
                             && called.equals("show") && descriptor.equals("()Landroidx/appcompat/app/AlertDialog;")) {
-                            super.visitInsn(Opcodes.DUP);
-                            super.visitMethodInsn(Opcodes.INVOKESTATIC, hook, "onStandaloneDialogShown",
-                                "(Landroidx/appcompat/app/AlertDialog;)V", false);
+                            // The receiver becomes the static wrapper's argument. No post-show resize.
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, hook, "showClassicBuilder",
+                                "(Landroidx/appcompat/app/AlertDialog$Builder;)Landroidx/appcompat/app/AlertDialog;", false);
+                        } else {
+                            super.visitMethodInsn(opcode, owner, called, descriptor, itf);
                         }
                     }
                 };
@@ -115,7 +129,7 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
             }
             @Override public void visitEnd() {
                 // Fail closed if a future Commons update changes the patched structure.
-                if ((activity && (methods != 2 || shows != 2)) || (breadcrumbs && methods != 5)) {
+                if ((activity && (methods != 2 || shows != 2 || beforeShows != 2 || afterShows != 2)) || (breadcrumbs && methods != 5)) {
                     throw new IllegalStateException("Commons 7.1.3 classic patch mismatch: " + name + " methods=" + methods + " shows=" + shows);
                 }
                 super.visitEnd();

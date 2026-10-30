@@ -104,6 +104,143 @@ class ClassicDialogTest {
         dialog.dismiss()
     }
 
+    private fun layoutFrame(dialog: AlertDialog): Boolean {
+        val decor = dialog.window!!.decorView
+        val width = dialog.window!!.attributes.width.coerceAtLeast(1)
+        decor.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(1200, View.MeasureSpec.AT_MOST))
+        decor.layout(0, 0, width, decor.measuredHeight)
+        decor.viewTreeObserver.dispatchOnGlobalLayout()
+        // ViewTreeObserver reports cancellation, the inverse of listener.onPreDraw().
+        return !decor.viewTreeObserver.dispatchOnPreDraw()
+    }
+
+    @Test fun windowGeometryIsFinalBeforeShowAndInputModePreservesStateBits() {
+        val dialog = AlertDialog.Builder(activity).setMessage("Body").setPositiveButton("OK", null).create()
+        dialog.window!!.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+        ClassicCommonsHooks.beforeDialogShow(activity, dialog, null)
+        assertFalse(dialog.isShowing)
+        assertNotNull(dialog.getButton(AlertDialog.BUTTON_POSITIVE))
+        val width = dialog.window!!.attributes.width
+        assertEquals(OxygenClassicDialog.widthFor(OxygenClassicDialog.availableWidth(activity),
+            activity.resources.displayMetrics.density), width)
+        val mode = dialog.window!!.attributes.softInputMode
+        assertEquals(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE,
+            mode and android.view.WindowManager.LayoutParams.SOFT_INPUT_MASK_STATE)
+        assertEquals(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE,
+            mode and android.view.WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST)
+        dialog.show()
+        ClassicCommonsHooks.onDialogShown(activity, dialog, null)
+        layoutFrame(dialog); layoutFrame(dialog)
+        assertEquals(width, dialog.window!!.attributes.width)
+        dialog.dismiss()
+    }
+
+    @Test fun lateCommonsSurfaceCancelsUnreadyDrawThenReleasesAStableFrame() {
+        val dialog = AlertDialog.Builder(activity).setMessage("Body").setPositiveButton("OK", null).create()
+        ClassicCommonsHooks.beforeDialogShow(activity, dialog, null)
+        val width = dialog.window!!.attributes.width
+        dialog.show()
+        ClassicCommonsHooks.onDialogShown(activity, dialog, null)
+        dialog.window!!.setBackgroundDrawable(ColorDrawable(Color.MAGENTA))
+        assertFalse(layoutFrame(dialog))
+        assertTrue(dialog.window!!.decorView.background is GradientDrawable)
+        assertTrue(layoutFrame(dialog))
+        val measuredWidth = dialog.window!!.decorView.width
+        val measuredHeight = dialog.window!!.decorView.height
+        assertTrue(layoutFrame(dialog))
+        assertEquals(width, dialog.window!!.attributes.width)
+        assertEquals(measuredWidth, dialog.window!!.decorView.width)
+        assertEquals(measuredHeight, dialog.window!!.decorView.height)
+        dialog.dismiss()
+    }
+
+    @Test fun appearanceAndRepeatedContentLayoutsNeverRewriteWindowWidth() {
+        val dialog = OxygenClassicDialog.show(activity, OxygenClassicDialog.builder(activity, "Title").setMessage("Body"))
+        layoutFrame(dialog); layoutFrame(dialog)
+        val sentinel = dialog.window!!.attributes.width - 5
+        dialog.window!!.setLayout(sentinel, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+        repeat(4) {
+            OxygenClassicDialog.apply(activity, dialog, dialog.window!!.decorView)
+            layoutFrame(dialog)
+            assertEquals(sentinel, dialog.window!!.attributes.width)
+        }
+        dialog.dismiss()
+    }
+
+    @Test fun directBuilderWrapperRetainsShowAndDismissListeners() {
+        var shown = 0
+        var dismissed = 0
+        // AlertDialog.Builder preserves its original onDismiss listener through create().
+        val builder = AlertDialog.Builder(activity).setMessage("Body").setOnDismissListener { dismissed++ }
+        val dialog = ClassicCommonsHooks.showClassicBuilder(builder)
+        assertTrue(dialog.isShowing)
+        assertTrue(dialog.window!!.attributes.width > 0)
+        assertNotNull(dialog.window!!.decorView.getTag(R.id.classic_dialog_observer))
+        val second = builder.create()
+        second.setOnShowListener { shown++ }
+        ClassicCommonsHooks.beforeDialogShow(activity, second, null)
+        second.show()
+        ClassicCommonsHooks.onDialogShown(activity, second, null)
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(1, shown)
+        dialog.dismiss(); second.dismiss()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(2, dismissed)
+    }
+
+    @Test fun hostWidthChangeResizesOnceButHeightOnlyChangeDoesNot() {
+        val dp = activity.resources.displayMetrics.density
+        val host = activity.window.decorView
+        host.layout(0, 0, (400 * dp).toInt(), 1000)
+        val dialog = OxygenClassicDialog.show(activity, OxygenClassicDialog.builder(activity, "Title").setMessage("Body"))
+        layoutFrame(dialog); layoutFrame(dialog)
+        val initial = dialog.window!!.attributes.width
+        host.layout(0, 0, (400 * dp).toInt(), 700)
+        assertEquals(initial, dialog.window!!.attributes.width)
+        host.layout(0, 0, (300 * dp).toInt(), 700)
+        assertEquals(OxygenClassicDialog.widthFor((300 * dp).toInt(), dp), dialog.window!!.attributes.width)
+        assertFalse(layoutFrame(dialog))
+        assertTrue(layoutFrame(dialog))
+        dialog.dismiss()
+    }
+
+    @Test fun dismissBeforeFirstStableFrameRemovesHostAndDrawingObservers() {
+        val dialog = AlertDialog.Builder(activity).setMessage("Body").create()
+        ClassicCommonsHooks.beforeDialogShow(activity, dialog, null)
+        val decor = dialog.window!!.decorView
+        val initial = dialog.window!!.attributes.width
+        dialog.show()
+        dialog.dismiss()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertNull(decor.getTag(R.id.classic_dialog_observer))
+        activity.window.decorView.layout(0, 0, 100, 200)
+        assertEquals(initial, dialog.window!!.attributes.width)
+    }
+
+    @Test fun asyncPropertyAppendAfterFirstFrameKeepsWindowGeometryAndObserverUnique() {
+        val content = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val dialog = OxygenClassicDialog.show(activity, OxygenClassicDialog.builder(activity, "Properties").setView(content))
+        layoutFrame(dialog); layoutFrame(dialog)
+        val width = dialog.window!!.attributes.width
+        val observer = dialog.window!!.decorView.getTag(R.id.classic_dialog_observer)
+        val value = TextView(activity).apply { id = org.fossify.commons.R.id.property_value; text = "A long EXIF value" }
+        content.addView(value)
+        ClassicCommonsHooks.onDialogShown(activity, dialog, content)
+        assertTrue(layoutFrame(dialog))
+        assertEquals(width, dialog.window!!.attributes.width)
+        assertSame(observer, dialog.window!!.decorView.getTag(R.id.classic_dialog_observer))
+        assertEquals(16f * activity.resources.displayMetrics.scaledDensity, value.textSize, 0.1f)
+        dialog.dismiss()
+    }
+
+    @Test fun widthPolicyRetainsClassicMarginsAndTabletCapWithoutInvalidSizes() {
+        assertEquals(312, OxygenClassicDialog.widthFor(360, 1f))
+        assertEquals(560, OxygenClassicDialog.widthFor(1200, 1f))
+        assertEquals(624, OxygenClassicDialog.widthFor(720, 2f))
+        assertEquals(1, OxygenClassicDialog.widthFor(20, 1f))
+    }
+
     @Test fun rootPositionUsesChildCoordinatesRatherThanScrollViewPosition() {
         val scroll = FrameLayout(activity)
         val items = LinearLayout(activity)

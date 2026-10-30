@@ -132,3 +132,20 @@ Run 41010403168 compiled successfully and ran 49 selected tests; 48 passed. The 
 Run 41010873941 passed the full selected test step. Final source review then found selected breadcrumb labels still inherited Commons' raw accent, which is insufficient for pale custom accents. The shared breadcrumb skin now derives a readable accent against its actual white/#303030 surface and applies the same state colors to the chevron. The independent-mask regression also asserts selected-label contrast. The test workflow now prints totals from its actual JUnit XML reports.
 
 Run 41010873941 subsequently completed release assembly, signature/package/ABI validation and APK upload successfully. Its APK is an intermediate result only: the selected-breadcrumb contrast correction is submitted afterward and requires its own final SHA-matched build.
+
+
+## Dialog startup geometry correction
+
+The follow-up fixes default-position/size exposure before the final classic geometry is ready. Base: 451c76d6b31c88084c0e29900b723eb58f50181c.
+
+* Gallery's classic helper calls public Dialog.create(), prepares width/soft-input/security/surface, installs the draw guard, then calls show(). Appearance remains synchronously available to callers without changing width after show.
+* The pinned Commons visitor now inserts beforeDialogShow before each of its two show calls, retaining its original callbacks, keyboard behavior and final style pass. Both before/after hook counts must equal two.
+* Gallery's three direct Builder.show call sites are replaced by a create/prepare/show wrapper. The wrapper contains no Builder.show call and therefore cannot instrument itself recursively.
+* Ordinary appearance/global-layout passes no longer own width or soft-input mode. Host window layout changes resolve a stable system/cutout-safe width, excluding IME insets, and write it only if it actually changed. Existing gravity, window animation and wrap-content height are retained.
+* A per-dialog pre-draw guard cancels an initial draw only while actual surface/layout mutations remain pending. Appearance is idempotent; no fixed delay, alpha hiding or disabled animation is used. Once released, async property rows update normally. Host geometry changes receive a pending-relayout guard too.
+* Surface cache identity now includes the actual decor background, so a late Commons replacement is corrected without unconditional first-draw cache clearing.
+* Detach/destroy removes drawing, dialog lifecycle and host-layout listeners without replacing any business listener.
+
+ClassicDialogTest adds coverage for pre-show geometry and input-state bits, canceled-then-stable first frames, repeated appearance/global-layout passes, Builder wrapper/listener behavior, host width versus height-only changes, early dismissal, asynchronous EXIF-like rows and width-policy bounds. Existing confirmation, date persistence, column count, accent/dark and favorite/security regressions remain selected by the existing workflow.
+
+These tests exercise framework simulation and ordering, not real WindowManager/compositor entrance animation. Real-device recording remains necessary for final visual confirmation, particularly Android 16, keyboard transitions, rotation/multi-window and rapid repeated opening.
