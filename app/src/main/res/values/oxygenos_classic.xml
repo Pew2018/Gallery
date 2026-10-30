@@ -14,8 +14,8 @@
     <dimen name="oxygen_classic_horizontal_margin">16dp</dimen>
     <dimen name="oxygen_classic_single_row">56dp</dimen>
     <dimen name="oxygen_classic_details_row">72dp</dimen>
-    <dimen name="oxygen_classic_switch_width">40dp</dimen>
-    <dimen name="oxygen_classic_switch_thumb_size">20dp</dimen>
+    <dimen name="oxygen_classic_switch_width">48dp</dimen>
+    <dimen name="oxygen_classic_switch_thumb_size">24dp</dimen>
 
     <style name="OxygenClassicToolbarTitle" parent="TextAppearance.Widget.AppCompat.Toolbar.Title">
         <item name="android:textSize">20sp</item>

@@ -25,11 +25,20 @@ class OxygenThemeColorsTest {
                 val palette = OxygenThemeColors.switchPalette(tokens)
                 assertEquals("switch on thumb must keep theme RGB", OxygenThemeColors.opaque(seed), palette.onThumb)
                 assertEquals(seed, tokens.rawAccent)
-                for (color in listOf(palette.onThumb, palette.onTrack, palette.offThumb,
-                    palette.offTrack, palette.disabledOnThumb, palette.disabledOnTrack,
-                    palette.disabledOffThumb, palette.disabledOffTrack)) {
-                    assertEquals(255, color ushr 24)
-                }
+                assertEquals(255, palette.onThumb ushr 24)
+                assertEquals(115, palette.onTrack ushr 24)
+                assertEquals(OxygenThemeColors.opaque(seed) and 0x00FFFFFF, palette.onTrack and 0x00FFFFFF)
+                assertEquals(0xFFE6E6E6.toInt(), palette.offThumb)
+                assertEquals(if (tokens.dark) 0xFF5A5A5A.toInt() else 0xFFD6D6D6.toInt(),
+                    palette.offTrack)
+                assertEquals(115, palette.disabledOnTrack ushr 24)
+                assertEquals(OxygenThemeColors.blend(tokens.pageBackground,
+                    OxygenThemeColors.opaque(seed), 0.38), palette.disabledOnThumb)
+                assertEquals(OxygenThemeColors.blend(tokens.pageBackground,
+                    palette.offThumb, 0.38), palette.disabledOffThumb)
+                assertEquals(OxygenThemeColors.blend(tokens.pageBackground,
+                    palette.offTrack, 0.38), palette.disabledOffTrack)
+                assertEquals(seed, tokens.rawAccent)
                 assertNotEquals(palette.onTrack, palette.offTrack)
                 assertNotEquals(palette.onThumb, palette.disabledOnThumb)
             }
@@ -206,8 +215,9 @@ class OxygenThemeColorsTest {
             assertEquals(1, palettes.map { it.offTrack }.distinct().size)
             assertEquals(1, palettes.map { it.disabledOffThumb }.distinct().size)
             val p = palettes.first()
-            assertEquals(if (mode == "light") 0xFFEEEEEE.toInt() else 0xFFCCCCCC.toInt(), p.offThumb)
-            assertEquals(if (mode == "light") 0xFFDFDFDF.toInt() else 0xFF737373.toInt(), p.offTrack)
+            assertEquals(0xFFE6E6E6.toInt(), p.offThumb)
+            assertEquals(if (mode == "light") 0xFFD6D6D6.toInt() else 0xFF5A5A5A.toInt(), p.offTrack)
+            assertEquals(115, p.onTrack ushr 24)
             assertNotEquals(p.offThumb, p.disabledOffThumb)
             assertNotEquals(p.offTrack, p.disabledOffTrack)
         }

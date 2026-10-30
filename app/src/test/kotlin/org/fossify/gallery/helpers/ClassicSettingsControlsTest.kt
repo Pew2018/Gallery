@@ -24,6 +24,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
+import kotlin.math.roundToInt
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28, 35], application = Application::class)
@@ -130,15 +131,22 @@ class ClassicSettingsControlsTest {
             val thumb = first.thumbDrawable
             skin(panel, dark)
             assertSame(thumb, first.thumbDrawable)
-            assertEquals((20 * density + 0.5f).toInt(), thumb.intrinsicWidth)
-            assertEquals((40 * density + 0.5f).toInt(), first.trackDrawable.intrinsicWidth)
+            assertEquals((28 * density + 0.5f).toInt(), thumb.intrinsicWidth)
+            assertEquals((48 * density + 0.5f).toInt(), first.trackDrawable.intrinsicWidth)
             // Raster test uses deliberately tall bounds to expose the old track-stretch bug.
             val track = first.trackDrawable
-            track.setBounds(0, 0, 40, 100)
-            val raster = Bitmap.createBitmap(40, 100, Bitmap.Config.ARGB_8888)
+            track.setBounds(0, 0, 48, 100)
+            val raster = Bitmap.createBitmap(48, 100, Bitmap.Config.ARGB_8888)
             track.draw(Canvas(raster))
-            val occupied = (0 until 100).count { (raster.getPixel(20, it) ushr 24) != 0 }
-            assertTrue("Track stretched to $occupied px", occupied <= 12 * density)
+            val occupied = (0 until 100).count { (raster.getPixel(24, it) ushr 24) > 32 }
+            assertTrue("Track stretched to $occupied px", occupied <= (18 * density + 2).toInt())
+            val ink = (0 until 100).flatMap { y -> (0 until 48).mapNotNull { x ->
+                (x to y).takeIf { (raster.getPixel(x, y) ushr 24) > 32 }
+            } }
+            assertTrue("Visible rail width should be 36dp: ${ink.maxOf { it.first } - ink.minOf { it.first } + 1}",
+                kotlin.math.abs((ink.maxOf { it.first } - ink.minOf { it.first } + 1) - 36 * density) <= 2)
+            assertTrue("Visible rail height should be 16dp: ${ink.maxOf { it.second } - ink.minOf { it.second } + 1}",
+                kotlin.math.abs((ink.maxOf { it.second } - ink.minOf { it.second } + 1) - 16 * density) <= 2)
             measure(panel, (360 * density).toInt())
             val bitmap = Bitmap.createBitmap(panel.width, panel.height, Bitmap.Config.ARGB_8888)
             panel.draw(Canvas(bitmap))
@@ -155,15 +163,16 @@ class ClassicSettingsControlsTest {
             val drawable = control.thumbDrawable
             fun pixel(vararg states: Int): Int {
                 drawable.state = states
-                drawable.setBounds(0, 0, 40, 48)
-                val bitmap = Bitmap.createBitmap(40, 48, Bitmap.Config.ARGB_8888)
+                drawable.setBounds(0, 0, 28, 28)
+                val bitmap = Bitmap.createBitmap(28, 28, Bitmap.Config.ARGB_8888)
                 drawable.draw(Canvas(bitmap))
-                return bitmap.getPixel(20, 24)
+                return bitmap.getPixel(14, 14)
             }
             val normal = pixel(android.R.attr.state_enabled, android.R.attr.state_checked)
             // Knob keeps the user's exact RGB; it is not adjusted as if it were text.
             assertEquals(OxygenThemeColors.opaque(seed), normal)
-            assertNotEquals(normal, pixel(android.R.attr.state_enabled, android.R.attr.state_checked, android.R.attr.state_pressed))
+            assertEquals("Press feedback changes elevation, not thumb size or face color", normal,
+                pixel(android.R.attr.state_enabled, android.R.attr.state_checked, android.R.attr.state_pressed))
             assertNotEquals(normal, pixel(android.R.attr.state_checked))
             assertNotEquals(pixel(android.R.attr.state_checked), pixel())
         }
@@ -260,18 +269,18 @@ class ClassicSettingsControlsTest {
         val control = ClassicSettingsSwitch(ctx)
         skin(control, false)
         val track = control.trackDrawable
-        val width = (40f * density + 0.5f).toInt()
-        val height = (24f * density + 0.5f).toInt()
+        val width = (48f * density + 0.5f).toInt()
+        val height = (28f * density + 0.5f).toInt()
         track.setBounds(0, 0, width, height)
         val image = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         track.state = intArrayOf(android.R.attr.state_enabled)
         track.draw(Canvas(image))
-        val expected = OxygenThemeColors.blend(t.pageBackground, t.primaryText, 0.125)
+        val expected = 0xFFD6D6D6.toInt()
         assertEquals("OxygenOS outlined track must not fill the inside", 0,
             android.graphics.Color.alpha(image.getPixel(width / 2, height / 2)))
         val edge = (0 until height).map { image.getPixel(width / 2, it) }
             .first { android.graphics.Color.alpha(it) >= 128 }
-        assertTrue("Off rail should be near tuned #DFDFDF",
+        assertTrue("Light off rail must render #D6D6D6",
             kotlin.math.abs(android.graphics.Color.red(edge) - android.graphics.Color.red(expected)) <= 18)
         track.state = intArrayOf()
         image.eraseColor(android.graphics.Color.TRANSPARENT)
@@ -281,7 +290,7 @@ class ClassicSettingsControlsTest {
         assertNotEquals(edge, disabledEdge)
 
         val thumb = control.thumbDrawable
-        val thumbWidth = (24f * density + 0.5f).toInt()
+        val thumbWidth = (28f * density + 0.5f).toInt()
         thumb.setBounds(0, 0, thumbWidth, thumbWidth)
         val shadow = Bitmap.createBitmap(thumbWidth, thumbWidth, Bitmap.Config.ARGB_8888)
         thumb.state = intArrayOf(android.R.attr.state_enabled)
@@ -413,13 +422,13 @@ class ClassicSettingsControlsTest {
             OxygenClassicControls.applySwitches(control, t)
             val palette = OxygenThemeColors.switchPalette(t)
             val thumb = control.thumbDrawable
-            assertEquals((20 * d + 0.5f).toInt(), thumb.intrinsicWidth)
-            assertEquals((40 * d + 0.5f).toInt(), control.trackDrawable.intrinsicWidth)
+            assertEquals((28 * d + 0.5f).toInt(), thumb.intrinsicWidth)
+            assertEquals((48 * d + 0.5f).toInt(), control.trackDrawable.intrinsicWidth)
             fun render(checked: Boolean, enabled: Boolean): Bitmap {
                 thumb.state = listOfNotNull(android.R.attr.state_checked.takeIf { checked },
                     android.R.attr.state_enabled.takeIf { enabled }).toIntArray()
                 thumb.jumpToCurrentState()
-                val box = (24 * d + 0.5f).toInt()
+                val box = (28 * d + 0.5f).toInt()
                 thumb.setBounds(0, 0, box, box)
                 return Bitmap.createBitmap(box * scale, box * scale, Bitmap.Config.ARGB_8888).also {
                     val canvas = Canvas(it)
@@ -435,16 +444,16 @@ class ClassicSettingsControlsTest {
             assertEquals(OxygenThemeColors.opaque(seed), on.getPixel(c, c))
             assertNotEquals(off.getPixel(c, c), disabled.getPixel(c, c))
             // Supersample the 0.35dp hairline rather than depending on one mdpi edge pixel.
-            val rimX = (c + 9.45f * d * scale).toInt()
+            val rimX = (c + 11.65f * d * scale).toInt()
             val rim = off.getPixel(rimX, c)
             val expected = OxygenThemeColors.blend(palette.offThumb, t.primaryText,
                 if (dark) 0.10 else 0.11)
             assertTrue("Soft neutral rim: dark=$dark pixel=$rim",
                 kotlin.math.abs(android.graphics.Color.red(expected) - android.graphics.Color.red(rim)) <= 5)
-            val shadowY = (c + 10.4f * d * scale).toInt()
-            assertEquals(16, android.graphics.Color.alpha(off.getPixel(c, shadowY)))
-            assertEquals(24, android.graphics.Color.alpha(on.getPixel(c, shadowY)))
-            assertEquals(8, android.graphics.Color.alpha(disabled.getPixel(c, shadowY)))
+            val shadowY = (c + 12.5f * d * scale).toInt()
+            assertTrue(android.graphics.Color.alpha(off.getPixel(c, shadowY)) in 1..64)
+            assertTrue(android.graphics.Color.alpha(on.getPixel(c, shadowY)) in 1..64)
+            assertTrue(android.graphics.Color.alpha(disabled.getPixel(c, shadowY)) in 1..64)
             val output = File("build/classic-control-renders").apply { mkdirs() }
             if (seed == 0xFF0071CD.toInt()) {
                 File(output, "off-thumb-${android.os.Build.VERSION.SDK_INT}-$dark.png").outputStream().use {
@@ -599,6 +608,137 @@ class ClassicSettingsControlsTest {
         cancel.recycle()
         assertFalse(row.isPressed)
         controller.pause().stop().destroy()
+    }
+
+    @Test fun switchGeometryMatchesTiebaLiteAtRequiredDensities() {
+        for (density in listOf(1f, 1.5f, 2.625f, 2.75f, 3f, 4f)) {
+            val g = OxygenClassicSwitchGeometry(density)
+            assertEquals(48f * density, g.width, 0f)
+            assertEquals(28f * density, g.height, 0f)
+            assertEquals(36f * density, g.trackWidth, 0f)
+            assertEquals(16f * density, g.trackHeight, 0f)
+            assertEquals(2f * density, g.strokeWidth, 0f)
+            assertEquals(24f * density, g.thumbDiameter, 0f)
+            val leftCap = g.trackLeft + g.trackRadius
+            val rightCap = g.trackLeft + g.trackPathWidth - g.trackRadius
+            assertEquals(leftCap, g.thumbStart.roundToInt() + g.thumbDiameter / 2f, 0.5f)
+            assertEquals(rightCap, g.thumbEnd.roundToInt() + g.thumbDiameter / 2f, 0.5f)
+            assertEquals(20f * density, g.thumbEnd - g.thumbStart, 0.001f)
+            assertEquals(14f * density, g.thumbStart + g.thumbDiameter / 2f, 0f)
+            assertEquals(34f * density, g.thumbEnd + g.thumbDiameter / 2f, 0f)
+            assertEquals(g.height / 2f, g.trackTop + g.trackRadius, 0f)
+            assertEquals(0f, g.thumbStart - 2f * density, 0.001f)
+            assertEquals(g.width - 28f * density, g.thumbEnd - 2f * density, 0.001f)
+        }
+    }
+
+    @Test fun classicSwitchRendersAllLightDarkCheckedAndDisabledCombinations() {
+        val ctx = context()
+        val density = ctx.resources.displayMetrics.density
+        val output = File("build/classic-control-renders").apply { mkdirs() }
+        for (dark in listOf(false, true)) for (enabled in listOf(true, false))
+            for (checked in listOf(false, true)) {
+                val tokens = tokens(dark)
+                val control = ClassicSettingsSwitch(ctx).apply { isEnabled = enabled; isChecked = checked }
+                OxygenClassicControls.applySwitches(control, tokens)
+                val track = control.trackDrawable
+                val thumb = control.thumbDrawable
+                val state = listOfNotNull(
+                    android.R.attr.state_enabled.takeIf { enabled },
+                    android.R.attr.state_checked.takeIf { checked }
+                ).toIntArray()
+                track.state = state
+                thumb.state = state
+                track.jumpToCurrentState()
+                thumb.jumpToCurrentState()
+                val width = (48f * density + 0.5f).toInt()
+                val height = (28f * density + 0.5f).toInt()
+                val thumbWidth = thumb.intrinsicWidth
+                val thumbLeft = ((if (checked) 20f else 0f) * density + 0.5f).toInt()
+                track.setBounds(0, 0, width, height)
+                thumb.setBounds(thumbLeft, 0, thumbLeft + thumbWidth, height)
+                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bitmap)
+                canvas.drawColor(tokens.pageBackground)
+                track.draw(canvas)
+                thumb.draw(canvas)
+
+                val palette = OxygenThemeColors.switchPalette(tokens)
+                val expectedThumb = when {
+                    enabled && checked -> palette.onThumb
+                    enabled -> palette.offThumb
+                    checked -> palette.disabledOnThumb
+                    else -> palette.disabledOffThumb
+                }
+                val thumbCenter = thumbLeft + (14f * density + 0.5f).toInt()
+                val centerY = (14f * density + 0.5f).toInt()
+                assertEquals(expectedThumb, bitmap.getPixel(thumbCenter, centerY))
+                val railX = (24f * density + 0.5f).toInt()
+                val railY = (7f * density + 0.5f).toInt()
+                val rail = bitmap.getPixel(railX, railY)
+                val expectedRailColor = when {
+                    enabled && checked -> palette.onTrack
+                    enabled -> palette.offTrack
+                    checked -> palette.disabledOnTrack
+                    else -> palette.disabledOffTrack
+                }
+                val expectedPixel = OxygenThemeColors.blend(tokens.pageBackground,
+                    expectedRailColor, (expectedRailColor ushr 24) / 255.0)
+                for (shift in listOf(16, 8, 0)) {
+                    assertTrue("Rail pixel mismatch dark=$dark enabled=$enabled checked=$checked",
+                        kotlin.math.abs(((expectedPixel ushr shift) and 255) -
+                            ((rail ushr shift) and 255)) <= 8)
+                }
+                val label = "${if (dark) "dark" else "light"}-${if (enabled) "" else "disabled-"}${if (checked) "on" else "off"}"
+                File(output, "switch-${android.os.Build.VERSION.SDK_INT}-$label.png").outputStream().use {
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+    }
+
+    @Test fun switchCompatNativeLayoutUsesClassic48By28BoundsAnd20dpTravel() {
+        val ctx = context()
+        val density = ctx.resources.displayMetrics.density
+        for (rtl in listOf(false, true)) {
+            val control = ClassicSettingsSwitch(ctx).apply {
+                text = ""
+                setPadding(0, 0, 0, 0)
+                layoutDirection = if (rtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+            }
+            skin(control, false)
+            val exact = (48f * density + 0.5f).toInt()
+            control.measure(
+                View.MeasureSpec.makeMeasureSpec(exact, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec((48f * density + 0.5f).toInt(), View.MeasureSpec.EXACTLY)
+            )
+            control.layout(0, 0, control.measuredWidth, control.measuredHeight)
+            assertEquals(exact, control.measuredWidth)
+            val page = tokens(false).pageBackground
+            for (checked in listOf(false, true)) {
+                control.isChecked = checked
+                control.jumpDrawablesToCurrentState()
+                val bitmap = Bitmap.createBitmap(exact, control.measuredHeight, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bitmap)
+                canvas.drawColor(page)
+                control.draw(canvas)
+                val visualCenter = if (checked xor rtl) 34f else 14f
+                val centerX = (visualCenter * density + 0.5f).toInt()
+                val centerY = (24f * density + 0.5f).toInt()
+                assertEquals(if (checked) OxygenThemeColors.opaque(tokens(false).rawAccent)
+                    else 0xFFE6E6E6.toInt(), bitmap.getPixel(centerX, centerY))
+                val palette = OxygenThemeColors.switchPalette(tokens(false))
+                val railColor = if (checked) palette.onTrack else palette.offTrack
+                val expectedRail = OxygenThemeColors.blend(page, railColor,
+                    (railColor ushr 24) / 255.0)
+                val rail = bitmap.getPixel((24f * density + 0.5f).toInt(),
+                    (17f * density + 0.5f).toInt())
+                for (shift in listOf(16, 8, 0)) {
+                    assertTrue("Native SwitchCompat rail pixel rtl=$rtl checked=$checked",
+                        kotlin.math.abs(((expectedRail ushr shift) and 255) -
+                            ((rail ushr shift) and 255)) <= 8)
+                }
+            }
+        }
     }
 
 }

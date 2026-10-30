@@ -47,34 +47,41 @@ object OxygenThemeColors {
     const val WHITE: Int = -1
     val BLACK: Int = 0xFF000000.toInt()
 
+    private const val SWITCH_TRACK_ALPHA = 115 // round(0.45 * 255)
+    private const val SWITCH_DISABLED_ALPHA = 0.38
+
     fun opaque(color: Int): Int = color or BLACK
+
+    private fun withAlpha(color: Int, alpha: Int): Int =
+        (color and 0x00FFFFFF) or (alpha shl 24)
 
     /**
      * Classic OxygenOS 7.1.1 switches use the user's selected accent on the knob,
      * not interactiveAccent (which is deliberately darkened for readable text).
      * The slender rail is only stroked by the Drawable, never filled as a pill.
-     * All outputs are opaque, including when a legacy seed contains alpha.
+     * The 45% active rail retains ARGB alpha; disabled colors composite over the page.
      */
     fun switchPalette(colors: OxygenThemeTokens): OxygenSwitchPalette {
         val page = colors.pageBackground
-        val text = colors.primaryText
         val seed = opaque(colors.rawAccent)
-        val railSeed = blend(page, seed, if (colors.dark) 0.62 else 0.55)
-        // A near-white/yellow seed can otherwise make the thin rail disappear
-        // on a light page. Preserve the original knob RGB and add only enough
-        // neutral foreground to distinguish the rail from its surface.
-        val visibleRail = if (contrastRatio(railSeed, page) < 1.25)
-            blend(railSeed, text, 0.25)
-        else railSeed
+        val onTrack = withAlpha(seed, SWITCH_TRACK_ALPHA)
+        val offThumb = 0xFFE6E6E6.toInt()
+        val offTrack = if (colors.dark) 0xFF5A5A5A.toInt() else 0xFFD6D6D6.toInt()
+        // Match Compose ContentAlpha.disabled: first composite the disabled
+        // semantic color over the actual page surface. The active rail retains
+        // its 45% drawing alpha after that composition, as in SwitchDefaults.
+        val disabledOn = blend(page, seed, SWITCH_DISABLED_ALPHA)
+        val disabledOffThumb = blend(page, offThumb, SWITCH_DISABLED_ALPHA)
+        val disabledOffTrack = blend(page, offTrack, SWITCH_DISABLED_ALPHA)
         return OxygenSwitchPalette(
             onThumb = seed,
-            onTrack = visibleRail,
-            offThumb = if (colors.dark) 0xFFCCCCCC.toInt() else 0xFFEEEEEE.toInt(),
-            offTrack = blend(page, text, if (colors.dark) 0.38 else 0.125),
-            disabledOnThumb = blend(page, seed, if (colors.dark) 0.42 else 0.28),
-            disabledOnTrack = blend(page, seed, if (colors.dark) 0.22 else 0.16),
-            disabledOffThumb = blend(page, text, if (colors.dark) 0.26 else 0.17),
-            disabledOffTrack = blend(page, text, if (colors.dark) 0.18 else 0.09)
+            onTrack = onTrack,
+            offThumb = offThumb,
+            offTrack = offTrack,
+            disabledOnThumb = disabledOn,
+            disabledOnTrack = withAlpha(disabledOn, SWITCH_TRACK_ALPHA),
+            disabledOffThumb = disabledOffThumb,
+            disabledOffTrack = disabledOffTrack
         )
     }
 

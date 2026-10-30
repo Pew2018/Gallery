@@ -1,5 +1,7 @@
 package org.fossify.gallery.helpers
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.res.ColorStateList
 import android.graphics.*
@@ -13,6 +15,24 @@ import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.widget.SwitchCompat
 import org.fossify.gallery.R
+import org.fossify.gallery.views.ClassicSettingsSwitch
+
+/** Geometry shared by the SwitchCompat drawable and density-rounding tests. */
+internal data class OxygenClassicSwitchGeometry(val density: Float) {
+    val width = 48f * density
+    val height = 28f * density
+    val trackWidth = 36f * density
+    val trackHeight = 16f * density
+    val strokeWidth = 2f * density
+    val thumbDiameter = 24f * density
+    val trackLeft = (width - trackWidth + strokeWidth) / 2f
+    val trackTop = (height - trackHeight + strokeWidth) / 2f
+    val trackPathWidth = trackWidth - strokeWidth
+    val trackPathHeight = trackHeight - strokeWidth
+    val trackRadius = trackPathHeight / 2f
+    val thumbStart = trackLeft + trackRadius - thumbDiameter / 2f
+    val thumbEnd = trackLeft + trackPathWidth - trackRadius - thumbDiameter / 2f
+}
 
 /** Shared control skin. No listeners or preference writes; each view owns its drawables. */
 object OxygenClassicControls {
@@ -42,11 +62,12 @@ object OxygenClassicControls {
                     // Commons may have re-tinted an unchanged drawable on resume.
                     view.thumbTintList = null
                     view.trackTintList = null
+                    view.switchMinWidth = dp(48)
                     if (changed) {
                         view.thumbDrawable = skin("thumb")
                         view.trackDrawable = skin("track")
+                        (view as? ClassicSettingsSwitch)?.useClassicSwitchMeasurement()
                     }
-                    view.switchMinWidth = dp(40)
                     view.showText = false
                     view.splitTrack = false
                     view.switchPadding = dp(16)
@@ -83,48 +104,58 @@ object OxygenClassicControls {
         visit(root)
     }
 
-    /** Paint geometry is centered in the assigned bounds, never stretched vertically by SwitchCompat.
-     * A 40x24 layout box contains a 30x10 visible track and 20dp thumb. Native SwitchCompat
-     * still owns measurement, RTL placement, checked state and thumb animation.
+    /** SwitchCompat owns checked state, gesture semantics, RTL placement and thumb travel.
+     * A 48x28 track box plus a 28dp thumb box yields a 20dp native travel range;
+     * the thumb drawable paints only a centered 24dp circle inside its optical box.
      */
     private class ClassicDrawable(
         private val kind: String, private val density: Float, private val colors: OxygenThemeTokens,
         private val animationsEnabled: Boolean
     ) : Drawable() {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val geometry = OxygenClassicSwitchGeometry(density)
         private val switchPalette = OxygenThemeColors.switchPalette(colors)
         private var opacity = 255
         private var animatedColor: Int? = null
         private var colorAnimator: ValueAnimator? = null
         private var lastChecked: Boolean? = null
+        private var lastEnabled: Boolean? = null
         override fun getIntrinsicWidth() = ((when (kind) {
-            "track" -> 40
-            "thumb" -> 20
+            "track" -> 48
+            "thumb" -> 28
             else -> 24
         }) * density + 0.5f).toInt()
-        override fun getIntrinsicHeight() = (24 * density + 0.5f).toInt()
+        override fun getIntrinsicHeight() = ((if (kind == "track" || kind == "thumb") 28 else 24) * density + 0.5f).toInt()
         override fun isStateful() = true
         override fun onStateChange(state: IntArray): Boolean {
             if (kind == "track" || kind == "thumb") {
                 val target = stateColor(state)
                 val current = animatedColor
                 val checked = state.contains(android.R.attr.state_checked)
-                val animateCheckedChange = lastChecked != null && lastChecked != checked &&
-                    state.contains(android.R.attr.state_enabled)
+                val enabled = state.contains(android.R.attr.state_enabled)
+                val animateStateChange = lastChecked != null &&
+                    (lastChecked != checked || lastEnabled != enabled)
                 lastChecked = checked
-                if (!animateCheckedChange || current == null || !animationsEnabled || current == target) {
+                lastEnabled = enabled
+                if (!animateStateChange || current == null || !animationsEnabled || current == target) {
                     colorAnimator?.cancel()
                     animatedColor = target
                 } else {
                     colorAnimator?.cancel()
-                    colorAnimator = ValueAnimator.ofArgb(current, target).apply {
-                        duration = 200L
-                        addUpdateListener { animator ->
-                            animatedColor = animator.animatedValue as Int
+                    val animator = ValueAnimator.ofArgb(current, target).apply {
+                        duration = 180L
+                        addUpdateListener { valueAnimator ->
+                            animatedColor = valueAnimator.animatedValue as Int
                             invalidateSelf()
                         }
-                        start()
+                        addListener(object : AnimatorListenerAdapter() {
+                            override fun onAnimationEnd(animation: Animator) {
+                                if (colorAnimator === animation) colorAnimator = null
+                            }
+                        })
                     }
+                    colorAnimator = animator
+                    animator.start()
                 }
             }
             invalidateSelf()
@@ -144,7 +175,6 @@ object OxygenClassicControls {
         private fun stateColor(state: IntArray): Int {
             val enabled = state.contains(android.R.attr.state_enabled)
             val checked = state.contains(android.R.attr.state_checked)
-            val pressed = state.contains(android.R.attr.state_pressed)
             val base = when (kind) {
                 "track" -> when {
                     !enabled && checked -> switchPalette.disabledOnTrack
@@ -160,13 +190,6 @@ object OxygenClassicControls {
                 }
                 else -> colors.primaryText
             }
-            if (kind == "thumb" && pressed && enabled) {
-                val pressedFace = OxygenThemeColors.blend(base, colors.pageBackground, 0.07)
-                // Near-white accents can quantize to the unchanged RGB.
-                return if (pressedFace == base)
-                    OxygenThemeColors.blend(base, colors.primaryText, 0.08)
-                else pressedFace
-            }
             return base
         }
         override fun draw(canvas: Canvas) {
@@ -176,7 +199,7 @@ object OxygenClassicControls {
             val bg = colors.pageBackground
             val fg = colors.primaryText
             val accent = colors.interactiveAccent
-            // Light-mode off track: #FAFAFA -> #212121 at 16% is #D7D7D7.
+            // Other classic controls retain their existing page/text neutral blend.
             // Disabled is a separate semantic state, not the same as unchecked.
             val off = OxygenThemeColors.blend(bg, fg, if (colors.dark) 0.38 else 0.16)
             val active = if (enabled) accent else OxygenThemeColors.blend(bg, accent, 0.30)
@@ -200,25 +223,38 @@ object OxygenClassicControls {
                     // Keep its center transparent so the actual row surface shows.
                     color(animatedColor ?: stateColor(state))
                     paint.style = Paint.Style.STROKE
-                    paint.strokeWidth = 1.5f * density
-                    // SwitchCompat may assign stretched bounds. Keep its 40dp
-                    // measurement/touch behavior, but cap the visible rail to 30x10dp.
-                    val halfRail = minOf(15f * density,
-                        (bounds.width() / 2f - 2f * density).coerceAtLeast(0f))
-                    val inset = paint.strokeWidth / 2f
-                    canvas.drawRoundRect(cx - halfRail + inset, cy - 5 * density + inset,
-                        cx + halfRail - inset, cy + 5 * density - inset,
-                        5 * density - inset, 5 * density - inset, paint)
+                    paint.strokeWidth = geometry.strokeWidth
+                    // The 34x14dp center path plus a 2dp stroke yields a 36x16dp outline.
+                    canvas.drawRoundRect(
+                        cx - geometry.trackPathWidth / 2f,
+                        cy - geometry.trackPathHeight / 2f,
+                        cx + geometry.trackPathWidth / 2f,
+                        cy + geometry.trackPathHeight / 2f,
+                        geometry.trackRadius, geometry.trackRadius, paint
+                    )
                 }
                 "thumb" -> {
-                    // Soft under-shadow within the 24dp optical box; never
-                    // replace its ARGB alpha with full opacity.
-                    color(if (!enabled) 0x08000000 else if (checked) 0x18000000 else 0x10000000)
-                    canvas.drawCircle(cx, cy + 1f * density, 10 * density, paint)
+                    // Soft radial shadow stays inside the 28dp optical box; its depth
+                    // follows the classic 2dp resting / 3dp pressed elevation cue.
+                    val shadowAlpha = when {
+                        !enabled -> 18
+                        pressed -> 52
+                        else -> 32
+                    }
+                    val shadowRadius = if (pressed) 13.4f else 12.8f
+                    paint.shader = RadialGradient(
+                        cx, cy + 0.5f * density, shadowRadius * density,
+                        intArrayOf(Color.argb(shadowAlpha, 0, 0, 0), Color.TRANSPARENT),
+                        floatArrayOf(0.82f, 1f), Shader.TileMode.CLAMP
+                    )
+                    paint.alpha = opacity
+                    paint.style = Paint.Style.FILL
+                    canvas.drawCircle(cx, cy + 0.5f * density, shadowRadius * density, paint)
+                    paint.shader = null
                     val face = animatedColor ?: stateColor(state)
-                    circle(9.7f, face)
-                    // Only checked custom accents need the stronger visibility guard.
-                    // The neutral off face keeps a soft hairline in either appearance.
+                    circle(12f, face)
+                    // A fine neutral rim protects the 24dp circle on either surface,
+                    // including custom accents whose RGB matches the page background.
                     val lowContrast = OxygenThemeColors.contrastRatio(face, bg) < 1.5
                     color(OxygenThemeColors.blend(face, fg,
                         when {
@@ -230,7 +266,7 @@ object OxygenClassicControls {
                         }))
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = 0.35f * density
-                    canvas.drawCircle(cx, cy, 9.45f * density, paint)
+                    canvas.drawCircle(cx, cy, 11.65f * density, paint)
                 }
                 "radio" -> {
                     color(if (checked) active else outline)

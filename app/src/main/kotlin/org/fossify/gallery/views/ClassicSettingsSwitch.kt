@@ -25,6 +25,12 @@ class ClassicSettingsSwitch @JvmOverloads constructor(
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
     private var dispatchingAccessibleClick = false
 
+    /** Use the SwitchCompat API that lets the drawable define the exact 48dp switch width. */
+    internal fun useClassicSwitchMeasurement() {
+        setEnforceSwitchWidth(false)
+        requestLayout()
+    }
+
     override fun toggle() {
         // Suppress only CompoundButton.performClick's implicit toggle.
         // The permission-aware parent row remains the sole state/persistence owner.
