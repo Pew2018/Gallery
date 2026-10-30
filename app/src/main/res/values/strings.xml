@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="album_home_locked">Locked</string>
+    <string name="album_home_items">%1$d items</string>
     <string name="album_home_pinned">Pinned albums</string>
     <string name="album_home_other">Other albums</string>
     <string name="album_home_expand">Show all</string>
