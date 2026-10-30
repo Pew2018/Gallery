@@ -37,6 +37,10 @@ object ToolbarQuickActions {
     fun options(scope: ToolbarQuickScope): List<String> =
         if (scope == ToolbarQuickScope.HOME) homeOptions else folderOptions
 
+    /** The fixed browse-mode switch belongs only to the All files root page. */
+    fun hasFixedBrowseSwitch(path: String, section: GallerySection?): Boolean =
+        path.isEmpty() && section == GallerySection.ALL
+
     /** Keep search anchored at the left; drag-order applies to the remaining actions. */
     fun normalize(scope: ToolbarQuickScope, values: List<String>): List<String> {
         val valid = values.filter { it in options(scope) }.distinct().take(5)
@@ -56,7 +60,7 @@ object ToolbarQuickActions {
 
     fun iconRes(action: String): Int = when (action) {
         SORT -> org.fossify.commons.R.drawable.ic_sort_vector
-        FILTER -> org.fossify.commons.R.drawable.ic_filter_vector
+        FILTER -> R.drawable.ic_quick_media_filter_vector
         VIEW -> R.drawable.ic_quick_view_vector
         COLUMNS -> org.fossify.commons.R.drawable.ic_column_count_vector
         HIDDEN -> R.drawable.ic_quick_hidden_vector

@@ -2,6 +2,7 @@ package org.fossify.gallery.helpers
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.fossify.gallery.R
 
 class ToolbarQuickActionsTest {
     @Test fun defaultSelectionIsSearchSortFilter() {
@@ -48,6 +49,35 @@ class ToolbarQuickActionsTest {
             ToolbarQuickActions.normalize(
                 ToolbarQuickScope.FOLDER, listOf("filter", "search", "sort")
             )
+        )
+    }
+
+    @Test fun fixedBrowseSwitchBelongsOnlyToAllFilesRoot() {
+        assertEquals(true, ToolbarQuickActions.hasFixedBrowseSwitch("", GallerySection.ALL))
+        assertEquals(false, ToolbarQuickActions.hasFixedBrowseSwitch("/storage/DCIM/Camera", GallerySection.ALL))
+        assertEquals(false, ToolbarQuickActions.hasFixedBrowseSwitch("", GallerySection.FAVORITES))
+        assertEquals(false, ToolbarQuickActions.hasFixedBrowseSwitch("", null))
+    }
+
+    @Test fun fixedBrowseSwitchIsNotASelectableQuickAction() {
+        assertEquals(false, ToolbarQuickActions.options(ToolbarQuickScope.HOME).contains("browse"))
+        assertEquals(false, ToolbarQuickActions.options(ToolbarQuickScope.FOLDER).contains("browse"))
+        assertEquals(
+            listOf("search", "sort", "filter", "view", "columns"),
+            ToolbarQuickActions.normalize(
+                ToolbarQuickScope.HOME, listOf("search", "sort", "filter", "view", "columns")
+            )
+        )
+    }
+
+    @Test fun sortAndFilterUseDistinctToolbarIcons() {
+        assertEquals(
+            org.fossify.commons.R.drawable.ic_sort_vector,
+            ToolbarQuickActions.iconRes(ToolbarQuickActions.SORT)
+        )
+        assertEquals(
+            R.drawable.ic_quick_media_filter_vector,
+            ToolbarQuickActions.iconRes(ToolbarQuickActions.FILTER)
         )
     }
 

@@ -24,7 +24,7 @@
     <item
         android:id="@+id/filter"
         android:orderInCategory="20"
-        android:icon="@drawable/ic_filter_vector"
+        android:icon="@drawable/ic_quick_media_filter_vector"
         android:title="@string/filter_media"
         app:showAsAction="never" />
     <item

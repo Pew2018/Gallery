@@ -2,7 +2,10 @@ package org.fossify.gallery.helpers
 
 import android.app.Activity
 import android.content.res.ColorStateList
+import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -13,6 +16,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.content.res.AppCompatResources
+import androidx.core.graphics.ColorUtils
 import androidx.core.widget.CompoundButtonCompat
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -29,8 +33,10 @@ object ToolbarQuickActionsDialog {
         val folder = activity.config.toolbarFolderActions.toMutableList()
         var scope = ToolbarQuickScope.HOME
         fun current(): MutableList<String> = if (scope == ToolbarQuickScope.HOME) home else folder
-        fun entries(): List<String> = current() + ToolbarQuickActions.options(scope)
-            .filterNot { it in current() }
+        fun optionalEntries(): List<String> = current().filterNot { it == ToolbarQuickActions.SEARCH } +
+            ToolbarQuickActions.options(scope)
+                .filterNot { it == ToolbarQuickActions.SEARCH || it in current() }
+
         val density = activity.resources.displayMetrics.density
         fun dp(n: Int) = (n * density + 0.5f).toInt()
 
@@ -39,13 +45,74 @@ object ToolbarQuickActionsDialog {
             setPadding(dp(16), dp(4), dp(16), dp(4))
         }
         val tabs = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
-        val homeTab = TextView(activity)
-        val folderTab = TextView(activity)
         val count = TextView(activity).apply {
             textSize = 13f
             setTextColor(palette.secondaryText)
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setPadding(dp(8), dp(8), dp(8), dp(4))
         }
+        val guidance = TextView(activity).apply {
+            textSize = 12f
+            setTextColor(palette.secondaryText)
+            setPadding(dp(8), 0, dp(8), dp(8))
+        }
+        fun sectionLabel(textRes: Int) = TextView(activity).apply {
+            setText(textRes)
+            textSize = 12f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(palette.interactiveAccent)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+        }
+
+        fun controlRow(): LinearLayout = LinearLayout(activity).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(8), 0, dp(8), 0)
+            layoutParams = LinearLayout.LayoutParams(-1, dp(56))
+        }
+
+        fun createCheckBox(): CheckBox = CheckBox(activity).apply {
+            textSize = 16f
+            minHeight = dp(56)
+            setTextColor(palette.primaryText)
+            buttonDrawable = AppCompatResources.getDrawable(
+                activity, androidx.appcompat.R.drawable.abc_btn_check_material
+            )
+            CompoundButtonCompat.setButtonTintList(
+                this, ColorStateList.valueOf(palette.interactiveAccent)
+            )
+        }
+
+        val fixedRows = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val searchRow = controlRow()
+        val searchCheck = createCheckBox().apply {
+            text = activity.getString(org.fossify.commons.R.string.search)
+        }
+        searchRow.addView(searchCheck, LinearLayout.LayoutParams(-1, dp(56)))
+
+        val browseRow = controlRow().apply {
+            contentDescription = activity.getString(R.string.quick_toolbar_fixed_browse_accessibility)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        val browseCheck = createCheckBox().apply {
+            text = activity.getString(R.string.quick_toolbar_browse_view)
+            isChecked = true
+            isClickable = false
+            isFocusable = false
+            contentDescription = activity.getString(R.string.quick_toolbar_fixed_browse_accessibility)
+        }
+        val lock = ImageView(activity).apply {
+            setImageResource(R.drawable.ic_quick_lock_vector)
+            imageTintList = ColorStateList.valueOf(palette.secondaryText)
+            contentDescription = activity.getString(R.string.quick_toolbar_always_visible)
+        }
+        browseRow.addView(browseCheck, LinearLayout.LayoutParams(0, dp(56), 1f))
+        browseRow.addView(lock, LinearLayout.LayoutParams(dp(24), dp(24)))
+        fixedRows.addView(searchRow)
+        fixedRows.addView(browseRow)
+
         val list = RecyclerView(activity).apply {
             layoutManager = LinearLayoutManager(activity)
             overScrollMode = RecyclerView.OVER_SCROLL_NEVER
@@ -55,77 +122,114 @@ object ToolbarQuickActionsDialog {
             RecyclerView.ViewHolder(row)
 
         lateinit var adapter: RecyclerView.Adapter<Holder>
-        fun render() {
+        lateinit var touchHelper: ItemTouchHelper
+        lateinit var homeTabLabel: TextView
+        lateinit var folderTabLabel: TextView
+        lateinit var homeIndicator: View
+        lateinit var folderIndicator: View
+        lateinit var render: () -> Unit
+
+        fun updateSearch(checked: Boolean) {
+            val selectedActions = current()
+            val nextSize = selectedActions.size + if (checked) 1 else -1
+            if (nextSize !in 1..5) {
+                searchCheck.setOnCheckedChangeListener(null)
+                searchCheck.isChecked = !checked
+                searchCheck.setOnCheckedChangeListener { _, value -> updateSearch(value) }
+                Toast.makeText(activity, R.string.quick_toolbar_limit, Toast.LENGTH_SHORT).show()
+                return
+            }
+            if (checked) selectedActions.add(0, ToolbarQuickActions.SEARCH)
+            else selectedActions.remove(ToolbarQuickActions.SEARCH)
+            val normalized = ToolbarQuickActions.normalize(scope, selectedActions)
+            selectedActions.clear()
+            selectedActions.addAll(normalized)
+            render()
+        }
+
+        fun updateAction(action: String, button: android.widget.CompoundButton, checked: Boolean) {
+            val selectedActions = current()
+            val nextSize = selectedActions.size + if (checked) 1 else -1
+            if (nextSize !in 1..5) {
+                button.setOnCheckedChangeListener(null)
+                button.isChecked = !checked
+                button.setOnCheckedChangeListener { checkbox, value ->
+                    updateAction(action, checkbox, value)
+                }
+                Toast.makeText(activity, R.string.quick_toolbar_limit, Toast.LENGTH_SHORT).show()
+                return
+            }
+            if (checked) selectedActions.add(action) else selectedActions.remove(action)
+            val normalized = ToolbarQuickActions.normalize(scope, selectedActions)
+            selectedActions.clear()
+            selectedActions.addAll(normalized)
+            render()
+        }
+
+        render = {
             val selected = current().size
             count.text = activity.getString(R.string.quick_toolbar_count, selected)
-            homeTab.typeface = if (scope == ToolbarQuickScope.HOME) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            folderTab.typeface = if (scope == ToolbarQuickScope.FOLDER) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            guidance.text = activity.getString(R.string.quick_toolbar_guidance)
+            searchCheck.setOnCheckedChangeListener(null)
+            searchCheck.isChecked = ToolbarQuickActions.SEARCH in current()
+            searchCheck.setOnCheckedChangeListener { _, checked -> updateSearch(checked) }
+            browseRow.visibility = if (scope == ToolbarQuickScope.HOME) View.VISIBLE else View.GONE
+            homeTabLabel.typeface = if (scope == ToolbarQuickScope.HOME)
+                Typeface.create("sans-serif-medium", Typeface.NORMAL) else Typeface.DEFAULT
+            folderTabLabel.typeface = if (scope == ToolbarQuickScope.FOLDER)
+                Typeface.create("sans-serif-medium", Typeface.NORMAL) else Typeface.DEFAULT
+            homeIndicator.alpha = if (scope == ToolbarQuickScope.HOME) 1f else 0f
+            folderIndicator.alpha = if (scope == ToolbarQuickScope.FOLDER) 1f else 0f
             adapter.notifyDataSetChanged()
         }
 
         adapter = object : RecyclerView.Adapter<Holder>() {
-            override fun getItemCount(): Int = ToolbarQuickActions.options(scope).size
+            override fun getItemCount(): Int = optionalEntries().size
 
             override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
-                val row = LinearLayout(activity).apply {
-                    gravity = Gravity.CENTER_VERTICAL
-                    orientation = LinearLayout.HORIZONTAL
-                    setPadding(dp(8), 0, dp(8), 0)
+                val row = controlRow().apply {
                     layoutParams = RecyclerView.LayoutParams(-1, dp(56))
                 }
-                val check = CheckBox(activity).apply {
-                    textSize = 16f
-                    minHeight = dp(56)
-                    setTextColor(palette.primaryText)
-                    buttonDrawable = AppCompatResources.getDrawable(
-                        activity, androidx.appcompat.R.drawable.abc_btn_check_material
-                    )
-                    CompoundButtonCompat.setButtonTintList(
-                        this, ColorStateList.valueOf(palette.interactiveAccent)
-                    )
-                }
+                val check = createCheckBox()
                 val drag = ImageView(activity).apply {
                     setImageResource(R.drawable.oxygen_classic_drag_handle)
                     imageTintList = ColorStateList.valueOf(palette.secondaryText)
                     contentDescription = activity.getString(R.string.quick_toolbar_drag)
-                    setPadding(0, 0, 0, 0)
+                    isClickable = true
+                    isFocusable = true
                 }
                 row.addView(check, LinearLayout.LayoutParams(0, dp(56), 1f))
-                row.addView(drag, LinearLayout.LayoutParams(dp(24), dp(24)))
+                row.addView(drag, LinearLayout.LayoutParams(dp(48), dp(48)))
                 return Holder(row, check, drag)
             }
 
             override fun onBindViewHolder(holder: Holder, position: Int) {
-                val action = entries()[position]
+                val action = optionalEntries()[position]
                 val isChosen = action in current()
                 holder.check.setOnCheckedChangeListener(null)
                 holder.check.text = activity.getString(ToolbarQuickActions.titleRes(action))
                 holder.check.isChecked = isChosen
-                val canDrag = isChosen && action != ToolbarQuickActions.SEARCH
+                val canDrag = isChosen
                 holder.drag.visibility = if (canDrag) View.VISIBLE else View.INVISIBLE
-                holder.itemView.contentDescription = activity.getString(
+                holder.drag.contentDescription = activity.getString(
                     if (canDrag) R.string.quick_toolbar_drag_row else R.string.quick_toolbar_choose_row,
                     holder.check.text
                 )
-                holder.check.setOnCheckedChangeListener { button, checked ->
-                    val selected = current()
-                    val nextSize = selected.size + if (checked) 1 else -1
-                    if (nextSize !in 1..5) {
-                        button.setOnCheckedChangeListener(null)
-                        button.isChecked = !checked
-                        Toast.makeText(activity, R.string.quick_toolbar_limit, Toast.LENGTH_SHORT).show()
+                holder.drag.setOnLongClickListener {
+                    if (canDrag) {
+                        touchHelper.startDrag(holder)
+                        true
                     } else {
-                        if (checked) selected.add(action) else selected.remove(action)
-                        val normalized = ToolbarQuickActions.normalize(scope, selected)
-                        selected.clear()
-                        selected.addAll(normalized)
-                        render()
+                        false
                     }
+                }
+                holder.check.setOnCheckedChangeListener { button, checked ->
+                    updateAction(action, button, checked)
                 }
             }
         }
         list.adapter = adapter
-        ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
+        touchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
             ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0
         ) {
             override fun onMove(
@@ -133,36 +237,69 @@ object ToolbarQuickActionsDialog {
             ): Boolean {
                 val from = source.bindingAdapterPosition
                 val to = target.bindingAdapterPosition
-                val selected = current()
-                if (from !in selected.indices || to !in selected.indices) return false
-                if (selected[from] == ToolbarQuickActions.SEARCH ||
-                    selected[to] == ToolbarQuickActions.SEARCH) return false
-                Collections.swap(selected, from, to)
+                val selectedActions = current().filterNot { it == ToolbarQuickActions.SEARCH }
+                if (from !in selectedActions.indices || to !in selectedActions.indices) return false
+                val searchOffset = if (ToolbarQuickActions.SEARCH in current()) 1 else 0
+                Collections.swap(current(), from + searchOffset, to + searchOffset)
                 adapter.notifyItemMoved(from, to)
                 return true
             }
 
             override fun onSwiped(holder: RecyclerView.ViewHolder, direction: Int) = Unit
-            override fun isLongPressDragEnabled() = true
-        }).attachToRecyclerView(list)
+            override fun isLongPressDragEnabled() = false
+        }).also { it.attachToRecyclerView(list) }
 
-        fun addTab(textView: TextView, title: Int, target: ToolbarQuickScope) {
-            textView.text = activity.getString(title)
-            textView.textSize = 15f
-            textView.setTextColor(palette.primaryText)
-            textView.gravity = Gravity.CENTER
-            textView.minHeight = dp(48)
-            tabs.addView(textView, LinearLayout.LayoutParams(0, dp(48), 1f))
-            textView.setOnClickListener {
+        fun addTab(title: Int, target: ToolbarQuickScope): Triple<ViewGroup, TextView, View> {
+            val container = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                isClickable = true
+                isFocusable = true
+                background = RippleDrawable(
+                    ColorStateList.valueOf(ColorUtils.setAlphaComponent(palette.interactiveAccent, 26)),
+                    null,
+                    ColorDrawable(Color.WHITE)
+                )
+            }
+            val label = TextView(activity).apply {
+                text = activity.getString(title)
+                textSize = 15f
+                setTextColor(palette.primaryText)
+                gravity = Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(-1, dp(46))
+            }
+            val indicator = View(activity).apply {
+                setBackgroundColor(palette.interactiveAccent)
+                layoutParams = LinearLayout.LayoutParams(-1, dp(2))
+            }
+            container.addView(label)
+            container.addView(indicator)
+            container.setOnClickListener {
                 scope = target
                 list.scrollToPosition(0)
                 render()
             }
+            return Triple(container, label, indicator)
         }
-        addTab(homeTab, R.string.quick_toolbar_home, ToolbarQuickScope.HOME)
-        addTab(folderTab, R.string.quick_toolbar_folder, ToolbarQuickScope.FOLDER)
+
+        val (homeTab, homeLabel, homeLine) = addTab(
+            R.string.quick_toolbar_home, ToolbarQuickScope.HOME
+        )
+        val (folderTab, folderLabel, folderLine) = addTab(
+            R.string.quick_toolbar_folder, ToolbarQuickScope.FOLDER
+        )
+        homeTabLabel = homeLabel
+        folderTabLabel = folderLabel
+        homeIndicator = homeLine
+        folderIndicator = folderLine
+        tabs.addView(homeTab, LinearLayout.LayoutParams(0, dp(48), 1f))
+        tabs.addView(folderTab, LinearLayout.LayoutParams(0, dp(48), 1f))
+
         root.addView(tabs)
         root.addView(count)
+        root.addView(guidance)
+        root.addView(sectionLabel(R.string.quick_toolbar_fixed_section))
+        root.addView(fixedRows)
+        root.addView(sectionLabel(R.string.quick_toolbar_optional_section))
         root.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
         val maxDp = (activity.resources.displayMetrics.heightPixels / density).toInt() - 180
         root.layoutParams = ViewGroup.LayoutParams(-1, dp(minOf(520, maxDp.coerceAtLeast(260))))

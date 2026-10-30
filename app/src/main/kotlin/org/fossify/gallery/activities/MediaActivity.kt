@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 21226)
+Total output lines: 1934
+
 package org.fossify.gallery.activities
 
 import org.fossify.commons.extensions.getSharedPrefs
@@ -162,6 +165,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mShowAll = false
     // Null means a single folder or external picker, not a root navigation page.
     private var mGallerySection: GallerySection? = null
+    private val hasFixedBrowseSwitch: Boolean
+        get() = org.fossify.gallery.helpers.ToolbarQuickActions
+            .hasFixedBrowseSwitch(mPath, mGallerySection)
     private var mLoadedInitialPhotos = false
     private var mShowLoadingIndicator = true
     private var mWasFullscreenViewOpen = false
@@ -726,7 +732,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             findItem(R.id.empty_disable_recycle_bin).isVisible = mPath == RECYCLE_BIN
             findItem(R.id.restore_all_files).isVisible = mPath == RECYCLE_BIN
 
-            findItem(R.id.folder_view).isVisible = mPath != FAVORITES && (mGallerySection != null || mShowAll)
+            findItem(R.id.folder_view).isVisible = hasFixedBrowseSwitch
             findItem(R.id.open_camera).isVisible = mShowAll
             findItem(R.id.about).isVisible = mShowAll
             findItem(R.id.create_new_folder).isVisible =
@@ -771,284 +777,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     org.fossify.gallery.helpers.ToolbarQuickActions.FILTER -> showFilterMediaDialog()
                     org.fossify.gallery.helpers.ToolbarQuickActions.VIEW -> changeViewType()
                     org.fossify.gallery.helpers.ToolbarQuickActions.COLUMNS -> changeColumnCount()
-                    org.fossify.gallery.helpers.ToolbarQuickActions.HIDDEN -> tryToggleTemporarilyShowHidden()
-                    org.fossify.gallery.helpers.ToolbarQuickActions.EXCLUDED -> tryToggleTemporarilyShowExcluded()
-                    org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW -> startSlideshow()
-                    org.fossify.gallery.helpers.ToolbarQuickActions.GROUP -> showGroupByDialog()
-                    org.fossify.gallery.helpers.ToolbarQuickActions.FILENAME -> toggleFilenameVisibility()
-                    else -> return@setOnMenuItemClickListener false
-                }
-                return@setOnMenuItemClickListener true
-            }
-            when (menuItem.itemId) {
-                R.id.quick_toolbar_search_overflow -> {
-                    binding.mediaMenu.focusView()
-                    showKeyboard(binding.mediaMenu.binding.topToolbarSearch)
-                }
-                R.id.sort -> showSortingDialog()
-                R.id.filter -> showFilterMediaDialog()
-                R.id.empty_recycle_bin -> emptyRecycleBin()
-                R.id.empty_disable_recycle_bin -> emptyAndDisableRecycleBin()
-                R.id.restore_all_files -> restoreAllFiles()
-                R.id.toggle_filename -> toggleFilenameVisibility()
-                R.id.open_camera -> launchCamera()
-                R.id.folder_view -> switchToFolderView()
-                R.id.change_view_type -> changeViewType()
-                R.id.group -> showGroupByDialog()
-                R.id.create_new_folder -> createNewFolder()
-                R.id.open_recycle_bin -> openRecycleBin()
-                R.id.temporarily_show_excluded -> tryToggleTemporarilyShowExcluded()
-                R.id.stop_showing_excluded -> tryToggleTemporarilyShowExcluded()
-                R.id.temporarily_show_hidden -> tryToggleTemporarilyShowHidden()
-                R.id.stop_showing_hidden -> tryToggleTemporarilyShowHidden()
-                R.id.column_count -> changeColumnCount()
-                R.id.set_as_default_folder -> setAsDefaultFolder()
-                R.id.unset_as_default_folder -> unsetAsDefaultFolder()
-                R.id.slideshow -> startSlideshow()
-                R.id.settings -> launchSettings()
-                R.id.about -> launchAbout()
-                else -> return@setOnMenuItemClickListener false
-            }
-            return@setOnMenuItemClickListener true
-        }
-    }
-
-    private fun startSlideshow() {
-        if (mMedia.isNotEmpty()) {
-            hideKeyboard()
-            Intent(this, ViewPagerActivity::class.java).apply {
-                val item = mMedia.firstOrNull { it is Medium } as? Medium ?: return
-                if (mPath == FAVORITES) {
-                    if (!FavoriteAccessSessionManager.isCapturedPath(favoriteSessionId, item.path)) { finish(); return }
-                    putExtra(FAVORITE_ACCESS_SESSION, favoriteSessionId)
-                    putExtra(SHOW_FAVORITES, true)
-                }
-                folderUnlockSessionId?.let { putExtra(FOLDER_UNLOCK_SESSION, it) }
-                putExtra(IS_FROM_GALLERY, true)
-                putExtra(PATH, item.path)
-                putExtra(SHOW_ALL, mShowAll)
-                putExtra(SLIDESHOW_START_ON_ENTER, true)
-                startActivity(this)
-            }
-        }
-    }
-
-    private fun updateMenuColors() {
-        binding.mediaMenu.updateColors()
-        OxygenSystemBars.apply(this)
-        OxygenToolbarStyle.apply(
-            this, binding.mediaMenu,
-            when {
-                mShowAll || mPath.isEmpty() -> getString(R.string.app_launcher_name)
-                mPath == FAVORITES -> getString(org.fossify.commons.R.string.favorites)
-                mPath == RECYCLE_BIN -> getString(org.fossify.commons.R.string.recycle_bin)
-                else -> getHumanizedFilename(mPath)
-            },
-            backButton = mPath == FAVORITES || (mGallerySection == null && !mShowAll)
-        )
-        val picker = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent || isSetWallpaperIntent()
-        if (!picker && mPath != RECYCLE_BIN) {
-            val isHome = mPath.isEmpty()
-            val viewType = config.getFolderViewType(if (isHome) SHOW_ALL else mPath)
-            org.fossify.gallery.helpers.ToolbarQuickActions.apply(
-                this, binding.mediaMenu,
-                if (isHome) org.fossify.gallery.helpers.ToolbarQuickScope.HOME
-                    else org.fossify.gallery.helpers.ToolbarQuickScope.FOLDER,
-                if (isHome) config.toolbarHomeActions else config.toolbarFolderActions,
-                hasBack = !isHome,
-                fixedActionCount = if (isHome) 1 else 0,
-                supported = { action ->
-                    when (action) {
-                        org.fossify.gallery.helpers.ToolbarQuickActions.COLUMNS,
-                        org.fossify.gallery.helpers.ToolbarQuickActions.FILENAME -> viewType == VIEW_TYPE_GRID
-                        org.fossify.gallery.helpers.ToolbarQuickActions.GROUP -> !config.scrollHorizontally
-                        org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW ->
-                            mMedia.any { it is Medium }
-                        else -> true
-                    }
-                }
-            )
-        }
-    }
-
-    private fun storeStateVariables() {
-        mStoredTextColor = getProperTextColor()
-        mStoredPrimaryColor = getProperPrimaryColor()
-        config.apply {
-            mStoredAnimateGifs = animateGifs
-            mStoredCropThumbnails = cropThumbnails
-            mStoredScrollHorizontally = scrollHorizontally
-            mStoredShowFileTypes = showThumbnailFileTypes
-            mStoredMarkFavoriteItems = markFavoriteItems
-            mStoredThumbnailSpacing = thumbnailSpacing
-            mStoredRoundedCorners = fileRoundedCorners
-            mShowAll = mPath.isEmpty() && (showAll || mGallerySection == GallerySection.ALL)
-        }
-    }
-
-    private fun searchQueryChanged(text: String) {
-        val searchGeneration = ++mediaSearchGeneration
-        val request = displayedMediaRequest
-        val finalResult = displayedMediaIsFinal
-        val sourceMedia = ArrayList(mMedia)
-        ensureBackgroundThread {
-            try {
-                val filtered = sourceMedia
-                    .filter { it is Medium && it.name.contains(text, true) } as ArrayList
-                filtered.sortBy { it is Medium && !it.name.startsWith(text, true) }
-                val grouped = MediaFetcher(applicationContext).groupMedia(
-                    media = filtered as ArrayList<Medium>, path = mPath
-                )
-                val safeGrouped = if (mPath == FAVORITES) FavoriteAccessPolicy.authorizedItems(
-                    favoriteSessionId, grouped
-                ) { (it as? Medium)?.path } else grouped
-                runOnUiThread {
-                    // An earlier background search must not overwrite a newer query.
-                    if (isFinishing || isDestroyed || mLastSearchedText != text ||
-                        searchGeneration != mediaSearchGeneration || !mediaLoadRequests.isCurrent(request)) return@runOnUiThread
-                    if (mPath == FAVORITES && !FavoriteAccessSessionManager.isActive(favoriteSessionId)) return@runOnUiThread
-                    if (safeGrouped.isEmpty()) {
-                        binding.mediaEmptyTextPlaceholder.text =
-                            getString(org.fossify.commons.R.string.no_items_found)
-                        binding.mediaEmptyTextPlaceholder.beVisible()
-                        binding.mediaFastscroller.beGone()
-                    } else {
-                        binding.mediaEmptyTextPlaceholder.beGone()
-                        binding.mediaFastscroller.beVisible()
-                    }
-
-                    handleGridSpacing(safeGrouped)
-                    getMediaAdapter()?.updateMedia(safeGrouped)
-                    restoreFavoritesScrollAnchor(request, finalResult)
-                }
-            } catch (ignored: Exception) {
-            }
-        }
-    }
-
-    private fun tryLoadGallery() {
-        requestMediaPermissions {
-            val dirName = when (mPath) {
-                FAVORITES -> getString(org.fossify.commons.R.string.favorites)
-                RECYCLE_BIN -> getString(org.fossify.commons.R.string.recycle_bin)
-                config.OTGPath -> getString(org.fossify.commons.R.string.usb)
-                else -> getHumanizedFilename(mPath)
-            }
-
-            val searchHint = if (mShowAll) {
-                getString(org.fossify.commons.R.string.search_files)
-            } else {
-                getString(org.fossify.commons.R.string.search_in_placeholder, dirName)
-            }
-
-            binding.mediaMenu.updateHintText(searchHint)
-            if ((mGallerySection == null || mPath == FAVORITES) && !mShowAll) {
-                // OxygenToolbarStyle owns the single closed-search back control.
-                // Commons owns the search arrow only while search is expanded.
-                binding.mediaMenu.onNavigateBackClickListener = {
-                    OxygenSearchNavigation.hideImeAndClearFocus(this, binding.mediaMenu)
-                    performDefaultBack()
-                }
-            }
-
-            if (mShowLoadingIndicator) {
-                binding.loadingIndicator.show()
-                mShowLoadingIndicator = false
-            }
-
-            getMedia()
-            setupLayoutManager()
-        }
-    }
-
-    private fun getMediaAdapter() = binding.mediaGrid.adapter as? MediaAdapter
-
-    private fun setupAdapter() {
-        if (mPath == FAVORITES) {
-            if (!FavoriteAccessSessionManager.isActive(favoriteSessionId)) return
-        }
-        if (!mShowAll && isDirEmpty()) {
-            return
-        }
-
-        val currAdapter = binding.mediaGrid.adapter
-        if (currAdapter == null) {
-            initZoomListener()
-            MediaAdapter(
-                activity = this,
-                media = mMedia.clone() as ArrayList<ThumbnailItem>,
-                listener = this,
-                isAGetIntent = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent,
-                allowMultiplePicks = mAllowPickingMultiple,
-                path = mPath,
-                recyclerView = binding.mediaGrid
-            ) {
-                if (it is Medium && !isFinishing) {
-                    itemClicked(it.path)
-                }
-            }.apply {
-                setupZoomListener(mZoomListener)
-                binding.mediaGrid.adapter = this
-            }
-
-            val viewType = config.getFolderViewType(if (mShowAll) SHOW_ALL else mPath)
-            val returningToFavorites = mPath == FAVORITES && favoritesReturnCover?.covering == true
-            if (returningToFavorites) binding.mediaGrid.clearAnimation()
-            if (viewType == VIEW_TYPE_LIST && areSystemAnimationsEnabled && !returningToFavorites) {
-                binding.mediaGrid.scheduleLayoutAnimation()
-            }
-
-            setupLayoutManager()
-            handleGridSpacing()
-            if (mLastSearchedText.isNotEmpty()) searchQueryChanged(mLastSearchedText)
-        } else if (mLastSearchedText.isEmpty()) {
-            (currAdapter as MediaAdapter).updateMedia(mMedia)
-            handleGridSpacing()
-        } else {
-            searchQueryChanged(mLastSearchedText)
-        }
-
-        setupScrollDirection()
-    }
-
-    private fun setupScrollDirection() {
-        val viewType = config.getFolderViewType(if (mShowAll) SHOW_ALL else mPath)
-        val scrollHorizontally = config.scrollHorizontally && viewType == VIEW_TYPE_GRID
-        binding.mediaFastscroller.setScrollVertically(!scrollHorizontally)
-        styleFastScroller()
-    }
-
-    private fun styleFastScroller() {
-        OxygenFastScroller.apply(binding.mediaFastscroller, binding.mediaGrid,
-            OxygenThemeEngine.snapshot(this, config),
-            if (mGallerySection == null) 0 else resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height))
-    }
-
-    private fun checkLastMediaChanged() {
-        if (isDestroyed || config.getFolderSorting(mPath) and SORT_BY_RANDOM != 0) {
-            return
-        }
-
-        mLastMediaHandler.removeCallbacksAndMessages(null)
-        mLastMediaHandler.postDelayed({
-            ensureBackgroundThread {
-                val mediaId = getLatestMediaId()
-                val mediaDateId = getLatestMediaByDateId()
-                if (mLatestMediaId != mediaId || mLatestMediaDateId != mediaDateId) {
-                    mLatestMediaId = mediaId
-                    mLatestMediaDateId = mediaDateId
-                    runOnUiThread {
-                        getMedia()
-                    }
-                } else {
-                    checkLastMediaChanged()
-                }
-            }
-        }, LAST_MEDIA_CHECK_PERIOD)
-    }
-
-    private fun showSortingDialog() {
-        ChangeSortingDialog(this, false, true, mPath) {
+ …3226 tokens truncated…     ChangeSortingDialog(this, false, true, mPath) {
             mLoadedInitialPhotos = false
             binding.mediaGrid.adapter = null
             getMedia()
