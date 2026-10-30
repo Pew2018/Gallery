@@ -50,6 +50,7 @@ class FavoriteCredentialModeTest {
                 .remove(FAVORITE_PROTECTION_TYPE)
                 .remove(FAVORITE_FALLBACK_PASSWORD_HASH)
                 .remove(FAVORITE_FALLBACK_PROTECTION_TYPE)
+                .remove(FAVORITE_BIOMETRIC_PRIMARY)
                 .commit()
         }
         clearFavoriteKeys()
@@ -62,6 +63,7 @@ class FavoriteCredentialModeTest {
             assertTrue(reloaded.enabled)
             assertTrue(reloaded.isConfigured)
             assertEquals(PROTECTION_FINGERPRINT, reloaded.type)
+            assertTrue(reloaded.biometricPrimary)
             assertEquals("", reloaded.hash)
             assertEquals(PROTECTION_PIN, reloaded.fallbackType)
             assertEquals("fallback-hash", reloaded.fallbackHash)
@@ -84,5 +86,6 @@ class FavoriteCredentialModeTest {
         assertTrue(biometric.fallbackHash.isNotBlank())
         assertTrue(biometric.fallbackType == PROTECTION_PATTERN)
         assertTrue(biometric.type == PROTECTION_FINGERPRINT)
+        assertTrue(biometric.biometricPrimary)
     }
 }

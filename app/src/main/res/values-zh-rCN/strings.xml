@@ -293,6 +293,8 @@
     <string name="favorite_password_disable_retry">来源保护或收藏内容刚刚发生变化，未关闭收藏密码。请重试。</string>
     <string name="favorite_password_not_set">保护已关闭 · 点击选择</string>
     <string name="favorite_password_set">保护已开启 · 点击管理</string>
+    <string name="favorite_password_set_primary">保护已开启 · 主方式：%1$s · 点击管理</string>
+    <string name="favorite_password_set_biometric">保护已开启 · 主方式：生物识别 · 备用：%1$s · 点击管理</string>
     <string name="favorite_password_manage_title">收藏相册密码</string>
     <string name="favorite_password_change">修改密码</string>
     <string name="favorite_password_disable">关闭密码保护</string>

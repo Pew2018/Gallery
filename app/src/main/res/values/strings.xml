@@ -329,6 +329,8 @@
     <string name="favorite_password_disable_retry">Source protection or favorites changed. Password protection remains on; try again.</string>
     <string name="favorite_password_not_set">Protection off · Tap to choose</string>
     <string name="favorite_password_set">Protection on · Tap to manage</string>
+    <string name="favorite_password_set_primary">Protection on · Primary: %1$s · Tap to manage</string>
+    <string name="favorite_password_set_biometric">Protection on · Biometrics primary · Backup: %1$s · Tap to manage</string>
     <string name="favorite_password_manage_title">Favorites album password</string>
     <string name="favorite_password_change">Change password</string>
     <string name="favorite_password_disable">Turn off password</string>

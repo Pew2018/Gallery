@@ -31,12 +31,15 @@ class Config(context: Context) : BaseConfig(context) {
         val hash: String,
         val type: Int,
         val fallbackHash: String,
-        val fallbackType: Int
+        val fallbackType: Int,
+        val biometricPrimary: Boolean = type == PROTECTION_FINGERPRINT
     ) {
         val isConfigured: Boolean
-            get() = if (type == PROTECTION_FINGERPRINT) {
-                fallbackHash.isNotBlank() && fallbackType in 0..1
-            } else hash.isNotBlank() && type in 0..1
+            get() = if (biometricPrimary) {
+                type == PROTECTION_FINGERPRINT && fallbackHash.isNotBlank() && fallbackType in 0..1
+            } else {
+                hash.isNotBlank() && type in 0..1
+            }
     }
 
     internal data class FavoriteCredentialProof(
@@ -46,12 +49,15 @@ class Config(context: Context) : BaseConfig(context) {
 
     internal fun favoriteCredentialSnapshot(): FavoriteCredentialSnapshot {
         val values = prefs.all
+        val type = values[FAVORITE_PROTECTION_TYPE] as? Int ?: PROTECTION_PATTERN
         return FavoriteCredentialSnapshot(
-            values[FAVORITE_PASSWORD_ENABLED] as? Boolean ?: false,
-            values[FAVORITE_PASSWORD_HASH] as? String ?: "",
-            values[FAVORITE_PROTECTION_TYPE] as? Int ?: PROTECTION_PATTERN,
-            values[FAVORITE_FALLBACK_PASSWORD_HASH] as? String ?: "",
-            values[FAVORITE_FALLBACK_PROTECTION_TYPE] as? Int ?: PROTECTION_PATTERN
+            enabled = values[FAVORITE_PASSWORD_ENABLED] as? Boolean ?: false,
+            hash = values[FAVORITE_PASSWORD_HASH] as? String ?: "",
+            type = type,
+            fallbackHash = values[FAVORITE_FALLBACK_PASSWORD_HASH] as? String ?: "",
+            fallbackType = values[FAVORITE_FALLBACK_PROTECTION_TYPE] as? Int ?: PROTECTION_PATTERN,
+            // Upgrade legacy installs that only persisted the integer type.
+            biometricPrimary = values[FAVORITE_BIOMETRIC_PRIMARY] as? Boolean ?: (type == PROTECTION_FINGERPRINT)
         )
     }
 
@@ -88,6 +94,7 @@ class Config(context: Context) : BaseConfig(context) {
             .putInt(FAVORITE_PROTECTION_TYPE, type)
             .putString(FAVORITE_FALLBACK_PASSWORD_HASH, fallbackHash)
             .putInt(FAVORITE_FALLBACK_PROTECTION_TYPE, fallbackType)
+            .putBoolean(FAVORITE_BIOMETRIC_PRIMARY, type == PROTECTION_FINGERPRINT)
             .putBoolean(FAVORITE_PASSWORD_ENABLED, true)
             .apply()
     }
@@ -101,10 +108,21 @@ class Config(context: Context) : BaseConfig(context) {
         fallbackType: Int
     ): FavoriteCredentialSnapshot? {
         if (fallbackHash.isBlank() || fallbackType !in 0..1) return null
-        saveFavoriteCredential("", PROTECTION_FINGERPRINT, fallbackHash, fallbackType)
+        val persisted = prefs.edit()
+            .putString(FAVORITE_PASSWORD_HASH, "")
+            .putInt(FAVORITE_PROTECTION_TYPE, PROTECTION_FINGERPRINT)
+            .putString(FAVORITE_FALLBACK_PASSWORD_HASH, fallbackHash)
+            .putInt(FAVORITE_FALLBACK_PROTECTION_TYPE, fallbackType)
+            .putBoolean(FAVORITE_BIOMETRIC_PRIMARY, true)
+            .putBoolean(FAVORITE_PASSWORD_ENABLED, true)
+            .commit()
+        if (!persisted) return null
+
         val saved = favoriteCredentialSnapshot()
         return saved.takeIf {
-            it.type == PROTECTION_FINGERPRINT &&
+            it.enabled &&
+                it.biometricPrimary &&
+                it.type == PROTECTION_FINGERPRINT &&
                 it.fallbackHash == fallbackHash &&
                 it.fallbackType == fallbackType &&
                 isFavoriteCredentialCurrent(it)
@@ -118,6 +136,7 @@ class Config(context: Context) : BaseConfig(context) {
             .remove(FAVORITE_PROTECTION_TYPE)
             .remove(FAVORITE_FALLBACK_PASSWORD_HASH)
             .remove(FAVORITE_FALLBACK_PROTECTION_TYPE)
+            .remove(FAVORITE_BIOMETRIC_PRIMARY)
             .apply()
     }
 

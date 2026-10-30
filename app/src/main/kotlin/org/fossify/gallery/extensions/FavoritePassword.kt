@@ -233,7 +233,7 @@ internal fun Activity.authenticateFavoritePassword(onAuthenticated: (Config.Favo
         })
     }
 
-    if (expectedCredential.type != PROTECTION_FINGERPRINT) {
+    if (!expectedCredential.biometricPrimary) {
         SecurityDialog(this, expectedCredential.hash, expectedCredential.type) { _, _, success ->
             complete(success)
         }

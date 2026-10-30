@@ -664,13 +664,25 @@ class SettingsActivity : SimpleActivity() {
 
     private fun setupFavoritePasswordProtection() {
         fun updateStatus() {
-            binding.settingsFavoritePasswordStatus.setText(
-                when {
-                    !config.isFavoritePasswordProtectionOn -> R.string.favorite_password_not_set
-                    config.favoriteCredentialSnapshot().isConfigured -> R.string.favorite_password_set
-                    else -> R.string.favorite_password_enabled_invalid
-                }
-            )
+            val credential = config.favoriteCredentialSnapshot()
+            binding.settingsFavoritePasswordStatus.text = when {
+                !credential.enabled -> getString(R.string.favorite_password_not_set)
+                !credential.isConfigured -> getString(R.string.favorite_password_enabled_invalid)
+                credential.biometricPrimary -> getString(
+                    R.string.favorite_password_set_biometric,
+                    getString(
+                        if (credential.fallbackType == PROTECTION_PIN) org.fossify.commons.R.string.pin
+                        else org.fossify.commons.R.string.pattern
+                    )
+                )
+                else -> getString(
+                    R.string.favorite_password_set_primary,
+                    getString(
+                        if (credential.type == PROTECTION_PIN) org.fossify.commons.R.string.pin
+                        else org.fossify.commons.R.string.pattern
+                    )
+                )
+            }
         }
         updateStatus()
         binding.settingsFavoritePasswordHolder.setOnClickListener {
