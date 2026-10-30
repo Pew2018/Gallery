@@ -885,7 +885,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun promptProtectedFavoriteFilters(force: Boolean = false) {
         if (!mShowingFolderFavorites || !favoriteViewForeground ||
             isFinishing || isDestroyed || (mFavoriteAuthRequested && !force)) return
-        val needHidden = config.favoriteShowHidden && config.isHiddenPasswordProtectionOn &&
+        val needHidden = (config.favoriteShowHidden || config.temporarilyShowHidden) &&
+            config.isHiddenPasswordProtectionOn &&
             !mFavoriteHiddenAuthorized
         val needExcluded = (config.favoriteShowExcluded || config.temporarilyShowExcluded) &&
             config.isExcludedPasswordProtectionOn &&
@@ -927,11 +928,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun loadFavoriteFoldersWithOverrides(force: Boolean = false) {
         val hiddenProtected = config.isHiddenPasswordProtectionOn
         val excludedProtected = config.isExcludedPasswordProtectionOn
-        val showHidden = config.favoriteShowHidden &&
+        val showHidden = (config.favoriteShowHidden || config.temporarilyShowHidden) &&
             (!hiddenProtected || mFavoriteHiddenAuthorized)
         val showExcluded = (config.favoriteShowExcluded || config.temporarilyShowExcluded) &&
             (!excludedProtected || mFavoriteExcludedAuthorized)
-        val authorizationPending = (config.favoriteShowHidden && hiddenProtected && !mFavoriteHiddenAuthorized) ||
+        val authorizationPending = ((config.favoriteShowHidden || config.temporarilyShowHidden) &&
+                hiddenProtected && !mFavoriteHiddenAuthorized) ||
             ((config.favoriteShowExcluded || config.temporarilyShowExcluded) &&
                 excludedProtected && !mFavoriteExcludedAuthorized)
         val excludedRoots = config.excludedFolders.toSet()
@@ -1264,8 +1266,15 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun toggleTemporarilyShowHidden(show: Boolean) {
         mLoadedInitialPhotos = false
         config.temporarilyShowHidden = show
-        binding.directoriesGrid.adapter = null
-        getDirectories()
+        if (mShowingFolderFavorites) {
+            if (show) mFavoriteHiddenAuthorized = true
+            else if (!config.favoriteShowHidden) mFavoriteHiddenAuthorized = false
+            clearFavoriteDirectoryViews()
+            getDirectories(forceFavoriteReload = true)
+        } else {
+            binding.directoriesGrid.adapter = null
+            getDirectories()
+        }
         refreshMenuItems()
     }
 
