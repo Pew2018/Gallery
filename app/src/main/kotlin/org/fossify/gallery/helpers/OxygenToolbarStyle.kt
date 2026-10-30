@@ -30,7 +30,7 @@ import java.util.WeakHashMap
 object OxygenToolbarStyle {
     private const val TITLE_TAG = "oxygen_classic_toolbar_title"
     private const val BACK_TAG = "oxygen_classic_toolbar_back"
-    private class State(var title: String, var back: Boolean)
+    private class State(var title: String, var back: Boolean, var showSearch: Boolean = true)
     private val hooked = WeakHashMap<MySearchMenu, State>()
 
     /** Set the ActionMenuPresenter popup theme before the menu is inflated. */
@@ -64,6 +64,16 @@ object OxygenToolbarStyle {
         }
         hooked[searchMenu] = state
         render(searchMenu, state)
+    }
+
+    /** Only the collapsed search affordance is optional; expanded search keeps its back arrow. */
+    fun setSearchActionVisible(menu: MySearchMenu, visible: Boolean) {
+        hooked[menu]?.let { state ->
+            if (state.showSearch != visible) {
+                state.showSearch = visible
+                render(menu, state)
+            }
+        }
     }
 
     private fun render(menu: MySearchMenu, state: State) {
@@ -126,6 +136,7 @@ object OxygenToolbarStyle {
         }
         icon.scaleType = ImageView.ScaleType.CENTER_INSIDE
         icon.setPadding(dp(12), dp(12), dp(12), dp(12))
+        icon.visibility = if (opened || state.showSearch) View.VISIBLE else View.GONE
 
         // Commons opens search on input focus. Keep it focusable even when
         // visually closed, then restore full input width on the focus callback.
@@ -202,7 +213,7 @@ object OxygenToolbarStyle {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
         ).apply {
             addRule(RelativeLayout.ALIGN_PARENT_START)
-            addRule(RelativeLayout.START_OF, icon.id)
+            addRule(RelativeLayout.START_OF, if (state.showSearch) icon.id else actions.id)
             marginStart = dp(if (state.back) 64 else 16)
             marginEnd = dp(8)
         }
