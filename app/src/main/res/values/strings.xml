@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="album_home_pinned">Pinned albums</string>
+    <string name="album_home_other">Other albums</string>
+    <string name="album_home_expand">Show all</string>
+    <string name="album_home_collapse">Collapse</string>
+    <string name="album_home_expand_description">Expand all pinned albums</string>
+    <string name="album_home_collapse_description">Collapse pinned albums</string>
     <string name="app_launcher_name">Gallery</string>
     <string name="edit">Edit</string>
     <string name="open_camera">Open camera</string>
