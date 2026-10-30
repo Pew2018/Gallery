@@ -733,6 +733,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 !mShowAll && mPath != RECYCLE_BIN && mPath != FAVORITES
             findItem(R.id.open_recycle_bin).isVisible = config.useRecycleBin && mPath != RECYCLE_BIN
 
+            findItem(R.id.temporarily_show_excluded).isVisible =
+                mPath.isEmpty() && !config.temporarilyShowExcluded
+            findItem(R.id.stop_showing_excluded).isVisible =
+                mPath.isEmpty() && config.temporarilyShowExcluded
+
             findItem(R.id.temporarily_show_hidden).isVisible = !config.shouldShowHidden
             findItem(R.id.stop_showing_hidden).isVisible =
                 (!isRPlus() || isExternalStorageManager()) && config.temporarilyShowHidden
@@ -792,6 +797,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 R.id.group -> showGroupByDialog()
                 R.id.create_new_folder -> createNewFolder()
                 R.id.open_recycle_bin -> openRecycleBin()
+                R.id.temporarily_show_excluded -> tryToggleTemporarilyShowExcluded()
+                R.id.stop_showing_excluded -> tryToggleTemporarilyShowExcluded()
                 R.id.temporarily_show_hidden -> tryToggleTemporarilyShowHidden()
                 R.id.stop_showing_hidden -> tryToggleTemporarilyShowHidden()
                 R.id.column_count -> changeColumnCount()
