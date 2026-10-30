@@ -953,7 +953,18 @@ class DirectoryAdapter(
 
     fun updateDirs(newDirs: ArrayList<Directory>) {
         val directories = ArrayList(newDirs)
-        if (directories.hashCode() == currentDirectoriesHash) return
+        if (directories.hashCode() == currentDirectoriesHash) {
+            // Password protection may have changed without any Directory data
+            // change; the same cached list must still refresh protected covers.
+            val previousLocks = lockedFolderPaths.toSet()
+            fillLockedFolders()
+            dirs.forEachIndexed { index, dir ->
+                if ((dir.path in previousLocks) != (dir.path in lockedFolderPaths)) {
+                    notifyItemChanged(index)
+                }
+            }
+            return
+        }
         // Snapshot both lists on the UI thread. Diffing large albums off the
         // main thread avoids stalling scroll or gesture navigation.
         val old = ArrayList(dirs)
