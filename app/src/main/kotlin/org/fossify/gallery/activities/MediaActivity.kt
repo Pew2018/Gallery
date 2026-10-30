@@ -760,20 +760,26 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         binding.mediaMenu.requireToolbar().setOnMenuItemClickListener { menuItem ->
+            if (org.fossify.gallery.helpers.ToolbarQuickActions.isSlot(menuItem.itemId)) {
+                when (org.fossify.gallery.helpers.ToolbarQuickActions.actionForSlot(binding.mediaMenu, menuItem.itemId)) {
+                    org.fossify.gallery.helpers.ToolbarQuickActions.SORT -> showSortingDialog()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.FILTER -> showFilterMediaDialog()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.VIEW -> changeViewType()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.COLUMNS -> changeColumnCount()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.HIDDEN -> tryToggleTemporarilyShowHidden()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.EXCLUDED -> tryToggleTemporarilyShowExcluded()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW -> startSlideshow()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.GROUP -> showGroupByDialog()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.FILENAME -> toggleFilenameVisibility()
+                    else -> return@setOnMenuItemClickListener false
+                }
+                return@setOnMenuItemClickListener true
+            }
             when (menuItem.itemId) {
                 R.id.quick_toolbar_search_overflow -> {
                     binding.mediaMenu.focusView()
                     showKeyboard(binding.mediaMenu.binding.topToolbarSearch)
                 }
-                R.id.quick_toolbar_sort -> showSortingDialog()
-                R.id.quick_toolbar_filter -> showFilterMediaDialog()
-                R.id.quick_toolbar_group -> showGroupByDialog()
-                R.id.quick_toolbar_view -> changeViewType()
-                R.id.quick_toolbar_columns -> changeColumnCount()
-                R.id.quick_toolbar_filename -> toggleFilenameVisibility()
-                R.id.quick_toolbar_hidden -> tryToggleTemporarilyShowHidden()
-                R.id.quick_toolbar_excluded -> tryToggleTemporarilyShowExcluded()
-                R.id.quick_toolbar_slideshow -> startSlideshow()
                 R.id.sort -> showSortingDialog()
                 R.id.filter -> showFilterMediaDialog()
                 R.id.empty_recycle_bin -> emptyRecycleBin()
