@@ -23,6 +23,8 @@ class Config(context: Context) : BaseConfig(context) {
         private const val FAVORITE_SHOW_EXCLUDED = "oxygen_favorite_show_excluded"
         private const val FAVORITE_SHOW_HIDDEN = "oxygen_favorite_show_hidden"
         private const val BOTTOM_NAV_ORDER = "oxygen_bottom_nav_order"
+        private const val TOOLBAR_HOME_ACTIONS = "oxygen_toolbar_home_actions"
+        private const val TOOLBAR_FOLDER_ACTIONS = "oxygen_toolbar_folder_actions"
         fun newInstance(context: Context) = Config(context)
     }
 
@@ -214,6 +216,27 @@ class Config(context: Context) : BaseConfig(context) {
     var favoriteShowHidden: Boolean
         get() = prefs.getBoolean(FAVORITE_SHOW_HIDDEN, false)
         set(value) = prefs.edit().putBoolean(FAVORITE_SHOW_HIDDEN, value).apply()
+
+    /** Independent home and folder toolbar layouts. Absent settings use three classic actions. */
+    var toolbarHomeActions: List<String>
+        get() = ToolbarQuickActions.normalize(
+            ToolbarQuickScope.HOME,
+            prefs.getString(TOOLBAR_HOME_ACTIONS, null)?.split(",") ?: emptyList()
+        )
+        set(actions) = prefs.edit().putString(
+            TOOLBAR_HOME_ACTIONS,
+            ToolbarQuickActions.normalize(ToolbarQuickScope.HOME, actions).joinToString(",")
+        ).apply()
+
+    var toolbarFolderActions: List<String>
+        get() = ToolbarQuickActions.normalize(
+            ToolbarQuickScope.FOLDER,
+            prefs.getString(TOOLBAR_FOLDER_ACTIONS, null)?.split(",") ?: emptyList()
+        )
+        set(actions) = prefs.edit().putString(
+            TOOLBAR_FOLDER_ACTIONS,
+            ToolbarQuickActions.normalize(ToolbarQuickScope.FOLDER, actions).joinToString(",")
+        ).apply()
 
     /** Stable IDs, not the view indices; malformed saved orders fall back safely. */
     var bottomNavigationOrder: List<String>
