@@ -17,6 +17,7 @@ import android.widget.ImageView
 import android.widget.RelativeLayout
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -664,7 +665,33 @@ class DirectoryAdapter(
         actMode?.invalidate()
 
         if (startReorderDragListener == null) {
-            val touchHelper = ItemTouchHelper(ItemMoveCallback(this, true))
+            val callback = if (recyclerView.adapter is ConcatAdapter) {
+                // ItemMoveCallback uses absolute adapter positions, which are
+                // invalid for child adapters in the grouped home ConcatAdapter.
+                object : ItemMoveCallback(this, true) {
+                    override fun getMovementFlags(
+                        recyclerView: RecyclerView,
+                        viewHolder: RecyclerView.ViewHolder
+                    ): Int = if (viewHolder.bindingAdapter === this@DirectoryAdapter) {
+                        super.getMovementFlags(recyclerView, viewHolder)
+                    } else makeMovementFlags(0, 0)
+
+                    override fun onMove(
+                        recyclerView: RecyclerView,
+                        viewHolder: RecyclerView.ViewHolder,
+                        target: RecyclerView.ViewHolder
+                    ): Boolean {
+                        if (viewHolder.bindingAdapter !== this@DirectoryAdapter ||
+                            target.bindingAdapter !== this@DirectoryAdapter) return false
+                        val from = viewHolder.bindingAdapterPosition
+                        val to = target.bindingAdapterPosition
+                        if (from !in dirs.indices || to !in dirs.indices) return false
+                        onRowMoved(from, to)
+                        return true
+                    }
+                }
+            } else ItemMoveCallback(this, true)
+            val touchHelper = ItemTouchHelper(callback)
             touchHelper.attachToRecyclerView(recyclerView)
 
             startReorderDragListener = object : StartReorderDragListener {
@@ -1143,6 +1170,7 @@ class DirectoryAdapter(
     }
 
     override fun onRowMoved(fromPosition: Int, toPosition: Int) {
+        if (fromPosition !in dirs.indices || toPosition !in dirs.indices) return
         if (fromPosition < toPosition) {
             for (i in fromPosition until toPosition) {
                 Collections.swap(dirs, i, i + 1)
