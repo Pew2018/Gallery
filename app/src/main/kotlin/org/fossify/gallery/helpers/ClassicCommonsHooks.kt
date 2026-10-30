@@ -7,11 +7,25 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import androidx.appcompat.app.AlertDialog
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.core.graphics.ColorUtils
 import org.fossify.commons.extensions.getProperBackgroundColor
 
 /** Public, version-pinned build hooks. No reflection or access to Commons private state. */
 object ClassicCommonsHooks {
+    @JvmStatic
+    fun prepareBuilder(builder: AlertDialog.Builder): AlertDialog.Builder {
+        if (builder is com.google.android.material.dialog.MaterialAlertDialogBuilder) {
+            // The final classic window has no transparent Material inset. Keep the
+            // builder's public outside-touch region consistent with that window.
+            builder.setBackgroundInsetStart(0).setBackgroundInsetTop(0)
+                .setBackgroundInsetEnd(0).setBackgroundInsetBottom(0)
+        }
+        return builder
+    }
+
     @JvmStatic
     fun onStandaloneDialogShown(dialog: AlertDialog) {
         var context = dialog.context
@@ -31,7 +45,7 @@ object ClassicCommonsHooks {
         }
         if (decor.getTag(org.fossify.gallery.R.id.classic_dialog_observer) != null) return
         val listener = object : ViewTreeObserver.OnPreDrawListener, ViewTreeObserver.OnGlobalLayoutListener,
-            View.OnAttachStateChangeListener {
+            View.OnAttachStateChangeListener, LifecycleEventObserver {
             private var dirty = true
             private var firstDraw = true
             override fun onGlobalLayout() { dirty = true }
@@ -47,19 +61,25 @@ object ClassicCommonsHooks {
                 return true
             }
             override fun onViewAttachedToWindow(v: View) = Unit
-            override fun onViewDetachedFromWindow(v: View) {
-                if (v.viewTreeObserver.isAlive) {
-                    v.viewTreeObserver.removeOnPreDrawListener(this)
-                    v.viewTreeObserver.removeOnGlobalLayoutListener(this)
+            override fun onViewDetachedFromWindow(v: View) = cleanup()
+            override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
+                if (event == Lifecycle.Event.ON_DESTROY) cleanup()
+            }
+            private fun cleanup() {
+                if (decor.viewTreeObserver.isAlive) {
+                    decor.viewTreeObserver.removeOnPreDrawListener(this)
+                    decor.viewTreeObserver.removeOnGlobalLayoutListener(this)
                 }
-                v.removeOnAttachStateChangeListener(this)
-                v.setTag(org.fossify.gallery.R.id.classic_dialog_observer, null)
+                decor.removeOnAttachStateChangeListener(this)
+                decor.setTag(org.fossify.gallery.R.id.classic_dialog_observer, null)
+                dialog.lifecycle.removeObserver(this)
             }
         }
         decor.setTag(org.fossify.gallery.R.id.classic_dialog_observer, listener)
         decor.viewTreeObserver.addOnPreDrawListener(listener)
         decor.viewTreeObserver.addOnGlobalLayoutListener(listener)
         decor.addOnAttachStateChangeListener(listener)
+        dialog.lifecycle.addObserver(listener)
         // The first pre-draw runs after Commons' background, font and callback passes.
         // It also catches asynchronously appended property rows without polling or posting.
     }

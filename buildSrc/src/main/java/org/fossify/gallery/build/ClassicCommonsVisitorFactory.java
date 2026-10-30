@@ -30,6 +30,16 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
             private final String hook = "org/fossify/gallery/helpers/ClassicCommonsHooks";
             @Override public MethodVisitor visitMethod(int access, String method, String desc, String signature, String[] exceptions) {
                 MethodVisitor target = super.visitMethod(access, method, desc, signature, exceptions);
+                if (activity && method.equals("getAlertDialogBuilder") && desc.equals("(Landroid/app/Activity;)Landroidx/appcompat/app/AlertDialog$Builder;")) {
+                    methods++;
+                    return new MethodVisitor(Opcodes.ASM9, target) {
+                        @Override public void visitInsn(int opcode) {
+                            if (opcode == Opcodes.ARETURN) super.visitMethodInsn(Opcodes.INVOKESTATIC, hook, "prepareBuilder",
+                                "(Landroidx/appcompat/app/AlertDialog$Builder;)Landroidx/appcompat/app/AlertDialog$Builder;", false);
+                            super.visitInsn(opcode);
+                        }
+                    };
+                }
                 if (activity && method.equals("setupDialogStuff") && desc.startsWith("(Landroid/app/Activity;Landroid/view/View;")) {
                     methods++;
                     return new MethodVisitor(Opcodes.ASM9, target) {
@@ -105,7 +115,7 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
             }
             @Override public void visitEnd() {
                 // Fail closed if a future Commons update changes the patched structure.
-                if ((activity && (methods != 1 || shows != 2)) || (breadcrumbs && methods != 5)) {
+                if ((activity && (methods != 2 || shows != 2)) || (breadcrumbs && methods != 5)) {
                     throw new IllegalStateException("Commons 7.1.3 classic patch mismatch: " + name + " methods=" + methods + " shows=" + shows);
                 }
                 super.visitEnd();

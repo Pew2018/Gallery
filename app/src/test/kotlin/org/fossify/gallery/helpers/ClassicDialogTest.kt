@@ -36,6 +36,18 @@ class ClassicDialogTest {
         activity.baseConfig.primaryColor = Color.YELLOW
     }
 
+    @Test fun materialBuilderInsetsMatchTheFinalClassicTouchBounds() {
+        activity.setTheme(com.google.android.material.R.style.Theme_Material3_Light_NoActionBar)
+        val builder = com.google.android.material.dialog.MaterialAlertDialogBuilder(activity)
+        assertSame(builder, ClassicCommonsHooks.prepareBuilder(builder))
+        val dialog = builder.setMessage("Message").create()
+        dialog.show()
+        val padding = android.graphics.Rect()
+        dialog.window!!.decorView.background.getPadding(padding)
+        assertEquals(android.graphics.Rect(0, 0, 0, 0), padding)
+        dialog.dismiss()
+    }
+
     @Test fun firstDrawWinsOverLateCommonsBackgroundAndObserverIsRemoved() {
         val dialog = AlertDialog.Builder(activity).setMessage("message").create()
         dialog.show()
@@ -48,6 +60,7 @@ class ClassicDialogTest {
         decor.viewTreeObserver.dispatchOnPreDraw()
         assertTrue(decor.background is GradientDrawable)
         dialog.dismiss()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         assertNull(decor.getTag(R.id.classic_dialog_observer))
     }
 
