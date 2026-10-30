@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - main
       - feature/oxygenos-gallery-nav-vault-performance
     paths:
       - "app/**"
