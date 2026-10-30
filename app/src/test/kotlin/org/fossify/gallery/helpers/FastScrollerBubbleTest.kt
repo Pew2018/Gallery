@@ -42,13 +42,13 @@ class FastScrollerBubbleTest {
             formatterCalled = true
             "1970"
         }
+        assertEquals("photo.jpg", zero)
+        assertFalse(formatterCalled)
+
         val historical = FastScrollerBubble.dateOrFallback(-315619200000L, "photo.jpg") {
             formatterCalled = true
             "1960"
         }
-
-        assertEquals("photo.jpg", zero)
-        assertFalse(formatterCalled)
         assertEquals("1960", historical)
         assertTrue(formatterCalled)
         assertEquals("photo.jpg", FastScrollerBubble.dateOrFallback(1L, "photo.jpg") { "" })

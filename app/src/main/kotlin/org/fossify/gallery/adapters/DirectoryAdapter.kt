@@ -1112,7 +1112,9 @@ class DirectoryAdapter(
         swipeRefreshLayout?.isEnabled = true
     }
 
-    override fun onChange(position: Int) = dirs.getOrNull(position)?.getBubbleText(directorySorting, activity, dateFormat, timeFormat) ?: ""
+    override fun onChange(position: Int): String =
+        dirs.getOrNull(position)?.getBubbleText(directorySorting, activity, dateFormat, timeFormat)
+            ?: activity.getString(R.string.unknown_file_location)
 
     private fun bindItem(view: View): DirectoryItemBinding {
         return when {
