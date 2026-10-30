@@ -103,6 +103,7 @@ import org.fossify.gallery.extensions.getDirectorySortingValue
 import org.fossify.gallery.extensions.getDirsToShow
 import org.fossify.gallery.extensions.getDistinctPath
 import org.fossify.gallery.extensions.getFavoritePaths
+import org.fossify.gallery.extensions.favoriteProtection
 import org.fossify.gallery.extensions.getNoMediaFoldersSync
 import org.fossify.gallery.extensions.getOTGFolderChildrenNames
 import org.fossify.gallery.extensions.getSortedDirectories
@@ -122,6 +123,8 @@ import org.fossify.gallery.extensions.tryDeleteFileDirItem
 import org.fossify.gallery.extensions.updateDBDirectory
 import org.fossify.gallery.extensions.updateWidgets
 import org.fossify.gallery.helpers.FavoriteFolderRules
+import org.fossify.gallery.helpers.FavoriteAccessPolicy
+import org.fossify.gallery.helpers.FavoriteAccessSessionManager
 import org.fossify.gallery.helpers.OxygenFastScroller
 import org.fossify.gallery.helpers.OxygenThemeEngine
 import org.fossify.gallery.helpers.OxygenProgressStyle
@@ -401,6 +404,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     override fun onStart() {
         super.onStart()
         favoriteViewForeground = true
+        // Settings can change the credential while this Activity is stopped.
+        // Rebind before its previous thumbnail is drawn again.
+        getRecyclerAdapter()?.refreshFavoriteProtection()
         mTempShowHiddenHandler.removeCallbacksAndMessages(null)
     }
 
@@ -1677,6 +1683,14 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         setDirectoryLoading(false)
         mShouldStopFetching = false
 
+        // The directory cache predates the dedicated favorites credential. Never
+        // publish its old cover or count while the virtual album is protected.
+        if (config.isFavoritePasswordProtectionOn || config.isFolderProtected(FAVORITES)) {
+            newDirs.indexOfFirst { it.path == FAVORITES }.takeIf { it >= 0 }?.let { index ->
+                newDirs[index] = newDirs[index].copy(tmb = "", mediaCnt = 0, subfoldersMediaCount = 0)
+            }
+        }
+
         // if hidden item showing is disabled but all Favorite items are hidden, hide the Favorites folder
         if (!config.shouldShowHidden) {
             val favoritesFolder = newDirs.firstOrNull { it.areFavorites() }
@@ -1737,16 +1751,16 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
         }
 
-        if (dirs.map { it.path }.contains(FAVORITES)) {
-            if (favoritesDB.getFavoritesCount() > 0) {
-                val favorites = Directory().apply {
-                    path = FAVORITES
-                    name = getString(org.fossify.commons.R.string.favorites)
-                    location = LOCATION_INTERNAL
-                }
-
-                dirs.add(0, favorites)
+        if (favoritesDB.getFavoritesCount() == 0L) {
+            dirs.removeAll { it.path == FAVORITES }
+            setupAdapter(dirs)
+        } else if (dirs.map { it.path }.contains(FAVORITES)) {
+            val favorites = Directory().apply {
+                path = FAVORITES
+                name = getString(org.fossify.commons.R.string.favorites)
+                location = LOCATION_INTERNAL
             }
+            dirs.add(0, favorites)
         }
 
         // fetch files from MediaStore only, unless the app has the MANAGE_EXTERNAL_STORAGE permission on Android 11+
@@ -1766,6 +1780,24 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 // A locked album is represented by its cached metadata only.
                 // Its media may be scanned only by MediaActivity after authentication.
                 if (config.isFolderProtected(directory.path)) continue
+                if (directory.path == FAVORITES && config.isFavoritePasswordProtectionOn) {
+                    directory.tmb = ""
+                    directory.mediaCnt = 0
+                    directory.subfoldersMediaCount = 0
+                    updateDBDirectory(directory)
+                    setupAdapter(dirs)
+                    continue
+                }
+
+                val pathsForCard = if (directory.path == FAVORITES) {
+                    runCatching {
+                        FavoriteAccessPolicy.unprotectedPaths(
+                            FavoriteAccessSessionManager.captureSnapshot(
+                                favoritePaths, applicationContext::favoriteProtection
+                            )
+                        ).toCollection(ArrayList())
+                    }.getOrDefault(arrayListOf())
+                } else favoritePaths
 
                 val sorting = config.getFolderSorting(directory.path)
                 val grouping = config.getFolderGrouping(directory.path)
@@ -1787,12 +1819,34 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     getProperDateTaken = getProperDateTaken,
                     getProperLastModified = getProperLastModified,
                     getProperFileSize = getProperFileSize,
-                    favoritePaths = favoritePaths,
+                    favoritePaths = pathsForCard,
                     getVideoDurations = false,
                     lastModifieds = lastModifieds,
                     dateTakens = dateTakens,
                     android11Files = android11Files
                 )
+
+                if (directory.path == FAVORITES) {
+                    // Match the album's current saved and unprotected paths, even
+                    // if the favorites table or source locks changed during the scan.
+                    val latestPublicPaths = runCatching {
+                        val saved = getFavoritePaths()
+                        FavoriteAccessPolicy.unprotectedPaths(
+                            FavoriteAccessSessionManager.captureSnapshot(
+                                saved, applicationContext::favoriteProtection
+                            )
+                        )
+                    }.getOrDefault(emptySet())
+                    curMedia.retainAll { it.path in latestPublicPaths }
+                    if (config.isFavoritePasswordProtectionOn || config.isFolderProtected(FAVORITES)) {
+                        directory.tmb = ""
+                        directory.mediaCnt = 0
+                        directory.subfoldersMediaCount = 0
+                        updateDBDirectory(directory)
+                        setupAdapter(dirs)
+                        continue
+                    }
+                }
 
                 val newDir = if (curMedia.isEmpty()) {
                     // An empty scan can mean permission loss, a changed filter,
@@ -1810,7 +1864,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     ) {
                         dirPathsToRemove.add(directory.path)
                     }
-                    directory
+                    if (directory.areFavorites()) directory.copy(tmb = "", mediaCnt = 0)
+                    else directory
                 } else {
                     createDirectoryFromMedia(
                         path = directory.path,

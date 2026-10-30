@@ -189,6 +189,12 @@ class DirectoryAdapter(
         if (itemCount > 0) notifyItemChanged(0)
     }
 
+    /** A password change does not change Directory equality, so explicitly rebind the card. */
+    fun refreshFavoriteProtection() {
+        fillLockedFolders()
+        dirs.indexOfFirst { it.path == FAVORITES }.takeIf { it >= 0 }?.let { notifyItemChanged(it) }
+    }
+
     override fun prepareActionMode(menu: Menu) {
         val selectedPaths = getSelectedPaths()
         if (selectedPaths.isEmpty()) {
@@ -875,7 +881,9 @@ class DirectoryAdapter(
 
     private fun fillLockedFolders() {
         lockedFolderPaths.clear()
-        dirs.map { it.path }.filter { config.isFolderProtected(it) }.forEach {
+        dirs.map { it.path }.filter {
+            config.isFolderProtected(it) || (it == FAVORITES && config.isFavoritePasswordProtectionOn)
+        }.forEach {
             lockedFolderPaths.add(it)
         }
     }
@@ -971,7 +979,8 @@ class DirectoryAdapter(
                 }
             }
 
-            if (lockedFolderPaths.contains(directory.path)) {
+            if (lockedFolderPaths.contains(directory.path) ||
+                (directory.path == FAVORITES && config.isFavoritePasswordProtectionOn)) {
                 // Recycled holders must not retain old or unprotected thumbnails.
                 Picasso.get().cancelRequest(dirThumbnail)
                 Glide.with(activity).clear(dirThumbnail)
@@ -1020,8 +1029,10 @@ class DirectoryAdapter(
                 dirLocation.setImageResource(if (directory.location == LOCATION_SD) org.fossify.commons.R.drawable.ic_sd_card_vector else org.fossify.commons.R.drawable.ic_usb_vector)
             }
 
+            val favoritesLocked = directory.path == FAVORITES &&
+                (config.isFavoritePasswordProtectionOn || config.isFolderProtected(FAVORITES))
             photoCnt.text = directory.subfoldersMediaCount.toString()
-            photoCnt.beVisibleIf(showMediaCount == FOLDER_MEDIA_CNT_LINE)
+            photoCnt.beVisibleIf(!favoritesLocked && showMediaCount == FOLDER_MEDIA_CNT_LINE)
 
             if (limitFolderTitle) {
                 dirName.setSingleLine()
@@ -1029,7 +1040,7 @@ class DirectoryAdapter(
             }
 
             var nameCount = directory.name
-            if (showMediaCount == FOLDER_MEDIA_CNT_BRACKETS) {
+            if (!favoritesLocked && showMediaCount == FOLDER_MEDIA_CNT_BRACKETS) {
                 nameCount += " (${directory.subfoldersMediaCount})"
             }
 

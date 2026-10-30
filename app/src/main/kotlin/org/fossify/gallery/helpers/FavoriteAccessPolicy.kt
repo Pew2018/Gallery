@@ -12,6 +12,9 @@ internal object FavoriteAccessPolicy {
     fun unprotectedSnapshot(snapshot: FavoriteAccessSessionManager.Snapshot): FavoriteAccessSessionManager.Snapshot =
         FavoriteAccessSessionManager.Snapshot(snapshot.entries.filterValues { it.locks.isEmpty() })
 
+    fun unprotectedPaths(snapshot: FavoriteAccessSessionManager.Snapshot): Set<String> =
+        unprotectedSnapshot(snapshot).entries.keys
+
     fun hasProtectedFavorites(snapshot: FavoriteAccessSessionManager.Snapshot): Boolean =
         snapshot.entries.values.any { it.locks.isNotEmpty() }
 

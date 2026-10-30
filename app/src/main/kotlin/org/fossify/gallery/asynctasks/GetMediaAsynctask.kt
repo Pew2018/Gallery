@@ -44,8 +44,9 @@ class GetMediaAsynctask(
                 FavoriteAccessSessionManager.validatePaths(favoriteSessionId, savedFavorites)?.paths.orEmpty()
             } else {
                 runCatching {
-                    FavoriteAccessSessionManager.captureSnapshot(savedFavorites, context::favoriteProtection)
-                        .entries.filterValues { it.locks.isEmpty() }.keys
+                    FavoriteAccessPolicy.unprotectedPaths(
+                        FavoriteAccessSessionManager.captureSnapshot(savedFavorites, context::favoriteProtection)
+                    )
                 }.getOrDefault(emptySet())
             }
             (favoritePathsOverride ?: savedFavorites).filter { it in allowed }.toCollection(ArrayList())

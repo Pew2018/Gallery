@@ -2,6 +2,8 @@ package org.fossify.gallery.extensions
 
 import android.app.Activity
 import android.content.Intent
+import androidx.annotation.StringRes
+import androidx.appcompat.app.AlertDialog
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -10,7 +12,6 @@ import java.util.WeakHashMap
 import org.fossify.commons.dialogs.SecurityDialog
 import org.fossify.commons.extensions.toast
 import org.fossify.commons.helpers.ensureBackgroundThread
-import org.fossify.commons.extensions.getAlertDialogBuilder
 import org.fossify.commons.extensions.isBiometricAuthSupported
 import org.fossify.commons.helpers.PROTECTION_FINGERPRINT
 import org.fossify.commons.helpers.PROTECTION_PATTERN
@@ -20,8 +21,17 @@ import org.fossify.gallery.R
 import org.fossify.gallery.activities.SettingsActivity
 import org.fossify.gallery.helpers.Config
 import org.fossify.gallery.helpers.FavoriteAccessSessionManager
+import org.fossify.gallery.helpers.OxygenClassicDialog
 
 internal const val MANAGE_FAVORITE_PASSWORD = "manage_favorite_password"
+
+/** Use one explicit surface and title color for every favorites password dialog. */
+internal fun Activity.showFavoritePasswordDialog(
+    @StringRes title: Int,
+    build: AlertDialog.Builder.() -> Unit
+): AlertDialog = OxygenClassicDialog.show(
+    this, OxygenClassicDialog.builder(this, getString(title)).apply(build)
+)
 
 private object FavoritePasswordSetupRequests {
     private val active = WeakHashMap<Activity, Boolean>()
@@ -69,9 +79,8 @@ internal fun Activity.configureFavoritePassword(onReady: (Config.FavoriteCredent
         labels.add(getString(R.string.favorite_password_biometric))
     }
 
-    getAlertDialogBuilder()
-        .setTitle(R.string.favorite_password_title)
-        .setItems(labels.toTypedArray()) { _, index ->
+    showFavoritePasswordDialog(R.string.favorite_password_title) {
+        setItems(labels.toTypedArray()) { _, index ->
             val type = modes.getOrNull(index) ?: run {
                 onReady(null)
                 return@setItems
@@ -82,8 +91,8 @@ internal fun Activity.configureFavoritePassword(onReady: (Config.FavoriteCredent
                 else -> onReady(null)
             }
         }
-        .setOnCancelListener { onReady(null) }
-        .show()
+        setOnCancelListener { onReady(null) }
+    }
 }
 
 private fun Activity.configureFavoritePasswordType(
@@ -163,20 +172,19 @@ private fun Activity.chooseFavoriteFallbackCredential(
         }
     }
 
-    getAlertDialogBuilder()
-        .setTitle(R.string.favorite_password_title)
-        .setMessage(R.string.favorite_password_fallback_setup)
+    showFavoritePasswordDialog(R.string.favorite_password_title) {
+        setMessage(R.string.favorite_password_fallback_setup)
         // AlertDialog displays its message instead of its items list. Use buttons
         // so both recovery choices remain reachable while showing the explanation.
-        .setPositiveButton(org.fossify.commons.R.string.pin) { _, _ ->
+        setPositiveButton(org.fossify.commons.R.string.pin) { _, _ ->
             configureFallback(PROTECTION_PIN)
         }
-        .setNeutralButton(org.fossify.commons.R.string.pattern) { _, _ ->
+        setNeutralButton(org.fossify.commons.R.string.pattern) { _, _ ->
             configureFallback(PROTECTION_PATTERN)
         }
-        .setNegativeButton(org.fossify.commons.R.string.cancel) { _, _ -> onReady(null) }
-        .setOnCancelListener { onReady(null) }
-        .show()
+        setNegativeButton(org.fossify.commons.R.string.cancel) { _, _ -> onReady(null) }
+        setOnCancelListener { onReady(null) }
+    }
 }
 
 /** Move the virtual album's old folder lock into its single dedicated policy. */
@@ -268,15 +276,15 @@ internal fun Activity.ensureFavoriteAddAllowed(
                     onAllowed(false)
                 }
                 protectedPaths.isNotEmpty() && !config.isFavoritePasswordProtectionOn -> {
-                    getAlertDialogBuilder()
-                        .setTitle(R.string.favorite_password_title)
-                        .setMessage(R.string.favorite_add_protected_source)
-                        .setPositiveButton(R.string.favorite_password_enable) { _, _ ->
-                            startActivity(Intent(this, SettingsActivity::class.java))
+                    val host = this@ensureFavoriteAddAllowed
+                    showFavoritePasswordDialog(R.string.favorite_password_title) {
+                        setMessage(R.string.favorite_add_protected_source)
+                        setPositiveButton(R.string.favorite_password_enable) { _, _ ->
+                            host.startActivity(Intent(host, SettingsActivity::class.java))
                         }
-                        .setNegativeButton(org.fossify.commons.R.string.cancel) { _, _ -> onAllowed(false) }
-                        .setOnCancelListener { onAllowed(false) }
-                        .show()
+                        setNegativeButton(org.fossify.commons.R.string.cancel) { _, _ -> onAllowed(false) }
+                        setOnCancelListener { onAllowed(false) }
+                    }
                 }
                 !allowedBySource -> {
                     toast(R.string.favorite_add_source_locked)
@@ -338,13 +346,12 @@ private fun Activity.authenticatePreparedFavoritePassword(onAuthenticated: (Conf
     }
     val askForFallback: () -> Unit = fallback@{
         if (isFinishing || isDestroyed) return@fallback
-        getAlertDialogBuilder()
-            .setTitle(R.string.favorite_password_title)
-            .setMessage(R.string.favorite_password_auth_choice)
-            .setPositiveButton(R.string.favorite_password_use_fallback) { _, _ -> authenticateFallback() }
-            .setNegativeButton(org.fossify.commons.R.string.cancel) { _, _ -> complete(false) }
-            .setOnCancelListener { complete(false) }
-            .show()
+        showFavoritePasswordDialog(R.string.favorite_password_title) {
+            setMessage(R.string.favorite_password_auth_choice)
+            setPositiveButton(R.string.favorite_password_use_fallback) { _, _ -> authenticateFallback() }
+            setNegativeButton(org.fossify.commons.R.string.cancel) { _, _ -> complete(false) }
+            setOnCancelListener { complete(false) }
+        }
     }
 
     if (!isBiometricAuthSupported()) {

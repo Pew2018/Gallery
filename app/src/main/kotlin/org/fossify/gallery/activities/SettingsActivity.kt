@@ -703,9 +703,8 @@ class SettingsActivity : SimpleActivity() {
                     return@protectionReady
                 }
                 if (!config.isFavoritePasswordProtectionOn) {
-                    getAlertDialogBuilder()
-                        .setTitle(R.string.favorite_password_title)
-                        .setItems(arrayOf(
+                    showFavoritePasswordDialog(R.string.favorite_password_title) {
+                        setItems(arrayOf(
                             getString(R.string.favorite_password_enable),
                             getString(R.string.favorite_password_remain_off)
                         )) { _, which ->
@@ -714,15 +713,14 @@ class SettingsActivity : SimpleActivity() {
                                 if (configured != null) toast(R.string.favorite_password_saved)
                             }
                         }
-                        .show()
+                    }
                     return@protectionReady
                 }
 
                 authenticateFavoritePassword { authenticated ->
                     if (authenticated == null || isFinishing || isDestroyed) return@authenticateFavoritePassword
-                    getAlertDialogBuilder()
-                        .setTitle(R.string.favorite_password_manage_title)
-                        .setItems(arrayOf(
+                    showFavoritePasswordDialog(R.string.favorite_password_manage_title) {
+                        setItems(arrayOf(
                             getString(R.string.favorite_password_change),
                             getString(R.string.favorite_password_disable)
                         )) { _, which ->
@@ -738,7 +736,7 @@ class SettingsActivity : SimpleActivity() {
                                 }
                             }
                         }
-                        .show()
+                    }
                 }
             }
         }
@@ -767,11 +765,10 @@ class SettingsActivity : SimpleActivity() {
                     return@runOnUiThread
                 }
                 if (FavoriteAccessPolicy.hasProtectedFavorites(latestSnapshot!!)) {
-                    getAlertDialogBuilder()
-                        .setTitle(R.string.favorite_password_title)
-                        .setMessage(R.string.favorite_password_disable_blocked)
-                        .setPositiveButton(org.fossify.commons.R.string.ok, null)
-                        .show()
+                    showFavoritePasswordDialog(R.string.favorite_password_title) {
+                        setMessage(R.string.favorite_password_disable_blocked)
+                        setPositiveButton(org.fossify.commons.R.string.ok, null)
+                    }
                     return@runOnUiThread
                 }
                 config.clearFavoriteCredential()
