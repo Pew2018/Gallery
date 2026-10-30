@@ -90,6 +90,10 @@ object ToolbarQuickActionsDialog {
         val searchCheck = createCheckBox().apply {
             text = activity.getString(org.fossify.commons.R.string.search)
         }
+        var searchBackground: android.graphics.drawable.Drawable? = searchCheck.background
+        val searchClickable = searchCheck.isClickable
+        val searchFocusable = searchCheck.isFocusable
+        val searchFocusableInTouchMode = searchCheck.isFocusableInTouchMode
         searchRow.addView(searchCheck, LinearLayout.LayoutParams(-1, dp(56)))
 
         val browseRow = controlRow().apply {
@@ -164,10 +168,19 @@ object ToolbarQuickActionsDialog {
             val selected = current().size
             count.text = activity.getString(R.string.quick_toolbar_count, selected)
             guidance.text = activity.getString(R.string.quick_toolbar_guidance)
+            val homeScope = scope == ToolbarQuickScope.HOME
             searchCheck.setOnCheckedChangeListener(null)
             searchCheck.isChecked = ToolbarQuickActions.SEARCH in current()
-            searchCheck.setOnCheckedChangeListener { _, checked -> updateSearch(checked) }
-            browseRow.visibility = if (scope == ToolbarQuickScope.HOME) View.VISIBLE else View.GONE
+            searchCheck.isClickable = if (homeScope) false else searchClickable
+            searchCheck.isFocusable = if (homeScope) false else searchFocusable
+            searchCheck.isFocusableInTouchMode = if (homeScope) false else searchFocusableInTouchMode
+            if (homeScope) {
+                searchCheck.background = ColorDrawable(Color.TRANSPARENT)
+            } else {
+                searchBackground?.let { searchCheck.background = it }
+                searchCheck.setOnCheckedChangeListener { _, checked -> updateSearch(checked) }
+            }
+            browseRow.visibility = if (homeScope) View.VISIBLE else View.GONE
             homeTabLabel.typeface = if (scope == ToolbarQuickScope.HOME)
                 Typeface.create("sans-serif-medium", Typeface.NORMAL) else Typeface.DEFAULT
             folderTabLabel.typeface = if (scope == ToolbarQuickScope.FOLDER)
@@ -314,6 +327,8 @@ object ToolbarQuickActionsDialog {
                 .setNeutralButton(R.string.quick_toolbar_reset, null),
             root
         )
+        searchBackground = searchCheck.background
+        render()
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
             current().clear()
             current().addAll(ToolbarQuickActions.defaults)

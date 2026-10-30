@@ -13,6 +13,7 @@ import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.CheckBox
 import android.widget.RadioButton
 import android.widget.TextView
@@ -160,6 +161,81 @@ object OxygenClassicDialog {
         if (Build.VERSION.SDK_INT >= 29) field.textCursorDrawable?.mutate()?.setTint(accent)
     }
 
+    private fun styleBiometricAction(
+        button: Button,
+        dp: Float,
+        surface: Int,
+        dialogText: Int,
+        readableAccent: Int
+    ) {
+        // Cache vertical padding before replacing the platform background.
+        val originalTopPadding = button.paddingTop
+        val originalBottomPadding = button.paddingBottom
+        val originalBackground = button.background
+        val originalMinimumWidth = maxOf(
+            button.minimumWidth,
+            originalBackground?.minimumWidth ?: 0,
+            button.measuredWidth
+        )
+        val originalMinimumHeight = maxOf(
+            button.minimumHeight,
+            originalBackground?.minimumHeight ?: 0,
+            button.measuredHeight
+        )
+
+        val outlineColor = ColorUtils.blendARGB(surface, dialogText, 0.34f)
+        val outline = GradientDrawable().apply {
+            setColor(Color.TRANSPARENT)
+            cornerRadius = 3f * dp
+            setStroke(dp.toInt().coerceAtLeast(1), outlineColor)
+        }
+        val rippleMask = GradientDrawable().apply {
+            setColor(Color.WHITE)
+            cornerRadius = 3f * dp
+        }
+
+        button.backgroundTintList = null
+        button.background = RippleDrawable(
+            ColorStateList.valueOf(ColorUtils.setAlphaComponent(readableAccent, 26)),
+            outline,
+            rippleMask
+        )
+        // Preserve the size contribution of the original themed button background.
+        button.minimumWidth = originalMinimumWidth
+        button.minimumHeight = originalMinimumHeight
+
+        button.setText(R.string.favorite_password_use_biometric)
+        button.setTextColor(dialogText)
+        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        button.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        button.isAllCaps = false
+        button.gravity = Gravity.CENTER
+
+        val icon = AppCompatResources.getDrawable(
+            button.context,
+            org.fossify.commons.R.drawable.ic_fingerprint_vector
+        )?.mutate()
+        icon?.let {
+            val iconSize = (20f * dp).toInt().coerceAtLeast(1)
+            it.setTint(readableAccent)
+            it.setBounds(0, 0, iconSize, iconSize)
+            button.setCompoundDrawablesRelative(it, null, null, null)
+            button.compoundDrawablePadding = (8f * dp).toInt()
+        }
+
+        val horizontalPadding = (16f * dp).toInt()
+        button.setPadding(
+            horizontalPadding,
+            originalTopPadding,
+            horizontalPadding,
+            originalBottomPadding
+        )
+
+        button.elevation = 0f
+        button.translationZ = 0f
+        button.stateListAnimator = null
+    }
+
     fun apply(activity: Activity, dialog: AlertDialog, content: View): StyleResult {
         val dp = activity.resources.displayMetrics.density
         val background = activity.getProperBackgroundColor()
@@ -187,6 +263,15 @@ object OxygenClassicDialog {
             val needsStyle = v.getTag(R.id.classic_control_styled) != palette
             if (needsStyle) {
                 v.setTag(R.id.classic_control_styled, palette)
+                if (v.id == org.fossify.commons.R.id.open_biometric_dialog && v is Button) {
+                    styleBiometricAction(
+                        button = v,
+                        dp = dp,
+                        surface = surface,
+                        dialogText = dialogText,
+                        readableAccent = readableAccent
+                    )
+                }
                 if (v is TextInputLayout) {
                     // Preserve MyTextInputLayout's public API and error/validation behavior.
                     v.boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_NONE

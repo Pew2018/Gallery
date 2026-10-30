@@ -8,6 +8,7 @@ on:
       - feature/oxygenos-gallery-nav-vault-performance
       - fix/20261030-size-bubble-favorites-menu
       - feature/customizable-toolbar-actions
+      - feature/oxygen-theme
     paths:
       - "app/**"
       - "buildSrc/**"
