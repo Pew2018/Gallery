@@ -246,10 +246,7 @@ class Config(context: Context) : BaseConfig(context) {
         }
         set(order) {
             val normalized = NavigationOrder.normalize(order)
-            val allowed = order.map { if (it == "FAVORITE_FOLDERS") "FAVORITES" else it }
-            if (order.size == 2 && allowed.toSet() == NavigationOrder.defaults.toSet()) {
-                prefs.edit().putString(BOTTOM_NAV_ORDER, normalized.joinToString(",")).apply()
-            }
+            prefs.edit().putString(BOTTOM_NAV_ORDER, normalized.joinToString(",")).apply()
         }
 
     var directorySorting: Int

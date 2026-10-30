@@ -57,7 +57,7 @@ class ChangeSortingDialog(
 
             sortingDialogNumericSorting.isChecked = currSorting and SORT_USE_NUMERIC_VALUE != 0
 
-            sortingDialogUseForThisFolder.beVisibleIf(showFolderCheckbox)
+            sortingDialogUseForThisFolder.beVisibleIf(showFolderCheckbox && path != org.fossify.gallery.helpers.PhotoProfileMediaLoader.PATH)
             sortingDialogUseForThisFolder.isChecked = config.hasCustomSorting(pathToUse)
             sortingDialogBottomNote.beVisibleIf(!isDirectorySorting)
             sortingDialogRadioCustom.beVisibleIf(isDirectorySorting)
@@ -143,7 +143,7 @@ class ChangeSortingDialog(
         if (isDirectorySorting) {
             config.directorySorting = sorting
         } else {
-            if (binding.sortingDialogUseForThisFolder.isChecked) {
+            if (path == org.fossify.gallery.helpers.PhotoProfileMediaLoader.PATH || binding.sortingDialogUseForThisFolder.isChecked) {
                 config.saveCustomSorting(pathToUse, sorting)
             } else {
                 config.removeCustomSorting(pathToUse)

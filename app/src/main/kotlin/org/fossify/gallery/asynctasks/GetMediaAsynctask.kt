@@ -2,6 +2,7 @@ package org.fossify.gallery.asynctasks
 
 import android.content.Context
 import android.os.AsyncTask
+import org.fossify.commons.extensions.getSharedPrefs
 import org.fossify.commons.helpers.FAVORITES
 import org.fossify.commons.helpers.SORT_BY_DATE_MODIFIED
 import org.fossify.commons.helpers.SORT_BY_DATE_TAKEN
@@ -18,14 +19,20 @@ class GetMediaAsynctask(
     val showAll: Boolean, val onFailure: (Exception) -> Unit = {},
     private val favoritePathsOverride: ArrayList<String>? = null,
     private val favoriteSessionId: String? = null,
+    private val photoProfileId: String? = null,
     val callback: (media: ArrayList<ThumbnailItem>) -> Unit
 ) :
     AsyncTask<Void, Void, ArrayList<ThumbnailItem>>() {
     private val mediaFetcher = MediaFetcher(context)
     private var scanFailure: Exception? = null
+    private var profilePreferences: Map<String, *>? = null
 
     override fun doInBackground(vararg params: Void): ArrayList<ThumbnailItem> {
         return try {
+        if (mPath == PhotoProfileMediaLoader.PATH || photoProfileId != null) {
+            profilePreferences = context.getSharedPrefs().all
+            return PhotoProfileMediaLoader(context, mediaFetcher) { isCancelled }.load(photoProfileId)
+        }
         val pathToUse = if (showAll) SHOW_ALL else mPath
         val folderGrouping = context.config.getFolderGrouping(pathToUse)
         val folderSorting = context.config.getFolderSorting(pathToUse)
@@ -107,7 +114,7 @@ class GetMediaAsynctask(
         if (!isCancelled) {
             val error = scanFailure
             if (error == null) {
-                callback(media)
+                callback(if (profilePreferences != null && profilePreferences != context.getSharedPrefs().all) arrayListOf() else media)
             } else onFailure(error)
         }
     }

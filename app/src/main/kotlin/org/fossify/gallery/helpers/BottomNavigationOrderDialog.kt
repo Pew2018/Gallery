@@ -20,8 +20,7 @@ import java.util.Collections
 
 /** A classic list dialog. Changes are transactional until Done is pressed. */
 object BottomNavigationOrderDialog {
-    private val defaults = listOf("ALL", "FAVORITES")
-    private val labels = mapOf("ALL" to "所有图片", "FAVORITES" to "收藏")
+    private val defaults = NavigationOrder.defaults
 
     fun show(context: Context) {
         val activity = context as? Activity ?: return
@@ -61,7 +60,11 @@ object BottomNavigationOrderDialog {
             }
             override fun getItemCount() = pending.size
             override fun onBindViewHolder(holder: RowHolder, position: Int) {
-                val name = labels[pending[position]].orEmpty()
+                val name = activity.getString(when (pending[position]) {
+                    "ALL" -> R.string.gallery_nav_albums
+                    "PHOTOS" -> R.string.gallery_nav_photos
+                    else -> org.fossify.commons.R.string.favorites
+                })
                 holder.label.text = name
                 holder.row.contentDescription = "${name}，长按并拖动调整顺序"
             }

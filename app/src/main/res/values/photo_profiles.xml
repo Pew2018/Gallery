@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gallery_nav_albums">Albums</string>
+    <string name="gallery_nav_photos">Photos</string>
+    <string name="photo_profiles_switch">Switch photo profile</string>
+    <string name="photo_profiles_manage">Manage photo profiles</string>
+    <string name="photo_profiles_create">Create profile</string>
+    <string name="photo_profiles_edit">Edit profile</string>
+    <string name="photo_profiles_rename">Rename profile</string>
+    <string name="photo_profiles_delete">Delete profile</string>
+    <string name="photo_profiles_delete_confirm">Delete “%1$s”? Only this profile is removed. Photos and favorites are kept.</string>
+    <string name="photo_profiles_use">Use this profile</string>
+    <string name="photo_profiles_save">Save</string>
+    <string name="photo_profiles_name">Profile name</string>
+    <string name="photo_profiles_name_required">Enter a profile name</string>
+    <string name="photo_profiles_source_required">Select at least one photo source</string>
+    <string name="photo_profiles_add_source">Add photo sources</string>
+    <string name="photo_profiles_remove_source">Remove source</string>
+    <string name="photo_profiles_favorites">Favorite photos</string>
+    <string name="photo_profiles_unavailable">Unavailable or protected</string>
+    <string name="photo_profiles_source_note">Only photos directly inside selected folders are included. Hidden, excluded and protected sources are unavailable in this version. A locked favorites album is also unavailable.</string>
+    <string name="photo_profiles_loading">Loading media folders…</string>
+    <string name="photo_profiles_summary">%1$s    %2$d sources</string>
+    <string name="photo_profiles_empty_title">No photo profiles yet</string>
+    <string name="photo_profiles_empty_description">Choose a few folders to create your own photo view.</string>
+    <string name="photo_profiles_no_accessible_media">No accessible photos. Sources may be empty, unavailable, hidden, excluded or protected. Manage profiles to review your sources.</string>
+</resources>

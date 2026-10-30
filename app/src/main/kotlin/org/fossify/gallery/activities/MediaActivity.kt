@@ -64,6 +64,8 @@ import org.fossify.commons.helpers.FAVORITES
 import org.fossify.commons.helpers.IS_FROM_GALLERY
 import org.fossify.commons.helpers.REQUEST_EDIT_IMAGE
 import org.fossify.commons.helpers.SORT_BY_RANDOM
+import org.fossify.commons.helpers.SORT_BY_DATE_TAKEN
+import org.fossify.commons.helpers.SORT_DESCENDING
 import org.fossify.commons.helpers.SORT_BY_SIZE
 import org.fossify.commons.helpers.VIEW_TYPE_GRID
 import org.fossify.commons.helpers.VIEW_TYPE_LIST
@@ -73,6 +75,9 @@ import org.fossify.commons.models.FileDirItem
 import org.fossify.commons.models.RadioItem
 import org.fossify.commons.views.MyGridLayoutManager
 import org.fossify.commons.views.MyRecyclerView
+import org.fossify.gallery.helpers.PhotoProfileMediaLoader
+import org.fossify.gallery.helpers.PhotoProfileRepository
+import org.fossify.gallery.helpers.PhotoProfileDialogs
 import org.fossify.gallery.R
 import org.fossify.gallery.adapters.MediaAdapter
 import org.fossify.gallery.asynctasks.GetMediaAsynctask
@@ -154,6 +159,61 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private val LAST_MEDIA_CHECK_PERIOD = 3000L
 
     private var mPath = ""
+    private val isPhotoProfiles get() = mPath == PhotoProfileMediaLoader.PATH
+    private var photoProfileId: String? = null
+    private fun profileDialogs() = PhotoProfileDialogs(this) { reloadPhotoProfile() }
+
+    private fun reloadPhotoProfile() {
+        mediaSearchGeneration++
+        mLastSearchedText = ""
+        if (binding.mediaMenu.isSearchOpen) OxygenSearchNavigation.closeInlineSearch(this, binding.mediaMenu)
+        getMediaAdapter()?.finishActMode()
+        binding.mediaGrid.adapter = null
+        mMedia = ArrayList()
+        photoProfileId = PhotoProfileRepository.of(this).state().current?.id
+        updateMenuColors()
+        getMedia()
+    }
+
+    private fun getPhotoProfileMedia() {
+        val profile = PhotoProfileRepository.of(this).state().current
+        photoProfileId = profile?.id
+        val request = mediaLoadRequests.begin()
+        mCurrAsyncTask?.stopFetching()
+        binding.mediaGrid.adapter = null
+        mMedia = ArrayList()
+        mLoadedInitialPhotos = true
+        updateMenuColors()
+        if (profile == null) {
+            mIsGettingMedia = false
+            setMediaLoading(false)
+            binding.loadingIndicator.hide()
+            binding.mediaRefreshLayout.isRefreshing = false
+            binding.mediaEmptyTextPlaceholder.text = getString(R.string.photo_profiles_empty_title) + "\n\n" + getString(R.string.photo_profiles_empty_description)
+            binding.mediaEmptyTextPlaceholder.beVisible()
+            binding.mediaEmptyTextPlaceholder2.setText(R.string.photo_profiles_create)
+            binding.mediaEmptyTextPlaceholder2.beVisible()
+            binding.mediaFastscroller.beGone()
+            return
+        }
+        mIsGettingMedia = true
+        setMediaLoading(true)
+        binding.mediaEmptyTextPlaceholder.beGone()
+        binding.mediaEmptyTextPlaceholder2.beGone()
+        mCurrAsyncTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
+            showAll = false, photoProfileId = profile.id,
+            onFailure = {
+                if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed) {
+                    publishMedia(arrayListOf(), false, request)
+                    binding.mediaEmptyTextPlaceholder.setText(R.string.failed_to_load_media)
+                }
+            }) { items ->
+            if (mediaLoadRequests.isCurrent(request) && photoProfileId == profile.id && !isFinishing && !isDestroyed) {
+                publishMedia(items, false, request)
+                if (mLastSearchedText.isNotEmpty()) searchQueryChanged(mLastSearchedText)
+            }
+        }.also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
+    }
     private var mIsGetImageIntent = false
     private var mIsGetVideoIntent = false
     private var mIsGetAnyIntent = false
@@ -237,6 +297,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var sourceProtectionRefreshPending = false
     private val favoriteListenerId = java.util.UUID.randomUUID().toString()
     private val favoriteProtectionListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (isPhotoProfiles && (key == null || key.contains("protect", true) || key.contains("favorite", true) || key.contains("excluded", true))) {
+            mediaLoadRequests.invalidate()
+            mCurrAsyncTask?.stopFetching()
+            binding.mediaGrid.adapter = null
+            mMedia = ArrayList()
+            if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) getMedia()
+            return@OnSharedPreferenceChangeListener
+        }
         if (key == FAVORITE_PASSWORD_ENABLED || key == FAVORITE_PASSWORD_HASH || key == FAVORITE_PROTECTION_TYPE) {
             FavoriteAccessSessionManager.revokeAll()
         } else if (key == FAVORITE_FALLBACK_PASSWORD_HASH || key == FAVORITE_FALLBACK_PROTECTION_TYPE) {
@@ -290,6 +358,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
         try {
             mPath = intent.getStringExtra(DIRECTORY) ?: ""
+            if (isPhotoProfiles) {
+                photoProfileId = PhotoProfileRepository.of(this).state().current?.id
+                if (!config.hasCustomSorting(mPath)) config.saveCustomSorting(mPath, SORT_BY_DATE_TAKEN or SORT_DESCENDING)
+            }
             folderUnlockSessionId = intent.getStringExtra(FOLDER_UNLOCK_SESSION)
         } catch (e: Exception) {
             showErrorToast(e)
@@ -357,6 +429,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mGallerySection = if (isPicker) null else when (mPath) {
             // Favorite media is a pinned virtual album in All, not the bottom
             // Favorites tab (which exclusively contains favorite folders).
+            PhotoProfileMediaLoader.PATH -> GallerySection.PHOTOS
             FAVORITES, "" -> GallerySection.ALL
             else -> null
         }
@@ -374,12 +447,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         storeStateVariables()
         if (mGallerySection != null) {
             GalleryBottomBar.attach(this, binding.root,
-                if (mGallerySection == GallerySection.FAVORITES)
-                    GalleryBottomBar.Tab.FAVORITES else GalleryBottomBar.Tab.ALL
+                GalleryBottomBar.Tab.valueOf(mGallerySection!!.name)
             ) { tab ->
                 getMediaAdapter()?.finishActMode()
-                val section = if (tab == GalleryBottomBar.Tab.FAVORITES)
-                    GallerySection.FAVORITES else GallerySection.ALL
+                val section = GallerySection.valueOf(tab.name)
                 openGalleryRoot(section)
             }
             val bottom = resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height)
@@ -399,6 +470,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         binding.mediaEmptyTextPlaceholder2.setOnClickListener {
+            if (isPhotoProfiles) { profileDialogs().edit(); return@setOnClickListener }
             showFilterMediaDialog()
         }
 
@@ -479,7 +551,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
         // do not refresh Random sorted files after opening a fullscreen image and going Back
         val isRandomSorting = config.getFolderSorting(mPath) and SORT_BY_RANDOM != 0
-        if (mPath == FAVORITES) {
+        if (isPhotoProfiles) {
+            tryLoadGallery()
+        } else if (mPath == FAVORITES) {
             tryLoadGallery()
         } else if (mMedia.isEmpty() || !isRandomSorting ||
             (isRandomSorting && !mWasFullscreenViewOpen)) {
@@ -537,6 +611,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun onStop() {
         super.onStop()
+        if (isPhotoProfiles) {
+            mediaLoadRequests.invalidate()
+            mCurrAsyncTask?.stopFetching()
+            binding.mediaGrid.adapter = null
+            mMedia = ArrayList()
+            mLoadedInitialPhotos = false
+        }
 
         if (mPath == FAVORITES && !isFinishing && !isChangingConfigurations && !resolvingFavoriteAccess) {
             // Discard rendering/cache state, retaining the album capability while a viewer is open.
@@ -728,6 +809,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             findItem(R.id.empty_recycle_bin).isVisible = mPath == RECYCLE_BIN
             findItem(R.id.empty_disable_recycle_bin).isVisible = mPath == RECYCLE_BIN
             findItem(R.id.restore_all_files).isVisible = mPath == RECYCLE_BIN
+            findItem(R.id.photo_profiles_manage).isVisible = isPhotoProfiles
 
             findItem(R.id.folder_view).isVisible = hasFixedBrowseSwitch
             findItem(R.id.open_camera).isVisible = mShowAll
@@ -751,6 +833,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             val viewType = config.getFolderViewType(if (mShowAll) SHOW_ALL else mPath)
             findItem(R.id.column_count).isVisible = viewType == VIEW_TYPE_GRID
             findItem(R.id.toggle_filename).isVisible = viewType == VIEW_TYPE_GRID
+            if (isPhotoProfiles) {
+                listOf(R.id.filter, R.id.group, R.id.create_new_folder, R.id.set_as_default_folder,
+                    R.id.unset_as_default_folder, R.id.temporarily_show_hidden, R.id.stop_showing_hidden,
+                    R.id.temporarily_show_excluded, R.id.stop_showing_excluded).forEach { findItem(it)?.isVisible = false }
+                findItem(R.id.slideshow).isVisible = mMedia.any { it is Medium }
+            }
         }
         updateMenuColors()
     }
@@ -788,6 +876,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     binding.mediaMenu.focusView()
                     showKeyboard(binding.mediaMenu.binding.topToolbarSearch)
                 }
+                R.id.photo_profiles_manage -> profileDialogs().manage()
                 R.id.sort -> showSortingDialog()
                 R.id.filter -> showFilterMediaDialog()
                 R.id.empty_recycle_bin -> emptyRecycleBin()
@@ -829,6 +918,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 folderUnlockSessionId?.let { putExtra(FOLDER_UNLOCK_SESSION, it) }
                 putExtra(IS_FROM_GALLERY, true)
                 putExtra(PATH, item.path)
+                if (isPhotoProfiles) putExtra(PhotoProfileMediaLoader.EXTRA_ID, photoProfileId)
                 putExtra(SHOW_ALL, mShowAll)
                 putExtra(SLIDESHOW_START_ON_ENTER, true)
                 startActivity(this)
@@ -842,6 +932,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         OxygenToolbarStyle.apply(
             this, binding.mediaMenu,
             when {
+                isPhotoProfiles -> (PhotoProfileRepository.of(this).state().current?.name ?: getString(R.string.gallery_nav_photos)) + " ▾"
                 mShowAll || mPath.isEmpty() -> getString(R.string.app_launcher_name)
                 mPath == FAVORITES -> getString(org.fossify.commons.R.string.favorites)
                 mPath == RECYCLE_BIN -> getString(org.fossify.commons.R.string.recycle_bin)
@@ -851,8 +942,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         )
         val picker = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent || isSetWallpaperIntent()
         if (!picker && mPath != RECYCLE_BIN) {
-            val isHome = mPath.isEmpty()
-            val viewType = config.getFolderViewType(if (isHome) SHOW_ALL else mPath)
+            val isHome = mPath.isEmpty() || isPhotoProfiles
+            val viewType = config.getFolderViewType(if (isHome && !isPhotoProfiles) SHOW_ALL else mPath)
             org.fossify.gallery.helpers.ToolbarQuickActions.apply(
                 this, binding.mediaMenu,
                 if (isHome) org.fossify.gallery.helpers.ToolbarQuickScope.HOME
@@ -861,7 +952,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 hasBack = !isHome,
                 fixedActionCount = if (hasFixedBrowseSwitch) 1 else 0,
                 supported = { action ->
-                    when (action) {
+                    if (isPhotoProfiles && action in listOf(
+                        org.fossify.gallery.helpers.ToolbarQuickActions.FILTER,
+                        org.fossify.gallery.helpers.ToolbarQuickActions.HIDDEN,
+                        org.fossify.gallery.helpers.ToolbarQuickActions.EXCLUDED,
+                        org.fossify.gallery.helpers.ToolbarQuickActions.GROUP)) false else when (action) {
                         org.fossify.gallery.helpers.ToolbarQuickActions.COLUMNS,
                         org.fossify.gallery.helpers.ToolbarQuickActions.FILENAME -> viewType == VIEW_TYPE_GRID
                         org.fossify.gallery.helpers.ToolbarQuickActions.GROUP -> !config.scrollHorizontally
@@ -871,6 +966,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     }
                 }
             )
+        }
+        setupPhotoProfileTitle()
+    }
+
+    private fun setupPhotoProfileTitle() {
+        if (!isPhotoProfiles) return
+        binding.mediaMenu.findViewWithTag<android.widget.TextView>("oxygen_classic_toolbar_title")?.apply {
+            isClickable = true
+            contentDescription = getString(R.string.photo_profiles_switch)
+            setOnClickListener { if (!binding.mediaMenu.isSearchOpen) profileDialogs().switch() }
         }
     }
 
@@ -899,7 +1004,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 val filtered = sourceMedia
                     .filter { it is Medium && it.name.contains(text, true) } as ArrayList
                 filtered.sortBy { it is Medium && !it.name.startsWith(text, true) }
-                val grouped = MediaFetcher(applicationContext).groupMedia(
+                val grouped = if (isPhotoProfiles) filtered.toCollection(ArrayList<ThumbnailItem>()) else MediaFetcher(applicationContext).groupMedia(
                     media = filtered as ArrayList<Medium>, path = mPath
                 )
                 val safeGrouped = if (mPath == FAVORITES) FavoriteAccessPolicy.authorizedItems(
@@ -932,6 +1037,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun tryLoadGallery() {
         requestMediaPermissions {
             val dirName = when (mPath) {
+                PhotoProfileMediaLoader.PATH -> PhotoProfileRepository.of(this).state().current?.name ?: getString(R.string.gallery_nav_photos)
                 FAVORITES -> getString(org.fossify.commons.R.string.favorites)
                 RECYCLE_BIN -> getString(org.fossify.commons.R.string.recycle_bin)
                 config.OTGPath -> getString(org.fossify.commons.R.string.usb)
@@ -1105,7 +1211,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         FavoriteAccessSessionManager.revokeSession(favoriteSessionId)
         val screen = GalleryNavigation.bottomDestination(section, config.lastMainViewAll)
         config.showAll = screen.isAllFiles
-        val destination = if (screen.isAllFiles) {
+        val destination = if (screen.section == GallerySection.PHOTOS) {
+            Intent(this, MediaActivity::class.java).putExtra(DIRECTORY, PhotoProfileMediaLoader.PATH)
+        } else if (screen.isAllFiles) {
             Intent(this, MediaActivity::class.java).putExtra(DIRECTORY, "")
         } else {
             Intent(this, MainActivity::class.java)
@@ -1165,6 +1273,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun getMedia() {
+        if (isPhotoProfiles) { getPhotoProfileMedia(); return }
         if (mPath == FAVORITES && favoriteSessionId != null) {
             favoriteAccessPaths = FavoriteAccessSessionManager.getCapturedPaths(favoriteSessionId)
             if (favoriteAccessPaths == null) { finish(); return }
@@ -1407,6 +1516,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun isDirEmpty(): Boolean {
+        if (isPhotoProfiles) return mMedia.isEmpty()
         return if (mMedia.isEmpty() && config.filterMedia > 0) {
             if (mPath != FAVORITES && mPath != RECYCLE_BIN) {
                 deleteDirectoryIfEmpty()
@@ -1704,6 +1814,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     if (folderAuthorized) putExtra(FOLDER_UNLOCK_SESSION, folderToken)
                     if (mPath == FAVORITES) putExtra(FAVORITE_ACCESS_SESSION, favoriteSessionId)
                     putExtra(PATH, path)
+                    if (isPhotoProfiles) putExtra(PhotoProfileMediaLoader.EXTRA_ID, photoProfileId)
                     putExtra(SHOW_ALL, mShowAll)
                     putExtra(SHOW_FAVORITES, mPath == FAVORITES)
                     putExtra(SHOW_RECYCLE_BIN, mPath == RECYCLE_BIN)
@@ -1767,7 +1878,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             mMedia = ArrayList(media)
             // The slideshow shortcut is only useful once at least one authorized
             // media item has been published; refresh after cache and final scan.
-            if (org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW in
+            if (isPhotoProfiles || org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW in
                 (if (mPath.isEmpty()) config.toolbarHomeActions else config.toolbarFolderActions)) {
                 refreshMenuItems()
             }
@@ -1783,6 +1894,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     getString(org.fossify.commons.R.string.no_items_found)
                 else getString(R.string.no_media_with_filters)
                 if (mPath == FAVORITES) binding.mediaEmptyTextPlaceholder2.beGone()
+                if (isPhotoProfiles) {
+                    binding.mediaEmptyTextPlaceholder.setText(R.string.photo_profiles_no_accessible_media)
+                    binding.mediaEmptyTextPlaceholder2.beGone()
+                }
             }
             binding.mediaFastscroller.beVisibleIf(binding.mediaEmptyTextPlaceholder.isGone())
             if (mPath == FAVORITES && media.isEmpty() && !isFromCache) {
@@ -1803,7 +1918,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             if (mPath == FAVORITES && applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
                 android.util.Log.d("GalleryFavorites", "source=${if (isFromCache) "cache" else "scan"}, adapterMedia=${mMedia.count { it is Medium }}")
             }
-            if (!isFromCache) {
+            if (!isFromCache && !isPhotoProfiles) {
                 // Never let a previous request persist stale favorites after a new refresh.
                 val mediaToInsert = mMedia.filterIsInstance<Medium>().filter { it.deletedTS == 0L }
                 ensureBackgroundThread {

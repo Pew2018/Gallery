@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gallery_nav_albums">相册</string>
+    <string name="gallery_nav_photos">照片</string>
+    <string name="photo_profiles_switch">切换浏览配置</string>
+    <string name="photo_profiles_manage">管理浏览配置</string>
+    <string name="photo_profiles_create">创建配置</string>
+    <string name="photo_profiles_edit">编辑配置</string>
+    <string name="photo_profiles_rename">重命名配置</string>
+    <string name="photo_profiles_delete">删除配置</string>
+    <string name="photo_profiles_delete_confirm">删除“%1$s”？仅删除配置，照片文件和收藏状态均会保留。</string>
+    <string name="photo_profiles_use">选择此配置</string>
+    <string name="photo_profiles_save">保存</string>
+    <string name="photo_profiles_name">配置名称</string>
+    <string name="photo_profiles_name_required">请输入配置名称</string>
+    <string name="photo_profiles_source_required">请至少选择一个照片来源</string>
+    <string name="photo_profiles_add_source">添加照片来源</string>
+    <string name="photo_profiles_remove_source">移除来源</string>
+    <string name="photo_profiles_favorites">收藏的照片</string>
+    <string name="photo_profiles_unavailable">不可用或受保护</string>
+    <string name="photo_profiles_source_note">仅包含所选文件夹内的直接照片。本版本不显示隐藏、排除或受保护来源；已加锁的收藏媒体来源也不可用。</string>
+    <string name="photo_profiles_loading">正在读取媒体文件夹…</string>
+    <string name="photo_profiles_summary">%1$s    %2$d 个来源</string>
+    <string name="photo_profiles_empty_title">还没有浏览配置</string>
+    <string name="photo_profiles_empty_description">选择几个文件夹，创建专属的照片浏览视图。</string>
+    <string name="photo_profiles_no_accessible_media">没有可访问的照片。来源可能为空、不可用、被隐藏、被排除或受保护。可通过“管理浏览配置”检查来源。</string>
+</resources>

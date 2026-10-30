@@ -4,11 +4,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GalleryNavigationTest {
-    @Test fun fourScreensHaveDistinctScopesAndSelectedTabs() {
+    @Test fun sixScreenRepresentationsHaveDistinctScopesAndSelectedTabs() {
         val screens = GallerySection.values().flatMap { section ->
             GalleryContentView.values().map { GalleryScreen(section, it) }
         }
-        assertEquals(4, screens.size)
+        assertEquals(6, screens.size)
         assertEquals(1, screens.count { it.isAllFiles })
         assertEquals(1, screens.count { it.isFavoriteFiles })
         screens.forEach {
@@ -57,6 +57,8 @@ class GalleryNavigationTest {
         assertEquals(GallerySection.ALL, GalleryNavigation.resolveSection("ALL", true))
         assertEquals(GallerySection.FAVORITES, GalleryNavigation.resolveSection("FAVORITES"))
         assertEquals(GallerySection.ALL, GalleryNavigation.resolveSection(null))
+        assertEquals(GallerySection.PHOTOS, GalleryNavigation.resolveSection("PHOTOS", true))
+        assertEquals(GalleryScreen(GallerySection.PHOTOS, GalleryContentView.FILES), GalleryNavigation.bottomDestination(GallerySection.PHOTOS, false))
     }
 
     @Test fun simulatedMediaAndFavoriteFolderCollectionsRemainDistinct() {

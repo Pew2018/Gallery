@@ -22,8 +22,9 @@ import java.io.File
 import java.util.Calendar
 import java.util.Locale
 
-class MediaFetcher(val context: Context) {
+class MediaFetcher(val context: Context, private val filterOverride: Int? = null, private val cancelled: () -> Boolean = { false }) {
     var shouldStop = false
+        get() = field || cancelled()
 
     // on Android 11 we fetch all files at once from MediaStore and have it split by folder, use it if available
     fun getFilesFrom(
@@ -31,7 +32,7 @@ class MediaFetcher(val context: Context) {
         getProperFileSize: Boolean, favoritePaths: ArrayList<String>, getVideoDurations: Boolean,
         lastModifieds: HashMap<String, Long>, dateTakens: HashMap<String, Long>, android11Files: HashMap<String, ArrayList<Medium>>?
     ): ArrayList<Medium> {
-        val filterMedia = context.config.filterMedia
+        val filterMedia = filterOverride ?: context.config.filterMedia
         if (filterMedia == 0) {
             return ArrayList()
         }
@@ -94,7 +95,7 @@ class MediaFetcher(val context: Context) {
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString()
             ).filter { context.getDoesFilePathExist(it, OTGPath) })
 
-            val filterMedia = context.config.filterMedia
+            val filterMedia = filterOverride ?: context.config.filterMedia
             val uri = Files.getContentUri("external")
             val projection = arrayOf(Images.Media.DATA)
             val selection = getSelectionQuery(filterMedia)
@@ -441,7 +442,7 @@ class MediaFetcher(val context: Context) {
             return media
         }
 
-        val filterMedia = context.config.filterMedia
+        val filterMedia = filterOverride ?: context.config.filterMedia
         val showHidden = context.config.shouldShowHidden
         val favoritePathSet = favoritePaths.toHashSet()
 

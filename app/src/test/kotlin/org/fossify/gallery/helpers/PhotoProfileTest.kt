@@ -1,0 +1,95 @@
+package org.fossify.gallery.helpers
+
+import org.junit.Assert.*
+import org.junit.Test
+import java.util.UUID
+
+class PhotoProfileTest {
+    private val folder = PhotoSource(PhotoSourceType.FOLDER, "/DCIM/Camera")
+    private val favorites = PhotoSource(PhotoSourceType.FAVORITES)
+    private fun profile(name: String = "Camera") = PhotoProfile(UUID.randomUUID().toString(), name, listOf(folder, favorites))
+    private fun store(): PhotoProfileStore {
+        var saved = ""
+        return PhotoProfileStore({ saved }, { saved = it })
+    }
+    @Test fun serializationPreservesStableIdsUnicodeAndIndependentSources() {
+        val a = profile("日常摄影")
+        val b = profile("日常摄影").copy(sources = listOf(PhotoSource(PhotoSourceType.FOLDER, "/Pictures/Street")))
+        val state = PhotoProfileState(profiles = listOf(a, b), selectedId = b.id)
+        assertEquals(state, PhotoProfileCodec.decode(PhotoProfileCodec.encode(state)))
+    }
+    @Test fun createEditSelectDeleteNeverChangesAnotherProfile() {
+        val store = store()
+        val a = profile(); val b = profile()
+        store.save(a); store.save(b)
+        assertEquals(b.id, store.state().current?.id)
+        store.save(a.copy(name = "New", sources = listOf(folder)))
+        assertEquals(b, store.state().profiles.first { it.id == b.id })
+        assertEquals(listOf(folder), store.state().current?.sources)
+        store.select(b.id)
+        assertEquals(b.id, store.state().selectedId)
+        store.delete(b.id)
+        assertEquals(a.id, store.state().current?.id)
+        store.delete(a.id)
+        assertNull(store.state().current)
+        assertNull(store.state().selectedId)
+    }
+    @Test fun cancellationHasNoWriteAndInvalidSelectionDoesNotBroadenScope() {
+        val store = store(); val a = profile(); store.save(a)
+        val draft = a.copy(name = "Unsaved", sources = listOf(favorites))
+        assertNotEquals(a, draft)
+        store.select("missing")
+        assertEquals(a, store.state().current)
+        assertEquals(a, store.state().profiles.single())
+    }
+    @Test fun duplicateSourcesNormalizeWithoutLosingCaseOrDifferentFolders() {
+        val sources = PhotoProfileCodec.sources(listOf(folder, folder.copy(path = "/DCIM/Camera/"), favorites,
+            PhotoSource(PhotoSourceType.FAVORITES, "/ignored"), PhotoSource(PhotoSourceType.FOLDER, "content://tree/a"),
+            PhotoSource(PhotoSourceType.FOLDER, "/DCIM/camera")))
+        assertEquals(listOf(folder, favorites, PhotoSource(PhotoSourceType.FOLDER, "/DCIM/camera")), sources)
+    }
+    @Test fun corruptedAndFutureDataFailClosed() {
+        listOf("", "{broken", "null", "{}", "[]", "{\"version\":2,\"profiles\":[]}").forEach {
+            assertTrue(PhotoProfileCodec.decode(it).profiles.isEmpty())
+        }
+    }
+    @Test fun missingSelectedIdFallsBackToExistingProfile() {
+        val a = profile()
+        val state = PhotoProfileCodec.decode(PhotoProfileCodec.encode(PhotoProfileState(profiles = listOf(a), selectedId = "missing")))
+        assertEquals(a, state.current)
+        assertEquals(a.id, state.selectedId)
+    }
+    @Test fun invalidNameAndEmptySourcesAreRejectedBeforePersistence() {
+        val store = store(); val a = profile(); store.save(a)
+        listOf(a.copy(name = "  "), a.copy(sources = emptyList())).forEach {
+            assertTrue(runCatching { store.save(it) }.isFailure)
+            assertEquals(a, store.state().current)
+        }
+    }
+    @Test fun foldersAreDirectOnlyAndFavoritesRemainDynamic() {
+        val folders = setOf("/DCIM/Camera", "/Pictures/Street")
+        assertTrue(PhotoProfilePolicy.includes("/DCIM/Camera/a.jpg", folders, emptySet(), false))
+        assertTrue(PhotoProfilePolicy.includes("/Pictures/Street/a.jpg", folders, emptySet(), false))
+        assertFalse(PhotoProfilePolicy.includes("/DCIM/Camera/Sub/a.jpg", folders, emptySet(), false))
+        val favorite = "/Edited/a.jpg"
+        assertTrue(PhotoProfilePolicy.includes(favorite, folders, setOf(favorite), true))
+        assertFalse(PhotoProfilePolicy.includes(favorite, folders, emptySet(), true))
+        assertFalse(PhotoProfilePolicy.includes(favorite, folders, setOf(favorite), false))
+        assertFalse(PhotoProfilePolicy.includes("/Other/a.jpg", folders, emptySet(), false))
+    }
+    @Test fun overlappingSourcesDeduplicateExactMediaPaths() {
+        assertEquals(listOf("/a.jpg", "/b.jpg", "/A.jpg"), PhotoProfilePolicy.unique(listOf("/a.jpg", "/b.jpg", "/a.jpg", "/A.jpg")) { it })
+    }
+    @Test fun unauthorizedFolderAndFavoriteOverlapIsAlwaysDenied() {
+        val path = "/Locked/a.jpg"
+        assertFalse(PhotoProfilePolicy.includes(path, setOf("/Locked"), setOf(path), true) { false })
+        assertTrue(PhotoProfilePolicy.includes(path, setOf("/Locked"), setOf(path), true) { true })
+    }
+    @Test fun lateCancelledRequestsCannotOverwriteNewSelection() {
+        val requests = FavoriteMediaLoadRequests()
+        val a = requests.begin(); val b = requests.begin()
+        assertFalse(requests.isCurrent(a)); assertTrue(requests.isCurrent(b))
+        requests.invalidate()
+        assertFalse(requests.isCurrent(b))
+    }
+}

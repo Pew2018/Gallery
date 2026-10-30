@@ -1,6 +1,7 @@
 package org.fossify.gallery.helpers
 
 import android.app.Application
+import org.fossify.commons.extensions.getSharedPrefs
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -44,10 +45,10 @@ class GalleryNavigationPersistenceTest {
         val settings = Config.newInstance(context)
         val previous = settings.bottomNavigationOrder
         try {
-            settings.bottomNavigationOrder = listOf("FAVORITE_FOLDERS", "ALL")
-            assertEquals(listOf("FAVORITES", "ALL"), Config.newInstance(context).bottomNavigationOrder)
-            settings.bottomNavigationOrder = listOf("ALL", "FAVORITES")
-            assertEquals(listOf("ALL", "FAVORITES"), Config.newInstance(context).bottomNavigationOrder)
+            context.getSharedPrefs().edit().putString("oxygen_bottom_nav_order", "FAVORITE_FOLDERS,ALL").commit()
+            assertEquals(listOf("FAVORITES", "ALL", "PHOTOS"), Config.newInstance(context).bottomNavigationOrder)
+            settings.bottomNavigationOrder = listOf("PHOTOS", "ALL", "FAVORITES")
+            assertEquals(listOf("PHOTOS", "ALL", "FAVORITES"), Config.newInstance(context).bottomNavigationOrder)
         } finally {
             settings.bottomNavigationOrder = previous
         }

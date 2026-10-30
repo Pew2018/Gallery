@@ -175,4 +175,7 @@
         android:title="@string/quick_toolbar_search_fallback"
         android:visible="false"
         app:showAsAction="never" />
+    <item android:id="@+id/photo_profiles_manage"
+        android:orderInCategory="85" android:title="@string/photo_profiles_manage"
+        android:visible="false" app:showAsAction="never" />
 </menu>
