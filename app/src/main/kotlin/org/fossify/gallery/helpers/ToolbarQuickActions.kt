@@ -55,14 +55,14 @@ object ToolbarQuickActions {
         .take(slotsAvailable.coerceIn(0, 5))
 
     fun iconRes(action: String): Int = when (action) {
-        SORT -> R.drawable.ic_sort_vector
-        FILTER -> R.drawable.ic_filter_vector
+        SORT -> org.fossify.commons.R.drawable.ic_sort_vector
+        FILTER -> org.fossify.commons.R.drawable.ic_filter_vector
         VIEW -> R.drawable.ic_quick_view_vector
-        COLUMNS -> R.drawable.ic_column_count_vector
+        COLUMNS -> org.fossify.commons.R.drawable.ic_column_count_vector
         HIDDEN -> R.drawable.ic_quick_hidden_vector
         SLIDESHOW -> R.drawable.ic_slideshow_vector
         GROUP -> R.drawable.ic_quick_group_vector
-        FILENAME -> R.drawable.ic_label_vector
+        FILENAME -> org.fossify.commons.R.drawable.ic_label_vector
         EXCLUDED -> R.drawable.ic_quick_excluded_vector
         else -> org.fossify.commons.R.drawable.ic_search_vector
     }
