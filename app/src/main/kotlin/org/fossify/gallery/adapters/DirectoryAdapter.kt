@@ -127,6 +127,7 @@ class DirectoryAdapter(
     val embeddedPinnedWidthPx: Int = 0,
     val compactVirtualFavorite: Boolean = false,
     val allowDragSelection: Boolean = true,
+    val fullVisibleAlbumOrder: (() -> List<String>)? = null,
     itemClick: (Any) -> Unit
 ) :
     MyRecyclerViewAdapter(activity, recyclerView, itemClick), ItemTouchHelperContract,
@@ -287,7 +288,19 @@ class DirectoryAdapter(
             notifyDataSetChanged()
 
             val reorderedFoldersList = dirs.map { it.path }
-            config.customFoldersOrder = TextUtils.join("|||", reorderedFoldersList)
+            val fullOrder = fullVisibleAlbumOrder?.invoke()
+            val finalOrder = if (fullOrder == null) {
+                reorderedFoldersList
+            } else {
+                // Preserve the positions of albums owned by other sections and
+                // of previously configured folders that are currently hidden.
+                val visible = fullOrder + config.customFoldersOrder.split("|||")
+                    .filter { it.isNotEmpty() && it !in fullOrder }
+                val selectedSet = reorderedFoldersList.toSet()
+                val iterator = reorderedFoldersList.iterator()
+                visible.map { if (it in selectedSet && iterator.hasNext()) iterator.next() else it }
+            }
+            config.customFoldersOrder = TextUtils.join("|||", finalOrder)
             config.directorySorting = SORT_BY_CUSTOM
         }
 
