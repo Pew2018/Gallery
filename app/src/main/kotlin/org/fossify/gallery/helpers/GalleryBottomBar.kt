@@ -124,11 +124,11 @@ object GalleryBottomBar {
                     ColorDrawable(Color.TRANSPARENT),
                     GradientDrawable().apply { setColor(Color.WHITE) }
                 )
-                setOnClickListener {
+                setOnClickListener { tappedView ->
                     if (tab != active && !navigating) {
                         navigating = true
                         // Keep the tapped item attached long enough for its release ripple to render.
-                        item.postDelayed({ navigate(tab) }, NAVIGATION_RIPPLE_DELAY_MS)
+                        tappedView.postDelayed({ navigate(tab) }, NAVIGATION_RIPPLE_DELAY_MS)
                     }
                 }
             }
