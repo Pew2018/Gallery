@@ -420,7 +420,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             mLoadedInitialPhotos = false
             binding.mediaGrid.adapter = null
             mMedia = ArrayList()
-            getMedia()
+            // tryLoadGallery() below owns the single permission-gated reload.
+            // A second request here can invalidate the cache callback before it
+            // publishes data, leaving recovery dependent on the later scan.
         }
 
         if (
@@ -1009,6 +1011,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mCurrAsyncTask?.stopFetching()
         mIsGettingMedia = true
         setMediaLoading(true)
+        if (mPath == FAVORITES) {
+            binding.mediaEmptyTextPlaceholder.beGone()
+            binding.mediaEmptyTextPlaceholder2.beGone()
+        }
         if (mLoadedInitialPhotos) {
             startAsyncTask(request)
         } else {
@@ -1055,7 +1061,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         setMediaLoading(false)
                         binding.loadingIndicator.hide()
                         binding.mediaRefreshLayout.isRefreshing = false
-                        // Preserve cached items and do not misreport scan failure as an empty album.
+                        if (mPath == FAVORITES) {
+                            // The album is cleared while its viewer is open. Make a
+                            // failed return scan visible and let pull-to-refresh retry.
+                            binding.mediaEmptyTextPlaceholder.text = getString(R.string.failed_to_load_media)
+                            binding.mediaEmptyTextPlaceholder.beVisible()
+                            binding.mediaEmptyTextPlaceholder2.beGone()
+                            binding.mediaFastscroller.beGone()
+                        }
                     }
                 }
             }
