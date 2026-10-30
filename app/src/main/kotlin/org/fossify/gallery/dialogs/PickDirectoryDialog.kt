@@ -12,6 +12,7 @@ import android.content.res.ColorStateList
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
 import java.util.concurrent.atomic.AtomicBoolean
+import java.io.File
 import org.fossify.gallery.helpers.OxygenThemeEngine
 import androidx.activity.addCallback
 import androidx.appcompat.app.AlertDialog
@@ -48,6 +49,7 @@ import org.fossify.gallery.extensions.getSortedDirectories
 import org.fossify.gallery.models.Directory
 import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.helpers.OxygenClassicPalette
+import org.fossify.gallery.helpers.PhotoSourceSelectionDraft
 
 class PickDirectoryDialog(
     val activity: BaseSimpleActivity,
@@ -56,8 +58,10 @@ class PickDirectoryDialog(
     val showFavoritesBin: Boolean,
     val isPickingCopyMoveDestination: Boolean,
     val isPickingFolderForWidget: Boolean,
+    val sourceSelection: SourceSelection? = null,
     val callback: (path: String) -> Unit
 ) {
+    data class SourceSelection(val draft: PhotoSourceSelectionDraft, val onConfirmed: (Set<String>, Set<String>) -> Unit)
     private fun styleFastScroller() {
         org.fossify.gallery.helpers.OxygenFastScroller.apply(
             binding.directoriesFastscroller, binding.directoriesGrid,
@@ -103,7 +107,8 @@ class PickDirectoryDialog(
         configureSearchView()
 
         val builder = activity.getAlertDialogBuilder()
-            .setPositiveButton(org.fossify.commons.R.string.ok, null)
+            .setTitle(if (sourceSelection == null) org.fossify.commons.R.string.select_destination else R.string.photo_source_picker_title)
+            .setPositiveButton(if (sourceSelection == null) org.fossify.commons.R.string.ok else R.string.photo_source_add_count, null)
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
 
         if (showOtherFolderButton) {
@@ -111,9 +116,18 @@ class PickDirectoryDialog(
         }
 
         builder.apply {
-            activity.setupDialogStuff(binding.root, this, org.fossify.commons.R.string.select_destination) { alertDialog ->
+            activity.setupDialogStuff(binding.root, this, if (sourceSelection == null)
+                org.fossify.commons.R.string.select_destination else R.string.photo_source_picker_title) { alertDialog ->
                 dialog = alertDialog
                 OxygenClassicDialog.apply(activity, alertDialog, binding.root)
+                if (sourceSelection != null) {
+                    binding.directoriesSelectionSummary.visibility = android.view.View.VISIBLE
+                    updateSelectionSummary()
+                    alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                        sourceSelection.onConfirmed(sourceSelection.draft.snapshot(), allDirectories.map { it.path }.toSet())
+                        alertDialog.dismiss()
+                    }
+                }
                 binding.directoriesCurrentPath.setTextColor(activity.getProperTextColor())
                 binding.directoriesOverflowMenu.apply {
                     val dark = OxygenThemeEngine.snapshot(activity, config).dark
@@ -124,7 +138,7 @@ class PickDirectoryDialog(
                 alertDialog.onBackPressedDispatcher.addCallback(alertDialog) {
                     if (searchView.isSearchOpen) {
                         searchView.closeSearch()
-                    } else if (activity.config.groupDirectSubfolders) {
+                    } else if (sourceSelection != null || activity.config.groupDirectSubfolders) {
                         if (currentPathPrefix.isEmpty()) {
                             isEnabled = false
                             alertDialog.onBackPressedDispatcher.onBackPressed()
@@ -142,6 +156,13 @@ class PickDirectoryDialog(
         }
 
         fetchDirectories(false)
+    }
+
+    private fun updateSelectionSummary() {
+        val selection = sourceSelection ?: return
+        if (activity.isDestroyed) return
+        binding.directoriesSelectionSummary.text = activity.getString(R.string.photo_source_selected_count, selection.draft.paths.size)
+        dialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.text = activity.getString(R.string.photo_source_add_count, selection.draft.paths.size)
     }
 
     /** A reversible, dialog-local reveal; Commons preferences are never rewritten. */
@@ -334,7 +355,15 @@ class PickDirectoryDialog(
         val distinctDirs = newDirs.filter { showFavoritesBin || (!it.isRecycleBin() && !it.areFavorites()) }.distinctBy { it.path.getDistinctPath() }
             .toMutableList() as ArrayList<Directory>
         val sortedDirs = activity.getSortedDirectories(distinctDirs)
-        val dirs = activity.getDirsToShow(sortedDirs, allDirectories, currentPathPrefix).clone() as ArrayList<Directory>
+        val dirs = if (sourceSelection != null && !activity.config.groupDirectSubfolders) {
+            val children = if (currentPathPrefix.isEmpty()) sortedDirs else sortedDirs.filter {
+                File(it.path).parent?.trimEnd('/') == currentPathPrefix.trimEnd('/')
+            }
+            val current = currentPathPrefix.takeIf { it.isNotEmpty() }?.let { prefix ->
+                allDirectories.firstOrNull { it.path.equals(prefix, true) }?.copy(subfoldersCount = 1)
+            }
+            ArrayList<Directory>().apply { current?.let(::add); addAll(children) }
+        } else activity.getDirsToShow(sortedDirs, allDirectories, currentPathPrefix).clone() as ArrayList<Directory>
         binding.directoriesCurrentPath.apply {
             text = currentPathPrefix
             beVisibleIf(currentPathPrefix.isNotEmpty())
@@ -345,9 +374,26 @@ class PickDirectoryDialog(
         }
 
         shownDirectories = dirs
-        val adapter = DirectoryAdapter(activity, dirs.clone() as ArrayList<Directory>, null, binding.directoriesGrid, true) {
+        val adapter = DirectoryAdapter(activity, dirs.clone() as ArrayList<Directory>, null, binding.directoriesGrid, true,
+            multiSelectPaths = sourceSelection?.draft?.paths,
+            onMultiSelectChanged = ::updateSelectionSummary) {
             val clickedDir = it as Directory
             val path = clickedDir.path
+            if (sourceSelection != null && path == org.fossify.commons.helpers.FAVORITES) {
+                sourceSelection.draft.toggle(path)
+                updateSelectionSummary()
+                binding.directoriesGrid.adapter?.notifyDataSetChanged()
+                return@DirectoryAdapter
+            }
+            if (sourceSelection != null) {
+                // In multi-select mode, row tap navigates. The separate check control selects the folder.
+                if (path != currentPathPrefix) {
+                    currentPathPrefix = path
+                    openedSubfolders.add(path)
+                    gotDirectories(allDirectories)
+                }
+                return@DirectoryAdapter
+            }
             if (clickedDir.subfoldersCount == 1 || !activity.config.groupDirectSubfolders) {
                 if (isPickingCopyMoveDestination && path.trimEnd('/') == sourcePath) {
                     activity.toast(org.fossify.commons.R.string.source_and_destination_same)

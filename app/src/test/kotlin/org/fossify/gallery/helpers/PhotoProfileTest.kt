@@ -92,4 +92,28 @@ class PhotoProfileTest {
         requests.invalidate()
         assertFalse(requests.isCurrent(b))
     }
+    @Test fun sourcePickerDraftKeepsCrossDirectoryChoicesAndCancelDoesNotMutateOriginal() {
+        val original = setOf("/DCIM/Camera", org.fossify.commons.helpers.FAVORITES)
+        val draft = PhotoSourceSelectionDraft(original)
+        draft.toggle("/Pictures/Street")
+        draft.toggle("/DCIM/Camera/Child")
+        draft.toggle("/DCIM/Camera")
+        assertEquals(setOf("/Pictures/Street", "/DCIM/Camera/Child", org.fossify.commons.helpers.FAVORITES), draft.snapshot())
+        assertEquals(setOf("/DCIM/Camera", org.fossify.commons.helpers.FAVORITES), original)
+    }
+    @Test fun sourcePickerDraftDeduplicatesSlashVariantsAndTreatsFavoritesSeparately() {
+        val draft = PhotoSourceSelectionDraft(listOf("/DCIM/Camera/", "/DCIM/Camera", org.fossify.commons.helpers.FAVORITES))
+        assertEquals(setOf("/DCIM/Camera", org.fossify.commons.helpers.FAVORITES), draft.snapshot())
+        draft.toggle("/DCIM/Camera/")
+        assertEquals(setOf(org.fossify.commons.helpers.FAVORITES), draft.snapshot())
+    }
+    @Test fun lateSourceStatusCannotReplaceTheNewestRequestOrUpdateAfterClose() {
+        val requests = PhotoSourceStatusRequests()
+        val old = requests.begin()
+        val current = requests.begin()
+        assertFalse(requests.isCurrent(old))
+        assertTrue(requests.isCurrent(current))
+        requests.invalidate()
+        assertFalse(requests.isCurrent(current))
+    }
 }

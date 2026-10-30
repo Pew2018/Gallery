@@ -124,6 +124,8 @@ class DirectoryAdapter(
     recyclerView: MyRecyclerView,
     val isPickIntent: Boolean,
     val swipeRefreshLayout: SwipeRefreshLayout? = null,
+    private val multiSelectPaths: MutableSet<String>? = null,
+    private val onMultiSelectChanged: (() -> Unit)? = null,
     itemClick: (Any) -> Unit
 ) :
     MyRecyclerViewAdapter(activity, recyclerView, itemClick), ItemTouchHelperContract,
@@ -951,7 +953,7 @@ class DirectoryAdapter(
                 else -> TYPE_IMAGES
             }
 
-            dirCheck.beVisibleIf(isSelected)
+            dirCheck.beVisibleIf(isSelected || multiSelectPaths != null)
             if (isSelected) {
                 dirCheck.background?.applyColorFilter(properPrimaryColor)
                 dirCheck.applyColorFilter(contrastColor)
@@ -979,7 +981,30 @@ class DirectoryAdapter(
                 }
             }
 
-            if (lockedFolderPaths.contains(directory.path) ||
+            if (multiSelectPaths != null) {
+                // Source picking only records folders. Do not bind protected thumbnails here.
+                Picasso.get().cancelRequest(dirThumbnail)
+                Glide.with(activity).clear(dirThumbnail)
+                dirThumbnail.setImageDrawable(null)
+                dirThumbnail.tag = null
+                dirThumbnail.visibility = View.INVISIBLE
+                dirLock.beGone()
+                dirCheck.contentDescription = activity.getString(
+                    if (directory.path in multiSelectPaths) R.string.photo_source_deselect else R.string.photo_source_select
+                )
+                dirCheck.setOnClickListener {
+                    if (!multiSelectPaths.add(directory.path)) multiSelectPaths.remove(directory.path)
+                    onMultiSelectChanged?.invoke()
+                    holder.bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION }?.let { notifyItemChanged(it) }
+                }
+                dirCheck.isClickable = true
+                dirCheck.isFocusable = true
+                val checkParams = dirCheck.layoutParams
+                val touchSize = (48 * activity.resources.displayMetrics.density + 0.5f).toInt()
+                checkParams.width = touchSize
+                checkParams.height = touchSize
+                dirCheck.layoutParams = checkParams
+            } else if (lockedFolderPaths.contains(directory.path) ||
                 (directory.path == FAVORITES && config.isFavoritePasswordProtectionOn)) {
                 // Recycled holders must not retain old or unprotected thumbnails.
                 Picasso.get().cancelRequest(dirThumbnail)
@@ -990,6 +1015,9 @@ class DirectoryAdapter(
                 dirLock.background = ColorDrawable(root.context.getProperBackgroundColor())
                 dirLock.applyColorFilter(root.context.getProperBackgroundColor().getContrastColor())
             } else {
+                dirThumbnail.visibility = View.VISIBLE
+                dirCheck.setOnClickListener(null)
+                dirCheck.isClickable = false
                 dirLock.beGone()
                 val roundedCorners = when {
                     isListViewType -> ROUNDED_CORNERS_SMALL

@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 20264)
+Total output lines: 1658
+
 package org.fossify.gallery.activities
 
 import org.fossify.gallery.extensions.configurePhotoPassword
@@ -679,8 +682,21 @@ class SettingsActivity : SimpleActivity() {
 
     private fun setupPhotoPasswordProtection() {
         fun status() {
-            binding.settingsPhotoPasswordStatus.setText(if (config.photoCredentialSnapshot().enabled)
-                R.string.photo_password_set else R.string.photo_password_not_set)
+            val credential = config.photoCredentialSnapshot()
+            if (!credential.enabled) {
+                binding.settingsPhotoPasswordStatus.setText(R.string.photo_password_not_set)
+            } else {
+                val primary = when {
+                    credential.biometricPrimary -> getString(R.string.photo_password_biometric)
+                    credential.type == org.fossify.commons.helpers.PROTECTION_PIN -> getString(R.string.photo_password_backup_pin)
+                    else -> getString(R.string.photo_password_backup_pattern)
+                }
+                val backup = if (!credential.biometricPrimary) getString(R.string.photo_password_backup_none) else when (credential.fallbackType) {
+                    org.fossify.commons.helpers.PROTECTION_PIN -> getString(R.string.photo_password_backup_pin)
+                    else -> getString(R.string.photo_password_backup_pattern)
+                }
+                binding.settingsPhotoPasswordStatus.text = getString(R.string.photo_password_set_summary, primary, backup)
+            }
         }
         status()
         binding.settingsPhotoPasswordHolder.setOnClickListener {
@@ -692,7 +708,7 @@ class SettingsActivity : SimpleActivity() {
                         if (index == 0) configurePhotoPassword { status() }
                         else {
                             config.clearPhotoCredential()
-                            org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.revokeAll()
+                            org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.revokeAll("photo_password_disabled")
                             status()
                         }
                     }
@@ -812,31 +828,7 @@ class SettingsActivity : SimpleActivity() {
 
     private fun setupDeleteEmptyFolders() {
         binding.settingsDeleteEmptyFolders.isChecked = config.deleteEmptyFolders
-        binding.settingsDeleteEmptyFoldersHolder.setOnClickListener {
-            binding.settingsDeleteEmptyFolders.toggle()
-            config.deleteEmptyFolders = binding.settingsDeleteEmptyFolders.isChecked
-        }
-    }
-
-    private fun setupKeepScreenOn() {
-        binding.settingsKeepScreenOnFullscreenPhotos.isChecked = config.keepScreenOn
-        binding.settingsKeepScreenOnFullscreenPhotosHolder.setOnClickListener {
-            binding.settingsKeepScreenOnFullscreenPhotos.toggle()
-            config.keepScreenOn = binding.settingsKeepScreenOnFullscreenPhotos.isChecked
-        }
-    }
-
-    private fun setupAllowPhotoGestures() {
-        binding.settingsAllowPhotoGestures.isChecked = config.allowPhotoGestures
-        binding.settingsAllowPhotoGesturesHolder.setOnClickListener {
-            binding.settingsAllowPhotoGestures.toggle()
-            config.allowPhotoGestures = binding.settingsAllowPhotoGestures.isChecked
-        }
-    }
-
-    private fun setupAllowVideoGestures() {
-        binding.settingsAllowVideoGestures.isChecked = config.allowVideoGestures
-        binding.settingsAllowVideoGesturesHolder.setOnClickListener {
+        binding.settingsDeleteEmptyFoldersHolder.setOnClickLi…264 tokens truncated…oGesturesHolder.setOnClickListener {
             binding.settingsAllowVideoGestures.toggle()
             config.allowVideoGestures = binding.settingsAllowVideoGestures.isChecked
         }

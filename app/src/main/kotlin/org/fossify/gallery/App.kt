@@ -48,7 +48,7 @@ class App : FossifyApp() {
             override fun onActivityStopped(activity: Activity) {
                 started--
                 if (started == 0 && !activity.isChangingConfigurations)
-                    org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.revokeAll()
+                    org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.revokeAll("app_backgrounded")
             }
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
             override fun onActivityDestroyed(activity: Activity) = Unit

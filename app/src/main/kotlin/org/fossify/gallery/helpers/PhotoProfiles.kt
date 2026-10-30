@@ -11,6 +11,29 @@ data class PhotoProfileState(val version: Int = 1, val profiles: List<PhotoProfi
     val current: PhotoProfile? get() = profiles.firstOrNull { it.id == selectedId } ?: profiles.firstOrNull()
 }
 
+/** Dialog-local source selection; callers persist only an explicit confirmed snapshot. */
+class PhotoSourceSelectionDraft(initial: Collection<String>) {
+    val paths: MutableSet<String> = initial.mapNotNull(::stableId).toCollection(linkedSetOf())
+    fun toggle(path: String) {
+        val id = stableId(path) ?: return
+        if (!paths.add(id)) paths.remove(id)
+    }
+    fun snapshot(): Set<String> = paths.toSet()
+    private fun stableId(path: String): String? = when {
+        path == org.fossify.commons.helpers.FAVORITES -> path
+        path.startsWith('/') -> path.trimEnd('/').takeIf { it.isNotEmpty() }
+        else -> null
+    }
+}
+
+/** Each source status scan may publish only while it is still the newest request. */
+internal class PhotoSourceStatusRequests {
+    private var version = 0L
+    @Synchronized fun begin(): Long = ++version
+    @Synchronized fun isCurrent(request: Long): Boolean = request == version
+    @Synchronized fun invalidate() { version++ }
+}
+
 /** Pure, versioned persistence. Invalid input fails closed; identities never depend on names. */
 object PhotoProfileCodec {
     fun sources(values: List<PhotoSource>): List<PhotoSource> = values.mapNotNull {

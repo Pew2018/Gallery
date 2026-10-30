@@ -1,6 +1,10 @@
 package org.fossify.gallery.extensions
 
 import android.app.Activity
+import android.view.Gravity
+import android.util.Log
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
 import androidx.biometric.BiometricManager
@@ -8,8 +12,11 @@ import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import java.util.WeakHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import org.fossify.commons.dialogs.SecurityDialog
 import org.fossify.commons.extensions.toast
+import org.fossify.commons.extensions.getProperTextColor
+import org.fossify.commons.extensions.getProperPrimaryColor
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.commons.extensions.isBiometricAuthSupported
 import org.fossify.commons.helpers.PROTECTION_FINGERPRINT
@@ -40,6 +47,27 @@ private object PhotoPasswordSetupRequests {
     fun finish(activity: Activity) = synchronized(active) { active.remove(activity) }
 }
 
+private object PhotoUnlockCoordinator {
+    enum class Stage { SETUP_CREDENTIAL, VERIFY_PHOTO_PASSWORD, BIND_SOURCES, LOAD_CONTENT }
+    private val active = WeakHashMap<Activity, Stage>()
+    fun begin(activity: Activity): Boolean = synchronized(active) {
+        if (active.containsKey(activity)) false else {
+            active[activity] = Stage.SETUP_CREDENTIAL
+            Log.d("PhotoProfileAuth", "stage=SETUP_CREDENTIAL")
+            true
+        }
+    }
+    fun stage(activity: Activity, stage: Stage) = synchronized(active) {
+        if (active.containsKey(activity)) {
+            active[activity] = stage
+            Log.d("PhotoProfileAuth", "stage=$stage")
+        }
+    }
+    fun finish(activity: Activity, reason: String) = synchronized(active) {
+        if (active.remove(activity) != null) Log.d("PhotoProfileAuth", "finish=$reason")
+    }
+}
+
 /** Setup mode is deliberately delegated to Commons: PIN and pattern are confirmed there. */
 internal fun Activity.ensurePhotoPasswordConfigured(onReady: (Config.PhotoCredentialSnapshot?) -> Unit) {
     if (isFinishing || isDestroyed) return
@@ -53,7 +81,7 @@ internal fun Activity.ensurePhotoPasswordConfigured(onReady: (Config.PhotoCreden
         onReady(null)
         return
     }
-    configurePhotoPassword { ready ->
+    configurePhotoPasswordWithProof { ready, _ ->
         PhotoPasswordSetupRequests.finish(this)
         onReady(ready)
     }
@@ -61,6 +89,21 @@ internal fun Activity.ensurePhotoPasswordConfigured(onReady: (Config.PhotoCreden
 
 /** Let the user choose the primary mode explicitly; fallback setup cannot change it. */
 internal fun Activity.configurePhotoPassword(onReady: (Config.PhotoCredentialSnapshot?) -> Unit) {
+    if (isFinishing || isDestroyed) return
+    if (!PhotoPasswordSetupRequests.begin(this)) {
+        onReady(null)
+        return
+    }
+    configurePhotoPasswordWithProof { credential, _ ->
+        PhotoPasswordSetupRequests.finish(this)
+        onReady(credential)
+    }
+}
+
+/** Returns a setup proof only to the flow that performed and verified the setup itself. */
+private fun Activity.configurePhotoPasswordWithProof(
+    onReady: (Config.PhotoCredentialSnapshot?, Config.PhotoCredentialProof?) -> Unit
+) {
     if (isFinishing || isDestroyed) return
 
     val modes = mutableListOf(PROTECTION_PATTERN, PROTECTION_PIN)
@@ -76,47 +119,49 @@ internal fun Activity.configurePhotoPassword(onReady: (Config.PhotoCredentialSna
     showPhotoPasswordDialog(R.string.photo_password_title) {
         setItems(labels.toTypedArray()) { _, index ->
             val type = modes.getOrNull(index) ?: run {
-                onReady(null)
+                onReady(null, null)
                 return@setItems
             }
             when (type) {
                 PROTECTION_PATTERN, PROTECTION_PIN -> configurePhotoPasswordType(type, onReady)
                 PROTECTION_FINGERPRINT -> configurePhotoBiometricPassword(onReady)
-                else -> onReady(null)
+                else -> onReady(null, null)
             }
         }
-        setOnCancelListener { onReady(null) }
+        setOnCancelListener { onReady(null, null) }
     }
 }
 
 private fun Activity.configurePhotoPasswordType(
     type: Int,
-    onReady: (Config.PhotoCredentialSnapshot?) -> Unit
+    onReady: (Config.PhotoCredentialSnapshot?, Config.PhotoCredentialProof?) -> Unit
 ) {
     val expectedCredential = config.photoCredentialSnapshot()
     SecurityDialog(this, "", type) { hash, confirmedType, success ->
         if (isFinishing || isDestroyed) return@SecurityDialog
         if (!success || hash.isBlank() || confirmedType != type ||
             config.photoCredentialSnapshot() != expectedCredential) {
-            onReady(null)
+            onReady(null, null)
             return@SecurityDialog
         }
         config.savePhotoCredential(hash, type)
-        PhotoProfileAccessSessionManager.revokeAll()
+        PhotoProfileAccessSessionManager.revokeAll("photo_credential_changed")
         val credential = config.photoCredentialSnapshot()
-        onReady(credential.takeIf {
+        val saved = credential.takeIf {
             it.type == type && config.isPhotoCredentialCurrent(it)
-        })
+        }
+        val proof = saved?.let { Config.PhotoCredentialProof(it, PhotoProfileAccessSessionManager.currentGeneration()) }
+        onReady(saved, proof)
     }
 }
 
 private fun Activity.configurePhotoBiometricPassword(
-    onReady: (Config.PhotoCredentialSnapshot?) -> Unit
+    onReady: (Config.PhotoCredentialSnapshot?, Config.PhotoCredentialProof?) -> Unit
 ) {
     val expectedCredential = config.photoCredentialSnapshot()
     val host = this as? FragmentActivity
     if (host == null || !isBiometricAuthSupported()) {
-        onReady(null)
+        onReady(null, null)
         return
     }
 
@@ -126,7 +171,11 @@ private fun Activity.configurePhotoBiometricPassword(
         object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 if (isFinishing || isDestroyed) return
-                choosePhotoFallbackCredential(expectedCredential, onReady)
+                choosePhotoFallbackCredential(expectedCredential) { saved ->
+                    if (saved != null && config.isPhotoCredentialCurrent(saved)) {
+                        onReady(saved, Config.PhotoCredentialProof(saved, PhotoProfileAccessSessionManager.currentGeneration()))
+                    } else onReady(null, null)
+                }
             }
 
             override fun onAuthenticationFailed() = Unit
@@ -134,7 +183,7 @@ private fun Activity.configurePhotoBiometricPassword(
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                 if (!isFinishing && !isDestroyed) {
                     toast(errString.toString())
-                    onReady(null)
+                    onReady(null, null)
                 }
             }
         }
@@ -152,33 +201,59 @@ private fun Activity.choosePhotoFallbackCredential(
     onReady: (Config.PhotoCredentialSnapshot?) -> Unit
 ) {
     if (isFinishing || isDestroyed) return
+    val delivered = java.util.concurrent.atomic.AtomicBoolean(false)
+    fun finish(credential: Config.PhotoCredentialSnapshot?) {
+        if (delivered.compareAndSet(false, true) && !isFinishing && !isDestroyed) onReady(credential)
+    }
     fun configureFallback(fallbackType: Int) {
         SecurityDialog(this, "", fallbackType) { fallbackHash, confirmedType, success ->
             if (isFinishing || isDestroyed) return@SecurityDialog
             if (!success || fallbackHash.isBlank() || confirmedType != fallbackType ||
                 config.photoCredentialSnapshot() != expectedCredential) {
-                onReady(null)
+                finish(null)
                 return@SecurityDialog
             }
             val credential = config.savePhotoBiometricCredential(fallbackHash, confirmedType)
-            if (credential != null) PhotoProfileAccessSessionManager.revokeAll()
-            onReady(credential)
+            if (credential != null) PhotoProfileAccessSessionManager.revokeAll("photo_fallback_changed")
+            finish(credential)
         }
     }
-
-    showPhotoPasswordDialog(R.string.photo_password_title) {
-        setMessage(R.string.photo_password_fallback_setup)
-        // AlertDialog displays its message instead of its items list. Use buttons
-        // so both recovery choices remain reachable while showing the explanation.
-        setPositiveButton(org.fossify.commons.R.string.pin) { _, _ ->
-            configureFallback(PROTECTION_PIN)
-        }
-        setNeutralButton(org.fossify.commons.R.string.pattern) { _, _ ->
-            configureFallback(PROTECTION_PATTERN)
-        }
-        setNegativeButton(org.fossify.commons.R.string.cancel) { _, _ -> onReady(null) }
-        setOnCancelListener { onReady(null) }
+    val context = OxygenClassicDialog.builder(this, "").context
+    val density = resources.displayMetrics.density
+    val body = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding((24 * density).toInt(), (8 * density).toInt(), (24 * density).toInt(), (8 * density).toInt())
     }
+    body.addView(TextView(context).apply {
+        setText(R.string.photo_password_fallback_description)
+        textSize = 14f
+        setTextColor(getProperTextColor())
+        setPadding(0, 0, 0, (8 * density).toInt())
+    })
+    lateinit var dialog: AlertDialog
+    fun addChoice(label: Int, type: Int) {
+        body.addView(TextView(context).apply {
+            setText(label)
+            textSize = 16f
+            gravity = Gravity.CENTER_VERTICAL
+            minHeight = (48 * density).toInt()
+            setTextColor(getProperTextColor())
+            background = OxygenClassicDialog.ripple(getProperPrimaryColor(), density)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                if (delivered.get()) return@setOnClickListener
+                dialog.dismiss()
+                configureFallback(type)
+            }
+        })
+    }
+    addChoice(R.string.photo_password_choose_pin, PROTECTION_PIN)
+    addChoice(R.string.photo_password_choose_pattern, PROTECTION_PATTERN)
+    dialog = OxygenClassicDialog.show(this, OxygenClassicDialog.builder(this, getString(R.string.photo_password_fallback_title))
+        .setView(body)
+        .setNegativeButton(org.fossify.commons.R.string.cancel) { _, _ -> finish(null) })
+    dialog.setOnCancelListener { finish(null) }
 }
 
 private fun Activity.authenticatePreparedPhotoPassword(onAuthenticated: (Config.PhotoCredentialProof?) -> Unit) {
@@ -267,27 +342,53 @@ private fun Activity.authenticatePreparedPhotoPassword(onAuthenticated: (Config.
 
 /** Bind original lock identities only after their owners have authenticated them. */
 internal fun Activity.unlockPhotoProfile(profileId: String?, completed: () -> Unit) {
-    val profile = org.fossify.gallery.helpers.PhotoProfileRepository.of(this).state().profiles.firstOrNull { it.id == profileId } ?: return
+    if (isFinishing || isDestroyed || !PhotoUnlockCoordinator.begin(this)) return
+    val delivered = AtomicBoolean(false)
+    fun finish(reason: String) {
+        if (delivered.compareAndSet(false, true)) {
+            PhotoUnlockCoordinator.stage(this, PhotoUnlockCoordinator.Stage.LOAD_CONTENT)
+            PhotoUnlockCoordinator.finish(this, reason)
+            if (!isFinishing && !isDestroyed) completed()
+        }
+    }
+    val profile = org.fossify.gallery.helpers.PhotoProfileRepository.of(this).state().profiles.firstOrNull { it.id == profileId }
+    if (profile == null) { finish("profile_missing"); return }
+    fun profileStillCurrent(): Boolean =
+        org.fossify.gallery.helpers.PhotoProfileRepository.of(this).state().profiles.firstOrNull { it.id == profile.id } == profile
+
     fun bind(proof: Config.PhotoCredentialProof) {
-        val expectedCredential = config.photoCredentialSnapshot()
+        if (delivered.get()) return
+        PhotoUnlockCoordinator.stage(this, PhotoUnlockCoordinator.Stage.BIND_SOURCES)
+        val expectedCredential = proof.credential
         ensureBackgroundThread {
             val locks = runCatching { PhotoProfileAccessSessionManager.profileLocks(applicationContext, profile) }.getOrNull()
             runOnUiThread {
-                if (isFinishing || isDestroyed || locks == null || config.photoCredentialSnapshot() != expectedCredential) return@runOnUiThread
+                if (delivered.get() || isFinishing || isDestroyed || locks == null || !profileStillCurrent() ||
+                    config.photoCredentialSnapshot() != expectedCredential ||
+                    proof.sessionGeneration != PhotoProfileAccessSessionManager.currentGeneration()) {
+                    finish("stale_before_binding"); return@runOnUiThread
+                }
                 val pending = locks.filter { (root, lock) ->
                     config.photoSourceBindings[root] != PhotoProfileAccessSessionManager.fingerprint(lock.type, lock.hash)
-                }.entries.toList()
+                }.entries.groupBy { it.value.type to it.value.hash }.values.toList()
                 val approved = mutableMapOf<String, String>()
                 fun finishBinding() {
-                    if (isFinishing || isDestroyed ||
-                        org.fossify.gallery.helpers.PhotoProfileRepository.of(this).state().profiles.firstOrNull { it.id == profile.id } != profile ||
+                    if (delivered.get() || isFinishing || isDestroyed || !profileStillCurrent() ||
                         !config.isPhotoCredentialCurrent(expectedCredential) ||
-                        proof.sessionGeneration != PhotoProfileAccessSessionManager.currentGeneration()) return
-                    // Recheck every challenged identity before persisting the explicit relationship.
-                    if (locks.any { (root, lock) -> applicationContext.favoriteProtection(root) != lock }) return
-                    config.photoSourceBindings = config.photoSourceBindings + approved
-                    PhotoProfileAccessSessionManager.create(applicationContext, proof)
-                    completed()
+                        proof.sessionGeneration != PhotoProfileAccessSessionManager.currentGeneration()) {
+                        finish("stale_after_binding_check"); return
+                    }
+                    if (locks.any { (root, lock) -> applicationContext.favoriteProtection(root) != lock }) {
+                        finish("protection_changed_during_binding"); return
+                    }
+                    val previousBindings = config.photoSourceBindings
+                    val committedBindings = previousBindings + approved
+                    config.photoSourceBindings = committedBindings
+                    val token = PhotoProfileAccessSessionManager.create(applicationContext, proof)
+                    if (token == null && config.photoSourceBindings == committedBindings) {
+                        config.photoSourceBindings = previousBindings
+                    }
+                    finish(if (token == null) "proof_rejected" else "authorized")
                 }
                 fun bindFavorites() {
                     if (profile.sources.none { it.type == org.fossify.gallery.helpers.PhotoSourceType.FAVORITES } ||
@@ -295,38 +396,89 @@ internal fun Activity.unlockPhotoProfile(profileId: String?, completed: () -> Un
                         config.photoSourceBindings[FAVORITES] == PhotoProfileAccessSessionManager.favoriteIdentity(applicationContext)) {
                         finishBinding(); return
                     }
+                    val favoriteCredential = config.favoriteCredentialSnapshot()
+                    val sameCredentialWasVerified = !favoriteCredential.biometricPrimary &&
+                        favoriteCredential.type in listOf(PROTECTION_PATTERN, PROTECTION_PIN) &&
+                        favoriteCredential.isConfigured && pending.any { group ->
+                            group.first().value.type == favoriteCredential.type && group.first().value.hash == favoriteCredential.hash &&
+                                group.all { (root, lock) -> approved[root] == PhotoProfileAccessSessionManager.fingerprint(lock.type, lock.hash) }
+                        }
+                    if (sameCredentialWasVerified && config.isFavoriteCredentialCurrent(favoriteCredential)) {
+                        approved[FAVORITES] = PhotoProfileAccessSessionManager.favoriteIdentity(applicationContext)
+                        finishBinding(); return
+                    }
                     authenticateFavoritePassword { favoriteProof ->
+                        if (delivered.get()) return@authenticateFavoritePassword
                         if (favoriteProof != null && config.isFavoriteCredentialCurrent(favoriteProof.credential)) {
                             approved[FAVORITES] = PhotoProfileAccessSessionManager.favoriteIdentity(applicationContext)
                             finishBinding()
-                        }
+                        } else finish("favorite_auth_cancelled_or_failed")
                     }
                 }
                 fun next(index: Int) {
-                    if (isFinishing || isDestroyed) return
+                    if (delivered.get() || isFinishing || isDestroyed) return
                     if (index == pending.size) { bindFavorites(); return }
-                    val (root, lock) = pending[index]
-                    if (lock.type !in listOf(PROTECTION_PATTERN, PROTECTION_PIN, PROTECTION_FINGERPRINT) ||
-                        (lock.type != PROTECTION_FINGERPRINT && lock.hash.isBlank())) return
+                    val group = pending[index]
+                    val type = group.first().value.type
+                    val hash = group.first().value.hash
+                    if (type !in listOf(PROTECTION_PATTERN, PROTECTION_PIN, PROTECTION_FINGERPRINT) ||
+                        (type != PROTECTION_FINGERPRINT && hash.isBlank())) {
+                        finish("unsupported_source_protection"); return
+                    }
                     showPhotoPasswordDialog(R.string.photo_password_bind_title) {
-                        setMessage(getString(R.string.photo_password_bind_message, root))
-                        setNegativeButton(org.fossify.commons.R.string.cancel, null)
+                        setMessage(getString(R.string.photo_password_bind_group_message, group.size))
+                        setNegativeButton(org.fossify.commons.R.string.cancel) { _, _ -> finish("binding_cancelled") }
                         setPositiveButton(org.fossify.commons.R.string.ok) { _, _ ->
-                            SecurityDialog(this@unlockPhotoProfile, lock.hash, lock.type) { _, _, success ->
-                                if (success) {
-                                    approved[root] = PhotoProfileAccessSessionManager.fingerprint(lock.type, lock.hash)
+                            SecurityDialog(this@unlockPhotoProfile, hash, type) { _, _, success ->
+                                if (delivered.get()) return@SecurityDialog
+                                if (success && config.isPhotoCredentialCurrent(expectedCredential) &&
+                                    proof.sessionGeneration == PhotoProfileAccessSessionManager.currentGeneration() &&
+                                    group.all { applicationContext.favoriteProtection(it.key) == it.value }) {
+                                    group.forEach { (root, lock) ->
+                                        approved[root] = PhotoProfileAccessSessionManager.fingerprint(lock.type, lock.hash)
+                                    }
                                     next(index + 1)
-                                }
+                                } else finish("source_auth_failed_or_changed")
                             }
                         }
+                        setOnCancelListener { finish("binding_cancelled") }
                     }
                 }
                 next(0)
             }
         }
     }
-    if (config.photoCredentialSnapshot().enabled) authenticatePhotoPassword { it?.let(::bind) }
-    else configurePhotoPassword { credential ->
-        if (credential != null) authenticatePhotoPassword { it?.let(::bind) }
+
+    fun authenticate() {
+        if (delivered.get()) return
+        if (config.photoCredentialSnapshot().enabled) {
+            PhotoUnlockCoordinator.stage(this, PhotoUnlockCoordinator.Stage.VERIFY_PHOTO_PASSWORD)
+            authenticatePhotoPassword { proof ->
+                if (proof != null) bind(proof) else finish("photo_auth_cancelled_or_failed")
+            }
+        } else {
+            PhotoUnlockCoordinator.stage(this, PhotoUnlockCoordinator.Stage.SETUP_CREDENTIAL)
+            configurePhotoPasswordWithProof { credential, proof ->
+                if (credential != null && proof != null && config.isPhotoCredentialCurrent(credential)) bind(proof)
+                else finish("credential_setup_cancelled_or_failed")
+            }
+        }
     }
+
+    val existingToken = PhotoProfileAccessSessionManager.currentToken(applicationContext)
+    if (existingToken != null) {
+        ensureBackgroundThread {
+            val locks = runCatching { PhotoProfileAccessSessionManager.profileLocks(applicationContext, profile) }.getOrNull()
+            runOnUiThread {
+                if (delivered.get()) return@runOnUiThread
+                val valid = locks != null && profileStillCurrent() &&
+                    PhotoProfileAccessSessionManager.bindingsAuthorize(locks, config.photoSourceBindings,
+                        PhotoProfileAccessSessionManager.isActive(applicationContext, existingToken)) &&
+                    (!profile.sources.any { it.type == org.fossify.gallery.helpers.PhotoSourceType.FAVORITES } ||
+                        PhotoProfileAccessSessionManager.favoritesAuthorized(applicationContext, existingToken))
+                if (valid) finish("active_session_reused") else authenticate()
+            }
+        }
+    } else authenticate()
+
 }

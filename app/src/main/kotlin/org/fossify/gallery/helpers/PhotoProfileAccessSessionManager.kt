@@ -20,7 +20,8 @@ internal object PhotoProfileAccessSessionManager {
     }?.also { token = it }
     fun addListener(id: String, listener: () -> Unit) { listeners[id] = listener }
     fun removeListener(id: String) { listeners.remove(id) }
-    fun revokeAll() {
+    fun revokeAll(reason: String = "unspecified") {
+        android.util.Log.d("PhotoProfileAuth", "revoke=$reason")
         capability.revoke()
         token = null
         listeners.values.toList().forEach { it() }
