@@ -664,17 +664,23 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
 
         binding.mainMenu.requireToolbar().setOnMenuItemClickListener { menuItem ->
+            if (org.fossify.gallery.helpers.ToolbarQuickActions.isSlot(menuItem.itemId)) {
+                when (org.fossify.gallery.helpers.ToolbarQuickActions.actionForSlot(binding.mainMenu, menuItem.itemId)) {
+                    org.fossify.gallery.helpers.ToolbarQuickActions.SORT -> showSortingDialog()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.FILTER -> showFilterMediaDialog()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.VIEW -> changeViewType()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.COLUMNS -> changeColumnCount()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.HIDDEN -> tryToggleTemporarilyShowHidden()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.EXCLUDED -> tryToggleTemporarilyShowExcluded()
+                    else -> return@setOnMenuItemClickListener false
+                }
+                return@setOnMenuItemClickListener true
+            }
             when (menuItem.itemId) {
                 R.id.quick_toolbar_search_overflow -> {
                     binding.mainMenu.focusView()
                     showKeyboard(binding.mainMenu.binding.topToolbarSearch)
                 }
-                R.id.quick_toolbar_sort -> showSortingDialog()
-                R.id.quick_toolbar_filter -> showFilterMediaDialog()
-                R.id.quick_toolbar_view -> changeViewType()
-                R.id.quick_toolbar_columns -> changeColumnCount()
-                R.id.quick_toolbar_hidden -> tryToggleTemporarilyShowHidden()
-                R.id.quick_toolbar_excluded -> tryToggleTemporarilyShowExcluded()
                 R.id.sort -> showSortingDialog()
                 R.id.filter -> showFilterMediaDialog()
                 R.id.folder_visibility -> showFolderVisibilityDialog()
