@@ -2235,16 +2235,19 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 fun open(directory: Directory) = itemClicked(directory.path)
                 mHomeFavoriteAdapter = DirectoryAdapter(
                     this, ArrayList(virtualFavorite), this, binding.directoriesGrid, false,
-                    compactVirtualFavorite = true, allowDragSelection = false
+                    compactVirtualFavorite = true, allowDragSelection = false,
+                    fullVisibleAlbumOrder = { mHomeSourceDirs.map { it.path } }
                 ) { open(it as Directory) }
                 mHomePinnedAdapter = DirectoryAdapter(
                     this, expandedItems, this, binding.directoriesGrid, false,
-                    allowDragSelection = false
+                    allowDragSelection = false,
+                    fullVisibleAlbumOrder = { mHomeSourceDirs.map { it.path } }
                 ) { open(it as Directory) }
                 mHomeOtherAdapter = DirectoryAdapter(
                     this, ArrayList(others), this, binding.directoriesGrid,
                     false, binding.directoriesRefreshLayout,
-                    allowDragSelection = false
+                    allowDragSelection = false,
+                    fullVisibleAlbumOrder = { mHomeSourceDirs.map { it.path } }
                 ) { open(it as Directory) }.apply {
                     setupZoomListener(mZoomListener)
                     setRefreshLoading(mIsGettingDirs)
@@ -2254,7 +2257,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     { recycler, entries, width ->
                         DirectoryAdapter(
                             this, entries, this, recycler, false,
-                            embeddedPinnedWidthPx = width
+                            embeddedPinnedWidthPx = width,
+                            fullVisibleAlbumOrder = { mHomeSourceDirs.map { it.path } }
                         ) { open(it as Directory) }
                     },
                     {
