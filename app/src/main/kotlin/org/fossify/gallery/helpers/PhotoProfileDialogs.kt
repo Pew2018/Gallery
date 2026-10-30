@@ -56,11 +56,11 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
     }
 
     private fun actions(profile: PhotoProfile) {
-        val labels = intArrayOf(R.string.photo_profiles_use, R.string.photo_profiles_edit, R.string.photo_profiles_rename, R.string.photo_profiles_delete)
+        val labels = intArrayOf(if (store.state().current?.id == profile.id) R.string.photo_profiles_current else R.string.photo_profiles_use, R.string.photo_profiles_edit, R.string.photo_profiles_rename, R.string.photo_profiles_delete)
         OxygenClassicDialog.show(activity, OxygenClassicDialog.builder(activity, profile.name)
             .setItems(labels.map(::text).toTypedArray()) { _, which ->
                 when (which) {
-                    0 -> { store.select(profile.id); changed() }
+                    0 -> { if (store.state().current?.id != profile.id) { store.select(profile.id); changed() } }
                     1 -> edit(profile)
                     2 -> rename(profile)
                     3 -> OxygenClassicDialog.show(activity, OxygenClassicDialog.builder(activity, text(R.string.photo_profiles_delete))
@@ -136,7 +136,7 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
         fun updateStatus() {
             val snapshot = selected.toList()
             ensureBackgroundThread {
-                val statuses = snapshot.associateWith { source -> sourceStatus(source) }
+                val statuses = inspectSources(snapshot)
                 activity.runOnUiThread { if (alive() && body.isAttachedToWindow) { sourceStatuses.putAll(statuses); render() } }
             }
         }
@@ -167,26 +167,31 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
         }
     }
 
-    private fun sourceStatus(source: PhotoSource): Int = runCatching {
+    /** One indexing/visibility read for the entire dialog, not one query per row. */
+    private fun inspectSources(sources: List<PhotoSource>): Map<PhotoSource, Int> {
         val app = activity.applicationContext
         val config = app.config
         val token = PhotoProfileAccessSessionManager.currentToken(app)
-        if (source.type == PhotoSourceType.FAVORITES) {
-            if (PhotoProfileAccessSessionManager.favoritesAuthorized(app, token)) R.string.photo_source_ready
-            else if (config.photoCredentialSnapshot().enabled) R.string.photo_source_locked else R.string.photo_source_setup
-        } else {
-            val path = source.path.orEmpty()
-            when {
-                path.contains("/.") || FavoriteFolderRules.hasNoMediaAncestor(path) ||
-                    app.getNoMediaFoldersSync().any { path == it || path.startsWith("$it/") } -> R.string.photo_source_hidden
-                FavoriteFolderRules.isExcluded(path, config.excludedFolders) -> R.string.photo_source_excluded
-                !PhotoProfileAccessSessionManager.folderAuthorized(app, path, token) ->
-                    if (config.photoCredentialSnapshot().enabled) R.string.photo_source_locked else R.string.photo_source_setup
-                !File(path).isDirectory && path !in MediaFetcher(app, PhotoProfileMediaLoader.MEDIA_TYPES).getFoldersToScan() -> R.string.photo_source_missing
-                else -> R.string.photo_source_ready
+        val noMedia = app.getNoMediaFoldersSync()
+        val indexed = MediaFetcher(app, PhotoProfileMediaLoader.MEDIA_TYPES).getFoldersToScan().toSet()
+        return sources.associateWith { source -> runCatching {
+            if (source.type == PhotoSourceType.FAVORITES) {
+                if (PhotoProfileAccessSessionManager.favoritesAuthorized(app, token)) R.string.photo_source_ready
+                else if (config.photoCredentialSnapshot().enabled) R.string.photo_source_locked else R.string.photo_source_setup
+            } else {
+                val path = source.path.orEmpty()
+                when {
+                    path.contains("/.") || FavoriteFolderRules.hasNoMediaAncestor(path) ||
+                        noMedia.any { path == it || path.startsWith("$it/") } -> R.string.photo_source_hidden
+                    FavoriteFolderRules.isExcluded(path, config.excludedFolders) -> R.string.photo_source_excluded
+                    !PhotoProfileAccessSessionManager.folderAuthorized(app, path, token) ->
+                        if (config.photoCredentialSnapshot().enabled) R.string.photo_source_locked else R.string.photo_source_setup
+                    !File(path).isDirectory && path !in indexed -> R.string.photo_source_missing
+                    else -> R.string.photo_source_ready
+                }
             }
-        }
-    }.getOrDefault(R.string.photo_source_unknown)
+        }.getOrDefault(R.string.photo_source_unknown) }
+    }
 
     private fun chooseSources(selected: List<PhotoSource>, done: (List<PhotoSource>) -> Unit) {
         val waiting = OxygenClassicDialog.show(activity, OxygenClassicDialog.builder(activity, text(R.string.photo_profiles_add_source))
@@ -196,7 +201,7 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
             val folders = MediaFetcher(activity.applicationContext, PhotoProfileMediaLoader.MEDIA_TYPES).getFoldersToScan()
                 .filter { it != org.fossify.commons.helpers.FAVORITES && it != RECYCLE_BIN && it.startsWith('/') }
             val choices = (listOf(PhotoSource(PhotoSourceType.FAVORITES)) + folders.sorted().map { PhotoSource(PhotoSourceType.FOLDER, it) } + selected).distinct()
-            val statuses = choices.associateWith(::sourceStatus)
+            val statuses = inspectSources(choices)
             activity.runOnUiThread {
                 if (!alive() || !waiting.isShowing) return@runOnUiThread
                 waiting.dismiss()

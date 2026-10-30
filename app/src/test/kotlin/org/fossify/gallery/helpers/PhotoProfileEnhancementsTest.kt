@@ -70,4 +70,23 @@ class PhotoProfileEnhancementsTest {
         }) { it }
         assertEquals(listOf("/Camera/a.jpg", "/Camera/b.mp4", "/Other/fav.mp4"), actual)
     }
+    @Test fun fileSymlinkCannotHideAnAdditionalProtectionBoundary() {
+        val root = java.nio.file.Files.createTempDirectory("photo-profile-link")
+        try {
+            val publicFolder = java.nio.file.Files.createDirectory(root.resolve("public"))
+            val privateFolder = java.nio.file.Files.createDirectory(root.resolve("private"))
+            val target = java.nio.file.Files.write(privateFolder.resolve("secret.jpg"), byteArrayOf(1, 2, 3))
+            val link = java.nio.file.Files.createSymbolicLink(publicFolder.resolve("alias.jpg"), target)
+            val lock = FavoriteAccessSessionManager.Protection(1, "source-password")
+            val snapshot = FavoriteAccessSessionManager.captureSnapshot(listOf(link.toString())) {
+                if (it == privateFolder.toString()) lock else null
+            }
+            val actualLocks = snapshot.entries.getValue(link.toString()).locks
+            assertEquals(lock, actualLocks[privateFolder.toString()])
+            assertFalse(PhotoProfileAccessSessionManager.bindingsAuthorize(actualLocks, emptyMap(), true))
+            assertFalse(PhotoProfileAccessSessionManager.bindingsAuthorize(actualLocks,
+                mapOf(privateFolder.toString() to PhotoProfileAccessSessionManager.fingerprint(lock.type, lock.hash)), false))
+        } finally { root.toFile().deleteRecursively() }
+    }
+
 }

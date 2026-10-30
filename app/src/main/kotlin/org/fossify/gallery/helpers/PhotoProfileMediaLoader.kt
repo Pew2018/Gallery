@@ -40,7 +40,18 @@ class PhotoProfileMediaLoader(
         val favorites = if (profile.sources.any { it.type == PhotoSourceType.FAVORITES } && favoritesAllowed())
             context.getFavoritePaths().toSet() else emptySet()
         val folderStatus = HashMap<String, Boolean>()
+        // Check actual file identities as well as directory sentinels: a file symlink
+        // can cross an additional protection boundary even when its parent is public.
+        val snapshot = runCatching {
+            FavoriteAccessSessionManager.captureSnapshot(items.map { it.path }, context::favoriteProtection)
+        }.getOrNull() ?: return arrayListOf()
+        val bindings = config.photoSourceBindings
+        val active = PhotoProfileAccessSessionManager.isActive(context, sessionId)
         return PhotoProfilePolicy.unique(items.filter { item ->
+            val identity = snapshot.entries[item.path] ?: return@filter false
+            val resolvedParent = identity.canonicalPath.substringBeforeLast('/', "")
+            PhotoProfileAccessSessionManager.bindingsAuthorize(identity.locks, bindings, active) &&
+                folderStatus.getOrPut(resolvedParent) { folderAllowed(resolvedParent) } &&
             item.type and config.photoMediaFilter and MEDIA_TYPES != 0 && item.deletedTS == 0L && !item.path.contains("/.") &&
                 PhotoProfilePolicy.includes(item.path, folders, favorites, true) {
                     folderStatus.getOrPut(item.parentPath) { folderAllowed(item.parentPath) }
