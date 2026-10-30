@@ -23,7 +23,6 @@ import org.fossify.gallery.R
  * animated tab translation; selection is expressed by icon and label color.
  */
 object GalleryBottomBar {
-    private const val NAVIGATION_RIPPLE_DELAY_MS = 120L
     private val bars = java.util.WeakHashMap<Activity, java.lang.ref.WeakReference<LinearLayout>>()
 
     fun refreshAll() {
@@ -65,9 +64,14 @@ object GalleryBottomBar {
     @Suppress("DEPRECATION")
     fun open(activity: Activity, intent: Intent, finishCurrent: Boolean = false) {
         activity.startActivity(intent)
-        if (finishCurrent) activity.finish()
-        // Suppress the system Activity slide/fade during bottom-bar navigation.
-        activity.overridePendingTransition(0, 0)
+        // Cross-fade the outgoing and incoming screens. The outgoing bottom bar
+        // remains visible while its native release ripple finishes, and the new
+        // screen immediately shows the persistent selected-tab state.
+        activity.overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+        if (finishCurrent) {
+            activity.finish()
+            activity.overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+        }
     }
 
     fun attach(
@@ -127,8 +131,9 @@ object GalleryBottomBar {
                 setOnClickListener { tappedView ->
                     if (tab != active && !navigating) {
                         navigating = true
-                        // Keep the tapped item attached long enough for its release ripple to render.
-                        tappedView.postDelayed({ navigate(tab) }, NAVIGATION_RIPPLE_DELAY_MS)
+                        // Navigate on release; the Activity cross-fade lets the native
+                        // ripple finish on the outgoing item without a click delay.
+                        navigate(tab)
                     }
                 }
             }
