@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/dir_holder"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginHorizontal="4dp"
+    android:layout_marginTop="4dp"
+    android:layout_marginBottom="8dp"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?attr/selectableItemBackground">
+
+    <!-- The square cover stays independent of the readable caption below it. -->
+    <org.fossify.commons.views.MySquareImageView
+        android:id="@+id/dir_thumbnail"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scaleType="centerCrop" />
+
+    <!-- A locked album never renders or caches its protected thumbnail here. -->
+    <ImageView
+        android:id="@+id/dir_lock"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_alignTop="@id/dir_thumbnail"
+        android:layout_alignBottom="@id/dir_thumbnail"
+        android:layout_alignStart="@id/dir_thumbnail"
+        android:layout_alignEnd="@id/dir_thumbnail"
+        android:background="@color/default_background_color"
+        android:contentDescription="@string/lock_folder"
+        android:src="@drawable/ic_album_lock_outline"
+        android:padding="28dp"
+        android:scaleType="centerInside"
+        android:visibility="gone" />
+
+    <ImageView
+        android:id="@+id/dir_check"
+        android:layout_width="@dimen/selection_check_size"
+        android:layout_height="@dimen/selection_check_size"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentEnd="true"
+        android:layout_margin="@dimen/small_margin"
+        android:background="@drawable/circle_background"
+        android:contentDescription="@null"
+        android:padding="@dimen/tiny_margin"
+        android:src="@drawable/ic_check_vector"
+        android:visibility="gone" />
+
+    <ImageView
+        android:id="@+id/dir_pin"
+        android:layout_width="@dimen/selection_check_size"
+        android:layout_height="@dimen/selection_check_size"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentStart="true"
+        android:contentDescription="@string/pin"
+        android:src="@drawable/ic_pin_filled_vector"
+        android:visibility="gone" />
+
+    <RelativeLayout
+        android:id="@+id/dir_drag_handle_wrapper"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignTop="@id/dir_thumbnail"
+        android:visibility="gone">
+        <ImageView
+            android:id="@+id/dir_drag_handle"
+            android:layout_width="@dimen/drag_handle_size"
+            android:layout_height="@dimen/drag_handle_size"
+            android:layout_alignParentTop="true"
+            android:layout_centerHorizontal="true"
+            android:layout_margin="@dimen/medium_margin"
+            android:background="@drawable/circle_black_background"
+            android:padding="@dimen/small_margin"
+            android:src="@drawable/ic_drag_handle_vector"
+            android:contentDescription="@string/reorder_by_dragging" />
+    </RelativeLayout>
+
+    <TextView
+        android:id="@+id/dir_name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/dir_thumbnail"
+        android:layout_marginTop="6dp"
+        android:fontFamily="sans-serif-medium"
+        android:textSize="14sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textColor="?android:attr/textColorPrimary"
+        tools:text="Camera" />
+
+    <TextView
+        android:id="@+id/photo_cnt"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/dir_name"
+        android:layout_marginTop="2dp"
+        android:textSize="12sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textColor="?android:attr/textColorSecondary"
+        tools:text="36 items" />
+
+    <ImageView
+        android:id="@+id/dir_location"
+        android:layout_width="@dimen/sd_card_icon_size"
+        android:layout_height="@dimen/sd_card_icon_size"
+        android:layout_alignParentEnd="true"
+        android:layout_alignTop="@id/dir_thumbnail"
+        android:layout_margin="@dimen/small_margin"
+        android:contentDescription="@null"
+        android:src="@drawable/ic_sd_card_vector"
+        android:visibility="gone" />
+
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        android:id="@+id/dir_loading_progress"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:layout_alignParentTop="true"
+        android:indeterminate="true"
+        android:visibility="gone"
+        app:indicatorColor="#FFFFFFFF"
+        app:trackColor="#99000000"
+        app:trackThickness="3dp" />
+</RelativeLayout>
