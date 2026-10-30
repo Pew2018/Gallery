@@ -78,7 +78,8 @@ object ToolbarQuickActions {
         val density = activity.resources.displayMetrics.density
         val measuredDp = (searchMenu.width.takeIf { it > 0 }
             ?: activity.resources.displayMetrics.widthPixels) / density
-        val reservedDp = (if (hasBack) 48 else 16) + 104 + 48 +
+        // 96dp title keeps the classic 20sp label readable without breaking 48dp targets.
+        val reservedDp = (if (hasBack) 48 else 16) + 96 + 48 +
             (if (showSearch) 48 else 0) + fixedActionCount * 48
         val slots = ((measuredDp - reservedDp) / 48f).toInt().coerceIn(0, 5)
         val available = chosen.filter { it != SEARCH && supported(it) }.take(slots)
