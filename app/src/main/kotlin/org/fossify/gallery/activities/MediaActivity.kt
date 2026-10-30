@@ -50,6 +50,7 @@ import org.fossify.commons.extensions.getTimeFormat
 import org.fossify.commons.extensions.handleHiddenFolderPasswordProtection
 import org.fossify.commons.extensions.handleLockedFolderOpening
 import org.fossify.commons.extensions.hideKeyboard
+import org.fossify.commons.extensions.showKeyboard
 import org.fossify.commons.extensions.isExternalStorageManager
 import org.fossify.commons.extensions.isGone
 import org.fossify.commons.extensions.isMediaFile
@@ -83,6 +84,7 @@ import org.fossify.gallery.dialogs.ChangeViewTypeDialog
 import org.fossify.gallery.dialogs.FilterMediaDialog
 import org.fossify.gallery.dialogs.GrantAllFilesDialog
 import org.fossify.gallery.extensions.config
+import org.fossify.gallery.extensions.handleExcludedFolderPasswordProtection
 import org.fossify.gallery.extensions.deleteDBPath
 import org.fossify.gallery.extensions.directoryDB
 import org.fossify.gallery.extensions.emptyAndDisableTheRecycleBin
@@ -160,6 +162,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mShowAll = false
     // Null means a single folder or external picker, not a root navigation page.
     private var mGallerySection: GallerySection? = null
+    private val hasFixedBrowseSwitch: Boolean
+        get() = org.fossify.gallery.helpers.ToolbarQuickActions
+            .hasFixedBrowseSwitch(mPath, mGallerySection)
     private var mLoadedInitialPhotos = false
     private var mShowLoadingIndicator = true
     private var mWasFullscreenViewOpen = false
@@ -363,6 +368,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
         setupOptionsMenu()
         refreshMenuItems()
+        binding.mediaMenu.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+            if (right - left != oldRight - oldLeft) updateMenuColors()
+        }
         storeStateVariables()
         if (mGallerySection != null) {
             GalleryBottomBar.attach(this, binding.root,
@@ -721,12 +729,17 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             findItem(R.id.empty_disable_recycle_bin).isVisible = mPath == RECYCLE_BIN
             findItem(R.id.restore_all_files).isVisible = mPath == RECYCLE_BIN
 
-            findItem(R.id.folder_view).isVisible = mPath != FAVORITES && (mGallerySection != null || mShowAll)
+            findItem(R.id.folder_view).isVisible = hasFixedBrowseSwitch
             findItem(R.id.open_camera).isVisible = mShowAll
             findItem(R.id.about).isVisible = mShowAll
             findItem(R.id.create_new_folder).isVisible =
                 !mShowAll && mPath != RECYCLE_BIN && mPath != FAVORITES
             findItem(R.id.open_recycle_bin).isVisible = config.useRecycleBin && mPath != RECYCLE_BIN
+
+            findItem(R.id.temporarily_show_excluded).isVisible =
+                mPath.isEmpty() && !config.temporarilyShowExcluded
+            findItem(R.id.stop_showing_excluded).isVisible =
+                mPath.isEmpty() && config.temporarilyShowExcluded
 
             findItem(R.id.temporarily_show_hidden).isVisible = !config.shouldShowHidden
             findItem(R.id.stop_showing_hidden).isVisible =
@@ -755,7 +768,26 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         binding.mediaMenu.requireToolbar().setOnMenuItemClickListener { menuItem ->
+            if (org.fossify.gallery.helpers.ToolbarQuickActions.isSlot(menuItem.itemId)) {
+                when (org.fossify.gallery.helpers.ToolbarQuickActions.actionForSlot(binding.mediaMenu, menuItem.itemId)) {
+                    org.fossify.gallery.helpers.ToolbarQuickActions.SORT -> showSortingDialog()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.FILTER -> showFilterMediaDialog()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.VIEW -> changeViewType()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.COLUMNS -> changeColumnCount()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.HIDDEN -> tryToggleTemporarilyShowHidden()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.EXCLUDED -> tryToggleTemporarilyShowExcluded()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW -> startSlideshow()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.GROUP -> showGroupByDialog()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.FILENAME -> toggleFilenameVisibility()
+                    else -> return@setOnMenuItemClickListener false
+                }
+                return@setOnMenuItemClickListener true
+            }
             when (menuItem.itemId) {
+                R.id.quick_toolbar_search_overflow -> {
+                    binding.mediaMenu.focusView()
+                    showKeyboard(binding.mediaMenu.binding.topToolbarSearch)
+                }
                 R.id.sort -> showSortingDialog()
                 R.id.filter -> showFilterMediaDialog()
                 R.id.empty_recycle_bin -> emptyRecycleBin()
@@ -768,6 +800,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 R.id.group -> showGroupByDialog()
                 R.id.create_new_folder -> createNewFolder()
                 R.id.open_recycle_bin -> openRecycleBin()
+                R.id.temporarily_show_excluded -> tryToggleTemporarilyShowExcluded()
+                R.id.stop_showing_excluded -> tryToggleTemporarilyShowExcluded()
                 R.id.temporarily_show_hidden -> tryToggleTemporarilyShowHidden()
                 R.id.stop_showing_hidden -> tryToggleTemporarilyShowHidden()
                 R.id.column_count -> changeColumnCount()
@@ -815,6 +849,29 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             },
             backButton = mPath == FAVORITES || (mGallerySection == null && !mShowAll)
         )
+        val picker = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent || isSetWallpaperIntent()
+        if (!picker && mPath != RECYCLE_BIN) {
+            val isHome = mPath.isEmpty()
+            val viewType = config.getFolderViewType(if (isHome) SHOW_ALL else mPath)
+            org.fossify.gallery.helpers.ToolbarQuickActions.apply(
+                this, binding.mediaMenu,
+                if (isHome) org.fossify.gallery.helpers.ToolbarQuickScope.HOME
+                    else org.fossify.gallery.helpers.ToolbarQuickScope.FOLDER,
+                if (isHome) config.toolbarHomeActions else config.toolbarFolderActions,
+                hasBack = !isHome,
+                fixedActionCount = if (hasFixedBrowseSwitch) 1 else 0,
+                supported = { action ->
+                    when (action) {
+                        org.fossify.gallery.helpers.ToolbarQuickActions.COLUMNS,
+                        org.fossify.gallery.helpers.ToolbarQuickActions.FILENAME -> viewType == VIEW_TYPE_GRID
+                        org.fossify.gallery.helpers.ToolbarQuickActions.GROUP -> !config.scrollHorizontally
+                        org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW ->
+                            mMedia.any { it is Medium }
+                        else -> true
+                    }
+                }
+            )
+        }
     }
 
     private fun storeStateVariables() {
@@ -1387,6 +1444,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
     }
 
+    private fun tryToggleTemporarilyShowExcluded() {
+        val update: (Boolean) -> Unit = { show ->
+            config.temporarilyShowExcluded = show
+            mLoadedInitialPhotos = false
+            binding.mediaGrid.adapter = null
+            getMedia()
+            refreshMenuItems()
+        }
+        if (config.temporarilyShowExcluded) update(false)
+        else handleExcludedFolderPasswordProtection { update(true) }
+    }
+
     private fun tryToggleTemporarilyShowHidden() {
         if (config.temporarilyShowHidden) {
             toggleTemporarilyShowHidden(false)
@@ -1696,6 +1765,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
             checkLastMediaChanged()
             mMedia = ArrayList(media)
+            // The slideshow shortcut is only useful once at least one authorized
+            // media item has been published; refresh after cache and final scan.
+            if (org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW in
+                (if (mPath.isEmpty()) config.toolbarHomeActions else config.toolbarFolderActions)) {
+                refreshMenuItems()
+            }
             displayedMediaRequest = request
             displayedMediaIsFinal = !isFromCache
             binding.loadingIndicator.hide()

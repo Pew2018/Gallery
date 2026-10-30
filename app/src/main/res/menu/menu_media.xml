@@ -24,7 +24,7 @@
     <item
         android:id="@+id/filter"
         android:orderInCategory="20"
-        android:icon="@drawable/ic_filter_vector"
+        android:icon="@drawable/ic_quick_media_filter_vector"
         android:title="@string/filter_media"
         app:showAsAction="never" />
     <item
@@ -122,5 +122,57 @@
         android:orderInCategory="91"
         android:icon="@drawable/ic_info_vector"
         android:title="@string/about"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/temporarily_show_excluded"
+        android:orderInCategory="42"
+        android:title="@string/temporarily_show_excluded"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/stop_showing_excluded"
+        android:orderInCategory="43"
+        android:title="@string/stop_showing_excluded"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/quick_toolbar_slot_0"
+        android:orderInCategory="2"
+        android:icon="@drawable/ic_sort_vector"
+        android:title="@string/quick_action_sort"
+        android:visible="false"
+        app:showAsAction="always" />
+    <item
+        android:id="@+id/quick_toolbar_slot_1"
+        android:orderInCategory="3"
+        android:icon="@drawable/ic_sort_vector"
+        android:title="@string/quick_action_sort"
+        android:visible="false"
+        app:showAsAction="always" />
+    <item
+        android:id="@+id/quick_toolbar_slot_2"
+        android:orderInCategory="4"
+        android:icon="@drawable/ic_sort_vector"
+        android:title="@string/quick_action_sort"
+        android:visible="false"
+        app:showAsAction="always" />
+    <item
+        android:id="@+id/quick_toolbar_slot_3"
+        android:orderInCategory="5"
+        android:icon="@drawable/ic_sort_vector"
+        android:title="@string/quick_action_sort"
+        android:visible="false"
+        app:showAsAction="always" />
+    <item
+        android:id="@+id/quick_toolbar_slot_4"
+        android:orderInCategory="6"
+        android:icon="@drawable/ic_sort_vector"
+        android:title="@string/quick_action_sort"
+        android:visible="false"
+        app:showAsAction="always" />
+    <item
+        android:id="@+id/quick_toolbar_search_overflow"
+        android:orderInCategory="11"
+        android:icon="@drawable/ic_search_vector"
+        android:title="@string/quick_toolbar_search_fallback"
+        android:visible="false"
         app:showAsAction="never" />
 </menu>

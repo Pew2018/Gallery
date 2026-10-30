@@ -348,5 +348,30 @@
     <string name="picker_restore_default_folders">Restore default folder visibility</string>
     <string name="picker_show_hidden_folders">Show hidden folders</string>
     <string name="picker_hidden_folders_visible">Hidden folders shown for this selection</string>
+    <string name="quick_toolbar_title">Customize toolbar buttons</string>
+    <string name="quick_toolbar_home">Home</string>
+    <string name="quick_toolbar_folder">In folders</string>
+    <string name="quick_toolbar_count">Selected %1$d / 5 actions</string>
+    <string name="quick_toolbar_guidance">Choose up to 5 actions and keep at least 1.</string>
+    <string name="quick_toolbar_limit">Choose no more than 5 actions and keep at least 1.</string>
+    <string name="quick_toolbar_fixed_section">Fixed position</string>
+    <string name="quick_toolbar_optional_section">Optional shortcuts</string>
+    <string name="quick_toolbar_browse_view">Switch browse view</string>
+    <string name="quick_toolbar_fixed_browse_accessibility">Switch browse view, always visible</string>
+    <string name="quick_toolbar_done">Save</string>
+    <string name="quick_toolbar_reset">Reset</string>
+    <string name="quick_action_sort">Sort by</string>
+    <string name="quick_action_filter">Filter media types</string>
+    <string name="quick_action_view">Switch list / grid view</string>
+    <string name="quick_action_columns">Grid columns</string>
+    <string name="quick_action_hidden">Temporarily show hidden items</string>
+    <string name="quick_action_slideshow">Slideshow playback</string>
+    <string name="quick_action_group">Group by</string>
+    <string name="quick_action_filename">Toggle file name display</string>
+    <string name="quick_action_excluded">Temporarily show excluded items</string>
+    <string name="quick_toolbar_search_fallback">Search</string>
+    <string name="quick_toolbar_drag">Long-press and drag to reorder</string>
+    <string name="quick_toolbar_drag_row">%1$s, long-press the handle to reorder</string>
+    <string name="quick_toolbar_choose_row">%1$s, select shortcut</string>
 </resources>
 

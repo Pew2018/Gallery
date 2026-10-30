@@ -312,5 +312,30 @@
     <string name="picker_restore_default_folders">恢复默认显示</string>
     <string name="picker_show_hidden_folders">显示隐藏文件夹</string>
     <string name="picker_hidden_folders_visible">已在本次选择中显示隐藏文件夹</string>
+    <string name="quick_toolbar_title">自定义顶栏按钮</string>
+    <string name="quick_toolbar_home">主页</string>
+    <string name="quick_toolbar_folder">文件夹内</string>
+    <string name="quick_toolbar_count">已选择 %1$d / 5 项</string>
+    <string name="quick_toolbar_guidance">最多选择 5 项，至少保留 1 项。</string>
+    <string name="quick_toolbar_limit">最多选择 5 项，至少保留 1 项。</string>
+    <string name="quick_toolbar_fixed_section">固定位置</string>
+    <string name="quick_toolbar_optional_section">可选快捷操作</string>
+    <string name="quick_toolbar_browse_view">切换浏览视图</string>
+    <string name="quick_toolbar_fixed_browse_accessibility">切换浏览视图，始终显示</string>
+    <string name="quick_toolbar_done">保存</string>
+    <string name="quick_toolbar_reset">恢复默认</string>
+    <string name="quick_action_sort">排序方式</string>
+    <string name="quick_action_filter">筛选媒体类型</string>
+    <string name="quick_action_view">切换列表／网格视图</string>
+    <string name="quick_action_columns">网格列数</string>
+    <string name="quick_action_hidden">临时显示隐藏项目</string>
+    <string name="quick_action_slideshow">幻灯片播放</string>
+    <string name="quick_action_group">分组方式</string>
+    <string name="quick_action_filename">切换文件名显示</string>
+    <string name="quick_action_excluded">临时显示已排除项目</string>
+    <string name="quick_toolbar_search_fallback">搜索</string>
+    <string name="quick_toolbar_drag">长按右侧图标调整顺序</string>
+    <string name="quick_toolbar_drag_row">%1$s，长按右侧图标调整顺序</string>
+    <string name="quick_toolbar_choose_row">%1$s，选择快捷功能</string>
 </resources>
 
