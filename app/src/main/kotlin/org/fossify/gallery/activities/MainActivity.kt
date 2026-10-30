@@ -18,6 +18,8 @@ import android.widget.Toast
 import java.util.concurrent.Future
 import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.ConcatAdapter
+import androidx.recyclerview.widget.GridLayoutManager
 import org.fossify.commons.dialogs.CreateNewFolderDialog
 import org.fossify.commons.dialogs.FilePickerDialog
 import org.fossify.commons.dialogs.RadioGroupDialog
@@ -145,6 +147,8 @@ import org.fossify.gallery.helpers.LOCATION_INTERNAL
 import org.fossify.gallery.helpers.MAX_COLUMN_COUNT
 import org.fossify.gallery.helpers.MONTH_MILLISECONDS
 import org.fossify.gallery.helpers.GalleryBottomBar
+import org.fossify.gallery.helpers.AlbumPinnedHeaderAdapter
+import org.fossify.gallery.helpers.AlbumOtherTitleAdapter
 import org.fossify.gallery.helpers.GalleryNavigation
 import org.fossify.gallery.helpers.GalleryScreen
 import org.fossify.gallery.helpers.GallerySection
@@ -232,6 +236,19 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mLastMediaFetcher: MediaFetcher? = null
     private var mDirs = ArrayList<Directory>()
     private var mDirsIgnoringSearch = ArrayList<Directory>()
+
+    // Only the album-home presentation is split. All directory business logic,
+    // permissions and persisted pin order continue to use the complete source.
+    private var mHomeGroupedActive = false
+    private var mHomePinnedExpanded = false
+    private var mHomeSourceDirs = ArrayList<Directory>()
+    private var mHomePinnedDirs = ArrayList<Directory>()
+    private var mHomeConcat: ConcatAdapter? = null
+    private var mHomeFavoriteAdapter: DirectoryAdapter? = null
+    private var mHomePinnedAdapter: DirectoryAdapter? = null
+    private var mHomeOtherAdapter: DirectoryAdapter? = null
+    private var mHomeHeader: AlbumPinnedHeaderAdapter? = null
+    private var mHomeOtherLabel: AlbumOtherTitleAdapter? = null
 
     private var mStoredAnimateGifs = true
     private var mStoredCropThumbnails = true
@@ -714,7 +731,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         )
     }
 
-    private fun getRecyclerAdapter() = binding.directoriesGrid.adapter as? DirectoryAdapter
+    private fun getRecyclerAdapter(): DirectoryAdapter? =
+        if (binding.directoriesGrid.adapter == null) null
+        else if (mHomeGroupedActive) mHomeOtherAdapter
+        else binding.directoriesGrid.adapter as? DirectoryAdapter
 
     private fun storeStateVariables() {
         mStoredTextColor = getProperTextColor()
@@ -1474,6 +1494,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         getRecyclerAdapter()?.apply {
             notifyItemRangeChanged(0, dirs.size)
         }
+        if (mHomeGroupedActive) {
+            mHomePinnedAdapter?.notifyDataSetChanged()
+            mHomeHeader?.submit(mHomePinnedDirs, mHomePinnedExpanded, config.dirColumnCnt)
+        }
     }
 
     private fun isPickImageIntent(intent: Intent): Boolean {
@@ -2152,79 +2176,174 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         binding.directoriesFastscroller.beVisibleIf(binding.directoriesEmptyPlaceholder.isGone())
     }
 
+    /**
+     * Keep root albums separated visually without moving folder data into a
+     * second screen. ConcatAdapter lets expanded pinned folders occupy normal
+     * grid cells in the same RecyclerView as ordinary folders.
+     */
     private fun setupAdapter(
         dirs: ArrayList<Directory>,
         textToSearch: String = binding.mainMenu.getCurrentQuery(),
         forceRecreate: Boolean = false,
         sortDirs: Boolean = true
     ) {
-        val currAdapter = binding.directoriesGrid.adapter
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            val snapshot = ArrayList(dirs)
+            runOnUiThread { setupAdapter(snapshot, textToSearch, forceRecreate, sortDirs) }
+            return
+        }
+
+        val current = binding.directoriesGrid.adapter
+        val wasGrouped = mHomeGroupedActive && current === mHomeConcat
         val distinctDirs = dirs
             .filter { !mShowingFolderFavorites || mFavoriteFolderPaths.contains(it.path) }
             .distinctBy {
                 if (mShowingFolderFavorites) FavoriteFolderRules.normalizedPath(it.path)
                 else it.path.getDistinctPath()
             }
-            .toMutableList() as ArrayList<Directory>
-
+            .toCollection(ArrayList())
         val sortedDirs = if (sortDirs) getSortedDirectories(distinctDirs) else distinctDirs
-        var dirsToShow = getDirsToShow(
+        var visible = getDirsToShow(
             dirs = sortedDirs,
             allDirs = mDirs,
             currentPathPrefix = mCurrentPathPrefix
-        ).clone() as ArrayList<Directory>
+        ).toCollection(ArrayList())
 
-        if (currAdapter == null || forceRecreate) {
-            mDirsIgnoringSearch = dirs
-            initZoomListener()
-            DirectoryAdapter(
-                this,
-                dirsToShow,
-                this,
-                binding.directoriesGrid,
-                isPickIntent(intent) || isGetAnyContentIntent(intent),
-                binding.directoriesRefreshLayout
-            ) {
-                val clickedDir = it as Directory
-                val path = clickedDir.path
-                if (clickedDir.subfoldersCount == 1 || !config.groupDirectSubfolders) {
-                    if (path != config.tempFolderPath) {
-                        itemClicked(path)
-                    }
-                } else {
-                    mCurrentPathPrefix = path
-                    mOpenedSubfolders.add(path)
-                    setupAdapter(mDirs, "")
+        // Keep legacy file picking, search, grouped subfolders and horizontally
+        // scrolling folders untouched. Only the standard vertical root is new.
+        val useHomeSections = !mIsThirdPartyIntent &&
+            !mShowingFolderFavorites &&
+            mCurrentPathPrefix.isEmpty() &&
+            !config.scrollHorizontally &&
+            !config.groupDirectSubfolders &&
+            textToSearch.isBlank()
+
+        if (useHomeSections) {
+            mHomeSourceDirs = ArrayList(visible)
+            val virtualFavorite = visible.filter { it.path == FAVORITES }
+            val pinSet = config.pinnedFolders
+            val pinned = visible.filter { it.path != FAVORITES && it.path in pinSet }
+            val others = visible.filter { it.path != FAVORITES && it.path !in pinSet }
+            mHomePinnedDirs = ArrayList(pinned)
+            val expandedItems = if (mHomePinnedExpanded) ArrayList(pinned) else arrayListOf()
+
+            if (current == null || !wasGrouped || forceRecreate) {
+                mDirsIgnoringSearch = dirs
+                initZoomListener()
+                fun open(directory: Directory) = itemClicked(directory.path)
+                mHomeFavoriteAdapter = DirectoryAdapter(
+                    this, ArrayList(virtualFavorite), this, binding.directoriesGrid, false,
+                    compactVirtualFavorite = true
+                ) { open(it as Directory) }
+                mHomePinnedAdapter = DirectoryAdapter(
+                    this, expandedItems, this, binding.directoriesGrid, false
+                ) { open(it as Directory) }
+                mHomeOtherAdapter = DirectoryAdapter(
+                    this, ArrayList(others), this, binding.directoriesGrid,
+                    false, binding.directoriesRefreshLayout
+                ) { open(it as Directory) }.apply {
+                    setupZoomListener(mZoomListener)
+                    setRefreshLoading(mIsGettingDirs)
                 }
-            }.apply {
-                setupZoomListener(mZoomListener)
-                setRefreshLoading(mIsGettingDirs)
-                runOnUiThread {
+                mHomeHeader = AlbumPinnedHeaderAdapter(
+                    this,
+                    { recycler, entries, width ->
+                        DirectoryAdapter(
+                            this, entries, this, recycler, false,
+                            embeddedPinnedWidthPx = width
+                        ) { open(it as Directory) }
+                    },
+                    {
+                        mHomePinnedExpanded = !mHomePinnedExpanded
+                        mHomeHeader?.submit(
+                            mHomePinnedDirs, mHomePinnedExpanded, config.dirColumnCnt
+                        )
+                        mHomePinnedAdapter?.updateDirs(
+                            if (mHomePinnedExpanded) ArrayList(mHomePinnedDirs)
+                            else arrayListOf()
+                        )
+                        binding.directoriesGrid.requestLayout()
+                    }
+                ).apply { submit(pinned, mHomePinnedExpanded, config.dirColumnCnt) }
+                mHomeOtherLabel = AlbumOtherTitleAdapter(this).apply { submit(others.size) }
+                mHomeConcat = ConcatAdapter(
+                    mHomeFavoriteAdapter!!, mHomeHeader!!, mHomePinnedAdapter!!,
+                    mHomeOtherLabel!!, mHomeOtherAdapter!!
+                )
+                mHomeGroupedActive = true
+                binding.directoriesGrid.adapter = mHomeConcat
+                setupScrollDirection()
+            } else {
+                mHomeFavoriteAdapter?.updateDirs(ArrayList(virtualFavorite))
+                mHomeHeader?.submit(pinned, mHomePinnedExpanded, config.dirColumnCnt)
+                mHomePinnedAdapter?.updateDirs(expandedItems)
+                mHomeOtherLabel?.submit(others.size)
+                mHomeOtherAdapter?.updateDirs(ArrayList(others))
+            }
+            // Header rows and the compact virtual favorite must span the full
+            // row. Ordinary and expanded pinned albums share the configured grid.
+            (binding.directoriesGrid.layoutManager as? MyGridLayoutManager)?.let { manager ->
+                manager.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
+                    override fun getSpanSize(position: Int): Int {
+                        var index = position
+                        val favorites = mHomeFavoriteAdapter?.itemCount ?: 0
+                        if (index < favorites) return manager.spanCount
+                        index -= favorites
+                        val section = mHomeHeader?.itemCount ?: 0
+                        if (index < section) return manager.spanCount
+                        index -= section
+                        val expanded = mHomePinnedAdapter?.itemCount ?: 0
+                        if (index < expanded) return if (config.viewTypeFolders == VIEW_TYPE_LIST) manager.spanCount else 1
+                        index -= expanded
+                        if (index < (mHomeOtherLabel?.itemCount ?: 0)) return manager.spanCount
+                        return if (config.viewTypeFolders == VIEW_TYPE_LIST) manager.spanCount else 1
+                    }
+                }
+                manager.spanSizeLookup.invalidateSpanIndexCache()
+            }
+        } else {
+            if (current == null || forceRecreate || wasGrouped) {
+                mHomeGroupedActive = false
+                mHomeConcat = null
+                mDirsIgnoringSearch = dirs
+                initZoomListener()
+                DirectoryAdapter(
+                    this, visible, this, binding.directoriesGrid,
+                    isPickIntent(intent) || isGetAnyContentIntent(intent),
+                    binding.directoriesRefreshLayout
+                ) {
+                    val directory = it as Directory
+                    if (directory.subfoldersCount == 1 || !config.groupDirectSubfolders) {
+                        if (directory.path != config.tempFolderPath) itemClicked(directory.path)
+                    } else {
+                        mCurrentPathPrefix = directory.path
+                        mOpenedSubfolders.add(directory.path)
+                        setupAdapter(mDirs, "")
+                    }
+                }.apply {
+                    setupZoomListener(mZoomListener)
+                    setRefreshLoading(mIsGettingDirs)
                     binding.directoriesGrid.adapter = this
                     setupScrollDirection()
-
                     if (config.viewTypeFolders == VIEW_TYPE_LIST && areSystemAnimationsEnabled) {
                         binding.directoriesGrid.scheduleLayoutAnimation()
                     }
                 }
-            }
-        } else {
-            runOnUiThread {
+            } else {
                 if (textToSearch.isNotEmpty()) {
-                    dirsToShow = dirsToShow
-                        .filter { it.name.contains(textToSearch, true) }
+                    visible = visible.filter { it.name.contains(textToSearch, true) }
                         .sortedBy { !it.name.startsWith(textToSearch, true) }
-                        .toMutableList() as ArrayList
+                        .toCollection(ArrayList())
                 }
-                checkPlaceholderVisibility(dirsToShow)
-
-                (binding.directoriesGrid.adapter as? DirectoryAdapter)?.updateDirs(dirsToShow)
+                checkPlaceholderVisibility(visible)
+                getRecyclerAdapter()?.updateDirs(visible)
             }
+            (binding.directoriesGrid.layoutManager as? MyGridLayoutManager)?.spanSizeLookup =
+                GridLayoutManager.DefaultSpanSizeLookup()
         }
 
-        // recyclerview sometimes becomes empty at init/update, triggering an invisible refresh like this seems to work fine
         binding.directoriesGrid.postDelayed({
-            binding.directoriesGrid.scrollBy(0, 0)
+            if (!isFinishing && !isDestroyed) binding.directoriesGrid.scrollBy(0, 0)
         }, 500)
     }
 
@@ -2312,7 +2431,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 
-    private fun getCurrentlyDisplayedDirs() = getRecyclerAdapter()?.dirs ?: ArrayList()
+    private fun getCurrentlyDisplayedDirs(): ArrayList<Directory> =
+        if (mHomeGroupedActive) ArrayList(mHomeSourceDirs)
+        else getRecyclerAdapter()?.dirs ?: ArrayList()
 
     private fun setupLatestMediaId() {
         ensureBackgroundThread {
