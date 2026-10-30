@@ -3,7 +3,8 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/filepicker_coordinator"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="wrap_content"
+    android:minHeight="@dimen/classic_filepicker_dialog_min_height">
 
     <RelativeLayout
         android:id="@+id/filepicker_holder"
@@ -49,7 +50,7 @@
                 <org.fossify.commons.views.MyRecyclerView
                     android:id="@+id/filepicker_list"
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent"
+                    android:layout_height="wrap_content"
                     android:layout_marginStart="@dimen/medium_margin"
                     android:layoutAnimation="@anim/layout_animation"
                     android:scrollbars="none"
@@ -76,7 +77,7 @@
             <org.fossify.commons.views.MyRecyclerView
                 android:id="@+id/filepicker_favorites_list"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
+                android:layout_height="wrap_content"
                 android:layout_below="@+id/filepicker_favorites_label"
                 android:layout_marginStart="@dimen/activity_margin"
                 android:scrollbars="none"

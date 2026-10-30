@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/directories_holder"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="wrap_content">
 
     <RelativeLayout
         android:id="@+id/directories_grid_holder"
@@ -56,7 +56,7 @@
             <org.fossify.commons.views.MyRecyclerView
                 android:id="@+id/directories_grid"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
+                android:layout_height="wrap_content"
                 android:scrollbars="none"
                 app:layoutManager="org.fossify.commons.views.MyGridLayoutManager"
                 app:spanCount="@integer/directory_columns_vertical_scroll" />
