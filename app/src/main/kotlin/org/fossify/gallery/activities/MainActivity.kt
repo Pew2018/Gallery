@@ -346,6 +346,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 if (mShowingFolderFavorites) GalleryBottomBar.Tab.FAVORITES else GalleryBottomBar.Tab.ALL
             ) { tab ->
                 getRecyclerAdapter()?.finishActMode()
+                mHomeFavoriteAdapter?.finishActMode()
+                mHomePinnedAdapter?.finishActMode()
                 val section = if (tab == GalleryBottomBar.Tab.FAVORITES)
                     GallerySection.FAVORITES else GallerySection.ALL
                 openGalleryRoot(GalleryNavigation.bottomDestination(
@@ -2233,14 +2235,16 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 fun open(directory: Directory) = itemClicked(directory.path)
                 mHomeFavoriteAdapter = DirectoryAdapter(
                     this, ArrayList(virtualFavorite), this, binding.directoriesGrid, false,
-                    compactVirtualFavorite = true
+                    compactVirtualFavorite = true, allowDragSelection = false
                 ) { open(it as Directory) }
                 mHomePinnedAdapter = DirectoryAdapter(
-                    this, expandedItems, this, binding.directoriesGrid, false
+                    this, expandedItems, this, binding.directoriesGrid, false,
+                    allowDragSelection = false
                 ) { open(it as Directory) }
                 mHomeOtherAdapter = DirectoryAdapter(
                     this, ArrayList(others), this, binding.directoriesGrid,
-                    false, binding.directoriesRefreshLayout
+                    false, binding.directoriesRefreshLayout,
+                    allowDragSelection = false
                 ) { open(it as Directory) }.apply {
                     setupZoomListener(mZoomListener)
                     setRefreshLoading(mIsGettingDirs)
@@ -2271,6 +2275,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     mHomeOtherLabel!!, mHomeOtherAdapter!!
                 )
                 mHomeGroupedActive = true
+                // ConcatAdapter offsets make the old global drag-range handler
+                // select wrong rows. Normal long-press selection stays enabled.
+                binding.directoriesGrid.setupDragListener(null)
                 binding.directoriesGrid.adapter = mHomeConcat
                 setupScrollDirection()
             } else {
