@@ -1171,6 +1171,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     private fun loadCategorizedFolders() {
         if (mIsGettingDirs) return
+        // Category results must supersede an older normal album scan, not just
+        // stop its fetcher while leaving its cache/UI callbacks eligible to publish.
+        retireDirectoryScan()
         mIsGettingDirs = true
         setDirectoryLoading(true)
         val requestVersion = ++categorizedLoadVersion
