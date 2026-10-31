@@ -52,19 +52,67 @@ class SettingsActivity : SimpleActivity() {
     private lateinit var settingsBackCallback: OnBackPressedCallback
 
     private data class SettingsCategory(
-        val id: String, val title: Int, val summary: Int, val icon: Int, val first: Int, val last: Int
+        val id: String, val title: Int, val summary: Int, val icon: Int, val itemIds: Set<Int>
     )
 
     private val settingsCategories by lazy {
         listOf(
-            SettingsCategory("appearance", R.string.classic_settings_appearance, R.string.settings_hub_appearance_summary, R.drawable.ic_photo_filter_vector, 0, 7),
-            SettingsCategory("gallery", R.string.settings_hub_gallery, R.string.settings_hub_gallery_summary, R.drawable.ic_folders_vector, 8, 10),
-            SettingsCategory("photos", R.string.settings_hub_photos, R.string.settings_hub_photos_summary, R.drawable.ic_portrait_photo_vector, 11, 24),
-            SettingsCategory("controls", R.string.settings_hub_controls, R.string.settings_hub_controls_summary, R.drawable.ic_aspect_ratio_vector, 25, 31),
-            SettingsCategory("videos", R.string.classic_settings_video, R.string.settings_hub_videos_summary, R.drawable.ic_play_vector, 32, 40),
-            SettingsCategory("files", R.string.classic_settings_files, R.string.settings_hub_files_summary, R.drawable.ic_files_vector, 41, 54),
-            SettingsCategory("security", R.string.classic_settings_security, R.string.settings_hub_security_summary, org.fossify.commons.R.drawable.ic_lock_vector, 55, 61),
-            SettingsCategory("advanced", R.string.classic_settings_advanced, R.string.settings_hub_advanced_summary, org.fossify.commons.R.drawable.ic_settings_cog_vector, 62, 74)
+            SettingsCategory("appearance", R.string.classic_settings_appearance, R.string.settings_hub_appearance_summary, R.drawable.ic_photo_filter_vector, setOf(
+                R.id.settings_color_customization_section_label, R.id.settings_color_customization_holder,
+                R.id.settings_bottom_navigation_order_holder, R.id.settings_app_icon_holder,
+                R.id.settings_crop_thumbnails_holder, R.id.settings_file_thumbnail_style_holder,
+                R.id.settings_folder_thumbnail_style_holder, R.id.settings_color_customization_divider
+            )),
+            SettingsCategory("gallery", R.string.settings_hub_gallery, R.string.settings_hub_gallery_summary, R.drawable.ic_folders_vector, setOf(
+                R.id.settings_scrolling_label, R.id.settings_scroll_horizontally_holder,
+                R.id.settings_enable_pull_to_refresh_holder
+            )),
+            SettingsCategory("photos", R.string.settings_hub_photos, R.string.settings_hub_photos_summary, R.drawable.ic_portrait_photo_vector, setOf(
+                R.id.settings_max_brightness_holder, R.id.settings_ultra_hdr_rendering_holder,
+                R.id.settings_black_background_holder, R.id.settings_hide_system_ui_holder,
+                R.id.settings_allow_instant_change_holder, R.id.settings_keep_screen_on_fullscreen_photos_holder,
+                R.id.settings_allow_photo_gestures_holder, R.id.settings_allow_down_gesture_holder,
+                R.id.settings_show_notch_holder, R.id.settings_screen_rotation_holder,
+                R.id.settings_allow_zooming_images_holder, R.id.settings_allow_rotating_with_gestures_holder,
+                R.id.settings_show_highest_quality_holder, R.id.settings_allow_one_to_one_zoom_holder
+            )),
+            SettingsCategory("controls", R.string.settings_hub_controls, R.string.settings_hub_controls_summary, R.drawable.ic_aspect_ratio_vector, setOf(
+                R.id.settings_show_extended_details_holder, R.id.settings_hide_extended_details_holder,
+                R.id.settings_manage_extended_details_holder, R.id.settings_bottom_actions_checkbox_holder,
+                R.id.settings_manage_bottom_actions_holder, R.id.settings_toolbar_quick_actions_holder,
+                R.id.settings_scrolling_divider
+            )),
+            SettingsCategory("videos", R.string.classic_settings_video, R.string.settings_hub_videos_summary, R.drawable.ic_play_vector, setOf(
+                R.id.settings_videos_label, R.id.settings_autoplay_videos_holder,
+                R.id.settings_remember_last_video_position_holder, R.id.settings_loop_videos_holder,
+                R.id.settings_open_videos_on_separate_screen_holder, R.id.settings_allow_video_gestures_holder,
+                R.id.settings_on_video_tap_holder, R.id.settings_animate_gifs_holder,
+                R.id.settings_videos_divider
+            )),
+            SettingsCategory("files", R.string.classic_settings_files, R.string.settings_hub_files_summary, R.drawable.ic_files_vector, setOf(
+                R.id.settings_file_operations_label, R.id.settings_manage_included_folders_holder,
+                R.id.settings_manage_excluded_folders_holder, R.id.settings_manage_hidden_folders_holder,
+                R.id.settings_show_hidden_items_holder, R.id.settings_search_all_files_holder,
+                R.id.settings_delete_empty_folders_holder, R.id.settings_keep_last_modified_holder,
+                R.id.settings_skip_delete_confirmation_holder, R.id.settings_use_recycle_bin_holder,
+                R.id.settings_show_recycle_bin_holder, R.id.settings_show_recycle_bin_last_holder,
+                R.id.settings_empty_recycle_bin_holder, R.id.settings_file_operations_divider
+            )),
+            SettingsCategory("security", R.string.classic_settings_security, R.string.settings_hub_security_summary, org.fossify.commons.R.drawable.ic_lock_vector, setOf(
+                R.id.settings_security_label, R.id.settings_app_password_protection_holder,
+                R.id.settings_hidden_item_password_protection_holder, R.id.settings_excluded_item_password_protection_holder,
+                R.id.settings_file_deletion_password_protection_holder, R.id.settings_favorite_password_holder,
+                R.id.settings_photo_password_holder
+            )),
+            SettingsCategory("advanced", R.string.classic_settings_advanced, R.string.settings_hub_advanced_summary, org.fossify.commons.R.drawable.ic_settings_cog_vector, setOf(
+                R.id.settings_security_divider, R.id.settings_migrating_label,
+                R.id.settings_purchase_thank_you_holder, R.id.settings_use_english_holder,
+                R.id.settings_language_holder, R.id.settings_change_date_time_format_holder,
+                R.id.settings_file_loading_priority_holder, R.id.settings_clear_cache_holder,
+                R.id.settings_export_favorites_holder, R.id.settings_import_favorites_holder,
+                R.id.settings_export_favorite_folders_holder, R.id.settings_import_favorite_folders_holder,
+                R.id.settings_export_holder, R.id.settings_import_holder
+            ))
         )
     }
 
@@ -206,7 +254,7 @@ class SettingsActivity : SimpleActivity() {
         val selected = settingsCategories.firstOrNull { it.id == activeSettingsCategory }
         settingsHub.visibility = if (selected == null) View.VISIBLE else View.GONE
         settingsPageViews.forEachIndexed { index, view ->
-            view.visibility = if (selected != null && index in selected.first..selected.last &&
+            view.visibility = if (selected != null && view.id in selected.itemIds &&
                 settingsPageInitialVisibility[index] == View.VISIBLE) View.VISIBLE else View.GONE
         }
         binding.settingsToolbar.title = getString(selected?.title ?: org.fossify.commons.R.string.settings)
