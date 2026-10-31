@@ -150,7 +150,7 @@
 
         <activity
             android:name=".activities.SettingsActivity"
-            android:configChanges="orientation"
+            android:configChanges="orientation|screenSize"
             android:exported="true"
             android:label="@string/settings"
             android:parentActivityName=".activities.MainActivity">

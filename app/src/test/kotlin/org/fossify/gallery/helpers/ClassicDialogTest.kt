@@ -461,4 +461,15 @@ class ClassicDialogTest {
         assertNotEquals(unchecked.getPixel(10, 4), checked.getPixel(10, 4))
     }
 
+
+    @Test fun photoHostsHandleRotationAndScreenSizeWithoutReplacingAuthenticationOwner() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val hosts = listOf(org.fossify.gallery.activities.MediaActivity::class.java,
+            org.fossify.gallery.activities.SettingsActivity::class.java)
+        for (host in hosts) {
+            val info = context.packageManager.getActivityInfo(android.content.ComponentName(context, host), 0)
+            assertTrue(info.configChanges and android.content.pm.ActivityInfo.CONFIG_ORIENTATION != 0)
+            assertTrue(info.configChanges and android.content.pm.ActivityInfo.CONFIG_SCREEN_SIZE != 0)
+        }
+    }
 }

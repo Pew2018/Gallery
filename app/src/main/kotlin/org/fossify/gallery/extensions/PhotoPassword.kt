@@ -147,8 +147,8 @@ private fun Activity.configurePhotoBiometricPassword(
         ContextCompat.getMainExecutor(host),
         object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                if (!requestCurrent(request) || !biometricTerminal() ||
-                    setupGeneration != PhotoProfileAccessSessionManager.currentGeneration()) { onReady(null, null); return }
+                if (!requestCurrent(request) || !biometricTerminal()) return
+                if (setupGeneration != PhotoProfileAccessSessionManager.currentGeneration()) { onReady(null, null); return }
                 choosePhotoFallbackCredential(request, expectedCredential) { saved ->
                     if (saved != null && config.isPhotoCredentialCurrent(saved)) {
                         onReady(saved, Config.PhotoCredentialProof(saved, PhotoProfileAccessSessionManager.currentGeneration(), request.id, null, biometricSucceeded = true))
