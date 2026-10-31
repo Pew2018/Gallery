@@ -2002,6 +2002,15 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     putExtra(SHOW_FAVORITES, mPath == FAVORITES)
                     putExtra(SHOW_RECYCLE_BIN, mPath == RECYCLE_BIN)
                     putExtra(IS_FROM_GALLERY, true)
+                    if (!isPhotoProfiles && !mShowAll && folderToken == null &&
+                        mPath.isNotEmpty() && mPath != FAVORITES && mPath != RECYCLE_BIN &&
+                        displayedMediaIsFinal && !mIsGettingMedia) {
+                        org.fossify.gallery.helpers.FolderViewerSnapshotStore.offer(
+                            applicationContext, mPath, path, mMedia.filterIsInstance<Medium>()
+                        )?.let {
+                            putExtra(org.fossify.gallery.helpers.FolderViewerSnapshotStore.EXTRA_ID, it)
+                        }
+                    }
                     if (isPhotoProfiles) {
                         binding.mediaGrid.stopScroll()
                         photoScroll.clear()

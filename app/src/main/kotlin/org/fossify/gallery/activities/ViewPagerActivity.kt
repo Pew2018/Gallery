@@ -214,6 +214,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var mIsFullScreen = false
     private var mPos = -1
     private var mShowAll = false
+    private var initialPublicFolderSnapshot = false
     private var mIsSlideshowActive = false
     private var mPrevHashcode = 0
 
@@ -660,6 +661,19 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
         val folderSessionId = intent.getStringExtra(FOLDER_UNLOCK_SESSION)
         activeFolderUnlockSessionId = folderSessionId
+        // Reuse a single-use public folder snapshot only; normal folder authentication
+        // below still applies, and protected/virtual/external views never skip a scan.
+        if (folderSessionId == null && !mShowAll && !isExternalIntent()) {
+            val cached = org.fossify.gallery.helpers.FolderViewerSnapshotStore.take(
+                applicationContext,
+                intent.getStringExtra(org.fossify.gallery.helpers.FolderViewerSnapshotStore.EXTRA_ID),
+                mPath.getParentPath(), mPath
+            )
+            if (cached != null) {
+                mMediaFiles = cached
+                initialPublicFolderSnapshot = true
+            }
+        }
         // Shared metadata is never proof of authorization for an exported
         // request. Locked cache entries need this request's own capability.
         val authenticateFolder = {
@@ -812,7 +826,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             gotMedia(mMediaFiles as ArrayList<ThumbnailItem>, refetchViewPagerPosition = true)
         }
 
-        if (!isPhotoProfile) refreshViewPager(true)
+        if (!isPhotoProfile && !initialPublicFolderSnapshot) refreshViewPager(true)
         binding.viewPager.offscreenPageLimit = 2
 
         if (config.blackBackground) {

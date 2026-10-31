@@ -1876,8 +1876,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         )
         GalleryPerfTrace.end("album_index_ready", indexedStarted, android11Files?.size)
         if (!isCurrentDirectoryScan(scanRequest)) return
+        var cachedCardUpdates = 0
         try {
-            for (directory in dirs) {
+            for (index in dirs.indices) {
+                val directory = dirs[index]
                 if (!isCurrentDirectoryScan(scanRequest)) {
                     return
                 }
@@ -1988,22 +1990,30 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     continue
                 }
 
-                directory.apply {
-                    tmb = newDir.tmb
-                    name = newDir.name
-                    mediaCnt = newDir.mediaCnt
-                    modified = newDir.modified
-                    taken = newDir.taken
-                    this@apply.size = newDir.size
-                    types = newDir.types
-                    sortValue = getDirectorySortingValue(curMedia, path, name, size, mediaCnt)
+                // Adapter holds the previous Directory instance. Replace it, so
+                // DiffUtil can compare stable immutable before/after snapshots.
+                val revisedDir = directory.copy(
+                    tmb = newDir.tmb,
+                    name = newDir.name,
+                    mediaCnt = newDir.mediaCnt,
+                    modified = newDir.modified,
+                    taken = newDir.taken,
+                    size = newDir.size,
+                    types = newDir.types,
+                    sortValue = getDirectorySortingValue(
+                        curMedia, directory.path, newDir.name, newDir.size, newDir.mediaCnt
+                    )
+                ).also { it.folderStatuses = directory.folderStatuses }
+                dirs[index] = revisedDir
+                cachedCardUpdates++
+                if (cachedCardUpdates >= 8) {
+                    setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
+                    cachedCardUpdates = 0
                 }
-
-                setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
 
                 // Already on the cached-media worker thread: do not create a
                 // short-lived Thread per album during a large library refresh.
-                updateDBDirectory(directory)
+                updateDBDirectory(revisedDir)
                 if (!directory.isRecycleBin() && !directory.areFavorites()) {
                     try {
                         mediaDB.insertAll(curMedia)
@@ -2042,6 +2052,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 }
             }
 
+            if (cachedCardUpdates > 0 && isCurrentDirectoryScan(scanRequest)) {
+                setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
+            }
             if (dirPathsToRemove.isNotEmpty()) {
                 val dirsToRemove = dirs.filter { dirPathsToRemove.contains(it.path) }
                 dirsToRemove.forEach {
