@@ -92,13 +92,13 @@ class ToolbarQuickActionsDialogUiTest {
         val views = descendants(dialog.window!!.decorView)
         val folderTab = views.filterIsInstance<TextView>().first { it.text == activity.getString(R.string.quick_toolbar_folder) }
         val homeTab = views.filterIsInstance<TextView>().first { it.text == activity.getString(R.string.quick_toolbar_home) }
-        folderTab.performClick()
+        (folderTab.parent as View).performClick()
         val unchecked = descendants(dialog.window!!.decorView).filterIsInstance<CheckBox>().first { !it.isChecked && it.isShown }
         val actionLabel = unchecked.text.toString()
         unchecked.performClick()
         assertEquals(originalFolder, activity.config.toolbarFolderActions)
-        homeTab.performClick()
-        folderTab.performClick()
+        (homeTab.parent as View).performClick()
+        (folderTab.parent as View).performClick()
         val restoredChoice = descendants(dialog.window!!.decorView).filterIsInstance<CheckBox>().first { it.text.toString() == actionLabel }
         assertTrue(restoredChoice.isChecked)
         assertEquals(originalHome, activity.config.toolbarHomeActions)

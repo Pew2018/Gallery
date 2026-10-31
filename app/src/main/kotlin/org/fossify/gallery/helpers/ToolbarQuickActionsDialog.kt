@@ -225,6 +225,15 @@ object ToolbarQuickActionsDialog {
             homeIndicator.alpha = if (scope == ToolbarQuickScope.HOME) 1f else 0f
             folderIndicator.alpha = if (scope == ToolbarQuickScope.FOLDER) 1f else 0f
             adapter.notifyDataSetChanged()
+            // The surrounding ScrollView owns vertical scrolling. Give the nested
+            // RecyclerView its full row extent so its options are measured and
+            // recycled correctly instead of collapsing to the viewport height.
+            val listParams = list.layoutParams as LinearLayout.LayoutParams
+            val contentHeight = dp(56) * optionalEntries().size
+            if (listParams.height != contentHeight) {
+                listParams.height = contentHeight
+                list.layoutParams = listParams
+            }
         }
 
         adapter = object : RecyclerView.Adapter<Holder>() {
