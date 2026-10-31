@@ -602,6 +602,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (isPhotoProfile) {
             if (photoSessionId != null) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
             mShowAll = false
+            // Internal, short-lived metadata handoff: no second MediaStore scan
+            // for public Photos profiles when the already-validated list is unchanged.
+            val cached = org.fossify.gallery.helpers.PhotoViewerSnapshotStore.take(
+                applicationContext,
+                intent.getStringExtra(org.fossify.gallery.helpers.PhotoViewerSnapshotStore.EXTRA_ID),
+                photoProfileId, photoSessionId, mPath
+            )
+            if (cached != null) {
+                mMediaFiles = cached
+                initContinue()
+                return
+            }
             val request = ++viewerLoadGeneration
             viewerLoadTask?.stopFetching()
             viewerLoadTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
@@ -1101,6 +1113,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             val newFileName = it.getFilenameFromPath()
             binding.mediumViewerToolbar.title = newFileName
 
+            if (isPhotoProfile) org.fossify.gallery.helpers.PhotoContentRevision.changed()
             getCurrentMedium()!!.apply {
                 name = newFileName
                 path = it
@@ -1538,6 +1551,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     return@checkManageMediaOrHandleSAFDialogSdk30
                 }
 
+                if (isPhotoProfile) org.fossify.gallery.helpers.PhotoContentRevision.changed()
                 mIgnoredPaths.add(fileDirItem.path)
                 val media = mMediaFiles.filter { !mIgnoredPaths.contains(it.path) } as ArrayList<Medium>
                 if (media.isNotEmpty()) {
@@ -1575,6 +1589,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 return@checkManageMediaOrHandleSAFDialogSdk30
             }
 
+            if (isPhotoProfile) org.fossify.gallery.helpers.PhotoContentRevision.changed()
             mIgnoredPaths.add(fileDirItem.path)
             val media = mMediaFiles.filter { !mIgnoredPaths.contains(it.path) } as ArrayList<Medium>
             if (media.isNotEmpty()) {
@@ -1637,6 +1652,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun refreshViewPager(refetchPosition: Boolean = false) {
         if (!checkFavoriteAccess()) return
+        if (isPhotoProfile) org.fossify.gallery.helpers.PhotoContentRevision.changed()
         val isRandomSorting = config.getFolderSorting(mDirectory) and SORT_BY_RANDOM != 0
         if (isPhotoProfile || !isRandomSorting || isExternalIntent()) {
             val request = ++viewerLoadGeneration

@@ -30,7 +30,8 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
     fun getFilesFrom(
         curPath: String, isPickImage: Boolean, isPickVideo: Boolean, getProperDateTaken: Boolean, getProperLastModified: Boolean,
         getProperFileSize: Boolean, favoritePaths: ArrayList<String>, getVideoDurations: Boolean,
-        lastModifieds: HashMap<String, Long>, dateTakens: HashMap<String, Long>, android11Files: HashMap<String, ArrayList<Medium>>?
+        lastModifieds: HashMap<String, Long>, dateTakens: HashMap<String, Long>, android11Files: HashMap<String, ArrayList<Medium>>?,
+        sortResult: Boolean = true
     ): ArrayList<Medium> {
         val filterMedia = filterOverride ?: context.config.filterMedia
         if (filterMedia == 0) {
@@ -81,7 +82,7 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
             }
         }
 
-        sortMedia(curMedia, context.config.getFolderSorting(curPath))
+        if (sortResult) sortMedia(curMedia, context.config.getFolderSorting(curPath))
         return curMedia
     }
 
@@ -435,7 +436,8 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
         favoritePaths: ArrayList<String>,
         getFavoritePathsOnly: Boolean,
         getProperDateTaken: Boolean,
-        dateTakens: HashMap<String, Long>
+        dateTakens: HashMap<String, Long>,
+        allowedFolders: Set<String>? = null
     ): HashMap<String, ArrayList<Medium>> {
         val media = HashMap<String, ArrayList<Medium>>()
         if (!isRPlus() || Environment.isExternalStorageManager()) {
@@ -445,6 +447,8 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
         val filterMedia = filterOverride ?: context.config.filterMedia
         val showHidden = context.config.shouldShowHidden
         val favoritePathSet = favoritePaths.toHashSet()
+        val folderScope = allowedFolders?.mapTo(HashSet()) { MediaStoreFolderKey.of(it) }
+        if (folderScope != null && folderScope.isEmpty()) return media
 
         val projection = arrayOf(
             Images.Media._ID,
@@ -457,8 +461,12 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
         )
 
         val uri = Files.getContentUri("external")
+        // Bound SQL query for the usual small profile; large profiles fall back
+        // to one full cursor with exact in-memory parent filtering.
+        val (selection, selectionArgs) =
+            PhotoMediaQueryPlan.selection(folderScope.orEmpty(), Images.Media.DATA)
 
-        context.queryCursor(uri, projection) { cursor ->
+        context.queryCursor(uri, projection, selection, selectionArgs) { cursor ->
             if (shouldStop) {
                 return@queryCursor
             }
@@ -467,6 +475,9 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
                 val mediaStoreId = cursor.getLongValue(Images.Media._ID)
                 val filename = cursor.getStringValue(Images.Media.DISPLAY_NAME)
                 val path = cursor.getStringValue(Images.Media.DATA)
+                if (folderScope != null && !PhotoMediaQueryPlan.includesDirectFile(path, folderScope)) {
+                    return@queryCursor
+                }
                 if (getFavoritePathsOnly && path !in favoritePathSet) {
                     return@queryCursor
                 }
@@ -518,7 +529,7 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
                 var dateTaken = cursor.getLongValue(Images.Media.DATE_TAKEN)
 
                 if (getProperDateTaken) {
-                    dateTaken = dateTakens.remove(path) ?: lastModified
+                    dateTaken = dateTakens.remove(path) ?: dateTaken
                 }
 
                 if (dateTaken == 0L) {
@@ -611,6 +622,17 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
         }
 
         return media
+    }
+
+    /** Only custom dates for selected profile folders; avoids loading the entire media store. */
+    fun getSelectedFolderDateOverrides(folders: Collection<String>): HashMap<String, Long> {
+        val dates = HashMap<String, Long>()
+        folders.forEach { folder ->
+            if (shouldStop) return@forEach
+            runCatching { context.dateTakensDB.getDateTakensFromPath(folder) }.getOrNull()
+                ?.forEach { dates[it.fullPath] = it.taken }
+        }
+        return dates
     }
 
     fun getFolderDateTakens(folder: String): HashMap<String, Long> {
