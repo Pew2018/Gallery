@@ -412,6 +412,14 @@ class ClassicDialogTest {
     }
 
     @Test fun sourcePickerRecycledHolderClearsSelectionLockAndThumbnail() {
+        // This suite intentionally uses Application rather than Gallery App.
+        // Mirror App's explicit, offline Picasso initialization before binding.
+        com.squareup.picasso.Picasso.setSingletonInstance(com.squareup.picasso.Picasso.Builder(activity)
+            .downloader(object : com.squareup.picasso.Downloader {
+                override fun load(request: okhttp3.Request): okhttp3.Response =
+                    error("The holder recycling test must not download images")
+                override fun shutdown() = Unit
+            }).build())
         val locked = org.fossify.gallery.models.Directory().apply { path = "/private"; name = "Private" }
         val plain = org.fossify.gallery.models.Directory().apply { path = "/public"; name = "Public" }
         val draft = PhotoSourceSelectionDraft(listOf(locked.path))
