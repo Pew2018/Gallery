@@ -4,6 +4,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PhotoProfileEnhancementsTest {
+    @Test fun staleSourceStatusRequestsCannotPublishAfterInvalidation() {
+        val requests = PhotoSourceStatusRequests()
+        val old = requests.begin()
+        val fresh = requests.begin()
+        assertFalse(requests.isCurrent(old))
+        assertTrue(requests.isCurrent(fresh))
+        requests.invalidate()
+        assertFalse(requests.isCurrent(fresh))
+    }
+
+    @Test fun editingADeletedProfileCannotRecreateIt() {
+        val id = java.util.UUID.randomUUID().toString()
+        val profile = PhotoProfile(id, "Camera", listOf(PhotoSource(PhotoSourceType.FOLDER, "/Camera")))
+        var saved = PhotoProfileCodec.encode(PhotoProfileState(profiles = listOf(profile), selectedId = id))
+        val store = PhotoProfileStore({ saved }, { saved = it })
+        store.delete(id)
+        assertThrows(IllegalArgumentException::class.java) { store.updateExisting(profile.copy(name = "Changed")) }
+        assertTrue(store.state().profiles.isEmpty())
+    }
+
     @Test fun revokedBackgroundAuthenticationCannotRecreateCapability() {
         val sessions = PhotoAccessCapability()
         val pending = sessions.generation()

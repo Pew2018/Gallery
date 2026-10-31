@@ -101,7 +101,8 @@ internal class PhotoSourceDirectoryAdapter(
             if (!locked) DirectoryThumbnailBinder.bind(
                 activity, sourceThumbnail, directory.tmb, directory.getKey(), config.cropThumbnails,
                 config.animateGifs, false,
-                if (config.folderStyle == org.fossify.gallery.helpers.FOLDER_STYLE_SQUARE) ROUNDED_CORNERS_NONE else ROUNDED_CORNERS_BIG
+                if (config.folderStyle == org.fossify.gallery.helpers.FOLDER_STYLE_SQUARE) ROUNDED_CORNERS_NONE else ROUNDED_CORNERS_BIG,
+                colors.secondary
             ) { }
         }
     }

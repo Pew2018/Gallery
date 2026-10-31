@@ -24,6 +24,10 @@
     <string name="photo_profiles_source_count">%1$d sources</string>
     <string name="photo_profiles_current_accessibility">Current profile</string>
     <string name="photo_profiles_more_actions">More profile actions</string>
+    <string name="photo_profiles_more_actions_for">More actions for %1$s</string>
+    <string name="photo_profiles_row_accessibility">%1$s, %2$d sources</string>
+    <string name="photo_profiles_row_current_accessibility">%1$s, %2$d sources, current profile</string>
+    <string name="photo_profiles_edit_target_missing">This profile no longer exists. Reopen it from profile management.</string>
     <string name="navigation_order_reorder">Reorder navigation item. Tap for move options or long press and drag.</string>
     <string name="navigation_order_move_up">Move up</string>
     <string name="navigation_order_move_down">Move down</string>

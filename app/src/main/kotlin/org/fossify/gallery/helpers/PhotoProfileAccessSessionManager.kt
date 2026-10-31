@@ -20,7 +20,10 @@ internal object PhotoProfileAccessSessionManager {
         if (!PhotoAuthentication.requests.activeId(proof.requestId)) return null
         return capability.create(proof.sessionGeneration) {
             context.config.isPhotoCredentialCurrent(proof.credential)
-        }?.also { token = it }
+        }?.also {
+            token = it
+            listeners.values.toList().forEach { listener -> listener() }
+        }
     }
     fun addListener(id: String, listener: () -> Unit) { listeners[id] = listener }
     fun removeListener(id: String) { listeners.remove(id) }

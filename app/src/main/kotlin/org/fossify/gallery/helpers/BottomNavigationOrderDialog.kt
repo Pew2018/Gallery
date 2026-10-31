@@ -17,6 +17,12 @@ import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
 import java.util.Collections
 
+internal fun moveNavigationItem(items: MutableList<String>, from: Int, to: Int): Boolean {
+    if (from !in items.indices || to !in items.indices) return false
+    Collections.swap(items, from, to)
+    return true
+}
+
 /** A classic list dialog. Changes are transactional until Done is pressed. */
 object BottomNavigationOrderDialog {
     private val defaults = NavigationOrder.defaults
@@ -74,18 +80,22 @@ object BottomNavigationOrderDialog {
                 holder.label.text = name
                 holder.row.contentDescription = name
                 holder.handle.setOnLongClickListener {
+                    if (holder.bindingAdapterPosition == RecyclerView.NO_POSITION) return@setOnLongClickListener true
                     touchHelper.startDrag(holder)
                     true
                 }
                 holder.handle.setOnClickListener { anchor ->
+                    val boundPosition = holder.bindingAdapterPosition
+                    if (boundPosition == RecyclerView.NO_POSITION) return@setOnClickListener
+                    val boundItem = pending.getOrNull(boundPosition) ?: return@setOnClickListener
                     val popup = PopupMenu(activity, anchor)
-                    if (position > 0) popup.menu.add(0, 0, 0, R.string.navigation_order_move_up)
-                    if (position < pending.lastIndex) popup.menu.add(0, 1, 1, R.string.navigation_order_move_down)
+                    if (boundPosition > 0) popup.menu.add(0, 0, 0, R.string.navigation_order_move_up)
+                    if (boundPosition < pending.lastIndex) popup.menu.add(0, 1, 1, R.string.navigation_order_move_down)
                     popup.setOnMenuItemClickListener { item ->
                         val from = holder.bindingAdapterPosition
+                        if (from == RecyclerView.NO_POSITION || pending.getOrNull(from) != boundItem) return@setOnMenuItemClickListener true
                         val to = when (item.itemId) { 0 -> from - 1; else -> from + 1 }
-                        if (from in pending.indices && to in pending.indices) {
-                            Collections.swap(pending, from, to)
+                        if (from in pending.indices && to in pending.indices && pending[from] == boundItem && moveNavigationItem(pending, from, to)) {
                             adapter.notifyItemMoved(from, to)
                         }
                         true
@@ -102,7 +112,7 @@ object BottomNavigationOrderDialog {
                 val from = source.bindingAdapterPosition
                 val to = target.bindingAdapterPosition
                 if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false
-                Collections.swap(pending, from, to)
+                if (!moveNavigationItem(pending, from, to)) return false
                 adapter.notifyItemMoved(from, to)
                 return true
             }

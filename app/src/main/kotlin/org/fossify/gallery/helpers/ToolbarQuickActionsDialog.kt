@@ -12,6 +12,7 @@ import android.view.ViewGroup
 import android.widget.CheckBox
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -132,6 +133,7 @@ object ToolbarQuickActionsDialog {
             layoutManager = LinearLayoutManager(activity)
             overScrollMode = RecyclerView.OVER_SCROLL_NEVER
             itemAnimator = null
+            isNestedScrollingEnabled = false
         }
         class Holder(row: LinearLayout, val check: CheckBox, val drag: ImageView) :
             RecyclerView.ViewHolder(row)
@@ -350,21 +352,36 @@ object ToolbarQuickActionsDialog {
         root.addView(sectionLabel(R.string.quick_toolbar_fixed_section))
         root.addView(fixedRows)
         root.addView(sectionLabel(R.string.quick_toolbar_optional_section))
-        root.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
-        val maxDp = (OxygenClassicDialog.availableHeight(activity) / density).toInt() - 180
-        root.layoutParams = ViewGroup.LayoutParams(-1, dp(minOf(520, maxDp.coerceAtLeast(260))))
+        root.addView(list, LinearLayout.LayoutParams(-1, -2))
         render()
+
+        val scroll = object : ScrollView(activity) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val windowHeight = OxygenClassicDialog.availableHeight(activity)
+                // Leave the AlertDialog title and its fixed action row outside this scroll area.
+                val actionAndTitleSpace = dp(112)
+                val available = (windowHeight - actionAndTitleSpace).coerceAtLeast(1)
+                val mode = MeasureSpec.getMode(heightMeasureSpec)
+                val size = MeasureSpec.getSize(heightMeasureSpec)
+                val limit = if (mode == MeasureSpec.UNSPECIFIED) available else minOf(size, available)
+                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(limit, MeasureSpec.AT_MOST))
+            }
+        }.apply {
+            isFillViewport = false
+            clipToPadding = false
+            addView(root, ScrollView.LayoutParams(-1, -2))
+        }
 
         val dialog = OxygenClassicDialog.show(
             activity,
             OxygenClassicDialog.builder(activity, activity.getString(R.string.quick_toolbar_title))
-                .setView(root)
+                .setView(scroll)
                 .setNegativeButton(org.fossify.commons.R.string.cancel, null)
                 .setPositiveButton(org.fossify.gallery.R.string.photo_profiles_save) { _, _ ->
                     activity.config.toolbarHomeActions = home
                     activity.config.toolbarFolderActions = folder
                 },
-            root
+            scroll
         )
         searchBackground = searchCheck.background
         render()

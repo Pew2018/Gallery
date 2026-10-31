@@ -118,6 +118,15 @@ class PhotoProfileStore(private val read: () -> String, private val write: (Stri
         val profiles = state.profiles.filter { it.id != clean.id } + clean
         write(PhotoProfileCodec.encode(state.copy(profiles = profiles, selectedId = clean.id)))
     }
+    fun updateExisting(profile: PhotoProfile) {
+        val clean = profile.copy(name = profile.name.trim(), sources = PhotoProfileCodec.sources(profile.sources))
+        UUID.fromString(clean.id)
+        require(clean.name.isNotEmpty() && clean.sources.isNotEmpty())
+        val state = state()
+        require(state.profiles.any { it.id == clean.id }) { "Profile no longer exists" }
+        val profiles = state.profiles.map { if (it.id == clean.id) clean else it }
+        write(PhotoProfileCodec.encode(state.copy(profiles = profiles, selectedId = clean.id)))
+    }
     fun delete(id: String) {
         val state = state()
         val profiles = state.profiles.filter { it.id != id }

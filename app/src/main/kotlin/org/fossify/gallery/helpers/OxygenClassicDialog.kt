@@ -99,7 +99,9 @@ object OxygenClassicDialog {
             val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
                 android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout()
             )
-            return (metrics.bounds.height() - insets.top - insets.bottom).coerceAtLeast(1)
+            val imeBottom = if (metrics.windowInsets.isVisible(android.view.WindowInsets.Type.ime()))
+                metrics.windowInsets.getInsets(android.view.WindowInsets.Type.ime()).bottom else 0
+            return (metrics.bounds.height() - insets.top - maxOf(insets.bottom, imeBottom)).coerceAtLeast(1)
         }
         val host = activity.window.decorView
         val insets = androidx.core.view.ViewCompat.getRootWindowInsets(host)?.getInsetsIgnoringVisibility(
@@ -107,7 +109,10 @@ object OxygenClassicDialog {
                 androidx.core.view.WindowInsetsCompat.Type.displayCutout()
         )
         val height = host.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels
-        return (height - (insets?.top ?: 0) - (insets?.bottom ?: 0)).coerceAtLeast(1)
+        val imeBottom = androidx.core.view.ViewCompat.getRootWindowInsets(host)
+            ?.takeIf { it.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) }
+            ?.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())?.bottom ?: 0
+        return (height - (insets?.top ?: 0) - maxOf(insets?.bottom ?: 0, imeBottom)).coerceAtLeast(1)
     }
 
     /** Called before WindowManager.addView; later only for actual host geometry changes. */

@@ -16,6 +16,7 @@ import org.fossify.gallery.extensions.config
 import org.fossify.gallery.helpers.*
 import java.io.File
 import java.util.UUID
+import org.fossify.commons.helpers.ensureBackgroundThread
 
 class PhotoProfileEditActivity : SimpleActivity() {
     companion object {
@@ -37,14 +38,25 @@ class PhotoProfileEditActivity : SimpleActivity() {
     private var creating = true
     private var showSourceError = false
     private lateinit var draft: PhotoProfile
+    private var editingBaseline: PhotoProfile? = null
+    private val sourceStatusRequests = PhotoSourceStatusRequests()
+    private var sourceStatuses: Map<PhotoSource, PhotoSourceStatus> = emptyMap()
+    private val authListenerId = "photo-profile-edit-${System.identityHashCode(this)}"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
         creating = intent.getBooleanExtra(EXTRA_CREATING, true)
         val original = intent.getStringExtra(EXTRA_PROFILE_ID)?.let { id -> store.state().profiles.firstOrNull { it.id == id } }
+        if (!creating && original == null) {
+            setResult(RESULT_CANCELED)
+            finish()
+            return
+        }
+        editingBaseline = original
         draft = savedInstanceState?.getString(STATE_DRAFT)?.let { runCatching { com.google.gson.Gson().fromJson(it, PhotoProfile::class.java) }.getOrNull() }
             ?: original ?: PhotoProfile(UUID.randomUUID().toString(), "", emptyList())
+        if (!creating && draft.id != original?.id) draft = original!!
         showSourceError = savedInstanceState?.getBoolean(STATE_SOURCE_ERROR) ?: false
         setupEdgeToEdge(padTopSystem = listOf(binding.photoProfileEditAppbar), padBottomImeAndSystem = listOf(binding.photoProfileEditScroll))
         binding.photoProfileEditToolbar.apply {
@@ -61,7 +73,12 @@ class PhotoProfileEditActivity : SimpleActivity() {
         binding.photoProfileEditSourcesTitle.setTextColor(palette.interactiveAccent)
         binding.photoProfileEditError.setTextColor(photoDialogColors(this).error)
         binding.photoProfileEditAddSource.setOnClickListener { chooseSources() }
+        PhotoProfileAccessSessionManager.addListener(authListenerId) {
+            sourceStatusRequests.invalidate()
+            runOnUiThread { if (!isFinishing && !isDestroyed) checkSourceStatuses() }
+        }
         renderSources()
+        checkSourceStatuses()
     }
 
     override fun onResume() {
@@ -69,6 +86,7 @@ class PhotoProfileEditActivity : SimpleActivity() {
         setupTopAppBar(binding.photoProfileEditAppbar, NavigationIcon.Arrow, topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
         OxygenToolbarStyle.applyToolbar(this, binding.photoProfileEditToolbar)
         OxygenSystemBars.apply(this)
+        if (::draft.isInitialized) checkSourceStatuses()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -76,6 +94,12 @@ class PhotoProfileEditActivity : SimpleActivity() {
         outState.putString(STATE_DRAFT, com.google.gson.Gson().toJson(draft))
         outState.putBoolean(STATE_SOURCE_ERROR, showSourceError)
         super.onSaveInstanceState(outState)
+    }
+
+    override fun onDestroy() {
+        sourceStatusRequests.invalidate()
+        PhotoProfileAccessSessionManager.removeListener(authListenerId)
+        super.onDestroy()
     }
 
     private fun captureName() { if (::draft.isInitialized) draft = draft.copy(name = binding.photoProfileEditName.text.toString()) }
@@ -86,7 +110,7 @@ class PhotoProfileEditActivity : SimpleActivity() {
         draft.sources.forEach { source ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                minimumHeight = dp(72); setPadding(0, dp(6), 0, dp(6))
+                setPadding(0, dp(6), 0, dp(6))
             }
             val labels = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
             labels.addView(TextView(this).apply {
@@ -97,13 +121,26 @@ class PhotoProfileEditActivity : SimpleActivity() {
                 text = source.path ?: getString(R.string.photo_profiles_favorites)
                 textSize = 12f; setTextColor(colors.secondaryText); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
             })
+            sourceStatuses[source]?.takeIf { it != PhotoSourceStatus.READY }?.let { status ->
+                labels.addView(TextView(this).apply {
+                    text = getString(status.stringRes)
+                    textSize = 12f
+                    setTextColor(colors.secondaryText)
+                })
+            }
             row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
             row.addView(ImageButton(this).apply {
                 setImageResource(org.fossify.commons.R.drawable.ic_cross_vector)
                 imageTintList = android.content.res.ColorStateList.valueOf(colors.primaryText)
                 contentDescription = getString(R.string.photo_profiles_remove_source)
                 background = OxygenClassicDialog.ripple(colors.interactiveAccent, resources.displayMetrics.density)
-                setOnClickListener { draft = draft.copy(sources = draft.sources.filterNot { it == source }); renderSources() }
+                setOnClickListener {
+                    sourceStatusRequests.invalidate()
+                    draft = draft.copy(sources = draft.sources.filterNot { it == source })
+                    sourceStatuses = sourceStatuses - source
+                    renderSources()
+                    checkSourceStatuses()
+                }
             }, LinearLayout.LayoutParams(dp(48), dp(48)))
             binding.photoProfileEditSources.addView(row)
             binding.photoProfileEditSources.addView(View(this).apply {
@@ -111,6 +148,30 @@ class PhotoProfileEditActivity : SimpleActivity() {
             }, LinearLayout.LayoutParams(-1, dp(1)))
         }
         binding.photoProfileEditError.visibility = if (showSourceError && draft.sources.isEmpty()) View.VISIBLE else View.GONE
+    }
+
+    private fun checkSourceStatuses() {
+        if (!creating && store.state().profiles.firstOrNull { it.id == draft.id } != editingBaseline) {
+            sourceStatusRequests.invalidate()
+            sourceStatuses = emptyMap()
+            renderSources()
+            return
+        }
+        val snapshot = draft.sources.toList()
+        val request = sourceStatusRequests.begin()
+        val app = applicationContext
+        ensureBackgroundThread {
+            val statuses = PhotoSourceStatusResolver.inspect(app, snapshot)
+            runOnUiThread {
+                if (isFinishing || isDestroyed || !sourceStatusRequests.isCurrent(request) || draft.sources != snapshot) return@runOnUiThread
+                if (!creating && store.state().profiles.firstOrNull { it.id == draft.id } != editingBaseline) {
+                    sourceStatusRequests.invalidate()
+                    return@runOnUiThread
+                }
+                sourceStatuses = statuses
+                renderSources()
+            }
+        }
     }
 
     private fun chooseSources() {
@@ -121,8 +182,11 @@ class PhotoProfileEditActivity : SimpleActivity() {
                 val selected = chosen.map { path -> if (path == org.fossify.commons.helpers.FAVORITES) PhotoSource(PhotoSourceType.FAVORITES) else PhotoSource(PhotoSourceType.FOLDER, path) }
                 val unavailable = draft.sources.filter { it.type == PhotoSourceType.FOLDER && it.path !in available }
                 draft = draft.copy(sources = PhotoProfileCodec.sources(selected + unavailable))
+                sourceStatusRequests.invalidate()
+                sourceStatuses = emptyMap()
                 showSourceError = false
                 renderSources()
+                checkSourceStatuses()
             }, {})
     }
 
@@ -131,10 +195,17 @@ class PhotoProfileEditActivity : SimpleActivity() {
         val name = draft.name.trim()
         if (name.isEmpty()) { binding.photoProfileEditName.error = getString(R.string.photo_profiles_name_required); return }
         if (draft.sources.isEmpty()) { showSourceError = true; binding.photoProfileEditError.visibility = View.VISIBLE; binding.photoProfileEditScroll.smoothScrollTo(0, binding.photoProfileEditSourcesTitle.bottom); return }
-        runCatching { store.save(draft.copy(name = name)) }.onSuccess {
+        if (!creating && store.state().profiles.firstOrNull { it.id == draft.id } != editingBaseline) {
+            sourceStatusRequests.invalidate()
+            binding.photoProfileEditName.error = getString(R.string.photo_profiles_edit_target_missing)
+            return
+        }
+        runCatching {
+            if (creating) store.save(draft.copy(name = name)) else store.updateExisting(draft.copy(name = name))
+        }.onSuccess {
             setResult(RESULT_OK)
             finish()
-        }.onFailure { binding.photoProfileEditName.error = getString(R.string.photo_profiles_name_required) }
+        }.onFailure { binding.photoProfileEditName.error = getString(R.string.photo_profiles_edit_target_missing) }
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density + .5f).toInt()

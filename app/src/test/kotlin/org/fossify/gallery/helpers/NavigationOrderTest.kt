@@ -4,6 +4,17 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class NavigationOrderTest {
+    @Test fun reorderedItemMovesUseCurrentBoundaries() {
+        val items = mutableListOf("ALL", "FAVORITES", "PHOTOS")
+        assertTrue(moveNavigationItem(items, 2, 1))
+        assertEquals(listOf("ALL", "PHOTOS", "FAVORITES"), items)
+        assertTrue(moveNavigationItem(items, 1, 0))
+        assertEquals(listOf("PHOTOS", "ALL", "FAVORITES"), items)
+        assertFalse(moveNavigationItem(items, -1, 0))
+        assertFalse(moveNavigationItem(items, 2, 3))
+        assertEquals(listOf("PHOTOS", "ALL", "FAVORITES"), items)
+    }
+
     @Test fun migrationPreservesRelativeOrder() {
         assertEquals(listOf("FAVORITES", "ALL", "PHOTOS"),
             NavigationOrder.normalize(listOf("PRIVATE", "FAVORITE_FOLDERS", "ALL")))

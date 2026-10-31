@@ -32,6 +32,7 @@ object DirectoryThumbnailBinder {
         animateGifs: Boolean,
         horizontalScroll: Boolean,
         corners: Int,
+        placeholderColor: Int = photoDialogColors(activity).secondary,
         onError: () -> Unit
     ) {
         OxygenThumbnailPlaceholder.apply(activity, target, corners)
@@ -43,7 +44,7 @@ object DirectoryThumbnailBinder {
             target.tag = null
             target.scaleType = ImageView.ScaleType.CENTER
             target.setImageResource(R.drawable.photo_source_folder)
-            target.setColorFilter(photoDialogColors(activity).secondary)
+            target.setColorFilter(placeholderColor)
             return
         }
         if (target.tag != path) {

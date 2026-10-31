@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 11390)
+Total output lines: 1103
+
 package org.fossify.gallery.adapters
 
 import android.content.Intent
@@ -444,172 +447,7 @@ class DirectoryAdapter(
                                     activity.runOnUiThread {
                                         listener?.refreshItems()
                                         finishActMode()
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private fun hideFolders(paths: ArrayList<String>) {
-        for (path in paths) {
-            activity.handleLockedFolderOpening(path) { success ->
-                if (success) {
-                    hideFolder(path)
-                }
-            }
-        }
-    }
-
-    private fun tryEmptyRecycleBin(askConfirmation: Boolean) {
-        if (askConfirmation) {
-            activity.showRecycleBinEmptyingDialog {
-                emptyRecycleBin()
-            }
-        } else {
-            emptyRecycleBin()
-        }
-    }
-
-    private fun emptyRecycleBin() {
-        activity.handleLockedFolderOpening(RECYCLE_BIN) { success ->
-            if (success) {
-                activity.emptyTheRecycleBin {
-                    listener?.refreshItems()
-                }
-            }
-        }
-    }
-
-    private fun emptyAndDisableRecycleBin() {
-        activity.handleLockedFolderOpening(RECYCLE_BIN) { success ->
-            if (success) {
-                activity.showRecycleBinEmptyingDialog {
-                    activity.emptyAndDisableTheRecycleBin {
-                        listener?.refreshItems()
-                    }
-                }
-            }
-        }
-    }
-
-    private fun updateFolderNames() {
-        val includedFolders = config.includedFolders
-        val hidden = activity.getString(R.string.hidden)
-        dirs.forEach {
-            it.name = activity.checkAppendingHidden(it.path, hidden, includedFolders, ArrayList())
-        }
-        listener?.updateDirectories(dirs.toMutableList() as ArrayList)
-        activity.runOnUiThread {
-            updateDirs(dirs)
-        }
-    }
-
-    private fun hideFolder(path: String) {
-        activity.addNoMedia(path) {
-            if (config.shouldShowHidden) {
-                updateFolderNames()
-            } else {
-                val affectedPositions = ArrayList<Int>()
-                val includedFolders = config.includedFolders
-                val newDirs = dirs.filterIndexed { index, directory ->
-                    val removeDir = directory.path.doesThisOrParentHaveNoMedia(HashMap(), null) && !includedFolders.contains(directory.path)
-                    if (removeDir) {
-                        affectedPositions.add(index)
-                    }
-                    !removeDir
-                } as ArrayList<Directory>
-
-                activity.runOnUiThread {
-                    affectedPositions.sortedDescending().forEach {
-                        notifyItemRemoved(it)
-                    }
-
-                    currentDirectoriesHash = newDirs.hashCode()
-                    dirs = newDirs
-
-                    finishActMode()
-                    listener?.updateDirectories(newDirs)
-                }
-            }
-        }
-    }
-
-    private fun tryExcludeFolder() {
-        val selectedPaths = getSelectedPaths()
-        val paths = selectedPaths.filter { it != PATH && it != RECYCLE_BIN && it != FAVORITES }.toSet()
-        if (selectedPaths.contains(RECYCLE_BIN)) {
-            config.showRecycleBinAtFolders = false
-            if (selectedPaths.size == 1) {
-                listener?.refreshItems()
-                finishActMode()
-            }
-        }
-
-        if (paths.size == 1) {
-            ExcludeFolderDialog(activity, paths.toMutableList()) {
-                listener?.refreshItems()
-                finishActMode()
-            }
-        } else if (paths.size > 1) {
-            config.addExcludedFolders(paths)
-            listener?.refreshItems()
-            finishActMode()
-        }
-    }
-
-    private fun tryLockFolder() {
-        if (openFavoritePasswordSettingsIfSelected()) return
-        if (config.wasFolderLockingNoticeShown) {
-            lockFolder()
-        } else {
-            FolderLockingNoticeDialog(activity) {
-                lockFolder()
-            }
-        }
-    }
-
-    private fun lockFolder() {
-        SecurityDialog(activity, "", SHOW_ALL_TABS) { hash, type, success ->
-            if (success) {
-                getSelectedPaths().filter { it != FAVORITES && !config.isFolderProtected(it) }.forEach {
-                    config.addFolderProtection(it, hash, type)
-                    lockedFolderPaths.add(it)
-                }
-
-                listener?.refreshItems()
-                finishActMode()
-            }
-        }
-    }
-
-    private fun unlockFolder() {
-        if (openFavoritePasswordSettingsIfSelected()) return
-        val paths = getSelectedPaths()
-        val firstPath = paths.first()
-        val tabToShow = config.getFolderProtectionType(firstPath)
-        val hashToCheck = config.getFolderProtectionHash(firstPath)
-        SecurityDialog(activity, hashToCheck, tabToShow) { hash, type, success ->
-            if (success) {
-                paths.filter { it != FAVORITES && config.isFolderProtected(it) && config.getFolderProtectionType(it) == tabToShow && config.getFolderProtectionHash(it) == hashToCheck }
-                    .forEach {
-                        config.removeFolderProtection(it)
-                        lockedFolderPaths.remove(it)
-                    }
-
-                listener?.refreshItems()
-                finishActMode()
-            }
-        }
-    }
-
-    /** Virtual favorites uses the same management flow as its settings row. */
-    private fun openFavoritePasswordSettingsIfSelected(): Boolean {
-        val paths = getSelectedPaths()
-        if (FAVORITES !in paths) return false
+            …1390 tokens truncated…
         if (paths.size == 1) {
             activity.startActivity(Intent(activity, SettingsActivity::class.java)
                 .putExtra(MANAGE_FAVORITE_PASSWORD, true))
@@ -994,7 +832,8 @@ class DirectoryAdapter(
 
                 DirectoryThumbnailBinder.bind(
                     activity, dirThumbnail, directory.tmb, directory.getKey(), cropThumbnails,
-                    animateGifs, scrollHorizontally, roundedCorners
+                    animateGifs, scrollHorizontally, roundedCorners,
+                    OxygenThemeEngine.snapshot(activity, config).secondaryText
                 ) { }
             }
 
