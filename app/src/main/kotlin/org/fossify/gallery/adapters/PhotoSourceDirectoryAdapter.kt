@@ -40,9 +40,10 @@ internal class PhotoSourceDirectoryAdapter(
     override fun onBindViewHolder(holder: Holder, position: Int) {
         val directory = directories[position]
         val config = activity.config
-        val background = activity.getProperBackgroundColor()
-        val text = activity.getProperTextColor()
-        val accent = OxygenClassicPalette.readableAccent(activity.getProperPrimaryColor(), background)
+        val colors = photoDialogColors(activity)
+        val background = colors.surface
+        val text = colors.text
+        val accent = colors.accent
         // Worker-computed canonical boundaries plus a fresh lexical check. Never
         // show a cached thumbnail while protection is unknown or has just changed.
         val locked = directory.path in protectedPaths ||
@@ -57,26 +58,38 @@ internal class PhotoSourceDirectoryAdapter(
             sourceName.setTextColor(text)
             sourceStatus.text = if (locked) activity.getString(R.string.photo_source_locked)
                 else activity.getString(R.string.photo_source_media_count, directory.subfoldersMediaCount)
-            sourceStatus.setTextColor(text)
-            sourceStatus.alpha = 0.65f
+            sourceStatus.setTextColor(colors.secondary)
+            sourceStatus.alpha = 1f
             sourceCheck.setOnCheckedChangeListener(null)
             sourceCheck.buttonTintList = null
             sourceCheck.buttonDrawable = PhotoSourceCheckDrawable(activity.resources, accent, if (Color.luminance(background) > .5) Color.DKGRAY else Color.LTGRAY)
-            sourceCheck.background = OxygenClassicDialog.ripple(accent, activity.resources.displayMetrics.density)
+            fun controlBackground() = android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(androidx.core.graphics.ColorUtils.setAlphaComponent(accent, 28)),
+                ColorDrawable(background), ColorDrawable(Color.WHITE))
+            sourceCheck.background = controlBackground()
             sourceCheck.isChecked = draft.contains(directory.path)
+            root.isSelected = sourceCheck.isChecked
             sourceCheck.contentDescription = directory.name + ", " + activity.getString(
                 if (sourceCheck.isChecked) R.string.photo_source_deselect else R.string.photo_source_select)
             sourceCheck.setOnCheckedChangeListener { _, _ ->
                 draft.toggle(directory.path)
+                root.isSelected = sourceCheck.isChecked
                 selectionChanged()
                 holder.bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION }?.let(::notifyItemChanged)
             }
             root.background = OxygenClassicDialog.ripple(accent, activity.resources.displayMetrics.density)
             root.contentDescription = directory.name + if (locked) ", " + activity.getString(R.string.photo_source_locked) else ""
-            root.setOnClickListener { navigate(directory) }
+            root.setOnClickListener { sourceCheck.performClick() }
+            sourceBrowse.visibility = if (directory.path == FAVORITES) View.GONE else View.VISIBLE
+            sourceBrowse.imageTintList = android.content.res.ColorStateList.valueOf(text)
+            sourceBrowse.background = controlBackground()
+            sourceBrowse.contentDescription = activity.getString(R.string.photo_source_browse_named, directory.name)
+            sourceBrowse.setOnClickListener { navigate(directory) }
             if (!locked && directory.tmb.isNotBlank()) {
                 sourceThumbnail.visibility = View.VISIBLE
                 sourceThumbnail.tag = directory.tmb
+                sourceThumbnail.clearColorFilter()
+                sourceThumbnail.scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
                 val type = when {
                     directory.tmb.isVideoFast() -> TYPE_VIDEOS
                     directory.tmb.isGif() -> TYPE_GIFS
@@ -85,7 +98,7 @@ internal class PhotoSourceDirectoryAdapter(
                     else -> TYPE_IMAGES
                 }
                 activity.loadImage(type, directory.tmb, sourceThumbnail, false, false, true,
-                    ROUNDED_CORNERS_NONE, directory.getKey())
+                    ROUNDED_CORNERS_NONE, directory.getKey(), onError = { folderPlaceholder(sourceThumbnail) })
             }
         }
     }
@@ -93,13 +106,21 @@ internal class PhotoSourceDirectoryAdapter(
         Picasso.get().cancelRequest(binding.sourceThumbnail)
         Glide.with(activity).clear(binding.sourceThumbnail)
         binding.sourceThumbnail.tag = null
-        binding.sourceThumbnail.setImageDrawable(ColorDrawable(activity.getProperBackgroundColor()))
+        folderPlaceholder(binding.sourceThumbnail)
         binding.sourceThumbnail.visibility = View.VISIBLE
+    }
+    private fun folderPlaceholder(view: android.widget.ImageView) {
+        val colors = photoDialogColors(activity)
+        view.setBackgroundColor(androidx.core.graphics.ColorUtils.blendARGB(colors.surface, colors.text, .06f))
+        view.scaleType = android.widget.ImageView.ScaleType.CENTER
+        view.setImageResource(R.drawable.photo_source_folder)
+        view.setColorFilter(colors.secondary)
     }
     override fun onViewRecycled(holder: Holder) {
         clearThumbnail(holder.binding)
         holder.binding.sourceCheck.setOnCheckedChangeListener(null)
         holder.binding.root.setOnClickListener(null)
+        holder.binding.sourceBrowse.setOnClickListener(null)
         super.onViewRecycled(holder)
     }
     override fun onChange(position: Int): String = directories.getOrNull(position)?.name.orEmpty()

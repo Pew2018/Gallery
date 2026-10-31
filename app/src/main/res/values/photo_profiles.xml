@@ -71,4 +71,7 @@
     <string name="photo_profiles_done">Done</string>
     <string name="photo_profiles_empty_action">Edit profile or unlock protected sources.</string>
     <string name="photo_password_lock">Lock protected content</string>
+    <string name="photo_biometric_favorites_scope">Authorize Photos and Favorites with one system biometric verification? This grants Favorites access for the current request only. Folder fingerprint locks use a separate mechanism. Cancelling any later step saves no new bindings.</string>
+    <string name="photo_source_browse">Browse subfolders</string>
+    <string name="photo_source_browse_named">Browse %1$s subfolders</string>
 </resources>

@@ -414,12 +414,7 @@ class ClassicDialogTest {
     @Test fun sourcePickerRecycledHolderClearsSelectionLockAndThumbnail() {
         // This suite intentionally uses Application rather than Gallery App.
         // Mirror App's explicit, offline Picasso initialization before binding.
-        com.squareup.picasso.Picasso.setSingletonInstance(com.squareup.picasso.Picasso.Builder(activity)
-            .downloader(object : com.squareup.picasso.Downloader {
-                override fun load(request: okhttp3.Request): okhttp3.Response =
-                    error("The holder recycling test must not download images")
-                override fun shutdown() = Unit
-            }).build())
+        initializeOfflinePicasso()
         val locked = org.fossify.gallery.models.Directory().apply { path = "/private"; name = "Private" }
         val plain = org.fossify.gallery.models.Directory().apply { path = "/public"; name = "Public" }
         val draft = PhotoSourceSelectionDraft(listOf(locked.path))
@@ -438,6 +433,19 @@ class ClassicDialogTest {
         assertEquals(View.GONE, holder.binding.sourceLock.visibility)
         assertNull(holder.binding.sourceThumbnail.tag)
         assertEquals("Public", holder.binding.sourceName.text.toString())
+        assertNotNull(holder.binding.sourceThumbnail.drawable) // real folder placeholder instead of blank space
+        assertEquals(1f, holder.binding.sourceStatus.alpha, 0f)
+        assertEquals(photoDialogColors(activity).text, holder.binding.sourceName.currentTextColor)
+        var navigationCount = 0
+        val navigable = org.fossify.gallery.adapters.PhotoSourceDirectoryAdapter(activity,
+            listOf(plain), PhotoSourceSelectionDraft(emptyList()), emptySet(), {}, { navigationCount++ })
+        val other = navigable.onCreateViewHolder(FrameLayout(activity), 0)
+        navigable.onBindViewHolder(other, 0)
+        other.itemView.performClick()
+        assertTrue(other.binding.sourceCheck.isChecked)
+        assertEquals(0, navigationCount)
+        other.binding.sourceBrowse.performClick()
+        assertEquals(1, navigationCount)
         assertTrue(holder.binding.sourceCheck.buttonDrawable is PhotoSourceCheckDrawable)
         assertTrue(holder.binding.sourceCheck.background is RippleDrawable)
         val glyph = holder.binding.sourceCheck.buttonDrawable
@@ -478,6 +486,73 @@ class ClassicDialogTest {
             val info = context.packageManager.getActivityInfo(android.content.ComponentName(context, host), 0)
             assertTrue(info.configChanges and android.content.pm.ActivityInfo.CONFIG_ORIENTATION != 0)
             assertTrue(info.configChanges and android.content.pm.ActivityInfo.CONFIG_SCREEN_SIZE != 0)
+        }
+    }
+
+    @Test fun photoDialogTextAndActionsIgnoreLowContrastCustomPageColors() {
+        for (page in listOf(Color.WHITE, Color.BLACK, Color.rgb(90, 90, 90))) {
+            for (accent in listOf(Color.YELLOW, Color.WHITE, Color.BLACK, Color.CYAN)) {
+                activity.baseConfig.backgroundColor = page
+                activity.baseConfig.textColor = page // deliberately unreadable custom page setting
+                activity.baseConfig.primaryColor = accent
+                val palette = photoDialogColors(activity)
+                assertTrue(OxygenThemeColors.contrastRatio(palette.text, palette.surface) >= 4.5)
+                assertTrue(OxygenThemeColors.contrastRatio(palette.secondary, palette.surface) >= 4.5)
+                assertTrue(OxygenThemeColors.contrastRatio(palette.accent, palette.surface) >= 4.5)
+                assertTrue(OxygenThemeColors.contrastRatio(palette.error, palette.surface) >= 4.5)
+            }
+        }
+    }
+
+    private fun initializeOfflinePicasso() {
+        try { com.squareup.picasso.Picasso.get(); return }
+        catch (error: IllegalStateException) { check(error.message == "context == null") }
+        com.squareup.picasso.Picasso.setSingletonInstance(com.squareup.picasso.Picasso.Builder(activity)
+            .downloader(object : com.squareup.picasso.Downloader {
+                override fun load(request: okhttp3.Request): okhttp3.Response =
+                    error("The holder recycling test must not download images")
+                override fun shutdown() = Unit
+            }).build())
+    }
+
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    @Test fun renderSourceGridInLightDarkAndPaleAccentWithoutLosingCaptionWidth() {
+        initializeOfflinePicasso()
+        val density = activity.resources.displayMetrics.density
+        val output = java.io.File("build/reports/photo-source-previews").apply { mkdirs() }
+        for ((name, background, accent) in listOf(
+            Triple("light", Color.WHITE, Color.rgb(33, 150, 243)),
+            Triple("dark", Color.BLACK, Color.YELLOW),
+            Triple("pale-accent", Color.WHITE, Color.YELLOW))) {
+            activity.baseConfig.backgroundColor = background
+            activity.baseConfig.textColor = background
+            activity.baseConfig.primaryColor = accent
+            val entries = listOf("/Camera", "/Long directory caption wraps", "/Private", org.fossify.commons.helpers.FAVORITES)
+                .map { path -> org.fossify.gallery.models.Directory().apply {
+                    this.path = path; this.name = if (path == org.fossify.commons.helpers.FAVORITES) "Favorites" else path.substringAfterLast('/')
+                    subfoldersMediaCount = 36
+                } }
+            val grid = androidx.recyclerview.widget.RecyclerView(activity).apply {
+                layoutManager = androidx.recyclerview.widget.GridLayoutManager(activity, 2)
+                setBackgroundColor(photoDialogColors(activity).surface)
+                adapter = org.fossify.gallery.adapters.PhotoSourceDirectoryAdapter(activity, entries,
+                    PhotoSourceSelectionDraft(listOf("/Camera")), setOf("/Private"), {}, {})
+            }
+            val width = (288 * density).toInt()
+            val height = (360 * density).toInt()
+            grid.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+            grid.layout(0, 0, width, height)
+            assertEquals(4, grid.childCount)
+            val holder = grid.findViewHolderForAdapterPosition(0) as org.fossify.gallery.adapters.PhotoSourceDirectoryAdapter.Holder
+            assertTrue(holder.binding.sourceName.width > width / 2 - (24 * density))
+            assertEquals((96 * density + .5f).toInt(), (holder.binding.sourceThumbnail.parent as View).height)
+            val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+            grid.draw(android.graphics.Canvas(bitmap))
+            java.io.File(output, "source-grid-$name.png").outputStream().use {
+                assertTrue(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it))
+            }
+            grid.adapter = null
         }
     }
 }

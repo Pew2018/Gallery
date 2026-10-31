@@ -264,4 +264,54 @@ class PhotoProfileEnhancementsTest {
         offered.forEach(draft::toggle)
         assertEquals(offered.toSet(), draft.snapshot())
     }
+
+    @Test fun folderFingerprintScopeUsesOneReprintChallengeWithoutTreatingItAsAPin() {
+        val fingerprint = org.fossify.commons.helpers.PROTECTION_FINGERPRINT
+        val pin = org.fossify.commons.helpers.PROTECTION_PIN
+        val locks = mapOf("/a" to FavoriteAccessSessionManager.Protection(fingerprint, ""),
+            "/b" to FavoriteAccessSessionManager.Protection(fingerprint, "legacy-identity"),
+            "/c" to FavoriteAccessSessionManager.Protection(pin, "one"),
+            "/d" to FavoriteAccessSessionManager.Protection(pin, "one"),
+            "/e" to FavoriteAccessSessionManager.Protection(pin, "different"))
+        val groups = photoSourceChallengeGroups(locks)
+        assertEquals(3, groups.size)
+        assertEquals(setOf("/a", "/b"), groups.single { it.first().value.type == fingerprint }.map { it.key }.toSet())
+        assertFalse(PhotoVerifiedCredential(fingerprint, "").matches(pin, "one"))
+        val required = locks.mapValues { (_, value) -> PhotoProfileAccessSessionManager.fingerprint(value.type, value.hash) }
+        val transaction = PhotoBindingTransaction(required, emptyMap())
+        transaction.approve(required.filterKeys { it in setOf("/a", "/b") })
+        assertNull(transaction.complete(required, true)) // another group cancels: no partial publication
+    }
+
+    @Test fun biometricEvidenceNeedsMatchingConsentRequestGenerationAndShortLifetime() {
+        val owner = Any()
+        val requests = PhotoAuthRequests()
+        val request = requests.begin(owner, 5)!!
+        var clock = 1L
+        val proof = PhotoBiometricEvidence(request.id, 5, "favorite-v1") { clock }
+        assertTrue(proof.authorizes(request, "favorite-v1", 5))
+        assertFalse(proof.authorizes(request, "favorite-v2", 5))
+        assertFalse(proof.authorizes(request, "folder-reprint", 5))
+        assertFalse(proof.authorizes(request, "favorite-v1", 6))
+        // A verified setup saves its own credential; the original evidence is not reminted.
+        assertTrue(request.credentialSaved(5, 8))
+        assertTrue(proof.authorizes(request, "favorite-v1", 8))
+        assertFalse(request.credentialSaved(8, 9))
+        assertFalse(proof.authorizes(request, "favorite-v1", 9))
+        clock += 120_000_000_001L
+        assertFalse(proof.authorizes(request, "favorite-v1", 8))
+        requests.cancelAll()
+        assertFalse(proof.authorizes(request, "favorite-v1", 8))
+        val next = requests.begin(owner, 8)!!
+        assertFalse(proof.authorizes(next, "favorite-v1", 8))
+    }
+
+    @Test fun freshlyConfirmedRecoveryPinCanSatisfyMatchingSourceAndFavoriteOnly() {
+        val pin = org.fossify.commons.helpers.PROTECTION_PIN
+        val pattern = org.fossify.commons.helpers.PROTECTION_PATTERN
+        val verifiedFallback = PhotoVerifiedCredential(pin, "confirmed-recovery")
+        assertTrue(verifiedFallback.matches(pin, "confirmed-recovery"))
+        assertFalse(verifiedFallback.matches(pin, "other"))
+        assertFalse(verifiedFallback.matches(pattern, "confirmed-recovery"))
+    }
 }

@@ -9,8 +9,12 @@ internal class PhotoAuthRequests {
     class Request internal constructor(owner: Any, generation: Long) {
         var generation = generation
             private set
+        private var ownCredentialSaveFrom: Long? = null
+        fun acceptsEvidenceGeneration(value: Long): Boolean = !closed &&
+            (value == generation || value == ownCredentialSaveFrom)
         fun credentialSaved(expected: Long, next: Long): Boolean {
-            if (closed || generation != expected) return false
+            if (closed || generation != expected || ownCredentialSaveFrom != null || next <= expected) return false
+            ownCredentialSaveFrom = expected
             generation = next
             return true
         }
@@ -58,3 +62,28 @@ internal data class PhotoVerifiedCredential(val type: Int, private val hash: Str
 internal object PhotoAuthentication {
     val requests = PhotoAuthRequests()
 }
+
+/** A real AndroidX biometric callback, scoped by consent before the prompt. */
+internal class PhotoBiometricEvidence(
+    val requestId: String,
+    val generation: Long,
+    private val scope: String,
+    private val clock: () -> Long = System::nanoTime
+) {
+    private val issuedAt = clock()
+    fun authorizes(request: PhotoAuthRequests.Request, currentScope: String, currentGeneration: Long): Boolean =
+        !request.closed && request.ownerAlive() && request.generation == currentGeneration && request.id == requestId && request.acceptsEvidenceGeneration(generation) &&
+            scope == currentScope && clock() - issuedAt in 0..120_000_000_000L
+}
+
+/** Folder fingerprint locks all use Commons/Reprint. Their explicit consent group
+ * remains separate from AndroidX biometric evidence, even when hashes are empty. */
+internal fun photoSourceChallengeGroups(
+    locks: Map<String, FavoriteAccessSessionManager.Protection>
+): List<List<Map.Entry<String, FavoriteAccessSessionManager.Protection>>> = locks.entries.groupBy {
+    when (it.value.type) {
+        org.fossify.commons.helpers.PROTECTION_PIN, org.fossify.commons.helpers.PROTECTION_PATTERN -> it.value.type to it.value.hash
+        org.fossify.commons.helpers.PROTECTION_FINGERPRINT -> "commons-reprint-fingerprint"
+        else -> it.key
+    }
+}.values.toList()

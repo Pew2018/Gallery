@@ -337,7 +337,7 @@
     <string name="quick_toolbar_drag">长按右侧图标调整顺序</string>
     <string name="quick_toolbar_drag_row">%1$s，长按右侧图标调整顺序</string>
     <string name="quick_toolbar_choose_row">%1$s，选择快捷功能</string>
-    <string name="photo_password_bind_biometric_separate">即将授权 %1$d 个受保护来源。文件夹指纹锁使用不同的鉴权接口，因此需要独立验证。全部验证成功后才会保存新增来源授权。</string>
+    <string name="photo_password_bind_biometric_separate">将通过一次文件夹指纹验证，一并授权本次选择的 %1$d 个文件夹来源。该机制与照片独立；全部验证成功后才会保存新增来源授权。</string>
     <string name="photo_source_media_count">%1$d 个媒体项目</string>
 </resources>
 

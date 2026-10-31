@@ -59,16 +59,16 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
                 }
                 row.removeAllViews()
                 val labels = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-                labels.addView(TextView(activity).apply { text = profile.name; textSize = 16f; setTextColor(activity.getProperTextColor()) })
+                labels.addView(TextView(activity).apply { text = profile.name; textSize = 16f; setTextColor(photoDialogColors(activity).text) })
                 labels.addView(TextView(activity).apply {
                     text = activity.getString(R.string.photo_profiles_source_count, profile.sources.size)
                     textSize = 13f
-                    setTextColor(androidx.core.graphics.ColorUtils.setAlphaComponent(activity.getProperTextColor(), 170))
+                    setTextColor(photoDialogColors(activity).secondary)
                 })
                 row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
                 if (profile.id == state.current?.id) row.addView(ImageView(activity).apply {
                     setImageResource(org.fossify.commons.R.drawable.ic_check_vector)
-                    imageTintList = android.content.res.ColorStateList.valueOf(activity.getProperPrimaryColor())
+                    imageTintList = android.content.res.ColorStateList.valueOf(photoDialogColors(activity).accent)
                     contentDescription = text(R.string.photo_profiles_current_accessibility)
                 }, LinearLayout.LayoutParams(dp(24), dp(24)))
                 return row
@@ -130,7 +130,7 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
         val sourceError = TextView(context).apply {
             setText(R.string.photo_profiles_source_required)
             textSize = 13f
-            setTextColor(android.graphics.Color.RED)
+            setTextColor(photoDialogColors(activity).error)
             visibility = android.view.View.GONE
         }
         body.addView(sourceError)
@@ -149,23 +149,23 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
                     textSize = 16f
                     text = if (source.type == PhotoSourceType.FAVORITES) text(R.string.photo_profiles_favorites)
                         else File(source.path.orEmpty()).name
-                    setTextColor(activity.getProperTextColor())
+                    setTextColor(photoDialogColors(activity).text)
                 })
                 if (source.type == PhotoSourceType.FOLDER) labels.addView(TextView(context).apply {
                     textSize = 12f; text = source.path; maxLines = 2; ellipsize = TextUtils.TruncateAt.MIDDLE
-                    setTextColor(androidx.core.graphics.ColorUtils.setAlphaComponent(activity.getProperTextColor(), 170))
+                    setTextColor(photoDialogColors(activity).secondary)
                     setOnClickListener { OxygenClassicDialog.show(activity, OxygenClassicDialog.builder(activity, text(R.string.photo_profiles_path_title)).setMessage(source.path).setNegativeButton(org.fossify.commons.R.string.ok, null)) }
                 })
                 sourceStatuses[source]?.takeIf { it != R.string.photo_source_ready }?.let { status -> labels.addView(TextView(context).apply {
                     textSize = 12f; setText(status)
-                    setTextColor(androidx.core.graphics.ColorUtils.setAlphaComponent(activity.getProperTextColor(), 170))
+                    setTextColor(photoDialogColors(activity).secondary)
                 }) }
                 row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
                 row.addView(ImageButton(context).apply {
                     setImageResource(org.fossify.commons.R.drawable.ic_cross_vector)
-                    imageTintList = android.content.res.ColorStateList.valueOf(activity.getProperTextColor())
+                    imageTintList = android.content.res.ColorStateList.valueOf(photoDialogColors(activity).text)
                     contentDescription = text(R.string.photo_profiles_remove_source)
-                    background = OxygenClassicDialog.ripple(activity.getProperPrimaryColor(), activity.resources.displayMetrics.density)
+                    background = OxygenClassicDialog.ripple(photoDialogColors(activity).accent, activity.resources.displayMetrics.density)
                     setOnClickListener { selected.remove(source); sourceStatuses.remove(source); statusVersion.invalidate(); render() }
                 }, LinearLayout.LayoutParams(dp(48), dp(48)))
                 sourceList.addView(row)
@@ -181,15 +181,15 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
         }
         body.addView(TextView(context).apply {
             gravity = Gravity.CENTER_VERTICAL; textSize = 14f
-            setTextColor(activity.getProperPrimaryColor())
-            background = OxygenClassicDialog.ripple(activity.getProperPrimaryColor(), activity.resources.displayMetrics.density)
+            setTextColor(photoDialogColors(activity).accent)
+            background = OxygenClassicDialog.ripple(photoDialogColors(activity).accent, activity.resources.displayMetrics.density)
             setPadding(dp(8), 0, dp(8), 0)
             isClickable = true; isFocusable = true
             setText(R.string.photo_profiles_add_source)
             setOnClickListener { chooseSources(selected.toList()) { sources -> selected.clear(); selected.addAll(sources); sourceStatuses.clear(); render(); updateStatus() } }
         }, LinearLayout.LayoutParams(-1, dp(48)))
         body.addView(TextView(context).apply {
-            setText(R.string.photo_profiles_source_note); textSize = 13f; setTextColor(activity.getProperTextColor())
+            setText(R.string.photo_profiles_source_note); textSize = 13f; setTextColor(photoDialogColors(activity).text)
             setPadding(0, dp(4), 0, 0)
         })
         val scroll = ScrollView(context).apply { addView(body) }

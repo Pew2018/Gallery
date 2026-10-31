@@ -14,6 +14,8 @@ import androidx.fragment.app.FragmentActivity
 import org.fossify.gallery.helpers.PhotoAuthentication
 import org.fossify.gallery.helpers.PhotoAuthRequests
 import org.fossify.gallery.helpers.PhotoVerifiedCredential
+import org.fossify.gallery.helpers.PhotoBiometricEvidence
+import org.fossify.gallery.helpers.photoSourceChallengeGroups
 import java.util.concurrent.atomic.AtomicBoolean
 import org.fossify.commons.dialogs.SecurityDialog
 import org.fossify.commons.extensions.toast
@@ -70,6 +72,7 @@ internal fun Activity.configurePhotoPassword(onReady: (Config.PhotoCredentialSna
 /** Returns a setup proof only to the flow that performed and verified the setup itself. */
 private fun Activity.configurePhotoPasswordWithProof(
     request: PhotoAuthRequests.Request,
+    biometricScope: String? = null,
     onReady: (Config.PhotoCredentialSnapshot?, Config.PhotoCredentialProof?) -> Unit
 ) {
     if (!requestCurrent(request)) return
@@ -94,7 +97,7 @@ private fun Activity.configurePhotoPasswordWithProof(
             }
             when (type) {
                 PROTECTION_PATTERN, PROTECTION_PIN -> configurePhotoPasswordType(request, type, onReady)
-                PROTECTION_FINGERPRINT -> configurePhotoBiometricPassword(request, onReady)
+                PROTECTION_FINGERPRINT -> configurePhotoBiometricPassword(request, biometricScope, onReady)
                 else -> onReady(null, null)
             }
         }
@@ -131,6 +134,7 @@ private fun Activity.configurePhotoPasswordType(
 
 private fun Activity.configurePhotoBiometricPassword(
     request: PhotoAuthRequests.Request,
+    biometricScope: String?,
     onReady: (Config.PhotoCredentialSnapshot?, Config.PhotoCredentialProof?) -> Unit
 ) {
     val expectedCredential = config.photoCredentialSnapshot()
@@ -149,9 +153,10 @@ private fun Activity.configurePhotoBiometricPassword(
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 if (!requestCurrent(request) || !biometricTerminal()) return
                 if (setupGeneration != PhotoProfileAccessSessionManager.currentGeneration()) { onReady(null, null); return }
+                val evidence = biometricScope?.let { PhotoBiometricEvidence(request.id, request.generation, it) }
                 choosePhotoFallbackCredential(request, expectedCredential) { saved ->
                     if (saved != null && config.isPhotoCredentialCurrent(saved)) {
-                        onReady(saved, Config.PhotoCredentialProof(saved, PhotoProfileAccessSessionManager.currentGeneration(), request.id, null, biometricSucceeded = true))
+                        onReady(saved, Config.PhotoCredentialProof(saved, PhotoProfileAccessSessionManager.currentGeneration(), request.id, PhotoVerifiedCredential(saved.fallbackType, saved.fallbackHash), evidence))
                     } else onReady(null, null)
                 }
             }
@@ -211,7 +216,7 @@ private fun Activity.choosePhotoFallbackCredential(
     body.addView(TextView(context).apply {
         setText(R.string.photo_password_fallback_description)
         textSize = 14f
-        setTextColor(getProperTextColor())
+        setTextColor(org.fossify.gallery.helpers.photoDialogColors(this@choosePhotoFallbackCredential).text)
         setPadding(0, 0, 0, (8 * density).toInt())
     })
     lateinit var dialog: AlertDialog
@@ -221,8 +226,8 @@ private fun Activity.choosePhotoFallbackCredential(
             textSize = 16f
             gravity = Gravity.CENTER_VERTICAL
             minHeight = (48 * density).toInt()
-            setTextColor(getProperTextColor())
-            background = OxygenClassicDialog.ripple(getProperPrimaryColor(), density)
+            setTextColor(org.fossify.gallery.helpers.photoDialogColors(this@choosePhotoFallbackCredential).text)
+            background = OxygenClassicDialog.ripple(org.fossify.gallery.helpers.photoDialogColors(this@choosePhotoFallbackCredential).accent, density)
             isClickable = true
             isFocusable = true
             setOnClickListener {
@@ -240,7 +245,7 @@ private fun Activity.choosePhotoFallbackCredential(
     dialog.setOnCancelListener { if (fallbackChoice()) finish(null) }
 }
 
-private fun Activity.authenticatePreparedPhotoPassword(request: PhotoAuthRequests.Request, onAuthenticated: (Config.PhotoCredentialProof?) -> Unit) {
+private fun Activity.authenticatePreparedPhotoPassword(request: PhotoAuthRequests.Request, biometricScope: String? = null, onAuthenticated: (Config.PhotoCredentialProof?) -> Unit) {
     if (!requestCurrent(request)) return
     if (!config.isPhotoPasswordProtectionOn) {
         onAuthenticated(null)
@@ -254,7 +259,7 @@ private fun Activity.authenticatePreparedPhotoPassword(request: PhotoAuthRequest
     }
     val expectedGeneration = PhotoProfileAccessSessionManager.currentGeneration()
     val terminal = request.callback()
-    fun complete(success: Boolean, verified: PhotoVerifiedCredential? = null, biometric: Boolean = false) {
+    fun complete(success: Boolean, verified: PhotoVerifiedCredential? = null, biometric: PhotoBiometricEvidence? = null) {
         if (!requestCurrent(request) || !terminal()) return
         if (!requestCurrent(request)) return
         val valid = success && PhotoProfileAccessSessionManager.currentGeneration() == expectedGeneration &&
@@ -305,7 +310,7 @@ private fun Activity.authenticatePreparedPhotoPassword(request: PhotoAuthRequest
     val prompt = BiometricPrompt(host, ContextCompat.getMainExecutor(host),
         object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                if (biometricTransition.compareAndSet(false, true)) complete(true, biometric = true)
+                if (biometricTransition.compareAndSet(false, true)) complete(true, biometric = biometricScope?.let { PhotoBiometricEvidence(request.id, expectedGeneration, it) })
             }
 
             override fun onAuthenticationFailed() { Log.d("PhotoProfileAuth", "biometric_retry") }
@@ -345,6 +350,11 @@ internal fun Activity.unlockPhotoProfile(profileId: String?, completed: () -> Un
     fun profileStillCurrent(): Boolean =
         org.fossify.gallery.helpers.PhotoProfileRepository.of(this).state().profiles.firstOrNull { it.id == profile.id } == profile
 
+    var confirmedBiometricScope: String? = null
+    var preflightLocks: Map<String, org.fossify.gallery.helpers.FavoriteAccessSessionManager.Protection>? = null
+    val preflightFavorite = config.favoriteCredentialSnapshot()
+    val preflightGeneration = request.generation
+    val preflightCredential = config.photoCredentialSnapshot()
     fun bind(proof: Config.PhotoCredentialProof) {
         if (delivered.get() || !requestCurrent(request)) return
         Log.d("PhotoProfileAuth", "stage=BIND_SOURCES")
@@ -352,19 +362,16 @@ internal fun Activity.unlockPhotoProfile(profileId: String?, completed: () -> Un
         ensureBackgroundThread {
             val locks = runCatching { PhotoProfileAccessSessionManager.profileLocks(applicationContext, profile) }.getOrNull()
             runOnUiThread {
-                if (delivered.get() || !requestCurrent(request) || locks == null || !profileStillCurrent() ||
+                if (delivered.get() || !requestCurrent(request) || locks == null || locks != preflightLocks ||
+                    config.favoriteCredentialSnapshot() != preflightFavorite || !profileStillCurrent() ||
                     config.photoCredentialSnapshot() != expectedCredential ||
                     proof.sessionGeneration != PhotoProfileAccessSessionManager.currentGeneration() || proof.requestId != request.id) {
                     finish("stale_before_binding"); return@runOnUiThread
                 }
                 val favoriteCredentialAtStart = config.favoriteCredentialSnapshot()
-                val pending = locks.filter { (root, lock) ->
+                val pending = photoSourceChallengeGroups(locks.filter { (root, lock) ->
                     config.photoSourceBindings[root] != PhotoProfileAccessSessionManager.fingerprint(lock.type, lock.hash)
-                }.entries.groupBy {
-                    // Reprint has no per-folder comparable biometric secret.
-                    if (it.value.type in listOf(PROTECTION_PIN, PROTECTION_PATTERN)) it.value.type to it.value.hash
-                    else it.key
-                }.values.toList()
+                })
                 val previousBindings = config.photoSourceBindings
                 fun scope(currentLocks: Map<String, org.fossify.gallery.helpers.FavoriteAccessSessionManager.Protection>): Map<String, String> =
                     currentLocks.mapValues { (_, lock) -> PhotoProfileAccessSessionManager.fingerprint(lock.type, lock.hash) } +
@@ -407,13 +414,15 @@ internal fun Activity.unlockPhotoProfile(profileId: String?, completed: () -> Un
                         finishBinding(); return
                     }
                     val favoriteCredential = config.favoriteCredentialSnapshot()
+                    val sameBiometricWasVerified = favoriteCredential.biometricPrimary &&
+                        proof.biometricEvidence?.authorizes(request, PhotoProfileAccessSessionManager.favoriteIdentity(applicationContext), PhotoProfileAccessSessionManager.currentGeneration()) == true
                     val sameCredentialWasVerified = !favoriteCredential.biometricPrimary &&
                         favoriteCredential.type in listOf(PROTECTION_PATTERN, PROTECTION_PIN) &&
                         favoriteCredential.isConfigured && (proof.verified?.matches(favoriteCredential.type, favoriteCredential.hash) == true || pending.any { group ->
                             group.first().value.type == favoriteCredential.type && group.first().value.hash == favoriteCredential.hash &&
                                 group.all { (root, lock) -> transaction.isApproved(root, PhotoProfileAccessSessionManager.fingerprint(lock.type, lock.hash)) }
                         })
-                    if (sameCredentialWasVerified && config.isFavoriteCredentialCurrent(favoriteCredential)) {
+                    if ((sameCredentialWasVerified || sameBiometricWasVerified) && config.isFavoriteCredentialCurrent(favoriteCredential)) {
                         transaction.approve(mapOf(PhotoProfileAccessSessionManager.FAVORITE_CREDENTIAL_BINDING to PhotoProfileAccessSessionManager.favoriteIdentity(applicationContext)))
                         finishBinding(); return
                     }
@@ -481,32 +490,54 @@ internal fun Activity.unlockPhotoProfile(profileId: String?, completed: () -> Un
         if (delivered.get() || !requestCurrent(request)) return
         if (config.photoCredentialSnapshot().enabled) {
             Log.d("PhotoProfileAuth", "stage=VERIFY_PHOTO_PASSWORD")
-            authenticatePreparedPhotoPassword(request) { proof ->
+            authenticatePreparedPhotoPassword(request, confirmedBiometricScope) { proof ->
                 if (proof != null) bind(proof) else finish("photo_auth_cancelled_or_failed")
             }
         } else {
             Log.d("PhotoProfileAuth", "stage=SETUP_CREDENTIAL")
-            configurePhotoPasswordWithProof(request) { credential, proof ->
+            configurePhotoPasswordWithProof(request, confirmedBiometricScope) { credential, proof ->
                 if (credential != null && proof != null && config.isPhotoCredentialCurrent(credential)) bind(proof)
                 else finish("credential_setup_cancelled_or_failed")
             }
         }
     }
 
-    val existingToken = PhotoProfileAccessSessionManager.currentToken(applicationContext)
-    if (existingToken != null) {
-        ensureBackgroundThread {
-            val locks = runCatching { PhotoProfileAccessSessionManager.profileLocks(applicationContext, profile) }.getOrNull()
-            runOnUiThread {
-                if (delivered.get() || !requestCurrent(request)) return@runOnUiThread
-                val valid = locks != null && profileStillCurrent() &&
-                    PhotoProfileAccessSessionManager.bindingsAuthorize(locks, config.photoSourceBindings,
-                        PhotoProfileAccessSessionManager.isActive(applicationContext, existingToken)) &&
-                    (!profile.sources.any { it.type == org.fossify.gallery.helpers.PhotoSourceType.FAVORITES } ||
-                        PhotoProfileAccessSessionManager.favoritesAuthorized(applicationContext, existingToken))
-                if (valid) finish("active_session_reused") else authenticate()
+    ensureBackgroundThread {
+        val locks = runCatching { PhotoProfileAccessSessionManager.profileLocks(applicationContext, profile) }.getOrNull()
+        runOnUiThread {
+            if (!requestCurrent(request) || !profileStillCurrent() || locks == null ||
+                request.generation != preflightGeneration || config.photoCredentialSnapshot() != preflightCredential ||
+                config.favoriteCredentialSnapshot() != preflightFavorite) {
+                finish("preflight_scope_changed"); return@runOnUiThread
+            }
+            preflightLocks = locks
+            val existingToken = PhotoProfileAccessSessionManager.currentToken(applicationContext)
+            val valid = existingToken != null &&
+                PhotoProfileAccessSessionManager.bindingsAuthorize(locks, config.photoSourceBindings, true) &&
+                (!profile.sources.any { it.type == org.fossify.gallery.helpers.PhotoSourceType.FAVORITES } ||
+                    PhotoProfileAccessSessionManager.favoritesAuthorized(applicationContext, existingToken))
+            if (valid) { finish("active_session_reused"); return@runOnUiThread }
+            val favoriteIdentity = PhotoProfileAccessSessionManager.favoriteIdentity(applicationContext)
+            val canShareBiometric = profile.sources.any { it.type == org.fossify.gallery.helpers.PhotoSourceType.FAVORITES } &&
+                preflightFavorite.enabled && preflightFavorite.biometricPrimary &&
+                (!preflightCredential.enabled || preflightCredential.biometricPrimary) &&
+                config.photoSourceBindings[PhotoProfileAccessSessionManager.FAVORITE_CREDENTIAL_BINDING] != favoriteIdentity
+            if (!canShareBiometric) { authenticate(); return@runOnUiThread }
+            val consent = request.callback()
+            showPhotoPasswordDialog(R.string.photo_password_bind_title) {
+                setMessage(R.string.photo_biometric_favorites_scope)
+                setNegativeButton(org.fossify.commons.R.string.cancel) { _, _ -> finish("biometric_scope_declined") }
+                setOnCancelListener { finish("biometric_scope_declined") }
+                setPositiveButton(org.fossify.commons.R.string.ok) { _, _ ->
+                    if (!requestCurrent(request) || !consent() || !profileStillCurrent() ||
+                        config.favoriteCredentialSnapshot() != preflightFavorite ||
+                        config.photoCredentialSnapshot() != preflightCredential) {
+                        finish("biometric_consent_stale"); return@setPositiveButton
+                    }
+                    confirmedBiometricScope = favoriteIdentity
+                    authenticate()
+                }
             }
         }
-    } else authenticate()
-
+    }
 }

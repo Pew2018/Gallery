@@ -140,7 +140,10 @@ class PickDirectoryDialog(
                         alertDialog.dismiss()
                     }
                 }
-                binding.directoriesCurrentPath.setTextColor(activity.getProperTextColor())
+                binding.directoriesCurrentPath.setTextColor(if (sourceSelection != null)
+                    org.fossify.gallery.helpers.photoDialogColors(activity).text else activity.getProperTextColor())
+                if (sourceSelection != null) binding.directoriesSelectionSummary.setTextColor(
+                    org.fossify.gallery.helpers.photoDialogColors(activity).secondary)
                 binding.directoriesOverflowMenu.apply {
                     val dark = OxygenThemeEngine.snapshot(activity, config).dark
                     imageTintList = ColorStateList.valueOf(if (dark) Color.WHITE else Color.rgb(33, 33, 33))
@@ -401,11 +404,7 @@ class PickDirectoryDialog(
         if (sourceSelection != null) {
             binding.directoriesGrid.adapter = PhotoSourceDirectoryAdapter(activity, dirs, selectionDraft!!,
                 protectedSourcePaths, ::updateSelectionSummary) { clicked ->
-                if (clicked.path == org.fossify.commons.helpers.FAVORITES) {
-                    selectionDraft.toggle(clicked.path)
-                    updateSelectionSummary()
-                    binding.directoriesGrid.adapter?.notifyDataSetChanged()
-                } else if (clicked.path != currentPathPrefix) {
+                if (clicked.path != org.fossify.commons.helpers.FAVORITES && clicked.path != currentPathPrefix) {
                     if (searchView.isSearchOpen) searchView.closeSearch()
                     currentPathPrefix = clicked.path
                     openedSubfolders.add(clicked.path)
