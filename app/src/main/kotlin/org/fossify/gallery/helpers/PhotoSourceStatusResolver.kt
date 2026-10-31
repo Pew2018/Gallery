@@ -1,9 +1,9 @@
 package org.fossify.gallery.helpers
 
 import android.content.Context
-import org.fossify.commons.extensions.getNoMediaFoldersSync
 import org.fossify.commons.helpers.FAVORITES
 import org.fossify.gallery.extensions.config
+import org.fossify.gallery.extensions.getNoMediaFoldersSync
 import java.io.File
 
 internal enum class PhotoSourceStatus(val stringRes: Int) {

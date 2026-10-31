@@ -369,7 +369,7 @@ object ToolbarQuickActionsDialog {
         }.apply {
             isFillViewport = false
             clipToPadding = false
-            addView(root, ScrollView.LayoutParams(-1, -2))
+            addView(root, ViewGroup.LayoutParams(-1, -2))
         }
 
         val dialog = OxygenClassicDialog.show(
