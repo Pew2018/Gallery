@@ -9,6 +9,7 @@ import android.widget.CheckBox
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
+import androidx.recyclerview.widget.RecyclerView
 import org.fossify.commons.extensions.baseConfig
 import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
@@ -58,6 +59,10 @@ class ToolbarQuickActionsDialogUiTest {
         tabs.forEach { assertFalse("tab must not scroll with the options", isDescendant(it, scroll!!)) }
         val optional = views.filterIsInstance<TextView>().first { it.text == activity.getString(R.string.quick_toolbar_optional_section) }
         assertTrue(isDescendant(optional, scroll!!))
+        val list = views.filterIsInstance<RecyclerView>().single()
+        assertTrue("optional rows are present", list.adapter!!.itemCount > 0)
+        assertTrue("nested list has its complete row extent", list.layoutParams.height >= list.adapter!!.itemCount *
+            (56 * activity.resources.displayMetrics.density + 0.5f).toInt())
         val cancel = dialog.getButton(AlertDialog.BUTTON_NEGATIVE)
         val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
         assertTrue(cancel.isShown && cancel.isEnabled)
@@ -86,6 +91,8 @@ class ToolbarQuickActionsDialogUiTest {
 
     @Test fun tabSwitchKeepsUncommittedFolderChoicesUntilExplicitSave() {
         val activity = activity()
+        activity.config.toolbarHomeActions = ToolbarQuickActions.defaults
+        activity.config.toolbarFolderActions = ToolbarQuickActions.defaults
         val originalHome = activity.config.toolbarHomeActions.toList()
         val originalFolder = activity.config.toolbarFolderActions.toList()
         val dialog = ToolbarQuickActionsDialog.show(activity)
@@ -93,14 +100,19 @@ class ToolbarQuickActionsDialogUiTest {
         val folderTab = views.filterIsInstance<TextView>().first { it.text == activity.getString(R.string.quick_toolbar_folder) }
         val homeTab = views.filterIsInstance<TextView>().first { it.text == activity.getString(R.string.quick_toolbar_home) }
         (folderTab.parent as View).performClick()
-        val unchecked = descendants(dialog.window!!.decorView).filterIsInstance<CheckBox>().first { !it.isChecked && it.isShown }
-        val actionLabel = unchecked.text.toString()
-        unchecked.performClick()
+        val search = descendants(dialog.window!!.decorView).filterIsInstance<CheckBox>().first {
+            it.text == activity.getString(org.fossify.commons.R.string.search)
+        }
+        assertTrue(search.isChecked)
+        search.performClick()
+        assertFalse(search.isChecked)
         assertEquals(originalFolder, activity.config.toolbarFolderActions)
         (homeTab.parent as View).performClick()
         (folderTab.parent as View).performClick()
-        val restoredChoice = descendants(dialog.window!!.decorView).filterIsInstance<CheckBox>().first { it.text.toString() == actionLabel }
-        assertTrue(restoredChoice.isChecked)
+        val restoredSearch = descendants(dialog.window!!.decorView).filterIsInstance<CheckBox>().first {
+            it.text == activity.getString(org.fossify.commons.R.string.search)
+        }
+        assertFalse(restoredSearch.isChecked)
         assertEquals(originalHome, activity.config.toolbarHomeActions)
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
         assertNotEquals(originalFolder, activity.config.toolbarFolderActions)
