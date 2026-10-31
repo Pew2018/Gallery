@@ -38,16 +38,18 @@ object DirectoryThumbnailBinder {
         target.clearColorFilter()
         Picasso.get().cancelRequest(target)
         target.scaleType = if (crop) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
-        if (target.tag != path) {
-            Glide.with(activity).clear(target)
-            target.setImageDrawable(null)
-            target.tag = path
-        }
         if (path.isBlank()) {
+            Glide.with(activity).clear(target)
+            target.tag = null
             target.scaleType = ImageView.ScaleType.CENTER
             target.setImageResource(R.drawable.photo_source_folder)
             target.setColorFilter(photoDialogColors(activity).secondary)
             return
+        }
+        if (target.tag != path) {
+            Glide.with(activity).clear(target)
+            target.setImageDrawable(null)
+            target.tag = path
         }
         val type = when {
             path.isVideoFast() -> TYPE_VIDEOS
