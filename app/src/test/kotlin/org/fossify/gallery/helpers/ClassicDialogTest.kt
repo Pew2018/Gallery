@@ -440,7 +440,7 @@ class ClassicDialogTest {
         dialog.dismiss()
         val density = activity.resources.displayMetrics.density
         assertEquals((48 * density + 0.5f).toInt(), holder.binding.sourceCheck.layoutParams.width)
-        assertEquals((20 * density + 0.5f).toInt(), holder.binding.sourceCheck.buttonDrawable.intrinsicWidth)
+        assertEquals((20 * density + 0.5f).toInt(), requireNotNull(holder.binding.sourceCheck.buttonDrawable).intrinsicWidth)
         holder.binding.sourceCheck.performClick()
         assertTrue(draft.contains(plain.path))
         assertEquals(2, draft.snapshot().size)
