@@ -20,6 +20,7 @@ import org.fossify.gallery.extensions.prepareFavoritePasswordProtection
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import org.fossify.gallery.helpers.ViewerAccessCoordinator
+import org.fossify.gallery.helpers.FolderReturnCheckpoint
 import android.app.WallpaperManager
 import android.content.Intent
 import android.graphics.Bitmap
@@ -347,6 +348,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mLoadedInitialPhotos = false
     private var mShowLoadingIndicator = true
     private var mWasFullscreenViewOpen = false
+    private var pendingFolderReturn: FolderReturnCheckpoint? = null
     private var mLastSearchedText = ""
     private var mLatestMediaId = 0L
     private var mLatestMediaDateId = 0L
@@ -691,7 +693,17 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         binding.mediaEmptyDescription.setTextColor(OxygenThemeEngine.snapshot(this, config).secondaryText)
         binding.mediaEmptyTextPlaceholder2.bringToFront()
 
-        // do not refresh Random sorted files after opening a fullscreen image and going Back
+        // Consume the viewer transition exactly once. A regular folder keeps its
+        // already-drawn grid while the lightweight MediaStore checkpoint is checked.
+        val returningFromViewer = mWasFullscreenViewOpen
+        mWasFullscreenViewOpen = false
+        val returnCheckpoint = pendingFolderReturn
+        pendingFolderReturn = null
+        // Snapshot UI state before the worker starts; never access View
+        // properties from a MediaStore/protection background thread.
+        val completePublicDisplay = displayedMediaIsFinal &&
+            binding.mediaGrid.adapter != null && mMedia.any { it is Medium } &&
+            mMedia.filterIsInstance<Medium>().all { it.mediaStoreId > 0L }
         val isRandomSorting = config.getFolderSorting(mPath) and SORT_BY_RANDOM != 0
         if (isPhotoProfiles) {
             val reuse = photoViewerTransition && photoLoadCompleted &&
@@ -703,7 +715,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         } else if (mPath == FAVORITES) {
             tryLoadGallery()
         } else if (mMedia.isEmpty() || !isRandomSorting ||
-            (isRandomSorting && !mWasFullscreenViewOpen)) {
+            (isRandomSorting && !returningFromViewer)) {
             val request = ++folderAuthGeneration
             val path = mPath
             val token = folderUnlockSessionId
@@ -714,10 +726,24 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 )
                 val authorized = protectedFolder == null ||
                     FolderUnlockSessionManager.isFolderAuthorized(token, path)
+                val canReuse = authorized && protectedFolder == null &&
+                    returningFromViewer && returnCheckpoint != null &&
+                    completePublicDisplay && !mShowAll && !isRandomSorting &&
+                    FolderReturnCheckpoint.isCurrent(app, path, returnCheckpoint)
                 runOnUiThread {
                     if (request != folderAuthGeneration || isFinishing || isDestroyed) return@runOnUiThread
                     if (authorized) {
-                        tryLoadGallery()
+                        if (canReuse) {
+                            // The normal permission gate remains mandatory even
+                            // when metadata can be reused without rescanning.
+                            requestMediaPermissions {
+                                if (request == folderAuthGeneration && !isFinishing && !isDestroyed) {
+                                    checkLastMediaChanged()
+                                }
+                            }
+                        } else {
+                            tryLoadGallery()
+                        }
                     } else {
                         handleLockedFolderOpening(protectedFolder!!) { success ->
                             if (success) {
@@ -1984,6 +2010,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
         val folderToken = folderUnlockSessionId
         val app = applicationContext
+        val completePublicFolder = !isPhotoProfiles && !mShowAll &&
+            folderToken == null && mPath.isNotEmpty() && mPath != FAVORITES &&
+            mPath != RECYCLE_BIN && displayedMediaIsFinal &&
+            !mIsGettingMedia && getMediaAdapter() != null &&
+            mMedia.any { it is Medium } &&
+            mMedia.filterIsInstance<Medium>().all { it.mediaStoreId > 0L }
         // Snapshot list references on the UI thread, but perform filesystem
         // canonicalization and protection checks off the main thread.
         val publicViewerMedia = if (!isPhotoProfiles && !mShowAll && folderToken == null &&
@@ -1991,6 +2023,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             displayedMediaIsFinal && !mIsGettingMedia
         ) mMedia.filterIsInstance<Medium>() else emptyList()
         ensureBackgroundThread {
+            val returnCheckpoint = if (completePublicFolder) {
+                FolderReturnCheckpoint.capture(app, mPath)
+            } else null
             val publicSnapshotId = if (publicViewerMedia.isNotEmpty()) {
                 runCatching {
                     org.fossify.gallery.helpers.FolderViewerSnapshotStore.offer(
@@ -2018,6 +2053,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     publicSnapshotId?.let {
                         putExtra(org.fossify.gallery.helpers.FolderViewerSnapshotStore.EXTRA_ID, it)
                     }
+                    pendingFolderReturn = returnCheckpoint
                     if (isPhotoProfiles) {
                         binding.mediaGrid.stopScroll()
                         photoScroll.clear()

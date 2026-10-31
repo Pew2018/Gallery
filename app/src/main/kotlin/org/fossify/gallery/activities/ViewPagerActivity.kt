@@ -146,6 +146,7 @@ import org.fossify.gallery.fragments.VideoFragment
 import org.fossify.gallery.fragments.ViewPagerFragment
 import org.fossify.gallery.helpers.BOTTOM_ACTION_CHANGE_ORIENTATION
 import org.fossify.gallery.helpers.BOTTOM_ACTION_COPY
+import org.fossify.gallery.helpers.FolderContentRevision
 import org.fossify.gallery.helpers.BOTTOM_ACTION_DELETE
 import org.fossify.gallery.helpers.BOTTOM_ACTION_EDIT
 import org.fossify.gallery.helpers.BOTTOM_ACTION_MOVE
@@ -1129,6 +1130,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             }
 
             config.tempFolderPath = ""
+            FolderContentRevision.changed()
             if (!isCopyOperation) {
                 refreshViewPager()
                 updateFavoritePaths(fileDirItems, it)
@@ -1142,6 +1144,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             binding.mediumViewerToolbar.title = newFileName
 
             if (isPhotoProfile) org.fossify.gallery.helpers.PhotoContentRevision.changed()
+            FolderContentRevision.changed()
             getCurrentMedium()!!.apply {
                 name = newFileName
                 path = it
@@ -1203,6 +1206,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     val photoFragment = getCurrentPhotoFragment() ?: return@ensureBackgroundThread
                     saveRotatedImageToFile(currPath, newPath, photoFragment.mCurrentRotationDegrees, true) {
                         toast(org.fossify.commons.R.string.file_saved)
+                        FolderContentRevision.changed()
                         getCurrentPhotoFragment()?.mCurrentRotationDegrees = 0
                         refreshMenuItems()
                     }
@@ -1426,6 +1430,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 val changed = updateFavorite(medium.path, adding, sourceCheck)
                 runOnUiThread {
                     if (changed) {
+                        FolderContentRevision.changed()
                         medium.isFavorite = adding
                         if (isPhotoProfile) refreshViewPager()
                         if (adding) mFavoritePaths.add(medium.path) else mFavoritePaths.remove(medium.path)
@@ -1580,6 +1585,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 }
 
                 if (isPhotoProfile) org.fossify.gallery.helpers.PhotoContentRevision.changed()
+                FolderContentRevision.changed()
                 mIgnoredPaths.add(fileDirItem.path)
                 val media = mMediaFiles.filter { !mIgnoredPaths.contains(it.path) } as ArrayList<Medium>
                 if (media.isNotEmpty()) {
@@ -1618,6 +1624,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             }
 
             if (isPhotoProfile) org.fossify.gallery.helpers.PhotoContentRevision.changed()
+            FolderContentRevision.changed()
             mIgnoredPaths.add(fileDirItem.path)
             val media = mMediaFiles.filter { !mIgnoredPaths.contains(it.path) } as ArrayList<Medium>
             if (media.isNotEmpty()) {
@@ -1666,6 +1673,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
 
         RenameItemDialog(this, oldPath) {
+            FolderContentRevision.changed()
             getCurrentMedia().getOrNull(mPos)?.apply {
                 path = it
                 name = it.getFilenameFromPath()
@@ -1680,6 +1688,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun refreshViewPager(refetchPosition: Boolean = false) {
         if (!checkFavoriteAccess()) return
+        // A viewer requery may follow edits in external editors or providers.
+        // Invalidating a return checkpoint is cheaper than showing stale media.
+        FolderContentRevision.changed()
         if (isPhotoProfile) org.fossify.gallery.helpers.PhotoContentRevision.changed()
         val isRandomSorting = config.getFolderSorting(mDirectory) and SORT_BY_RANDOM != 0
         if (isPhotoProfile || !isRandomSorting || isExternalIntent()) {

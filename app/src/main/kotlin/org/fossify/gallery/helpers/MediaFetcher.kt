@@ -58,7 +58,7 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
             if (curMedia.isEmpty()) {
                 val newMedia = getMediaInFolder(
                     curPath, isPickImage, isPickVideo, filterMedia, getProperDateTaken, getProperLastModified, getProperFileSize,
-                    favoritePaths, getVideoDurations, lastModifieds.clone() as HashMap<String, Long>, dateTakens.clone() as HashMap<String, Long>
+                    favoritePaths, getVideoDurations, lastModifieds, dateTakens
                 )
 
                 if (curPath == FAVORITES && isRPlus() && !isExternalStorageManager()) {
@@ -388,7 +388,7 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
                 }
             } else {
                 var lastModified: Long
-                var newLastModified = lastModifieds.remove(path)
+                var newLastModified = lastModifieds[path]
                 if (newLastModified == null) {
                     newLastModified = if (getProperLastModified) {
                         file.lastModified()
@@ -402,7 +402,7 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
                 val videoDuration = if (getVideoDurations && isVideo) context.getDuration(path) ?: 0 else 0
 
                 if (getProperDateTaken) {
-                    var newDateTaken = dateTakens.remove(path)
+                    var newDateTaken = dateTakens[path]
                     if (newDateTaken == null) {
                         newDateTaken = if (getProperLastModified) {
                             lastModified
