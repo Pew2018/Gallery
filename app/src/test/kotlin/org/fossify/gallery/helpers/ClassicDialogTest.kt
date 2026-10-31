@@ -442,12 +442,17 @@ class ClassicDialogTest {
         val other = selectionAdapter.onCreateViewHolder(FrameLayout(activity), 0)
         selectionAdapter.onBindViewHolder(other, 0)
         other.itemView.performClick()
+        // RecyclerView applies the payload after notifyItemChanged; this holder
+        // is intentionally unattached in this focused binding test.
+        selectionAdapter.onBindViewHolder(other, 0)
         assertTrue(other.binding.sourceCheckIcon.isActivated)
         assertEquals(1, selectionChanges)
         other.binding.sourceCheckTarget.performClick()
+        selectionAdapter.onBindViewHolder(other, 0)
         assertFalse(other.binding.sourceCheckIcon.isActivated)
         assertEquals(2, selectionChanges)
         other.binding.sourceCheckTarget.performClick()
+        selectionAdapter.onBindViewHolder(other, 0)
         assertTrue(other.binding.sourceCheckIcon.isActivated)
         assertEquals(3, selectionChanges)
         assertTrue(holder.binding.sourceCheckTarget.background is RippleDrawable)

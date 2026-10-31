@@ -297,7 +297,9 @@ class ClassicSettingsControlsTest {
         val shadow = Bitmap.createBitmap(thumbWidth, thumbWidth, Bitmap.Config.ARGB_8888)
         thumb.state = intArrayOf(android.R.attr.state_enabled)
         thumb.draw(Canvas(shadow))
-        val haloY = (thumbWidth / 2f + 10f * density).toInt().coerceAtMost(thumbWidth - 1)
+        // Sample beyond the 12dp thumb face so this measures the translucent
+        // shadow ring instead of the intentionally opaque thumb surface.
+        val haloY = (thumbWidth / 2f + 12.5f * density).toInt().coerceAtMost(thumbWidth - 1)
         val shadowAlpha = android.graphics.Color.alpha(shadow.getPixel(thumbWidth / 2, haloY))
         assertTrue("Thumb shadow must not be opaque: $shadowAlpha", shadowAlpha < 96)
         assertTrue("Thumb face is not opaque",
