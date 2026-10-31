@@ -9,5 +9,8 @@ import java.util.concurrent.atomic.AtomicLong
 internal object PhotoContentRevision {
     private val value = AtomicLong()
     fun current(): Long = value.get()
-    fun changed(): Long = value.incrementAndGet()
+    fun changed(): Long {
+        PhotoProfileMediaCache.invalidate()
+        return value.incrementAndGet()
+    }
 }

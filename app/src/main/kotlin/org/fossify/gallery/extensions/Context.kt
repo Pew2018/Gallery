@@ -1129,6 +1129,7 @@ fun Context.updateFavorite(
         if (isFavorite) favoritesDB.insert(getFavoriteFromPath(path))
         else favoritesDB.deleteFavoritePath(path)
         mediaDB.updateFavorite(path, isFavorite)
+        org.fossify.gallery.helpers.PhotoContentRevision.changed()
         true
     } catch (e: Exception) {
         toast(org.fossify.commons.R.string.unknown_error_occurred)

@@ -7,6 +7,10 @@ import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
 import org.fossify.gallery.databases.GalleryDatabase
+import org.fossify.gallery.extensions.config
+import org.fossify.commons.extensions.getSharedPrefs
+import org.fossify.gallery.extensions.mediaDB
+import org.fossify.gallery.models.Medium
 import org.fossify.gallery.extensions.dateTakensDB
 import org.fossify.gallery.models.DateTaken
 import org.junit.After
@@ -32,6 +36,7 @@ class PhotoProfileMediaLoadingTest {
     private val context get() = RuntimeEnvironment.getApplication()
     @Before fun prepare() {
         GalleryDatabase.destroyInstance()
+        PhotoProfileMediaCache.invalidate()
         provider = Robolectric.buildContentProvider(IndexedMediaProvider::class.java).create().get()
         ShadowContentResolver.registerProviderInternal("media", provider)
     }
@@ -93,6 +98,105 @@ class PhotoProfileMediaLoadingTest {
                 setOf(root.toString()), emptySet(), arrayListOf()) }
             assertEquals(setOf(indexedOnly, fileOnly), result.map { it.path }.toSet())
         } finally { root.toFile().deleteRecursively() }
+    }
+
+    private fun profile(folder: String): String {
+        val id = java.util.UUID.randomUUID().toString()
+        PhotoProfileRepository.of(context).save(PhotoProfile(id, "Test", listOf(PhotoSource(PhotoSourceType.FOLDER, folder))))
+        return id
+    }
+
+    @Test fun indexedStagePrecedesSupplementAndSecondEntryUsesFreshlyValidatedCache() {
+        val root = Files.createTempDirectory("photo-stages")
+        try {
+            val path = Files.write(root.resolve("indexed.jpg"), byteArrayOf(1)).toString()
+            val added = root.resolve("added-after-index.jpg")
+            provider.add(path)
+            val id = profile(root.toString())
+            val stages = ArrayList<PhotoLoadStage>()
+            val first = background {
+                PhotoProfileMediaLoader(context).loadStaged(id, true) { stage ->
+                    stages.add(stage.stage)
+                    assertEquals(listOf(path), stage.media.map { it.path })
+                    if (stage.stage == PhotoLoadStage.INDEXED) Files.write(added, byteArrayOf(2))
+                }
+            }
+            assertEquals(listOf(PhotoLoadStage.INDEXED), stages)
+            assertEquals(PhotoLoadStage.COMPLETE, first.stage)
+            assertEquals(setOf(path, added.toString()), first.media.map { it.path }.toSet())
+            assertTrue(first.access.publicOnly)
+            val restored = ArrayList<PhotoLoadStage>()
+            background { PhotoProfileMediaLoader(context).loadStaged(id, true) { restored.add(it.stage) } }
+            assertEquals(PhotoLoadStage.CACHE_PREVIEW, restored.first())
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun unrelatedPreferencesAndRenameDoNotInvalidateButSourceChangeDoes() {
+        val id = profile("/Camera")
+        val scope = PhotoProfileScope.capture(context, id, null)!!
+        context.getSharedPrefs().edit().putBoolean("unrelated_test_preference", true).commit()
+        assertTrue(scope.isCurrent(context))
+        val old = PhotoProfileRepository.of(context).state().current!!
+        PhotoProfileRepository.of(context).updateExisting(old.copy(name = "Renamed"))
+        assertTrue(scope.isCurrent(context))
+        PhotoProfileRepository.of(context).updateExisting(old.copy(sources = listOf(PhotoSource(PhotoSourceType.FOLDER, "/Other"))))
+        assertFalse(scope.isCurrent(context))
+    }
+
+    @Test fun switchingSourcesDuringIndexedCallbackDiscardsRequestInsteadOfPublishingEmptySuccess() {
+        val root = Files.createTempDirectory("photo-invalidation")
+        try {
+            val path = Files.write(root.resolve("a.jpg"), byteArrayOf(1)).toString()
+            provider.add(path)
+            val id = profile(root.toString())
+            assertThrows(java.util.concurrent.ExecutionException::class.java) {
+                background { PhotoProfileMediaLoader(context).loadStaged(id, true) {
+                    val old = PhotoProfileRepository.of(context).state().current!!
+                    PhotoProfileRepository.of(context).updateExisting(old.copy(sources = listOf(PhotoSource(PhotoSourceType.FOLDER, "/Other"))))
+                } }
+            }.also { assertTrue(it.cause is PhotoLoadInvalidatedException) }
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun finalBatchRechecksSymlinkTargetAndNeverCachesProtectedSource() {
+        val root = Files.createTempDirectory("photo-stage-link")
+        try {
+            val public = Files.createDirectory(root.resolve("public"))
+            val private = Files.createDirectory(root.resolve("private"))
+            val a = Files.write(public.resolve("a.jpg"), byteArrayOf(1))
+            val secret = Files.write(private.resolve("secret.jpg"), byteArrayOf(2))
+            val link = Files.createSymbolicLink(public.resolve("link.jpg"), a)
+            context.config.addFolderProtection(private.toString(), "test-secret", org.fossify.commons.helpers.PROTECTION_PIN)
+            provider.add(link.toString())
+            val id = profile(public.toString())
+            val result = background { PhotoProfileMediaLoader(context).loadStaged(id, true) { stage ->
+                if (stage.stage == PhotoLoadStage.INDEXED) {
+                    assertTrue(stage.media.any { it.path == link.toString() })
+                    Files.delete(link)
+                    Files.createSymbolicLink(link, secret)
+                }
+            } }
+            assertFalse(result.media.any { it.path == link.toString() })
+            assertTrue(result.access.needsUnlock)
+            assertFalse(result.access.publicOnly)
+            assertNull(PhotoProfileMediaCache.read(result.context))
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun boundedPreviewCoversAnchorAndMetadataCacheCopiesItemsAndHonorsRevision() {
+        val id = profile("/Camera")
+        val scope = PhotoProfileScope.capture(context, id, null)!!
+        val request = PhotoProfileLoadContext(scope, PhotoContentRevision.current(), emptySet())
+        val media = (0..299).map { n -> Medium(null, "$n.jpg", "/Camera/$n.jpg", "/Camera", 1, n.toLong(), 1, TYPE_IMAGES, 0, false, 0, 0) }
+        val preview = PhotoProfileMediaCache.preview(media, "/Camera/200.jpg", 80)
+        assertEquals(80, preview.size)
+        assertTrue(preview.any { it.path == "/Camera/200.jpg" })
+        PhotoProfileMediaCache.offer(PhotoLoadResult(request, PhotoLoadStage.COMPLETE, media, PhotoAccessSummary(false, true)))
+        val read = PhotoProfileMediaCache.read(request)!!
+        read.first().name = "Changed"
+        assertEquals("0.jpg", PhotoProfileMediaCache.read(request)!!.first().name)
+        PhotoContentRevision.changed()
+        assertNull(PhotoProfileMediaCache.read(request))
     }
 
     /** Robolectric has no default volume for Environment's API-30 manager query. */

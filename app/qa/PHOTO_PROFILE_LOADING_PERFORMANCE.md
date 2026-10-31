@@ -31,3 +31,21 @@ Device checks (not claimed as executed by CI):
    The file must be excluded unless every required lock is bound and access remains active.
 
 No general first-entry or persistent protected-media cache is introduced.
+
+## Staged loading and re-entry
+
+Public final metadata now has a bounded process cache (two profiles / 12,000 items,
+60-second eviction) plus selected-source Room reads. Hits are candidates, never access
+proofs. A fresh batch validates a bounded viewport preview, then an indexed stage is
+published before filesystem reconciliation; only COMPLETE can feed the final viewer
+handoff. Same-screen refresh retains the authorized adapter without revalidating and
+republishing the entire old list. Re-entry discards rendering and validates cached
+metadata again. Protected/mixed sources do not enter the new public final cache.
+
+Debug-only stages: photo_cache, photo_index, photo_supplement, photo_access,
+photo_sort and photo_first_frame. The first-frame measurement marks the grid frame
+scheduled after publication, not completion of every asynchronous thumbnail decode.
+
+Additional unit coverage checks indexed-before-supplement ordering, cache re-entry,
+unrelated preferences / rename, source changes in flight, symlink target changes
+between stages, cache copies, content revision invalidation and anchor preview bounds.

@@ -172,24 +172,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var photoLoadCompleted = false
     private var photoLoadedKey: String? = null
     private var photoLoadedRevision = -1L
+    private var photoPublishedStage = -1
+    private var photoRequestStarted = 0L
     private val photoScroll = FavoritesScrollRestorer()
     private var photoScrollProfileId: String? = null
 
-    private fun photoDisplayKey(): String {
-        val profile = PhotoProfileRepository.of(this).state().current
-        return listOf(
-            profile?.id, profile?.sources, config.photoMediaFilter,
-            config.getFolderSorting(PhotoProfileMediaLoader.PATH),
-            config.photoSourceBindings, config.excludedFolders,
-            config.shouldShowHidden,
-            PhotoProfileAccessSessionManager.currentEventVersion(), photoToken(),
-            if (isRPlus()) android.os.Environment.isExternalStorageManager() else false,
-            listOf("android.permission.READ_EXTERNAL_STORAGE", "android.permission.READ_MEDIA_IMAGES",
-                "android.permission.READ_MEDIA_VIDEO", "android.permission.READ_MEDIA_VISUAL_USER_SELECTED").map {
-                androidx.core.content.ContextCompat.checkSelfPermission(this, it)
-            }
-        ).joinToString("|")
-    }
+    private fun photoDisplayKey(): String = org.fossify.gallery.helpers.PhotoProfileScope.capture(
+        this, PhotoProfileRepository.of(this).state().current?.id, photoToken()
+    ).toString()
 
     private fun rememberPhotoScrollAnchor() {
         if (!isPhotoProfiles) return
@@ -244,6 +234,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             if (isDestroyed || isFinishing || !isPhotoProfiles) return@runOnUiThread
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
+            org.fossify.gallery.helpers.PhotoProfileMediaCache.invalidate()
             clearPhotoDisplayState()
             photoHasContent = false
             if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) getMedia()
@@ -261,10 +252,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mMedia = ArrayList()
         photoProfileId = PhotoProfileRepository.of(this).state().current?.id
         updateMenuColors()
-        getMedia()
+        getPhotoProfileMedia(org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED)
     }
 
-    private fun getPhotoProfileMedia() {
+    private fun getPhotoProfileMedia(
+        reason: org.fossify.gallery.helpers.PhotoLoadReason = org.fossify.gallery.helpers.PhotoLoadReason.REFRESH
+    ) {
         if (photoToken() != null) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         val profile = PhotoProfileRepository.of(this).state().current
         photoProfileId = profile?.id
@@ -276,8 +269,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             photoScrollProfileId = null
         }
         val requestedKey = photoDisplayKey()
-        val retainGrid = photoLoadedKey == requestedKey && getMediaAdapter() != null && mMedia.isNotEmpty()
-        val retained = if (retainGrid) mMedia.filterIsInstance<Medium>().map { it.copy() } else null
+        val retainGrid = reason != org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED &&
+            photoLoadedKey == requestedKey && getMediaAdapter() != null && mMedia.isNotEmpty()
+        photoPublishedStage = -1
+        photoRequestStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
         if (retainGrid) {
             rememberPhotoScrollAnchor()
         } else {
@@ -310,24 +305,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             return
         }
         val requestedToken = photoToken()
-        ensureBackgroundThread {
-            val needsUnlock = runCatching {
-                val roots = PhotoProfileAccessSessionManager.profileLocks(applicationContext, profile)
-                !PhotoProfileAccessSessionManager.bindingsAuthorize(roots, config.photoSourceBindings,
-                    PhotoProfileAccessSessionManager.isActive(applicationContext, requestedToken)) ||
-                    (profile.sources.any { it.type == org.fossify.gallery.helpers.PhotoSourceType.FAVORITES } &&
-                        !PhotoProfileAccessSessionManager.favoritesAuthorized(applicationContext, requestedToken))
-            }.getOrDefault(true)
-            runOnUiThread {
-                if (mediaLoadRequests.isCurrent(request) && !isDestroyed && !isFinishing) {
-                    photoNeedsUnlock = needsUnlock
-                    refreshMenuItems()
-                    if (binding.mediaEmptyTextPlaceholder.isVisible()) {
-                        updatePhotoEmptyState()
-                    }
-                }
-            }
-        }
         mIsGettingMedia = true
         setMediaLoading(true)
         binding.mediaEmptyTextPlaceholder.beGone()
@@ -335,24 +312,44 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         binding.mediaEmptyTextPlaceholder2.beGone()
         mCurrAsyncTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
             showAll = false, photoProfileId = profile.id, photoSessionId = requestedToken,
-            photoRetainedMedia = retained,
-            onPhotoRetained = { safe ->
-                runOnUiThread {
-                    if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed &&
-                        photoDisplayKey() == requestedKey) {
+            photoAllowPreview = !retainGrid,
+            photoAnchorPath = photoScroll.pending?.path,
+            onPhotoResult = { result ->
+                if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed &&
+                    result.context.isCurrent(applicationContext) && photoDisplayKey() == requestedKey &&
+                    result.stage.ordinal >= photoPublishedStage) {
+                    photoPublishedStage = result.stage.ordinal
+                    photoNeedsUnlock = result.access.needsUnlock
+                    val complete = result.stage == org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE
+                    if (getMediaAdapter() != null) {
+                        // Capture where the user is now, rather than where refresh started.
+                        photoScroll.clear()
                         rememberPhotoScrollAnchor()
-                        mMedia = ArrayList<ThumbnailItem>(safe)
-                        photoHasContent = safe.isNotEmpty()
-                        if (safe.isEmpty()) {
-                            getMediaAdapter()?.finishActMode()
-                            binding.mediaGrid.adapter = null
-                        } else setupAdapter()
+                    }
+                    publishMedia(ArrayList<ThumbnailItem>(result.media), !complete, request)
+                    if (!complete) {
+                        photoLoadedKey = requestedKey
+                        photoHasContent = result.media.isNotEmpty()
+                        mIsGettingMedia = true
+                        setMediaLoading(true)
+                    }
+                    refreshMenuItems()
+                    if (binding.mediaEmptyTextPlaceholder.isVisible()) updatePhotoEmptyState()
+                    if (result.media.isNotEmpty() && photoRequestStarted != 0L) {
+                        val started = photoRequestStarted
+                        photoRequestStarted = 0L
+                        binding.mediaGrid.postOnAnimation {
+                            if (mediaLoadRequests.isCurrent(request)) org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                                "photo_first_frame", started, result.media.size)
+                        }
                     }
                 }
             },
-            onFailure = {
+            onFailure = { error ->
                 if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed) {
-                    if (retainGrid && mMedia.isNotEmpty() && photoDisplayKey() == requestedKey) {
+                    if (error is org.fossify.gallery.helpers.PhotoLoadInvalidatedException) {
+                        getPhotoProfileMedia(org.fossify.gallery.helpers.PhotoLoadReason.ENTER)
+                    } else if (mMedia.isNotEmpty() && photoDisplayKey() == requestedKey) {
                         mIsGettingMedia = false
                         setMediaLoading(false)
                         binding.loadingIndicator.hide()
@@ -364,13 +361,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         binding.mediaEmptyDescription.beGone()
                     }
                 }
-            }) { items ->
-            if (mediaLoadRequests.isCurrent(request) && photoProfileId == profile.id &&
-                photoDisplayKey() == requestedKey && !isFinishing && !isDestroyed) {
-                publishMedia(items, false, request)
-                if (mLastSearchedText.isNotEmpty()) searchQueryChanged(mLastSearchedText)
-            }
-        }.also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
+            }) { /* Photos publish through the stage-aware callback above. */ }
+            .also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
     }
     private var mIsGetImageIntent = false
     private var mIsGetVideoIntent = false
@@ -461,6 +453,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             key == org.fossify.gallery.helpers.EXCLUDED_FOLDERS ||
             (key == PhotoProfileRepository.KEY && photoLoadedKey != photoDisplayKey()) || key == "photo_source_bindings"
         if (isPhotoProfiles && sourceProtectionChanged) {
+            org.fossify.gallery.helpers.PhotoProfileMediaCache.invalidate()
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
             clearPhotoDisplayState()
@@ -468,6 +461,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             return@OnSharedPreferenceChangeListener
         }
         if (isPhotoProfiles && visibilityChanged) {
+            org.fossify.gallery.helpers.PhotoProfileMediaCache.invalidate()
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
             clearPhotoDisplayState()
@@ -826,8 +820,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (isPhotoProfiles && (!photoViewerTransition || photoToken() != null)) {
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
-            // Protected thumbnails never stay in the stopped parent Activity.
-            // The in-memory anchor alone may survive an internal viewer handoff.
+            // Discard stopped rendering, retaining only the bounded public metadata cache.
+            // Re-entry validates cached candidates before constructing a new adapter.
             if (photoViewerTransition) rememberPhotoScrollAnchor()
             clearPhotoDisplayState(keepAnchor = photoViewerTransition)
         }

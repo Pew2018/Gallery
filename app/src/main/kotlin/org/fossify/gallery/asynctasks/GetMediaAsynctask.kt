@@ -5,7 +5,6 @@ import android.os.AsyncTask
 import org.fossify.commons.extensions.isExternalStorageManager
 import org.fossify.commons.extensions.isPathOnOTG
 import org.fossify.commons.helpers.isRPlus
-import org.fossify.commons.extensions.getSharedPrefs
 import org.fossify.commons.helpers.FAVORITES
 import org.fossify.commons.helpers.SORT_BY_DATE_MODIFIED
 import org.fossify.commons.helpers.SORT_BY_DATE_TAKEN
@@ -24,26 +23,25 @@ class GetMediaAsynctask(
     private val favoriteSessionId: String? = null,
     private val photoProfileId: String? = null,
     private val photoSessionId: String? = null,
-    private val photoRetainedMedia: List<Medium>? = null,
-    private val onPhotoRetained: ((ArrayList<Medium>) -> Unit)? = null,
+    private val photoAllowPreview: Boolean = true,
+    private val photoAnchorPath: String? = null,
+    private val onPhotoResult: ((PhotoLoadResult) -> Unit)? = null,
     val callback: (media: ArrayList<ThumbnailItem>) -> Unit
 ) :
-    AsyncTask<Void, Void, ArrayList<ThumbnailItem>>() {
+    AsyncTask<Void, PhotoLoadResult, ArrayList<ThumbnailItem>>() {
     private val mediaFetcher = MediaFetcher(context)
     private var scanFailure: Exception? = null
-    private var profilePreferences: Map<String, *>? = null
+    private var profileResult: PhotoLoadResult? = null
 
     override fun doInBackground(vararg params: Void): ArrayList<ThumbnailItem> {
         return try {
         if (mPath == PhotoProfileMediaLoader.PATH || photoProfileId != null) {
-            profilePreferences = context.getSharedPrefs().all
             val loader = PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId) { isCancelled }
-            photoRetainedMedia?.let { previous ->
-                val safe = loader.permitted(photoProfileId, previous)
-                if (!isCancelled && profilePreferences == context.getSharedPrefs().all) onPhotoRetained?.invoke(safe)
+            val final = loader.loadStaged(photoProfileId, photoAllowPreview && onPhotoResult != null, photoAnchorPath) {
+                if (!isCancelled) publishProgress(it)
             }
-            if (isCancelled) return arrayListOf()
-            return loader.load(photoProfileId)
+            profileResult = final
+            return ArrayList(final.media)
         }
         val pathToUse = if (showAll) SHOW_ALL else mPath
         val folderGrouping = context.config.getFolderGrouping(pathToUse)
@@ -146,15 +144,22 @@ class GetMediaAsynctask(
         }
     }
 
+    override fun onProgressUpdate(vararg values: PhotoLoadResult) {
+        if (!isCancelled) values.forEach { result ->
+            if (result.context.isCurrent(context)) onPhotoResult?.invoke(result)
+        }
+    }
+
     override fun onPostExecute(media: ArrayList<ThumbnailItem>) {
         super.onPostExecute(media)
-        if (!isCancelled) {
-            val error = scanFailure
-            if (error == null) {
-                callback(if (profilePreferences != null && (profilePreferences != context.getSharedPrefs().all ||
-                    (photoSessionId != null && !PhotoProfileAccessSessionManager.isActive(context, photoSessionId)))) arrayListOf() else media)
-            } else onFailure(error)
-        }
+        if (isCancelled) return
+        val error = scanFailure
+        if (error != null) { onFailure(error); return }
+        val result = profileResult
+        if (result != null) {
+            if (!result.context.isCurrent(context)) { onFailure(PhotoLoadInvalidatedException()); return }
+            if (onPhotoResult != null) onPhotoResult.invoke(result) else callback(media)
+        } else callback(media)
     }
 
     fun stopFetching() {

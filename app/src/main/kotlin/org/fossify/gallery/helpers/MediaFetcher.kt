@@ -294,20 +294,30 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
         }
     }
 
-    /** Selected physical directories plus exact favorite files, with no favorite-parent scans. */
-    fun getPhotoProfileMedia(folders: Set<String>, favoriteFiles: Set<String>, favorites: ArrayList<String>): ArrayList<Medium> {
-        if (shouldStop || (filterOverride ?: context.config.filterMedia) == 0) return arrayListOf()
+    data class ProfileIndexedMedia(val mediaByPath: Map<String, Medium>, val customDatesByPath: HashMap<String, Long>)
+
+    fun queryProfileIndexedMedia(folders: Set<String>, favoriteFiles: Set<String>, favorites: ArrayList<String>): ProfileIndexedMedia {
+        if (shouldStop || (filterOverride ?: context.config.filterMedia) == 0) return ProfileIndexedMedia(emptyMap(), hashMapOf())
         val dateOverrides = HashMap<String, Long>()
         folders.toList().chunked(400).forEach { batch ->
-            if (shouldStop) return arrayListOf()
+            if (shouldStop) return ProfileIndexedMedia(emptyMap(), hashMapOf())
             runCatching { context.dateTakensDB.getDateTakensFromFolders(batch) }.getOrDefault(emptyList()).forEach { dateOverrides[it.fullPath] = it.taken }
         }
         favoriteFiles.toList().chunked(400).forEach { batch ->
-            if (shouldStop) return arrayListOf()
+            if (shouldStop) return ProfileIndexedMedia(emptyMap(), hashMapOf())
             runCatching { context.dateTakensDB.getDateTakensFromFiles(batch) }.getOrDefault(emptyList()).forEach { dateOverrides[it.fullPath] = it.taken }
         }
         val indexed = getIndexedMedia(false, false, favorites, false, true, dateOverrides, folders, favoriteFiles)
         val metadata = indexed.values.flatten().associateBy { it.path }
+        return ProfileIndexedMedia(metadata, dateOverrides)
+    }
+
+    /** Supplements run after indexed publication. Indexed rows need no second Medium construction. */
+    fun scanProfileFileSupplements(
+        folders: Set<String>, favoriteFiles: Set<String>, favorites: ArrayList<String>, indexed: ProfileIndexedMedia
+    ): ArrayList<Medium> {
+        val metadata = indexed.mediaByPath
+        val dateOverrides = indexed.customDatesByPath
         val result = LinkedHashMap<String, Medium>()
         val scoped = isRPlus() && !Environment.isExternalStorageManager()
         // Scoped storage can expose indexed media whose File API is inaccessible.
@@ -326,6 +336,12 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
             scanned.forEach { result[it.path] = it }
         }
         return ArrayList(result.values)
+    }
+
+    /** Compatibility entry for callers that require only a final dataset. */
+    fun getPhotoProfileMedia(folders: Set<String>, favoriteFiles: Set<String>, favorites: ArrayList<String>): ArrayList<Medium> {
+        val indexed = queryProfileIndexedMedia(folders, favoriteFiles, favorites)
+        return scanProfileFileSupplements(folders, favoriteFiles, favorites, indexed)
     }
 
     private fun getMediaInFolder(
@@ -410,7 +426,7 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
             val indexed = indexedMetadata?.get(path)
             if (indexed != null && !isPortrait) {
                 if (checkFileExistence && (!file.exists() || !file.isFile)) continue
-                media.add(indexed.copy(isFavorite = path in favoritePathSet))
+                media.add(if (indexed.isFavorite == (path in favoritePathSet)) indexed else indexed.copy(isFavorite = path in favoritePathSet))
                 continue
             }
 
