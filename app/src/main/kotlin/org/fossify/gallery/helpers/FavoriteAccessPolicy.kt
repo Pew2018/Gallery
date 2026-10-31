@@ -26,6 +26,24 @@ internal object FavoriteAccessPolicy {
         return validateItems(token, items, pathOf)?.items ?: arrayListOf()
     }
 
+    /** Viewer continuation: one full worker capture, followed only by a cheap publication check. */
+    fun <T> validateViewerItems(
+        token: String?, items: Collection<T>, pathOf: (T) -> String?, requiredPath: String
+    ): AuthorizedBatch<T>? {
+        val paths = LinkedHashSet<String>().apply {
+            add(requiredPath)
+            items.mapNotNullTo(this, pathOf)
+        }
+        val validation = FavoriteAccessSessionManager.validatePaths(token, paths) ?: return null
+        if (requiredPath !in validation.paths) return null
+        val safe = items.filter { item ->
+            pathOf(item)?.let { FavoriteAccessSessionManager.isInValidatedPaths(validation, it) }
+                ?: (item is ThumbnailSection)
+        }
+        return if (FavoriteAccessSessionManager.isPublicationCurrent(validation))
+            AuthorizedBatch(ArrayList(safe), validation) else null
+    }
+
     fun <T> validateItems(
         token: String?,
         items: Collection<T>,
@@ -49,3 +67,4 @@ internal object FavoriteAccessPolicy {
         } else null
     }
 }
+

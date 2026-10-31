@@ -852,7 +852,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
 
             if (!mWasDefaultFolderChecked) {
-                openDefaultFolder()
+                // An explicit root (launcher or bottom tab) must not be redirected
+                // into the legacy default directory. Picker/direct-folder routes stay intact.
+                if (!intent.hasExtra(GalleryNavigation.EXTRA_SECTION)) openDefaultFolder()
                 mWasDefaultFolderChecked = true
             }
 
@@ -2597,4 +2599,5 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 }
+
 

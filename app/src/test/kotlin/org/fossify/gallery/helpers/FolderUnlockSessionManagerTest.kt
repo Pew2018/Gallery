@@ -67,4 +67,19 @@ class FolderUnlockSessionManagerTest {
         }.toSet()
         assertEquals(individual, batch)
     }
+    @Test fun selectedFileAuthorizationDoesNotTouchSiblingDirectoriesAndLateBatchKeepsBoundaries() {
+        val token = FolderUnlockSessionManager.createSession(root)
+        val calls = ArrayList<String>()
+        val protected: (String) -> Boolean = { calls.add(it); it == root || it == "$root/locked" }
+        assertTrue(FolderUnlockSessionManager.isMediaAuthorized(token, "$root/a.jpg", protected))
+        assertFalse(calls.contains("$root/locked"))
+        assertTrue(FolderUnlockSessionManager.isActive(token))
+        assertEquals(setOf("$root/a.jpg"), FolderUnlockSessionManager.authorizedPaths(token,
+            listOf("$root/a.jpg", "$root/locked/secret.jpg", "$root/../other/a.jpg"), protected))
+        FolderUnlockSessionManager.revokeSession(token)
+        assertFalse(FolderUnlockSessionManager.isActive(token))
+        assertTrue(FolderUnlockSessionManager.authorizedPaths(token, listOf("$root/a.jpg"), protected).isEmpty())
+    }
+
 }
+

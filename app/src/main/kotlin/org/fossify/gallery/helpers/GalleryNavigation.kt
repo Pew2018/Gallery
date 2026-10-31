@@ -36,6 +36,10 @@ object GalleryNavigation {
             GalleryContentView.FILES else GalleryContentView.FOLDERS
     )
 
+    /** Normalized persistent order owns the launcher destination, independently of last tab. */
+    fun launchDestination(order: List<String>, lastAllFiles: Boolean): GalleryScreen =
+        bottomDestination(GallerySection.valueOf(NavigationOrder.normalize(order).first()), lastAllFiles)
+
     /** Bottom Favorites always means favorite FOLDERS; the pinned album owns favorite FILES. */
     fun bottomDestination(section: GallerySection, lastAllFiles: Boolean): GalleryScreen =
         if (section == GallerySection.PHOTOS) {
@@ -47,3 +51,4 @@ object GalleryNavigation {
                 if (lastAllFiles) GalleryContentView.FILES else GalleryContentView.FOLDERS)
         }
 }
+

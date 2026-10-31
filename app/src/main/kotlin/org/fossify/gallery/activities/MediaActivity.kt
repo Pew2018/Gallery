@@ -169,6 +169,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var photoHasContent = false
     private var photoNeedsUnlock = false
     private var photoViewerTransition = false
+    private var viewerHandoffGeneration = 0L
     private var photoLoadCompleted = false
     private var photoLoadedKey: String? = null
     private var photoLoadedRevision = -1L
@@ -800,6 +801,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     override fun onPause() {
+        viewerHandoffGeneration++
         if (mPath == FAVORITES) rememberFavoritesScrollAnchor()
         favoritesScroll.cancelLayout()
         favoritesReturnCover?.pause()
@@ -2037,7 +2039,46 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
     }
 
+    /** Internal folder/favorite taps need no whole-list snapshot before launching the viewer. */
+    private fun openOrdinaryViewer(path: String) {
+        if (mPath == FAVORITES && !FavoriteAccessSessionManager.isCapturedPath(favoriteSessionId, path)) {
+            finish(); return
+        }
+        val request = ++viewerHandoffGeneration
+        val source = mPath
+        val folderToken = folderUnlockSessionId
+        val favoriteToken = favoriteSessionId
+        val showAll = mShowAll
+        val app = applicationContext
+        val completePublicFolder = !showAll && folderToken == null && source.isNotEmpty() &&
+            source != FAVORITES && source != RECYCLE_BIN && displayedMediaIsFinal && !mIsGettingMedia &&
+            getMediaAdapter() != null && mMedia.any { it is Medium } &&
+            mMedia.filterIsInstance<Medium>().all { it.mediaStoreId > 0L }
+        ensureBackgroundThread {
+            // Keep the existing constant-size return checkpoint before launching,
+            // but never copy or validate the whole media list on the click path.
+            val checkpoint = if (completePublicFolder) FolderReturnCheckpoint.capture(app, source) else null
+            runOnUiThread {
+                if (request != viewerHandoffGeneration || source != mPath || isFinishing || isDestroyed) return@runOnUiThread
+                pendingFolderReturn = checkpoint
+                startActivity(Intent(this, ViewPagerActivity::class.java).apply {
+                    folderToken?.let { putExtra(FOLDER_UNLOCK_SESSION, it) }
+                    if (source == FAVORITES) putExtra(FAVORITE_ACCESS_SESSION, favoriteToken)
+                    putExtra(PATH, path)
+                    putExtra(SHOW_ALL, showAll)
+                    putExtra(SHOW_FAVORITES, source == FAVORITES)
+                    putExtra(SHOW_RECYCLE_BIN, source == RECYCLE_BIN)
+                    putExtra(IS_FROM_GALLERY, true)
+                })
+            }
+        }
+    }
+
     private fun openInViewPager(path: String) {
+        if (!isPhotoProfiles) {
+            openOrdinaryViewer(path)
+            return
+        }
         if (mPath == FAVORITES && !FavoriteAccessSessionManager.isCapturedPath(favoriteSessionId, path)) {
             finish(); return
         }
@@ -2357,6 +2398,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         refreshMenuItems()
     }
 }
+
 
 
 

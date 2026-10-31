@@ -109,4 +109,29 @@ class FavoriteAccessPolicyTest {
         assertEquals(headers, FavoriteAccessPolicy.authorizedItems(token, headers) { null })
         assertTrue(FavoriteAccessPolicy.authorizedItems("forged", headers) { null }.isEmpty())
     }
+    @Test fun viewerBatchCapturesOnceAndPublicationPerformsNoFilesystemChecks() {
+        val calls = ArrayList<String>()
+        val protection: (String) -> FavoriteAccessSessionManager.Protection? = { calls.add(it); null }
+        val token = session(protection)
+        calls.clear()
+        val batch = FavoriteAccessPolicy.validateViewerItems(token,
+            listOf("/allowed/a.jpg", "/allowed/v.mp4", "/outside/secret.jpg"), { it }, "/allowed/a.jpg")!!
+        assertEquals(listOf("/allowed/a.jpg", "/allowed/v.mp4"), batch.items)
+        assertEquals(1, calls.count { it == "/allowed" })
+        val count = calls.size
+        assertTrue(FavoriteAccessSessionManager.isPublicationCurrent(batch.validation))
+        assertEquals(count, calls.size)
+        FavoriteAccessSessionManager.revokeSession(token)
+        assertFalse(FavoriteAccessSessionManager.isPublicationCurrent(batch.validation))
+    }
+
+    @Test fun viewerBatchRequiresTheSelectedMemberAndStillRejectsChangedLocks() {
+        val token = session(locks::get)
+        assertNull(FavoriteAccessPolicy.validateViewerItems(token, listOf("/allowed/a.jpg"), { it }, "/other/a.jpg"))
+        locks["/allowed"] = pinA
+        assertNull(FavoriteAccessPolicy.validateViewerItems(token, listOf("/allowed/a.jpg"), { it }, "/allowed/a.jpg"))
+        assertFalse(FavoriteAccessSessionManager.isActive(token))
+    }
+
 }
+

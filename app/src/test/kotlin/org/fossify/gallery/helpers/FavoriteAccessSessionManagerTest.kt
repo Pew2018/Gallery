@@ -238,4 +238,55 @@ class FavoriteAccessSessionManagerTest {
         assertTrue(FavoriteAccessSessionManager.isActive(second))
     }
 
+    @Test fun selectedFavoriteDoesNotInspectOtherMembersAndFullCheckStillRevokesOnTheirChange() {
+        val root = Files.createTempDirectory("favorite-first")
+        try {
+            val aRoot = Files.createDirectory(root.resolve("a"))
+            val bRoot = Files.createDirectory(root.resolve("b"))
+            val a = Files.write(aRoot.resolve("a.jpg"), byteArrayOf(1)).toString()
+            val b = Files.write(bRoot.resolve("b.jpg"), byteArrayOf(2)).toString()
+            val calls = ArrayList<String>()
+            val protection: (String) -> FavoriteAccessSessionManager.Protection? = { calls.add(it); null }
+            val snapshot = FavoriteAccessSessionManager.captureSnapshot(listOf(a, b), protection)
+            val token = FavoriteAccessSessionManager.createSession("first", snapshot, emptySet(), protection)!!
+            calls.clear()
+            val first = FavoriteAccessSessionManager.validateSelectedPath(token, a)!!
+            assertEquals(setOf(a), first.paths)
+            assertFalse(calls.contains(bRoot.toString()))
+            val count = calls.size
+            assertTrue(FavoriteAccessSessionManager.isPublicationCurrent(first))
+            assertEquals(count, calls.size)
+            Files.delete(java.nio.file.Paths.get(b))
+            assertNotNull(FavoriteAccessSessionManager.validateSelectedPath(token, a))
+            assertNull(FavoriteAccessSessionManager.validatePaths(token, listOf(a, b)))
+            assertFalse(FavoriteAccessSessionManager.isPublicationCurrent(first))
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun selectedFavoriteRejectsRetargetedSymlinkAndPublicationCannotSurviveRevocation() {
+        val root = Files.createTempDirectory("favorite-selected-link")
+        try {
+            val a = Files.write(root.resolve("a.jpg"), byteArrayOf(1))
+            val b = Files.write(root.resolve("b.jpg"), byteArrayOf(2, 3))
+            val alias = Files.createSymbolicLink(root.resolve("alias.jpg"), a)
+            val token = session(alias.toString())
+            val checked = FavoriteAccessSessionManager.validateSelectedPath(token, alias.toString())!!
+            FavoriteAccessSessionManager.revokeSession(token)
+            assertFalse(FavoriteAccessSessionManager.isPublicationCurrent(checked))
+            val fresh = session(alias.toString())
+            Files.delete(alias)
+            Files.createSymbolicLink(alias, b)
+            assertNull(FavoriteAccessSessionManager.validateSelectedPath(fresh, alias.toString()))
+            assertFalse(FavoriteAccessSessionManager.isActive(fresh))
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun selectedFavoriteNeverGrantsAnUncapturedOrForgedPath() {
+        val token = session("/public/a.jpg")
+        assertNull(FavoriteAccessSessionManager.validateSelectedPath(token, "/public/other.jpg"))
+        assertNull(FavoriteAccessSessionManager.validateSelectedPath("forged", "/public/a.jpg"))
+        assertNull(FavoriteAccessSessionManager.validateSelectedPath(null, "/public/a.jpg"))
+    }
+
 }
+

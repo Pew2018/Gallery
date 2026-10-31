@@ -108,6 +108,9 @@ internal object FolderUnlockSessionManager {
         return null
     }
 
+    /** Token liveness only; canonical-path checks belong to the worker. */
+    fun isActive(token: String?): Boolean = token != null && sessions.containsKey(token)
+
     fun revokeSession(token: String?) {
         if (token != null) sessions.remove(token)
     }
@@ -122,3 +125,4 @@ internal object FolderUnlockSessionManager {
     private fun isInside(root: String, target: String): Boolean =
         target.startsWith(if (root == File.separator) root else root + File.separator)
 }
+

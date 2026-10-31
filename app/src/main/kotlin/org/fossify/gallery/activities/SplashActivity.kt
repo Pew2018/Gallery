@@ -8,6 +8,12 @@ import org.fossify.gallery.extensions.favoritesDB
 import org.fossify.gallery.extensions.getFavoriteFromPath
 import org.fossify.gallery.extensions.mediaDB
 import org.fossify.gallery.models.Favorite
+import org.fossify.gallery.helpers.GalleryNavigation
+import org.fossify.gallery.helpers.GallerySection
+import org.fossify.gallery.helpers.PhotoProfileMediaLoader
+import org.fossify.gallery.helpers.DIRECTORY
+import org.fossify.gallery.BuildConfig
+import org.fossify.commons.extensions.appLaunched
 
 class SplashActivity : BaseSplashActivity() {
     override fun initActivity() {
@@ -37,7 +43,25 @@ class SplashActivity : BaseSplashActivity() {
     }
 
     private fun launchActivity() {
-        startActivity(Intent(this, MainActivity::class.java))
+        val lastAllFiles = config.lastMainViewAll
+        val screen = GalleryNavigation.launchDestination(config.bottomNavigationOrder, lastAllFiles)
+        // Materialize the legacy fallback before changing the active section's showAll flag.
+        config.lastMainViewAll = lastAllFiles
+        config.showAll = screen.isAllFiles
+        val destination = if (screen.section == GallerySection.PHOTOS) {
+            // MainActivity used to record every launcher visit. Keep that bookkeeping
+            // when the launcher now goes directly to a media root.
+            appLaunched(BuildConfig.APPLICATION_ID)
+            Intent(this, MediaActivity::class.java).putExtra(DIRECTORY,
+                PhotoProfileMediaLoader.PATH)
+        } else {
+            Intent(this, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_SHOW_FOLDERS, !screen.isAllFiles)
+                .putExtra(MainActivity.EXTRA_FOLDER_FAVORITES, screen.section == GallerySection.FAVORITES)
+        }
+        destination.putExtra(GalleryNavigation.EXTRA_SECTION, screen.section.name)
+        startActivity(destination)
         finish()
     }
 }
+

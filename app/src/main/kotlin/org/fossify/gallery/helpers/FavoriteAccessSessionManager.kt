@@ -137,6 +137,22 @@ internal object FavoriteAccessSessionManager {
         return sessions[token]?.snapshot?.entries?.get(path) == expected
     }
 
+    /** Worker-only: one freshly checked member can render while the full session is reconciled. */
+    fun validateSelectedPath(token: String?, path: String): ValidatedPaths? {
+        val liveToken = token ?: return null
+        val session = sessions[liveToken] ?: return null
+        if (Thread.currentThread().isInterrupted || !isMediaAuthorized(liveToken, path)) return null
+        if (sessions[liveToken] !== session || !session.credentialIsCurrent()) return null
+        return ValidatedPaths(liveToken, setOf(path), session)
+    }
+
+    /** Publication check only; file evidence is supplied by the worker, never recaptured on UI. */
+    fun isPublicationCurrent(validation: ValidatedPaths?): Boolean {
+        val token = validation?.token ?: return false
+        val expected = validation.session as? Session ?: return false
+        return sessions[token] === expected && expected.credentialIsCurrent()
+    }
+
     /**
      * Re-checks the complete captured snapshot once, then returns the requested
      * members. Call this from a worker thread. Keeping the full snapshot check
@@ -271,3 +287,4 @@ internal object FavoriteAccessSessionManager {
         sessions.keys.toList().forEach(::revokeSession)
     }
 }
+

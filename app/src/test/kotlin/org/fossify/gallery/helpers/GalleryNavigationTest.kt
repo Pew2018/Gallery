@@ -70,4 +70,27 @@ class GalleryNavigationTest {
         assertEquals(8, savedFolders.size)
         assertFalse(savedFolders.any { folder -> starred.any { it.startsWith("$folder/") } })
     }
+    @Test fun launcherFollowsEveryCustomLeftmostTabAndPreservesAllViewPreference() {
+        for (order in listOf(
+            listOf("ALL", "FAVORITES", "PHOTOS"), listOf("ALL", "PHOTOS", "FAVORITES"),
+            listOf("FAVORITES", "ALL", "PHOTOS"), listOf("FAVORITES", "PHOTOS", "ALL"),
+            listOf("PHOTOS", "ALL", "FAVORITES"), listOf("PHOTOS", "FAVORITES", "ALL")
+        )) {
+            for (allFiles in listOf(false, true)) {
+                val screen = GalleryNavigation.launchDestination(order, allFiles)
+                assertEquals(GallerySection.valueOf(order.first()), screen.section)
+                assertEquals(GalleryNavigation.bottomDestination(screen.section, allFiles), screen)
+            }
+        }
+    }
+
+    @Test fun launcherNormalizesLegacyAndMalformedOrders() {
+        assertEquals(GallerySection.ALL, GalleryNavigation.launchDestination(emptyList(), false).section)
+        assertEquals(GallerySection.FAVORITES,
+            GalleryNavigation.launchDestination(listOf("broken", "FAVORITE_FOLDERS", "PHOTOS"), true).section)
+        assertEquals(GallerySection.PHOTOS,
+            GalleryNavigation.launchDestination(listOf("PHOTOS", "PHOTOS", "unknown"), false).section)
+    }
+
 }
+
