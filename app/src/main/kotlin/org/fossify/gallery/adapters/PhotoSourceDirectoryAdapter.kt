@@ -62,7 +62,7 @@ internal class PhotoSourceDirectoryAdapter(
             sourceStatus.alpha = 1f
             sourceCheck.setOnCheckedChangeListener(null)
             sourceCheck.buttonTintList = null
-            sourceCheck.buttonDrawable = PhotoSourceCheckDrawable(activity.resources, OxygenClassicPalette.readableAccent(accent, Color.WHITE), if (Color.luminance(background) > .5) Color.DKGRAY else Color.LTGRAY)
+            sourceCheck.buttonDrawable = PhotoSourceCheckTargetDrawable(activity.resources, OxygenClassicPalette.readableAccent(accent, Color.WHITE), if (Color.luminance(background) > .5) Color.DKGRAY else Color.LTGRAY)
             fun controlBackground(insetDp: Int): android.graphics.drawable.RippleDrawable {
                 val inset = (insetDp * activity.resources.displayMetrics.density + .5f).toInt()
                 return android.graphics.drawable.RippleDrawable(

@@ -14,7 +14,7 @@
             android:visibility="gone" />
         <CheckBox android:id="@+id/source_check" android:layout_width="48dp"
             android:layout_height="48dp" android:layout_gravity="top|end"
-            android:paddingStart="14dp" android:paddingEnd="14dp"
+            android:padding="0dp"
             android:minWidth="0dp" android:minHeight="0dp" />
         <ImageButton android:id="@+id/source_browse" android:layout_width="48dp"
             android:layout_height="48dp" android:layout_gravity="bottom|end"

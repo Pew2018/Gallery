@@ -34,3 +34,9 @@ internal class PhotoSourceCheckDrawable(resources: Resources, private val accent
     override fun setColorFilter(filter: ColorFilter?) { paint.colorFilter = filter }
     @Deprecated("Deprecated in Android") override fun getOpacity() = PixelFormat.TRANSLUCENT
 }
+
+/** CompoundButton anchors its button drawable at start; padding does not center it.
+ * Center the 20dp glyph inside a 48dp drawable, matching the independent hit target. */
+internal class PhotoSourceCheckTargetDrawable(resources: Resources, accent: Int, outline: Int) :
+    android.graphics.drawable.InsetDrawable(PhotoSourceCheckDrawable(resources, accent, outline),
+        (14 * resources.displayMetrics.density + .5f).toInt())

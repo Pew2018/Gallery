@@ -446,7 +446,7 @@ class ClassicDialogTest {
         assertEquals(0, navigationCount)
         other.binding.sourceBrowse.performClick()
         assertEquals(1, navigationCount)
-        assertTrue(holder.binding.sourceCheck.buttonDrawable is PhotoSourceCheckDrawable)
+        assertTrue(holder.binding.sourceCheck.buttonDrawable is PhotoSourceCheckTargetDrawable)
         assertTrue(holder.binding.sourceCheck.background is RippleDrawable)
         val checkBackground = holder.binding.sourceCheck.background as RippleDrawable
         assertTrue(checkBackground.getDrawable(0) is android.graphics.drawable.InsetDrawable)
@@ -458,7 +458,9 @@ class ClassicDialogTest {
         dialog.dismiss()
         val density = activity.resources.displayMetrics.density
         assertEquals((48 * density + 0.5f).toInt(), holder.binding.sourceCheck.layoutParams.width)
-        assertEquals((20 * density + 0.5f).toInt(), requireNotNull(holder.binding.sourceCheck.buttonDrawable).intrinsicWidth)
+        assertEquals((48 * density + 0.5f).toInt(), requireNotNull(holder.binding.sourceCheck.buttonDrawable).intrinsicWidth)
+        val inner = requireNotNull((holder.binding.sourceCheck.buttonDrawable as PhotoSourceCheckTargetDrawable).drawable)
+        assertEquals((20 * density + 0.5f).toInt(), inner.intrinsicWidth)
         holder.binding.sourceCheck.performClick()
         assertTrue(draft.contains(plain.path))
         assertEquals(2, draft.snapshot().size)
@@ -477,6 +479,16 @@ class ClassicDialogTest {
         glyph.draw(android.graphics.Canvas(checked))
         assertEquals(Color.BLUE, checked.getPixel(10, 4))
         assertNotEquals(unchecked.getPixel(10, 4), checked.getPixel(10, 4))
+        val target = PhotoSourceCheckTargetDrawable(activity.resources, Color.BLUE, Color.GRAY)
+        val density = activity.resources.displayMetrics.density
+        val size = target.intrinsicWidth
+        target.setBounds(0, 0, size, size)
+        target.state = intArrayOf(android.R.attr.state_checked)
+        val centered = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        target.draw(android.graphics.Canvas(centered))
+        assertEquals(Color.TRANSPARENT, centered.getPixel((2 * density).toInt(), (24 * density).toInt()))
+        assertEquals(Color.BLUE, centered.getPixel((24 * density).toInt(), (18 * density).toInt()))
+        assertEquals(Color.TRANSPARENT, centered.getPixel((46 * density).toInt(), (24 * density).toInt()))
     }
 
 
