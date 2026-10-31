@@ -87,6 +87,21 @@
                 app:spanCount="@integer/directory_columns_vertical_scroll" />
 
         </com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller>
+
+        <TextView
+            android:id="@+id/directories_add_other_folder"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_below="@id/directories_fastscroller"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="center_vertical|end"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:text="@string/photo_source_add_other_folder"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium"
+            android:visibility="gone" />
+
         <ProgressBar
             android:id="@+id/directories_loading"
             style="?android:attr/progressBarStyle"

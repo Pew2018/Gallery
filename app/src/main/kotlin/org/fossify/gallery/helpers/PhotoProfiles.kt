@@ -50,6 +50,11 @@ class PhotoSourceSelectionDraft(initial: Collection<String>) {
     val paths: MutableSet<String> = initial.mapNotNull(::stableId).toCollection(linkedSetOf())
     fun canSelect(path: String): Boolean = stableId(path) != null
     fun contains(path: String): Boolean = stableId(path)?.let(paths::contains) == true
+    /** Select idempotently; adding an already selected source never toggles it off. */
+    fun select(path: String): Boolean {
+        val id = stableId(path) ?: return false
+        return paths.add(id)
+    }
     fun toggle(path: String) {
         val id = stableId(path) ?: return
         if (!paths.add(id)) paths.remove(id)
@@ -57,8 +62,22 @@ class PhotoSourceSelectionDraft(initial: Collection<String>) {
     fun snapshot(): Set<String> = paths.toSet()
     private fun stableId(path: String): String? = when {
         path == org.fossify.commons.helpers.FAVORITES -> path
-        path.startsWith('/') -> path.trimEnd('/').takeIf { it.isNotEmpty() }
+        path.startsWith('/') -> runCatching { java.io.File(path).canonicalPath }
+            .getOrElse { normalizeLexicalPath(path) }
+            .takeIf { it.isNotEmpty() && it != "/" }
         else -> null
+    }
+
+    private fun normalizeLexicalPath(path: String): String {
+        val segments = ArrayDeque<String>()
+        path.split('/').forEach { segment ->
+            when (segment) {
+                "", "." -> Unit
+                ".." -> if (segments.isNotEmpty()) segments.removeLast()
+                else -> segments.addLast(segment)
+            }
+        }
+        return "/" + segments.joinToString("/")
     }
 }
 
@@ -67,6 +86,36 @@ internal fun photoSourceCandidates(directories: Collection<Directory>, draft: Ph
     directories.filter { draft.canSelect(it.path) }
         .distinctBy { it.path.getDistinctPath() }
         .toCollection(ArrayList())
+
+/** Merge the current scan with dialog-local additions and persisted, currently unindexed sources. */
+internal fun mergePhotoSourceCandidates(
+    indexed: Collection<Directory>,
+    manual: Collection<Directory>,
+    retainedPaths: Collection<String>,
+    favoritesName: String
+): ArrayList<Directory> {
+    val byPath = LinkedHashMap<String, Directory>()
+    fun key(path: String) = runCatching { java.io.File(path).canonicalPath }
+        .getOrElse { path.trimEnd('/').ifEmpty { "/" } }
+    indexed.forEach { byPath[key(it.path)] = it }
+    manual.forEach { byPath.putIfAbsent(key(it.path), it) }
+    retainedPaths.forEach { path ->
+        if (path == org.fossify.commons.helpers.FAVORITES) {
+            byPath.putIfAbsent(path, Directory().apply { this.path = path; name = favoritesName })
+        } else if (path.startsWith('/')) {
+            byPath.putIfAbsent(key(path), Directory().apply {
+                this.path = key(path)
+                name = java.io.File(this.path).name.ifBlank { this.path }
+                // A negative count means the folder is a candidate but is not indexed.
+                subfoldersMediaCount = -1
+            })
+        }
+    }
+    return ArrayList(byPath.values)
+}
+
+internal fun photoSourceSearchMatches(directory: Directory, query: String): Boolean =
+    query.isEmpty() || directory.name.contains(query, ignoreCase = true) || directory.path.contains(query, ignoreCase = true)
 
 /** Each source status scan may publish only while it is still the newest request. */
 internal class PhotoSourceStatusRequests {

@@ -380,5 +380,14 @@
     <string name="quick_toolbar_choose_row">%1$s, select shortcut</string>
     <string name="photo_password_bind_biometric_separate">Authorize these %1$d folder sources together using one folder fingerprint verification. This mechanism is separate from Photos. No new sources are saved unless every verification succeeds.</string>
     <string name="photo_source_media_count">%1$d media items</string>
+    <string name="photo_source_not_indexed">Not indexed · %1$s</string>
+    <string name="photo_source_add_other_folder">Add other folder</string>
+    <string name="photo_source_folder_invalid">Choose a supported filesystem folder.</string>
+    <string name="photo_source_folder_missing">This folder no longer exists.</string>
+    <string name="photo_source_folder_not_directory">The selected path is not a folder.</string>
+    <string name="photo_source_folder_no_access">This app cannot read that folder.</string>
+    <string name="photo_source_folder_hidden">Hidden folders cannot be added as media sources.</string>
+    <string name="photo_source_folder_excluded">This folder is excluded from browsing.</string>
+    <string name="photo_source_folder_unsupported">This storage location is not supported by the current file access.</string>
 </resources>
 

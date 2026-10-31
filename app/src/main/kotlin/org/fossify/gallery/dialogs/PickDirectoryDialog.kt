@@ -35,6 +35,7 @@ import org.fossify.commons.extensions.isRestrictedWithSAFSdk30
 import org.fossify.commons.extensions.setupDialogStuff
 import org.fossify.commons.extensions.toast
 import org.fossify.commons.helpers.VIEW_TYPE_GRID
+import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.commons.views.MyGridLayoutManager
 import org.fossify.commons.views.MySearchMenu
 import org.fossify.gallery.R
@@ -54,6 +55,10 @@ import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.helpers.OxygenClassicPalette
 import org.fossify.gallery.helpers.photoSourceCandidates
 import org.fossify.gallery.helpers.PhotoSourceSelectionDraft
+import org.fossify.gallery.helpers.mergePhotoSourceCandidates
+import org.fossify.gallery.helpers.photoSourceSearchMatches
+import org.fossify.gallery.helpers.ManualPhotoSourceIssue
+import org.fossify.gallery.helpers.ManualPhotoSourceValidator
 
 class PickDirectoryDialog(
     val activity: BaseSimpleActivity,
@@ -85,6 +90,9 @@ class PickDirectoryDialog(
     }
     private var shownDirectories = ArrayList<Directory>()
     private var allDirectories = ArrayList<Directory>()
+    private var indexedDirectories = ArrayList<Directory>()
+    private val initialSourcePaths = sourceSelection?.draft?.snapshot().orEmpty()
+    private val manualDirectories = LinkedHashMap<String, Directory>()
     private var openedSubfolders = arrayListOf("")
     private var binding = DialogDirectoryPickerBinding.inflate(activity.layoutInflater)
     private var isGridViewType = sourceSelection != null || activity.config.viewTypeFolders == VIEW_TYPE_GRID
@@ -93,6 +101,8 @@ class PickDirectoryDialog(
     private var showHidden = activity.config.shouldShowHidden
     private var temporarilyRevealAll = false
     private var currentPathPrefix = ""
+    private var manualPickerScrollAnchor: String? = null
+    private var manualPickerScrollOffset = 0
     private val config = activity.config
     private val searchView = binding.folderSearchView
     private val searchEditText = searchView.binding.topToolbarSearch
@@ -125,7 +135,7 @@ class PickDirectoryDialog(
             .setPositiveButton(if (sourceSelection == null) org.fossify.commons.R.string.ok else R.string.photo_source_add, null)
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
 
-        if (showOtherFolderButton) {
+        if (showOtherFolderButton && sourceSelection == null) {
             builder.setNeutralButton(R.string.other_folder) { dialogInterface, i -> showOtherFolder() }
         }
 
@@ -136,6 +146,11 @@ class PickDirectoryDialog(
                 OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                 if (sourceSelection != null) {
                     binding.directoriesSelectionSummary.visibility = android.view.View.VISIBLE
+                    binding.directoriesAddOtherFolder.apply {
+                        visibility = android.view.View.VISIBLE
+                        setTextColor(org.fossify.gallery.helpers.photoDialogColors(activity).accent)
+                        setOnClickListener { chooseManualSourceFolder() }
+                    }
                     updateSelectionSummary()
                     alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         if (selectionDelivered.compareAndSet(false, true))
@@ -293,7 +308,7 @@ class PickDirectoryDialog(
         val sourceAdapter = binding.directoriesGrid.adapter as? PhotoSourceDirectoryAdapter
         var dirsToShow = if (sourceSelection != null && query.isEmpty()) shownDirectories else allDirectories
         if (query.isNotEmpty()) {
-            dirsToShow = dirsToShow.filter { it.name.contains(query, true) }.toMutableList() as ArrayList
+            dirsToShow = dirsToShow.filter { photoSourceSearchMatches(it, query) }.toMutableList() as ArrayList
         }
         dirsToShow = activity.getSortedDirectories(dirsToShow)
         checkPlaceholderVisibility(dirsToShow)
@@ -344,22 +359,113 @@ class PickDirectoryDialog(
                     name = activity.getString(org.fossify.commons.R.string.favorites)
                 })
             }
-            val protected = if (sourceSelection == null) emptySet() else preparedDirectories.filter { directory ->
-                (directory.path == org.fossify.commons.helpers.FAVORITES && activity.config.isFavoritePasswordProtectionOn) ||
-                    photoSourceThumbnailProtected(directory.path, directory.tmb, activity.config::isFolderProtected)
-            }.mapTo(hashSetOf()) { it.path }
             activity.runOnUiThread {
                 if (activity.isDestroyed || directoryLoadVersion != requestVersion ||
                     dialog?.isShowing == false) return@runOnUiThread
                 isLoadingDirectories = false
                 binding.directoriesLoading.visibility = android.view.View.GONE
-                protectedSourcePaths = protected
-                allDirectories.clear()
+                indexedDirectories = ArrayList(preparedDirectories)
+                val candidates = if (sourceSelection != null) mergeCandidates(preparedDirectories) else preparedDirectories
+                protectedSourcePaths = if (sourceSelection == null) emptySet() else candidates.filter { directory ->
+                    (directory.path == org.fossify.commons.helpers.FAVORITES && activity.config.isFavoritePasswordProtectionOn) ||
+                        photoSourceThumbnailProtected(directory.path, directory.tmb, activity.config::isFolderProtected)
+                }.mapTo(hashSetOf()) { it.path }
+                allDirectories = ArrayList(candidates)
                 shownDirectories.clear()
-                gotDirectories(preparedDirectories)
+                gotDirectories(candidates)
                 filterFolderListBySearchQuery(searchEditText.text?.toString().orEmpty())
             }
         }
+    }
+
+    private fun mergeCandidates(indexed: Collection<Directory>): ArrayList<Directory> =
+        mergePhotoSourceCandidates(indexed, manualDirectories.values, initialSourcePaths, activity.getString(org.fossify.commons.R.string.favorites))
+
+    private fun chooseManualSourceFolder() {
+        if (sourceSelection == null || dialog?.isShowing != true) return
+        val layoutManager = binding.directoriesGrid.layoutManager as? org.fossify.commons.views.MyGridLayoutManager
+        val firstVisible = layoutManager?.findFirstVisibleItemPosition() ?: RecyclerView.NO_POSITION
+        manualPickerScrollAnchor = (binding.directoriesGrid.adapter as? PhotoSourceDirectoryAdapter)
+            ?.directories?.getOrNull(firstVisible)?.path
+        manualPickerScrollOffset = if (firstVisible != RecyclerView.NO_POSITION)
+            layoutManager?.findViewByPosition(firstVisible)?.top ?: 0 else 0
+        activity.hideKeyboard(searchEditText)
+        val startPath = activity.getDefaultCopyDestinationPath(showHidden, sourcePath)
+        // This is a nested Commons folder browser only. It returns a path and never
+        // commits or dismisses the transactional media source chooser.
+        FilePickerDialog(
+            activity,
+            currPath = startPath,
+            pickFile = false,
+            showHidden = showHidden,
+            showFAB = false,
+            canAddShowHiddenButton = false
+        ) { path ->
+            onManualFolderChosen(path)
+        }
+    }
+
+    private fun onManualFolderChosen(path: String) {
+        ensureBackgroundThread {
+            val issue = ManualPhotoSourceValidator.validate(activity, path)
+            val canonical = if (issue == null) runCatching { File(path).canonicalPath }.getOrNull() else null
+            activity.runOnUiThread {
+                if (activity.isDestroyed || dialog?.isShowing != true) return@runOnUiThread
+                if (issue != null || canonical == null) {
+                    val message = when (issue) {
+                        ManualPhotoSourceIssue.INVALID -> R.string.photo_source_folder_invalid
+                        ManualPhotoSourceIssue.MISSING -> R.string.photo_source_folder_missing
+                        ManualPhotoSourceIssue.NOT_DIRECTORY -> R.string.photo_source_folder_not_directory
+                        ManualPhotoSourceIssue.NO_ACCESS, null -> R.string.photo_source_folder_no_access
+                        ManualPhotoSourceIssue.HIDDEN -> R.string.photo_source_folder_hidden
+                        ManualPhotoSourceIssue.EXCLUDED -> R.string.photo_source_folder_excluded
+                        ManualPhotoSourceIssue.UNSUPPORTED -> R.string.photo_source_folder_unsupported
+                    }
+                    activity.toast(message, Toast.LENGTH_LONG)
+                    return@runOnUiThread
+                }
+                addManualCandidate(canonical)
+            }
+        }
+    }
+
+    private fun addManualCandidate(canonical: String) {
+        val canonicalKey = canonical.getDistinctPath()
+        val existing = allDirectories.firstOrNull { it.path.getDistinctPath() == canonicalKey }
+        if (existing == null) {
+            val candidate = Directory().apply {
+                this.path = canonical
+                name = File(canonical).name.ifBlank { canonical }
+                tmb = ""
+                subfoldersMediaCount = -1
+            }
+            manualDirectories[canonical] = candidate
+        }
+        selectionDraft?.select(existing?.path ?: canonical)
+        val candidates = mergeCandidates(indexedDirectories)
+        allDirectories = ArrayList(candidates)
+        protectedSourcePaths = candidates.filter { directory ->
+            (directory.path == org.fossify.commons.helpers.FAVORITES && activity.config.isFavoritePasswordProtectionOn) ||
+                photoSourceThumbnailProtected(directory.path, directory.tmb, activity.config::isFolderProtected)
+        }.mapTo(hashSetOf()) { it.path }
+        gotDirectories(candidates)
+        filterFolderListBySearchQuery(searchEditText.text?.toString().orEmpty())
+        updateSelectionSummary()
+        val visibleQuery = searchEditText.text?.toString().orEmpty()
+        val chosenName = existing?.name ?: File(canonical).name
+        if (visibleQuery.isEmpty() || chosenName.contains(visibleQuery, true) || canonical.contains(visibleQuery, true)) {
+            val visible = (binding.directoriesGrid.adapter as? PhotoSourceDirectoryAdapter)?.directories.orEmpty()
+            val chosenIndex = visible.indexOfFirst { it.path.getDistinctPath() == canonicalKey }
+            if (chosenIndex >= 0) binding.directoriesGrid.post { binding.directoriesGrid.scrollToPosition(chosenIndex) }
+        } else {
+            val visible = (binding.directoriesGrid.adapter as? PhotoSourceDirectoryAdapter)?.directories.orEmpty()
+            val anchorIndex = visible.indexOfFirst { it.path == manualPickerScrollAnchor }
+            if (anchorIndex >= 0) binding.directoriesGrid.post {
+                (binding.directoriesGrid.layoutManager as? org.fossify.commons.views.MyGridLayoutManager)
+                    ?.scrollToPositionWithOffset(anchorIndex, manualPickerScrollOffset)
+            }
+        }
+        (binding.directoriesGrid.adapter as? PhotoSourceDirectoryAdapter)?.refreshSelection(existing?.path ?: canonical)
     }
 
     private fun showOtherFolder() {
@@ -382,13 +488,17 @@ class PickDirectoryDialog(
     }
 
     private fun gotDirectories(newDirs: ArrayList<Directory>) {
-        if (allDirectories.isEmpty()) {
+        if (allDirectories.isEmpty() && sourceSelection == null) {
             allDirectories = newDirs.clone() as ArrayList<Directory>
         }
 
         val distinctDirs = if (selectionDraft != null) photoSourceCandidates(newDirs, selectionDraft)
         else newDirs.filter { showFavoritesBin || (!it.isRecycleBin() && !it.areFavorites()) }
             .distinctBy { it.path.getDistinctPath() }.toMutableList() as ArrayList<Directory>
+        if (sourceSelection != null) {
+            // This is the full selectable range, independent of search or visible rows.
+            allDirectories = ArrayList(distinctDirs)
+        }
         val sortedDirs = activity.getSortedDirectories(distinctDirs)
         // Source selection always displays the complete candidate index. This keeps
         // nested folders independently selectable without a second navigation mode.
@@ -405,8 +515,13 @@ class PickDirectoryDialog(
 
         shownDirectories = dirs
         if (sourceSelection != null) {
-            binding.directoriesGrid.adapter = PhotoSourceDirectoryAdapter(activity, dirs, selectionDraft!!,
-                protectedSourcePaths, ::updateSelectionSummary)
+            val adapter = binding.directoriesGrid.adapter as? PhotoSourceDirectoryAdapter
+            if (adapter != null) {
+                adapter.updateDirectories(dirs, protectedSourcePaths)
+            } else {
+                binding.directoriesGrid.adapter = PhotoSourceDirectoryAdapter(activity, dirs, selectionDraft!!,
+                    protectedSourcePaths, ::updateSelectionSummary)
+            }
             binding.directoriesFastscroller.setScrollVertically(true)
             styleFastScroller()
             return

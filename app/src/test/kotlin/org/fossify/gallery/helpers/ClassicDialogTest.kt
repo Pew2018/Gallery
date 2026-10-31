@@ -422,14 +422,14 @@ class ClassicDialogTest {
             listOf(locked, plain), draft, setOf(locked.path), {})
         val holder = adapter.onCreateViewHolder(FrameLayout(activity), 0)
         adapter.onBindViewHolder(holder, 0)
-        assertTrue(holder.binding.sourceCheck.isChecked)
+        assertTrue(holder.binding.sourceCheckIcon.isActivated)
         assertEquals(View.VISIBLE, holder.binding.sourceLock.visibility)
         assertNull(holder.binding.sourceThumbnail.tag)
         // Simulate an old completed thumbnail before recycling onto an unselected row.
         holder.binding.sourceThumbnail.tag = "old-uri"
         holder.binding.sourceThumbnail.setImageDrawable(ColorDrawable(Color.RED))
         adapter.onBindViewHolder(holder, 1)
-        assertFalse(holder.binding.sourceCheck.isChecked)
+        assertFalse(holder.binding.sourceCheckIcon.isActivated)
         assertEquals(View.GONE, holder.binding.sourceLock.visibility)
         assertNull(holder.binding.sourceThumbnail.tag)
         assertEquals("Public", holder.binding.sourceName.text.toString())
@@ -442,30 +442,25 @@ class ClassicDialogTest {
         val other = selectionAdapter.onCreateViewHolder(FrameLayout(activity), 0)
         selectionAdapter.onBindViewHolder(other, 0)
         other.itemView.performClick()
-        assertTrue(other.binding.sourceCheck.isChecked)
+        assertTrue(other.binding.sourceCheckIcon.isActivated)
         assertEquals(1, selectionChanges)
-        other.binding.sourceCheck.performClick()
-        assertFalse(other.binding.sourceCheck.isChecked)
+        other.binding.sourceCheckTarget.performClick()
+        assertFalse(other.binding.sourceCheckIcon.isActivated)
         assertEquals(2, selectionChanges)
-        other.binding.sourceCheck.performClick()
-        assertTrue(other.binding.sourceCheck.isChecked)
+        other.binding.sourceCheckTarget.performClick()
+        assertTrue(other.binding.sourceCheckIcon.isActivated)
         assertEquals(3, selectionChanges)
-        assertTrue(holder.binding.sourceCheck.buttonDrawable is PhotoSourceCheckTargetDrawable)
-        assertTrue(holder.binding.sourceCheck.background is RippleDrawable)
-        val checkBackground = holder.binding.sourceCheck.background as RippleDrawable
-        assertTrue(checkBackground.getDrawable(0) is android.graphics.drawable.InsetDrawable)
-        val glyph = holder.binding.sourceCheck.buttonDrawable
+        assertTrue(holder.binding.sourceCheckTarget.background is RippleDrawable)
+        assertNull((holder.binding.sourceCheckTarget.background as RippleDrawable).getDrawable(0))
+        val glyph = holder.binding.sourceCheckIcon.drawable
         val dialog = OxygenClassicDialog.show(activity, OxygenClassicDialog.builder(activity, "Sources").setView(holder.itemView))
         OxygenClassicDialog.apply(activity, dialog, holder.itemView)
-        assertSame(glyph, holder.binding.sourceCheck.buttonDrawable)
-        assertNull(holder.binding.sourceCheck.buttonTintList)
+        assertSame(glyph, holder.binding.sourceCheckIcon.drawable)
         dialog.dismiss()
         val density = activity.resources.displayMetrics.density
-        assertEquals((48 * density + 0.5f).toInt(), holder.binding.sourceCheck.layoutParams.width)
-        assertEquals((48 * density + 0.5f).toInt(), requireNotNull(holder.binding.sourceCheck.buttonDrawable).intrinsicWidth)
-        val inner = requireNotNull((holder.binding.sourceCheck.buttonDrawable as PhotoSourceCheckTargetDrawable).drawable)
-        assertEquals((20 * density + 0.5f).toInt(), inner.intrinsicWidth)
-        holder.binding.sourceCheck.performClick()
+        assertEquals((48 * density + 0.5f).toInt(), holder.binding.sourceCheckTarget.layoutParams.width)
+        assertEquals((20 * density + 0.5f).toInt(), holder.binding.sourceCheckIcon.layoutParams.width)
+        holder.binding.sourceCheckTarget.performClick()
         assertTrue(draft.contains(plain.path))
         assertEquals(2, draft.snapshot().size)
     }
@@ -479,20 +474,43 @@ class ClassicDialogTest {
         glyph.draw(android.graphics.Canvas(unchecked))
         assertEquals(Color.TRANSPARENT, unchecked.getPixel(10, 10))
         val checked = android.graphics.Bitmap.createBitmap(20, 20, android.graphics.Bitmap.Config.ARGB_8888)
-        glyph.state = intArrayOf(android.R.attr.state_checked)
+        glyph.state = intArrayOf(android.R.attr.state_activated)
         glyph.draw(android.graphics.Canvas(checked))
         assertEquals(Color.BLUE, checked.getPixel(10, 4))
         assertNotEquals(unchecked.getPixel(10, 4), checked.getPixel(10, 4))
-        val target = PhotoSourceCheckTargetDrawable(activity.resources, Color.BLUE, Color.GRAY)
+    }
+
+    @Test fun sourceGridCoverIsSquareAndCheckboxGlyphIsCenteredInItsBoundedTarget() {
+        initializeOfflinePicasso()
+        val directory = org.fossify.gallery.models.Directory().apply {
+            path = "/public/with/a/long/name"; name = "A folder name long enough to be ellipsized by the two line label"; subfoldersMediaCount = -1
+        }
+        val adapter = org.fossify.gallery.adapters.PhotoSourceDirectoryAdapter(activity, listOf(directory),
+            PhotoSourceSelectionDraft(emptyList()), emptySet(), {})
+        val holder = adapter.onCreateViewHolder(FrameLayout(activity), 0)
+        adapter.onBindViewHolder(holder, 0)
         val density = activity.resources.displayMetrics.density
-        val size = target.intrinsicWidth
-        target.setBounds(0, 0, size, size)
-        target.state = intArrayOf(android.R.attr.state_checked)
-        val centered = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
-        target.draw(android.graphics.Canvas(centered))
-        assertEquals(Color.TRANSPARENT, centered.getPixel((2 * density).toInt(), (24 * density).toInt()))
-        assertEquals(Color.BLUE, centered.getPixel((24 * density).toInt(), (18 * density).toInt()))
-        assertEquals(Color.TRANSPARENT, centered.getPixel((46 * density).toInt(), (24 * density).toInt()))
+        for (windowWidthDp in listOf(320, 360, 393, 480, 720)) {
+            val columns = photoSourceColumnCount(windowWidthDp)
+            val cellWidthDp = (windowWidthDp - 32) / columns - 8
+            val width = (cellWidthDp * density + .5f).toInt()
+            holder.itemView.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec((700 * density).toInt(), View.MeasureSpec.AT_MOST))
+            holder.itemView.layout(0, 0, holder.itemView.measuredWidth, holder.itemView.measuredHeight)
+            val cover = holder.binding.sourceCover
+            val target = holder.binding.sourceCheckTarget
+            val icon = holder.binding.sourceCheckIcon
+            assertEquals("cover at ${windowWidthDp}dp", cover.measuredWidth, cover.measuredHeight)
+            assertEquals((48 * density + .5f).toInt(), target.measuredWidth)
+            assertEquals((48 * density + .5f).toInt(), target.measuredHeight)
+            assertEquals((20 * density + .5f).toInt(), icon.measuredWidth)
+            assertEquals((20 * density + .5f).toInt(), icon.measuredHeight)
+            assertEquals(target.measuredWidth / 2f, icon.left + icon.measuredWidth / 2f, 1f)
+            assertEquals(target.measuredHeight / 2f, icon.top + icon.measuredHeight / 2f, 1f)
+            assertTrue(target.right <= cover.right)
+            assertTrue(target.bottom <= cover.bottom)
+            assertTrue(icon.right <= target.measuredWidth)
+        }
     }
 
 

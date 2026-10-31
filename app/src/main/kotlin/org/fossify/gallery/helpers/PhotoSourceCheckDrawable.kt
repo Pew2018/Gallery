@@ -4,7 +4,7 @@ import android.content.res.Resources
 import android.graphics.*
 import android.graphics.drawable.Drawable
 
-/** 20dp visual glyph; the CheckBox owning it retains a separate 48dp hit area. */
+/** 20dp visual glyph centered by an independent 48dp ImageView click target. */
 internal class PhotoSourceCheckDrawable(resources: Resources, private val accent: Int, private val outline: Int) : Drawable() {
     private val size = (20 * resources.displayMetrics.density + 0.5f).toInt()
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -13,7 +13,7 @@ internal class PhotoSourceCheckDrawable(resources: Resources, private val accent
     override fun isStateful() = true
     override fun onStateChange(state: IntArray): Boolean { invalidateSelf(); return true }
     override fun draw(canvas: Canvas) {
-        val checked = state.contains(android.R.attr.state_checked)
+        val checked = state.contains(android.R.attr.state_activated)
         val save = canvas.save()
         canvas.translate(bounds.left.toFloat(), bounds.top.toFloat())
         canvas.scale(bounds.width() / 20f, bounds.height() / 20f)
@@ -34,9 +34,3 @@ internal class PhotoSourceCheckDrawable(resources: Resources, private val accent
     override fun setColorFilter(filter: ColorFilter?) { paint.colorFilter = filter }
     @Deprecated("Deprecated in Android") override fun getOpacity() = PixelFormat.TRANSLUCENT
 }
-
-/** CompoundButton anchors its button drawable at start; padding does not center it.
- * Center the 20dp glyph inside a 48dp drawable, matching the independent hit target. */
-internal class PhotoSourceCheckTargetDrawable(resources: Resources, accent: Int, outline: Int) :
-    android.graphics.drawable.InsetDrawable(PhotoSourceCheckDrawable(resources, accent, outline),
-        (14 * resources.displayMetrics.density + .5f).toInt())

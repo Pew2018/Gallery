@@ -163,6 +163,47 @@ class PhotoProfileTest {
         draft.toggle("/DCIM/Camera/")
         assertEquals(setOf(org.fossify.commons.helpers.FAVORITES), draft.snapshot())
     }
+    @Test fun sourcePickerSelectIsIdempotentAndRejectsUrisAndEmptyPaths() {
+        val draft = PhotoSourceSelectionDraft(listOf("/DCIM/Camera/"))
+        assertFalse(draft.select("/DCIM/Camera"))
+        assertTrue(draft.select("/Pictures/Street/"))
+        assertFalse(draft.select("/Pictures/Street"))
+        assertTrue(draft.contains("/Pictures/./Street/../Street"))
+        assertFalse(draft.select("content://tree/photos"))
+        assertFalse(draft.select(""))
+        assertEquals(setOf("/DCIM/Camera", "/Pictures/Street"), draft.snapshot())
+    }
+
+    @Test fun manualAndIndexedCandidatesMergeWithoutDuplicatesOrParentExpansion() {
+        val indexed = org.fossify.gallery.models.Directory().apply {
+            path = "/media/DCIM/Camera/"; name = "Camera"; tmb = "/media/DCIM/Camera/cover.jpg"; mediaCnt = 4
+        }
+        val manualDuplicate = org.fossify.gallery.models.Directory().apply {
+            path = "/media/DCIM/Camera"; name = "Camera"; tmb = ""; subfoldersMediaCount = -1
+        }
+        val manual = org.fossify.gallery.models.Directory().apply {
+            path = "/media/Pictures/Trips"; name = "Trips"; subfoldersMediaCount = -1
+        }
+        val merged = mergePhotoSourceCandidates(
+            listOf(indexed), listOf(manualDuplicate, manual),
+            listOf("/saved/Unindexed", org.fossify.commons.helpers.FAVORITES), "Favorites"
+        )
+        assertEquals(listOf("/media/DCIM/Camera/", "/media/Pictures/Trips", "/saved/Unindexed",
+            org.fossify.commons.helpers.FAVORITES), merged.map { it.path })
+        assertEquals("/media/DCIM/Camera/cover.jpg", merged.first().tmb)
+        assertEquals(4, merged.first().mediaCnt)
+        assertEquals(-1, merged[2].subfoldersMediaCount)
+        assertFalse(merged.any { it.path == "/saved" })
+        assertTrue(photoSourceSearchMatches(merged[1], "trips"))
+        assertTrue(photoSourceSearchMatches(merged[1], "Pictures"))
+        assertFalse(photoSourceSearchMatches(merged[1], "unrelated"))
+        val refreshed = mergePhotoSourceCandidates(
+            listOf(indexed.copy(mediaCnt = 7)), listOf(manual),
+            listOf("/saved/Unindexed", org.fossify.commons.helpers.FAVORITES), "Favorites"
+        )
+        assertEquals(7, refreshed.first().mediaCnt)
+        assertTrue(refreshed.any { it.path == "/media/Pictures/Trips" })
+    }
     @Test fun sourcePickerIndexesNestedFoldersAndFavoritesAsIndependentCandidates() {
         val directories = listOf("/DCIM/Camera", "/DCIM/Camera/Trips", "/Pictures/Camera",
             "/DCIM/Camera/", org.fossify.commons.helpers.FAVORITES, "recycle_bin", "content://tree/private")

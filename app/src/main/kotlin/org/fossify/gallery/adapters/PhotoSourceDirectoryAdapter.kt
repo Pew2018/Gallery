@@ -2,6 +2,12 @@ package org.fossify.gallery.adapters
 
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.RippleDrawable
+import android.content.res.ColorStateList
+import androidx.core.graphics.ColorUtils
+import androidx.core.view.AccessibilityDelegateCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -22,17 +28,36 @@ internal class PhotoSourceDirectoryAdapter(
     private val activity: Activity,
     var directories: List<Directory>,
     private val draft: PhotoSourceSelectionDraft,
-    private val protectedPaths: Set<String>,
+    protectedPaths: Set<String>,
     private val selectionChanged: () -> Unit
 ) : RecyclerView.Adapter<PhotoSourceDirectoryAdapter.Holder>(), RecyclerViewFastScroller.OnPopupTextUpdate {
     class Holder(val binding: PhotoSourceItemBinding) : RecyclerView.ViewHolder(binding.root)
+    private val boundHolders = HashMap<String, Holder>()
+    private var protectedPaths = protectedPaths.toSet()
     override fun getItemCount() = directories.size
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = Holder(
-        PhotoSourceItemBinding.inflate(LayoutInflater.from(parent.context), parent, false))
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
+        val holder = Holder(PhotoSourceItemBinding.inflate(LayoutInflater.from(parent.context), parent, false))
+        ViewCompat.setAccessibilityDelegate(holder.binding.sourceCheckTarget, object : AccessibilityDelegateCompat() {
+            override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfoCompat) {
+                super.onInitializeAccessibilityNodeInfo(host, info)
+                info.className = android.widget.CheckBox::class.java.name
+                info.isCheckable = true
+                info.isChecked = host.isSelected
+            }
+        })
+        return holder
+    }
 
-    fun updateDirectories(directories: List<Directory>) {
+    fun updateDirectories(directories: List<Directory>, protectedPaths: Set<String> = this.protectedPaths) {
+        val protectionChanged = this.protectedPaths != protectedPaths
+        this.protectedPaths = protectedPaths.toSet()
         val next = directories.toList()
         val old = this.directories.toList()
+        if (protectionChanged) {
+            this.directories = next
+            notifyDataSetChanged()
+            return
+        }
         val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
             override fun getOldListSize() = old.size
             override fun getNewListSize() = next.size
@@ -44,8 +69,17 @@ internal class PhotoSourceDirectoryAdapter(
         this.directories = next
         diff.dispatchUpdatesTo(this)
     }
+
+    fun refreshSelection(path: String) {
+        val position = directories.indexOfFirst { it.path.trimEnd('/') == path.trimEnd('/') }
+        if (position < 0) return
+        val directory = directories[position]
+        boundHolders[directory.path.trimEnd('/')]?.let { bindSelection(it, directory) }
+        notifyItemChanged(position, SELECTION_PAYLOAD)
+    }
     override fun onBindViewHolder(holder: Holder, position: Int) {
         val directory = directories[position]
+        boundHolders[directory.path.trimEnd('/')] = holder
         val config = activity.config
         val colors = photoDialogColors(activity)
         val background = colors.surface
@@ -64,32 +98,23 @@ internal class PhotoSourceDirectoryAdapter(
             sourceName.text = directory.name
             sourceName.setTextColor(text)
             sourceStatus.text = if (locked) activity.getString(R.string.photo_source_locked)
+                else if (directory.subfoldersMediaCount < 0) activity.getString(R.string.photo_source_not_indexed, directory.path)
                 else activity.getString(R.string.photo_source_media_count, directory.subfoldersMediaCount)
             sourceStatus.setTextColor(colors.secondary)
             sourceStatus.alpha = 1f
-            sourceCheck.setOnCheckedChangeListener(null)
-            sourceCheck.buttonTintList = null
-            sourceCheck.buttonDrawable = PhotoSourceCheckTargetDrawable(activity.resources, OxygenClassicPalette.readableAccent(accent, Color.WHITE), if (Color.luminance(background) > .5) Color.DKGRAY else Color.LTGRAY)
-            fun controlBackground(insetDp: Int): android.graphics.drawable.RippleDrawable {
-                val inset = (insetDp * activity.resources.displayMetrics.density + .5f).toInt()
-                return android.graphics.drawable.RippleDrawable(
-                    android.content.res.ColorStateList.valueOf(androidx.core.graphics.ColorUtils.setAlphaComponent(accent, 28)),
-                    android.graphics.drawable.InsetDrawable(ColorDrawable(background), inset), ColorDrawable(Color.WHITE))
-            }
-            sourceCheck.background = controlBackground(14)
-            sourceCheck.isChecked = draft.contains(directory.path)
-            root.isSelected = sourceCheck.isChecked
-            sourceCheck.contentDescription = directory.name + ", " + activity.getString(
-                if (sourceCheck.isChecked) R.string.photo_source_deselect else R.string.photo_source_select)
-            sourceCheck.setOnCheckedChangeListener { _, _ ->
-                draft.toggle(directory.path)
-                root.isSelected = sourceCheck.isChecked
-                selectionChanged()
-                holder.bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION }?.let(::notifyItemChanged)
-            }
+            sourceCheckIcon.setImageDrawable(PhotoSourceCheckDrawable(
+                activity.resources,
+                OxygenClassicPalette.readableAccent(accent, Color.WHITE),
+                if (Color.luminance(background) > .5) Color.DKGRAY else Color.LTGRAY
+            ))
+            sourceCheckTarget.background = RippleDrawable(
+                ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 32)), null, ColorDrawable(Color.WHITE)
+            )
+            bindSelection(holder, directory)
             root.background = OxygenClassicDialog.ripple(accent, activity.resources.displayMetrics.density)
             root.contentDescription = directory.name + if (locked) ", " + activity.getString(R.string.photo_source_locked) else ""
-            root.setOnClickListener { sourceCheck.performClick() }
+            root.setOnClickListener { toggleSource(directory.path) }
+            sourceCheckTarget.setOnClickListener { toggleSource(directory.path) }
             sourceThumbnail.visibility = View.VISIBLE
             sourceThumbnail.clearColorFilter()
             if (!locked) DirectoryThumbnailBinder.bind(
@@ -100,14 +125,49 @@ internal class PhotoSourceDirectoryAdapter(
             ) { }
         }
     }
+
+    override fun onBindViewHolder(holder: Holder, position: Int, payloads: MutableList<Any>) {
+        if (payloads.contains(SELECTION_PAYLOAD)) {
+            bindSelection(holder, directories[position])
+        } else {
+            onBindViewHolder(holder, position)
+        }
+    }
+
+    private fun bindSelection(holder: Holder, directory: Directory) = with(holder.binding) {
+        val checked = draft.contains(directory.path)
+        root.isSelected = checked
+        sourceCheckTarget.isSelected = checked
+        sourceCheckIcon.isActivated = checked
+        sourceCheckIcon.drawable?.state = sourceCheckIcon.drawableState
+        sourceCheckTarget.contentDescription = directory.name + ", " + activity.getString(
+            if (checked) R.string.photo_source_deselect else R.string.photo_source_select
+        )
+    }
+
+    private fun toggleSource(path: String) {
+        if (!draft.canSelect(path)) return
+        draft.toggle(path)
+        val position = directories.indexOfFirst { it.path.trimEnd('/') == path.trimEnd('/') }
+        if (position >= 0) {
+            directories[position].let { directory ->
+                boundHolders[directory.path.trimEnd('/')]?.let { bindSelection(it, directory) }
+            }
+            notifyItemChanged(position, SELECTION_PAYLOAD)
+        }
+        selectionChanged()
+    }
+
+    private companion object { const val SELECTION_PAYLOAD = "source-selection" }
     private fun clearThumbnail(binding: PhotoSourceItemBinding) {
         DirectoryThumbnailBinder.clear(activity, binding.sourceThumbnail, ROUNDED_CORNERS_NONE)
         binding.sourceThumbnail.visibility = View.VISIBLE
     }
     override fun onViewRecycled(holder: Holder) {
+        boundHolders.entries.removeAll { it.value === holder }
         clearThumbnail(holder.binding)
-        holder.binding.sourceCheck.setOnCheckedChangeListener(null)
         holder.binding.root.setOnClickListener(null)
+        holder.binding.sourceCheckTarget.setOnClickListener(null)
         super.onViewRecycled(holder)
     }
     override fun onChange(position: Int): String = directories.getOrNull(position)?.name.orEmpty()

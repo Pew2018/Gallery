@@ -3,7 +3,8 @@
     android:layout_width="match_parent" android:layout_height="wrap_content"
     android:layout_margin="4dp" android:orientation="vertical"
     android:focusable="true" android:clickable="true">
-    <FrameLayout android:layout_width="match_parent" android:layout_height="96dp"
+    <org.fossify.gallery.helpers.SquareFrameLayout android:id="@+id/source_cover"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
         android:clipChildren="true">
         <org.fossify.commons.views.MySquareImageView android:id="@+id/source_thumbnail"
             android:layout_width="match_parent" android:layout_height="match_parent"
@@ -12,11 +13,17 @@
             android:layout_height="match_parent" android:scaleType="center"
             android:src="@drawable/ic_lock_vector" android:importantForAccessibility="no"
             android:visibility="gone" />
-        <CheckBox android:id="@+id/source_check" android:layout_width="48dp"
+        <FrameLayout android:id="@+id/source_check_target" android:layout_width="48dp"
             android:layout_height="48dp" android:layout_gravity="top|end"
-            android:padding="0dp"
-            android:minWidth="0dp" android:minHeight="0dp" />
-    </FrameLayout>
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true" android:focusable="true"
+            android:importantForAccessibility="yes">
+            <ImageView android:id="@+id/source_check_icon" android:layout_width="20dp"
+                android:layout_height="20dp" android:layout_gravity="center"
+                android:clickable="false" android:focusable="false"
+                android:importantForAccessibility="no" />
+        </FrameLayout>
+    </org.fossify.gallery.helpers.SquareFrameLayout>
     <TextView android:id="@+id/source_name" android:layout_width="match_parent"
         android:layout_height="wrap_content" android:minHeight="40dp"
         android:gravity="center_vertical" android:paddingStart="4dp" android:paddingEnd="4dp"
@@ -24,5 +31,5 @@
     <TextView android:id="@+id/source_status" android:layout_width="match_parent"
         android:layout_height="wrap_content" android:minHeight="20dp"
         android:paddingStart="4dp" android:paddingEnd="4dp" android:paddingBottom="4dp"
-        android:maxLines="1" android:ellipsize="end" android:textSize="12sp" />
+        android:maxLines="1" android:ellipsize="middle" android:textSize="12sp" />
 </LinearLayout>

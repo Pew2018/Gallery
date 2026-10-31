@@ -212,7 +212,15 @@ class PhotoProfileEditActivity : SimpleActivity() {
         PickDirectoryDialog(this, "", false, true, false, false,
             PickDirectoryDialog.SourceSelection(PhotoSourceSelectionDraft(paths)) { chosen, available ->
                 val selected = chosen.map { path -> if (path == org.fossify.commons.helpers.FAVORITES) PhotoSource(PhotoSourceType.FAVORITES) else PhotoSource(PhotoSourceType.FOLDER, path) }
-                val unavailable = draft.sources.filter { it.type == PhotoSourceType.FOLDER && it.path !in available }
+                val availableIdentities = available.mapNotNullTo(hashSetOf()) { path ->
+                    if (path.startsWith('/')) runCatching { File(path).canonicalPath }.getOrElse { path.trimEnd('/') } else path
+                }
+                val unavailable = draft.sources.filter { source ->
+                    source.type == PhotoSourceType.FOLDER && source.path?.let { path ->
+                        val identity = if (path.startsWith('/')) runCatching { File(path).canonicalPath }.getOrElse { path.trimEnd('/') } else path
+                        identity !in availableIdentities
+                    } == true
+                }
                 draft = draft.copy(sources = PhotoProfileCodec.sources(selected + unavailable))
                 sourceStatusRequests.invalidate()
                 sourceStatuses = emptyMap()
