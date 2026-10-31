@@ -661,19 +661,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
         val folderSessionId = intent.getStringExtra(FOLDER_UNLOCK_SESSION)
         activeFolderUnlockSessionId = folderSessionId
-        // Reuse a single-use public folder snapshot only; normal folder authentication
-        // below still applies, and protected/virtual/external views never skip a scan.
-        if (folderSessionId == null && !mShowAll && !isExternalIntent()) {
-            val cached = org.fossify.gallery.helpers.FolderViewerSnapshotStore.take(
-                applicationContext,
-                intent.getStringExtra(org.fossify.gallery.helpers.FolderViewerSnapshotStore.EXTRA_ID),
-                mPath.getParentPath(), mPath
-            )
-            if (cached != null) {
-                mMediaFiles = cached
-                initialPublicFolderSnapshot = true
-            }
-        }
         // Shared metadata is never proof of authorization for an exported
         // request. Locked cache entries need this request's own capability.
         val authenticateFolder = {
@@ -733,7 +720,34 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 }
             }
         } else {
-            continueAfterFailedFolderCapability()
+            // A snapshot never proves authorization; consume its metadata off
+            // the UI thread, then run the exact original folder unlock flow.
+            val snapshotId = if (!mShowAll && !isExternalIntent()) {
+                intent.getStringExtra(org.fossify.gallery.helpers.FolderViewerSnapshotStore.EXTRA_ID)
+            } else null
+            if (snapshotId == null) {
+                continueAfterFailedFolderCapability()
+            } else {
+                val request = ++viewerAccessGeneration
+                val app = applicationContext
+                val folder = mPath.getParentPath()
+                val path = mPath
+                submitViewerAccess(request) {
+                    val cached = runCatching {
+                        org.fossify.gallery.helpers.FolderViewerSnapshotStore.take(
+                            app, snapshotId, folder, path
+                        )
+                    }.getOrNull()
+                    runOnUiThread {
+                        if (request != viewerAccessGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                        if (cached != null) {
+                            mMediaFiles = cached
+                            initialPublicFolderSnapshot = true
+                        }
+                        continueAfterFailedFolderCapability()
+                    }
+                }
+            }
         }
     }
 
