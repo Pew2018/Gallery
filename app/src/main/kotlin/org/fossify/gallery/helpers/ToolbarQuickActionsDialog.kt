@@ -40,6 +40,7 @@ object ToolbarQuickActionsDialog {
 
         val density = activity.resources.displayMetrics.density
         fun dp(n: Int) = (n * density + 0.5f).toInt()
+        lateinit var render: () -> Unit
 
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -141,7 +142,6 @@ object ToolbarQuickActionsDialog {
         lateinit var folderTabLabel: TextView
         lateinit var homeIndicator: View
         lateinit var folderIndicator: View
-        lateinit var render: () -> Unit
 
         fun updateSearch(checked: Boolean) {
             val selectedActions = current()

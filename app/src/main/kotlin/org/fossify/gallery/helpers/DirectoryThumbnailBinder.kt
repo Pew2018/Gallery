@@ -3,6 +3,7 @@ package org.fossify.gallery.helpers
 import android.app.Activity
 import android.widget.ImageView
 import com.bumptech.glide.Glide
+import com.bumptech.glide.signature.ObjectKey
 import com.squareup.picasso.Picasso
 import org.fossify.commons.extensions.isGif
 import org.fossify.commons.extensions.isRawFast
@@ -10,10 +11,11 @@ import org.fossify.commons.extensions.isSvg
 import org.fossify.commons.extensions.isVideoFast
 import org.fossify.gallery.R
 import org.fossify.gallery.extensions.loadImage
+import org.fossify.commons.views.MySquareImageView
 
 /** Shared folder thumbnail loading and recycling rules for the album grid and source picker. */
 object DirectoryThumbnailBinder {
-    fun clear(activity: Activity, target: ImageView, corners: Int) {
+    fun clear(activity: Activity, target: MySquareImageView, corners: Int) {
         Picasso.get().cancelRequest(target)
         Glide.with(activity).clear(target)
         target.tag = null
@@ -23,9 +25,9 @@ object DirectoryThumbnailBinder {
 
     fun bind(
         activity: Activity,
-        target: ImageView,
+        target: MySquareImageView,
         path: String,
-        signature: String,
+        signature: ObjectKey,
         crop: Boolean,
         animateGifs: Boolean,
         horizontalScroll: Boolean,
