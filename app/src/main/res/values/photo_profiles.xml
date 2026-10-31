@@ -44,8 +44,6 @@
     <string name="photo_profiles_search_empty_title">No matching photos or videos</string>
     <string name="photo_profiles_search_empty_description">Try another search term.</string>
     <string name="photo_password_title">Photo browsing password</string>
-    <string name="photo_password_not_set">Protection off · Tap to choose</string>
-    <string name="photo_password_set">Protection on · Tap to manage</string>
     <string name="photo_password_change">Change password</string>
     <string name="photo_password_disable">Turn off password</string>
     <string name="photo_password_auth_choice">Biometric authentication ended. Use your backup PIN or pattern?</string>
@@ -72,10 +70,6 @@
     <string name="photo_source_add">Add</string>
     <string name="photo_source_select">Select this folder</string>
     <string name="photo_source_deselect">Deselect this folder</string>
-    <string name="photo_password_set_summary">%1$s · backup %2$s</string>
-    <string name="photo_password_backup_none">not set</string>
-    <string name="photo_password_backup_pin">PIN</string>
-    <string name="photo_password_backup_pattern">pattern</string>
     <string name="photo_profiles_sources_title">Media sources</string>
     <string name="photo_profiles_current">Currently in use</string>
     <string name="photo_password_lock">Lock protected content</string>

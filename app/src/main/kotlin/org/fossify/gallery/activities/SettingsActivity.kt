@@ -728,20 +728,16 @@ class SettingsActivity : SimpleActivity() {
     private fun setupPhotoPasswordProtection() {
         fun status() {
             val credential = config.photoCredentialSnapshot()
-            if (!credential.enabled) {
-                binding.settingsPhotoPasswordStatus.setText(R.string.photo_password_not_set)
-            } else {
-                val primary = when {
-                    credential.biometricPrimary -> getString(R.string.photo_password_biometric)
-                    credential.type == org.fossify.commons.helpers.PROTECTION_PIN -> getString(R.string.photo_password_backup_pin)
-                    else -> getString(R.string.photo_password_backup_pattern)
-                }
-                val backup = if (!credential.biometricPrimary) getString(R.string.photo_password_backup_none) else when (credential.fallbackType) {
-                    org.fossify.commons.helpers.PROTECTION_PIN -> getString(R.string.photo_password_backup_pin)
-                    else -> getString(R.string.photo_password_backup_pattern)
-                }
-                binding.settingsPhotoPasswordStatus.text = getString(R.string.photo_password_set_summary, primary, backup)
-            }
+            binding.settingsPhotoPasswordStatus.text = ProtectionStatusFormatter.format(
+                this,
+                ProtectionStatusPresentation(
+                    enabled = credential.enabled,
+                    configured = credential.isConfigured,
+                    biometricPrimary = credential.biometricPrimary,
+                    primaryType = credential.type,
+                    fallbackType = credential.fallbackType
+                )
+            )
         }
         status()
         binding.settingsPhotoPasswordHolder.setOnClickListener {
@@ -767,26 +763,17 @@ class SettingsActivity : SimpleActivity() {
     private fun setupFavoritePasswordProtection() {
         fun updateStatus() {
             val credential = config.favoriteCredentialSnapshot()
-            binding.settingsFavoritePasswordStatus.text = when {
-                !credential.enabled && config.isFolderProtected(FAVORITES) ->
-                    getString(R.string.favorite_password_legacy_status)
-                !credential.enabled -> getString(R.string.favorite_password_not_set)
-                !credential.isConfigured -> getString(R.string.favorite_password_enabled_invalid)
-                credential.biometricPrimary -> getString(
-                    R.string.favorite_password_set_biometric,
-                    getString(
-                        if (credential.fallbackType == PROTECTION_PIN) org.fossify.commons.R.string.pin
-                        else org.fossify.commons.R.string.pattern
-                    )
+            binding.settingsFavoritePasswordStatus.text = ProtectionStatusFormatter.format(
+                this,
+                ProtectionStatusPresentation(
+                    enabled = credential.enabled,
+                    configured = credential.isConfigured,
+                    biometricPrimary = credential.biometricPrimary,
+                    primaryType = credential.type,
+                    fallbackType = credential.fallbackType,
+                    legacyProtection = !credential.enabled && config.isFolderProtected(FAVORITES)
                 )
-                else -> getString(
-                    R.string.favorite_password_set_primary,
-                    getString(
-                        if (credential.type == PROTECTION_PIN) org.fossify.commons.R.string.pin
-                        else org.fossify.commons.R.string.pattern
-                    )
-                )
-            }
+            )
         }
         updateStatus()
         binding.settingsFavoritePasswordHolder.setOnClickListener {

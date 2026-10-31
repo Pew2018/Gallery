@@ -66,13 +66,8 @@ class PhotoProfileEditActivity : SimpleActivity() {
             setOnMenuItemClickListener { item -> if (item.itemId == R.id.photo_profile_edit_save) { saveDraft(); true } else false }
         }
         binding.photoProfileEditToolbar.setNavigationOnClickListener { finish() }
-        val palette = OxygenThemeEngine.snapshot(this, config)
-        binding.photoProfileEditAddSource.setTextColor(palette.interactiveAccent)
-        binding.photoProfileEditAddSource.background = OxygenClassicDialog.ripple(palette.interactiveAccent, resources.displayMetrics.density)
         binding.photoProfileEditName.setText(draft.name)
-        OxygenClassicDialog.styleInput(this, binding.photoProfileEditName)
-        binding.photoProfileEditSourcesTitle.setTextColor(palette.interactiveAccent)
-        binding.photoProfileEditError.setTextColor(photoDialogColors(this).error)
+        applyPageColors()
         binding.photoProfileEditAddSource.setOnClickListener { chooseSources() }
         PhotoProfileAccessSessionManager.addListener(authListenerId) { _ ->
             sourceStatusRequests.invalidate()
@@ -93,6 +88,7 @@ class PhotoProfileEditActivity : SimpleActivity() {
         setupTopAppBar(binding.photoProfileEditAppbar, NavigationIcon.Arrow, topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
         OxygenToolbarStyle.applyToolbar(this, binding.photoProfileEditToolbar)
         OxygenSystemBars.apply(this)
+        applyPageColors()
         if (::draft.isInitialized) checkSourceStatuses()
     }
 
@@ -111,10 +107,28 @@ class PhotoProfileEditActivity : SimpleActivity() {
 
     private fun captureName() { if (::draft.isInitialized) draft = draft.copy(name = binding.photoProfileEditName.text.toString()) }
 
+    private fun applyPageColors() {
+        val tokens = OxygenThemeEngine.snapshot(this, config)
+        binding.root.setBackgroundColor(tokens.pageBackground)
+        binding.photoProfileEditScroll.setBackgroundColor(tokens.pageBackground)
+        binding.photoProfileEditNameLabel.setTextColor(
+            OxygenClassicPageInput.readableTextColor(tokens.secondaryText, tokens)
+        )
+        OxygenClassicPageInput.style(binding.photoProfileEditName, tokens)
+        binding.photoProfileEditSourcesTitle.setTextColor(tokens.interactiveAccent)
+        binding.photoProfileEditAddSource.apply {
+            setTextColor(tokens.interactiveAccent)
+            background = OxygenClassicDialog.ripple(tokens.interactiveAccent, resources.displayMetrics.density)
+        }
+        binding.photoProfileEditError.setTextColor(
+            OxygenThemeColors.readableAccent(android.graphics.Color.RED, tokens.pageBackground)
+        )
+    }
+
     private fun renderSources() {
         val colors = OxygenThemeEngine.snapshot(this, config)
         binding.photoProfileEditSources.removeAllViews()
-        draft.sources.forEach { source ->
+        draft.sources.forEachIndexed { index, source ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
                 setPadding(0, dp(6), 0, dp(6))
@@ -122,23 +136,25 @@ class PhotoProfileEditActivity : SimpleActivity() {
             val labels = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
             labels.addView(TextView(this).apply {
                 text = if (source.type == PhotoSourceType.FAVORITES) getString(R.string.photo_profiles_favorites) else File(source.path.orEmpty()).name.ifBlank { source.path.orEmpty() }
-                textSize = 16f; setTextColor(colors.primaryText); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+                textSize = 16f; setTextColor(OxygenClassicPageInput.readableTextColor(colors.primaryText, colors)); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
             })
             labels.addView(TextView(this).apply {
                 text = source.path ?: getString(R.string.photo_profiles_favorites)
-                textSize = 12f; setTextColor(colors.secondaryText); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+                textSize = 12f; setTextColor(OxygenClassicPageInput.readableTextColor(colors.secondaryText, colors)); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
             })
             sourceStatuses[source]?.takeIf { it != PhotoSourceStatus.READY }?.let { status ->
                 labels.addView(TextView(this).apply {
                     text = getString(status.stringRes)
                     textSize = 12f
-                    setTextColor(colors.secondaryText)
+                    setTextColor(OxygenClassicPageInput.readableTextColor(colors.secondaryText, colors))
                 })
             }
             row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
             row.addView(ImageButton(this).apply {
                 setImageResource(org.fossify.commons.R.drawable.ic_cross_vector)
-                imageTintList = android.content.res.ColorStateList.valueOf(colors.primaryText)
+                imageTintList = android.content.res.ColorStateList.valueOf(
+                    OxygenClassicPageInput.readableTextColor(colors.primaryText, colors)
+                )
                 contentDescription = getString(R.string.photo_profiles_remove_source)
                 background = OxygenClassicDialog.ripple(colors.interactiveAccent, resources.displayMetrics.density)
                 setOnClickListener {
@@ -150,9 +166,11 @@ class PhotoProfileEditActivity : SimpleActivity() {
                 }
             }, LinearLayout.LayoutParams(dp(48), dp(48)))
             binding.photoProfileEditSources.addView(row)
-            binding.photoProfileEditSources.addView(View(this).apply {
-                setBackgroundColor(OxygenThemeColors.blend(colors.pageBackground, colors.primaryText, 0.10))
-            }, LinearLayout.LayoutParams(-1, dp(1)))
+            if (index < draft.sources.lastIndex) {
+                binding.photoProfileEditSources.addView(View(this).apply {
+                    setBackgroundColor(OxygenThemeColors.blend(colors.pageBackground, colors.primaryText, 0.10))
+                }, LinearLayout.LayoutParams(-1, dp(1)))
+            }
         }
         binding.photoProfileEditError.visibility = if (showSourceError && draft.sources.isEmpty()) View.VISIBLE else View.GONE
     }

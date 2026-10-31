@@ -44,8 +44,6 @@
     <string name="photo_profiles_search_empty_title">没有匹配的照片或视频</string>
     <string name="photo_profiles_search_empty_description">请尝试其他搜索词。</string>
     <string name="photo_password_title">照片浏览密码</string>
-    <string name="photo_password_not_set">保护已关闭 · 点击选择</string>
-    <string name="photo_password_set">保护已开启 · 点击管理</string>
     <string name="photo_password_change">修改密码</string>
     <string name="photo_password_disable">关闭密码保护</string>
     <string name="photo_password_auth_choice">生物识别验证已结束。要改用备用 PIN 或图案吗？</string>
@@ -72,10 +70,6 @@
     <string name="photo_source_add">添加</string>
     <string name="photo_source_select">选择此文件夹</string>
     <string name="photo_source_deselect">取消选择此文件夹</string>
-    <string name="photo_password_set_summary">%1$s · 备用方式：%2$s</string>
-    <string name="photo_password_backup_none">未设置</string>
-    <string name="photo_password_backup_pin">PIN</string>
-    <string name="photo_password_backup_pattern">图案</string>
     <string name="photo_profiles_sources_title">媒体来源</string>
     <string name="photo_profiles_current">正在使用</string>
     <string name="photo_password_lock">锁定受保护内容</string>
