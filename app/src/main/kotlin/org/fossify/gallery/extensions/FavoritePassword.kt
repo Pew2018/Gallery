@@ -313,8 +313,11 @@ internal fun Activity.authenticateFavoritePassword(
     val delivered = java.util.concurrent.atomic.AtomicBoolean(false)
     fun finish(proof: Config.FavoriteCredentialProof?) {
         if (!delivered.compareAndSet(false, true) || !requests.current(request, this) || isFinishing || isDestroyed) return
+        val currentProof = proof.takeIf {
+            request.generation == org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.currentGeneration()
+        }
         if (photoRequest == null) requests.finish(request)
-        onAuthenticated(proof)
+        onAuthenticated(currentProof)
     }
     prepareFavoritePasswordProtection { prepared ->
         if (!requests.current(request, this) || isFinishing || isDestroyed) return@prepareFavoritePasswordProtection

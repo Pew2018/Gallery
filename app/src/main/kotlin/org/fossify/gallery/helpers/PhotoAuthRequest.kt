@@ -42,6 +42,7 @@ internal class PhotoAuthRequests {
         if (active === request) active = null
     }
     @Synchronized fun activeId(id: String) = active?.let { !it.closed && it.id == id && it.ownerAlive() } == true
+    @Synchronized fun cancelAll() { active?.let(::finish) }
     @Synchronized fun cancelOwner(owner: Any) { active?.takeIf { it.owns(owner) }?.let(::finish) }
 }
 

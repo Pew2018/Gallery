@@ -57,7 +57,7 @@ class App : FossifyApp() {
             override fun onActivityStopped(activity: Activity) {
                 started--
                 if (started == 0 && !activity.isChangingConfigurations) {
-                    org.fossify.gallery.helpers.PhotoAuthentication.requests.cancelOwner(activity)
+                    org.fossify.gallery.helpers.PhotoAuthentication.requests.cancelAll()
                     org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.revokeAll("app_backgrounded")
                 }
             }

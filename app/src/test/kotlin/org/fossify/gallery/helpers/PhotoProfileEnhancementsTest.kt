@@ -242,4 +242,17 @@ class PhotoProfileEnhancementsTest {
         assertEquals(4, photoSourceColumnCount(1200))
     }
 
+
+    @Test fun backgroundCancelsLeaseEvenWhenItsOwnerIsNotTheLastStoppedActivity() {
+        val requests = PhotoAuthRequests()
+        val authOwner = Any()
+        val otherActivity = Any()
+        val pending = requests.begin(authOwner, 0)!!
+        val callback = pending.callback()
+        requests.cancelOwner(otherActivity)
+        assertTrue(requests.current(pending, authOwner))
+        requests.cancelAll()
+        assertFalse(requests.current(pending, authOwner))
+        assertFalse(callback())
+    }
 }
