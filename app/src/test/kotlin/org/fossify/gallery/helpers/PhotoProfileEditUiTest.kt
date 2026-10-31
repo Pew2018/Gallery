@@ -92,7 +92,7 @@ class PhotoProfileEditUiTest {
         val sourcesTitle = root.findViewById<TextView>(R.id.photo_profile_edit_sources_title)
         val addSource = root.findViewById<TextView>(R.id.photo_profile_edit_add_source)
         assertEquals(1, field.maxLines)
-        assertEquals((52 * context.resources.displayMetrics.density).toInt(), field.minHeight)
+        assertEquals((52 * context.resources.displayMetrics.density).toInt(), field.minimumHeight)
         assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, label.layoutParams.height)
         assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, sourcesTitle.layoutParams.height)
         assertEquals((48 * context.resources.displayMetrics.density).toInt(), addSource.layoutParams.height)
