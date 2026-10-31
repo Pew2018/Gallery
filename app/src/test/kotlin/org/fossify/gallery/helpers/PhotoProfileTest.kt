@@ -107,6 +107,14 @@ class PhotoProfileTest {
         draft.toggle("/DCIM/Camera/")
         assertEquals(setOf(org.fossify.commons.helpers.FAVORITES), draft.snapshot())
     }
+    @Test fun sourcePickerIndexesNestedFoldersAndFavoritesAsIndependentCandidates() {
+        val directories = listOf("/DCIM/Camera", "/DCIM/Camera/Trips", "/Pictures/Camera",
+            "/DCIM/Camera/", org.fossify.commons.helpers.FAVORITES, "recycle_bin", "content://tree/private")
+            .map { path -> org.fossify.gallery.models.Directory().apply { this.path = path; name = path.substringAfterLast('/') } }
+        val candidates = photoSourceCandidates(directories, PhotoSourceSelectionDraft(emptyList()))
+        assertEquals(listOf("/DCIM/Camera", "/DCIM/Camera/Trips", "/Pictures/Camera",
+            org.fossify.commons.helpers.FAVORITES), candidates.map { it.path })
+    }
     @Test fun sourcePickerProtectsThumbnailWhenAnyFolderAncestorIsLocked() {
         val locked = setOf("/storage/emulated/0/Private")
         assertTrue(hasProtectedFolderBoundary("/storage/emulated/0/Private/Camera", locked::contains))

@@ -52,6 +52,7 @@ import org.fossify.gallery.extensions.getSortedDirectories
 import org.fossify.gallery.models.Directory
 import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.helpers.OxygenClassicPalette
+import org.fossify.gallery.helpers.photoSourceCandidates
 import org.fossify.gallery.helpers.PhotoSourceSelectionDraft
 
 class PickDirectoryDialog(
@@ -155,7 +156,7 @@ class PickDirectoryDialog(
                 alertDialog.onBackPressedDispatcher.addCallback(alertDialog) {
                     if (searchView.isSearchOpen) {
                         searchView.closeSearch()
-                    } else if (sourceSelection != null || activity.config.groupDirectSubfolders) {
+                    } else if (activity.config.groupDirectSubfolders) {
                         if (currentPathPrefix.isEmpty()) {
                             isEnabled = false
                             alertDialog.onBackPressedDispatcher.onBackPressed()
@@ -335,6 +336,14 @@ class PickDirectoryDialog(
                 directory.subfoldersMediaCount = directory.mediaCnt
             }
             val preparedDirectories = activity.addTempFolderIfNeeded(directories)
+            // Favorites is a dynamic virtual source, so keep it available even when
+            // its current media count is zero or it is already selected in a draft.
+            if (sourceSelection != null && preparedDirectories.none { it.path == org.fossify.commons.helpers.FAVORITES }) {
+                preparedDirectories.add(Directory().apply {
+                    path = org.fossify.commons.helpers.FAVORITES
+                    name = activity.getString(org.fossify.commons.R.string.favorites)
+                })
+            }
             val protected = if (sourceSelection == null) emptySet() else preparedDirectories.filter { directory ->
                 (directory.path == org.fossify.commons.helpers.FAVORITES && activity.config.isFavoritePasswordProtectionOn) ||
                     photoSourceThumbnailProtected(directory.path, directory.tmb, activity.config::isFolderProtected)
@@ -377,21 +386,14 @@ class PickDirectoryDialog(
             allDirectories = newDirs.clone() as ArrayList<Directory>
         }
 
-        val distinctDirs = newDirs.filter {
-            if (selectionDraft != null) selectionDraft.canSelect(it.path)
-            else showFavoritesBin || (!it.isRecycleBin() && !it.areFavorites())
-        }.distinctBy { it.path.getDistinctPath() }
-            .toMutableList() as ArrayList<Directory>
+        val distinctDirs = if (selectionDraft != null) photoSourceCandidates(newDirs, selectionDraft)
+        else newDirs.filter { showFavoritesBin || (!it.isRecycleBin() && !it.areFavorites()) }
+            .distinctBy { it.path.getDistinctPath() }.toMutableList() as ArrayList<Directory>
         val sortedDirs = activity.getSortedDirectories(distinctDirs)
-        val dirs = if (sourceSelection != null) {
-            val children = if (currentPathPrefix.isEmpty()) sortedDirs else sortedDirs.filter {
-                it.path.startsWith('/') && it.path.substringBeforeLast('/').trimEnd('/') == currentPathPrefix.trimEnd('/')
-            }
-            val current = currentPathPrefix.takeIf { it.isNotEmpty() }?.let { prefix ->
-                allDirectories.firstOrNull { it.path.equals(prefix, true) }?.copy(subfoldersCount = 1)
-            }
-            ArrayList<Directory>().apply { current?.let(::add); addAll(children) }
-        } else activity.getDirsToShow(sortedDirs, allDirectories, currentPathPrefix).clone() as ArrayList<Directory>
+        // Source selection always displays the complete candidate index. This keeps
+        // nested folders independently selectable without a second navigation mode.
+        val dirs = if (sourceSelection != null) sortedDirs
+            else activity.getDirsToShow(sortedDirs, allDirectories, currentPathPrefix).clone() as ArrayList<Directory>
         binding.directoriesCurrentPath.apply {
             text = if (sourceSelection != null) currentPathPrefix.substringAfterLast('/') else currentPathPrefix
             beVisibleIf(currentPathPrefix.isNotEmpty())
@@ -404,14 +406,7 @@ class PickDirectoryDialog(
         shownDirectories = dirs
         if (sourceSelection != null) {
             binding.directoriesGrid.adapter = PhotoSourceDirectoryAdapter(activity, dirs, selectionDraft!!,
-                protectedSourcePaths, ::updateSelectionSummary) { clicked ->
-                if (clicked.path != org.fossify.commons.helpers.FAVORITES && clicked.path != currentPathPrefix) {
-                    if (searchView.isSearchOpen) searchView.closeSearch()
-                    currentPathPrefix = clicked.path
-                    openedSubfolders.add(clicked.path)
-                    gotDirectories(allDirectories)
-                }
-            }
+                protectedSourcePaths, ::updateSelectionSummary)
             binding.directoriesFastscroller.setScrollVertically(true)
             styleFastScroller()
             return

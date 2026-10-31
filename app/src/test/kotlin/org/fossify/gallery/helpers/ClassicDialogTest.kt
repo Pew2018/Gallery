@@ -419,7 +419,7 @@ class ClassicDialogTest {
         val plain = org.fossify.gallery.models.Directory().apply { path = "/public"; name = "Public" }
         val draft = PhotoSourceSelectionDraft(listOf(locked.path))
         val adapter = org.fossify.gallery.adapters.PhotoSourceDirectoryAdapter(activity,
-            listOf(locked, plain), draft, setOf(locked.path), {}, {})
+            listOf(locked, plain), draft, setOf(locked.path), {})
         val holder = adapter.onCreateViewHolder(FrameLayout(activity), 0)
         adapter.onBindViewHolder(holder, 0)
         assertTrue(holder.binding.sourceCheck.isChecked)
@@ -436,16 +436,20 @@ class ClassicDialogTest {
         assertNotNull(holder.binding.sourceThumbnail.drawable) // real folder placeholder instead of blank space
         assertEquals(1f, holder.binding.sourceStatus.alpha, 0f)
         assertEquals(photoDialogColors(activity).text, holder.binding.sourceName.currentTextColor)
-        var navigationCount = 0
-        val navigable = org.fossify.gallery.adapters.PhotoSourceDirectoryAdapter(activity,
-            listOf(plain), PhotoSourceSelectionDraft(emptyList()), emptySet(), {}, { navigationCount++ })
-        val other = navigable.onCreateViewHolder(FrameLayout(activity), 0)
-        navigable.onBindViewHolder(other, 0)
+        var selectionChanges = 0
+        val selectionAdapter = org.fossify.gallery.adapters.PhotoSourceDirectoryAdapter(activity,
+            listOf(plain), PhotoSourceSelectionDraft(emptyList()), emptySet()) { selectionChanges++ }
+        val other = selectionAdapter.onCreateViewHolder(FrameLayout(activity), 0)
+        selectionAdapter.onBindViewHolder(other, 0)
         other.itemView.performClick()
         assertTrue(other.binding.sourceCheck.isChecked)
-        assertEquals(0, navigationCount)
-        other.binding.sourceBrowse.performClick()
-        assertEquals(1, navigationCount)
+        assertEquals(1, selectionChanges)
+        other.binding.sourceCheck.performClick()
+        assertFalse(other.binding.sourceCheck.isChecked)
+        assertEquals(2, selectionChanges)
+        other.binding.sourceCheck.performClick()
+        assertTrue(other.binding.sourceCheck.isChecked)
+        assertEquals(3, selectionChanges)
         assertTrue(holder.binding.sourceCheck.buttonDrawable is PhotoSourceCheckTargetDrawable)
         assertTrue(holder.binding.sourceCheck.background is RippleDrawable)
         val checkBackground = holder.binding.sourceCheck.background as RippleDrawable
@@ -552,7 +556,7 @@ class ClassicDialogTest {
                 layoutManager = androidx.recyclerview.widget.GridLayoutManager(activity, 2)
                 setBackgroundColor(photoDialogColors(activity).surface)
                 adapter = org.fossify.gallery.adapters.PhotoSourceDirectoryAdapter(activity, entries,
-                    PhotoSourceSelectionDraft(listOf("/Camera")), setOf("/Private"), {}, {})
+                    PhotoSourceSelectionDraft(listOf("/Camera")), setOf("/Private"), {})
             }
             val width = (288 * density).toInt()
             val height = (360 * density).toInt()

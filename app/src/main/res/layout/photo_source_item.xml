@@ -16,10 +16,6 @@
             android:layout_height="48dp" android:layout_gravity="top|end"
             android:padding="0dp"
             android:minWidth="0dp" android:minHeight="0dp" />
-        <ImageButton android:id="@+id/source_browse" android:layout_width="48dp"
-            android:layout_height="48dp" android:layout_gravity="bottom|end"
-            android:padding="12dp" android:src="@drawable/photo_source_browse"
-            android:contentDescription="@string/photo_source_browse" />
     </FrameLayout>
     <TextView android:id="@+id/source_name" android:layout_width="match_parent"
         android:layout_height="wrap_content" android:minHeight="40dp"

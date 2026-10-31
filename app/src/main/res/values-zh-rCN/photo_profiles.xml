@@ -81,6 +81,4 @@
     <string name="photo_profiles_empty_action">可编辑配置，或解锁受保护来源。</string>
     <string name="photo_password_lock">锁定受保护内容</string>
     <string name="photo_biometric_favorites_scope">是否使用同一次系统生物识别验证授权「照片」和「收藏」？本次复用仅限当前请求。文件夹指纹锁使用独立机制；取消后续任一步骤都不会保存新增绑定。</string>
-    <string name="photo_source_browse">浏览子文件夹</string>
-    <string name="photo_source_browse_named">浏览 %1$s 的子文件夹</string>
 </resources>

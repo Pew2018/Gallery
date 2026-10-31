@@ -17,14 +17,13 @@ import org.fossify.gallery.extensions.config
 import org.fossify.gallery.helpers.*
 import org.fossify.gallery.models.Directory
 
-/** A source has navigation and selection actions, never Gallery file operations. */
+/** A source row exposes selection only, never Gallery file operations. */
 internal class PhotoSourceDirectoryAdapter(
     private val activity: Activity,
     var directories: List<Directory>,
     private val draft: PhotoSourceSelectionDraft,
     private val protectedPaths: Set<String>,
-    private val selectionChanged: () -> Unit,
-    private val navigate: (Directory) -> Unit
+    private val selectionChanged: () -> Unit
 ) : RecyclerView.Adapter<PhotoSourceDirectoryAdapter.Holder>(), RecyclerViewFastScroller.OnPopupTextUpdate {
     class Holder(val binding: PhotoSourceItemBinding) : RecyclerView.ViewHolder(binding.root)
     override fun getItemCount() = directories.size
@@ -91,11 +90,6 @@ internal class PhotoSourceDirectoryAdapter(
             root.background = OxygenClassicDialog.ripple(accent, activity.resources.displayMetrics.density)
             root.contentDescription = directory.name + if (locked) ", " + activity.getString(R.string.photo_source_locked) else ""
             root.setOnClickListener { sourceCheck.performClick() }
-            sourceBrowse.visibility = if (directory.path == FAVORITES) View.GONE else View.VISIBLE
-            sourceBrowse.imageTintList = android.content.res.ColorStateList.valueOf(text)
-            sourceBrowse.background = controlBackground(8)
-            sourceBrowse.contentDescription = activity.getString(R.string.photo_source_browse_named, directory.name)
-            sourceBrowse.setOnClickListener { navigate(directory) }
             sourceThumbnail.visibility = View.VISIBLE
             sourceThumbnail.clearColorFilter()
             if (!locked) DirectoryThumbnailBinder.bind(
@@ -114,7 +108,6 @@ internal class PhotoSourceDirectoryAdapter(
         clearThumbnail(holder.binding)
         holder.binding.sourceCheck.setOnCheckedChangeListener(null)
         holder.binding.root.setOnClickListener(null)
-        holder.binding.sourceBrowse.setOnClickListener(null)
         super.onViewRecycled(holder)
     }
     override fun onChange(position: Int): String = directories.getOrNull(position)?.name.orEmpty()

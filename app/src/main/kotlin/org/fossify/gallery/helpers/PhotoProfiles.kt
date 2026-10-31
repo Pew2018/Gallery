@@ -2,6 +2,8 @@ package org.fossify.gallery.helpers
 
 import com.google.gson.Gson
 import com.google.gson.JsonParser
+import org.fossify.gallery.extensions.getDistinctPath
+import org.fossify.gallery.models.Directory
 import java.util.UUID
 
 enum class PhotoSourceType { FOLDER, FAVORITES }
@@ -59,6 +61,12 @@ class PhotoSourceSelectionDraft(initial: Collection<String>) {
         else -> null
     }
 }
+
+/** Keep every independently selectable indexed folder, including nested folders and Favorites. */
+internal fun photoSourceCandidates(directories: Collection<Directory>, draft: PhotoSourceSelectionDraft): ArrayList<Directory> =
+    directories.filter { draft.canSelect(it.path) }
+        .distinctBy { it.path.getDistinctPath() }
+        .toCollection(ArrayList())
 
 /** Each source status scan may publish only while it is still the newest request. */
 internal class PhotoSourceStatusRequests {
