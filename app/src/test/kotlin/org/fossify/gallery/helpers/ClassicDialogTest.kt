@@ -466,6 +466,57 @@ class ClassicDialogTest {
         assertEquals(2, draft.snapshot().size)
     }
 
+    @Test fun sourceGridKeepsSelectionByPathAcrossLargeReorderedListsAndProtectionRefresh() {
+        initializeOfflinePicasso()
+        val directories = (0 until 180).map { index ->
+            org.fossify.gallery.models.Directory().apply {
+                path = "/media/$index/Camera"
+                name = "Camera"
+                subfoldersMediaCount = index
+            }
+        }
+        val selectedPath = directories[97].path
+        val draft = PhotoSourceSelectionDraft(listOf(selectedPath))
+        val adapter = org.fossify.gallery.adapters.PhotoSourceDirectoryAdapter(
+            activity, directories, draft, emptySet(), {}
+        )
+        val holder = adapter.onCreateViewHolder(FrameLayout(activity), 0)
+
+        for (position in listOf(0, 64, 97, 128, 179)) {
+            adapter.onBindViewHolder(holder, position)
+            assertEquals(position == 97, holder.binding.sourceCheckIcon.isActivated)
+        }
+
+        val reordered = directories.reversed()
+        adapter.updateDirectories(reordered)
+        val movedPosition = reordered.indexOfFirst { it.path == selectedPath }
+        adapter.onBindViewHolder(holder, movedPosition)
+        assertTrue(holder.binding.sourceCheckIcon.isActivated)
+        holder.binding.root.performClick()
+        assertFalse(draft.contains(selectedPath))
+        adapter.onBindViewHolder(holder, movedPosition)
+        assertFalse(holder.binding.sourceCheckIcon.isActivated)
+
+        // Unknown protection is fail-closed, then a resolved lock/unlock refreshes
+        // clears stale thumbnails before either new state is rendered.
+        holder.binding.sourceThumbnail.tag = "stale-thumbnail"
+        adapter.onViewAttachedToWindow(holder)
+        adapter.markProtectionPending()
+        assertEquals(View.VISIBLE, holder.binding.sourceLock.visibility)
+        assertNull(holder.binding.sourceThumbnail.tag)
+        adapter.onBindViewHolder(holder, movedPosition)
+        assertEquals(View.VISIBLE, holder.binding.sourceLock.visibility)
+        assertNull(holder.binding.sourceThumbnail.tag)
+        adapter.updateDirectories(reordered, setOf(selectedPath))
+        adapter.onBindViewHolder(holder, movedPosition)
+        assertEquals(View.VISIBLE, holder.binding.sourceLock.visibility)
+        adapter.updateDirectories(reordered, emptySet())
+        adapter.onBindViewHolder(holder, movedPosition)
+        assertEquals(View.GONE, holder.binding.sourceLock.visibility)
+        assertNull(holder.binding.sourceThumbnail.tag)
+        adapter.onViewDetachedFromWindow(holder)
+    }
+
     @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
     @Test fun classicSourceCheckboxHasIndependentUncheckedAndCheckedRendering() {
         val glyph = PhotoSourceCheckDrawable(activity.resources, Color.BLUE, Color.GRAY)

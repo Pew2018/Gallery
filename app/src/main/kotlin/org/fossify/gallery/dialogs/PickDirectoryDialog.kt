@@ -42,7 +42,6 @@ import org.fossify.gallery.R
 import org.fossify.gallery.adapters.DirectoryAdapter
 import org.fossify.gallery.adapters.PhotoSourceDirectoryAdapter
 import org.fossify.gallery.helpers.photoSourceColumnCount
-import org.fossify.gallery.helpers.photoSourceThumbnailProtected
 import org.fossify.gallery.databinding.DialogDirectoryPickerBinding
 import org.fossify.gallery.extensions.addTempFolderIfNeeded
 import org.fossify.gallery.extensions.config
@@ -55,10 +54,12 @@ import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.helpers.OxygenClassicPalette
 import org.fossify.gallery.helpers.photoSourceCandidates
 import org.fossify.gallery.helpers.PhotoSourceSelectionDraft
-import org.fossify.gallery.helpers.mergePhotoSourceCandidates
 import org.fossify.gallery.helpers.photoSourceSearchMatches
 import org.fossify.gallery.helpers.ManualPhotoSourceIssue
 import org.fossify.gallery.helpers.ManualPhotoSourceValidator
+import org.fossify.gallery.helpers.PhotoSourceCandidateBatch
+import org.fossify.gallery.helpers.normalizePhotoSourcePath
+import org.fossify.gallery.helpers.preparePhotoSourceCandidateBatch
 
 class PickDirectoryDialog(
     val activity: BaseSimpleActivity,
@@ -70,7 +71,12 @@ class PickDirectoryDialog(
     val sourceSelection: SourceSelection? = null,
     val callback: (path: String) -> Unit
 ) {
-    data class SourceSelection(val draft: PhotoSourceSelectionDraft, val onConfirmed: (Set<String>, Set<String>) -> Unit)
+    data class SourceSelection(
+        val draft: PhotoSourceSelectionDraft,
+        val onConfirmed: (Set<String>, Set<String>) -> Unit,
+        val onDraftChanged: (Set<String>) -> Unit = {},
+        val onCancelled: () -> Unit = {}
+    )
     private fun styleFastScroller() {
         org.fossify.gallery.helpers.OxygenFastScroller.apply(
             binding.directoriesFastscroller, binding.directoriesGrid,
@@ -83,7 +89,9 @@ class PickDirectoryDialog(
     private var dialog: AlertDialog? = null
     private val selectionDelivered = AtomicBoolean(false)
     private var directoryLoadVersion = 0
+    private var candidatePreparationVersion = 0
     private var isLoadingDirectories = false
+    private var sourceSelectionConfirmed = false
 
     private fun deliverSelectionOnce(path: String) {
         if (selectionDelivered.compareAndSet(false, true)) callback(path)
@@ -153,9 +161,14 @@ class PickDirectoryDialog(
                     }
                     updateSelectionSummary()
                     alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                        if (selectionDelivered.compareAndSet(false, true))
+                        if (selectionDelivered.compareAndSet(false, true)) {
+                            sourceSelectionConfirmed = true
                             sourceSelection.onConfirmed(selectionDraft!!.snapshot(), allDirectories.map { it.path }.toSet())
+                        }
                         alertDialog.dismiss()
+                    }
+                    alertDialog.setOnDismissListener {
+                        if (!sourceSelectionConfirmed) sourceSelection.onCancelled()
                     }
                 }
                 binding.directoriesCurrentPath.setTextColor(if (sourceSelection != null)
@@ -194,7 +207,9 @@ class PickDirectoryDialog(
     private fun updateSelectionSummary() {
         if (sourceSelection == null) return
         if (activity.isDestroyed) return
-        binding.directoriesSelectionSummary.text = activity.getString(R.string.photo_source_selected_count, selectionDraft!!.snapshot().size)
+        val selected = selectionDraft!!.snapshot()
+        binding.directoriesSelectionSummary.text = activity.getString(R.string.photo_source_selected_count, selected.size)
+        sourceSelection.onDraftChanged(selected)
     }
 
     /** A reversible, dialog-local reveal; Commons preferences are never rewritten. */
@@ -338,7 +353,11 @@ class PickDirectoryDialog(
 
     private fun fetchDirectories(forceShowHiddenAndExcluded: Boolean) {
         val requestVersion = ++directoryLoadVersion
+        candidatePreparationVersion++
         isLoadingDirectories = true
+        if (sourceSelection != null) {
+            (binding.directoriesGrid.adapter as? PhotoSourceDirectoryAdapter)?.markProtectionPending()
+        }
         // Preserve already visible directories during a hidden-folder refresh.
         binding.directoriesLoading.visibility =
             if (shownDirectories.isEmpty()) android.view.View.VISIBLE else android.view.View.GONE
@@ -365,21 +384,69 @@ class PickDirectoryDialog(
                 isLoadingDirectories = false
                 binding.directoriesLoading.visibility = android.view.View.GONE
                 indexedDirectories = ArrayList(preparedDirectories)
-                val candidates = if (sourceSelection != null) mergeCandidates(preparedDirectories) else preparedDirectories
-                protectedSourcePaths = if (sourceSelection == null) emptySet() else candidates.filter { directory ->
-                    (directory.path == org.fossify.commons.helpers.FAVORITES && activity.config.isFavoritePasswordProtectionOn) ||
-                        photoSourceThumbnailProtected(directory.path, directory.tmb, activity.config::isFolderProtected)
-                }.mapTo(hashSetOf()) { it.path }
-                allDirectories = ArrayList(candidates)
+                if (sourceSelection != null) {
+                    prepareSourceCandidateBatch(preparedDirectories)
+                    return@runOnUiThread
+                }
+                allDirectories = ArrayList(preparedDirectories)
                 shownDirectories.clear()
-                gotDirectories(candidates)
+                gotDirectories(preparedDirectories)
                 filterFolderListBySearchQuery(searchEditText.text?.toString().orEmpty())
             }
         }
     }
 
-    private fun mergeCandidates(indexed: Collection<Directory>): ArrayList<Directory> =
-        mergePhotoSourceCandidates(indexed, manualDirectories.values, initialSourcePaths, activity.getString(org.fossify.commons.R.string.favorites))
+    private fun publishSourceBatch(batch: PhotoSourceCandidateBatch, selectPath: String? = null) {
+        selectionDraft?.installResolvedIdentities(batch.identityByPath)
+        if (selectPath != null) selectionDraft?.select(selectPath)
+        protectedSourcePaths = batch.protectedPaths
+        allDirectories = ArrayList(batch.directories)
+        shownDirectories.clear()
+        gotDirectories(batch.directories)
+        filterFolderListBySearchQuery(searchEditText.text?.toString().orEmpty())
+        updateSelectionSummary()
+    }
+
+    private fun prepareSourceCandidateBatch(indexed: Collection<Directory>, selectPath: String? = null) {
+        val requestVersion = ++candidatePreparationVersion
+        (binding.directoriesGrid.adapter as? PhotoSourceDirectoryAdapter)?.markProtectionPending()
+        val indexedSnapshot = indexed.toList()
+        val manualSnapshot = manualDirectories.values.toList()
+        val retainedSnapshot = (initialSourcePaths + selectionDraft!!.snapshot() + listOfNotNull(selectPath)).toSet()
+        val favoritesName = activity.getString(org.fossify.commons.R.string.favorites)
+        ensureBackgroundThread {
+            val batch = preparePhotoSourceCandidateBatch(
+                indexedSnapshot, manualSnapshot, retainedSnapshot, favoritesName,
+                config.isFavoritePasswordProtectionOn, config::isFolderProtected
+            )
+            activity.runOnUiThread {
+                if (activity.isDestroyed || dialog?.isShowing != true || candidatePreparationVersion != requestVersion) return@runOnUiThread
+                publishSourceBatch(batch, selectPath)
+                if (selectPath != null) restoreManualPickerPosition(batch, selectPath)
+            }
+        }
+    }
+
+    private fun restoreManualPickerPosition(batch: PhotoSourceCandidateBatch, path: String) {
+        val chosenIdentity = batch.identityByPath[normalizePhotoSourcePath(path)] ?: path
+        val visibleQuery = searchEditText.text?.toString().orEmpty()
+        val visible = (binding.directoriesGrid.adapter as? PhotoSourceDirectoryAdapter)?.directories.orEmpty()
+        val chosenName = batch.directories.firstOrNull { directory ->
+            (batch.identityByPath[normalizePhotoSourcePath(directory.path)] ?: directory.path) == chosenIdentity
+        }?.name.orEmpty()
+        if (visibleQuery.isEmpty() || chosenName.contains(visibleQuery, true) || path.contains(visibleQuery, true)) {
+            val chosenIndex = visible.indexOfFirst { directory ->
+                (batch.identityByPath[normalizePhotoSourcePath(directory.path)] ?: directory.path) == chosenIdentity
+            }
+            if (chosenIndex >= 0) binding.directoriesGrid.post { binding.directoriesGrid.scrollToPosition(chosenIndex) }
+        } else {
+            val anchorIndex = visible.indexOfFirst { it.path == manualPickerScrollAnchor }
+            if (anchorIndex >= 0) binding.directoriesGrid.post {
+                (binding.directoriesGrid.layoutManager as? org.fossify.commons.views.MyGridLayoutManager)
+                    ?.scrollToPositionWithOffset(anchorIndex, manualPickerScrollOffset)
+            }
+        }
+    }
 
     private fun chooseManualSourceFolder() {
         if (sourceSelection == null || dialog?.isShowing != true) return
@@ -430,42 +497,16 @@ class PickDirectoryDialog(
     }
 
     private fun addManualCandidate(canonical: String) {
-        val canonicalKey = canonical.getDistinctPath()
-        val existing = allDirectories.firstOrNull { it.path.getDistinctPath() == canonicalKey }
-        if (existing == null) {
-            val candidate = Directory().apply {
-                this.path = canonical
-                name = File(canonical).name.ifBlank { canonical }
-                tmb = ""
-                subfoldersMediaCount = -1
-            }
-            manualDirectories[canonical] = candidate
+        val manual = Directory().apply {
+            path = canonical
+            name = File(canonical).name.ifBlank { canonical }
+            tmb = ""
+            subfoldersMediaCount = -1
         }
-        selectionDraft?.select(existing?.path ?: canonical)
-        val candidates = mergeCandidates(indexedDirectories)
-        allDirectories = ArrayList(candidates)
-        protectedSourcePaths = candidates.filter { directory ->
-            (directory.path == org.fossify.commons.helpers.FAVORITES && activity.config.isFavoritePasswordProtectionOn) ||
-                photoSourceThumbnailProtected(directory.path, directory.tmb, activity.config::isFolderProtected)
-        }.mapTo(hashSetOf()) { it.path }
-        gotDirectories(candidates)
-        filterFolderListBySearchQuery(searchEditText.text?.toString().orEmpty())
+        manualDirectories[canonical] = manual
+        selectionDraft?.select(canonical)
         updateSelectionSummary()
-        val visibleQuery = searchEditText.text?.toString().orEmpty()
-        val chosenName = existing?.name ?: File(canonical).name
-        if (visibleQuery.isEmpty() || chosenName.contains(visibleQuery, true) || canonical.contains(visibleQuery, true)) {
-            val visible = (binding.directoriesGrid.adapter as? PhotoSourceDirectoryAdapter)?.directories.orEmpty()
-            val chosenIndex = visible.indexOfFirst { it.path.getDistinctPath() == canonicalKey }
-            if (chosenIndex >= 0) binding.directoriesGrid.post { binding.directoriesGrid.scrollToPosition(chosenIndex) }
-        } else {
-            val visible = (binding.directoriesGrid.adapter as? PhotoSourceDirectoryAdapter)?.directories.orEmpty()
-            val anchorIndex = visible.indexOfFirst { it.path == manualPickerScrollAnchor }
-            if (anchorIndex >= 0) binding.directoriesGrid.post {
-                (binding.directoriesGrid.layoutManager as? org.fossify.commons.views.MyGridLayoutManager)
-                    ?.scrollToPositionWithOffset(anchorIndex, manualPickerScrollOffset)
-            }
-        }
-        (binding.directoriesGrid.adapter as? PhotoSourceDirectoryAdapter)?.refreshSelection(existing?.path ?: canonical)
+        prepareSourceCandidateBatch(indexedDirectories, canonical)
     }
 
     private fun showOtherFolder() {

@@ -16,7 +16,6 @@ import androidx.recyclerview.widget.DiffUtil
 import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 import android.app.Activity
 import org.fossify.commons.extensions.*
-import org.fossify.commons.helpers.FAVORITES
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.PhotoSourceItemBinding
 import org.fossify.gallery.extensions.config
@@ -32,8 +31,9 @@ internal class PhotoSourceDirectoryAdapter(
     private val selectionChanged: () -> Unit
 ) : RecyclerView.Adapter<PhotoSourceDirectoryAdapter.Holder>(), RecyclerViewFastScroller.OnPopupTextUpdate {
     class Holder(val binding: PhotoSourceItemBinding) : RecyclerView.ViewHolder(binding.root)
-    private val boundHolders = HashMap<String, Holder>()
+    private val attachedHolders = HashSet<Holder>()
     private var protectedPaths = protectedPaths.toSet()
+    private var protectionResolved = true
     override fun getItemCount() = directories.size
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
         val holder = Holder(PhotoSourceItemBinding.inflate(LayoutInflater.from(parent.context), parent, false))
@@ -48,9 +48,24 @@ internal class PhotoSourceDirectoryAdapter(
         return holder
     }
 
-    fun updateDirectories(directories: List<Directory>, protectedPaths: Set<String> = this.protectedPaths) {
-        val protectionChanged = this.protectedPaths != protectedPaths
+    fun markProtectionPending() {
+        if (!protectionResolved) return
+        protectionResolved = false
+        attachedHolders.forEach { holder ->
+            clearThumbnail(holder.binding)
+            holder.binding.sourceLock.visibility = View.VISIBLE
+        }
+        notifyDataSetChanged()
+    }
+
+    fun updateDirectories(
+        directories: List<Directory>,
+        protectedPaths: Set<String> = this.protectedPaths,
+        protectionResolved: Boolean = true
+    ) {
+        val protectionChanged = this.protectedPaths != protectedPaths || this.protectionResolved != protectionResolved
         this.protectedPaths = protectedPaths.toSet()
+        this.protectionResolved = protectionResolved
         val next = directories.toList()
         val old = this.directories.toList()
         if (protectionChanged) {
@@ -73,23 +88,18 @@ internal class PhotoSourceDirectoryAdapter(
     fun refreshSelection(path: String) {
         val position = directories.indexOfFirst { it.path.trimEnd('/') == path.trimEnd('/') }
         if (position < 0) return
-        val directory = directories[position]
-        boundHolders[directory.path.trimEnd('/')]?.let { bindSelection(it, directory) }
         notifyItemChanged(position, SELECTION_PAYLOAD)
     }
     override fun onBindViewHolder(holder: Holder, position: Int) {
         val directory = directories[position]
-        boundHolders[directory.path.trimEnd('/')] = holder
         val config = activity.config
         val colors = photoDialogColors(activity)
         val background = colors.surface
         val text = colors.text
         val accent = colors.accent
-        // Worker-computed canonical boundaries plus a fresh lexical check. Never
-        // show a cached thumbnail while protection is unknown or has just changed.
-        val locked = directory.path in protectedPaths ||
-            hasProtectedFolderBoundary(directory.path, config::isFolderProtected) ||
-            (directory.path == FAVORITES && config.isFavoritePasswordProtectionOn)
+        // Protection is resolved for the whole candidate batch off the UI thread.
+        // Keep every thumbnail hidden until that batch is current.
+        val locked = !protectionResolved || directory.path in protectedPaths
         with(holder.binding) {
             if (locked) clearThumbnail(this)
             sourceLock.visibility = if (locked) View.VISIBLE else View.GONE
@@ -150,12 +160,7 @@ internal class PhotoSourceDirectoryAdapter(
         if (!draft.canSelect(path)) return
         draft.toggle(path)
         val position = directories.indexOfFirst { it.path.trimEnd('/') == path.trimEnd('/') }
-        if (position >= 0) {
-            directories[position].let { directory ->
-                boundHolders[directory.path.trimEnd('/')]?.let { bindSelection(it, directory) }
-            }
-            notifyItemChanged(position, SELECTION_PAYLOAD)
-        }
+        if (position >= 0) notifyItemChanged(position, SELECTION_PAYLOAD)
         selectionChanged()
     }
 
@@ -165,11 +170,19 @@ internal class PhotoSourceDirectoryAdapter(
         binding.sourceThumbnail.visibility = View.VISIBLE
     }
     override fun onViewRecycled(holder: Holder) {
-        boundHolders.entries.removeAll { it.value === holder }
+        attachedHolders.remove(holder)
         clearThumbnail(holder.binding)
         holder.binding.root.setOnClickListener(null)
         holder.binding.sourceCheckTarget.setOnClickListener(null)
         super.onViewRecycled(holder)
+    }
+    override fun onViewAttachedToWindow(holder: Holder) {
+        attachedHolders.add(holder)
+        super.onViewAttachedToWindow(holder)
+    }
+    override fun onViewDetachedFromWindow(holder: Holder) {
+        attachedHolders.remove(holder)
+        super.onViewDetachedFromWindow(holder)
     }
     override fun onChange(position: Int): String = directories.getOrNull(position)?.name.orEmpty()
 }

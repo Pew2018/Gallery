@@ -174,6 +174,62 @@ class PhotoProfileTest {
         assertEquals(setOf("/DCIM/Camera", "/Pictures/Street"), draft.snapshot())
     }
 
+    @Test fun sourceDraftUsesBatchResolvedAliasesForFastSelectionChecks() {
+        val root = java.nio.file.Files.createTempDirectory("source-identities")
+        val target = java.nio.file.Files.createDirectory(root.resolve("Camera"))
+        val alias = root.resolve("Camera alias")
+        java.nio.file.Files.createSymbolicLink(alias, target)
+        try {
+            val draft = PhotoSourceSelectionDraft(listOf(alias.toString()))
+            val identities = resolvePhotoSourceIdentities(listOf(alias.toString(), target.toString()))
+            draft.installResolvedIdentities(identities)
+            assertTrue(draft.contains(target.toString()))
+            draft.toggle(target.toString())
+            assertFalse(draft.contains(alias.toString()))
+            draft.toggle(alias.toString())
+            assertTrue(draft.contains(target.toString()))
+        } finally {
+            java.nio.file.Files.deleteIfExists(alias)
+            java.nio.file.Files.deleteIfExists(target)
+            java.nio.file.Files.deleteIfExists(root)
+        }
+    }
+
+    @Test fun candidatePreparationDeduplicatesCanonicalAliasesAndCachesSharedProtectionBoundaries() {
+        val root = java.nio.file.Files.createTempDirectory("source-candidate-batch")
+        val protectedRoot = java.nio.file.Files.createDirectory(root.resolve("Private"))
+        val target = java.nio.file.Files.createDirectory(protectedRoot.resolve("Camera"))
+        val alias = root.resolve("Camera alias")
+        java.nio.file.Files.createSymbolicLink(alias, target)
+        try {
+            val indexed = org.fossify.gallery.models.Directory().apply {
+                path = target.toString(); name = "Camera"; tmb = ""; subfoldersMediaCount = 3
+            }
+            val manualAlias = org.fossify.gallery.models.Directory().apply {
+                path = alias.toString(); name = "Camera alias"; subfoldersMediaCount = -1
+            }
+            val checks = HashMap<String, Int>()
+            val batch = preparePhotoSourceCandidateBatch(
+                listOf(indexed), listOf(manualAlias), listOf(alias.toString()), "Favorites", false
+            ) { path ->
+                checks[path] = (checks[path] ?: 0) + 1
+                path == protectedRoot.toString()
+            }
+
+            assertEquals(1, batch.directories.count { it.path == indexed.path })
+            assertTrue(batch.protectedPaths.contains(indexed.path))
+            assertTrue(checks.values.all { it == 1 })
+            val draft = PhotoSourceSelectionDraft(listOf(alias.toString()))
+            draft.installResolvedIdentities(batch.identityByPath)
+            assertTrue(draft.contains(target.toString()))
+        } finally {
+            java.nio.file.Files.deleteIfExists(alias)
+            java.nio.file.Files.deleteIfExists(target)
+            java.nio.file.Files.deleteIfExists(protectedRoot)
+            java.nio.file.Files.deleteIfExists(root)
+        }
+    }
+
     @Test fun manualAndIndexedCandidatesMergeWithoutDuplicatesOrParentExpansion() {
         val indexed = org.fossify.gallery.models.Directory().apply {
             path = "/media/DCIM/Camera/"; name = "Camera"; tmb = "/media/DCIM/Camera/cover.jpg"; mediaCnt = 4

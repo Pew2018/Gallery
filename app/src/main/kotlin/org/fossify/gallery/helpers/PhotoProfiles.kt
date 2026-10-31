@@ -2,7 +2,6 @@ package org.fossify.gallery.helpers
 
 import com.google.gson.Gson
 import com.google.gson.JsonParser
-import org.fossify.gallery.extensions.getDistinctPath
 import org.fossify.gallery.models.Directory
 import java.util.UUID
 
@@ -47,9 +46,12 @@ internal fun photoSourceColumnCount(widthDp: Int): Int = when {
 
 /** Dialog-local source selection; callers persist only an explicit confirmed snapshot. */
 class PhotoSourceSelectionDraft(initial: Collection<String>) {
+    private val resolvedIdsByLexicalPath = HashMap<String, String>()
     val paths: MutableSet<String> = initial.mapNotNull(::stableId).toCollection(linkedSetOf())
+
     fun canSelect(path: String): Boolean = stableId(path) != null
     fun contains(path: String): Boolean = stableId(path)?.let(paths::contains) == true
+    internal fun identity(path: String): String? = stableId(path)
     /** Select idempotently; adding an already selected source never toggles it off. */
     fun select(path: String): Boolean {
         val id = stableId(path) ?: return false
@@ -60,15 +62,25 @@ class PhotoSourceSelectionDraft(initial: Collection<String>) {
         if (!paths.add(id)) paths.remove(id)
     }
     fun snapshot(): Set<String> = paths.toSet()
+
+    /** Install identities resolved in the background; this mutation stays with the UI-owned draft.
+     * Selection operations afterwards are in-memory lookups only. */
+    fun installResolvedIdentities(identities: Map<String, String>) {
+        val current = paths.toList()
+        resolvedIdsByLexicalPath.clear()
+        resolvedIdsByLexicalPath.putAll(identities)
+        paths.clear()
+        current.forEach { id -> paths.add(resolvedIdsByLexicalPath[id] ?: id) }
+    }
+
     private fun stableId(path: String): String? = when {
         path == org.fossify.commons.helpers.FAVORITES -> path
-        path.startsWith('/') -> runCatching { java.io.File(path).canonicalPath }
-            .getOrElse { normalizeLexicalPath(path) }
+        path.startsWith('/') -> pathKey(path).let { resolvedIdsByLexicalPath[it] ?: it }
             .takeIf { it.isNotEmpty() && it != "/" }
         else -> null
     }
 
-    private fun normalizeLexicalPath(path: String): String {
+    private fun pathKey(path: String): String {
         val segments = ArrayDeque<String>()
         path.split('/').forEach { segment ->
             when (segment) {
@@ -81,10 +93,94 @@ class PhotoSourceSelectionDraft(initial: Collection<String>) {
     }
 }
 
+/** Build path aliases in the background once per picker candidate batch. */
+internal data class PhotoSourceIdentityBatch(
+    val identityByLexicalPath: Map<String, String>,
+    val unresolvedLexicalPaths: Set<String>
+)
+
+internal fun resolvePhotoSourceIdentityBatch(paths: Collection<String>): PhotoSourceIdentityBatch {
+    val result = LinkedHashMap<String, String>()
+    val canonicalByLexicalPath = HashMap<String, String>()
+    val unresolved = HashSet<String>()
+    paths.filter { it.startsWith('/') }.forEach { path ->
+        val lexical = normalizePhotoSourcePath(path)
+        val canonical = canonicalByLexicalPath.getOrPut(lexical) {
+            runCatching { java.io.File(path).canonicalPath }.getOrElse {
+                unresolved.add(lexical)
+                lexical
+            }
+        }
+        result[lexical] = canonical
+        result[normalizePhotoSourcePath(canonical)] = canonical
+    }
+    return PhotoSourceIdentityBatch(result, unresolved)
+}
+
+internal fun resolvePhotoSourceIdentities(paths: Collection<String>): Map<String, String> =
+    resolvePhotoSourceIdentityBatch(paths).identityByLexicalPath
+
+internal fun photoSourceResolvedIdentity(path: String, identities: Map<String, String>): String =
+    identities[normalizePhotoSourcePath(path)] ?: normalizePhotoSourcePath(path)
+
+internal fun normalizePhotoSourcePath(path: String): String {
+    val segments = ArrayDeque<String>()
+    path.split('/').forEach { segment ->
+        when (segment) {
+            "", "." -> Unit
+            ".." -> if (segments.isNotEmpty()) segments.removeLast()
+            else -> segments.addLast(segment)
+        }
+    }
+    return "/" + segments.joinToString("/")
+}
+
+internal data class PhotoSourceCandidateBatch(
+    val directories: ArrayList<Directory>,
+    val identityByPath: Map<String, String>,
+    val protectedPaths: Set<String>
+)
+
+/** Canonicalize candidates and compute their protected state once, on a worker. */
+internal fun preparePhotoSourceCandidateBatch(
+    indexed: Collection<Directory>,
+    manual: Collection<Directory>,
+    retainedPaths: Collection<String>,
+    favoritesName: String,
+    favoritesProtected: Boolean,
+    isProtected: (String) -> Boolean
+): PhotoSourceCandidateBatch {
+    val identityPaths = buildList {
+        indexed.forEach { add(it.path); add(it.tmb) }
+        manual.forEach { add(it.path); add(it.tmb) }
+        addAll(retainedPaths)
+    }
+    val identityBatch = resolvePhotoSourceIdentityBatch(identityPaths)
+    val identities = identityBatch.identityByLexicalPath
+    val candidates = mergePhotoSourceCandidates(indexed, manual, retainedPaths, favoritesName, identities)
+    val protectedPathCache = HashMap<String, Boolean>()
+    fun isProtectedCached(path: String) = protectedPathCache.getOrPut(path) {
+        runCatching { isProtected(path) }.getOrDefault(true)
+    }
+    fun protected(path: String): Boolean {
+        if (hasProtectedFolderBoundary(path, ::isProtectedCached)) return true
+        if (!path.startsWith('/')) return false
+        val lexical = normalizePhotoSourcePath(path)
+        if (lexical in identityBatch.unresolvedLexicalPaths) return true
+        val canonical = identities[lexical] ?: return true
+        return hasProtectedFolderBoundary(canonical, ::isProtectedCached)
+    }
+    val protectedPaths = candidates.filter { directory ->
+        (directory.path == org.fossify.commons.helpers.FAVORITES && favoritesProtected) ||
+            protected(directory.path) || (directory.tmb.isNotBlank() && protected(directory.tmb))
+    }.mapTo(hashSetOf()) { it.path }
+    return PhotoSourceCandidateBatch(candidates, identities, protectedPaths)
+}
+
 /** Keep every independently selectable indexed folder, including nested folders and Favorites. */
 internal fun photoSourceCandidates(directories: Collection<Directory>, draft: PhotoSourceSelectionDraft): ArrayList<Directory> =
     directories.filter { draft.canSelect(it.path) }
-        .distinctBy { it.path.getDistinctPath() }
+        .distinctBy { draft.identity(it.path) }
         .toCollection(ArrayList())
 
 /** Merge the current scan with dialog-local additions and persisted, currently unindexed sources. */
@@ -93,10 +189,20 @@ internal fun mergePhotoSourceCandidates(
     manual: Collection<Directory>,
     retainedPaths: Collection<String>,
     favoritesName: String
+): ArrayList<Directory> = mergePhotoSourceCandidates(
+    indexed, manual, retainedPaths, favoritesName,
+    resolvePhotoSourceIdentities(indexed.flatMap { listOf(it.path, it.tmb) } + manual.flatMap { listOf(it.path, it.tmb) } + retainedPaths)
+)
+
+internal fun mergePhotoSourceCandidates(
+    indexed: Collection<Directory>,
+    manual: Collection<Directory>,
+    retainedPaths: Collection<String>,
+    favoritesName: String,
+    identities: Map<String, String>
 ): ArrayList<Directory> {
     val byPath = LinkedHashMap<String, Directory>()
-    fun key(path: String) = runCatching { java.io.File(path).canonicalPath }
-        .getOrElse { path.trimEnd('/').ifEmpty { "/" } }
+    fun key(path: String) = photoSourceResolvedIdentity(path, identities)
     indexed.forEach { byPath[key(it.path)] = it }
     manual.forEach { byPath.putIfAbsent(key(it.path), it) }
     retainedPaths.forEach { path ->

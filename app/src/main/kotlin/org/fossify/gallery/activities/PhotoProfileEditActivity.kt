@@ -25,6 +25,8 @@ class PhotoProfileEditActivity : SimpleActivity() {
         const val REQUEST_CODE = 8401
         private const val STATE_DRAFT = "photo_profile_edit_draft"
         private const val STATE_SOURCE_ERROR = "photo_profile_edit_source_error"
+        private const val STATE_SOURCE_PICKER_OPEN = "photo_profile_edit_source_picker_open"
+        private const val STATE_SOURCE_PICKER_DRAFT = "photo_profile_edit_source_picker_draft"
         fun launch(activity: android.app.Activity, profile: PhotoProfile? = null, creating: Boolean = profile == null) {
             activity.startActivityForResult(Intent(activity, PhotoProfileEditActivity::class.java).apply {
                 putExtra(EXTRA_PROFILE_ID, profile?.id)
@@ -37,6 +39,9 @@ class PhotoProfileEditActivity : SimpleActivity() {
     private val store by lazy { PhotoProfileRepository.of(this) }
     private var creating = true
     private var showSourceError = false
+    private var sourcePickerOpen = false
+    private var restoreSourcePickerOnResume = false
+    private var sourcePickerDraftPaths: Set<String>? = null
     private lateinit var draft: PhotoProfile
     private var editingBaseline: PhotoProfile? = null
     private val sourceStatusRequests = PhotoSourceStatusRequests()
@@ -59,6 +64,9 @@ class PhotoProfileEditActivity : SimpleActivity() {
             ?: original ?: PhotoProfile(UUID.randomUUID().toString(), "", emptyList())
         if (!creating && draft.id != original?.id) draft = original!!
         showSourceError = savedInstanceState?.getBoolean(STATE_SOURCE_ERROR) ?: false
+        restoreSourcePickerOnResume = savedInstanceState?.getBoolean(STATE_SOURCE_PICKER_OPEN) ?: false
+        sourcePickerOpen = restoreSourcePickerOnResume
+        sourcePickerDraftPaths = savedInstanceState?.getStringArrayList(STATE_SOURCE_PICKER_DRAFT)?.toSet()
         setupEdgeToEdge(padTopSystem = listOf(binding.photoProfileEditAppbar), padBottomImeAndSystem = listOf(binding.photoProfileEditScroll))
         binding.photoProfileEditToolbar.apply {
             title = getString(if (creating) R.string.photo_profiles_create else R.string.photo_profiles_edit)
@@ -92,10 +100,22 @@ class PhotoProfileEditActivity : SimpleActivity() {
         if (::draft.isInitialized) checkSourceStatuses()
     }
 
+    override fun onPostResume() {
+        super.onPostResume()
+        if (restoreSourcePickerOnResume && ::draft.isInitialized) {
+            restoreSourcePickerOnResume = false
+            binding.root.post {
+                if (!isFinishing && !isDestroyed && sourcePickerOpen) chooseSources(restoring = true)
+            }
+        }
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         captureName()
         outState.putString(STATE_DRAFT, com.google.gson.Gson().toJson(draft))
         outState.putBoolean(STATE_SOURCE_ERROR, showSourceError)
+        outState.putBoolean(STATE_SOURCE_PICKER_OPEN, sourcePickerOpen)
+        sourcePickerDraftPaths?.let { outState.putStringArrayList(STATE_SOURCE_PICKER_DRAFT, ArrayList(it)) }
         super.onSaveInstanceState(outState)
     }
 
@@ -115,7 +135,6 @@ class PhotoProfileEditActivity : SimpleActivity() {
             OxygenClassicPageInput.readableTextColor(tokens.secondaryText, tokens)
         )
         OxygenClassicPageInput.style(binding.photoProfileEditName, tokens)
-        binding.photoProfileEditSourcesTitle.setTextColor(tokens.interactiveAccent)
         binding.photoProfileEditAddSource.apply {
             setTextColor(tokens.interactiveAccent)
             background = OxygenClassicDialog.ripple(tokens.interactiveAccent, resources.displayMetrics.density)
@@ -206,35 +225,62 @@ class PhotoProfileEditActivity : SimpleActivity() {
         }
     }
 
-    private fun chooseSources() {
-        val paths = draft.sources.filter { it.type == PhotoSourceType.FOLDER }.mapNotNull { it.path }.toMutableSet()
-        if (draft.sources.any { it.type == PhotoSourceType.FAVORITES }) paths.add(org.fossify.commons.helpers.FAVORITES)
+    private fun chooseSources(restoring: Boolean = false) {
+        if (sourcePickerOpen && !restoring) return
+        val paths = sourcePickerDraftPaths?.toMutableSet() ?: draft.sources
+            .filter { it.type == PhotoSourceType.FOLDER }.mapNotNull { it.path }.toMutableSet().apply {
+                if (draft.sources.any { it.type == PhotoSourceType.FAVORITES }) add(org.fossify.commons.helpers.FAVORITES)
+            }
+        sourcePickerOpen = true
         PickDirectoryDialog(this, "", false, true, false, false,
-            PickDirectoryDialog.SourceSelection(PhotoSourceSelectionDraft(paths)) { chosen, available ->
-                val selected = chosen.map { path -> if (path == org.fossify.commons.helpers.FAVORITES) PhotoSource(PhotoSourceType.FAVORITES) else PhotoSource(PhotoSourceType.FOLDER, path) }
-                val availableIdentities = available.mapNotNullTo(hashSetOf()) { path ->
-                    if (path.startsWith('/')) runCatching { File(path).canonicalPath }.getOrElse { path.trimEnd('/') } else path
+            PickDirectoryDialog.SourceSelection(
+                draft = PhotoSourceSelectionDraft(paths),
+                onConfirmed = { chosen, available ->
+                    sourcePickerOpen = false
+                    sourcePickerDraftPaths = null
+                    val selected = chosen.map { path ->
+                        if (path == org.fossify.commons.helpers.FAVORITES) PhotoSource(PhotoSourceType.FAVORITES)
+                        else PhotoSource(PhotoSourceType.FOLDER, path)
+                    }
+                    val existingSources = draft.sources.toList()
+                    ensureBackgroundThread {
+                        val oldFolderPaths = existingSources.mapNotNull { source ->
+                            source.path.takeIf { source.type == PhotoSourceType.FOLDER }
+                        }
+                        val identityMap = resolvePhotoSourceIdentities(available + oldFolderPaths)
+                        val availableIdentities = available.mapNotNullTo(hashSetOf()) { path ->
+                            if (path.startsWith('/')) photoSourceResolvedIdentity(path, identityMap) else path
+                        }
+                        val unavailable = existingSources.filter { source ->
+                            source.type == PhotoSourceType.FOLDER && source.path?.let { path ->
+                                photoSourceResolvedIdentity(path, identityMap) !in availableIdentities
+                            } == true
+                        }
+                        val updatedSources = PhotoProfileCodec.sources(selected + unavailable)
+                        runOnUiThread {
+                            if (isFinishing || isDestroyed) return@runOnUiThread
+                            draft = draft.copy(sources = updatedSources)
+                            sourceStatusRequests.invalidate()
+                            sourceStatuses = emptyMap()
+                            showSourceError = false
+                            renderSources()
+                            checkSourceStatuses()
+                        }
+                    }
+                },
+                onDraftChanged = { sourcePickerDraftPaths = it },
+                onCancelled = {
+                    sourcePickerOpen = false
+                    sourcePickerDraftPaths = null
                 }
-                val unavailable = draft.sources.filter { source ->
-                    source.type == PhotoSourceType.FOLDER && source.path?.let { path ->
-                        val identity = if (path.startsWith('/')) runCatching { File(path).canonicalPath }.getOrElse { path.trimEnd('/') } else path
-                        identity !in availableIdentities
-                    } == true
-                }
-                draft = draft.copy(sources = PhotoProfileCodec.sources(selected + unavailable))
-                sourceStatusRequests.invalidate()
-                sourceStatuses = emptyMap()
-                showSourceError = false
-                renderSources()
-                checkSourceStatuses()
-            }, {})
+            ), {})
     }
 
     private fun saveDraft() {
         captureName()
         val name = draft.name.trim()
         if (name.isEmpty()) { binding.photoProfileEditName.error = getString(R.string.photo_profiles_name_required); return }
-        if (draft.sources.isEmpty()) { showSourceError = true; binding.photoProfileEditError.visibility = View.VISIBLE; binding.photoProfileEditScroll.smoothScrollTo(0, binding.photoProfileEditSourcesTitle.bottom); return }
+        if (draft.sources.isEmpty()) { showSourceError = true; binding.photoProfileEditError.visibility = View.VISIBLE; binding.photoProfileEditScroll.smoothScrollTo(0, binding.photoProfileEditAddSource.bottom); return }
         if (!creating && store.state().profiles.firstOrNull { it.id == draft.id } != editingBaseline) {
             sourceStatusRequests.invalidate()
             binding.photoProfileEditName.error = getString(R.string.photo_profiles_edit_target_missing)

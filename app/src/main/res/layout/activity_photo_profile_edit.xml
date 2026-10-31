@@ -26,13 +26,9 @@
                 android:minHeight="52dp" android:singleLine="true"
                 android:textSize="16sp" android:hint="@string/photo_profiles_name"
                 android:inputType="textCapSentences" />
-            <TextView android:id="@+id/photo_profile_edit_sources_title"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="16dp" android:layout_marginBottom="8dp"
-                android:text="@string/photo_profiles_sources_title"
-                android:fontFamily="sans-serif-medium" android:textSize="12sp" />
             <LinearLayout android:id="@+id/photo_profile_edit_sources"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
                 android:orientation="vertical" />
             <TextView android:id="@+id/photo_profile_edit_add_source"
                 android:layout_width="match_parent" android:layout_height="48dp"

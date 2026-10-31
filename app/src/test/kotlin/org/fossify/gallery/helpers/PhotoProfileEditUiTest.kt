@@ -1,6 +1,8 @@
 package org.fossify.gallery.helpers
 
 import android.app.Application
+import android.content.Intent
+import android.os.Bundle
 import android.view.ContextThemeWrapper
 import android.graphics.Color
 import android.view.LayoutInflater
@@ -14,8 +16,10 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.fossify.gallery.R
 
@@ -89,13 +93,72 @@ class PhotoProfileEditUiTest {
         )
         val field = root.findViewById<EditText>(R.id.photo_profile_edit_name)
         val label = root.findViewById<TextView>(R.id.photo_profile_edit_name_label)
-        val sourcesTitle = root.findViewById<TextView>(R.id.photo_profile_edit_sources_title)
         val addSource = root.findViewById<TextView>(R.id.photo_profile_edit_add_source)
+        val sources = root.findViewById<android.widget.LinearLayout>(R.id.photo_profile_edit_sources)
         assertEquals(1, field.maxLines)
         assertEquals((52 * context.resources.displayMetrics.density).toInt(), field.minimumHeight)
         assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, label.layoutParams.height)
-        assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, sourcesTitle.layoutParams.height)
+        assertEquals(0, context.resources.getIdentifier("photo_profile_edit_sources_title", "id", context.packageName))
+        assertEquals((16 * context.resources.displayMetrics.density).toInt(), (sources.layoutParams as ViewGroup.MarginLayoutParams).topMargin)
         assertEquals((48 * context.resources.displayMetrics.density).toInt(), addSource.layoutParams.height)
         assertTrue(root.findViewById<ScrollView>(R.id.photo_profile_edit_scroll).isFillViewport)
+    }
+
+    @Test fun unsavedEditorDraftSurvivesActivityRecreationButCancelDoesNotPersistIt() {
+        val app = RuntimeEnvironment.getApplication()
+        val store = PhotoProfileRepository.of(app)
+        store.state().profiles.forEach { store.delete(it.id) }
+        val intent = Intent(app, org.fossify.gallery.activities.PhotoProfileEditActivity::class.java)
+            .putExtra(org.fossify.gallery.activities.PhotoProfileEditActivity.EXTRA_CREATING, true)
+        val firstController = Robolectric.buildActivity(
+            org.fossify.gallery.activities.PhotoProfileEditActivity::class.java, intent
+        ).setup()
+        firstController.get().findViewById<EditText>(R.id.photo_profile_edit_name).setText("Draft after rotation")
+        val state = Bundle()
+        firstController.saveInstanceState(state)
+        firstController.pause().stop().destroy()
+
+        val recreated = Robolectric.buildActivity(
+            org.fossify.gallery.activities.PhotoProfileEditActivity::class.java, intent
+        ).create(state).start().resume().visible()
+        val activity = recreated.get()
+        assertEquals("Draft after rotation", activity.findViewById<EditText>(R.id.photo_profile_edit_name).text.toString())
+        activity.finish()
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertTrue(store.state().profiles.isEmpty())
+        recreated.pause().stop().destroy()
+    }
+
+    @Test fun sourcePickerSelectionSnapshotIsRestoredSeparatelyAcrossRecreation() {
+        val app = RuntimeEnvironment.getApplication()
+        val intent = Intent(app, org.fossify.gallery.activities.PhotoProfileEditActivity::class.java)
+            .putExtra(org.fossify.gallery.activities.PhotoProfileEditActivity.EXTRA_CREATING, true)
+        val controller = Robolectric.buildActivity(
+            org.fossify.gallery.activities.PhotoProfileEditActivity::class.java, intent
+        ).setup()
+        val first = controller.get()
+        first.javaClass.getDeclaredField("sourcePickerDraftPaths").apply {
+            isAccessible = true
+            set(first, setOf("/Camera", "/Camera/Trips"))
+        }
+        first.javaClass.getDeclaredField("sourcePickerOpen").apply {
+            isAccessible = true
+            setBoolean(first, true)
+        }
+        val state = Bundle()
+        controller.saveInstanceState(state)
+        assertTrue(state.getBoolean("photo_profile_edit_source_picker_open"))
+        assertEquals(arrayListOf("/Camera", "/Camera/Trips"),
+            state.getStringArrayList("photo_profile_edit_source_picker_draft"))
+        controller.pause().stop().destroy()
+
+        val restoredController = Robolectric.buildActivity(
+            org.fossify.gallery.activities.PhotoProfileEditActivity::class.java, intent
+        ).create(state)
+        val restored = restoredController.get()
+        assertEquals(setOf("/Camera", "/Camera/Trips"),
+            restored.javaClass.getDeclaredField("sourcePickerDraftPaths").apply { isAccessible = true }.get(restored))
+        assertTrue(restored.javaClass.getDeclaredField("restoreSourcePickerOnResume").apply { isAccessible = true }.getBoolean(restored))
+        restoredController.destroy()
     }
 }
