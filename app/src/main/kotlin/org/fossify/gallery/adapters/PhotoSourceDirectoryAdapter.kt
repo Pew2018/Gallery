@@ -52,7 +52,7 @@ internal class PhotoSourceDirectoryAdapter(
         with(holder.binding) {
             clearThumbnail(this)
             sourceLock.visibility = if (locked) View.VISIBLE else View.GONE
-            sourceLock.background = ColorDrawable(background)
+            sourceLock.background = ColorDrawable(androidx.core.graphics.ColorUtils.blendARGB(background, text, .06f))
             sourceLock.setColorFilter(text)
             sourceName.text = directory.name
             sourceName.setTextColor(text)
@@ -62,11 +62,14 @@ internal class PhotoSourceDirectoryAdapter(
             sourceStatus.alpha = 1f
             sourceCheck.setOnCheckedChangeListener(null)
             sourceCheck.buttonTintList = null
-            sourceCheck.buttonDrawable = PhotoSourceCheckDrawable(activity.resources, accent, if (Color.luminance(background) > .5) Color.DKGRAY else Color.LTGRAY)
-            fun controlBackground() = android.graphics.drawable.RippleDrawable(
-                android.content.res.ColorStateList.valueOf(androidx.core.graphics.ColorUtils.setAlphaComponent(accent, 28)),
-                ColorDrawable(background), ColorDrawable(Color.WHITE))
-            sourceCheck.background = controlBackground()
+            sourceCheck.buttonDrawable = PhotoSourceCheckDrawable(activity.resources, OxygenClassicPalette.readableAccent(accent, Color.WHITE), if (Color.luminance(background) > .5) Color.DKGRAY else Color.LTGRAY)
+            fun controlBackground(insetDp: Int): android.graphics.drawable.RippleDrawable {
+                val inset = (insetDp * activity.resources.displayMetrics.density + .5f).toInt()
+                return android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(androidx.core.graphics.ColorUtils.setAlphaComponent(accent, 28)),
+                    android.graphics.drawable.InsetDrawable(ColorDrawable(background), inset), ColorDrawable(Color.WHITE))
+            }
+            sourceCheck.background = controlBackground(14)
             sourceCheck.isChecked = draft.contains(directory.path)
             root.isSelected = sourceCheck.isChecked
             sourceCheck.contentDescription = directory.name + ", " + activity.getString(
@@ -82,7 +85,7 @@ internal class PhotoSourceDirectoryAdapter(
             root.setOnClickListener { sourceCheck.performClick() }
             sourceBrowse.visibility = if (directory.path == FAVORITES) View.GONE else View.VISIBLE
             sourceBrowse.imageTintList = android.content.res.ColorStateList.valueOf(text)
-            sourceBrowse.background = controlBackground()
+            sourceBrowse.background = controlBackground(8)
             sourceBrowse.contentDescription = activity.getString(R.string.photo_source_browse_named, directory.name)
             sourceBrowse.setOnClickListener { navigate(directory) }
             if (!locked && directory.tmb.isNotBlank()) {

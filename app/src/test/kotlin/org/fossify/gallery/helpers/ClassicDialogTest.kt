@@ -448,6 +448,8 @@ class ClassicDialogTest {
         assertEquals(1, navigationCount)
         assertTrue(holder.binding.sourceCheck.buttonDrawable is PhotoSourceCheckDrawable)
         assertTrue(holder.binding.sourceCheck.background is RippleDrawable)
+        val checkBackground = holder.binding.sourceCheck.background as RippleDrawable
+        assertTrue(checkBackground.getDrawable(0) is android.graphics.drawable.InsetDrawable)
         val glyph = holder.binding.sourceCheck.buttonDrawable
         val dialog = OxygenClassicDialog.show(activity, OxygenClassicDialog.builder(activity, "Sources").setView(holder.itemView))
         OxygenClassicDialog.apply(activity, dialog, holder.itemView)
@@ -500,6 +502,8 @@ class ClassicDialogTest {
                 assertTrue(OxygenThemeColors.contrastRatio(palette.secondary, palette.surface) >= 4.5)
                 assertTrue(OxygenThemeColors.contrastRatio(palette.accent, palette.surface) >= 4.5)
                 assertTrue(OxygenThemeColors.contrastRatio(palette.error, palette.surface) >= 4.5)
+                val checkboxFill = OxygenClassicPalette.readableAccent(palette.accent, Color.WHITE)
+                assertTrue(OxygenThemeColors.contrastRatio(Color.WHITE, checkboxFill) >= 4.5)
             }
         }
     }
