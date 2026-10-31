@@ -23,7 +23,7 @@ import java.util.Calendar
 import java.util.Locale
 
 class MediaFetcher(val context: Context, private val filterOverride: Int? = null, private val cancelled: () -> Boolean = { false }) {
-    var shouldStop = false
+    @Volatile var shouldStop = false
         get() = field || cancelled()
 
     // on Android 11 we fetch all files at once from MediaStore and have it split by folder, use it if available
@@ -306,6 +306,7 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
         val checkProperFileSize = getProperFileSize || config.fileLoadingPriority == PRIORITY_COMPROMISE
         val checkFileExistence = config.fileLoadingPriority == PRIORITY_VALIDITY
         val showHidden = config.shouldShowHidden
+        val favoritePathSet = favoritePaths.toHashSet()
         val showPortraits = filterMedia and TYPE_PORTRAITS != 0
         val fileSizes = if (checkProperFileSize || checkFileExistence) getFolderSizes(folder) else HashMap()
 
@@ -421,7 +422,7 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
                     else -> TYPE_IMAGES
                 }
 
-                val isFavorite = favoritePaths.contains(path)
+                val isFavorite = path in favoritePathSet
                 val medium = Medium(null, filename, path, file.parent, lastModified, dateTaken, size, type, videoDuration, isFavorite, 0L, 0L)
                 media.add(medium)
             }
