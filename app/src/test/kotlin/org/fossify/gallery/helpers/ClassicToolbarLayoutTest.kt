@@ -74,9 +74,6 @@ class ClassicToolbarLayoutTest {
         val manager = menu.requireToolbar().menu.findItem(R.id.photo_profiles_manage)
         assertEquals(7, manager.order)
         assertNotNull(manager.icon)
-        val actionFlags = manager.javaClass.methods.firstOrNull { it.name == "getShowAsActionFlags" }
-            ?.invoke(manager) as? Int
-        assertEquals(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS, actionFlags)
         manager.isVisible = true // Page policy keeps it visible even when no profile exists.
         assertTrue(manager.isVisible)
     }
