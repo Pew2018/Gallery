@@ -63,15 +63,48 @@ object GalleryBottomBar {
 
     @Suppress("DEPRECATION")
     fun open(activity: Activity, intent: Intent, finishCurrent: Boolean = false) {
+        intent.putExtra(EXTRA_ROOT_TRANSITION, true)
         activity.startActivity(intent)
-        // Cross-fade the outgoing and incoming screens. The outgoing bottom bar
-        // remains visible while its native release ripple finishes, and the new
-        // screen immediately shows the persistent selected-tab state.
-        activity.overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
-        if (finishCurrent) {
-            activity.finish()
-            activity.overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+        if (finishCurrent) activity.finish()
+        // Keep the outgoing window opaque. Fading both windows exposes the
+        // task background midway through the transition, especially on cold tabs.
+        activity.overridePendingTransition(R.anim.gallery_root_enter, R.anim.gallery_root_hold)
+    }
+
+    private const val EXTRA_ROOT_TRANSITION = "org.fossify.gallery.ROOT_TRANSITION"
+    internal const val FIRST_DRAW_LIMIT_MS = 250L
+
+    /** Let a warm cache reach the first layout before starting the window animation. */
+    private fun coordinateFirstDraw(activity: Activity, parent: CoordinatorLayout) {
+        if (!activity.intent.getBooleanExtra(EXTRA_ROOT_TRANSITION, false)) return
+        activity.intent.removeExtra(EXTRA_ROOT_TRANSITION)
+        val started = android.os.SystemClock.uptimeMillis()
+        val wake = Runnable { parent.invalidate() }
+        val listener = object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                val grid = parent.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.directories_grid)
+                    ?: parent.findViewById(R.id.media_grid)
+                val empty = parent.findViewById<android.view.View>(R.id.directories_empty_placeholder)
+                    ?: parent.findViewById(R.id.media_empty_text_placeholder)
+                val ready = (grid?.childCount ?: 0) > 0 || empty?.visibility == android.view.View.VISIBLE
+                if (!ready && !activity.isFinishing && !activity.isDestroyed &&
+                    android.os.SystemClock.uptimeMillis() - started < FIRST_DRAW_LIMIT_MS) return false
+                if (parent.viewTreeObserver.isAlive) parent.viewTreeObserver.removeOnPreDrawListener(this)
+                parent.removeCallbacks(wake)
+                return true
+            }
         }
+        parent.viewTreeObserver.addOnPreDrawListener(listener)
+        parent.addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(view: android.view.View) = Unit
+            override fun onViewDetachedFromWindow(view: android.view.View) {
+                if (parent.viewTreeObserver.isAlive) parent.viewTreeObserver.removeOnPreDrawListener(listener)
+                parent.removeCallbacks(wake)
+                parent.removeOnAttachStateChangeListener(this)
+            }
+        })
+        // A failed/slow query must never indefinitely block the first frame.
+        parent.postDelayed(wake, FIRST_DRAW_LIMIT_MS)
     }
 
     fun attach(
@@ -80,6 +113,7 @@ object GalleryBottomBar {
         active: Tab,
         navigate: (Tab) -> Unit
     ) {
+        coordinateFirstDraw(activity, parent)
         val density = activity.resources.displayMetrics.density
         fun dp(value: Int) = (value * density + 0.5f).toInt()
         val tokens = OxygenThemeEngine.snapshot(activity, activity.config)
@@ -180,3 +214,4 @@ object GalleryBottomBar {
         ViewCompat.requestApplyInsets(bar)
     }
 }
+

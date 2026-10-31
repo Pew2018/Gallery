@@ -9,10 +9,13 @@ import org.fossify.gallery.models.Medium
 internal class PhotoAccessValidationBatch(
     private val context: Context,
     private val request: PhotoProfileLoadContext,
-    private val cancelled: () -> Boolean
+    private val cancelled: () -> Boolean,
+    private val directVisibilityOnly: Boolean = false
 ) {
     private val scope = request.scope
-    private val noMedia by lazy { context.getNoMediaFoldersSync() }
+    // With full filesystem access, visible() checks each raw/canonical ancestor
+    // directly. A single-file first frame needs no global MediaStore .nomedia query.
+    private val noMedia by lazy { if (directVisibilityOnly) emptyList<String>() else context.getNoMediaFoldersSync() }
     private val folderStatus = HashMap<String, Boolean>()
     private fun visible(folder: String) = folderStatus.getOrPut(folder) {
         folder.startsWith('/') && !folder.contains("/.") &&
@@ -59,3 +62,4 @@ internal class PhotoAccessValidationBatch(
         return safe to PhotoAccessSummary(sourceDenied, publicOnly)
     }
 }
+

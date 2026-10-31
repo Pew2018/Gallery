@@ -54,6 +54,24 @@ internal object PhotoViewerSnapshotStore {
         return entry.media.map { it.copy() }.toCollection(ArrayList())
     }
 
+    /** Worker-only first frame: validate just the requested file, never enumerate the profile. */
+    fun firstFrame(
+        context: Context, profileId: String?, sessionId: String?, item: Medium,
+        cancelled: () -> Boolean = { false }
+    ): PhotoLoadResult? {
+        val request = PhotoProfileLoadContext.capture(context, profileId, sessionId) ?: return null
+        if (request.scope.selectedId != profileId || cancelled()) return null
+        val (safe, access) = PhotoAccessValidationBatch(context, request, cancelled,
+            directVisibilityOnly = request.scope.allFiles || android.os.Build.VERSION.SDK_INT < 30
+        ).validate(listOf(item))
+        if (safe.size != 1 || cancelled() || !request.isCurrent(context)) return null
+        // Prove readability on the worker before publishing. Failure falls back to
+        // the normal indexed loader, preserving scoped-storage compatibility.
+        if (!runCatching { java.io.File(item.path).inputStream().use { it.read() }; true }.getOrDefault(false)) return null
+        if (cancelled() || !request.isCurrent(context)) return null
+        return PhotoLoadResult(request, PhotoLoadStage.INDEXED, safe, access)
+    }
+
     /** Worker-only: taking a metadata snapshot is not fresh file authorization. */
     fun validate(
         context: Context, profileId: String?, media: List<Medium>, clickedPath: String,
@@ -74,3 +92,4 @@ internal object PhotoViewerSnapshotStore {
         pending = null
     }
 }
+

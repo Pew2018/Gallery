@@ -253,6 +253,69 @@ class PhotoProfileMediaLoadingTest {
         } finally { root.toFile().deleteRecursively() }
     }
 
+    @Test fun viewerFirstFrameDoesNotQueryOrScanTheRemainingProfile() {
+        val root = Files.createTempDirectory("photo-first-frame")
+        try {
+            val path = Files.write(root.resolve("selected.jpg"), byteArrayOf(1)).toString()
+            // An unrelated broken symbolic link must not delay or invalidate this image.
+            Files.createSymbolicLink(root.resolve("broken.jpg"), root.resolve("missing.jpg"))
+            val id = profile(root.toString())
+            val item = Medium(null, "selected.jpg", path, root.toString(), 1, 1, 1, TYPE_IMAGES, 0, false, 0, 0)
+            val first = background { PhotoViewerSnapshotStore.firstFrame(context, id, null, item) }!!
+            assertEquals(listOf(path), first.media.map { it.path })
+            assertEquals(PhotoLoadStage.INDEXED, first.stage)
+            assertTrue(provider.queries.isEmpty())
+            Files.delete(java.nio.file.Paths.get(path))
+            assertNull(background { PhotoViewerSnapshotStore.firstFrame(context, id, null, item) })
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun viewerFirstFrameRechecksNoMediaWithoutAGlobalQuery() {
+        val root = Files.createTempDirectory("photo-first-nomedia")
+        try {
+            val folder = Files.createDirectory(root.resolve("camera"))
+            val path = Files.write(folder.resolve("a.jpg"), byteArrayOf(1)).toString()
+            val id = profile(folder.toString())
+            val item = Medium(null, "a.jpg", path, folder.toString(), 1, 1, 1, TYPE_IMAGES, 0, false, 0, 0)
+            assertNotNull(background { PhotoViewerSnapshotStore.firstFrame(context, id, null, item) })
+            Files.write(root.resolve(".nomedia"), byteArrayOf())
+            assertNull(background { PhotoViewerSnapshotStore.firstFrame(context, id, null, item) })
+            assertTrue(provider.queries.isEmpty())
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun viewerFirstFrameRejectsProtectedSymlinkAndWrongSource() {
+        val root = Files.createTempDirectory("photo-first-security")
+        try {
+            val public = Files.createDirectory(root.resolve("public"))
+            val private = Files.createDirectory(root.resolve("private"))
+            val target = Files.write(private.resolve("secret.jpg"), byteArrayOf(1))
+            val alias = Files.createSymbolicLink(public.resolve("alias.jpg"), target)
+            val id = profile(public.toString())
+            context.config.addFolderProtection(private.toString(), "secret", org.fossify.commons.helpers.PROTECTION_PIN)
+            val item = Medium(null, "alias.jpg", alias.toString(), public.toString(), 1, 1, 1, TYPE_IMAGES, 0, false, 0, 0)
+            assertNull(background { PhotoViewerSnapshotStore.firstFrame(context, id, null, item) })
+            val outside = item.copy(path = target.toString(), parentPath = private.toString())
+            assertNull(background { PhotoViewerSnapshotStore.firstFrame(context, id, null, outside) })
+            assertNull(background { PhotoViewerSnapshotStore.firstFrame(context, id, "expired-session", item) })
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun viewerFirstFrameCancellationAndScopeMutationFailClosed() {
+        val root = Files.createTempDirectory("photo-first-cancel")
+        try {
+            val path = Files.write(root.resolve("a.jpg"), byteArrayOf(1)).toString()
+            val id = profile(root.toString())
+            val item = Medium(null, "a.jpg", path, root.toString(), 1, 1, 1, TYPE_IMAGES, 0, false, 0, 0)
+            assertNull(background { PhotoViewerSnapshotStore.firstFrame(context, id, null, item) { true } })
+            val first = background { PhotoViewerSnapshotStore.firstFrame(context, id, null, item) }!!
+            val old = PhotoProfileRepository.of(context).state().current!!
+            PhotoProfileRepository.of(context).updateExisting(old.copy(sources = listOf(PhotoSource(PhotoSourceType.FOLDER, "/Other"))))
+            assertFalse(first.context.isCurrent(context))
+            assertNull(background { PhotoViewerSnapshotStore.firstFrame(context, id, null, item) })
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     /** Robolectric has no default volume for Environment's API-30 manager query. */
     @Implements(android.os.Environment::class)
     class ScopedEnvironment : ShadowEnvironment() {
@@ -286,3 +349,4 @@ class PhotoProfileMediaLoadingTest {
         override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
     }
 }
+

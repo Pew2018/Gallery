@@ -599,6 +599,47 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
     }
 
+    /** Populate swiping only after the selected file can render; never initialize the pager twice. */
+    private fun completePhotoViewerLoad(
+        request: Long, cached: ArrayList<Medium>?, firstContext: org.fossify.gallery.helpers.PhotoProfileLoadContext?,
+        initialized: Boolean
+    ) {
+        val profile = photoProfileId
+        val session = photoSessionId
+        val clicked = mPath
+        fun publish(items: List<Medium>) {
+            if (request != viewerLoadGeneration || isFinishing || isDestroyed) return
+            if (firstContext != null && !firstContext.isCurrent(applicationContext)) { finish(); return }
+            if (!checkFavoriteAccess() || items.none { it.path == clicked }) { finish(); return }
+            if (initialized) {
+                gotMedia(ArrayList<ThumbnailItem>(items), refetchViewPagerPosition = true)
+            } else {
+                mMediaFiles = ArrayList(items)
+                initContinue()
+            }
+        }
+        if (cached != null && firstContext != null) {
+            viewerAccessTask = try { ViewerAccessCoordinator.submit {
+                val safe = runCatching {
+                    org.fossify.gallery.helpers.PhotoViewerSnapshotStore.validate(applicationContext, profile, cached, clicked) {
+                        Thread.currentThread().isInterrupted
+                    }
+                }.getOrNull()
+                runOnUiThread {
+                    if (request != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                    if (safe == null || !safe.context.isCurrent(applicationContext)) { finish(); return@runOnUiThread }
+                    publish(safe.media)
+                }
+            } } catch (_: java.util.concurrent.RejectedExecutionException) { finish(); null }
+        } else {
+            viewerLoadTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
+                showAll = false, photoProfileId = profile, photoSessionId = session,
+                onFailure = { if (request == viewerLoadGeneration && !isFinishing && !isDestroyed) finish() }
+            ) { items -> publish(items.filterIsInstance<Medium>()) }
+                .also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
+        }
+    }
+
     private fun authenticateViewerRequest() {
         showSystemUI()
         if (isPhotoProfile) {
@@ -614,32 +655,33 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             val request = ++viewerLoadGeneration
             viewerLoadTask?.stopFetching()
             ViewerAccessCoordinator.cancel(viewerAccessTask)
-            if (cached != null) {
-                val profile = photoProfileId
-                val clicked = mPath
-                viewerAccessTask = try { ViewerAccessCoordinator.submit {
-                    val safe = runCatching {
-                        org.fossify.gallery.helpers.PhotoViewerSnapshotStore.validate(
-                            applicationContext, profile, cached, clicked
-                        ) { Thread.currentThread().isInterrupted }
-                    }.getOrNull()
-                    runOnUiThread {
-                        if (request != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
-                        if (safe == null || !safe.context.isCurrent(applicationContext)) { finish(); return@runOnUiThread }
-                        mMediaFiles = ArrayList(safe.media)
+            val profile = photoProfileId
+            val session = photoSessionId
+            val clicked = mPath
+            val selected = cached?.firstOrNull { it.path == clicked } ?: Medium(
+                null, clicked.getFilenameFromPath(), clicked, clicked.getParentPath(),
+                0, 0, 0, getTypeFromPath(clicked), 0, false, 0L, 0L
+            )
+            viewerAccessTask = try { ViewerAccessCoordinator.submit {
+                val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+                val first = runCatching {
+                    org.fossify.gallery.helpers.PhotoViewerSnapshotStore.firstFrame(
+                        applicationContext, profile, session, selected
+                    ) { Thread.currentThread().isInterrupted }
+                }.getOrNull()
+                runOnUiThread {
+                    if (request != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                    if (first != null && !first.context.isCurrent(applicationContext)) { finish(); return@runOnUiThread }
+                    if (first != null) {
+                        mMediaFiles = ArrayList(first.media)
                         initContinue()
+                        binding.viewPager.postOnAnimation {
+                            org.fossify.gallery.helpers.GalleryPerfTrace.end("photo_viewer_selected_ready", started, 1)
+                        }
                     }
-                } } catch (_: java.util.concurrent.RejectedExecutionException) { finish(); null }
-                return
-            }
-            viewerLoadTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
-                showAll = false, photoProfileId = photoProfileId, photoSessionId = photoSessionId, onFailure = { finish() }) { items ->
-                if (request != viewerLoadGeneration || isFinishing || isDestroyed) return@GetMediaAsynctask
-                val media = items.filterIsInstance<Medium>()
-                if (media.none { it.path == mPath }) { finish(); return@GetMediaAsynctask }
-                mMediaFiles = ArrayList(media)
-                initContinue()
-            }.also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
+                    completePhotoViewerLoad(request, cached, first?.context, first != null)
+                }
+            } } catch (_: java.util.concurrent.RejectedExecutionException) { finish(); null }
             return
         }
 
@@ -1958,4 +2000,5 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         return !intent.getBooleanExtra(IS_FROM_GALLERY, false)
     }
 }
+
 
