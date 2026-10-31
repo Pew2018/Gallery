@@ -50,7 +50,12 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
                 if (android11Files?.containsKey(folderKey) == true) {
                     curMedia.addAll(android11Files[folderKey]!!)
                 } else if (android11Files == null) {
-                    val files = getAndroid11FolderMedia(isPickImage, isPickVideo, favoritePaths, false, getProperDateTaken, dateTakens)
+                    // A single physical folder must never trigger a full-library
+                    // cursor merely because its caller has no prebuilt index.
+                    val files = getAndroid11FolderMedia(
+                        isPickImage, isPickVideo, favoritePaths, false,
+                        getProperDateTaken, dateTakens, allowedFolders = setOf(curPath)
+                    )
                     files[folderKey]?.let { curMedia.addAll(it) }
                 }
             }
@@ -67,7 +72,7 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
                     // both sources by exact path without dropping either one.
                     val files = getAndroid11FolderMedia(
                         isPickImage, isPickVideo, favoritePaths, true, getProperDateTaken,
-                        dateTakens.clone() as HashMap<String, Long>
+                        dateTakens
                     )
                     FavoriteMediaSizeReconciler.apply(newMedia, files)
                     val indexedFavorites = files.values.flatten().filter {
@@ -532,7 +537,9 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
                 var dateTaken = cursor.getLongValue(Images.Media.DATE_TAKEN)
 
                 if (getProperDateTaken) {
-                    dateTaken = dateTakens.remove(path) ?: dateTaken
+                    // Do not consume a shared override: the same mapping also
+                    // serves filesystem fallbacks and other directory cards.
+                    dateTaken = dateTakens[path] ?: dateTaken
                 }
 
                 if (dateTaken == 0L) {

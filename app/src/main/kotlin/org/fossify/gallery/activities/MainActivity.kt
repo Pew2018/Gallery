@@ -1773,9 +1773,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
             return
         }
-        mIsGettingDirs = false
-        setDirectoryLoading(false)
-        mShouldStopFetching = false
+        // Keep worker state and UI mutations separate. Initial publication below
+        // releases the cache-loading lock on the main thread only if still current.
 
         // The directory cache predates the dedicated favorites credential. Never
         // publish its old cover or count while the virtual album is protected.
@@ -1836,6 +1835,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         runOnUiThread {
             if (!isCurrentDirectoryScan(scanRequest)) return@runOnUiThread
+            mIsGettingDirs = false
+            setDirectoryLoading(false)
             checkPlaceholderVisibility(dirs)
             setupAdapter(dirs.clone() as ArrayList<Directory>, sortDirs = false, scanRequest = scanRequest)
         }

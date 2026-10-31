@@ -50,7 +50,7 @@ internal object FolderViewerSnapshotStore {
         val id = UUID.randomUUID().toString()
         pending = Entry(
             id, folder, selected, fingerprint(context, folder),
-            SystemClock.elapsedRealtime(), ArrayList(items)
+            SystemClock.elapsedRealtime(), ArrayList(items.map { it.copy() })
         )
         return id
     }
@@ -63,6 +63,6 @@ internal object FolderViewerSnapshotStore {
             selected != entry.selectedPath || SystemClock.elapsedRealtime() - entry.createdAt > MAX_AGE_MS ||
             entry.fingerprint != fingerprint(context, folder) ||
             !allowed(context, folder, selected, entry.items)) return null
-        return ArrayList(entry.items)
+        return ArrayList(entry.items.map { it.copy() })
     }
 }
