@@ -63,7 +63,7 @@ internal object PhotoProfileAccessSessionManager {
             (isActive(context, candidate) && rootBound(context, FAVORITES)))
     }
     fun locksForPaths(context: Context, paths: Collection<String>): Map<String, FavoriteAccessSessionManager.Protection> =
-        FavoriteAccessSessionManager.captureSnapshot(paths, context::favoriteProtection).entries.values
+        PhotoPathAccess.capture(paths, context::favoriteProtection).values
             .flatMap { it.locks.entries }.associate { it.key to it.value }
     fun profileLocks(context: Context, profile: PhotoProfile): Map<String, FavoriteAccessSessionManager.Protection> {
         val paths = profile.sources.filter { it.type == PhotoSourceType.FOLDER }

@@ -41,8 +41,9 @@ class PhotoProfileMediaLoader(
             context.getFavoritePaths().toSet() else emptySet()
         // Pure membership and media-type filtering precede filesystem validation.
         // Every surviving item still receives a full raw/canonical protection check.
+        val filter = config.photoMediaFilter
         val candidates = PhotoProfilePolicy.unique(items.filter { item ->
-            item.type and config.photoMediaFilter and MEDIA_TYPES != 0 &&
+            item.type and filter and MEDIA_TYPES != 0 &&
                 item.deletedTS == 0L && !item.path.contains("/.") &&
                 (item.parentPath in folders || item.path in favorites)
         }) { it.path }
@@ -51,16 +52,19 @@ class PhotoProfileMediaLoader(
         // Check actual file identities as well as directory sentinels: a file symlink
         // can cross an additional protection boundary even when its parent is public.
         val snapshot = runCatching {
-            FavoriteAccessSessionManager.captureSnapshot(candidates.map { it.path }, context::favoriteProtection)
+            PhotoPathAccess.capture(candidates.map { it.path }, context::favoriteProtection, ::stopped)
         }.getOrNull() ?: return arrayListOf()
         val bindings = config.photoSourceBindings
         val active = PhotoProfileAccessSessionManager.isActive(context, sessionId)
+        val lockStatus = HashMap<Map<String, FavoriteAccessSessionManager.Protection>, Boolean>()
         return PhotoProfilePolicy.unique(candidates.filter { item ->
-            val identity = snapshot.entries[item.path] ?: return@filter false
+            val identity = snapshot[item.path] ?: return@filter false
             val resolvedParent = identity.canonicalPath.substringBeforeLast('/', "")
-            PhotoProfileAccessSessionManager.bindingsAuthorize(identity.locks, bindings, active) &&
+            lockStatus.getOrPut(identity.locks) {
+                PhotoProfileAccessSessionManager.bindingsAuthorize(identity.locks, bindings, active)
+            } &&
                 folderStatus.getOrPut(resolvedParent) { folderAllowed(resolvedParent) } &&
-            item.type and config.photoMediaFilter and MEDIA_TYPES != 0 && item.deletedTS == 0L && !item.path.contains("/.") &&
+            item.type and filter and MEDIA_TYPES != 0 && item.deletedTS == 0L && !item.path.contains("/.") &&
                 PhotoProfilePolicy.includes(item.path, folders, favorites, true) {
                     folderStatus.getOrPut(item.parentPath) { folderAllowed(item.parentPath) }
                 }
@@ -71,40 +75,16 @@ class PhotoProfileMediaLoader(
         val profile = PhotoProfileRepository.of(context).state().profiles.firstOrNull { it.id == profileId } ?: return arrayListOf()
         val favorites = context.getFavoritePaths()
         val includeFavorites = profile.sources.any { it.type == PhotoSourceType.FAVORITES } && favoritesAllowed()
-        val folders = (profile.sources.filter { it.type == PhotoSourceType.FOLDER }.mapNotNull { it.path } +
-            if (includeFavorites) favorites.map { it.substringBeforeLast('/') } else emptyList()).distinct().filter(::folderAllowed)
+        val folderStatus = HashMap<String, Boolean>()
+        fun allowed(folder: String) = folderStatus.getOrPut(folder) { folderAllowed(folder) }
+        val folders = profile.sources.filter { it.type == PhotoSourceType.FOLDER }.mapNotNull { it.path }
+            .filter(::allowed).toSet()
+        val favoriteFiles = if (includeFavorites) favorites.filter {
+            it.substringBeforeLast('/') !in folders && allowed(it.substringBeforeLast('/'))
+        }.toSet() else emptySet()
         val fetcher = MediaFetcher(context, config.photoMediaFilter and MEDIA_TYPES, ::stopped)
         if (stopped()) return arrayListOf()
-        val scopedMediaStore = isRPlus() && !android.os.Environment.isExternalStorageManager()
-        val dates = if (scopedMediaStore) {
-            fetcher.getSelectedFolderDateOverrides(folders)
-        } else {
-            HashMap<String, Long>().apply {
-                folders.forEach { folder ->
-                    if (!stopped()) putAll(fetcher.getFolderDateTakens(folder))
-                }
-            }
-        }
-        val modified = HashMap<String, Long>()
-        if (!scopedMediaStore) {
-            folders.forEach { folder ->
-                if (!stopped()) modified.putAll(fetcher.getFolderLastModifieds(folder))
-            }
-        }
-        if (stopped()) return arrayListOf()
-        val grouped = fetcher.getAndroid11FolderMedia(
-            false, false, favorites, false, true, HashMap(dates),
-            allowedFolders = folders.toSet()
-        )
-        val media = ArrayList<Medium>()
-        for (folder in folders) {
-            if (stopped()) { fetcher.shouldStop = true; return arrayListOf() }
-            media.addAll(fetcher.getFilesFrom(
-                folder, false, false, true, true, true, favorites,
-                config.showThumbnailVideoDuration, modified, dates, grouped,
-                sortResult = false
-            ))
-        }
+        val media = fetcher.getPhotoProfileMedia(folders, favoriteFiles, favorites)
         if (stopped()) return arrayListOf()
         val safe = permitted(profileId, media)
         safe.forEach { if (it.taken <= 0L) it.taken = it.modified }

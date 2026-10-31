@@ -24,6 +24,8 @@ class GetMediaAsynctask(
     private val favoriteSessionId: String? = null,
     private val photoProfileId: String? = null,
     private val photoSessionId: String? = null,
+    private val photoRetainedMedia: List<Medium>? = null,
+    private val onPhotoRetained: ((ArrayList<Medium>) -> Unit)? = null,
     val callback: (media: ArrayList<ThumbnailItem>) -> Unit
 ) :
     AsyncTask<Void, Void, ArrayList<ThumbnailItem>>() {
@@ -35,7 +37,13 @@ class GetMediaAsynctask(
         return try {
         if (mPath == PhotoProfileMediaLoader.PATH || photoProfileId != null) {
             profilePreferences = context.getSharedPrefs().all
-            return PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId) { isCancelled }.load(photoProfileId)
+            val loader = PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId) { isCancelled }
+            photoRetainedMedia?.let { previous ->
+                val safe = loader.permitted(photoProfileId, previous)
+                if (!isCancelled && profilePreferences == context.getSharedPrefs().all) onPhotoRetained?.invoke(safe)
+            }
+            if (isCancelled) return arrayListOf()
+            return loader.load(photoProfileId)
         }
         val pathToUse = if (showAll) SHOW_ALL else mPath
         val folderGrouping = context.config.getFolderGrouping(pathToUse)

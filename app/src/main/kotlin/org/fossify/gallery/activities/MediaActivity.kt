@@ -182,7 +182,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             config.getFolderSorting(PhotoProfileMediaLoader.PATH),
             config.photoSourceBindings, config.excludedFolders,
             config.shouldShowHidden,
-            PhotoProfileAccessSessionManager.currentEventVersion(), photoToken()
+            PhotoProfileAccessSessionManager.currentEventVersion(), photoToken(),
+            if (isRPlus()) android.os.Environment.isExternalStorageManager() else false,
+            listOf("android.permission.READ_EXTERNAL_STORAGE", "android.permission.READ_MEDIA_IMAGES",
+                "android.permission.READ_MEDIA_VIDEO", "android.permission.READ_MEDIA_VISUAL_USER_SELECTED").map {
+                androidx.core.content.ContextCompat.checkSelfPermission(this, it)
+            }
         ).joinToString("|")
     }
 
@@ -270,13 +275,22 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             photoScroll.clear()
             photoScrollProfileId = null
         }
-        if (photoLoadCompleted && photoLoadedKey == photoDisplayKey()) {
+        val requestedKey = photoDisplayKey()
+        val retainGrid = photoLoadedKey == requestedKey && getMediaAdapter() != null && mMedia.isNotEmpty()
+        val retained = if (retainGrid) mMedia.filterIsInstance<Medium>().map { it.copy() } else null
+        if (retainGrid) {
             rememberPhotoScrollAnchor()
+        } else {
+            getMediaAdapter()?.finishActMode()
+            binding.mediaGrid.adapter = null
+            mMedia = ArrayList()
+            photoLoadedKey = null
+            photoHasContent = false
         }
         photoLoadCompleted = false
-        photoLoadedKey = null
-        binding.mediaGrid.adapter = null
-        mMedia = ArrayList()
+        // A viewer opened during refresh must not consume the previous final snapshot.
+        displayedMediaIsFinal = false
+        org.fossify.gallery.helpers.PhotoViewerSnapshotStore.clear()
         mLoadedInitialPhotos = true
         updateMenuColors()
         if (profile == null) {
@@ -320,15 +334,39 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         binding.mediaEmptyDescription.beGone()
         binding.mediaEmptyTextPlaceholder2.beGone()
         mCurrAsyncTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
-            showAll = false, photoProfileId = profile.id, photoSessionId = photoToken(),
+            showAll = false, photoProfileId = profile.id, photoSessionId = requestedToken,
+            photoRetainedMedia = retained,
+            onPhotoRetained = { safe ->
+                runOnUiThread {
+                    if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed &&
+                        photoDisplayKey() == requestedKey) {
+                        rememberPhotoScrollAnchor()
+                        mMedia = ArrayList<ThumbnailItem>(safe)
+                        photoHasContent = safe.isNotEmpty()
+                        if (safe.isEmpty()) {
+                            getMediaAdapter()?.finishActMode()
+                            binding.mediaGrid.adapter = null
+                        } else setupAdapter()
+                    }
+                }
+            },
             onFailure = {
                 if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed) {
-                    publishMedia(arrayListOf(), false, request)
-                    binding.mediaEmptyTextPlaceholder.setText(R.string.failed_to_load_media)
-                    binding.mediaEmptyDescription.beGone()
+                    if (retainGrid && mMedia.isNotEmpty() && photoDisplayKey() == requestedKey) {
+                        mIsGettingMedia = false
+                        setMediaLoading(false)
+                        binding.loadingIndicator.hide()
+                        binding.mediaRefreshLayout.isRefreshing = false
+                        toast(R.string.failed_to_load_media)
+                    } else {
+                        publishMedia(arrayListOf(), false, request)
+                        binding.mediaEmptyTextPlaceholder.setText(R.string.failed_to_load_media)
+                        binding.mediaEmptyDescription.beGone()
+                    }
                 }
             }) { items ->
-            if (mediaLoadRequests.isCurrent(request) && photoProfileId == profile.id && !isFinishing && !isDestroyed) {
+            if (mediaLoadRequests.isCurrent(request) && photoProfileId == profile.id &&
+                photoDisplayKey() == requestedKey && !isFinishing && !isDestroyed) {
                 publishMedia(items, false, request)
                 if (mLastSearchedText.isNotEmpty()) searchQueryChanged(mLastSearchedText)
             }
@@ -420,7 +458,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private val favoriteProtectionListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         val sourceProtectionChanged = org.fossify.gallery.helpers.PhotoProtectionChanges.credentialsChanged(key)
         val visibilityChanged = key == org.fossify.gallery.helpers.SHOW_HIDDEN_MEDIA ||
-            key == org.fossify.gallery.helpers.EXCLUDED_FOLDERS
+            key == org.fossify.gallery.helpers.EXCLUDED_FOLDERS ||
+            (key == PhotoProfileRepository.KEY && photoLoadedKey != photoDisplayKey()) || key == "photo_source_bindings"
         if (isPhotoProfiles && sourceProtectionChanged) {
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
@@ -2059,10 +2098,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         photoScroll.clear()
                         rememberPhotoScrollAnchor()
                         photoViewerTransition = true
-                        org.fossify.gallery.helpers.PhotoViewerSnapshotStore.offer(
-                            applicationContext, photoProfileId, photoToken(),
-                            mMedia.filterIsInstance<Medium>()
-                        )?.let { putExtra(org.fossify.gallery.helpers.PhotoViewerSnapshotStore.EXTRA_ID, it) }
+                        (if (displayedMediaIsFinal && !mIsGettingMedia)
+                            org.fossify.gallery.helpers.PhotoViewerSnapshotStore.offer(
+                                applicationContext, photoProfileId, photoToken(),
+                                mMedia.filterIsInstance<Medium>()
+                            ) else null)?.let { putExtra(org.fossify.gallery.helpers.PhotoViewerSnapshotStore.EXTRA_ID, it) }
                     }
                     startActivity(this)
                 }
@@ -2120,6 +2160,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 completedMediaRequest = request
             }
             checkLastMediaChanged()
+            if (isPhotoProfiles && !isFromCache && getMediaAdapter() != null) rememberPhotoScrollAnchor()
             mMedia = ArrayList(media)
             if (isPhotoProfiles && !isFromCache) {
                 photoHasContent = media.any { it is Medium }
@@ -2151,7 +2192,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 }
             }
             binding.mediaFastscroller.beVisibleIf(binding.mediaEmptyTextPlaceholder.isGone())
-            if (mPath == FAVORITES && media.isEmpty() && !isFromCache) {
+            if (isPhotoProfiles && media.isEmpty() && !isFromCache) {
+                getMediaAdapter()?.finishActMode()
+                binding.mediaGrid.adapter = null
+                photoScroll.clear()
+            } else if (mPath == FAVORITES && media.isEmpty() && !isFromCache) {
                 binding.mediaGrid.adapter = null
                 favoritesScroll.clear()
                 val token = favoriteSessionId
