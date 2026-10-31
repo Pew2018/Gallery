@@ -422,14 +422,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (isPhotoProfiles && sourceProtectionChanged) {
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
-            binding.mediaGrid.adapter = null
-            mMedia = ArrayList()
+            clearPhotoDisplayState()
             if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) getMedia()
             return@OnSharedPreferenceChangeListener
         }
         if (isPhotoProfiles && visibilityChanged) {
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
+            clearPhotoDisplayState()
             if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) getMedia()
             return@OnSharedPreferenceChangeListener
         }
