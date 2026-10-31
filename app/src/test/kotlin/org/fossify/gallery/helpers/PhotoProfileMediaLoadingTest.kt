@@ -18,6 +18,9 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
+import org.robolectric.shadows.ShadowEnvironment
 import org.robolectric.shadows.ShadowContentResolver
 import java.nio.file.Files
 import java.util.concurrent.Executors
@@ -80,7 +83,7 @@ class PhotoProfileMediaLoadingTest {
         } finally { root.toFile().deleteRecursively() }
     }
 
-    @Test @Config(sdk = [31]) fun scopedIndexSurvivesInaccessibleFileApiAndStillAddsUnindexedFiles() {
+    @Test @Config(sdk = [31], shadows = [ScopedEnvironment::class]) fun scopedIndexSurvivesInaccessibleFileApiAndStillAddsUnindexedFiles() {
         val root = Files.createTempDirectory("photo-scoped")
         try {
             val indexedOnly = root.resolve("indexed-only.jpg").toString()
@@ -90,6 +93,15 @@ class PhotoProfileMediaLoadingTest {
                 setOf(root.toString()), emptySet(), arrayListOf()) }
             assertEquals(setOf(indexedOnly, fileOnly), result.map { it.path }.toSet())
         } finally { root.toFile().deleteRecursively() }
+    }
+
+    /** Robolectric has no default volume for Environment's API-30 manager query. */
+    @Implements(android.os.Environment::class)
+    class ScopedEnvironment : ShadowEnvironment() {
+        companion object {
+            @JvmStatic @Implementation(minSdk = 30)
+            fun isExternalStorageManager(): Boolean = false
+        }
     }
 
     class IndexedMediaProvider : ContentProvider() {
