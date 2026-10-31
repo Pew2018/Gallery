@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/profile_manage_root"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <LinearLayout android:id="@+id/profile_manage_row"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:minHeight="72dp" android:gravity="center_vertical"
+        android:orientation="horizontal" android:paddingStart="16dp"
+        android:paddingTop="8dp" android:paddingEnd="4dp" android:paddingBottom="8dp"
+        android:clickable="true" android:focusable="true">
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical">
+            <TextView android:id="@+id/profile_manage_name"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:maxLines="1" android:ellipsize="end" android:textSize="16sp" />
+            <TextView android:id="@+id/profile_manage_source_count"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="2dp" android:maxLines="2" android:ellipsize="end"
+                android:textSize="12sp" />
+        </LinearLayout>
+        <ImageView android:id="@+id/profile_manage_current"
+            android:layout_width="24dp" android:layout_height="24dp"
+            android:layout_marginEnd="4dp" android:visibility="gone" />
+        <ImageButton android:id="@+id/profile_manage_more"
+            android:layout_width="48dp" android:layout_height="48dp"
+            android:padding="12dp" android:background="@android:color/transparent"
+            android:contentDescription="@string/photo_profiles_more_actions" />
+    </LinearLayout>
+
+    <View android:id="@+id/profile_manage_divider"
+        android:layout_width="match_parent" android:layout_height="1dp"
+        android:layout_marginStart="16dp" android:layout_marginEnd="16dp" />
+</LinearLayout>

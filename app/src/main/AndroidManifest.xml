@@ -101,6 +101,13 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".activities.PhotoProfileManageActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:parentActivityName=".activities.MediaActivity"
+            android:resizeableActivity="true" />
+
+        <activity
             android:name=".activities.SearchActivity"
             android:configChanges="orientation"
             android:exported="false"

@@ -4,6 +4,8 @@
     <string name="gallery_nav_photos">Photos</string>
     <string name="photo_profiles_switch">Switch photo profile</string>
     <string name="photo_profiles_manage">Manage photo profiles</string>
+    <string name="photo_profiles_manage_empty_title">No browsing profiles yet</string>
+    <string name="photo_profiles_manage_empty_description">Create a profile to browse selected folders and favorites together.</string>
     <string name="photo_profiles_create">Create profile</string>
     <string name="photo_profiles_edit">Edit profile</string>
     <string name="photo_profiles_rename">Rename profile</string>
@@ -77,8 +79,6 @@
     <string name="photo_password_backup_pattern">pattern</string>
     <string name="photo_profiles_sources_title">Media sources</string>
     <string name="photo_profiles_current">Currently in use</string>
-    <string name="photo_profiles_done">Done</string>
-    <string name="photo_profiles_empty_action">Edit profile or unlock protected sources.</string>
     <string name="photo_password_lock">Lock protected content</string>
     <string name="photo_biometric_favorites_scope">Authorize Photos and Favorites with one system biometric verification? This grants Favorites access for the current request only. Folder fingerprint locks use a separate mechanism. Cancelling any later step saves no new bindings.</string>
 </resources>

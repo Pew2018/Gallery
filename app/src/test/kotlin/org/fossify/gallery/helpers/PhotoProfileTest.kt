@@ -24,8 +24,15 @@ class PhotoProfileTest {
         store.save(a); store.save(b)
         assertEquals(b.id, store.state().current?.id)
         store.save(a.copy(name = "New", sources = listOf(folder)))
-        assertEquals(b, store.state().profiles.first { it.id == b.id })
-        assertEquals(listOf(folder), store.state().current?.sources)
+        assertEquals("Saving an existing ID through the create path must retain its documented selection rule", a.id, store.state().selectedId)
+        store.select(b.id)
+        store.updateExisting(a.copy(name = "Renamed", sources = listOf(folder)))
+        assertEquals("Editing another profile must not activate it", b.id, store.state().selectedId)
+        store.updateExisting(b.copy(sources = listOf(PhotoSource(PhotoSourceType.FOLDER, "/Pictures/Street"))))
+        assertEquals("Editing the current profile must keep it selected", b.id, store.state().selectedId)
+        assertEquals(b.copy(sources = listOf(PhotoSource(PhotoSourceType.FOLDER, "/Pictures/Street"))),
+            store.state().profiles.first { it.id == b.id })
+        assertEquals(listOf(PhotoSource(PhotoSourceType.FOLDER, "/Pictures/Street")), store.state().current?.sources)
         store.select(b.id)
         assertEquals(b.id, store.state().selectedId)
         store.delete(b.id)
@@ -35,12 +42,23 @@ class PhotoProfileTest {
         assertNull(store.state().selectedId)
     }
     @Test fun cancellationHasNoWriteAndInvalidSelectionDoesNotBroadenScope() {
-        val store = store(); val a = profile(); store.save(a)
+        var persisted = ""
+        var writes = 0
+        val store = PhotoProfileStore({ persisted }, { persisted = it; writes++ })
+        val a = profile()
+        store.save(a)
+        val savedValue = persisted
+        val savedWrites = writes
         val draft = a.copy(name = "Unsaved", sources = listOf(favorites))
         assertNotEquals(a, draft)
+        // Dismissing an editor leaves its draft detached from persisted state.
+        assertEquals(savedValue, persisted)
+        assertEquals(savedWrites, writes)
         store.select("missing")
         assertEquals(a, store.state().current)
         assertEquals(a, store.state().profiles.single())
+        assertTrue(runCatching { store.updateExisting(a.copy(id = "invalid")) }.isFailure)
+        assertEquals("Invalid UUIDs must not be written", savedWrites, writes)
     }
     @Test fun duplicateSourcesNormalizeWithoutLosingCaseOrDifferentFolders() {
         val sources = PhotoProfileCodec.sources(listOf(folder, folder.copy(path = "/DCIM/Camera/"), favorites,
@@ -58,6 +76,44 @@ class PhotoProfileTest {
         val state = PhotoProfileCodec.decode(PhotoProfileCodec.encode(PhotoProfileState(profiles = listOf(a), selectedId = "missing")))
         assertEquals(a, state.current)
         assertEquals(a.id, state.selectedId)
+    }
+    @Test fun deletingNonCurrentPreservesSelectionAndDeletingCurrentFallsBackSafely() {
+        val store = store()
+        val first = profile("First")
+        val second = profile("Second")
+        store.save(first)
+        store.save(second)
+        store.select(first.id)
+        store.delete(second.id)
+        assertEquals(first.id, store.state().selectedId)
+        store.save(second)
+        store.select(second.id)
+        store.delete(second.id)
+        assertEquals(first.id, store.state().selectedId)
+        store.delete(first.id)
+        assertTrue(store.state().profiles.isEmpty())
+        assertNull(store.state().selectedId)
+    }
+    @Test fun invalidSelectionIsIgnoredAndManagementDiffOnlyReloadsForCurrentMediaChanges() {
+        val first = profile("First")
+        val second = profile("Second")
+        val before = PhotoProfileState(profiles = listOf(first, second), selectedId = first.id)
+        assertEquals(before, PhotoProfileCodec.decode(PhotoProfileCodec.encode(before)))
+        val renamedOther = before.copy(profiles = listOf(first, second.copy(name = "Renamed")))
+        val otherChanges = photoProfileStateChanges(before, renamedOther)
+        assertTrue(otherChanges.changed)
+        assertFalse(otherChanges.reloadMedia)
+        assertFalse(otherChanges.refreshCurrentDisplay)
+        val renamedCurrent = before.copy(profiles = listOf(first.copy(name = "Renamed"), second))
+        val currentNameChanges = photoProfileStateChanges(before, renamedCurrent)
+        assertFalse(currentNameChanges.reloadMedia)
+        assertTrue(currentNameChanges.refreshCurrentDisplay)
+        val changedSources = before.copy(profiles = listOf(first.copy(sources = listOf(favorites)), second))
+        assertTrue(photoProfileStateChanges(before, changedSources).reloadMedia)
+        assertTrue(photoProfileStateChanges(before, before.copy(selectedId = second.id)).reloadMedia)
+        val store = PhotoProfileStore({ PhotoProfileCodec.encode(before) }, {})
+        store.select("not-a-uuid")
+        assertEquals(first.id, store.state().selectedId)
     }
     @Test fun invalidNameAndEmptySourcesAreRejectedBeforePersistence() {
         val store = store(); val a = profile(); store.save(a)

@@ -150,7 +150,8 @@ class PhotoProfileStore(private val read: () -> String, private val write: (Stri
         val state = state()
         require(state.profiles.any { it.id == clean.id }) { "Profile no longer exists" }
         val profiles = state.profiles.map { if (it.id == clean.id) clean else it }
-        write(PhotoProfileCodec.encode(state.copy(profiles = profiles, selectedId = clean.id)))
+        // Editing metadata or sources must never implicitly activate this profile.
+        write(PhotoProfileCodec.encode(state.copy(profiles = profiles)))
     }
     fun delete(id: String) {
         val state = state()
@@ -158,6 +159,26 @@ class PhotoProfileStore(private val read: () -> String, private val write: (Stri
         val selected = state.selectedId?.takeIf { selected -> profiles.any { it.id == selected } } ?: profiles.firstOrNull()?.id
         write(PhotoProfileCodec.encode(state.copy(profiles = profiles, selectedId = selected)))
     }
+}
+
+internal data class PhotoProfileStateChanges(
+    val changed: Boolean,
+    val reloadMedia: Boolean,
+    val refreshCurrentDisplay: Boolean
+)
+
+/** Classify a management session's persisted changes for its caller. */
+internal fun photoProfileStateChanges(before: PhotoProfileState, after: PhotoProfileState): PhotoProfileStateChanges {
+    val oldCurrent = before.current
+    val newCurrent = after.current
+    val selectionChanged = before.selectedId != after.selectedId || oldCurrent?.id != newCurrent?.id
+    val currentSourcesChanged = oldCurrent?.id == newCurrent?.id && oldCurrent?.sources != newCurrent?.sources
+    val currentNameChanged = oldCurrent?.id == newCurrent?.id && oldCurrent?.name != newCurrent?.name
+    return PhotoProfileStateChanges(
+        changed = before != after,
+        reloadMedia = selectionChanged || currentSourcesChanged,
+        refreshCurrentDisplay = selectionChanged || currentNameChanged
+    )
 }
 
 /** Exact parent membership: selecting a folder never implicitly selects its children. */

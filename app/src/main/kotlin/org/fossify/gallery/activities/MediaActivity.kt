@@ -891,6 +891,24 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (requestCode == PhotoProfileEditActivity.REQUEST_CODE && resultCode == RESULT_OK && !isFinishing) {
             reloadPhotoProfile()
         }
+        if (requestCode == PhotoProfileManageActivity.REQUEST_CODE && resultCode == RESULT_OK && !isFinishing) {
+            when {
+                resultData?.getBooleanExtra(PhotoProfileManageActivity.EXTRA_RELOAD_MEDIA, false) == true ->
+                    reloadPhotoProfile()
+                resultData?.getBooleanExtra(PhotoProfileManageActivity.EXTRA_REFRESH_CURRENT_DISPLAY, false) == true ->
+                    refreshPhotoProfileDisplay()
+            }
+        }
+    }
+
+    private fun refreshPhotoProfileDisplay() {
+        if (!isPhotoProfiles) return
+        updateMenuColors()
+        val name = PhotoProfileRepository.of(this).state().current?.name
+            ?: getString(R.string.gallery_nav_photos)
+        binding.mediaMenu.updateHintText(
+            getString(org.fossify.commons.R.string.search_in_placeholder, name)
+        )
     }
 
     private fun refreshMenuItems() {
@@ -972,7 +990,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     binding.mediaMenu.focusView()
                     showKeyboard(binding.mediaMenu.binding.topToolbarSearch)
                 }
-                R.id.photo_profiles_manage -> profileDialogs().manage()
+                R.id.photo_profiles_manage -> PhotoProfileManageActivity.launch(this)
                 R.id.photo_profiles_unlock -> unlockPhotoSources()
                 R.id.photo_profiles_lock -> PhotoProfileAccessSessionManager.revokeAll("user_locked_photo_sources")
                 R.id.sort -> showSortingDialog()
