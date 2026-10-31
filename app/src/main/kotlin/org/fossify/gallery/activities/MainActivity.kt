@@ -1077,15 +1077,27 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 
+    /** Lightweight reordering does not require a full MediaStore rescan. */
+    private fun refreshDirectoryPresentation(dirs: ArrayList<Directory>) {
+        if (mShowingFolderFavorites) {
+            getDirectories(forceFavoriteReload = true)
+            return
+        }
+        retireDirectoryScan()
+        val sorted = getSortedDirectories(dirs)
+        mDirs = ArrayList(sorted)
+        mDirsIgnoringSearch = ArrayList(sorted)
+        setupAdapter(ArrayList(sorted))
+    }
+
     private fun showSortingDialog() {
         ChangeSortingDialog(this, true, false) {
             binding.directoriesGrid.adapter = null
             if (config.directorySorting and SORT_BY_DATE_MODIFIED != 0 || config.directorySorting and SORT_BY_DATE_TAKEN != 0) {
+                retireDirectoryScan()
                 getDirectories()
             } else {
-                ensureBackgroundThread {
-                    gotDirectories(getCurrentlyDisplayedDirs())
-                }
+                refreshDirectoryPresentation(getCurrentlyDisplayedDirs())
             }
 
             getRecyclerAdapter()?.directorySorting = config.directorySorting
@@ -1504,9 +1516,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         FilePickerDialog(this, internalStoragePath, false, config.shouldShowHidden, false, true) {
             CreateNewFolderDialog(this, it) {
                 config.tempFolderPath = it
-                ensureBackgroundThread {
-                    gotDirectories(addTempFolderIfNeeded(getCurrentlyDisplayedDirs()))
-                }
+                retireDirectoryScan()
+                getDirectories()
             }
         }
     }
@@ -2549,8 +2560,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     override fun recheckPinnedFolders() {
-        ensureBackgroundThread {
-            gotDirectories(movePinnedDirectoriesToFront(getCurrentlyDisplayedDirs()))
+        runOnUiThread {
+            if (!isFinishing && !isDestroyed) {
+                refreshDirectoryPresentation(movePinnedDirectoriesToFront(getCurrentlyDisplayedDirs()))
+            }
         }
     }
 
