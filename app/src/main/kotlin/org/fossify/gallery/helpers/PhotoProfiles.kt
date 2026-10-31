@@ -39,6 +39,7 @@ internal fun photoSourceColumnCount(widthDp: Int): Int = (widthDp / 160).coerceI
 /** Dialog-local source selection; callers persist only an explicit confirmed snapshot. */
 class PhotoSourceSelectionDraft(initial: Collection<String>) {
     val paths: MutableSet<String> = initial.mapNotNull(::stableId).toCollection(linkedSetOf())
+    fun canSelect(path: String): Boolean = stableId(path) != null
     fun contains(path: String): Boolean = stableId(path)?.let(paths::contains) == true
     fun toggle(path: String) {
         val id = stableId(path) ?: return

@@ -255,4 +255,13 @@ class PhotoProfileEnhancementsTest {
         assertFalse(requests.current(pending, authOwner))
         assertFalse(callback())
     }
+
+    @Test fun sourcePickerFiltersVirtualItemsThatItsDraftCannotSelect() {
+        val draft = PhotoSourceSelectionDraft(emptyList())
+        val offered = listOf(RECYCLE_BIN, org.fossify.commons.helpers.FAVORITES, "/Camera", "content://tree/unsupported")
+            .filter(draft::canSelect)
+        assertEquals(listOf(org.fossify.commons.helpers.FAVORITES, "/Camera"), offered)
+        offered.forEach(draft::toggle)
+        assertEquals(offered.toSet(), draft.snapshot())
+    }
 }
