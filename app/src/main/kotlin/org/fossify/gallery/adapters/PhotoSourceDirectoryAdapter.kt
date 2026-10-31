@@ -108,7 +108,8 @@ internal class PhotoSourceDirectoryAdapter(
                 if (Color.luminance(background) > .5) Color.DKGRAY else Color.LTGRAY
             ))
             sourceCheckTarget.background = RippleDrawable(
-                ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 32)), null, ColorDrawable(Color.WHITE)
+                ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 32)),
+                ColorDrawable(Color.TRANSPARENT), ColorDrawable(Color.WHITE)
             )
             bindSelection(holder, directory)
             root.background = OxygenClassicDialog.ripple(accent, activity.resources.displayMetrics.density)

@@ -451,7 +451,8 @@ class ClassicDialogTest {
         assertTrue(other.binding.sourceCheckIcon.isActivated)
         assertEquals(3, selectionChanges)
         assertTrue(holder.binding.sourceCheckTarget.background is RippleDrawable)
-        assertNull((holder.binding.sourceCheckTarget.background as RippleDrawable).getDrawable(0))
+        val rippleContent = (holder.binding.sourceCheckTarget.background as RippleDrawable).getDrawable(0) as ColorDrawable
+        assertEquals(Color.TRANSPARENT, rippleContent.color)
         val glyph = holder.binding.sourceCheckIcon.drawable
         val dialog = OxygenClassicDialog.show(activity, OxygenClassicDialog.builder(activity, "Sources").setView(holder.itemView))
         OxygenClassicDialog.apply(activity, dialog, holder.itemView)
@@ -584,7 +585,7 @@ class ClassicDialogTest {
             assertEquals(4, grid.childCount)
             val holder = grid.findViewHolderForAdapterPosition(0) as org.fossify.gallery.adapters.PhotoSourceDirectoryAdapter.Holder
             assertTrue(holder.binding.sourceName.width > width / 2 - (24 * density))
-            assertEquals((96 * density + .5f).toInt(), (holder.binding.sourceThumbnail.parent as View).height)
+            assertEquals(holder.binding.sourceCover.width, holder.binding.sourceCover.height)
             val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
             grid.draw(android.graphics.Canvas(bitmap))
             java.io.File(output, "source-grid-$name.png").outputStream().use {
