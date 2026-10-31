@@ -1,6 +1,7 @@
 package org.fossify.gallery.activities
 
 import org.fossify.gallery.helpers.PhotoProfileAccessSessionManager
+import org.fossify.gallery.helpers.PhotoAccessEvent
 import org.fossify.gallery.helpers.PhotoPlaybackPolicy
 
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
@@ -312,8 +313,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         // flow validates the viewer request.
         super.onCreate(null)
         setContentView(binding.root)
-        PhotoProfileAccessSessionManager.addListener(favoriteListenerId) {
-            if (isPhotoProfile && photoSessionId != null) runOnUiThread { closeUnauthorizedFavorites() }
+        PhotoProfileAccessSessionManager.addListener(favoriteListenerId) { event ->
+            if (event == PhotoAccessEvent.REVOKED && isPhotoProfile && photoSessionId != null) runOnUiThread {
+                if (!isDestroyed && !isFinishing && isPhotoProfile && photoSessionId != null) closeUnauthorizedFavorites()
+            }
         }
         if (!checkFavoriteAccess()) return
         getSharedPrefs().registerOnSharedPreferenceChangeListener(favoriteProtectionPrefsListener)

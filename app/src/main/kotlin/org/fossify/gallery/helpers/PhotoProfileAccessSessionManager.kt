@@ -12,26 +12,33 @@ internal object PhotoProfileAccessSessionManager {
     const val EXTRA_SESSION = "org.fossify.gallery.PHOTO_ACCESS_SESSION"
     private val capability = PhotoAccessCapability()
     @Volatile private var token: String? = null
-    private val listeners = java.util.concurrent.ConcurrentHashMap<String, () -> Unit>()
+    private val listeners = PhotoAccessEventListeners()
+    private val eventVersion = java.util.concurrent.atomic.AtomicLong()
     fun currentGeneration() = capability.generation()
+    fun currentEventVersion() = eventVersion.get()
     fun currentToken(context: Context): String? = token?.takeIf { isActive(context, it) }
     fun isActive(context: Context, candidate: String?): Boolean = capability.active(candidate)
     fun create(context: Context, proof: Config.PhotoCredentialProof): String? {
         if (!PhotoAuthentication.requests.activeId(proof.requestId)) return null
         return capability.create(proof.sessionGeneration) {
             context.config.isPhotoCredentialCurrent(proof.credential)
-        }?.also {
-            token = it
-            listeners.values.toList().forEach { listener -> listener() }
+        }?.also { created ->
+            val changed = token != created
+            token = created
+            if (changed) publish(PhotoAccessEvent.GRANTED)
         }
     }
-    fun addListener(id: String, listener: () -> Unit) { listeners[id] = listener }
+    fun addListener(id: String, listener: (PhotoAccessEvent) -> Unit) { listeners.add(id, listener) }
     fun removeListener(id: String) { listeners.remove(id) }
     fun revokeAll(reason: String = "unspecified") {
         android.util.Log.d("PhotoProfileAuth", "revoke=$reason")
         capability.revoke()
         token = null
-        listeners.values.toList().forEach { it() }
+        publish(PhotoAccessEvent.REVOKED)
+    }
+    private fun publish(event: PhotoAccessEvent) {
+        eventVersion.incrementAndGet()
+        listeners.publish(event)
     }
     fun bindingsAuthorize(locks: Map<String, FavoriteAccessSessionManager.Protection>, bindings: Map<String, String>, active: Boolean): Boolean =
         locks.isEmpty() || (active && locks.all { (root, lock) -> bindings[root] == fingerprint(lock.type, lock.hash) })
@@ -66,4 +73,16 @@ internal object PhotoProfileAccessSessionManager {
             if (profile.sources.any { it.type == PhotoSourceType.FAVORITES }) context.favoriteProtection(FAVORITES)?.let { put(FAVORITES, it) }
         }
     }
+}
+
+internal enum class PhotoAccessEvent { GRANTED, REVOKED }
+
+internal fun PhotoAccessEvent.mustClearProtectedMedia(): Boolean = this == PhotoAccessEvent.REVOKED
+
+/** Snapshot dispatch avoids holding a registry lock while invoking Activity listeners. */
+internal class PhotoAccessEventListeners {
+    private val listeners = java.util.concurrent.ConcurrentHashMap<String, (PhotoAccessEvent) -> Unit>()
+    fun add(id: String, listener: (PhotoAccessEvent) -> Unit) { listeners[id] = listener }
+    fun remove(id: String) { listeners.remove(id) }
+    fun publish(event: PhotoAccessEvent) { listeners.values.toList().forEach { it(event) } }
 }

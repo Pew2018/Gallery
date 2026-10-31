@@ -40,6 +40,7 @@ class PhotoProfileEditActivity : SimpleActivity() {
     private lateinit var draft: PhotoProfile
     private var editingBaseline: PhotoProfile? = null
     private val sourceStatusRequests = PhotoSourceStatusRequests()
+    private var resumeVersion = 0L
     private var sourceStatuses: Map<PhotoSource, PhotoSourceStatus> = emptyMap()
     private val authListenerId = "photo-profile-edit-${System.identityHashCode(this)}"
 
@@ -73,16 +74,22 @@ class PhotoProfileEditActivity : SimpleActivity() {
         binding.photoProfileEditSourcesTitle.setTextColor(palette.interactiveAccent)
         binding.photoProfileEditError.setTextColor(photoDialogColors(this).error)
         binding.photoProfileEditAddSource.setOnClickListener { chooseSources() }
-        PhotoProfileAccessSessionManager.addListener(authListenerId) {
+        PhotoProfileAccessSessionManager.addListener(authListenerId) { _ ->
             sourceStatusRequests.invalidate()
-            runOnUiThread { if (!isFinishing && !isDestroyed) checkSourceStatuses() }
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed) {
+                    sourceStatuses = emptyMap()
+                    renderSources()
+                    checkSourceStatuses()
+                }
+            }
         }
         renderSources()
-        checkSourceStatuses()
     }
 
     override fun onResume() {
         super.onResume()
+        resumeVersion++
         setupTopAppBar(binding.photoProfileEditAppbar, NavigationIcon.Arrow, topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
         OxygenToolbarStyle.applyToolbar(this, binding.photoProfileEditToolbar)
         OxygenSystemBars.apply(this)
@@ -158,18 +165,25 @@ class PhotoProfileEditActivity : SimpleActivity() {
             return
         }
         val snapshot = draft.sources.toList()
-        val request = sourceStatusRequests.begin()
+        val request = sourceStatusRequests.begin(snapshot, PhotoProfileAccessSessionManager.currentEventVersion(), resumeVersion) ?: return
         val app = applicationContext
         ensureBackgroundThread {
-            val statuses = PhotoSourceStatusResolver.inspect(app, snapshot)
+            val statuses = PhotoSourceStatusResolver.inspect(app, snapshot) {
+                isFinishing || isDestroyed || !sourceStatusRequests.isCurrent(request)
+            }
             runOnUiThread {
-                if (isFinishing || isDestroyed || !sourceStatusRequests.isCurrent(request) || draft.sources != snapshot) return@runOnUiThread
+                if (isFinishing || isDestroyed || !sourceStatusRequests.isCurrent(request) || draft.sources != snapshot ||
+                    PhotoProfileAccessSessionManager.currentEventVersion() != request.stateVersion) {
+                    sourceStatusRequests.finish(request)
+                    return@runOnUiThread
+                }
                 if (!creating && store.state().profiles.firstOrNull { it.id == draft.id } != editingBaseline) {
                     sourceStatusRequests.invalidate()
                     return@runOnUiThread
                 }
                 sourceStatuses = statuses
                 renderSources()
+                sourceStatusRequests.finish(request)
             }
         }
     }

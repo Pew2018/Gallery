@@ -1,6 +1,7 @@
 package org.fossify.gallery.helpers
 
 import android.app.Activity
+import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
@@ -27,9 +28,27 @@ import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
 import java.util.Collections
 
+private class ToolbarQuickActionsScrollView(context: Context, private var fixedHeightPx: Int) : ScrollView(context) {
+    fun updateFixedHeight(height: Int) {
+        val next = height.coerceAtLeast(0)
+        if (fixedHeightPx != next) {
+            fixedHeightPx = next
+            requestLayout()
+        }
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val available = OxygenClassicDialog.availableContentHeight(context as Activity, fixedHeightPx)
+        val mode = MeasureSpec.getMode(heightMeasureSpec)
+        val size = MeasureSpec.getSize(heightMeasureSpec)
+        val limit = if (mode == MeasureSpec.UNSPECIFIED) available else minOf(size, available)
+        super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(limit, MeasureSpec.AT_MOST))
+    }
+}
+
 /** One classic dialog; home and folder layouts are edited transactionally. */
 object ToolbarQuickActionsDialog {
-    fun show(activity: Activity) {
+    fun show(activity: Activity): AlertDialog {
         val palette = OxygenThemeEngine.snapshot(activity, activity.config)
         val home = activity.config.toolbarHomeActions.toMutableList()
         val folder = activity.config.toolbarFolderActions.toMutableList()
@@ -43,7 +62,7 @@ object ToolbarQuickActionsDialog {
         fun dp(n: Int) = (n * density + 0.5f).toInt()
         lateinit var render: () -> Unit
 
-        val root = LinearLayout(activity).apply {
+        val content = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(4), dp(16), dp(4))
         }
@@ -345,45 +364,47 @@ object ToolbarQuickActionsDialog {
         tabs.addView(homeTab, LinearLayout.LayoutParams(0, dp(48), 1f))
         tabs.addView(folderTab, LinearLayout.LayoutParams(0, dp(48), 1f))
 
-        root.addView(tabs)
-        root.addView(count)
-        root.addView(guidance)
-        root.addView(reset, LinearLayout.LayoutParams(-1, dp(48)))
-        root.addView(sectionLabel(R.string.quick_toolbar_fixed_section))
-        root.addView(fixedRows)
-        root.addView(sectionLabel(R.string.quick_toolbar_optional_section))
-        root.addView(list, LinearLayout.LayoutParams(-1, -2))
+        content.addView(count)
+        content.addView(guidance)
+        content.addView(reset, LinearLayout.LayoutParams(-1, dp(48)))
+        content.addView(sectionLabel(R.string.quick_toolbar_fixed_section))
+        content.addView(fixedRows)
+        content.addView(sectionLabel(R.string.quick_toolbar_optional_section))
+        content.addView(list, LinearLayout.LayoutParams(-1, -2))
         render()
 
-        val scroll = object : ScrollView(activity) {
-            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                val windowHeight = OxygenClassicDialog.availableHeight(activity)
-                // Leave the AlertDialog title and its fixed action row outside this scroll area.
-                val actionAndTitleSpace = dp(112)
-                val available = (windowHeight - actionAndTitleSpace).coerceAtLeast(1)
-                val mode = MeasureSpec.getMode(heightMeasureSpec)
-                val size = MeasureSpec.getSize(heightMeasureSpec)
-                val limit = if (mode == MeasureSpec.UNSPECIFIED) available else minOf(size, available)
-                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(limit, MeasureSpec.AT_MOST))
-            }
-        }.apply {
+        val scroll = ToolbarQuickActionsScrollView(activity, dp(160)).apply {
             isFillViewport = false
             clipToPadding = false
-            addView(root, ViewGroup.LayoutParams(-1, -2))
+            addView(content, ViewGroup.LayoutParams(-1, -2))
+        }
+
+        val dialogContent = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(tabs, LinearLayout.LayoutParams(-1, dp(48)))
+            addView(scroll, LinearLayout.LayoutParams(-1, -2))
         }
 
         val dialog = OxygenClassicDialog.show(
             activity,
             OxygenClassicDialog.builder(activity, activity.getString(R.string.quick_toolbar_title))
-                .setView(scroll)
+                .setView(dialogContent)
                 .setNegativeButton(org.fossify.commons.R.string.cancel, null)
                 .setPositiveButton(org.fossify.gallery.R.string.photo_profiles_save) { _, _ ->
                     activity.config.toolbarHomeActions = home
                     activity.config.toolbarFolderActions = folder
                 },
-            scroll
+            dialogContent
         )
         searchBackground = searchCheck.background
         render()
+        dialog.window?.decorView?.post {
+            if (dialog.isShowing && dialogContent.height > 0) {
+                // Recalculate from the actual measured title/action chrome after the first layout.
+                val chrome = (dialog.window!!.decorView.height - dialogContent.height).coerceAtLeast(0)
+                scroll.updateFixedHeight(chrome + tabs.height + dp(8))
+            }
+        }
+        return dialog
     }
 }

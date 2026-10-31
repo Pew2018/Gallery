@@ -6,12 +6,36 @@ import org.junit.Test
 class PhotoProfileEnhancementsTest {
     @Test fun staleSourceStatusRequestsCannotPublishAfterInvalidation() {
         val requests = PhotoSourceStatusRequests()
-        val old = requests.begin()
-        val fresh = requests.begin()
+        val sources = listOf(PhotoSource(PhotoSourceType.FOLDER, "/Camera"))
+        val old = requests.begin(sources, 0, 1)!!
+        val fresh = requests.begin(sources, 1, 1)!!
         assertFalse(requests.isCurrent(old))
         assertTrue(requests.isCurrent(fresh))
         requests.invalidate()
         assertFalse(requests.isCurrent(fresh))
+    }
+
+    @Test fun photoAccessEventsKeepGrantAndRevocationPathsDistinctAndSupportRemoval() {
+        val listeners = PhotoAccessEventListeners()
+        var grantCount = 0
+        var revokeCount = 0
+        listeners.add("media") { event -> if (event == PhotoAccessEvent.REVOKED) revokeCount++ }
+        listeners.add("editor") { event -> if (event == PhotoAccessEvent.GRANTED || event == PhotoAccessEvent.REVOKED) grantCount++ }
+        listeners.publish(PhotoAccessEvent.GRANTED)
+        assertEquals(0, revokeCount)
+        assertEquals(1, grantCount)
+        listeners.publish(PhotoAccessEvent.REVOKED)
+        assertEquals(1, revokeCount)
+        assertEquals(2, grantCount)
+        listeners.remove("media")
+        listeners.publish(PhotoAccessEvent.REVOKED)
+        assertEquals(1, revokeCount)
+        assertEquals(3, grantCount)
+    }
+
+    @Test fun onlyRevocationClearsProtectedMediaWhileGrantLeavesUnlockCallbackAsRefreshOwner() {
+        assertFalse(PhotoAccessEvent.GRANTED.mustClearProtectedMedia())
+        assertTrue(PhotoAccessEvent.REVOKED.mustClearProtectedMedia())
     }
 
     @Test fun editingADeletedProfileCannotRecreateIt() {

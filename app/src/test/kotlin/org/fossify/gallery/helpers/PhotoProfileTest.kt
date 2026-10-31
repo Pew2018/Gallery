@@ -116,11 +116,27 @@ class PhotoProfileTest {
     }
     @Test fun lateSourceStatusCannotReplaceTheNewestRequestOrUpdateAfterClose() {
         val requests = PhotoSourceStatusRequests()
-        val old = requests.begin()
-        val current = requests.begin()
+        val sources = listOf(folder)
+        val old = requests.begin(sources, 0, 1)!!
+        val current = requests.begin(listOf(favorites), 0, 1)!!
         assertFalse(requests.isCurrent(old))
         assertTrue(requests.isCurrent(current))
         requests.invalidate()
         assertFalse(requests.isCurrent(current))
+    }
+
+    @Test fun equivalentInFlightSourceStatusChecksAreCoalescedButStateChangesSupersedeThem() {
+        val requests = PhotoSourceStatusRequests()
+        val snapshot = listOf(folder, favorites)
+        val first = requests.begin(snapshot, 4, 1)!!
+        assertNull(requests.begin(snapshot.toList(), 4, 1))
+        val changedAuth = requests.begin(snapshot, 5, 1)!!
+        assertFalse(requests.isCurrent(first))
+        assertTrue(requests.isCurrent(changedAuth))
+        requests.finish(first)
+        assertTrue(requests.isCurrent(changedAuth))
+        requests.finish(changedAuth)
+        assertNull(requests.begin(snapshot, 5, 1))
+        assertNotNull(requests.begin(snapshot, 5, 2))
     }
 }

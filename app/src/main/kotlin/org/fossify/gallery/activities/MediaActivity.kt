@@ -1,6 +1,8 @@
 package org.fossify.gallery.activities
 
 import org.fossify.gallery.helpers.PhotoProfileAccessSessionManager
+import org.fossify.gallery.helpers.PhotoAccessEvent
+import org.fossify.gallery.helpers.mustClearProtectedMedia
 import org.fossify.gallery.extensions.unlockPhotoProfile
 
 import org.fossify.commons.extensions.getSharedPrefs
@@ -198,6 +200,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun onPhotoAccessRevoked() {
         if (!isPhotoProfiles || isDestroyed) return
         runOnUiThread {
+            if (isDestroyed || isFinishing || !isPhotoProfiles) return@runOnUiThread
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
             binding.mediaGrid.adapter = null
@@ -421,7 +424,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
         setupMediaProgressIndicator()
-        PhotoProfileAccessSessionManager.addListener(favoriteListenerId, ::onPhotoAccessRevoked)
+        PhotoProfileAccessSessionManager.addListener(favoriteListenerId) { event ->
+            if (event.mustClearProtectedMedia()) onPhotoAccessRevoked()
+        }
         binding.mediaRefreshLayout.setColorSchemeColors(getProperPrimaryColor())
         binding.mediaRefreshLayout.isEnabled = true
 

@@ -62,10 +62,27 @@ class PhotoSourceSelectionDraft(initial: Collection<String>) {
 
 /** Each source status scan may publish only while it is still the newest request. */
 internal class PhotoSourceStatusRequests {
+    data class Request internal constructor(val id: Long, val sources: List<PhotoSource>, val stateVersion: Long, val resumeVersion: Long)
     private var version = 0L
-    @Synchronized fun begin(): Long = ++version
-    @Synchronized fun isCurrent(request: Long): Boolean = request == version
-    @Synchronized fun invalidate() { version++ }
+    private var active: Request? = null
+    private var lastCompleted: Request? = null
+
+    /** Coalesces the same snapshot during one resume cycle, including just-completed work. */
+    @Synchronized fun begin(sources: List<PhotoSource>, stateVersion: Long, resumeVersion: Long): Request? {
+        val snapshot = sources.toList()
+        active?.takeIf { it.sources == snapshot && it.stateVersion == stateVersion && it.resumeVersion == resumeVersion }?.let { return null }
+        lastCompleted?.takeIf { it.sources == snapshot && it.stateVersion == stateVersion && it.resumeVersion == resumeVersion }?.let { return null }
+        return Request(++version, snapshot, stateVersion, resumeVersion).also { active = it }
+    }
+
+    @Synchronized fun isCurrent(request: Request): Boolean = active == request
+    @Synchronized fun finish(request: Request) {
+        if (active == request) {
+            active = null
+            lastCompleted = request
+        }
+    }
+    @Synchronized fun invalidate() { version++; active = null; lastCompleted = null }
 }
 
 /** Pure, versioned persistence. Invalid input fails closed; identities never depend on names. */

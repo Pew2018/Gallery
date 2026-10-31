@@ -115,6 +115,11 @@ object OxygenClassicDialog {
         return (height - (insets?.top ?: 0) - maxOf(insets?.bottom ?: 0, imeBottom)).coerceAtLeast(1)
     }
 
+    /** Viewport left for scrollable dialog content after fixed title, tabs and actions. */
+    internal fun availableContentHeight(activity: Activity, reservedHeightPx: Int): Int {
+        return (availableHeight(activity) - reservedHeightPx).coerceAtLeast(0)
+    }
+
     /** Called before WindowManager.addView; later only for actual host geometry changes. */
     fun prepareWindow(activity: Activity, dialog: AlertDialog): WindowPreparation {
         val window = requireNotNull(dialog.window)
