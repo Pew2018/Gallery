@@ -52,7 +52,7 @@ class PhotoProfileEditUiTest {
             assertEquals(tokens.secondaryText, field.currentHintTextColor)
             val tint = field.backgroundTintList!!
             val focusUnderline = tint.getColorForState(
-                intArrayOf(android.R.attr.state_focused), tint.defaultColor
+                intArrayOf(android.R.attr.state_enabled, android.R.attr.state_focused), tint.defaultColor
             )
             val idleUnderline = tint.defaultColor
             assertEquals(tokens.interactiveAccent, focusUnderline)
@@ -91,7 +91,7 @@ class PhotoProfileEditUiTest {
         val label = root.findViewById<TextView>(R.id.photo_profile_edit_name_label)
         val sourcesTitle = root.findViewById<TextView>(R.id.photo_profile_edit_sources_title)
         val addSource = root.findViewById<TextView>(R.id.photo_profile_edit_add_source)
-        assertTrue(field.isSingleLine)
+        assertEquals(1, field.maxLines)
         assertEquals((52 * context.resources.displayMetrics.density).toInt(), field.minHeight)
         assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, label.layoutParams.height)
         assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, sourcesTitle.layoutParams.height)
