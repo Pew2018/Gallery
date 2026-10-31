@@ -100,6 +100,7 @@ import org.fossify.gallery.helpers.FOLDER_STYLE_SQUARE
 import org.fossify.gallery.helpers.LOCATION_INTERNAL
 import org.fossify.gallery.helpers.LOCATION_SD
 import org.fossify.gallery.helpers.OxygenThumbnailPlaceholder
+import org.fossify.gallery.helpers.hasProtectedFolderBoundary
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.OxygenSelectionMode
@@ -936,7 +937,12 @@ class DirectoryAdapter(
     }
 
     private fun setupView(view: View, directory: Directory, holder: ViewHolder) {
-        val isSelected = selectedKeys.contains(directory.path.hashCode())
+        val isSourceSelection = multiSelectPaths != null
+        val isSelected = if (isSourceSelection) {
+            directory.path in multiSelectPaths
+        } else {
+            selectedKeys.contains(directory.path.hashCode())
+        }
         bindItem(view).apply {
             dirLoadingProgress.visibility = if (isRefreshLoading && holder.bindingAdapterPosition == 0) View.VISIBLE else View.GONE
             dirLoadingProgress.apply {
@@ -954,7 +960,7 @@ class DirectoryAdapter(
             }
 
             dirCheck.beVisibleIf(isSelected || multiSelectPaths != null)
-            if (isSelected) {
+            if (isSelected && !isSourceSelection) {
                 dirCheck.background?.applyColorFilter(properPrimaryColor)
                 dirCheck.applyColorFilter(contrastColor)
             }
@@ -982,15 +988,22 @@ class DirectoryAdapter(
             }
 
             if (multiSelectPaths != null) {
-                // Source picking only records folders. Do not bind protected thumbnails here.
-                Picasso.get().cancelRequest(dirThumbnail)
-                Glide.with(activity).clear(dirThumbnail)
-                dirThumbnail.setImageDrawable(null)
-                dirThumbnail.tag = null
-                dirThumbnail.visibility = View.INVISIBLE
-                dirLock.beGone()
+                val checked = directory.path in multiSelectPaths
+                val density = activity.resources.displayMetrics.density
+                dirCheck.background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(if (checked) properPrimaryColor else Color.TRANSPARENT)
+                    if (!checked) setStroke((2 * density + 0.5f).toInt(), properPrimaryColor)
+                }
+                if (checked) {
+                    dirCheck.setImageResource(R.drawable.ic_check_vector)
+                    dirCheck.applyColorFilter(contrastColor)
+                } else {
+                    dirCheck.setImageDrawable(null)
+                    dirCheck.clearColorFilter()
+                }
                 dirCheck.contentDescription = activity.getString(
-                    if (directory.path in multiSelectPaths) R.string.photo_source_deselect else R.string.photo_source_select
+                    if (checked) R.string.photo_source_deselect else R.string.photo_source_select
                 )
                 dirCheck.setOnClickListener {
                     if (!multiSelectPaths.add(directory.path)) multiSelectPaths.remove(directory.path)
@@ -1004,6 +1017,53 @@ class DirectoryAdapter(
                 checkParams.width = touchSize
                 checkParams.height = touchSize
                 dirCheck.layoutParams = checkParams
+
+                val protected = directory.path == FAVORITES &&
+                    (config.isFavoritePasswordProtectionOn || config.isFolderProtected(FAVORITES)) ||
+                    hasProtectedFolderBoundary(directory.path, config::isFolderProtected)
+                if (protected) {
+                    Picasso.get().cancelRequest(dirThumbnail)
+                    Glide.with(activity).clear(dirThumbnail)
+                    dirThumbnail.setImageDrawable(null)
+                    dirThumbnail.tag = null
+                    dirThumbnail.visibility = View.INVISIBLE
+                    dirLock.beVisible()
+                    dirLock.background = ColorDrawable(root.context.getProperBackgroundColor())
+                    dirLock.applyColorFilter(root.context.getProperBackgroundColor().getContrastColor())
+                } else {
+                    dirLock.beGone()
+                    if (directory.tmb.isBlank()) {
+                        Picasso.get().cancelRequest(dirThumbnail)
+                        Glide.with(activity).clear(dirThumbnail)
+                        dirThumbnail.setImageDrawable(null)
+                        dirThumbnail.tag = null
+                        dirThumbnail.visibility = View.INVISIBLE
+                    } else {
+                        dirThumbnail.visibility = View.VISIBLE
+                        OxygenThumbnailPlaceholder.apply(activity, dirThumbnail, ROUNDED_CORNERS_NONE)
+                        Picasso.get().cancelRequest(dirThumbnail)
+                        dirThumbnail.scaleType = if (cropThumbnails) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
+                        if (dirThumbnail.tag != directory.tmb) {
+                            Glide.with(activity).clear(dirThumbnail)
+                            dirThumbnail.setImageDrawable(null)
+                            dirThumbnail.tag = directory.tmb
+                        }
+                        activity.loadImage(
+                            type = thumbnailType,
+                            path = directory.tmb,
+                            target = dirThumbnail,
+                            horizontalScroll = scrollHorizontally,
+                            animateGifs = animateGifs,
+                            cropThumbnails = cropThumbnails,
+                            roundCorners = ROUNDED_CORNERS_NONE,
+                            signature = directory.getKey(),
+                            onError = {
+                                dirThumbnail.scaleType = ImageView.ScaleType.CENTER
+                                dirThumbnail.setImageDrawable(AppCompatResources.getDrawable(activity, R.drawable.ic_vector_warning_colored))
+                            }
+                        )
+                    }
+                }
             } else if (lockedFolderPaths.contains(directory.path) ||
                 (directory.path == FAVORITES && config.isFavoritePasswordProtectionOn)) {
                 // Recycled holders must not retain old or unprotected thumbnails.

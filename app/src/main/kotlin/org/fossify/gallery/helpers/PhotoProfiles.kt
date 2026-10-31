@@ -11,6 +11,18 @@ data class PhotoProfileState(val version: Int = 1, val profiles: List<PhotoProfi
     val current: PhotoProfile? get() = profiles.firstOrNull { it.id == selectedId } ?: profiles.firstOrNull()
 }
 
+/** Checks a source folder and its lexical ancestors without resolving it through File/SAF. */
+internal fun hasProtectedFolderBoundary(path: String, isProtected: (String) -> Boolean): Boolean {
+    if (!path.startsWith('/')) return isProtected(path)
+    var current = path.trimEnd('/').ifEmpty { "/" }
+    while (true) {
+        if (isProtected(current)) return true
+        if (current == "/") return false
+        val parentSeparator = current.lastIndexOf('/')
+        current = if (parentSeparator <= 0) "/" else current.substring(0, parentSeparator)
+    }
+}
+
 /** Dialog-local source selection; callers persist only an explicit confirmed snapshot. */
 class PhotoSourceSelectionDraft(initial: Collection<String>) {
     val paths: MutableSet<String> = initial.mapNotNull(::stableId).toCollection(linkedSetOf())

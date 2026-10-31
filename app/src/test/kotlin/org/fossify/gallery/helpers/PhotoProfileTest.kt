@@ -107,6 +107,13 @@ class PhotoProfileTest {
         draft.toggle("/DCIM/Camera/")
         assertEquals(setOf(org.fossify.commons.helpers.FAVORITES), draft.snapshot())
     }
+    @Test fun sourcePickerProtectsThumbnailWhenAnyFolderAncestorIsLocked() {
+        val locked = setOf("/storage/emulated/0/Private")
+        assertTrue(hasProtectedFolderBoundary("/storage/emulated/0/Private/Camera", locked::contains))
+        assertTrue(hasProtectedFolderBoundary("/storage/emulated/0/Private", locked::contains))
+        assertFalse(hasProtectedFolderBoundary("/storage/emulated/0/DCIM/Camera", locked::contains))
+        assertFalse(hasProtectedFolderBoundary("content://tree/private", locked::contains))
+    }
     @Test fun lateSourceStatusCannotReplaceTheNewestRequestOrUpdateAfterClose() {
         val requests = PhotoSourceStatusRequests()
         val old = requests.begin()
