@@ -410,4 +410,55 @@ class ClassicDialogTest {
         assertTrue(scroll.measuredHeight <= activity.resources.displayMetrics.heightPixels * 0.60f)
         assertTrue(scroll.getChildAt(0).measuredHeight > scroll.measuredHeight)
     }
+
+    @Test fun sourcePickerRecycledHolderClearsSelectionLockAndThumbnail() {
+        val locked = org.fossify.gallery.models.Directory().apply { path = "/private"; name = "Private" }
+        val plain = org.fossify.gallery.models.Directory().apply { path = "/public"; name = "Public" }
+        val draft = PhotoSourceSelectionDraft(listOf(locked.path))
+        val adapter = org.fossify.gallery.adapters.PhotoSourceDirectoryAdapter(activity,
+            listOf(locked, plain), draft, setOf(locked.path), {}, {})
+        val holder = adapter.onCreateViewHolder(FrameLayout(activity), 0)
+        adapter.onBindViewHolder(holder, 0)
+        assertTrue(holder.binding.sourceCheck.isChecked)
+        assertEquals(View.VISIBLE, holder.binding.sourceLock.visibility)
+        assertNull(holder.binding.sourceThumbnail.tag)
+        // Simulate an old completed thumbnail before recycling onto an unselected row.
+        holder.binding.sourceThumbnail.tag = "old-uri"
+        holder.binding.sourceThumbnail.setImageDrawable(ColorDrawable(Color.RED))
+        adapter.onBindViewHolder(holder, 1)
+        assertFalse(holder.binding.sourceCheck.isChecked)
+        assertEquals(View.GONE, holder.binding.sourceLock.visibility)
+        assertNull(holder.binding.sourceThumbnail.tag)
+        assertEquals("Public", holder.binding.sourceName.text.toString())
+        assertTrue(holder.binding.sourceCheck.buttonDrawable is PhotoSourceCheckDrawable)
+        assertTrue(holder.binding.sourceCheck.background is RippleDrawable)
+        val glyph = holder.binding.sourceCheck.buttonDrawable
+        val dialog = OxygenClassicDialog.show(activity, OxygenClassicDialog.builder(activity, "Sources").setView(holder.itemView))
+        OxygenClassicDialog.apply(activity, dialog, holder.itemView)
+        assertSame(glyph, holder.binding.sourceCheck.buttonDrawable)
+        assertNull(holder.binding.sourceCheck.buttonTintList)
+        dialog.dismiss()
+        val density = activity.resources.displayMetrics.density
+        assertEquals((48 * density + 0.5f).toInt(), holder.binding.sourceCheck.layoutParams.width)
+        assertEquals((20 * density + 0.5f).toInt(), holder.binding.sourceCheck.buttonDrawable.intrinsicWidth)
+        holder.binding.sourceCheck.performClick()
+        assertTrue(draft.contains(plain.path))
+        assertEquals(2, draft.snapshot().size)
+    }
+
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    @Test fun classicSourceCheckboxHasIndependentUncheckedAndCheckedRendering() {
+        val glyph = PhotoSourceCheckDrawable(activity.resources, Color.BLUE, Color.GRAY)
+        glyph.setBounds(0, 0, 20, 20)
+        val unchecked = android.graphics.Bitmap.createBitmap(20, 20, android.graphics.Bitmap.Config.ARGB_8888)
+        glyph.state = intArrayOf()
+        glyph.draw(android.graphics.Canvas(unchecked))
+        assertEquals(Color.TRANSPARENT, unchecked.getPixel(10, 10))
+        val checked = android.graphics.Bitmap.createBitmap(20, 20, android.graphics.Bitmap.Config.ARGB_8888)
+        glyph.state = intArrayOf(android.R.attr.state_checked)
+        glyph.draw(android.graphics.Canvas(checked))
+        assertEquals(Color.BLUE, checked.getPixel(10, 4))
+        assertNotEquals(unchecked.getPixel(10, 4), checked.getPixel(10, 4))
+    }
+
 }

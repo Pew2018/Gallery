@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="4dp"
+    android:focusable="true"
+    android:clickable="true">
+
+    <org.fossify.commons.views.MySquareImageView
+        android:id="@+id/source_thumbnail"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:importantForAccessibility="no" />
+
+    <ImageView
+        android:id="@+id/source_lock"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_alignTop="@id/source_thumbnail"
+        android:layout_alignBottom="@id/source_thumbnail"
+        android:scaleType="center"
+        android:src="@drawable/ic_lock_vector"
+        android:importantForAccessibility="no"
+        android:visibility="gone" />
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="72dp"
+        android:layout_below="@id/source_thumbnail">
+
+        <CheckBox
+            android:id="@+id/source_check"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp" />
+
+        <TextView
+            android:id="@+id/source_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_toStartOf="@id/source_check"
+            android:layout_marginTop="8dp"
+            android:paddingStart="4dp"
+            android:maxLines="2"
+            android:minLines="2"
+            android:ellipsize="end"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/source_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_below="@id/source_name"
+            android:layout_toStartOf="@id/source_check"
+            android:paddingStart="4dp"
+            android:paddingBottom="8dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="12sp" />
+    </RelativeLayout>
+</RelativeLayout>

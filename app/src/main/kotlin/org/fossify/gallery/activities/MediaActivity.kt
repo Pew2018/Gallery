@@ -357,19 +357,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var sourceProtectionRefreshPending = false
     private val favoriteListenerId = java.util.UUID.randomUUID().toString()
     private val favoriteProtectionListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        val photoCredentialKeys = setOf(
-            "photo_protect_password_enabled", "photo_protect_password_hash", "photo_protect_protection_type",
-            "photo_protect_biometric_primary", "photo_protect_fallback_password_hash", "photo_protect_fallback_protection_type",
-            FAVORITE_PASSWORD_ENABLED, FAVORITE_PASSWORD_HASH, FAVORITE_PROTECTION_TYPE,
-            FAVORITE_FALLBACK_PASSWORD_HASH, FAVORITE_FALLBACK_PROTECTION_TYPE
-        )
-        val sourceProtectionChanged = key == null || key in photoCredentialKeys ||
-            key.startsWith(org.fossify.commons.helpers.PROTECTED_FOLDER_HASH) ||
-            key.startsWith(org.fossify.commons.helpers.PROTECTED_FOLDER_TYPE)
+        val sourceProtectionChanged = org.fossify.gallery.helpers.PhotoProtectionChanges.credentialsChanged(key)
         val visibilityChanged = key == org.fossify.gallery.helpers.SHOW_HIDDEN_MEDIA ||
             key == org.fossify.gallery.helpers.EXCLUDED_FOLDERS
         if (isPhotoProfiles && sourceProtectionChanged) {
-            PhotoProfileAccessSessionManager.revokeAll("source_protection_changed")
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
             binding.mediaGrid.adapter = null

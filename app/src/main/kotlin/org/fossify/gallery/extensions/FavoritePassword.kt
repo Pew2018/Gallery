@@ -301,10 +301,25 @@ internal fun Activity.ensureFavoriteAddAllowed(
 }
 
 /** Verify the enabled virtual-album credential; disabled mode never opens setup UI here. */
-internal fun Activity.authenticateFavoritePassword(onAuthenticated: (Config.FavoriteCredentialProof?) -> Unit) {
+internal fun Activity.authenticateFavoritePassword(
+    photoRequest: org.fossify.gallery.helpers.PhotoAuthRequests.Request? = null,
+    onAuthenticated: (Config.FavoriteCredentialProof?) -> Unit
+) {
+    if (isFinishing || isDestroyed) return
+    val requests = org.fossify.gallery.helpers.PhotoAuthentication.requests
+    val request = photoRequest ?: requests.begin(this,
+        org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.currentGeneration()) ?: return
+    if (!requests.current(request, this)) return
+    val delivered = java.util.concurrent.atomic.AtomicBoolean(false)
+    fun finish(proof: Config.FavoriteCredentialProof?) {
+        if (!delivered.compareAndSet(false, true) || !requests.current(request, this) || isFinishing || isDestroyed) return
+        if (photoRequest == null) requests.finish(request)
+        onAuthenticated(proof)
+    }
     prepareFavoritePasswordProtection { prepared ->
-        if (prepared) authenticatePreparedFavoritePassword(onAuthenticated)
-        else onAuthenticated(null)
+        if (!requests.current(request, this) || isFinishing || isDestroyed) return@prepareFavoritePasswordProtection
+        if (prepared) authenticatePreparedFavoritePassword(::finish)
+        else finish(null)
     }
 }
 
@@ -321,8 +336,9 @@ private fun Activity.authenticatePreparedFavoritePassword(onAuthenticated: (Conf
         return
     }
     val expectedGeneration = FavoriteAccessSessionManager.currentGeneration()
+    val terminal = java.util.concurrent.atomic.AtomicBoolean(false)
     fun complete(success: Boolean) {
-        if (isFinishing || isDestroyed) return
+        if (isFinishing || isDestroyed || !terminal.compareAndSet(false, true)) return
         val valid = success && FavoriteAccessSessionManager.currentGeneration() == expectedGeneration &&
             config.isFavoriteCredentialCurrent(expectedCredential)
         onAuthenticated(expectedCredential.takeIf { valid }?.let {

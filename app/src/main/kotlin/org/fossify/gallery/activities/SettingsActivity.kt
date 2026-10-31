@@ -702,6 +702,8 @@ class SettingsActivity : SimpleActivity() {
             } else authenticatePhotoPassword { proof ->
                 if (proof != null) showPhotoPasswordDialog(R.string.photo_password_title) {
                     setItems(arrayOf(getString(R.string.photo_password_change), getString(R.string.photo_password_disable))) { _, index ->
+                        if (!config.isPhotoCredentialCurrent(proof.credential) ||
+                            proof.sessionGeneration != org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.currentGeneration()) return@setItems
                         if (index == 0) configurePhotoPassword { status() }
                         else {
                             config.clearPhotoCredential()

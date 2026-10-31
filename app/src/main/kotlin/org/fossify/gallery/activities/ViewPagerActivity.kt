@@ -227,7 +227,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private val favoriteListenerId = java.util.UUID.randomUUID().toString()
     private val favoriteProtectionPrefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (isPhotoProfile && (key == null || key == PhotoProfileRepository.KEY || key.contains("protect", true) || key.contains("favorite", true) || key.contains("excluded", true) || key.startsWith("photo_protect_"))) {
+        if (isPhotoProfile && org.fossify.gallery.helpers.PhotoProtectionChanges.viewerScopeChanged(key)) {
             closeUnauthorizedFavorites()
             return@OnSharedPreferenceChangeListener
         }

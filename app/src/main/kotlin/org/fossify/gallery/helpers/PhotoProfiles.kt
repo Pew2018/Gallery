@@ -23,9 +23,23 @@ internal fun hasProtectedFolderBoundary(path: String, isProtected: (String) -> B
     }
 }
 
+/** Run off the UI thread. Both raw and canonical ancestors are protected;
+ * URI thumbnails remain URIs and are never passed to File. */
+internal fun photoSourceThumbnailProtected(path: String, thumbnail: String, isProtected: (String) -> Boolean): Boolean {
+    fun protected(value: String): Boolean {
+        if (hasProtectedFolderBoundary(value, isProtected)) return true
+        if (!value.startsWith('/')) return false
+        return runCatching { hasProtectedFolderBoundary(java.io.File(value).canonicalPath, isProtected) }.getOrDefault(true)
+    }
+    return protected(path) || (thumbnail.isNotBlank() && protected(thumbnail))
+}
+
+internal fun photoSourceColumnCount(widthDp: Int): Int = (widthDp / 160).coerceIn(2, 4)
+
 /** Dialog-local source selection; callers persist only an explicit confirmed snapshot. */
 class PhotoSourceSelectionDraft(initial: Collection<String>) {
     val paths: MutableSet<String> = initial.mapNotNull(::stableId).toCollection(linkedSetOf())
+    fun contains(path: String): Boolean = stableId(path)?.let(paths::contains) == true
     fun toggle(path: String) {
         val id = stableId(path) ?: return
         if (!paths.add(id)) paths.remove(id)

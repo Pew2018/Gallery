@@ -160,7 +160,10 @@ class Config(context: Context) : BaseConfig(context) {
 
     internal data class PhotoCredentialProof(
         val credential: PhotoCredentialSnapshot,
-        val sessionGeneration: Long
+        val sessionGeneration: Long,
+        val requestId: String,
+        val verified: PhotoVerifiedCredential?,
+        val biometricSucceeded: Boolean = false
     )
 
     internal fun photoCredentialSnapshot(): PhotoCredentialSnapshot {

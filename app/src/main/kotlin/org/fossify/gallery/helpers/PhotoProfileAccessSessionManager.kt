@@ -8,6 +8,7 @@ import org.fossify.gallery.extensions.getFavoritePaths
 
 /** In-memory photo capability. Persisted source bindings are never sufficient without fresh authentication. */
 internal object PhotoProfileAccessSessionManager {
+    const val FAVORITE_CREDENTIAL_BINDING = "virtual:favorites:credential"
     const val EXTRA_SESSION = "org.fossify.gallery.PHOTO_ACCESS_SESSION"
     private val capability = PhotoAccessCapability()
     @Volatile private var token: String? = null
@@ -15,9 +16,12 @@ internal object PhotoProfileAccessSessionManager {
     fun currentGeneration() = capability.generation()
     fun currentToken(context: Context): String? = token?.takeIf { isActive(context, it) }
     fun isActive(context: Context, candidate: String?): Boolean = capability.active(candidate)
-    fun create(context: Context, proof: Config.PhotoCredentialProof): String? = capability.create(proof.sessionGeneration) {
-        context.config.isPhotoCredentialCurrent(proof.credential)
-    }?.also { token = it }
+    fun create(context: Context, proof: Config.PhotoCredentialProof): String? {
+        if (!PhotoAuthentication.requests.activeId(proof.requestId)) return null
+        return capability.create(proof.sessionGeneration) {
+            context.config.isPhotoCredentialCurrent(proof.credential)
+        }?.also { token = it }
+    }
     fun addListener(id: String, listener: () -> Unit) { listeners[id] = listener }
     fun removeListener(id: String) { listeners.remove(id) }
     fun revokeAll(reason: String = "unspecified") {
@@ -44,7 +48,7 @@ internal object PhotoProfileAccessSessionManager {
     fun favoritesAuthorized(context: Context, candidate: String?): Boolean {
         val config = context.config
         val dedicated = !config.isFavoritePasswordProtectionOn ||
-            (isActive(context, candidate) && config.photoSourceBindings[FAVORITES] == favoriteIdentity(context))
+            (isActive(context, candidate) && config.photoSourceBindings[FAVORITE_CREDENTIAL_BINDING] == favoriteIdentity(context))
         return dedicated && (!config.isFolderProtected(FAVORITES) ||
             (isActive(context, candidate) && rootBound(context, FAVORITES)))
     }

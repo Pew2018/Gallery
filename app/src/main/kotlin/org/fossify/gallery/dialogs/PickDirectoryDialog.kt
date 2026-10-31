@@ -39,6 +39,9 @@ import org.fossify.commons.views.MyGridLayoutManager
 import org.fossify.commons.views.MySearchMenu
 import org.fossify.gallery.R
 import org.fossify.gallery.adapters.DirectoryAdapter
+import org.fossify.gallery.adapters.PhotoSourceDirectoryAdapter
+import org.fossify.gallery.helpers.photoSourceColumnCount
+import org.fossify.gallery.helpers.photoSourceThumbnailProtected
 import org.fossify.gallery.databinding.DialogDirectoryPickerBinding
 import org.fossify.gallery.extensions.addTempFolderIfNeeded
 import org.fossify.gallery.extensions.config
@@ -83,7 +86,9 @@ class PickDirectoryDialog(
     private var allDirectories = ArrayList<Directory>()
     private var openedSubfolders = arrayListOf("")
     private var binding = DialogDirectoryPickerBinding.inflate(activity.layoutInflater)
-    private var isGridViewType = activity.config.viewTypeFolders == VIEW_TYPE_GRID
+    private var isGridViewType = sourceSelection != null || activity.config.viewTypeFolders == VIEW_TYPE_GRID
+    private var protectedSourcePaths: Set<String> = emptySet()
+    private val selectionDraft = sourceSelection?.draft?.snapshot()?.let(::PhotoSourceSelectionDraft)
     private var showHidden = activity.config.shouldShowHidden
     private var temporarilyRevealAll = false
     private var currentPathPrefix = ""
@@ -94,10 +99,16 @@ class PickDirectoryDialog(
 
     init {
         (binding.directoriesGrid.layoutManager as MyGridLayoutManager).apply {
-            orientation = if (activity.config.scrollHorizontally && isGridViewType) RecyclerView.HORIZONTAL else RecyclerView.VERTICAL
-            spanCount = if (isGridViewType) activity.config.dirColumnCnt else 1
+            orientation = if (sourceSelection == null && activity.config.scrollHorizontally && isGridViewType) RecyclerView.HORIZONTAL else RecyclerView.VERTICAL
+            spanCount = if (sourceSelection != null) 2 else if (isGridViewType) activity.config.dirColumnCnt else 1
         }
 
+        if (sourceSelection != null) binding.directoriesGrid.addOnLayoutChangeListener { view, left, _, right, _, oldLeft, _, oldRight, _ ->
+            if (right - left != oldRight - oldLeft) {
+                (binding.directoriesGrid.layoutManager as MyGridLayoutManager).spanCount =
+                    photoSourceColumnCount(((right - left) / view.resources.displayMetrics.density).toInt())
+            }
+        }
         binding.directoriesFastscroller.updateColors(activity.getProperPrimaryColor())
         styleFastScroller()
         binding.directoriesLoading.indeterminateTintList = ColorStateList.valueOf(
@@ -124,7 +135,8 @@ class PickDirectoryDialog(
                     binding.directoriesSelectionSummary.visibility = android.view.View.VISIBLE
                     updateSelectionSummary()
                     alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                        sourceSelection.onConfirmed(sourceSelection.draft.snapshot(), allDirectories.map { it.path }.toSet())
+                        if (selectionDelivered.compareAndSet(false, true))
+                            sourceSelection.onConfirmed(selectionDraft!!.snapshot(), allDirectories.map { it.path }.toSet())
                         alertDialog.dismiss()
                     }
                 }
@@ -159,10 +171,10 @@ class PickDirectoryDialog(
     }
 
     private fun updateSelectionSummary() {
-        val selection = sourceSelection ?: return
+        if (sourceSelection == null) return
         if (activity.isDestroyed) return
-        binding.directoriesSelectionSummary.text = activity.getString(R.string.photo_source_selected_count, selection.draft.paths.size)
-        dialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.text = activity.getString(R.string.photo_source_add_count, selection.draft.paths.size)
+        binding.directoriesSelectionSummary.text = activity.getString(R.string.photo_source_selected_count, selectionDraft!!.snapshot().size)
+        dialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.text = activity.getString(R.string.photo_source_add_count, selectionDraft!!.snapshot().size)
     }
 
     /** A reversible, dialog-local reveal; Commons preferences are never rewritten. */
@@ -202,7 +214,7 @@ class PickDirectoryDialog(
         updateHintText(context.getString(org.fossify.commons.R.string.search_folders))
         searchEditText.imeOptions = EditorInfo.IME_ACTION_DONE
 
-        toggleHideOnScroll(!config.scrollHorizontally)
+        toggleHideOnScroll(sourceSelection != null || !config.scrollHorizontally)
         setupMenu()
         setSearchViewListeners()
         updateSearchViewUi()
@@ -273,16 +285,18 @@ class PickDirectoryDialog(
 
     private fun filterFolderListBySearchQuery(query: String) {
         val adapter = binding.directoriesGrid.adapter as? DirectoryAdapter
-        var dirsToShow = allDirectories
+        val sourceAdapter = binding.directoriesGrid.adapter as? PhotoSourceDirectoryAdapter
+        var dirsToShow = if (sourceSelection != null && query.isEmpty()) shownDirectories else allDirectories
         if (query.isNotEmpty()) {
             dirsToShow = dirsToShow.filter { it.name.contains(query, true) }.toMutableList() as ArrayList
         }
         dirsToShow = activity.getSortedDirectories(dirsToShow)
         checkPlaceholderVisibility(dirsToShow)
 
-        val filteredFolderListUpdated = adapter?.dirs != dirsToShow
+        val filteredFolderListUpdated = (sourceAdapter?.directories ?: adapter?.dirs) != dirsToShow
         if (filteredFolderListUpdated) {
             adapter?.updateDirs(dirsToShow)
+            sourceAdapter?.updateDirectories(dirsToShow)
 
             binding.directoriesGrid.apply {
                 post {
@@ -316,13 +330,20 @@ class PickDirectoryDialog(
             directories.forEach { directory ->
                 directory.subfoldersMediaCount = directory.mediaCnt
             }
+            val preparedDirectories = activity.addTempFolderIfNeeded(directories)
+            val protected = if (sourceSelection == null) emptySet() else preparedDirectories.filter { directory ->
+                (directory.path == org.fossify.commons.helpers.FAVORITES && activity.config.isFavoritePasswordProtectionOn) ||
+                    photoSourceThumbnailProtected(directory.path, directory.tmb, activity.config::isFolderProtected)
+            }.mapTo(hashSetOf()) { it.path }
             activity.runOnUiThread {
                 if (activity.isDestroyed || directoryLoadVersion != requestVersion ||
                     dialog?.isShowing == false) return@runOnUiThread
                 isLoadingDirectories = false
                 binding.directoriesLoading.visibility = android.view.View.GONE
+                protectedSourcePaths = protected
                 allDirectories.clear()
-                gotDirectories(activity.addTempFolderIfNeeded(directories))
+                shownDirectories.clear()
+                gotDirectories(preparedDirectories)
                 filterFolderListBySearchQuery(searchEditText.text?.toString().orEmpty())
             }
         }
@@ -355,9 +376,9 @@ class PickDirectoryDialog(
         val distinctDirs = newDirs.filter { showFavoritesBin || (!it.isRecycleBin() && !it.areFavorites()) }.distinctBy { it.path.getDistinctPath() }
             .toMutableList() as ArrayList<Directory>
         val sortedDirs = activity.getSortedDirectories(distinctDirs)
-        val dirs = if (sourceSelection != null && !activity.config.groupDirectSubfolders) {
+        val dirs = if (sourceSelection != null) {
             val children = if (currentPathPrefix.isEmpty()) sortedDirs else sortedDirs.filter {
-                File(it.path).parent?.trimEnd('/') == currentPathPrefix.trimEnd('/')
+                it.path.startsWith('/') && it.path.substringBeforeLast('/').trimEnd('/') == currentPathPrefix.trimEnd('/')
             }
             val current = currentPathPrefix.takeIf { it.isNotEmpty() }?.let { prefix ->
                 allDirectories.firstOrNull { it.path.equals(prefix, true) }?.copy(subfoldersCount = 1)
@@ -365,35 +386,36 @@ class PickDirectoryDialog(
             ArrayList<Directory>().apply { current?.let(::add); addAll(children) }
         } else activity.getDirsToShow(sortedDirs, allDirectories, currentPathPrefix).clone() as ArrayList<Directory>
         binding.directoriesCurrentPath.apply {
-            text = currentPathPrefix
+            text = if (sourceSelection != null) currentPathPrefix.substringAfterLast('/') else currentPathPrefix
             beVisibleIf(currentPathPrefix.isNotEmpty())
         }
         checkPlaceholderVisibility(dirs)
-        if (dirs.hashCode() == shownDirectories.hashCode()) {
+        if (dirs == shownDirectories && binding.directoriesGrid.adapter != null) {
             return
         }
 
         shownDirectories = dirs
-        val adapter = DirectoryAdapter(activity, dirs.clone() as ArrayList<Directory>, null, binding.directoriesGrid, true,
-            multiSelectPaths = sourceSelection?.draft?.paths,
-            onMultiSelectChanged = ::updateSelectionSummary) {
-            val clickedDir = it as Directory
-            val path = clickedDir.path
-            if (sourceSelection != null && path == org.fossify.commons.helpers.FAVORITES) {
-                sourceSelection.draft.toggle(path)
-                updateSelectionSummary()
-                binding.directoriesGrid.adapter?.notifyDataSetChanged()
-                return@DirectoryAdapter
-            }
-            if (sourceSelection != null) {
-                // In multi-select mode, row tap navigates. The separate check control selects the folder.
-                if (path != currentPathPrefix) {
-                    currentPathPrefix = path
-                    openedSubfolders.add(path)
+        if (sourceSelection != null) {
+            binding.directoriesGrid.adapter = PhotoSourceDirectoryAdapter(activity, dirs, selectionDraft!!,
+                protectedSourcePaths, ::updateSelectionSummary) { clicked ->
+                if (clicked.path == org.fossify.commons.helpers.FAVORITES) {
+                    selectionDraft.toggle(clicked.path)
+                    updateSelectionSummary()
+                    binding.directoriesGrid.adapter?.notifyDataSetChanged()
+                } else if (clicked.path != currentPathPrefix) {
+                    if (searchView.isSearchOpen) searchView.closeSearch()
+                    currentPathPrefix = clicked.path
+                    openedSubfolders.add(clicked.path)
                     gotDirectories(allDirectories)
                 }
-                return@DirectoryAdapter
             }
+            binding.directoriesFastscroller.setScrollVertically(true)
+            styleFastScroller()
+            return
+        }
+        val adapter = DirectoryAdapter(activity, dirs.clone() as ArrayList<Directory>, null, binding.directoriesGrid, true) {
+            val clickedDir = it as Directory
+            val path = clickedDir.path
             if (clickedDir.subfoldersCount == 1 || !activity.config.groupDirectSubfolders) {
                 if (isPickingCopyMoveDestination && path.trimEnd('/') == sourcePath) {
                     activity.toast(org.fossify.commons.R.string.source_and_destination_same)
@@ -416,7 +438,7 @@ class PickDirectoryDialog(
             }
         }
 
-        val scrollHorizontally = activity.config.scrollHorizontally && isGridViewType
+        val scrollHorizontally = sourceSelection == null && activity.config.scrollHorizontally && isGridViewType
         binding.apply {
             directoriesGrid.adapter = adapter
             directoriesFastscroller.setScrollVertically(!scrollHorizontally)

@@ -89,4 +89,157 @@ class PhotoProfileEnhancementsTest {
         } finally { root.toFile().deleteRecursively() }
     }
 
+
+    @Test fun onlyVerifiedSameTypeNonemptyPinOrPatternCanBeReused() {
+        val pin = org.fossify.commons.helpers.PROTECTION_PIN
+        val pattern = org.fossify.commons.helpers.PROTECTION_PATTERN
+        val fingerprint = org.fossify.commons.helpers.PROTECTION_FINGERPRINT
+        val evidence = PhotoVerifiedCredential(pin, "verified-secret")
+        assertTrue(evidence.matches(pin, "verified-secret"))
+        assertFalse(evidence.matches(pin, "different"))
+        assertFalse(evidence.matches(pattern, "verified-secret"))
+        assertFalse(evidence.matches(fingerprint, "verified-secret"))
+        assertFalse(PhotoVerifiedCredential(pin, "").matches(pin, ""))
+        assertFalse(PhotoVerifiedCredential(fingerprint, "").matches(fingerprint, ""))
+        assertFalse(evidence.toString().contains("verified-secret"))
+    }
+
+    @Test fun requestsAcrossPhotoMenuEmptyStateAndSettingsShareOneLease() {
+        val requests = PhotoAuthRequests()
+        val media = Any()
+        val settings = Any()
+        val first = requests.begin(media, 0)!!
+        assertNull(requests.begin(media, 0))
+        assertNull(requests.begin(settings, 0))
+        assertFalse(requests.current(first, settings))
+        requests.finish(first)
+        assertNotNull(requests.begin(settings, 0))
+        assertFalse(requests.current(first, media))
+    }
+
+    @Test fun duplicateAndOldStepCallbacksCannotCompleteNewChallenges() {
+        val requests = PhotoAuthRequests()
+        val owner = Any()
+        val request = requests.begin(owner, 0)!!
+        val old = request.callback()
+        val fresh = request.callback()
+        assertFalse(old())
+        assertTrue(fresh())
+        assertFalse(fresh())
+        val cancelled = request.callback()
+        requests.cancelOwner(owner)
+        assertFalse(cancelled())
+        val next = requests.begin(owner, 0)!!
+        requests.finish(request)
+        assertTrue(requests.current(next, owner))
+    }
+
+    @Test fun newGenerationRejectsOldOwnerAndCallbacks() {
+        val requests = PhotoAuthRequests()
+        val owner = Any()
+        val old = requests.begin(owner, 4)!!
+        val late = old.callback()
+        val replacement = requests.begin(owner, 5)!!
+        assertFalse(late())
+        assertFalse(requests.current(old, owner))
+        assertTrue(requests.current(replacement, owner))
+        assertFalse(old.credentialSaved(4, 5))
+    }
+
+    @Test fun credentialSetupCanOnlyAdvanceItsOwnGeneration() {
+        val requests = PhotoAuthRequests()
+        val owner = Any()
+        val request = requests.begin(owner, 2)!!
+        assertFalse(request.credentialSaved(1, 3))
+        assertTrue(request.credentialSaved(2, 3))
+        assertEquals(3L, request.generation)
+        requests.cancelOwner(owner)
+        assertFalse(request.credentialSaved(3, 4))
+    }
+
+    @Test fun bindingGroupsCommitTogetherAndNeverPublishPartialGrants() {
+        val favorites = PhotoProfileAccessSessionManager.FAVORITE_CREDENTIAL_BINDING
+        val required = mapOf("/one" to "shared", "/two" to "shared", favorites to "different")
+        val previous = mapOf("/existing" to "bound")
+        val transaction = PhotoBindingTransaction(required, previous)
+        transaction.approve(mapOf("/one" to "shared", "/two" to "shared"))
+        assertNull(transaction.complete(required, true))
+        assertEquals(mapOf("/existing" to "bound"), previous)
+        transaction.approve(mapOf(favorites to "different"))
+        assertNull(transaction.complete(required, false))
+        assertNull(transaction.complete(required + ("/new-parent" to "new-secret"), true))
+        assertEquals(previous + required, transaction.complete(required, true))
+    }
+
+    @Test fun identicalPhotoSourceAndFavoritePinCanSatisfyTheWholeScope() {
+        val evidence = PhotoVerifiedCredential(1, "shared")
+        val identities = mapOf("/one" to (1 to "shared"), "/two" to (1 to "shared"),
+            PhotoProfileAccessSessionManager.FAVORITE_CREDENTIAL_BINDING to (1 to "shared"))
+        val required = identities.mapValues { (_, value) -> PhotoProfileAccessSessionManager.fingerprint(value.first, value.second) }
+        val transaction = PhotoBindingTransaction(required, emptyMap())
+        val reusable = identities.filterValues { evidence.matches(it.first, it.second) }.keys
+        transaction.approve(required.filterKeys { it in reusable })
+        assertEquals(required, transaction.complete(required, true))
+    }
+
+    @Test fun previouslyBoundScopesStillNeedFreshCapabilityAndChangedLocksNeedApproval() {
+        val required = mapOf("/one" to "old")
+        val transaction = PhotoBindingTransaction(required, required)
+        assertNotNull(transaction.complete(required, true))
+        assertNull(transaction.complete(required, false))
+        assertNull(transaction.complete(mapOf("/one" to "changed"), true))
+        val capability = PhotoAccessCapability()
+        val token = capability.create(capability.generation()) { true }!!
+        assertTrue(capability.active(token)) // same capability accompanies viewer intents
+        capability.revoke()
+        assertFalse(capability.active(token))
+    }
+
+    @Test fun displayPreferencesDoNotRevokePhotoAccessButExactCredentialKeysDo() {
+        listOf("view_type_folders", "dir_column_cnt", "scroll_horizontally", "directory_sorting",
+            "photo_media_filter", "favorite_folder_sorting", "unrelated_protection_label").forEach {
+            assertFalse(it, PhotoProtectionChanges.credentialsChanged(it))
+        }
+        listOf("photo_protect_password_hash", "photo_protect_fallback_protection_type",
+            FAVORITE_PASSWORD_HASH, FAVORITE_BIOMETRIC_PRIMARY,
+            org.fossify.commons.helpers.PROTECTED_FOLDER_HASH + "/root").forEach {
+            assertTrue(it, PhotoProtectionChanges.credentialsChanged(it))
+        }
+        assertTrue(PhotoProtectionChanges.credentialsChanged(null))
+        assertFalse(PhotoProtectionChanges.viewerScopeChanged("favorite_folder_sorting"))
+    }
+
+    @Test fun pickerDraftIsIndependentNormalizedAndSurvivesNavigation() {
+        val original = PhotoSourceSelectionDraft(listOf("/Camera/", org.fossify.commons.helpers.FAVORITES))
+        val draft = PhotoSourceSelectionDraft(original.snapshot())
+        assertTrue(draft.contains("/Camera"))
+        assertTrue(draft.contains("/Camera/"))
+        draft.toggle("/Camera/")
+        draft.toggle("/Other")
+        draft.toggle(org.fossify.commons.helpers.FAVORITES)
+        draft.toggle(org.fossify.commons.helpers.FAVORITES)
+        assertEquals(setOf("/Other", org.fossify.commons.helpers.FAVORITES), draft.snapshot())
+        assertEquals(setOf("/Camera", org.fossify.commons.helpers.FAVORITES), original.snapshot())
+        assertFalse(PhotoSourceSelectionDraft(emptyList()).contains("/Camera"))
+    }
+
+    @Test fun thumbnailPolicyProtectsAncestorsCanonicalTargetsAndKeepsUrisAsUris() {
+        assertTrue(photoSourceThumbnailProtected("/Private/Child", "", { it == "/Private" }))
+        assertTrue(photoSourceThumbnailProtected("/Public", "/Private/image.jpg", { it == "/Private" }))
+        assertFalse(photoSourceThumbnailProtected("/Public", "content://media/external/images/5", { false }))
+        val root = java.nio.file.Files.createTempDirectory("picker-boundary")
+        try {
+            val privateFolder = java.nio.file.Files.createDirectory(root.resolve("private"))
+            val alias = java.nio.file.Files.createSymbolicLink(root.resolve("public"), privateFolder)
+            assertTrue(photoSourceThumbnailProtected(alias.toString(), "", { it == privateFolder.toString() }))
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun sourceGridColumnsRespondOnlyToAvailableWidth() {
+        assertEquals(2, photoSourceColumnCount(280))
+        assertEquals(2, photoSourceColumnCount(420))
+        assertEquals(3, photoSourceColumnCount(520))
+        assertEquals(4, photoSourceColumnCount(1200))
+    }
+
 }
