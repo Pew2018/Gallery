@@ -35,6 +35,7 @@ object DirectoryThumbnailBinder {
         onError: () -> Unit
     ) {
         OxygenThumbnailPlaceholder.apply(activity, target, corners)
+        target.clearColorFilter()
         Picasso.get().cancelRequest(target)
         target.scaleType = if (crop) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
         if (target.tag != path) {
@@ -42,7 +43,12 @@ object DirectoryThumbnailBinder {
             target.setImageDrawable(null)
             target.tag = path
         }
-        if (path.isBlank()) return
+        if (path.isBlank()) {
+            target.scaleType = ImageView.ScaleType.CENTER
+            target.setImageResource(R.drawable.photo_source_folder)
+            target.setColorFilter(photoDialogColors(activity).secondary)
+            return
+        }
         val type = when {
             path.isVideoFast() -> TYPE_VIDEOS
             path.isGif() -> TYPE_GIFS
