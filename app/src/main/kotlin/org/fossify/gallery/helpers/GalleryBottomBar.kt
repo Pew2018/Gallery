@@ -82,10 +82,12 @@ object GalleryBottomBar {
         val wake = Runnable { parent.invalidate() }
         val listener = object : android.view.ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw(): Boolean {
-                val grid = parent.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.directories_grid)
-                    ?: parent.findViewById(R.id.media_grid)
-                val empty = parent.findViewById<android.view.View>(R.id.directories_empty_placeholder)
-                    ?: parent.findViewById(R.id.media_empty_text_placeholder)
+                val directories: androidx.recyclerview.widget.RecyclerView? = parent.findViewById(R.id.directories_grid)
+                val media: androidx.recyclerview.widget.RecyclerView? = parent.findViewById(R.id.media_grid)
+                val directoryEmpty: android.view.View? = parent.findViewById(R.id.directories_empty_placeholder)
+                val mediaEmpty: android.view.View? = parent.findViewById(R.id.media_empty_text_placeholder)
+                val grid = directories ?: media
+                val empty = directoryEmpty ?: mediaEmpty
                 val ready = (grid?.childCount ?: 0) > 0 || empty?.visibility == android.view.View.VISIBLE
                 if (!ready && !activity.isFinishing && !activity.isDestroyed &&
                     android.os.SystemClock.uptimeMillis() - started < FIRST_DRAW_LIMIT_MS) return false
