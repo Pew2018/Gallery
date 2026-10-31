@@ -49,3 +49,24 @@ scheduled after publication, not completion of every asynchronous thumbnail deco
 Additional unit coverage checks indexed-before-supplement ordering, cache re-entry,
 unrelated preferences / rename, source changes in flight, symlink target changes
 between stages, cache copies, content revision invalidation and anchor preview bounds.
+
+## Follow-up completion audit
+
+- Empty searches over provisional windows do not claim a final no-results state.
+  Each Photos publication invalidates searches over the preceding dataset, including
+  clearing an inline query while multiple stages share the same request ID.
+- A provisional adapter without laid-out visible rows cannot erase the pending anchor.
+- Photo viewer clicks capture their scope and are discarded if the profile changes or
+  the clicked path leaves the dataset before the asynchronous launch completes.
+- Public viewer snapshots copy Medium records and are freshly path/protection-validated
+  on a bounded worker before display. Changed symlink targets and deleted physical
+  clicked files cannot reuse an earlier metadata handoff as authorization.
+- Returning from the viewer keeps a same-scope grid but always reconciles sources in
+  the background; a process-local revision is not proof against external changes.
+- Bulk favorite imports/clear, shared metadata deletion and date repair invalidate
+  both profile metadata and pending viewer handoffs.
+
+Device verification still required: type an unmatched search during first-entry preview,
+clear it during final publication, switch profile immediately after tapping a thumbnail,
+return from the viewer after another app changes the selected directory, and confirm
+that unchanged live grids keep their visible anchor without a blank reload.

@@ -2,7 +2,6 @@ package org.fossify.gallery.helpers
 
 import android.content.Context
 import android.os.SystemClock
-import org.fossify.gallery.extensions.config
 import org.fossify.gallery.models.Medium
 import java.util.UUID
 
@@ -27,14 +26,9 @@ internal object PhotoViewerSnapshotStore {
     private var pending: Entry? = null
 
     private fun signature(context: Context, profileId: String): String? {
-        val profile = PhotoProfileRepository.of(context).state().current
-            ?.takeIf { it.id == profileId } ?: return null
-        val config = context.config
-        return listOf(
-            profile, config.photoMediaFilter, config.getFolderSorting(PhotoProfileMediaLoader.PATH),
-            config.photoSourceBindings, config.excludedFolders, config.shouldShowHidden,
-            PhotoProfileAccessSessionManager.currentEventVersion(), PhotoContentRevision.current()
-        ).joinToString("|")
+        if (PhotoProfileRepository.of(context).state().current?.id != profileId) return null
+        val scope = PhotoProfileScope.capture(context, profileId, null) ?: return null
+        return "$scope|${PhotoContentRevision.current()}"
     }
 
     @Synchronized
@@ -44,7 +38,7 @@ internal object PhotoViewerSnapshotStore {
             PhotoProfileAccessSessionManager.currentToken(context) != null) return null
         val signature = signature(context, profileId) ?: return null
         val id = UUID.randomUUID().toString()
-        pending = Entry(id, profileId, signature, SystemClock.elapsedRealtime(), ArrayList(media))
+        pending = Entry(id, profileId, signature, SystemClock.elapsedRealtime(), media.map { it.copy() }.toCollection(ArrayList()))
         return id
     }
 
@@ -57,7 +51,22 @@ internal object PhotoViewerSnapshotStore {
             SystemClock.elapsedRealtime() - entry.createdAt > MAX_AGE_MS ||
             entry.signature != signature(context, entry.profileId) ||
             entry.media.none { it.path == path }) return null
-        return ArrayList(entry.media)
+        return entry.media.map { it.copy() }.toCollection(ArrayList())
+    }
+
+    /** Worker-only: taking a metadata snapshot is not fresh file authorization. */
+    fun validate(
+        context: Context, profileId: String?, media: List<Medium>, clickedPath: String,
+        cancelled: () -> Boolean = { false }
+    ): PhotoLoadResult? {
+        val request = PhotoProfileLoadContext.capture(context, profileId, null) ?: return null
+        if (request.scope.selectedId != profileId || cancelled()) return null
+        val candidates = if (request.scope.allFiles || android.os.Build.VERSION.SDK_INT < 30) {
+            media.filter { java.io.File(it.path).isFile }
+        } else media
+        val (safe, access) = PhotoAccessValidationBatch(context, request, cancelled).validate(candidates)
+        if (cancelled() || !request.isCurrent(context) || safe.none { it.path == clickedPath }) return null
+        return PhotoLoadResult(request, PhotoLoadStage.COMPLETE, safe, access)
     }
 
     @Synchronized

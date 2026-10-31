@@ -1299,6 +1299,7 @@ class SettingsActivity : SimpleActivity() {
                             .count { it >= 0L }
                         stillUnlocked.forEach { mediaDB.updateFavorite(it, true) }
                     }
+                    if (added > 0) org.fossify.gallery.helpers.PhotoContentRevision.changed()
                     runOnUiThread {
                         if (protectedSourceSkipped > 0 || protectionChangedDuringImport > 0) {
                             toast(R.string.favorite_import_protected_skipped)

@@ -321,8 +321,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     photoPublishedStage = result.stage.ordinal
                     photoNeedsUnlock = result.access.needsUnlock
                     val complete = result.stage == org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE
-                    if (getMediaAdapter() != null) {
-                        // Capture where the user is now, rather than where refresh started.
+                    val adapter = getMediaAdapter()
+                    if (adapter != null && photoScroll.capture(binding.mediaGrid,
+                            adapter.media.map { (it as? Medium)?.path }) != null) {
+                        // Keep the pending anchor if this provisional adapter has not laid out yet.
                         photoScroll.clear()
                         rememberPhotoScrollAnchor()
                     }
@@ -739,12 +741,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             mMedia.filterIsInstance<Medium>().all { it.mediaStoreId > 0L }
         val isRandomSorting = config.getFolderSorting(mPath) and SORT_BY_RANDOM != 0
         if (isPhotoProfiles) {
-            val reuse = photoViewerTransition && photoLoadCompleted &&
-                photoLoadedKey == photoDisplayKey() &&
-                photoLoadedRevision == org.fossify.gallery.helpers.PhotoContentRevision.current() &&
-                (binding.mediaGrid.adapter != null || mMedia.isEmpty())
+            // Process-local revisions cannot prove that another app left the files unchanged.
+            // Keep a same-scope grid visible, but reconcile its sources in the background.
             photoViewerTransition = false
-            if (!reuse) tryLoadGallery()
+            tryLoadGallery()
         } else if (mPath == FAVORITES) {
             tryLoadGallery()
         } else if (mMedia.isEmpty() || !isRandomSorting ||
@@ -1249,7 +1249,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     if (isFinishing || isDestroyed || mLastSearchedText != text ||
                         searchGeneration != mediaSearchGeneration || !mediaLoadRequests.isCurrent(request)) return@runOnUiThread
                     if (mPath == FAVORITES && !FavoriteAccessSessionManager.isActive(favoriteSessionId)) return@runOnUiThread
-                    if (safeGrouped.isEmpty()) {
+                    if (safeGrouped.isEmpty() && (!isPhotoProfiles || finalResult)) {
                         binding.mediaEmptyTextPlaceholder.text =
                             getString(org.fossify.commons.R.string.no_items_found)
                         binding.mediaEmptyTextPlaceholder.beVisible()
@@ -1260,7 +1260,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         binding.mediaEmptyTextPlaceholder.beGone()
                         binding.mediaEmptyDescription.beGone()
                         binding.mediaEmptyTextPlaceholder2.beGone()
-                        binding.mediaFastscroller.beVisible()
+                        binding.mediaFastscroller.beVisibleIf(safeGrouped.isNotEmpty())
                     }
 
                     handleGridSpacing(safeGrouped)
@@ -2043,6 +2043,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
         val folderToken = folderUnlockSessionId
         val app = applicationContext
+        val requestedPhotoId = photoProfileId
+        val requestedPhotoKey = if (isPhotoProfiles) photoDisplayKey() else null
+        val requestedPhotoToken = if (isPhotoProfiles) photoToken() else null
         val completePublicFolder = !isPhotoProfiles && !mShowAll &&
             folderToken == null && mPath.isNotEmpty() && mPath != FAVORITES &&
             mPath != RECYCLE_BIN && displayedMediaIsFinal &&
@@ -2071,13 +2074,17 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }.getOrDefault(false)
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
+                // A delayed click must never launch the old path under a newly selected scope.
+                if (requestedPhotoKey != null && (photoProfileId != requestedPhotoId ||
+                    photoDisplayKey() != requestedPhotoKey ||
+                    mMedia.filterIsInstance<Medium>().none { it.path == path })) return@runOnUiThread
                 Intent(this, ViewPagerActivity::class.java).apply {
                     if (folderAuthorized) putExtra(FOLDER_UNLOCK_SESSION, folderToken)
                     if (mPath == FAVORITES) putExtra(FAVORITE_ACCESS_SESSION, favoriteSessionId)
                     putExtra(PATH, path)
                     if (isPhotoProfiles) {
-                        putExtra(PhotoProfileMediaLoader.EXTRA_ID, photoProfileId)
-                        putExtra(PhotoProfileAccessSessionManager.EXTRA_SESSION, photoToken())
+                        putExtra(PhotoProfileMediaLoader.EXTRA_ID, requestedPhotoId)
+                        putExtra(PhotoProfileAccessSessionManager.EXTRA_SESSION, requestedPhotoToken)
                     }
                     putExtra(SHOW_ALL, mShowAll)
                     putExtra(SHOW_FAVORITES, mPath == FAVORITES)
@@ -2154,6 +2161,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 completedMediaRequest = request
             }
             checkLastMediaChanged()
+            // A search over an earlier preview must not overwrite a newer stage of this request.
+            if (isPhotoProfiles) mediaSearchGeneration++
             if (isPhotoProfiles && !isFromCache && getMediaAdapter() != null) rememberPhotoScrollAnchor()
             mMedia = ArrayList(media)
             if (isPhotoProfiles && !isFromCache) {

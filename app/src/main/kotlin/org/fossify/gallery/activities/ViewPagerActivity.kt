@@ -611,13 +611,27 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 intent.getStringExtra(org.fossify.gallery.helpers.PhotoViewerSnapshotStore.EXTRA_ID),
                 photoProfileId, photoSessionId, mPath
             )
-            if (cached != null) {
-                mMediaFiles = cached
-                initContinue()
-                return
-            }
             val request = ++viewerLoadGeneration
             viewerLoadTask?.stopFetching()
+            ViewerAccessCoordinator.cancel(viewerAccessTask)
+            if (cached != null) {
+                val profile = photoProfileId
+                val clicked = mPath
+                viewerAccessTask = try { ViewerAccessCoordinator.submit {
+                    val safe = runCatching {
+                        org.fossify.gallery.helpers.PhotoViewerSnapshotStore.validate(
+                            applicationContext, profile, cached, clicked
+                        ) { Thread.currentThread().isInterrupted }
+                    }.getOrNull()
+                    runOnUiThread {
+                        if (request != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                        if (safe == null || !safe.context.isCurrent(applicationContext)) { finish(); return@runOnUiThread }
+                        mMediaFiles = ArrayList(safe.media)
+                        initContinue()
+                    }
+                } } catch (_: java.util.concurrent.RejectedExecutionException) { finish(); null }
+                return
+            }
             viewerLoadTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
                 showAll = false, photoProfileId = photoProfileId, photoSessionId = photoSessionId, onFailure = { finish() }) { items ->
                 if (request != viewerLoadGeneration || isFinishing || isDestroyed) return@GetMediaAsynctask

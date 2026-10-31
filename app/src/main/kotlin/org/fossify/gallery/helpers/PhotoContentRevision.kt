@@ -11,6 +11,7 @@ internal object PhotoContentRevision {
     fun current(): Long = value.get()
     fun changed(): Long {
         PhotoProfileMediaCache.invalidate()
+        PhotoViewerSnapshotStore.clear()
         return value.incrementAndGet()
     }
 }

@@ -610,6 +610,7 @@ fun AppCompatActivity.fixDateTaken(
                     }
 
                     mediaDB.updateFavoriteDateTaken(path, timestamp)
+                    org.fossify.gallery.helpers.PhotoContentRevision.changed()
                     didUpdateFile = true
 
                     val dateTaken = DateTaken(
@@ -649,6 +650,7 @@ fun AppCompatActivity.fixDateTaken(
             if (hasRescanned || pathsToRescan.isEmpty()) {
                 if (dateTakens.isNotEmpty()) {
                     dateTakensDB.insertAll(dateTakens)
+                    org.fossify.gallery.helpers.PhotoContentRevision.changed()
                 }
 
                 runOnUiThread {

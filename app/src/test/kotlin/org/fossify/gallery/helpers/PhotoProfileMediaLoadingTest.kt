@@ -37,6 +37,7 @@ class PhotoProfileMediaLoadingTest {
     @Before fun prepare() {
         GalleryDatabase.destroyInstance()
         PhotoProfileMediaCache.invalidate()
+        PhotoViewerSnapshotStore.clear()
         provider = Robolectric.buildContentProvider(IndexedMediaProvider::class.java).create().get()
         ShadowContentResolver.registerProviderInternal("media", provider)
     }
@@ -197,6 +198,59 @@ class PhotoProfileMediaLoadingTest {
         assertEquals("0.jpg", PhotoProfileMediaCache.read(request)!!.first().name)
         PhotoContentRevision.changed()
         assertNull(PhotoProfileMediaCache.read(request))
+    }
+
+    @Test fun viewerSnapshotCopiesMetadataAndContentMutationInvalidatesPendingHandoff() {
+        val root = Files.createTempDirectory("photo-viewer-snapshot")
+        try {
+            val path = Files.write(root.resolve("a.jpg"), byteArrayOf(1)).toString()
+            val id = profile(root.toString())
+            val item = Medium(null, "a.jpg", path, root.toString(), 1, 1, 1, TYPE_IMAGES, 0, false, 0, 0)
+            val token = PhotoViewerSnapshotStore.offer(context, id, null, listOf(item))!!
+            item.name = "Mutated"
+            val taken = PhotoViewerSnapshotStore.take(context, token, id, null, path)!!
+            assertEquals("a.jpg", taken.single().name)
+            val validated = background { PhotoViewerSnapshotStore.validate(context, id, taken, path) }
+            assertNotNull(validated)
+            val pending = PhotoViewerSnapshotStore.offer(context, id, null, taken)!!
+            PhotoContentRevision.changed()
+            assertNull(PhotoViewerSnapshotStore.take(context, pending, id, null, path))
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun viewerSnapshotRechecksCanonicalTargetAndRejectsDeletedClickedFile() {
+        val root = Files.createTempDirectory("photo-viewer-link")
+        try {
+            val public = Files.createDirectory(root.resolve("public"))
+            val private = Files.createDirectory(root.resolve("private"))
+            val file = Files.write(public.resolve("a.jpg"), byteArrayOf(1))
+            val secret = Files.write(private.resolve("secret.jpg"), byteArrayOf(2))
+            val alias = Files.createSymbolicLink(public.resolve("link.jpg"), file)
+            val id = profile(public.toString())
+            context.config.addFolderProtection(private.toString(), "test-secret", org.fossify.commons.helpers.PROTECTION_PIN)
+            val item = Medium(null, "link.jpg", alias.toString(), public.toString(), 1, 1, 1, TYPE_IMAGES, 0, false, 0, 0)
+            val token = PhotoViewerSnapshotStore.offer(context, id, null, listOf(item))!!
+            val taken = PhotoViewerSnapshotStore.take(context, token, id, null, alias.toString())!!
+            Files.delete(alias)
+            Files.createSymbolicLink(alias, secret)
+            assertNull(background { PhotoViewerSnapshotStore.validate(context, id, taken, alias.toString()) })
+            Files.delete(alias)
+            assertNull(background { PhotoViewerSnapshotStore.validate(context, id, taken, alias.toString()) })
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun viewerHandoffRejectsScopeChange() {
+        val root = Files.createTempDirectory("photo-viewer-scope")
+        try {
+            val path = Files.write(root.resolve("a.jpg"), byteArrayOf(1)).toString()
+            val id = profile(root.toString())
+            val item = Medium(null, "a.jpg", path, root.toString(), 1, 1, 1, TYPE_IMAGES, 0, false, 0, 0)
+            val token = PhotoViewerSnapshotStore.offer(context, id, null, listOf(item))!!
+            val old = PhotoProfileRepository.of(context).state().current!!
+            PhotoProfileRepository.of(context).updateExisting(old.copy(sources = listOf(PhotoSource(PhotoSourceType.FOLDER, "/Other"))))
+            assertNull(PhotoViewerSnapshotStore.take(context, token, id, null, path))
+            assertNull(background { PhotoViewerSnapshotStore.validate(context, id, listOf(item), path) })
+        } finally { root.toFile().deleteRecursively() }
     }
 
     /** Robolectric has no default volume for Environment's API-30 manager query. */

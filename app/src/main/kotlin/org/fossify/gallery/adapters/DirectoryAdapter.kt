@@ -795,6 +795,7 @@ class DirectoryAdapter(
                             ensureBackgroundThread {
                                 activity.mediaDB.clearFavorites()
                                 activity.favoritesDB.clearFavorites()
+                                org.fossify.gallery.helpers.PhotoContentRevision.changed()
                                 listener?.refreshItems()
                             }
                         }

@@ -1158,6 +1158,7 @@ fun Context.deleteDBPath(path: String) {
 fun Context.deleteMediumWithPath(path: String) {
     try {
         mediaDB.deleteMediumPath(path)
+        org.fossify.gallery.helpers.PhotoContentRevision.changed()
     } catch (ignored: Exception) {
     }
 }
