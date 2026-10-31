@@ -352,10 +352,14 @@
     <string name="quick_toolbar_home">Home</string>
     <string name="quick_toolbar_folder">In folders</string>
     <string name="quick_toolbar_count">Selected %1$d / 5 actions</string>
-    <string name="quick_toolbar_guidance">Choose up to 5 actions and keep at least 1.</string>
+    <string name="quick_toolbar_guidance">Drag the handle to reorder selected actions.</string>
     <string name="quick_toolbar_limit">Choose no more than 5 actions and keep at least 1.</string>
     <string name="quick_toolbar_fixed_section">Fixed position</string>
     <string name="quick_toolbar_optional_section">Optional shortcuts</string>
+    <string name="quick_toolbar_move_up">Move up</string>
+    <string name="quick_toolbar_move_down">Move down</string>
+    <string name="manage_unavailable_folder_favorites">Clean unavailable favorite paths</string>
+    <string name="folder_visibility_filter">Folder visibility filter</string>
     <string name="quick_toolbar_browse_view">Switch browse view</string>
     <string name="quick_toolbar_fixed_browse_accessibility">Switch browse view, always visible</string>
     <string name="quick_toolbar_done">Save</string>

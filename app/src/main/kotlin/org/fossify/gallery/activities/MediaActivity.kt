@@ -174,16 +174,22 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (!isPhotoProfiles || binding.mediaEmptyTextPlaceholder.visibility != View.VISIBLE) return
         when {
             photoNeedsUnlock -> {
-                binding.mediaEmptyTextPlaceholder.text = getString(R.string.photo_profiles_locked_title) + "\n\n" + getString(R.string.photo_profiles_locked_description)
+                binding.mediaEmptyTextPlaceholder.setText(R.string.photo_profiles_locked_title)
+                binding.mediaEmptyDescription.setText(R.string.photo_profiles_locked_description)
+                binding.mediaEmptyDescription.beVisible()
                 binding.mediaEmptyTextPlaceholder2.setText(R.string.photo_password_unlock)
                 binding.mediaEmptyTextPlaceholder2.beVisible()
             }
             searchEmpty -> {
-                binding.mediaEmptyTextPlaceholder.text = getString(R.string.photo_profiles_search_empty_title) + "\n\n" + getString(R.string.photo_profiles_search_empty_description)
+                binding.mediaEmptyTextPlaceholder.setText(R.string.photo_profiles_search_empty_title)
+                binding.mediaEmptyDescription.setText(R.string.photo_profiles_search_empty_description)
+                binding.mediaEmptyDescription.beVisible()
                 binding.mediaEmptyTextPlaceholder2.beGone()
             }
             else -> {
-                binding.mediaEmptyTextPlaceholder.text = getString(R.string.photo_profiles_no_content_title) + "\n\n" + getString(R.string.photo_profiles_no_content_description)
+                binding.mediaEmptyTextPlaceholder.setText(R.string.photo_profiles_no_content_title)
+                binding.mediaEmptyDescription.setText(R.string.photo_profiles_no_content_description)
+                binding.mediaEmptyDescription.beVisible()
                 binding.mediaEmptyTextPlaceholder2.setText(R.string.photo_profiles_edit)
                 binding.mediaEmptyTextPlaceholder2.beVisible()
             }
@@ -230,7 +236,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             setMediaLoading(false)
             binding.loadingIndicator.hide()
             binding.mediaRefreshLayout.isRefreshing = false
-            binding.mediaEmptyTextPlaceholder.text = getString(R.string.photo_profiles_empty_title) + "\n\n" + getString(R.string.photo_profiles_empty_description)
+            binding.mediaEmptyTextPlaceholder.setText(R.string.photo_profiles_empty_title)
+            binding.mediaEmptyDescription.setText(R.string.photo_profiles_empty_description)
+            binding.mediaEmptyDescription.beVisible()
             binding.mediaEmptyTextPlaceholder.beVisible()
             binding.mediaEmptyTextPlaceholder2.setText(R.string.photo_profiles_create)
             binding.mediaEmptyTextPlaceholder2.beVisible()
@@ -259,6 +267,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mIsGettingMedia = true
         setMediaLoading(true)
         binding.mediaEmptyTextPlaceholder.beGone()
+        binding.mediaEmptyDescription.beGone()
         binding.mediaEmptyTextPlaceholder2.beGone()
         mCurrAsyncTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
             showAll = false, photoProfileId = profile.id, photoSessionId = photoToken(),
@@ -266,6 +275,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed) {
                     publishMedia(arrayListOf(), false, request)
                     binding.mediaEmptyTextPlaceholder.setText(R.string.failed_to_load_media)
+                    binding.mediaEmptyDescription.beGone()
                 }
             }) { items ->
             if (mediaLoadRequests.isCurrent(request) && photoProfileId == profile.id && !isFinishing && !isDestroyed) {
@@ -440,7 +450,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         if (isPhotoProfiles) {
-            binding.mediaEmptyTextPlaceholder.setTypeface(null, android.graphics.Typeface.NORMAL)
             savedInstanceState?.getString("photoDraft")?.let { draft ->
                 binding.root.post { if (!isFinishing && !isDestroyed) photoDialogs.restoreDraft(draft) }
             }
@@ -626,7 +635,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
         binding.loadingIndicator.setIndicatorColor(getProperPrimaryColor())
         binding.mediaEmptyTextPlaceholder.setTextColor(getProperTextColor())
-        binding.mediaEmptyTextPlaceholder2.setTextColor(getProperPrimaryColor())
+        binding.mediaEmptyTextPlaceholder2.setTextColor(OxygenThemeEngine.snapshot(this, config).interactiveAccent)
+        binding.mediaEmptyDescription.setTextColor(OxygenThemeEngine.snapshot(this, config).secondaryText)
         binding.mediaEmptyTextPlaceholder2.bringToFront()
 
         // do not refresh Random sorted files after opening a fullscreen image and going Back
@@ -879,6 +889,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
         }
         super.onActivityResult(requestCode, resultCode, resultData)
+        if (requestCode == PhotoProfileEditActivity.REQUEST_CODE && resultCode == RESULT_OK && !isFinishing) {
+            reloadPhotoProfile()
+        }
     }
 
     private fun refreshMenuItems() {
@@ -1021,13 +1034,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         OxygenToolbarStyle.apply(
             this, binding.mediaMenu,
             when {
-                isPhotoProfiles -> (PhotoProfileRepository.of(this).state().current?.name ?: getString(R.string.gallery_nav_photos)) + " ▾"
+                isPhotoProfiles -> PhotoProfileRepository.of(this).state().current?.name ?: getString(R.string.gallery_nav_photos)
                 mShowAll || mPath.isEmpty() -> getString(R.string.app_launcher_name)
                 mPath == FAVORITES -> getString(org.fossify.commons.R.string.favorites)
                 mPath == RECYCLE_BIN -> getString(org.fossify.commons.R.string.recycle_bin)
                 else -> getHumanizedFilename(mPath)
             },
-            backButton = mPath == FAVORITES || (mGallerySection == null && !mShowAll)
+            backButton = mPath == FAVORITES || (mGallerySection == null && !mShowAll),
+            titleAction = if (isPhotoProfiles) ({ if (!binding.mediaMenu.isSearchOpen) profileDialogs().switch() }) else null
         )
         val picker = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent || isSetWallpaperIntent()
         if (!picker && mPath != RECYCLE_BIN) {
@@ -1054,16 +1068,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     }
                 }
             )
-        }
-        setupPhotoProfileTitle()
-    }
-
-    private fun setupPhotoProfileTitle() {
-        if (!isPhotoProfiles) return
-        binding.mediaMenu.findViewWithTag<android.widget.TextView>("oxygen_classic_toolbar_title")?.apply {
-            isClickable = true
-            contentDescription = getString(R.string.photo_profiles_switch)
-            setOnClickListener { if (!binding.mediaMenu.isSearchOpen) profileDialogs().switch() }
         }
     }
 
@@ -1108,9 +1112,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             getString(org.fossify.commons.R.string.no_items_found)
                         binding.mediaEmptyTextPlaceholder.beVisible()
                         if (isPhotoProfiles) updatePhotoEmptyState(searchEmpty = true)
+                        else binding.mediaEmptyDescription.beGone()
                         binding.mediaFastscroller.beGone()
                     } else {
                         binding.mediaEmptyTextPlaceholder.beGone()
+                        binding.mediaEmptyDescription.beGone()
                         binding.mediaEmptyTextPlaceholder2.beGone()
                         binding.mediaFastscroller.beVisible()
                     }
@@ -1388,6 +1394,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         setMediaLoading(true)
         if (mPath == FAVORITES) {
             binding.mediaEmptyTextPlaceholder.beGone()
+            binding.mediaEmptyDescription.beGone()
             binding.mediaEmptyTextPlaceholder2.beGone()
         }
         val sortingPath = if (mShowAll) SHOW_ALL else mPath
@@ -1980,6 +1987,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             displayedMediaIsFinal = !isFromCache
             binding.loadingIndicator.hide()
             binding.mediaRefreshLayout.isRefreshing = false
+            binding.mediaEmptyDescription.beGone()
             binding.mediaEmptyTextPlaceholder.beVisibleIf(media.isEmpty() && !isFromCache)
             binding.mediaEmptyTextPlaceholder2.beVisibleIf(media.isEmpty() && !isFromCache)
 

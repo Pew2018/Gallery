@@ -15,6 +15,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.widget.PopupMenu
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.graphics.ColorUtils
 import androidx.core.widget.CompoundButtonCompat
@@ -53,7 +54,22 @@ object ToolbarQuickActionsDialog {
         val guidance = TextView(activity).apply {
             textSize = 12f
             setTextColor(palette.secondaryText)
-            setPadding(dp(8), 0, dp(8), dp(8))
+            setPadding(dp(8), 0, dp(8), dp(4))
+        }
+        val reset = TextView(activity).apply {
+            setText(R.string.quick_toolbar_reset)
+            textSize = 14f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(palette.interactiveAccent)
+            gravity = Gravity.CENTER_VERTICAL
+            minHeight = dp(48)
+            setPadding(dp(8), 0, dp(8), 0)
+            background = OxygenClassicDialog.ripple(palette.interactiveAccent, density)
+            setOnClickListener {
+                current().clear()
+                current().addAll(ToolbarQuickActions.defaults)
+                render()
+            }
         }
         fun sectionLabel(textRes: Int) = TextView(activity).apply {
             setText(textRes)
@@ -233,6 +249,29 @@ object ToolbarQuickActionsDialog {
                         false
                     }
                 }
+                holder.drag.setOnClickListener { anchor ->
+                    if (!canDrag) return@setOnClickListener
+                    val selected = current().filterNot { it == ToolbarQuickActions.SEARCH }.toMutableList()
+                    val selectedIndex = selected.indexOf(action)
+                    if (selectedIndex < 0) return@setOnClickListener
+                    val popup = PopupMenu(activity, anchor)
+                    if (selectedIndex > 0) popup.menu.add(0, 0, 0, R.string.quick_toolbar_move_up)
+                    if (selectedIndex < selected.lastIndex) popup.menu.add(0, 1, 1, R.string.quick_toolbar_move_down)
+                    popup.setOnMenuItemClickListener { item ->
+                        val target = if (item.itemId == 0) selectedIndex - 1 else selectedIndex + 1
+                        if (target in selected.indices) {
+                            selected.removeAt(selectedIndex)
+                            selected.add(target, action)
+                            val search = current().contains(ToolbarQuickActions.SEARCH)
+                            current().clear()
+                            if (search) current().add(ToolbarQuickActions.SEARCH)
+                            current().addAll(selected)
+                            render()
+                        }
+                        true
+                    }
+                    popup.show()
+                }
                 holder.check.setOnCheckedChangeListener { button, checked ->
                     updateAction(action, button, checked)
                 }
@@ -307,11 +346,12 @@ object ToolbarQuickActionsDialog {
         root.addView(tabs)
         root.addView(count)
         root.addView(guidance)
+        root.addView(reset, LinearLayout.LayoutParams(-1, dp(48)))
         root.addView(sectionLabel(R.string.quick_toolbar_fixed_section))
         root.addView(fixedRows)
         root.addView(sectionLabel(R.string.quick_toolbar_optional_section))
         root.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
-        val maxDp = (activity.resources.displayMetrics.heightPixels / density).toInt() - 180
+        val maxDp = (OxygenClassicDialog.availableHeight(activity) / density).toInt() - 180
         root.layoutParams = ViewGroup.LayoutParams(-1, dp(minOf(520, maxDp.coerceAtLeast(260))))
         render()
 
@@ -319,20 +359,14 @@ object ToolbarQuickActionsDialog {
             activity,
             OxygenClassicDialog.builder(activity, activity.getString(R.string.quick_toolbar_title))
                 .setView(root)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.quick_toolbar_done) { _, _ ->
+                .setNegativeButton(org.fossify.commons.R.string.cancel, null)
+                .setPositiveButton(org.fossify.gallery.R.string.photo_profiles_save) { _, _ ->
                     activity.config.toolbarHomeActions = home
                     activity.config.toolbarFolderActions = folder
-                }
-                .setNeutralButton(R.string.quick_toolbar_reset, null),
+                },
             root
         )
         searchBackground = searchCheck.background
         render()
-        dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
-            current().clear()
-            current().addAll(ToolbarQuickActions.defaults)
-            render()
-        }
     }
 }

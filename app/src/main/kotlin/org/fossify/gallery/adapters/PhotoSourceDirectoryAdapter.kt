@@ -6,8 +6,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
-import com.bumptech.glide.Glide
-import com.squareup.picasso.Picasso
+import androidx.recyclerview.widget.DiffUtil
 import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 import android.app.Activity
 import org.fossify.commons.extensions.*
@@ -15,7 +14,6 @@ import org.fossify.commons.helpers.FAVORITES
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.PhotoSourceItemBinding
 import org.fossify.gallery.extensions.config
-import org.fossify.gallery.extensions.loadImage
 import org.fossify.gallery.helpers.*
 import org.fossify.gallery.models.Directory
 
@@ -34,8 +32,18 @@ internal class PhotoSourceDirectoryAdapter(
         PhotoSourceItemBinding.inflate(LayoutInflater.from(parent.context), parent, false))
 
     fun updateDirectories(directories: List<Directory>) {
-        this.directories = directories
-        notifyDataSetChanged()
+        val next = directories.toList()
+        val old = this.directories.toList()
+        val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+            override fun getOldListSize() = old.size
+            override fun getNewListSize() = next.size
+            override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int) =
+                old[oldItemPosition].path == next[newItemPosition].path
+            override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int) =
+                old[oldItemPosition] == next[newItemPosition]
+        })
+        this.directories = next
+        diff.dispatchUpdatesTo(this)
     }
     override fun onBindViewHolder(holder: Holder, position: Int) {
         val directory = directories[position]
@@ -50,7 +58,7 @@ internal class PhotoSourceDirectoryAdapter(
             hasProtectedFolderBoundary(directory.path, config::isFolderProtected) ||
             (directory.path == FAVORITES && config.isFavoritePasswordProtectionOn)
         with(holder.binding) {
-            clearThumbnail(this)
+            if (locked) clearThumbnail(this)
             sourceLock.visibility = if (locked) View.VISIBLE else View.GONE
             sourceLock.background = ColorDrawable(androidx.core.graphics.ColorUtils.blendARGB(background, text, .06f))
             sourceLock.setColorFilter(text)
@@ -88,36 +96,18 @@ internal class PhotoSourceDirectoryAdapter(
             sourceBrowse.background = controlBackground(8)
             sourceBrowse.contentDescription = activity.getString(R.string.photo_source_browse_named, directory.name)
             sourceBrowse.setOnClickListener { navigate(directory) }
-            if (!locked && directory.tmb.isNotBlank()) {
-                sourceThumbnail.visibility = View.VISIBLE
-                sourceThumbnail.tag = directory.tmb
-                sourceThumbnail.clearColorFilter()
-                sourceThumbnail.scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                val type = when {
-                    directory.tmb.isVideoFast() -> TYPE_VIDEOS
-                    directory.tmb.isGif() -> TYPE_GIFS
-                    directory.tmb.isRawFast() -> TYPE_RAWS
-                    directory.tmb.isSvg() -> TYPE_SVGS
-                    else -> TYPE_IMAGES
-                }
-                activity.loadImage(type, directory.tmb, sourceThumbnail, false, false, true,
-                    ROUNDED_CORNERS_NONE, directory.getKey(), onError = { folderPlaceholder(sourceThumbnail) })
-            }
+            sourceThumbnail.visibility = View.VISIBLE
+            sourceThumbnail.clearColorFilter()
+            if (!locked) DirectoryThumbnailBinder.bind(
+                activity, sourceThumbnail, directory.tmb, directory.getKey(), config.cropThumbnails,
+                config.animateGifs, false,
+                if (config.folderStyle == org.fossify.gallery.helpers.FOLDER_STYLE_SQUARE) ROUNDED_CORNERS_NONE else ROUNDED_CORNERS_BIG
+            ) { }
         }
     }
     private fun clearThumbnail(binding: PhotoSourceItemBinding) {
-        Picasso.get().cancelRequest(binding.sourceThumbnail)
-        Glide.with(activity).clear(binding.sourceThumbnail)
-        binding.sourceThumbnail.tag = null
-        folderPlaceholder(binding.sourceThumbnail)
+        DirectoryThumbnailBinder.clear(activity, binding.sourceThumbnail, ROUNDED_CORNERS_NONE)
         binding.sourceThumbnail.visibility = View.VISIBLE
-    }
-    private fun folderPlaceholder(view: android.widget.ImageView) {
-        val colors = photoDialogColors(activity)
-        view.setBackgroundColor(androidx.core.graphics.ColorUtils.blendARGB(colors.surface, colors.text, .06f))
-        view.scaleType = android.widget.ImageView.ScaleType.CENTER
-        view.setImageResource(R.drawable.photo_source_folder)
-        view.setColorFilter(colors.secondary)
     }
     override fun onViewRecycled(holder: Holder) {
         clearThumbnail(holder.binding)

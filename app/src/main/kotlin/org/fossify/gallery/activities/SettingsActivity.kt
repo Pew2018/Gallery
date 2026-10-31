@@ -132,7 +132,7 @@ class SettingsActivity : SimpleActivity() {
                 theme.resolveAttribute(android.R.attr.selectableItemBackground, value, true)
                 background = androidx.appcompat.content.res.AppCompatResources.getDrawable(this@SettingsActivity, value.resourceId)
                 setPadding(dp(16), dp(10), dp(16), dp(10))
-                minimumHeight = dp(68)
+                minimumHeight = dp(72)
                 setOnClickListener { openSettingsCategory(category) }
             }
             row.addView(android.widget.ImageView(this).apply {

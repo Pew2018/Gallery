@@ -316,10 +316,14 @@
     <string name="quick_toolbar_home">主页</string>
     <string name="quick_toolbar_folder">文件夹内</string>
     <string name="quick_toolbar_count">已选择 %1$d / 5 项</string>
-    <string name="quick_toolbar_guidance">最多选择 5 项，至少保留 1 项。</string>
+    <string name="quick_toolbar_guidance">拖动右侧手柄调整已选操作顺序。</string>
     <string name="quick_toolbar_limit">最多选择 5 项，至少保留 1 项。</string>
     <string name="quick_toolbar_fixed_section">固定位置</string>
     <string name="quick_toolbar_optional_section">可选快捷操作</string>
+    <string name="quick_toolbar_move_up">上移</string>
+    <string name="quick_toolbar_move_down">下移</string>
+    <string name="manage_unavailable_folder_favorites">清理不可用的收藏路径</string>
+    <string name="folder_visibility_filter">文件夹分类筛选</string>
     <string name="quick_toolbar_browse_view">切换浏览视图</string>
     <string name="quick_toolbar_fixed_browse_accessibility">切换浏览视图，始终显示</string>
     <string name="quick_toolbar_done">保存</string>

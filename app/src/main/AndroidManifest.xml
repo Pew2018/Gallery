@@ -94,6 +94,13 @@
             android:parentActivityName=".activities.MainActivity" />
 
         <activity
+            android:name=".activities.PhotoProfileEditActivity"
+            android:exported="false"
+            android:parentActivityName=".activities.MediaActivity"
+            android:resizeableActivity="true"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".activities.SearchActivity"
             android:configChanges="orientation"
             android:exported="false"

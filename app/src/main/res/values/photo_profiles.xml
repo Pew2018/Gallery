@@ -23,6 +23,11 @@
     <string name="photo_profiles_summary">%1$s\n%2$d sources</string>
     <string name="photo_profiles_source_count">%1$d sources</string>
     <string name="photo_profiles_current_accessibility">Current profile</string>
+    <string name="photo_profiles_more_actions">More profile actions</string>
+    <string name="navigation_order_reorder">Reorder navigation item. Tap for move options or long press and drag.</string>
+    <string name="navigation_order_move_up">Move up</string>
+    <string name="navigation_order_move_down">Move down</string>
+    <string name="navigation_order_restore_default">Restore default order</string>
     <string name="photo_profiles_path_title">Full source path</string>
     <string name="photo_profiles_empty_title">No browsing profiles yet</string>
     <string name="photo_profiles_empty_description">Choose folders or favorites to browse photos and videos together.</string>
@@ -59,7 +64,7 @@
     <string name="photo_source_unknown">Unable to check source</string>
     <string name="photo_source_picker_title">Choose media sources</string>
     <string name="photo_source_selected_count">%1$d selected</string>
-    <string name="photo_source_add_count">Add (%1$d)</string>
+    <string name="photo_source_add">Add</string>
     <string name="photo_source_select">Select this folder</string>
     <string name="photo_source_deselect">Deselect this folder</string>
     <string name="photo_password_set_summary">%1$s · backup %2$s</string>

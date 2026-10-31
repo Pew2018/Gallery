@@ -35,7 +35,7 @@ open class SimpleActivity : BaseSimpleActivity() {
     // Fullscreen viewers and editors keep their media/playback/edit state and dedicated themes.
     private val recreatesForTheme: Boolean
         get() = this is MainActivity || this is MediaActivity || this is SearchActivity ||
-            this is SettingsActivity || this is IncludedFoldersActivity ||
+            this is SettingsActivity || this is PhotoProfileEditActivity || this is IncludedFoldersActivity ||
             this is ExcludedFoldersActivity || this is HiddenFoldersActivity ||
             this is OxygenThemeActivity
 

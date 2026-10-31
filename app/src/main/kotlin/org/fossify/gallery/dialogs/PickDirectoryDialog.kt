@@ -100,7 +100,9 @@ class PickDirectoryDialog(
     init {
         (binding.directoriesGrid.layoutManager as MyGridLayoutManager).apply {
             orientation = if (sourceSelection == null && activity.config.scrollHorizontally && isGridViewType) RecyclerView.HORIZONTAL else RecyclerView.VERTICAL
-            spanCount = if (sourceSelection != null) 2 else if (isGridViewType) activity.config.dirColumnCnt else 1
+            spanCount = if (sourceSelection != null) photoSourceColumnCount(
+                (binding.directoriesGrid.width / activity.resources.displayMetrics.density).toInt().takeIf { it > 0 } ?: 360
+            ) else if (isGridViewType) activity.config.dirColumnCnt else 1
         }
 
         if (sourceSelection != null) binding.directoriesGrid.addOnLayoutChangeListener { view, left, _, right, _, oldLeft, _, oldRight, _ ->
@@ -119,7 +121,7 @@ class PickDirectoryDialog(
 
         val builder = activity.getAlertDialogBuilder()
             .setTitle(if (sourceSelection == null) org.fossify.commons.R.string.select_destination else R.string.photo_source_picker_title)
-            .setPositiveButton(if (sourceSelection == null) org.fossify.commons.R.string.ok else R.string.photo_source_add_count, null)
+            .setPositiveButton(if (sourceSelection == null) org.fossify.commons.R.string.ok else R.string.photo_source_add, null)
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
 
         if (showOtherFolderButton) {
@@ -177,7 +179,6 @@ class PickDirectoryDialog(
         if (sourceSelection == null) return
         if (activity.isDestroyed) return
         binding.directoriesSelectionSummary.text = activity.getString(R.string.photo_source_selected_count, selectionDraft!!.snapshot().size)
-        dialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.text = activity.getString(R.string.photo_source_add_count, selectionDraft!!.snapshot().size)
     }
 
     /** A reversible, dialog-local reveal; Commons preferences are never rewritten. */

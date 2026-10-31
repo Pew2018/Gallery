@@ -5,6 +5,7 @@ import android.view.Gravity
 import android.widget.*
 import android.text.TextUtils
 import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.widget.PopupMenu
 import org.fossify.commons.extensions.*
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.commons.extensions.getProperTextColor
@@ -47,6 +48,10 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
     fun manage() {
         val state = store.state()
         val profiles = state.profiles
+        val colors = photoDialogColors(activity)
+        val density = activity.resources.displayMetrics.density
+        lateinit var dialog: AlertDialog
+        val list = ListView(activity).apply { dividerHeight = dp(1) }
         val rows = object : BaseAdapter() {
             override fun getCount() = profiles.size
             override fun getItem(position: Int) = profiles[position]
@@ -55,30 +60,92 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
                 val profile = getItem(position)
                 val row = (convertView as? LinearLayout) ?: LinearLayout(activity).apply {
                     orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(16), dp(8), dp(16), dp(8)); minimumHeight = dp(64)
+                    minimumHeight = dp(72)
                 }
                 row.removeAllViews()
-                val labels = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-                labels.addView(TextView(activity).apply { text = profile.name; textSize = 16f; setTextColor(photoDialogColors(activity).text) })
+                val labels = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(16), 0, 0, 0) }
+                labels.addView(TextView(activity).apply { text = profile.name; textSize = 16f; setTextColor(colors.text); maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
                 labels.addView(TextView(activity).apply {
                     text = activity.getString(R.string.photo_profiles_source_count, profile.sources.size)
-                    textSize = 13f
-                    setTextColor(photoDialogColors(activity).secondary)
+                    textSize = 12f
+                    setTextColor(colors.secondary)
                 })
                 row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
                 if (profile.id == state.current?.id) row.addView(ImageView(activity).apply {
                     setImageResource(org.fossify.commons.R.drawable.ic_check_vector)
-                    imageTintList = android.content.res.ColorStateList.valueOf(photoDialogColors(activity).accent)
+                    imageTintList = android.content.res.ColorStateList.valueOf(colors.accent)
                     contentDescription = text(R.string.photo_profiles_current_accessibility)
-                }, LinearLayout.LayoutParams(dp(24), dp(24)))
+                }, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(8) })
+                val overflow = ImageButton(activity).apply {
+                    setImageResource(R.drawable.photo_profile_more)
+                    imageTintList = android.content.res.ColorStateList.valueOf(colors.text)
+                    contentDescription = text(R.string.photo_profiles_more_actions)
+                    background = OxygenClassicDialog.ripple(colors.accent, density)
+                    setOnClickListener { anchor -> showActionsPopup(profile, anchor) { dialog.dismiss() } }
+                }
+                row.addView(overflow, LinearLayout.LayoutParams(dp(48), dp(48)))
+                row.setPadding(0, 0, dp(8), 0)
                 return row
             }
         }
+        list.adapter = rows
+        val content = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val create = TextView(activity).apply {
+            text = text(R.string.photo_profiles_create)
+            textSize = 14f
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            setTextColor(colors.accent)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(24), 0, dp(24), 0)
+            minHeight = dp(56)
+            background = OxygenClassicDialog.ripple(colors.accent, density)
+            setOnClickListener { dialog.dismiss(); edit() }
+        }
+        content.addView(create)
+        if (profiles.isEmpty()) {
+            content.addView(TextView(activity).apply {
+                setText(R.string.photo_profiles_empty_description)
+                textSize = 14f
+                setTextColor(colors.secondary)
+                setPadding(dp(24), dp(12), dp(24), dp(12))
+            }, LinearLayout.LayoutParams(-1, dp(72)))
+        } else {
+            content.addView(list, LinearLayout.LayoutParams(-1, dp((profiles.size.coerceAtMost(5) * 72).coerceAtLeast(72))))
+        }
         val builder = OxygenClassicDialog.builder(activity, text(R.string.photo_profiles_manage))
-            .setAdapter(rows) { _, index -> actions(profiles[index]) }
-            .setPositiveButton(R.string.photo_profiles_create) { _, _ -> edit() }
+            .setView(content)
             .setNegativeButton(R.string.photo_profiles_done, null)
-        OxygenClassicDialog.show(activity, builder)
+        dialog = OxygenClassicDialog.show(activity, builder, content)
+        list.setOnItemClickListener { _, _, position, _ ->
+            store.select(profiles[position].id)
+            dialog.dismiss()
+            changed()
+        }
+    }
+
+    private fun showActionsPopup(profile: PhotoProfile, anchor: android.view.View, closeManagement: () -> Unit) {
+        val isCurrent = store.state().current?.id == profile.id
+        val popup = PopupMenu(activity, anchor)
+        if (!isCurrent) popup.menu.add(0, 0, 0, R.string.photo_profiles_use)
+        popup.menu.add(0, 1, 1, R.string.photo_profiles_edit)
+        popup.menu.add(0, 2, 2, R.string.photo_profiles_rename)
+        popup.menu.add(0, 3, 3, R.string.photo_profiles_delete)
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                0 -> { closeManagement(); store.select(profile.id); changed() }
+                1 -> { closeManagement(); edit(profile) }
+                2 -> { closeManagement(); rename(profile) }
+                3 -> {
+                    closeManagement()
+                    OxygenClassicDialog.show(activity, OxygenClassicDialog.builder(activity, text(R.string.photo_profiles_delete))
+                    .setMessage(activity.getString(R.string.photo_profiles_delete_confirm, profile.name))
+                    .setNegativeButton(org.fossify.commons.R.string.cancel, null)
+                    .setPositiveButton(R.string.photo_profiles_delete) { _, _ -> store.delete(profile.id); changed() })
+                }
+            }
+            true
+        }
+        popup.show()
     }
 
     private fun actions(profile: PhotoProfile) {
@@ -116,6 +183,13 @@ class PhotoProfileDialogs(private val activity: Activity, private val changed: (
     }
 
     fun edit(profile: PhotoProfile? = null, creating: Boolean = profile == null) {
+        (activity as? org.fossify.gallery.activities.MediaActivity)?.let {
+            org.fossify.gallery.activities.PhotoProfileEditActivity.launch(it, profile, creating)
+        }
+    }
+
+    @Suppress("unused")
+    private fun legacyEdit(profile: PhotoProfile? = null, creating: Boolean = profile == null) {
         val builder = OxygenClassicDialog.builder(activity, text(if (creating) R.string.photo_profiles_create else R.string.photo_profiles_edit))
         val context = builder.context
         val body = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(24), dp(8), dp(24), dp(8)) }

@@ -34,7 +34,14 @@ internal fun photoSourceThumbnailProtected(path: String, thumbnail: String, isPr
     return protected(path) || (thumbnail.isNotBlank() && protected(thumbnail))
 }
 
-internal fun photoSourceColumnCount(widthDp: Int): Int = (widthDp / 160).coerceIn(2, 4)
+/** Keep the picker at two columns in a normal phone dialog, but allow a single
+ * column when the actual dialog content is too narrow to keep cards legible. */
+internal fun photoSourceColumnCount(widthDp: Int): Int = when {
+    widthDp < 300 -> 1
+    widthDp < 520 -> 2
+    widthDp < 760 -> 3
+    else -> 4
+}
 
 /** Dialog-local source selection; callers persist only an explicit confirmed snapshot. */
 class PhotoSourceSelectionDraft(initial: Collection<String>) {

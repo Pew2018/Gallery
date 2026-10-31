@@ -92,6 +92,24 @@ object OxygenClassicDialog {
         return (width - (insets?.left ?: 0) - (insets?.right ?: 0)).coerceAtLeast(1)
     }
 
+    /** Available host height after stable system bars and display cutouts. */
+    internal fun availableHeight(activity: Activity): Int {
+        if (Build.VERSION.SDK_INT >= 30) {
+            val metrics = activity.windowManager.currentWindowMetrics
+            val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
+                android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout()
+            )
+            return (metrics.bounds.height() - insets.top - insets.bottom).coerceAtLeast(1)
+        }
+        val host = activity.window.decorView
+        val insets = androidx.core.view.ViewCompat.getRootWindowInsets(host)?.getInsetsIgnoringVisibility(
+            androidx.core.view.WindowInsetsCompat.Type.systemBars() or
+                androidx.core.view.WindowInsetsCompat.Type.displayCutout()
+        )
+        val height = host.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels
+        return (height - (insets?.top ?: 0) - (insets?.bottom ?: 0)).coerceAtLeast(1)
+    }
+
     /** Called before WindowManager.addView; later only for actual host geometry changes. */
     fun prepareWindow(activity: Activity, dialog: AlertDialog): WindowPreparation {
         val window = requireNotNull(dialog.window)

@@ -10,6 +10,7 @@ on:
       - fix/20261030-size-bubble-favorites-menu
       - feature/customizable-toolbar-actions
       - feature/oxygen-theme
+      - feature/oxygen-classic-ui-polish
       - fix/bottom-bar-tap-ripple
     paths:
       - "app/**"

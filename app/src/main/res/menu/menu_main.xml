@@ -24,7 +24,7 @@
     <item
         android:id="@+id/manage_unavailable_folder_favorites"
         android:orderInCategory="42"
-        android:title="清理不可用的收藏路径"
+        android:title="@string/manage_unavailable_folder_favorites"
         app:showAsAction="never" />
     <item android:id="@+id/favorite_always_show_excluded"
         android:orderInCategory="40"
@@ -38,7 +38,7 @@
         android:id="@+id/folder_visibility"
         android:orderInCategory="21"
         android:icon="@drawable/ic_filter_vector"
-        android:title="文件夹分类筛选"
+        android:title="@string/folder_visibility_filter"
         app:showAsAction="never" />
     <item
         android:id="@+id/filter"

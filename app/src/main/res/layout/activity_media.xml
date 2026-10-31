@@ -36,23 +36,37 @@
             android:alpha="0.8"
             android:gravity="center_horizontal"
             android:paddingStart="@dimen/activity_margin"
-            android:paddingTop="@dimen/activity_margin"
+            android:paddingTop="16dp"
             android:paddingEnd="@dimen/activity_margin"
             android:text="@string/no_media_with_filters"
-            android:textSize="@dimen/bigger_text_size"
-            android:textStyle="italic"
+            android:textSize="18sp"
+            android:fontFamily="sans-serif-medium"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/media_empty_description"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_below="@id/media_empty_text_placeholder"
+            android:gravity="center_horizontal"
+            android:paddingStart="24dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="24dp"
+            android:paddingBottom="8dp"
+            android:textSize="14sp"
             android:visibility="gone" />
 
         <org.fossify.commons.views.MyTextView
             android:id="@+id/media_empty_text_placeholder_2"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_below="@+id/media_empty_text_placeholder"
+            android:layout_below="@id/media_empty_description"
             android:layout_centerHorizontal="true"
             android:background="@drawable/ripple_all_corners"
             android:padding="@dimen/activity_margin"
             android:text="@string/change_filters_underlined"
-            android:textSize="@dimen/bigger_text_size"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium"
             android:visibility="gone" />
 
         <androidx.swiperefreshlayout.widget.SwipeRefreshLayout

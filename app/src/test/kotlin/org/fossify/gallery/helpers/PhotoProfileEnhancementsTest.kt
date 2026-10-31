@@ -236,7 +236,8 @@ class PhotoProfileEnhancementsTest {
     }
 
     @Test fun sourceGridColumnsRespondOnlyToAvailableWidth() {
-        assertEquals(2, photoSourceColumnCount(280))
+        assertEquals(1, photoSourceColumnCount(280))
+        assertEquals(2, photoSourceColumnCount(300))
         assertEquals(2, photoSourceColumnCount(420))
         assertEquals(3, photoSourceColumnCount(520))
         assertEquals(4, photoSourceColumnCount(1200))

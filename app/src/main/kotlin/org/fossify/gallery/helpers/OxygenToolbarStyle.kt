@@ -30,7 +30,7 @@ import java.util.WeakHashMap
 object OxygenToolbarStyle {
     private const val TITLE_TAG = "oxygen_classic_toolbar_title"
     private const val BACK_TAG = "oxygen_classic_toolbar_back"
-    private class State(var title: String, var back: Boolean, var showSearch: Boolean = true)
+    private class State(var title: String, var back: Boolean, var showSearch: Boolean = true, var titleAction: (() -> Unit)? = null)
     private val hooked = WeakHashMap<MySearchMenu, State>()
 
     /** Set the ActionMenuPresenter popup theme before the menu is inflated. */
@@ -42,15 +42,16 @@ object OxygenToolbarStyle {
         )
     }
 
-    fun apply(activity: Activity, searchMenu: MySearchMenu, title: String, backButton: Boolean = false) {
+    fun apply(activity: Activity, searchMenu: MySearchMenu, title: String, backButton: Boolean = false, titleAction: (() -> Unit)? = null) {
         val current = hooked[searchMenu]
         if (current != null) {
             current.title = title
             current.back = backButton
+            current.titleAction = titleAction
             render(searchMenu, current)
             return
         }
-        val state = State(title, backButton)
+        val state = State(title, backButton, titleAction = titleAction)
         val oldOpen = searchMenu.onSearchOpenListener
         val oldClose = searchMenu.onSearchClosedListener
         searchMenu.onSearchOpenListener = {
@@ -216,6 +217,53 @@ object OxygenToolbarStyle {
             addRule(RelativeLayout.START_OF, if (state.showSearch) icon.id else actions.id)
             marginStart = dp(if (state.back) 64 else 16)
             marginEnd = dp(8)
+        }
+
+        val profileTitleTag = "oxygen_photo_profile_title_control"
+        val profileTitle = container.findViewWithTag<LinearLayout>(profileTitleTag)
+        if (state.titleAction == null) {
+            heading.visibility = if (opened) View.GONE else View.VISIBLE
+            profileTitle?.visibility = View.GONE
+        } else {
+            heading.visibility = View.GONE
+            val control = profileTitle ?: LinearLayout(activity).also { row ->
+                row.tag = profileTitleTag
+                row.orientation = LinearLayout.HORIZONTAL
+                row.gravity = Gravity.CENTER_VERTICAL
+                row.isClickable = true
+                row.isFocusable = true
+                row.addView(TextView(activity).apply {
+                    tag = "oxygen_photo_profile_title_text"
+                    textSize = 20f
+                    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                    includeFontPadding = false
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                    setTextColor(foreground)
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+                row.addView(ImageView(activity).apply {
+                    setImageResource(org.fossify.gallery.R.drawable.photo_profile_dropdown)
+                    imageTintList = ColorStateList.valueOf(foreground)
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    scaleType = ImageView.ScaleType.CENTER
+                }, LinearLayout.LayoutParams(dp(48), ViewGroup.LayoutParams.MATCH_PARENT))
+                container.addView(row)
+            }
+            val titleText = control.findViewWithTag<TextView>("oxygen_photo_profile_title_text")
+            titleText.text = state.title
+            titleText.setTextColor(foreground)
+            control.contentDescription = activity.getString(org.fossify.gallery.R.string.photo_profiles_switch)
+            control.background = RippleDrawable(ColorStateList.valueOf(ColorUtils.setAlphaComponent(foreground, 28)), ColorDrawable(Color.TRANSPARENT), null)
+            control.setOnClickListener { if (!menu.isSearchOpen) state.titleAction?.invoke() }
+            control.visibility = if (opened) View.GONE else View.VISIBLE
+            control.layoutParams = RelativeLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+            ).apply {
+                addRule(RelativeLayout.ALIGN_PARENT_START)
+                addRule(RelativeLayout.START_OF, if (state.showSearch) icon.id else actions.id)
+                marginStart = dp(if (state.back) 64 else 16)
+                marginEnd = dp(4)
+            }
         }
     }
 

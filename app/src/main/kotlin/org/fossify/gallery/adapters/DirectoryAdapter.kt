@@ -99,7 +99,7 @@ import org.fossify.gallery.helpers.FOLDER_STYLE_ROUNDED_CORNERS
 import org.fossify.gallery.helpers.FOLDER_STYLE_SQUARE
 import org.fossify.gallery.helpers.LOCATION_INTERNAL
 import org.fossify.gallery.helpers.LOCATION_SD
-import org.fossify.gallery.helpers.OxygenThumbnailPlaceholder
+import org.fossify.gallery.helpers.DirectoryThumbnailBinder
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.OxygenSelectionMode
@@ -943,14 +943,6 @@ class DirectoryAdapter(
                 trackThickness = (3 * activity.resources.displayMetrics.density + 0.5f).toInt()
             }
             dirPath?.text = "${directory.path.substringBeforeLast("/")}/"
-            val thumbnailType = when {
-                directory.tmb.isVideoFast() -> TYPE_VIDEOS
-                directory.tmb.isGif() -> TYPE_GIFS
-                directory.tmb.isRawFast() -> TYPE_RAWS
-                directory.tmb.isSvg() -> TYPE_SVGS
-                else -> TYPE_IMAGES
-            }
-
             dirCheck.beVisibleIf(isSelected)
             if (isSelected) {
                 dirCheck.background?.applyColorFilter(properPrimaryColor)
@@ -1000,30 +992,10 @@ class DirectoryAdapter(
                     else -> ROUNDED_CORNERS_BIG
                 }
 
-                OxygenThumbnailPlaceholder.apply(activity, dirThumbnail, roundedCorners)
-                Picasso.get().cancelRequest(dirThumbnail)
-                dirThumbnail.scaleType = if (cropThumbnails) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
-                // Old cached thumbnails must never flash on a different folder.
-                if (dirThumbnail.tag != directory.tmb) {
-                    Glide.with(activity).clear(dirThumbnail)
-                    dirThumbnail.setImageDrawable(null)
-                    dirThumbnail.tag = directory.tmb
-                }
-
-                activity.loadImage(
-                    type = thumbnailType,
-                    path = directory.tmb,
-                    target = dirThumbnail,
-                    horizontalScroll = scrollHorizontally,
-                    animateGifs = animateGifs,
-                    cropThumbnails = cropThumbnails,
-                    roundCorners = roundedCorners,
-                    signature = directory.getKey(),
-                    onError = {
-                        dirThumbnail.scaleType = ImageView.ScaleType.CENTER
-                        dirThumbnail.setImageDrawable(AppCompatResources.getDrawable(activity, R.drawable.ic_vector_warning_colored))
-                    }
-                )
+                DirectoryThumbnailBinder.bind(
+                    activity, dirThumbnail, directory.tmb, directory.getKey(), cropThumbnails,
+                    animateGifs, scrollHorizontally, roundedCorners
+                ) { }
             }
 
             dirPin.beVisibleIf(pinnedFolders.contains(directory.path))
