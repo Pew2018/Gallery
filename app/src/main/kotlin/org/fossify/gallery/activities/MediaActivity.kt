@@ -172,6 +172,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var photoLoadedKey: String? = null
     private var photoLoadedRevision = -1L
     private val photoScroll = FavoritesScrollRestorer()
+    private var photoScrollProfileId: String? = null
 
     private fun photoDisplayKey(): String {
         val profile = PhotoProfileRepository.of(this).state().current
@@ -188,14 +189,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (!isPhotoProfiles) return
         val adapter = getMediaAdapter() ?: return
         photoScroll.remember(binding.mediaGrid, adapter.media.map { (it as? Medium)?.path })
+        if (photoScroll.pending != null) photoScrollProfileId = photoProfileId
     }
 
-    private fun clearPhotoDisplayState() {
+    private fun clearPhotoDisplayState(keepAnchor: Boolean = false) {
         photoLoadCompleted = false
         photoLoadedKey = null
         photoLoadedRevision = -1L
         photoViewerTransition = false
-        photoScroll.clear()
+        if (!keepAnchor) {
+            photoScroll.clear()
+            photoScrollProfileId = null
+        }
         org.fossify.gallery.helpers.PhotoViewerSnapshotStore.clear()
         binding.mediaGrid.adapter = null
         mMedia = ArrayList()
@@ -240,12 +245,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun reloadPhotoProfile() {
+        getMediaAdapter()?.finishActMode()
         clearPhotoDisplayState()
         photoHasContent = false
         mediaSearchGeneration++
         mLastSearchedText = ""
         if (binding.mediaMenu.isSearchOpen) OxygenSearchNavigation.closeInlineSearch(this, binding.mediaMenu)
-        getMediaAdapter()?.finishActMode()
         binding.mediaGrid.adapter = null
         mMedia = ArrayList()
         photoProfileId = PhotoProfileRepository.of(this).state().current?.id
@@ -260,10 +265,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         photoNeedsUnlock = false
         val request = mediaLoadRequests.begin()
         mCurrAsyncTask?.stopFetching()
+        if (photoScroll.pending != null && photoScrollProfileId != profile?.id) {
+            photoScroll.clear()
+            photoScrollProfileId = null
+        }
         if (photoLoadCompleted && photoLoadedKey == photoDisplayKey()) {
             rememberPhotoScrollAnchor()
-        } else {
-            photoScroll.clear()
         }
         photoLoadCompleted = false
         photoLoadedKey = null
@@ -494,7 +501,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         favoritesScroll.read(savedInstanceState)
-        if (isPhotoProfiles && photoToken() == null) photoScroll.read(savedInstanceState)
+        if (isPhotoProfiles && photoToken() == null) {
+            photoScroll.read(savedInstanceState)
+            if (photoScroll.pending != null) photoScrollProfileId = photoProfileId
+        }
         if (mPath == FAVORITES && savedInstanceState?.getBoolean("favoritesReturnPending") == true) {
             showFavoritesReturnCover()
         }
@@ -748,10 +758,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun onStop() {
         super.onStop()
-        if (isPhotoProfiles && !photoViewerTransition) {
+        if (isPhotoProfiles && (!photoViewerTransition || photoToken() != null)) {
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
-            clearPhotoDisplayState()
+            // Protected thumbnails never stay in the stopped parent Activity.
+            // The in-memory anchor alone may survive an internal viewer handoff.
+            if (photoViewerTransition) rememberPhotoScrollAnchor()
+            clearPhotoDisplayState(keepAnchor = photoViewerTransition)
         }
 
         if (mPath == FAVORITES && !isFinishing && !isChangingConfigurations && !resolvingFavoriteAccess) {
