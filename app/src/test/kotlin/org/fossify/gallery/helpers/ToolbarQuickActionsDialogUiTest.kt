@@ -115,6 +115,7 @@ class ToolbarQuickActionsDialogUiTest {
         assertFalse(restoredSearch.isChecked)
         assertEquals(originalHome, activity.config.toolbarHomeActions)
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         assertNotEquals(originalFolder, activity.config.toolbarFolderActions)
         assertEquals(originalHome, activity.config.toolbarHomeActions)
         activity.finish()
