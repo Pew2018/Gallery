@@ -466,6 +466,8 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
         val (selection, selectionArgs) =
             PhotoMediaQueryPlan.selection(folderScope.orEmpty(), Images.Media.DATA)
 
+        val queryStarted = GalleryPerfTrace.begin()
+        var indexedCount = 0
         context.queryCursor(uri, projection, selection, selectionArgs) { cursor ->
             if (shouldStop) {
                 return@queryCursor
@@ -547,9 +549,14 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
                 }
 
                 media[parent]?.add(medium)
+                indexedCount++
             } catch (e: Exception) {
             }
         }
+        GalleryPerfTrace.end(
+            if (folderScope == null) "media_store_all" else "media_store_scoped",
+            queryStarted, indexedCount
+        )
 
         return media
     }
@@ -622,6 +629,21 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
         }
 
         return media
+    }
+
+    /** User-edited capture dates only. The indexed MediaStore cursor already supplies normal dates. */
+    fun getCustomDateTakenOverrides(): HashMap<String, Long> {
+        val started = GalleryPerfTrace.begin()
+        val overrides = HashMap<String, Long>()
+        try {
+            context.dateTakensDB.getAllDateTakens().forEach { date ->
+                if (!shouldStop) overrides[date.fullPath] = date.taken
+            }
+        } catch (_: Exception) {
+            // Preserve the existing best-effort behavior if the metadata DB is unavailable.
+        }
+        GalleryPerfTrace.end("date_overrides", started, overrides.size)
+        return overrides
     }
 
     /** Only custom dates for selected profile folders; avoids loading the entire media store. */

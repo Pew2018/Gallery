@@ -2,6 +2,9 @@ package org.fossify.gallery.asynctasks
 
 import android.content.Context
 import android.os.AsyncTask
+import org.fossify.commons.extensions.isExternalStorageManager
+import org.fossify.commons.extensions.isPathOnOTG
+import org.fossify.commons.helpers.isRPlus
 import org.fossify.commons.extensions.getSharedPrefs
 import org.fossify.commons.helpers.FAVORITES
 import org.fossify.commons.helpers.SORT_BY_DATE_MODIFIED
@@ -60,9 +63,27 @@ class GetMediaAsynctask(
             (favoritePathsOverride ?: savedFavorites).filter { it in allowed }.toCollection(ArrayList())
         } else favoritePathsOverride ?: savedFavorites
         val getVideoDurations = context.config.showThumbnailVideoDuration
-        val lastModifieds = if (getProperLastModified) mediaFetcher.getLastModifieds() else HashMap()
-        val dateTakens = if (getProperDateTaken) mediaFetcher.getDateTakens() else HashMap()
+        val scopedAvailable = isRPlus() && !isExternalStorageManager()
+        val scopedFolder = MediaQueryScope.shouldUseFolderQuery(
+            showAll = showAll,
+            path = mPath,
+            scopedStorageAvailable = scopedAvailable,
+            isOtg = scopedAvailable && mPath.startsWith('/') && context.isPathOnOTG(mPath)
+        )
+        // The scoped cursor already returns DATE_MODIFIED and DATE_TAKEN.
+        // Only user-edited dates need a separate Room lookup.
+        val indexedMetadata = scopedAvailable && (showAll || scopedFolder)
+        val lastModifieds = if (getProperLastModified && !indexedMetadata) {
+            mediaFetcher.getLastModifieds()
+        } else HashMap()
+        val dateTakens = when {
+            !getProperDateTaken -> HashMap<String, Long>()
+            scopedFolder -> mediaFetcher.getSelectedFolderDateOverrides(listOf(mPath))
+            scopedAvailable && showAll -> mediaFetcher.getCustomDateTakenOverrides()
+            else -> mediaFetcher.getDateTakens()
+        }
 
+        val scanStarted = GalleryPerfTrace.begin()
         val media = if (showAll) {
             val foldersToScan = mediaFetcher.getFoldersToScan().filter { it != RECYCLE_BIN && it != FAVORITES && !context.config.isFolderProtected(it) }
             val media = ArrayList<Medium>()
@@ -83,11 +104,18 @@ class GetMediaAsynctask(
             mediaFetcher.sortMedia(media, context.config.getFolderSorting(SHOW_ALL))
             media
         } else {
+            val indexedFolder = if (scopedFolder) {
+                mediaFetcher.getAndroid11FolderMedia(
+                    isPickImage, isPickVideo, favoritePaths, false, getProperDateTaken,
+                    HashMap(dateTakens), allowedFolders = setOf(mPath)
+                )
+            } else null
             mediaFetcher.getFilesFrom(
                 mPath, isPickImage, isPickVideo, getProperDateTaken, getProperLastModified, getProperFileSize, favoritePaths,
-                getVideoDurations, lastModifieds, dateTakens, null
+                getVideoDurations, lastModifieds, dateTakens, indexedFolder
             )
         }
+        GalleryPerfTrace.end("media_async_scan", scanStarted, media.size)
 
         val result = mediaFetcher.groupMedia(media, pathToUse)
         val safeResult = if (mPath == FAVORITES && favoriteSessionId != null) {

@@ -154,6 +154,7 @@ import org.fossify.gallery.helpers.GalleryContentView
 import org.fossify.gallery.helpers.OxygenToolbarStyle
 import org.fossify.gallery.helpers.OxygenSystemBars
 import org.fossify.gallery.helpers.OxygenSearchNavigation
+import org.fossify.gallery.helpers.GalleryPerfTrace
 import org.fossify.gallery.helpers.MediaFetcher
 import org.fossify.gallery.helpers.PICKED_PATHS
 import org.fossify.gallery.helpers.RECYCLE_BIN
@@ -1818,10 +1819,17 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val tempFolderPath = config.tempFolderPath
         val getProperFileSize = config.directorySorting and SORT_BY_SIZE != 0
         val dirPathsToRemove = ArrayList<String>()
-        val lastModifieds = mLastMediaFetcher!!.getLastModifieds()
-        val dateTakens = mLastMediaFetcher!!.getDateTakens()
+        // In scoped storage the grouped index already contains normal timestamps
+        // and sizes. Do not query the entire MediaStore twice more for those columns.
+        // The file-system/legacy path retains the original metadata queries.
+        val indexedMetadata = isRPlus() && !isExternalStorageManager()
+        val lastModifieds = if (indexedMetadata) HashMap<String, Long>()
+            else mLastMediaFetcher!!.getLastModifieds()
+        val dateTakens = if (indexedMetadata) mLastMediaFetcher!!.getCustomDateTakenOverrides()
+            else mLastMediaFetcher!!.getDateTakens()
 
         // fetch files from MediaStore only, unless the app has the MANAGE_EXTERNAL_STORAGE permission on Android 11+
+        val indexedStarted = GalleryPerfTrace.begin()
         val android11Files = mLastMediaFetcher?.getAndroid11FolderMedia(
             isPickImage = getImagesOnly,
             isPickVideo = getVideosOnly,
@@ -1830,6 +1838,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             getProperDateTaken = true,
             dateTakens = dateTakens
         )
+        GalleryPerfTrace.end("album_index_ready", indexedStarted, android11Files?.size)
         try {
             for (directory in dirs) {
                 if (mShouldStopFetching || isDestroyed || isFinishing) {
