@@ -58,6 +58,21 @@ object ToolbarQuickActions {
         .filter { it != SEARCH && supported(it) }
         .take(slotsAvailable.coerceIn(0, 5))
 
+    fun availableSlots(
+        widthDp: Int,
+        hasBack: Boolean,
+        showSearch: Boolean,
+        fixedActionCount: Int = 0
+    ): Int {
+        val reservedDp = (if (hasBack) 48 else 16) + 96 + 48 +
+            (if (showSearch) 48 else 0) + fixedActionCount.coerceAtLeast(0) * 48
+        return ((widthDp - reservedDp) / 48f).toInt().coerceIn(0, slots.size)
+    }
+
+    /** A page-level action outside the customizable quick-action catalogue. */
+    fun photoProfileManageVisible(isPhotoProfiles: Boolean, isPicker: Boolean, isRecycleBin: Boolean): Boolean =
+        isPhotoProfiles && !isPicker && !isRecycleBin
+
     fun iconRes(action: String): Int = when (action) {
         SORT -> org.fossify.commons.R.drawable.ic_sort_vector
         FILTER -> R.drawable.ic_quick_media_filter_vector
@@ -110,9 +125,7 @@ object ToolbarQuickActions {
         val density = activity.resources.displayMetrics.density
         val measuredDp = (searchMenu.width.takeIf { it > 0 }
             ?: activity.resources.displayMetrics.widthPixels) / density
-        val reservedDp = (if (hasBack) 48 else 16) + 96 + 48 +
-            (if (showSearch) 48 else 0) + fixedActionCount * 48
-        val count = ((measuredDp - reservedDp) / 48f).toInt().coerceIn(0, slots.size)
+        val count = availableSlots(measuredDp.toInt(), hasBack, showSearch, fixedActionCount)
         val actions = plan(scope, chosen, count, supported)
 
         val activeSlots = mutableMapOf<Int, String>()

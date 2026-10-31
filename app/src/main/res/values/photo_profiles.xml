@@ -2,7 +2,6 @@
 <resources>
     <string name="gallery_nav_albums">Albums</string>
     <string name="gallery_nav_photos">Photos</string>
-    <string name="photo_profiles_switch">Switch photo profile</string>
     <string name="photo_profiles_manage">Manage photo profiles</string>
     <string name="photo_profiles_manage_empty_title">No browsing profiles yet</string>
     <string name="photo_profiles_manage_empty_description">Create a profile to browse selected folders and favorites together.</string>
@@ -36,10 +35,10 @@
     <string name="navigation_order_restore_default">Restore default order</string>
     <string name="photo_profiles_path_title">Full source path</string>
     <string name="photo_profiles_empty_title">No browsing profiles yet</string>
-    <string name="photo_profiles_empty_description">Choose folders or favorites to browse photos and videos together.</string>
+    <string name="photo_profiles_empty_description">Use the profile button in the top right to create a profile, then choose folders or favorites to browse.</string>
     <string name="photo_profiles_no_accessible_media">No content to display. Check media filters, sources or unlock protected content.</string>
     <string name="photo_profiles_no_content_title">Nothing to display yet</string>
-    <string name="photo_profiles_no_content_description">This profile has no media available under the current visibility and filter settings.</string>
+    <string name="photo_profiles_no_content_description">No media is available under the current visibility and filter settings. Use the profile button in the top right to edit its sources.</string>
     <string name="photo_profiles_locked_title">Protected sources need unlocking</string>
     <string name="photo_profiles_locked_description">Unlock this profile to view its protected media.</string>
     <string name="photo_profiles_search_empty_title">No matching photos or videos</string>

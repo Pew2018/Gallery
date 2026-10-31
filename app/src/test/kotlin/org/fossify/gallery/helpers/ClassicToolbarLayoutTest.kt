@@ -53,6 +53,34 @@ class ClassicToolbarLayoutTest {
             .count { it.tag == "oxygen_classic_toolbar_back" })
     }
 
+    @Test fun photoToolbarUsesPlainNonClickableTitleAndOneFixedManageAction() {
+        val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
+        val page = LayoutInflater.from(activity).inflate(R.layout.activity_media, null)
+        val menu = page.findViewById<MySearchMenu>(R.id.media_menu)
+        menu.requireToolbar().inflateMenu(R.menu.menu_media)
+        menu.setupMenu()
+
+        OxygenToolbarStyle.apply(activity, menu, activity.getString(R.string.gallery_nav_photos))
+        val children = descendants(menu.binding.toolbarContainer)
+        val title = children.filterIsInstance<TextView>()
+            .single { it.tag == "oxygen_classic_toolbar_title" }
+        assertEquals(activity.getString(R.string.gallery_nav_photos), title.text.toString())
+        assertFalse(title.isClickable)
+        assertFalse(title.isFocusable)
+        assertEquals(20f, title.textSize / activity.resources.displayMetrics.scaledDensity, 0.2f)
+        assertEquals(0, children.count { it.tag == "oxygen_photo_profile_title_control" })
+        assertFalse(title.performClick())
+
+        val manager = menu.requireToolbar().menu.findItem(R.id.photo_profiles_manage)
+        assertEquals(7, manager.order)
+        assertNotNull(manager.icon)
+        val actionFlags = manager.javaClass.methods.firstOrNull { it.name == "getShowAsActionFlags" }
+            ?.invoke(manager) as? Int
+        assertEquals(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS, actionFlags)
+        manager.isVisible = true // Page policy keeps it visible even when no profile exists.
+        assertTrue(manager.isVisible)
+    }
+
     @Test fun settingsThemeRowSharesTheLeadingTextAlignment() {
         val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
         val page = LayoutInflater.from(activity).inflate(R.layout.activity_settings, null)

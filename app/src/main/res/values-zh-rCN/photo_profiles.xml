@@ -2,7 +2,6 @@
 <resources>
     <string name="gallery_nav_albums">相册</string>
     <string name="gallery_nav_photos">照片</string>
-    <string name="photo_profiles_switch">切换浏览配置</string>
     <string name="photo_profiles_manage">管理浏览配置</string>
     <string name="photo_profiles_manage_empty_title">尚未创建浏览配置</string>
     <string name="photo_profiles_manage_empty_description">创建配置后，可在照片页面集中浏览所选文件夹和收藏。</string>
@@ -36,10 +35,10 @@
     <string name="navigation_order_restore_default">恢复默认顺序</string>
     <string name="photo_profiles_path_title">来源完整路径</string>
     <string name="photo_profiles_empty_title">尚未创建浏览配置</string>
-    <string name="photo_profiles_empty_description">选择文件夹或收藏，在同一页面浏览照片和视频。</string>
+    <string name="photo_profiles_empty_description">使用右上角的配置按钮创建配置，再选择要浏览的文件夹或收藏。</string>
     <string name="photo_profiles_no_accessible_media">当前没有可显示的内容。请检查筛选条件、媒体来源，或解锁受保护内容。</string>
     <string name="photo_profiles_no_content_title">当前没有可显示的内容</string>
-    <string name="photo_profiles_no_content_description">请检查此配置的媒体来源、可见性规则和筛选条件。</string>
+    <string name="photo_profiles_no_content_description">当前可见性规则和筛选条件下没有媒体。使用右上角的配置按钮编辑来源。</string>
     <string name="photo_profiles_locked_title">来源需要解锁</string>
     <string name="photo_profiles_locked_description">解锁此配置后即可查看其中受保护的媒体。</string>
     <string name="photo_profiles_search_empty_title">没有匹配的照片或视频</string>

@@ -82,7 +82,6 @@ import org.fossify.commons.views.MyGridLayoutManager
 import org.fossify.commons.views.MyRecyclerView
 import org.fossify.gallery.helpers.PhotoProfileMediaLoader
 import org.fossify.gallery.helpers.PhotoProfileRepository
-import org.fossify.gallery.helpers.PhotoProfileDialogs
 import org.fossify.gallery.R
 import org.fossify.gallery.adapters.MediaAdapter
 import org.fossify.gallery.asynctasks.GetMediaAsynctask
@@ -166,8 +165,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mPath = ""
     private val isPhotoProfiles get() = mPath == PhotoProfileMediaLoader.PATH
     private var photoProfileId: String? = null
-    private val photoDialogs by lazy { PhotoProfileDialogs(this) { reloadPhotoProfile() } }
-    private fun profileDialogs() = photoDialogs
     private var photoHasContent = false
     private var photoNeedsUnlock = false
     private fun photoToken() = PhotoProfileAccessSessionManager.currentToken(applicationContext)
@@ -192,8 +189,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 binding.mediaEmptyTextPlaceholder.setText(R.string.photo_profiles_no_content_title)
                 binding.mediaEmptyDescription.setText(R.string.photo_profiles_no_content_description)
                 binding.mediaEmptyDescription.beVisible()
-                binding.mediaEmptyTextPlaceholder2.setText(R.string.photo_profiles_edit)
-                binding.mediaEmptyTextPlaceholder2.beVisible()
+                binding.mediaEmptyTextPlaceholder2.beGone()
             }
         }
     }
@@ -243,8 +239,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             binding.mediaEmptyDescription.setText(R.string.photo_profiles_empty_description)
             binding.mediaEmptyDescription.beVisible()
             binding.mediaEmptyTextPlaceholder.beVisible()
-            binding.mediaEmptyTextPlaceholder2.setText(R.string.photo_profiles_create)
-            binding.mediaEmptyTextPlaceholder2.beVisible()
+            binding.mediaEmptyTextPlaceholder2.beGone()
             binding.mediaFastscroller.beGone()
             return
         }
@@ -556,8 +551,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
         binding.mediaEmptyTextPlaceholder2.setOnClickListener {
             if (isPhotoProfiles) {
-                if (PhotoProfileRepository.of(this).state().current == null) profileDialogs().edit()
-                else if (photoNeedsUnlock) unlockPhotoSources() else profileDialogs().edit(PhotoProfileRepository.of(this).state().current)
+                if (photoNeedsUnlock) unlockPhotoSources()
                 return@setOnClickListener
             }
             showFilterMediaDialog()
@@ -904,10 +898,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun refreshPhotoProfileDisplay() {
         if (!isPhotoProfiles) return
         updateMenuColors()
-        val name = PhotoProfileRepository.of(this).state().current?.name
-            ?: getString(R.string.gallery_nav_photos)
         binding.mediaMenu.updateHintText(
-            getString(org.fossify.commons.R.string.search_in_placeholder, name)
+            getString(org.fossify.commons.R.string.search_in_placeholder, getString(R.string.gallery_nav_photos))
         )
     }
 
@@ -921,7 +913,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             findItem(R.id.empty_recycle_bin).isVisible = mPath == RECYCLE_BIN
             findItem(R.id.empty_disable_recycle_bin).isVisible = mPath == RECYCLE_BIN
             findItem(R.id.restore_all_files).isVisible = mPath == RECYCLE_BIN
-            findItem(R.id.photo_profiles_manage).isVisible = isPhotoProfiles
+            val isPicker = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent || isSetWallpaperIntent()
+            findItem(R.id.photo_profiles_manage).isVisible =
+                org.fossify.gallery.helpers.ToolbarQuickActions.photoProfileManageVisible(
+                    isPhotoProfiles, isPicker, mPath == RECYCLE_BIN
+                )
             findItem(R.id.photo_profiles_unlock).isVisible = isPhotoProfiles && photoNeedsUnlock && photoProfileId != null
             findItem(R.id.photo_profiles_lock).isVisible = isPhotoProfiles && photoToken() != null
 
@@ -1048,19 +1044,19 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun updateMenuColors() {
         binding.mediaMenu.updateColors()
         OxygenSystemBars.apply(this)
+        val picker = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent || isSetWallpaperIntent()
         OxygenToolbarStyle.apply(
             this, binding.mediaMenu,
             when {
-                isPhotoProfiles -> PhotoProfileRepository.of(this).state().current?.name ?: getString(R.string.gallery_nav_photos)
-                mShowAll || mPath.isEmpty() -> getString(R.string.app_launcher_name)
+                isPhotoProfiles -> getString(R.string.gallery_nav_photos)
+                picker -> getString(R.string.app_launcher_name)
+                mShowAll || mPath.isEmpty() -> getString(R.string.gallery_nav_albums)
                 mPath == FAVORITES -> getString(org.fossify.commons.R.string.favorites)
                 mPath == RECYCLE_BIN -> getString(org.fossify.commons.R.string.recycle_bin)
                 else -> getHumanizedFilename(mPath)
             },
             backButton = mPath == FAVORITES || (mGallerySection == null && !mShowAll),
-            titleAction = if (isPhotoProfiles) ({ if (!binding.mediaMenu.isSearchOpen) profileDialogs().switch() }) else null
         )
-        val picker = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent || isSetWallpaperIntent()
         if (!picker && mPath != RECYCLE_BIN) {
             val isHome = mPath.isEmpty() || (isPhotoProfiles && org.fossify.gallery.helpers.PhotoPlaybackPolicy.toolbarScope(photoHasContent) == org.fossify.gallery.helpers.ToolbarQuickScope.HOME)
             val viewType = config.getFolderViewType(if (isHome && !isPhotoProfiles) SHOW_ALL else mPath)
@@ -1070,7 +1066,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     else org.fossify.gallery.helpers.ToolbarQuickScope.FOLDER,
                 if (isHome) config.toolbarHomeActions else config.toolbarFolderActions,
                 hasBack = !isHome && !isPhotoProfiles,
-                fixedActionCount = if (hasFixedBrowseSwitch) 1 else 0,
+                fixedActionCount = (if (hasFixedBrowseSwitch) 1 else 0) + (if (isPhotoProfiles) 1 else 0),
                 supported = { action ->
                     if (isPhotoProfiles && action in listOf(
                         org.fossify.gallery.helpers.ToolbarQuickActions.HIDDEN,
@@ -1150,7 +1146,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun tryLoadGallery() {
         requestMediaPermissions {
             val dirName = when (mPath) {
-                PhotoProfileMediaLoader.PATH -> PhotoProfileRepository.of(this).state().current?.name ?: getString(R.string.gallery_nav_photos)
+                PhotoProfileMediaLoader.PATH -> getString(R.string.gallery_nav_photos)
                 FAVORITES -> getString(org.fossify.commons.R.string.favorites)
                 RECYCLE_BIN -> getString(org.fossify.commons.R.string.recycle_bin)
                 config.OTGPath -> getString(org.fossify.commons.R.string.usb)

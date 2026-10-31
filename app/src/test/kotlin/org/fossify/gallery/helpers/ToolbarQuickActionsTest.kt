@@ -112,4 +112,21 @@ class ToolbarQuickActionsTest {
             ToolbarQuickActions.plan(ToolbarQuickScope.HOME, listOf("sort"), 0)
         )
     }
+
+    @Test fun fixedPhotoProfileActionIsReservedBeforeOptionalActionsAtTargetWidths() {
+        val widths = listOf(320, 360, 393, 480)
+        val expectedSlots = listOf(1, 2, 2, 4)
+        widths.zip(expectedSlots).forEach { (width, expected) ->
+            assertEquals(expected, ToolbarQuickActions.availableSlots(
+                widthDp = width, hasBack = false, showSearch = true, fixedActionCount = 1
+            ))
+            assertEquals(expected + 1, ToolbarQuickActions.availableSlots(
+                widthDp = width, hasBack = false, showSearch = true, fixedActionCount = 0
+            ))
+        }
+        assertTrue(ToolbarQuickActions.photoProfileManageVisible(true, false, false))
+        assertFalse(ToolbarQuickActions.photoProfileManageVisible(false, false, false))
+        assertFalse(ToolbarQuickActions.photoProfileManageVisible(true, true, false))
+        assertFalse(ToolbarQuickActions.photoProfileManageVisible(true, false, true))
+    }
 }

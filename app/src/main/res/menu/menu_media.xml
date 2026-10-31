@@ -175,9 +175,13 @@
         android:title="@string/quick_toolbar_search_fallback"
         android:visible="false"
         app:showAsAction="never" />
-    <item android:id="@+id/photo_profiles_manage"
-        android:orderInCategory="85" android:title="@string/photo_profiles_manage"
-        android:visible="false" app:showAsAction="never" />
+    <item
+        android:id="@+id/photo_profiles_manage"
+        android:orderInCategory="7"
+        android:icon="@drawable/ic_photo_profile_manage_vector"
+        android:title="@string/photo_profiles_manage"
+        android:visible="false"
+        app:showAsAction="always" />
     <item android:id="@+id/photo_profiles_unlock" android:orderInCategory="86"
         android:title="@string/photo_password_unlock" app:showAsAction="never" />
     <item android:id="@+id/photo_profiles_lock" android:orderInCategory="87"

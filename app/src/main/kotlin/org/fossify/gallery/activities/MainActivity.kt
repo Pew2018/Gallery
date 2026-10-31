@@ -728,8 +728,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         OxygenSystemBars.apply(this)
         OxygenToolbarStyle.apply(
             this, binding.mainMenu,
-            if (mShowingFolderFavorites) getString(org.fossify.commons.R.string.favorites)
-            else getString(R.string.app_launcher_name)
+            when {
+                mShowingFolderFavorites -> getString(org.fossify.commons.R.string.favorites)
+                mIsThirdPartyIntent -> getString(R.string.app_launcher_name)
+                else -> getString(R.string.gallery_nav_albums)
+            }
         )
         if (!mIsThirdPartyIntent) {
             val fixedBrowseActionCount = if (
