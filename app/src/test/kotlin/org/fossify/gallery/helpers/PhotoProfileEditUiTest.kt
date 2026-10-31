@@ -1,6 +1,7 @@
 package org.fossify.gallery.helpers
 
 import android.app.Application
+import android.view.ContextThemeWrapper
 import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.ViewGroup
@@ -23,8 +24,9 @@ import org.fossify.gallery.R
 class PhotoProfileEditUiTest {
     @Test fun nameLabelAndPageInputUseReadableClassicThemeColors() {
         val context = RuntimeEnvironment.getApplication()
-        val root = LayoutInflater.from(context).inflate(
-            R.layout.activity_photo_profile_edit, FrameLayout(context), false
+        val themed = ContextThemeWrapper(context, R.style.AppTheme)
+        val root = LayoutInflater.from(themed).inflate(
+            R.layout.activity_photo_profile_edit, FrameLayout(themed), false
         )
         val label = root.findViewById<TextView>(R.id.photo_profile_edit_name_label)
         val field = root.findViewById<EditText>(R.id.photo_profile_edit_name)
@@ -62,7 +64,7 @@ class PhotoProfileEditUiTest {
     }
 
     @Test fun legacyThemeTextIsAdjustedOnlyWhenThePagePairLacksContrast() {
-        val context = RuntimeEnvironment.getApplication()
+        val context = ContextThemeWrapper(RuntimeEnvironment.getApplication(), R.style.AppTheme)
         val field = EditText(context)
         val darkPage = OxygenThemeColors.resolve(
             classic = false,
@@ -81,8 +83,9 @@ class PhotoProfileEditUiTest {
 
     @Test fun inputSemanticsAndCompactScrollableLayoutAreRetained() {
         val context = RuntimeEnvironment.getApplication()
-        val root = LayoutInflater.from(context).inflate(
-            R.layout.activity_photo_profile_edit, FrameLayout(context), false
+        val themed = ContextThemeWrapper(context, R.style.AppTheme)
+        val root = LayoutInflater.from(themed).inflate(
+            R.layout.activity_photo_profile_edit, FrameLayout(themed), false
         )
         val field = root.findViewById<EditText>(R.id.photo_profile_edit_name)
         val label = root.findViewById<TextView>(R.id.photo_profile_edit_name_label)
