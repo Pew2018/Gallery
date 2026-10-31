@@ -1,5 +1,9 @@
 package org.fossify.gallery.activities
 
+import org.fossify.gallery.extensions.configurePhotoPassword
+import org.fossify.gallery.extensions.authenticatePhotoPassword
+import org.fossify.gallery.extensions.showPhotoPasswordDialog
+
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
@@ -252,6 +256,7 @@ class SettingsActivity : SimpleActivity() {
         setupAppPasswordProtection()
         setupFileDeletionPasswordProtection()
         setupFavoritePasswordProtection()
+        setupPhotoPasswordProtection()
         setupDeleteEmptyFolders()
         setupKeepScreenOn()
         setupAllowPhotoGestures()
@@ -666,6 +671,45 @@ class SettingsActivity : SimpleActivity() {
                         val confirmationTextId = if (config.deleteProtectionType == PROTECTION_FINGERPRINT)
                             org.fossify.commons.R.string.fingerprint_setup_successfully else org.fossify.commons.R.string.protection_setup_successfully
                         ConfirmationDialog(this, "", confirmationTextId, org.fossify.commons.R.string.ok, 0) { }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun setupPhotoPasswordProtection() {
+        fun status() {
+            val credential = config.photoCredentialSnapshot()
+            if (!credential.enabled) {
+                binding.settingsPhotoPasswordStatus.setText(R.string.photo_password_not_set)
+            } else {
+                val primary = when {
+                    credential.biometricPrimary -> getString(R.string.photo_password_biometric)
+                    credential.type == org.fossify.commons.helpers.PROTECTION_PIN -> getString(R.string.photo_password_backup_pin)
+                    else -> getString(R.string.photo_password_backup_pattern)
+                }
+                val backup = if (!credential.biometricPrimary) getString(R.string.photo_password_backup_none) else when (credential.fallbackType) {
+                    org.fossify.commons.helpers.PROTECTION_PIN -> getString(R.string.photo_password_backup_pin)
+                    else -> getString(R.string.photo_password_backup_pattern)
+                }
+                binding.settingsPhotoPasswordStatus.text = getString(R.string.photo_password_set_summary, primary, backup)
+            }
+        }
+        status()
+        binding.settingsPhotoPasswordHolder.setOnClickListener {
+            if (!config.photoCredentialSnapshot().enabled) {
+                configurePhotoPassword { status() }
+            } else authenticatePhotoPassword { proof ->
+                if (proof != null) showPhotoPasswordDialog(R.string.photo_password_title) {
+                    setItems(arrayOf(getString(R.string.photo_password_change), getString(R.string.photo_password_disable))) { _, index ->
+                        if (!config.isPhotoCredentialCurrent(proof.credential) ||
+                            proof.sessionGeneration != org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.currentGeneration()) return@setItems
+                        if (index == 0) configurePhotoPassword { status() }
+                        else {
+                            config.clearPhotoCredential()
+                            org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.revokeAll("photo_password_disabled")
+                            status()
+                        }
                     }
                 }
             }

@@ -373,5 +373,7 @@
     <string name="quick_toolbar_drag">Long-press and drag to reorder</string>
     <string name="quick_toolbar_drag_row">%1$s, long-press the handle to reorder</string>
     <string name="quick_toolbar_choose_row">%1$s, select shortcut</string>
+    <string name="photo_password_bind_biometric_separate">Authorize these %1$d folder sources together using one folder fingerprint verification. This mechanism is separate from Photos. No new sources are saved unless every verification succeeds.</string>
+    <string name="photo_source_media_count">%1$d media items</string>
 </resources>
 

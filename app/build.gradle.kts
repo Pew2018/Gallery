@@ -197,6 +197,8 @@ detekt {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    // The offline Picasso test fixture implements Downloader, whose API uses OkHttp types.
+    testImplementation(libs.okhttp)
     // Test-only Android View measurement, interaction and native Canvas rendering.
     testImplementation("org.robolectric:robolectric:4.16.1")
     implementation(libs.fossify.commons)

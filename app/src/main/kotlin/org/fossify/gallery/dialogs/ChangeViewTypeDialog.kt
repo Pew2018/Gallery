@@ -41,7 +41,7 @@ class ChangeViewTypeDialog(val activity: BaseSimpleActivity, val fromFoldersView
             }
 
             changeViewTypeDialogUseForThisFolder.apply {
-                beVisibleIf(!fromFoldersView)
+                beVisibleIf(!fromFoldersView && path != org.fossify.gallery.helpers.PhotoProfileMediaLoader.PATH)
                 isChecked = config.hasCustomViewType(pathToUse)
             }
         }
@@ -67,7 +67,7 @@ class ChangeViewTypeDialog(val activity: BaseSimpleActivity, val fromFoldersView
             config.viewTypeFolders = viewType
             config.groupDirectSubfolders = binding.changeViewTypeDialogGroupDirectSubfolders.isChecked
         } else {
-            if (binding.changeViewTypeDialogUseForThisFolder.isChecked) {
+            if (path == org.fossify.gallery.helpers.PhotoProfileMediaLoader.PATH || binding.changeViewTypeDialogUseForThisFolder.isChecked) {
                 config.saveFolderViewType(pathToUse, viewType)
             } else {
                 config.removeFolderViewType(pathToUse)

@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.content.res.Configuration
 import org.fossify.gallery.extensions.config
+import org.fossify.commons.extensions.getSharedPrefs
 import org.fossify.gallery.helpers.OxygenThemeEngine
 import android.os.Bundle
 import com.github.ajalt.reprint.core.Reprint
@@ -16,6 +17,12 @@ import org.fossify.commons.FossifyApp
 
 class App : FossifyApp() {
 
+    // SharedPreferences keeps listeners weakly; keep this application-owned listener alive.
+    private val photoProtectionListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (org.fossify.gallery.helpers.PhotoProtectionChanges.credentialsChanged(key))
+            org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.revokeAll("credential_or_source_identity_changed")
+    }
+
     override val isAppLockFeatureAvailable = true
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -27,11 +34,14 @@ class App : FossifyApp() {
         super.onCreate()
         OxygenThemeEngine.apply(this, config)
         Reprint.initialize(this)
+        getSharedPrefs()
+            .registerOnSharedPreferenceChangeListener(photoProtectionListener)
         // Commons' sealed CustomizationActivity is not a Gallery SimpleActivity.
         // Apply its classic toolbar once on resume, after Commons sets its theme.
         registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
+            private var started = 0
             override fun onActivityCreated(activity: Activity, state: Bundle?) = Unit
-            override fun onActivityStarted(activity: Activity) = Unit
+            override fun onActivityStarted(activity: Activity) { started++ }
             override fun onActivityResumed(activity: Activity) {
                 // Pre-29 has no post-resume lifecycle callback. One queued pass is sufficient.
                 if (android.os.Build.VERSION.SDK_INT < 29) activity.window.decorView.post {
@@ -44,9 +54,17 @@ class App : FossifyApp() {
                 OxygenClassicCustomizationBridge.apply(activity)
             }
             override fun onActivityPaused(activity: Activity) = Unit
-            override fun onActivityStopped(activity: Activity) = Unit
+            override fun onActivityStopped(activity: Activity) {
+                started--
+                if (started == 0 && !activity.isChangingConfigurations) {
+                    org.fossify.gallery.helpers.PhotoAuthentication.requests.cancelAll()
+                    org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.revokeAll("app_backgrounded")
+                }
+            }
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
-            override fun onActivityDestroyed(activity: Activity) = Unit
+            override fun onActivityDestroyed(activity: Activity) {
+                org.fossify.gallery.helpers.PhotoAuthentication.requests.cancelOwner(activity)
+            }
         })
         Picasso.setSingletonInstance(Picasso.Builder(this).downloader(object : Downloader {
             override fun load(request: Request) = Response.Builder().build()

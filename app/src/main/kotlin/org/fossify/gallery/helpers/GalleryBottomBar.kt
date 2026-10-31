@@ -19,7 +19,7 @@ import androidx.core.view.WindowInsetsCompat
 import org.fossify.gallery.R
 
 /**
- * Stable, unobtrusive two-item navigation. No moving selection pill or
+ * Stable, unobtrusive three-item navigation. No moving selection pill or
  * animated tab translation; selection is expressed by icon and label color.
  */
 object GalleryBottomBar {
@@ -59,7 +59,7 @@ object GalleryBottomBar {
         }
     }
 
-    enum class Tab { ALL, FAVORITES }
+    enum class Tab { ALL, FAVORITES, PHOTOS }
 
     @Suppress("DEPRECATION")
     fun open(activity: Activity, intent: Intent, finishCurrent: Boolean = false) {
@@ -104,7 +104,8 @@ object GalleryBottomBar {
         }
 
         val byId = mapOf(
-            Tab.ALL to Triple(Tab.ALL, activity.getString(R.string.gallery_nav_all_images), R.drawable.ic_files_vector),
+            Tab.ALL to Triple(Tab.ALL, activity.getString(R.string.gallery_nav_albums), R.drawable.ic_files_vector),
+            Tab.PHOTOS to Triple(Tab.PHOTOS, activity.getString(R.string.gallery_nav_photos), R.drawable.ic_photo_profile_vector),
             Tab.FAVORITES to Triple(Tab.FAVORITES, activity.getString(org.fossify.commons.R.string.favorites), org.fossify.commons.R.drawable.ic_star_outline_vector)
         )
         val tabs = activity.config.bottomNavigationOrder.mapNotNull { id ->

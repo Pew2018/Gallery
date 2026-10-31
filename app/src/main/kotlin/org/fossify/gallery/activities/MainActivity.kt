@@ -84,6 +84,7 @@ import org.fossify.commons.models.Release
 import org.fossify.commons.views.MyGridLayoutManager
 import org.fossify.commons.views.MyRecyclerView
 import org.fossify.gallery.BuildConfig
+import org.fossify.gallery.helpers.PhotoProfileMediaLoader
 import org.fossify.gallery.R
 import org.fossify.gallery.adapters.DirectoryAdapter
 import org.fossify.gallery.databases.GalleryDatabase
@@ -333,8 +334,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 if (mShowingFolderFavorites) GalleryBottomBar.Tab.FAVORITES else GalleryBottomBar.Tab.ALL
             ) { tab ->
                 getRecyclerAdapter()?.finishActMode()
-                val section = if (tab == GalleryBottomBar.Tab.FAVORITES)
-                    GallerySection.FAVORITES else GallerySection.ALL
+                val section = GallerySection.valueOf(tab.name)
                 openGalleryRoot(GalleryNavigation.bottomDestination(
                     section, config.lastMainViewAll
                 ))
@@ -1222,7 +1222,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         // The pinned favorite-files album must not change the saved favorite-folder tab.
         // Retain the legacy flag for older callers, but the destination owns scope.
         config.showAll = screen.isAllFiles
-        val destination = if (screen.view == GalleryContentView.FILES) {
+        val destination = if (screen.section == GallerySection.PHOTOS) {
+            Intent(this, MediaActivity::class.java).putExtra(DIRECTORY, PhotoProfileMediaLoader.PATH)
+        } else if (screen.view == GalleryContentView.FILES) {
             Intent(this, MediaActivity::class.java).putExtra(
                 DIRECTORY, if (screen.isFavoriteFiles) FAVORITES else ""
             )

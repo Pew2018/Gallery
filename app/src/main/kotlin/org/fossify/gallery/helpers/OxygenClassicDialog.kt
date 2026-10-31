@@ -320,7 +320,10 @@ object OxygenClassicDialog {
                     }
                 }
             }
-            if (needsStyle && (v is RadioButton || v is CheckBox)) {
+            if (needsStyle && (v is RadioButton || v is CheckBox) &&
+                (v as android.widget.CompoundButton).buttonDrawable.let {
+                    it !is PhotoSourceCheckDrawable && it !is PhotoSourceCheckTargetDrawable
+                }) {
                 val button = v as android.widget.CompoundButton
                 button.buttonDrawable = AppCompatResources.getDrawable(button.context,
                     if (v is RadioButton) androidx.appcompat.R.drawable.abc_btn_radio_material

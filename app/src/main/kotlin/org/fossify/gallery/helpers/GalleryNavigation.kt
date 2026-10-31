@@ -1,7 +1,7 @@
 package org.fossify.gallery.helpers
 
 /** Navigation scope and presentation mode must never be inferred from Activity names. */
-enum class GallerySection { ALL, FAVORITES }
+enum class GallerySection { ALL, FAVORITES, PHOTOS }
 enum class GalleryContentView { FILES, FOLDERS }
 
 data class GalleryScreen(
@@ -22,6 +22,7 @@ object GalleryNavigation {
     /** Explicit navigation overrides legacy folder-only Intents. */
     fun resolveSection(explicit: String?, legacyFavoriteFolders: Boolean = false): GallerySection =
         when (explicit) {
+            GallerySection.PHOTOS.name -> GallerySection.PHOTOS
             GallerySection.FAVORITES.name -> GallerySection.FAVORITES
             GallerySection.ALL.name -> GallerySection.ALL
             else -> if (legacyFavoriteFolders) GallerySection.FAVORITES else GallerySection.ALL
@@ -31,13 +32,15 @@ object GalleryNavigation {
         section: GallerySection, lastAllFiles: Boolean, lastFavoriteFiles: Boolean
     ): GalleryScreen = GalleryScreen(
         section,
-        if (if (section == GallerySection.ALL) lastAllFiles else lastFavoriteFiles)
+        if (section == GallerySection.PHOTOS || if (section == GallerySection.ALL) lastAllFiles else lastFavoriteFiles)
             GalleryContentView.FILES else GalleryContentView.FOLDERS
     )
 
     /** Bottom Favorites always means favorite FOLDERS; the pinned album owns favorite FILES. */
     fun bottomDestination(section: GallerySection, lastAllFiles: Boolean): GalleryScreen =
-        if (section == GallerySection.FAVORITES) {
+        if (section == GallerySection.PHOTOS) {
+            GalleryScreen(GallerySection.PHOTOS, GalleryContentView.FILES)
+        } else if (section == GallerySection.FAVORITES) {
             GalleryScreen(GallerySection.FAVORITES, GalleryContentView.FOLDERS)
         } else {
             GalleryScreen(GallerySection.ALL,

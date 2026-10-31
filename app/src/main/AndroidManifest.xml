@@ -89,7 +89,7 @@
 
         <activity
             android:name=".activities.MediaActivity"
-            android:configChanges="orientation"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false"
             android:parentActivityName=".activities.MainActivity" />
 
@@ -150,7 +150,7 @@
 
         <activity
             android:name=".activities.SettingsActivity"
-            android:configChanges="orientation"
+            android:configChanges="orientation|screenSize"
             android:exported="true"
             android:label="@string/settings"
             android:parentActivityName=".activities.MainActivity">

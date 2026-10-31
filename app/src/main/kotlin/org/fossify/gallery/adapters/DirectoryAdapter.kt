@@ -990,6 +990,9 @@ class DirectoryAdapter(
                 dirLock.background = ColorDrawable(root.context.getProperBackgroundColor())
                 dirLock.applyColorFilter(root.context.getProperBackgroundColor().getContrastColor())
             } else {
+                dirThumbnail.visibility = View.VISIBLE
+                dirCheck.setOnClickListener(null)
+                dirCheck.isClickable = false
                 dirLock.beGone()
                 val roundedCorners = when {
                     isListViewType -> ROUNDED_CORNERS_SMALL

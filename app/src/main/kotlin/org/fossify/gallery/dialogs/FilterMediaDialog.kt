@@ -9,11 +9,11 @@ import org.fossify.gallery.databinding.DialogFilterMediaBinding
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.helpers.*
 
-class FilterMediaDialog(val activity: BaseSimpleActivity, val callback: (result: Int) -> Unit) {
+class FilterMediaDialog(val activity: BaseSimpleActivity, private val photoProfile: Boolean = false, val callback: (result: Int) -> Unit) {
     private val binding = DialogFilterMediaBinding.inflate(activity.layoutInflater)
 
     init {
-        val filterMedia = activity.config.filterMedia
+        val filterMedia = if (photoProfile) activity.config.photoMediaFilter else activity.config.filterMedia
         binding.apply {
             filterMediaImages.isChecked = filterMedia and TYPE_IMAGES != 0
             filterMediaVideos.isChecked = filterMedia and TYPE_VIDEOS != 0
@@ -52,8 +52,8 @@ class FilterMediaDialog(val activity: BaseSimpleActivity, val callback: (result:
             result = getDefaultFileFilter()
         }
 
-        if (activity.config.filterMedia != result) {
-            activity.config.filterMedia = result
+        if ((if (photoProfile) activity.config.photoMediaFilter else activity.config.filterMedia) != result) {
+            if (photoProfile) activity.config.photoMediaFilter = result else activity.config.filterMedia = result
             callback(result)
         }
     }
