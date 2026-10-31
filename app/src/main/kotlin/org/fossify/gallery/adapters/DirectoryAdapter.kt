@@ -42,6 +42,7 @@ import org.fossify.commons.extensions.doesThisOrParentHaveNoMedia
 import org.fossify.commons.extensions.getContrastColor
 import org.fossify.commons.extensions.getFilenameFromPath
 import org.fossify.commons.extensions.getProperBackgroundColor
+import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.commons.extensions.getTimeFormat
 import org.fossify.commons.extensions.handleDeletePasswordProtection
 import org.fossify.commons.extensions.handleLockedFolderOpening
@@ -995,7 +996,7 @@ class DirectoryAdapter(
                 DirectoryThumbnailBinder.bind(
                     activity, dirThumbnail, directory.tmb, directory.getKey(), cropThumbnails,
                     animateGifs, scrollHorizontally, roundedCorners,
-                    OxygenThemeEngine.snapshot(activity, config).secondaryText
+                    activity.getProperTextColor()
                 ) { }
             }
 
