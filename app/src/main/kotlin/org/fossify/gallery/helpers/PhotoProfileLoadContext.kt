@@ -3,9 +3,11 @@ package org.fossify.gallery.helpers
 import android.content.Context
 import android.os.Build
 import android.os.Environment
+import android.os.Looper
 import androidx.core.content.ContextCompat
 import org.fossify.commons.extensions.getSharedPrefs
 import org.fossify.gallery.extensions.config
+import org.fossify.gallery.extensions.favoritesDB
 import org.fossify.gallery.extensions.getFavoritePaths
 
 /** Immutable scope identity. Names and unrelated settings never invalidate a media request. */
@@ -52,15 +54,45 @@ data class PhotoProfileScope(
 data class PhotoProfileLoadContext(
     val scope: PhotoProfileScope,
     val revision: Long,
-    val favorites: Set<String>
+    val favorites: Set<String>,
+    /** Non-null only for a bounded request; contains exactly the paths whose membership was queried. */
+    val favoriteMembershipPaths: Set<String>? = null,
+    /** Constant-time relationship snapshot used to detect unrelated add/remove changes. */
+    val favoriteCount: Long? = null
 ) {
-    fun isCurrent(context: Context): Boolean = scope.isCurrent(context) && revision == PhotoContentRevision.current()
+    fun isCurrent(context: Context): Boolean {
+        if (!scope.isCurrent(context) || revision != PhotoContentRevision.current()) return false
+        // Activity publication performs a cheap scope/generation check only. A
+        // bounded context's Room point checks were completed on its validation
+        // worker; never move those DAO reads onto the UI thread.
+        if (Looper.myLooper() == Looper.getMainLooper()) return true
+        // Favorite membership is mutable independently of profile metadata. For a bounded
+        // request recheck only its at-most-five point lookups instead of loading all favorites.
+        if (favoriteCount != null && context.favoritesDB.getFavoritesCount() != favoriteCount) return false
+        return favoriteMembershipPaths?.all { (context.favoritesDB.isFavorite(it)) == (it in favorites) } ?: true
+    }
     companion object {
         fun capture(context: Context, profileId: String?, sessionId: String?): PhotoProfileLoadContext? {
             val revision = PhotoContentRevision.current()
             val scope = PhotoProfileScope.capture(context, profileId, sessionId) ?: return null
             val favorites = context.getFavoritePaths().toSet()
             return PhotoProfileLoadContext(scope, revision, favorites).takeIf { it.isCurrent(context) }
+        }
+
+        /** Captures only fresh favorite membership for the small candidate window. */
+        fun captureNeighbors(
+            context: Context, profileId: String?, sessionId: String?, candidatePaths: Collection<String>
+        ): PhotoProfileLoadContext? {
+            if (candidatePaths.size > ViewerNeighborWindow.MAX_ITEMS) return null
+            val revision = PhotoContentRevision.current()
+            val scope = PhotoProfileScope.capture(context, profileId, sessionId) ?: return null
+            val paths = candidatePaths.toSet()
+            val includesFavorites = scope.sources.any { it.type == PhotoSourceType.FAVORITES }
+            val favorites = if (includesFavorites) paths.filterTo(LinkedHashSet()) { context.favoritesDB.isFavorite(it) }
+                else emptySet()
+            val count = if (includesFavorites) context.favoritesDB.getFavoritesCount() else null
+            return PhotoProfileLoadContext(scope, revision, favorites,
+                if (includesFavorites) paths else emptySet(), count).takeIf { it.isCurrent(context) }
         }
     }
 }

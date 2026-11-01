@@ -39,6 +39,9 @@ abstract class ViewPagerFragment : Fragment() {
         fun isSlideShowActive(): Boolean
 
         fun isFullScreen(): Boolean
+
+        /** Called after a photo drawable has been installed; paths remain in-process only. */
+        fun imageRendered(path: String) {}
     }
 
     fun getMediumExtendedDetails(medium: Medium): String {

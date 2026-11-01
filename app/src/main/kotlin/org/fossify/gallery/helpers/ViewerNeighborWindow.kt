@@ -24,33 +24,34 @@ internal data class ViewerNeighborWindow(
 
         /** Walks the displayed order once while retaining only the selected item and nearby media. */
         fun captureAround(
-            items: Iterable<ThumbnailItem>,
+            items: List<ThumbnailItem>,
             selectedPath: String,
             radius: Int = NEIGHBOR_RADIUS
         ): List<Medium>? {
             if (radius < 0 || selectedPath.isEmpty()) return null
-            val before = ArrayDeque<Medium>(radius)
-            val after = ArrayList<Medium>(radius)
-            val seen = HashSet<String>()
-            var selectedFound = false
-            for (item in items) {
-                val medium = item as? Medium ?: continue
-                if (!seen.add(medium.path)) continue
-                if (!selectedFound) {
-                    if (medium.path == selectedPath) {
-                        selectedFound = true
-                        after.add(medium)
-                    } else if (radius > 0) {
-                        if (before.size == radius) before.removeFirst()
-                        before.addLast(medium)
-                    }
-                } else if (after.size <= radius) {
-                    after.add(medium)
-                    if (after.size == radius + 1) break
-                }
+            val windowRadius = radius.coerceAtMost(NEIGHBOR_RADIUS)
+            // Adapter.media is the committed display snapshot. Locate the selected
+            // position without allocating a set proportional to the whole gallery.
+            val selectedIndex = items.indexOfFirst { it is Medium && it.path == selectedPath }
+            if (selectedIndex < 0) return null
+            val before = ArrayList<Medium>(windowRadius)
+            val after = ArrayList<Medium>(windowRadius + 1)
+            val seen = HashSet<String>(MAX_ITEMS)
+            val selected = items[selectedIndex] as Medium
+            seen.add(selected.path)
+            after.add(selected)
+            var index = selectedIndex - 1
+            while (index >= 0 && before.size < windowRadius) {
+                val medium = items[index--] as? Medium ?: continue
+                if (seen.add(medium.path)) before.add(medium)
             }
-            if (!selectedFound) return null
-            return (before.toList() + after).map { it.copy() }
+            before.reverse()
+            index = selectedIndex + 1
+            while (index < items.size && after.size <= windowRadius) {
+                val medium = items[index++] as? Medium ?: continue
+                if (seen.add(medium.path)) after.add(medium)
+            }
+            return before + after
         }
     }
 }

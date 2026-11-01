@@ -147,6 +147,7 @@ import org.fossify.gallery.fragments.ViewPagerFragment
 import org.fossify.gallery.helpers.BOTTOM_ACTION_CHANGE_ORIENTATION
 import org.fossify.gallery.helpers.BOTTOM_ACTION_COPY
 import org.fossify.gallery.helpers.FolderContentRevision
+import org.fossify.gallery.helpers.MediaFetcher
 import org.fossify.gallery.helpers.BOTTOM_ACTION_DELETE
 import org.fossify.gallery.helpers.BOTTOM_ACTION_EDIT
 import org.fossify.gallery.helpers.BOTTOM_ACTION_MOVE
@@ -211,6 +212,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private var mPath = ""
+    private var viewerInitialSelectedPath = ""
+    private var viewerSelectedImageStarted = 0L
+    private var selectedImageRenderedLogged = false
+    private val renderedAdjacentPaths = HashSet<String>()
     private var mDirectory = ""
     private var mIsFullScreen = false
     private var mPos = -1
@@ -263,6 +268,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private val photoSessionId get() = intent.getStringExtra(PhotoProfileAccessSessionManager.EXTRA_SESSION)
     private var slideshowEntryConsumed = false
     private val photoProfileId get() = intent.getStringExtra(PhotoProfileMediaLoader.EXTRA_ID)
+    private val viewerSearchQuery get() = intent.getStringExtra(org.fossify.gallery.helpers.ViewerSearchPolicy.EXTRA_QUERY)
     private val isPhotoProfile get() = intent.hasExtra(PhotoProfileMediaLoader.EXTRA_ID)
     private val favoriteSessionId get() = intent.getStringExtra(FAVORITE_ACCESS_SESSION)
     private val isFavoriteRequest get() = intent.getBooleanExtra(SHOW_FAVORITES, false) || intent.hasExtra(FAVORITE_ACCESS_SESSION)
@@ -592,6 +598,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (savedPath.isEmpty() && intent.extras?.containsKey(REAL_FILE_PATH) == true) {
             mPath = intent.extras!!.getString(REAL_FILE_PATH)!!
         }
+        viewerInitialSelectedPath = mPath
 
         if (mPath.isEmpty()) {
             toast(org.fossify.commons.R.string.unknown_error_occurred)
@@ -633,11 +640,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         fun publish(items: List<Medium>) {
             if (request != viewerLoadGeneration || isFinishing || isDestroyed) return
             if (firstContext != null && !firstContext.isCurrent(applicationContext)) { finish(); return }
-            if (!checkFavoriteAccess() || items.none { it.path == clicked }) { finish(); return }
+            if (!checkFavoriteAccess() || items.isEmpty()) { finish(); return }
+            val scopedItems = searchedViewerMedia(items)
             if (initialized) {
-                gotMedia(ArrayList<ThumbnailItem>(items), refetchViewPagerPosition = true)
+                gotMedia(ArrayList<ThumbnailItem>(scopedItems), refetchViewPagerPosition = true)
             } else {
-                mMediaFiles = ArrayList(items)
+                mMediaFiles = ArrayList(scopedItems)
                 initContinue()
             }
         }
@@ -652,7 +660,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     }.getOrNull()
                     runOnUiThread {
                         if (request != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
-                        if (safe == null || !safe.context.isCurrent(applicationContext)) { finish(); return@runOnUiThread }
+                        if (safe == null || !safe.context.isCurrent(applicationContext)) {
+                            if (firstContext != null && firstContext.isCurrent(applicationContext) && mMediaFiles.isNotEmpty()) {
+                                showErrorToast(Exception("Could not refresh the full photo list"))
+                            } else finish()
+                            return@runOnUiThread
+                        }
                         publish(safe.media)
                         logPagerReady("viewer_full_list_ready", fullStarted, safe.media.size)
                     }
@@ -660,9 +673,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             } else {
                 viewerLoadTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
                     showAll = false, photoProfileId = profile, photoSessionId = session,
-                    onFailure = { if (request == viewerLoadGeneration && !isFinishing && !isDestroyed) finish() }
+                    onFailure = {
+                        if (request == viewerLoadGeneration && !isFinishing && !isDestroyed) {
+                            if (firstContext == null || !firstContext.isCurrent(applicationContext)) finish()
+                            else showErrorToast(it)
+                        }
+                    }
                 ) { items ->
-                    val fullMedia = items.filterIsInstance<Medium>()
+                    val fullMedia = searchedViewerMedia(items.filterIsInstance<Medium>())
                     publish(fullMedia)
                     logPagerReady("viewer_full_list_ready", fullStarted, fullMedia.size)
                 }.also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
@@ -697,6 +715,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             0, 0, 0, getTypeFromPath(path), 0, false, 0L, 0L
         )
 
+    /** Full results remain inside the search result set used to build the tapped window. */
+    private fun searchedViewerMedia(media: List<Medium>): List<Medium> {
+        val query = viewerSearchQuery
+        if (query.isNullOrBlank()) return media
+        val matches = org.fossify.gallery.helpers.ViewerSearchPolicy.filter(media, query)
+        if (isPhotoProfile) return matches
+        val groupingPath = if (isFavoriteRequest) FAVORITES else mDirectory
+        val grouped = MediaFetcher(applicationContext).groupMedia(ArrayList(matches), groupingPath)
+        return grouped.filterIsInstance<Medium>()
+    }
+
     private fun takeNeighborWindow(
         sourceType: org.fossify.gallery.helpers.ViewerSourceType,
         sourceKey: String
@@ -713,7 +742,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun publishAdjacent(media: List<Medium>) {
         if (media.size < 2 || media.none { it.path == mPath } || isFinishing || isDestroyed) return
         gotMedia(ArrayList<ThumbnailItem>(media), refetchViewPagerPosition = true)
-        logPagerReady("viewer_adjacent_ready", adjacentReadyStarted, media.size, mPath, requireMultiplePages = true)
+        logPagerReady("viewer_adjacent_pager_ready", adjacentReadyStarted, media.size, mPath, requireMultiplePages = true)
     }
 
     private var adjacentReadyStarted = 0L
@@ -754,11 +783,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 stagedInternalViewer = true
                 mMediaFiles = arrayListOf(selected)
                 initContinue()
-                logPagerReady("viewer_selected_ready", selectedStarted, 1, path)
+                viewerSelectedImageStarted = selectedStarted
+                logPagerReady("viewer_selected_pager_ready", selectedStarted, 1, path)
                 fun loadCompleteFavorites() {
                     val fullStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
                     viewerLoadTask = GetMediaAsynctask(applicationContext, FAVORITES, showAll = false,
-                        favoriteSessionId = token, onFailure = { if (load == viewerLoadGeneration) finish() }
+                        favoriteSessionId = token, onFailure = {
+                            if (load == viewerLoadGeneration && !isFinishing && !isDestroyed) {
+                                if (!FavoriteAccessSessionManager.isActive(token)) closeUnauthorizedFavorites()
+                                else showErrorToast(it)
+                            }
+                        }
                     ) { items ->
                         if (request == viewerAccessGeneration && load == viewerLoadGeneration && !isFinishing && !isDestroyed) {
                             submitViewerAccess(request) {
@@ -770,8 +805,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                                     if (batch == null || batch.items.none { it.path == path } || !FavoriteAccessSessionManager.isPublicationCurrent(batch.validation)) {
                                         closeUnauthorizedFavorites(); return@runOnUiThread
                                     }
-                                    gotMedia(ArrayList<ThumbnailItem>(batch.items), refetchViewPagerPosition = true)
-                                    logPagerReady("viewer_full_list_ready", fullStarted, batch.items.size)
+                                    val searched = searchedViewerMedia(batch.items)
+                                    gotMedia(ArrayList<ThumbnailItem>(searched), refetchViewPagerPosition = true)
+                                    logPagerReady("viewer_full_list_ready", fullStarted, searched.size)
                                 }
                             }
                         }
@@ -839,7 +875,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 stagedInternalViewer = true
                 mMediaFiles = arrayListOf(selected)
                 initContinue()
-                logPagerReady("viewer_selected_ready", selectedStarted, 1, path)
+                viewerSelectedImageStarted = selectedStarted
+                logPagerReady("viewer_selected_pager_ready", selectedStarted, 1, path)
                 val neighborWindow = takeNeighborWindow(
                     org.fossify.gallery.helpers.ViewerSourceType.FOLDER, mDirectory
                 )
@@ -856,7 +893,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         }
                     ) { items ->
                         if (request == viewerAccessGeneration && load == viewerLoadGeneration && !isFinishing && !isDestroyed) {
-                            val fullMedia = items.filterIsInstance<Medium>()
+                            val fullMedia = searchedViewerMedia(items.filterIsInstance<Medium>())
                             publishFolderCandidates(request, load, token, path, fullMedia) {
                                 logPagerReady("viewer_full_list_ready", fullStarted, fullMedia.size)
                             }
@@ -912,12 +949,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             runOnUiThread {
                 if (request != viewerAccessGeneration || load != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
                 val currentPath = getCurrentPath().ifEmpty { selectedPath }
-                if (!FolderUnlockSessionManager.isActive(token) || currentPath !in authorized || safe.none { it.path == currentPath }) {
+                val currentFileExists = runCatching { File(currentPath).exists() }.getOrDefault(true)
+                val currentDeniedWhilePresent = currentFileExists &&
+                    (currentPath !in authorized || safe.none { it.path == currentPath })
+                if (!FolderUnlockSessionManager.isActive(token) || currentDeniedWhilePresent || safe.isEmpty()) {
                     finish(); return@runOnUiThread
                 }
                 val random = config.getFolderSorting(folder) and SORT_BY_RANDOM != 0
                 val ordered = org.fossify.gallery.helpers.FolderViewerMediaPolicy.reconcile(
-                    if (onPublished != null) emptyList() else mMediaFiles, safe, random
+                    mMediaFiles, safe, random
                 ) { it.path }
                 // A late scan must retain the photo the user has already swiped to.
                 mPath = currentPath
@@ -965,7 +1005,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     if (first != null) {
                         mMediaFiles = ArrayList(first.media)
                         initContinue()
-                        logPagerReady("viewer_selected_ready", started, 1, clicked)
+                        viewerSelectedImageStarted = started
+                        logPagerReady("viewer_selected_pager_ready", started, 1, clicked)
                     }
                     completePhotoViewerLoad(request, cached, first?.context, first != null, neighborWindow)
                 }
@@ -2180,6 +2221,19 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override fun isSlideShowActive() = mIsSlideshowActive
 
     override fun isFullScreen() = mIsFullScreen
+
+    override fun imageRendered(path: String) {
+        if (path == viewerInitialSelectedPath && !selectedImageRenderedLogged) {
+            selectedImageRenderedLogged = true
+            org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                "viewer_selected_image_rendered", viewerSelectedImageStarted, 1
+            )
+        } else if (path != viewerInitialSelectedPath && renderedAdjacentPaths.add(path) && adjacentReadyStarted != 0L) {
+            org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                "viewer_adjacent_image_rendered", adjacentReadyStarted, 1
+            )
+        }
+    }
 
     override fun goToPrevItem() {
         binding.viewPager.setCurrentItem(binding.viewPager.currentItem - 1, false)

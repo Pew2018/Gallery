@@ -129,6 +129,18 @@ class PhotoFragment : ViewPagerFragment() {
     private var mCurrentGestureViewZoom = 1f
     private var mInitialZoom = 1f
     private var mHasInitialZoom = false
+    private var mReportedImagePath: String? = null
+
+    private fun reportImageRendered() {
+        val path = mMedium.path
+        if (mReportedImagePath == path) return
+        binding.gesturesView.post {
+            if (mReportedImagePath != path && binding.gesturesView.drawable != null && mMedium.path == path) {
+                mReportedImagePath = path
+                listener?.imageRendered(path)
+            }
+        }
+    }
 
     private var mStoredShowExtendedDetails = false
     private var mStoredHideExtendedDetails = false
@@ -472,6 +484,7 @@ class PhotoFragment : ViewPagerFragment() {
         if (context != null) {
             val drawable = APNGDrawable.fromFile(mMedium.path)
             binding.gesturesView.setImageDrawable(drawable)
+            reportImageRendered()
         }
     }
 
@@ -484,6 +497,7 @@ class PhotoFragment : ViewPagerFragment() {
             }
 
             binding.gesturesView.setImageDrawable(drawable)
+            reportImageRendered()
         }
     }
 
@@ -497,6 +511,7 @@ class PhotoFragment : ViewPagerFragment() {
                 loadWithGlide(path, addZoomableView)
             } else {
                 binding.gesturesView.setImageDrawable(drawable)
+                reportImageRendered()
             }
         } else {
             loadWithGlide(path, addZoomableView)
@@ -545,6 +560,7 @@ class PhotoFragment : ViewPagerFragment() {
                     if (mIsFragmentVisible && addZoomableView) {
                         scheduleZoomableView()
                     }
+                    reportImageRendered()
                     return false
                 }
             }).into(binding.gesturesView)
@@ -575,6 +591,7 @@ class PhotoFragment : ViewPagerFragment() {
                     if (mIsFragmentVisible && addZoomableView) {
                         scheduleZoomableView()
                     }
+                    reportImageRendered()
                 }
 
                 override fun onError(e: Exception?) {

@@ -248,6 +248,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         photoHasContent = false
         mediaSearchGeneration++
         mLastSearchedText = ""
+        mCommittedSearchText = ""
         if (binding.mediaMenu.isSearchOpen) OxygenSearchNavigation.closeInlineSearch(this, binding.mediaMenu)
         binding.mediaGrid.adapter = null
         mMedia = ArrayList()
@@ -383,6 +384,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mWasFullscreenViewOpen = false
     private var pendingFolderReturn: FolderReturnCheckpoint? = null
     private var mLastSearchedText = ""
+    /** Query corresponding to the adapter's last committed visible-order snapshot. */
+    private var mCommittedSearchText = ""
     private var mLatestMediaId = 0L
     private var mLatestMediaDateId = 0L
     private var mLastMediaHandler = Handler()
@@ -1270,6 +1273,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed &&
                             (mPath != FAVORITES || FavoriteAccessSessionManager.isActive(favoriteSessionId))
                     }, onCommitted = {
+                        if (searchGeneration == mediaSearchGeneration && mLastSearchedText == text) {
+                            mCommittedSearchText = text
+                        }
                         displayedMediaIsFinal = finalResult
                         restoreFavoritesScrollAnchor(request, finalResult)
                     })
@@ -2083,7 +2089,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val neighborSourceType = if (source == FAVORITES) org.fossify.gallery.helpers.ViewerSourceType.FAVORITES
             else org.fossify.gallery.helpers.ViewerSourceType.FOLDER
         val neighborSourceKey = if (source == FAVORITES) FAVORITES else source
-        val neighborId = org.fossify.gallery.helpers.ViewerNeighborWindow.captureAround(mMedia, path)?.let { neighbors ->
+        val displayedOrder = getMediaAdapter()?.media ?: mMedia
+        val neighborId = org.fossify.gallery.helpers.ViewerNeighborWindow.captureAround(displayedOrder, path)?.let { neighbors ->
             org.fossify.gallery.helpers.ViewerNeighborHandoffStore.offer(
                 org.fossify.gallery.helpers.ViewerNeighborWindow(
                     path, neighborSourceType, neighborSourceKey, neighbors,
@@ -2113,6 +2120,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     putExtra(SHOW_FAVORITES, source == FAVORITES)
                     putExtra(SHOW_RECYCLE_BIN, source == RECYCLE_BIN)
                     putExtra(IS_FROM_GALLERY, true)
+                    if (mCommittedSearchText.isNotBlank()) putExtra(
+                        org.fossify.gallery.helpers.ViewerSearchPolicy.EXTRA_QUERY, mCommittedSearchText
+                    )
                     neighborId?.let { putExtra(org.fossify.gallery.helpers.ViewerNeighborHandoffStore.EXTRA_ID, it) }
                 })
             }
@@ -2133,7 +2143,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val requestedPhotoKey = if (isPhotoProfiles) photoDisplayKey() else null
         val requestedPhotoToken = if (isPhotoProfiles) photoToken() else null
         val neighborId = if (isPhotoProfiles) {
-            org.fossify.gallery.helpers.ViewerNeighborWindow.captureAround(mMedia, path)?.let { neighbors ->
+            val displayedOrder = getMediaAdapter()?.media ?: mMedia
+            org.fossify.gallery.helpers.ViewerNeighborWindow.captureAround(displayedOrder, path)?.let { neighbors ->
                 org.fossify.gallery.helpers.ViewerNeighborHandoffStore.offer(
                     org.fossify.gallery.helpers.ViewerNeighborWindow(
                         path, org.fossify.gallery.helpers.ViewerSourceType.PHOTO_PROFILE,
@@ -2170,6 +2181,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     putExtra(SHOW_FAVORITES, mPath == FAVORITES)
                     putExtra(SHOW_RECYCLE_BIN, mPath == RECYCLE_BIN)
                     putExtra(IS_FROM_GALLERY, true)
+                    if (mCommittedSearchText.isNotBlank()) putExtra(
+                        org.fossify.gallery.helpers.ViewerSearchPolicy.EXTRA_QUERY, mCommittedSearchText
+                    )
                     neighborId?.let { putExtra(org.fossify.gallery.helpers.ViewerNeighborHandoffStore.EXTRA_ID, it) }
                     pendingFolderReturn = null
                     if (isPhotoProfiles) {

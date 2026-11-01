@@ -5,6 +5,7 @@ import org.fossify.gallery.models.ThumbnailItem
 import org.fossify.gallery.models.ThumbnailSection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Test
 
 class ViewerNeighborWindowTest {
@@ -40,5 +41,14 @@ class ViewerNeighborWindowTest {
     @Test
     fun absentSelectionFallsBackWithoutGuessingNeighbors() {
         assertNull(ViewerNeighborWindow.captureAround(listOf(medium(1), medium(2)), "/gallery/missing.jpg"))
+    }
+
+    @Test fun localExtractionDoesNotCopyMediumObjectsOrAllocateGallerySizedDeduplicationState() {
+        val selected = medium(2)
+        val after = medium(3)
+        val input = (0 until 10_000).filter { it != 2 }.map(::medium) + listOf(selected, after)
+        val result = ViewerNeighborWindow.captureAround(input, selected.path)!!
+        assertEquals(listOf("9998.jpg", "9999.jpg", "2.jpg", "3.jpg"), result.map { it.name })
+        assertSame(selected, result[2])
     }
 }
