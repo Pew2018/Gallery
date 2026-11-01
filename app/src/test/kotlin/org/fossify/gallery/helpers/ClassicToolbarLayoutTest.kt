@@ -1,13 +1,18 @@
 package org.fossify.gallery.helpers
 
 import android.app.Application
+import android.graphics.Rect
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.ContextThemeWrapper
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.CheckBox
+import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.view.menu.MenuAdapter
+import androidx.appcompat.view.menu.MenuBuilder
 import com.google.android.material.appbar.MaterialToolbar
 import org.fossify.commons.views.MySearchMenu
 import org.fossify.gallery.R
@@ -103,6 +108,39 @@ class ClassicToolbarLayoutTest {
             attributes.recycle()
             val surface = if (mode == "light") 0xFFFFFFFF.toInt() else 0xFF303030.toInt()
             assertTrue(OxygenThemeColors.contrastRatio(text, surface) >= 4.5)
+        }
+    }
+
+    @android.annotation.SuppressLint("RestrictedApi")
+    @Test fun classicOverflowMeasuresLongCheckedLabelsWithoutControlOverlap() {
+        val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
+        activity.config.oxygenThemeActivated = true
+        for (mode in listOf("light", "dark")) {
+            activity.config.oxygenAppearanceMode = mode
+            val context = ContextThemeWrapper(activity, OxygenClassicMenus.theme(activity))
+            val popup = OxygenClassicMenus.createPopup(activity, View(activity))
+            popup.menu.add(0, 1, 0, "始终显示已排除项目").apply {
+                isCheckable = true
+                isChecked = true
+            }
+            val adapter = MenuAdapter(popup.menu as MenuBuilder, LayoutInflater.from(context),
+                false, androidx.appcompat.R.layout.abc_popup_menu_item_layout)
+            val row = adapter.getView(0, null, FrameLayout(context))
+            val density = context.resources.displayMetrics.density
+            row.measure(View.MeasureSpec.makeMeasureSpec((256 * density).toInt(), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+            row.layout(0, 0, row.measuredWidth, row.measuredHeight)
+            val title = descendants(row).filterIsInstance<TextView>()
+                .single { it.text.toString() == "始终显示已排除项目" }
+            val check = descendants(row).filterIsInstance<CheckBox>().single()
+            assertTrue(check.isChecked)
+            assertEquals(16f, title.textSize / context.resources.displayMetrics.scaledDensity, 0.2f)
+            assertTrue(row.measuredHeight >= (48 * density).toInt())
+            val titleBounds = Rect().also { title.getDrawingRect(it) }
+            val checkBounds = Rect().also { check.getDrawingRect(it) }
+            (row as ViewGroup).offsetDescendantRectToMyCoords(title, titleBounds)
+            row.offsetDescendantRectToMyCoords(check, checkBounds)
+            assertTrue("Menu title overlaps its checked control", titleBounds.right <= checkBounds.left)
         }
     }
 }

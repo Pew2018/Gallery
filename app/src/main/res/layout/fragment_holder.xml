@@ -37,6 +37,7 @@
             android:id="@+id/fragment_viewer_toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
+            app:popupTheme="?attr/actionBarPopupTheme"
             app:menu="@menu/photo_video_menu"
             app:navigationIcon="@drawable/ic_arrow_left_vector" />
 

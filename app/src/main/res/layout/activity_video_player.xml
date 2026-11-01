@@ -110,6 +110,7 @@
             android:id="@+id/video_toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
+            app:popupTheme="?attr/actionBarPopupTheme"
             app:menu="@menu/menu_video_player"
             app:navigationIcon="@drawable/ic_arrow_left_vector" />
 

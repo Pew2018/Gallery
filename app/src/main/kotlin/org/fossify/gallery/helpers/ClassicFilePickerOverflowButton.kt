@@ -4,12 +4,9 @@ import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.util.AttributeSet
-import android.view.ContextThemeWrapper
-import android.view.Gravity
 import android.view.View
 import android.view.ViewTreeObserver
 import androidx.appcompat.widget.AppCompatImageButton
-import androidx.appcompat.widget.PopupMenu
 import androidx.core.graphics.ColorUtils
 import org.fossify.commons.extensions.getProperBackgroundColor
 import org.fossify.gallery.R
@@ -39,7 +36,7 @@ class ClassicFilePickerOverflowButton @JvmOverloads constructor(
             original.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
             val light = ColorUtils.calculateLuminance(context.getProperBackgroundColor()) >= 0.5
             imageTintList = ColorStateList.valueOf(if (light) Color.rgb(33, 33, 33) else Color.WHITE)
-            setOnClickListener { openOptions(original, light) }
+            setOnClickListener { openOptions(original) }
             observer = viewTreeObserver.also { it.addOnGlobalLayoutListener(this) }
             syncVisibility()
         }
@@ -49,11 +46,10 @@ class ClassicFilePickerOverflowButton @JvmOverloads constructor(
         if (delegate?.visibility == View.VISIBLE) R.string.picker_show_hidden_folders
         else R.string.picker_hidden_folders_visible
 
-    private fun openOptions(original: View, light: Boolean) {
+    private fun openOptions(original: View) {
         val canReveal = original.visibility == View.VISIBLE
         if (!canReveal && !revealWasOffered) return
-        val style = if (light) R.style.OxygenClassicPopupTheme_Light else R.style.OxygenClassicPopupTheme_Dark
-        PopupMenu(ContextThemeWrapper(context, style), this, Gravity.END).apply {
+        OxygenClassicMenus.createPopup(context, this).apply {
             menu.add(
                 0, 1, 0,
                 currentActionLabel()

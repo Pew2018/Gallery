@@ -1,5 +1,6 @@
 package org.fossify.gallery.activities
 
+import org.fossify.gallery.helpers.OxygenToolbarStyle
 import android.app.WallpaperManager
 import android.content.Intent
 import android.graphics.Bitmap
@@ -77,6 +78,7 @@ class SetWallpaperActivity : BaseCropActivity() {
     }
 
     private fun setupOptionsMenu() {
+        OxygenToolbarStyle.preparePopup(this, binding.setWallpaperToolbar)
         binding.setWallpaperToolbar.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
                 R.id.save -> confirmWallpaper()

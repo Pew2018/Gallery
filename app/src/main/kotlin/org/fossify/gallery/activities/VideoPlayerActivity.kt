@@ -2,6 +2,7 @@
 
 package org.fossify.gallery.activities
 
+import org.fossify.gallery.helpers.OxygenToolbarStyle
 import org.fossify.commons.helpers.REAL_FILE_PATH
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_MEDIA_PATH
@@ -322,6 +323,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
 
     override fun onResume() {
         super.onResume()
+        OxygenToolbarStyle.applyViewerPopup(this, binding.videoToolbar)
         if (!checkFavoriteVideo()) return
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
@@ -361,6 +363,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
     }
 
     private fun setupOptionsMenu() {
+        OxygenToolbarStyle.preparePopup(this, binding.videoToolbar)
         binding.videoToolbar.apply {
             setTitleTextColor(Color.WHITE)
             overflowIcon = resources.getColoredDrawableWithColor(

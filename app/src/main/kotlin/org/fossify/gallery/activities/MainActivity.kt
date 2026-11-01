@@ -288,7 +288,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 OxygenProgressStyle.apply(this@MainActivity, config, this)
                 visibility = if (loading) View.VISIBLE else View.GONE
             }
-            getRecyclerAdapter()?.setRefreshLoading(loading)
         }
         if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) update()
         else runOnUiThread { update() }
@@ -2383,7 +2382,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 }.apply {
                     setupZoomListener(mZoomListener)
                     binding.directoriesGrid.adapter = this
-                    setRefreshLoading(mIsGettingDirs)
                     setupScrollDirection()
                     if (config.viewTypeFolders == VIEW_TYPE_LIST && areSystemAnimationsEnabled) {
                         binding.directoriesGrid.scheduleLayoutAnimation()

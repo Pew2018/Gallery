@@ -2,7 +2,6 @@ package org.fossify.gallery.adapters
 
 import java.util.concurrent.Executor
 import org.fossify.gallery.helpers.GalleryListDiffExecutor
-import org.fossify.gallery.helpers.OxygenProgressStyle
 import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
@@ -149,7 +148,6 @@ class DirectoryAdapter(
     private var lockedFolderPaths = ArrayList<String>()
     @Volatile private var favoriteFolderPaths: Set<String> = emptySet()
     private var isDragAndDropping = false
-    private var isRefreshLoading = false
     private var startReorderDragListener: StartReorderDragListener? = null
 
     private var showMediaCount = config.showFolderMediaCount
@@ -185,18 +183,12 @@ class DirectoryAdapter(
     override fun onBindViewHolder(holder: MyRecyclerViewAdapter.ViewHolder, position: Int) {
         val dir = dirs.getOrNull(position) ?: return
         holder.bindView(dir, true, !isPickIntent) { itemView, adapterPosition ->
-            setupView(itemView, dir, holder)
+            setupView(itemView, dir)
         }
         bindViewHolder(holder)
     }
 
     override fun getItemCount() = dirs.size
-
-    fun setRefreshLoading(loading: Boolean) {
-        if (isRefreshLoading == loading) return
-        isRefreshLoading = loading
-        if (itemCount > 0) notifyItemChanged(0)
-    }
 
     /** A password change does not change Directory equality, so explicitly rebind the card. */
     fun refreshFavoriteProtection() {
@@ -1050,13 +1042,9 @@ class DirectoryAdapter(
         notifyDataSetChanged()
     }
 
-    private fun setupView(view: View, directory: Directory, holder: ViewHolder) {
+    private fun setupView(view: View, directory: Directory) {
         val isSelected = selectedKeys.contains(directory.path.hashCode())
         bindItem(view).apply {
-            dirLoadingProgress.visibility = if (isRefreshLoading && holder.bindingAdapterPosition == 0) View.VISIBLE else View.GONE
-            dirLoadingProgress.apply {
-                OxygenProgressStyle.apply(activity, config, this)
-            }
             dirPath?.text = "${directory.path.substringBeforeLast("/")}/"
             dirCheck.beVisibleIf(isSelected)
             if (isSelected) {

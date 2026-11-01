@@ -17,7 +17,6 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.widget.PopupMenu
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.graphics.ColorUtils
 import androidx.core.widget.CompoundButtonCompat
@@ -284,7 +283,7 @@ object ToolbarQuickActionsDialog {
                     val selected = current().filterNot { it == ToolbarQuickActions.SEARCH }.toMutableList()
                     val selectedIndex = selected.indexOf(action)
                     if (selectedIndex < 0) return@setOnClickListener
-                    val popup = PopupMenu(activity, anchor)
+                    val popup = OxygenClassicMenus.createPopup(activity, anchor)
                     if (selectedIndex > 0) popup.menu.add(0, 0, 0, R.string.quick_toolbar_move_up)
                     if (selectedIndex < selected.lastIndex) popup.menu.add(0, 1, 1, R.string.quick_toolbar_move_down)
                     popup.setOnMenuItemClickListener { item ->

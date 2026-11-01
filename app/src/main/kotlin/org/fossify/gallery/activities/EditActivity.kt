@@ -1,5 +1,6 @@
 package org.fossify.gallery.activities
 
+import org.fossify.gallery.helpers.OxygenToolbarStyle
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -182,6 +183,7 @@ class EditActivity : BaseCropActivity() {
     }
 
     private fun setupOptionsMenu() {
+        OxygenToolbarStyle.preparePopup(this, binding.editorToolbar)
         binding.editorToolbar.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
                 R.id.save_as -> startSaveFlow(overwrite = false)

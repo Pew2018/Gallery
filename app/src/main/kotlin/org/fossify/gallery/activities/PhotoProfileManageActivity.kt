@@ -1,14 +1,12 @@
 package org.fossify.gallery.activities
 
+import org.fossify.gallery.helpers.OxygenClassicMenus
 import android.content.Intent
 import android.os.Bundle
-import android.view.ContextThemeWrapper
-import android.view.Gravity
 import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.LinearLayoutManager
 import org.fossify.commons.extensions.beVisibleIf
 import org.fossify.commons.extensions.viewBinding
@@ -171,13 +169,7 @@ class PhotoProfileManageActivity : SimpleActivity() {
             return
         }
         val isCurrent = state.current?.id == profile.id
-        val dark = OxygenThemeEngine.snapshot(this, config).dark
-        val popup = PopupMenu(
-            ContextThemeWrapper(
-                this,
-                if (dark) R.style.OxygenClassicPopupTheme_Dark else R.style.OxygenClassicPopupTheme_Light
-            ), anchor, Gravity.END
-        )
+        val popup = OxygenClassicMenus.createPopup(this, anchor)
         if (!isCurrent) popup.menu.add(0, ACTION_USE, 0, R.string.photo_profiles_use)
         popup.menu.add(0, ACTION_EDIT, 1, R.string.photo_profiles_edit)
         popup.menu.add(0, ACTION_RENAME, 2, R.string.photo_profiles_rename)

@@ -35,11 +35,11 @@ object OxygenToolbarStyle {
 
     /** Set the ActionMenuPresenter popup theme before the menu is inflated. */
     fun preparePopup(activity: Activity, searchMenu: MySearchMenu) {
-        val light = !OxygenThemeEngine.snapshot(activity, activity.config).dark
-        searchMenu.binding.topToolbar.setPopupTheme(
-            if (light) org.fossify.gallery.R.style.OxygenClassicPopupTheme_Light
-            else org.fossify.gallery.R.style.OxygenClassicPopupTheme_Dark
-        )
+        preparePopup(activity, searchMenu.binding.topToolbar)
+    }
+
+    fun preparePopup(activity: Activity, toolbar: MaterialToolbar) {
+        toolbar.setPopupTheme(OxygenClassicMenus.theme(activity))
     }
 
     fun apply(activity: Activity, searchMenu: MySearchMenu, title: String, backButton: Boolean = false) {
@@ -263,16 +263,13 @@ object OxygenToolbarStyle {
             it.clearColorFilter()
             it.setTint(foreground)
         }
-        toolbar.setPopupTheme(if (colors.dark) org.fossify.gallery.R.style.OxygenClassicPopupTheme_Dark
-            else org.fossify.gallery.R.style.OxygenClassicPopupTheme_Light)
+        preparePopup(activity, toolbar)
         tintMenu(toolbar.menu, foreground)
     }
 
     /** Viewer chrome stays white on black; its popup uses the selected page palette. */
     fun applyViewerPopup(activity: Activity, toolbar: MaterialToolbar) {
-        val dark = OxygenThemeEngine.snapshot(activity, activity.config).dark
-        toolbar.setPopupTheme(if (dark) org.fossify.gallery.R.style.OxygenClassicPopupTheme_Dark
-            else org.fossify.gallery.R.style.OxygenClassicPopupTheme_Light)
+        preparePopup(activity, toolbar)
     }
 
     /** Apply the same tokens, title typography and 48dp navigation target to
