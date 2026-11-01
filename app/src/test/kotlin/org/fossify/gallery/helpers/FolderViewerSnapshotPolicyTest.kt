@@ -17,4 +17,15 @@ class FolderViewerSnapshotPolicyTest {
         assertFalse(FolderViewerSnapshotPolicy.isEligible(folder, "$folder/missing.jpg", listOf(one), false, false))
         assertFalse(FolderViewerSnapshotPolicy.isEligible("favorites", one, listOf(one), false, false))
     }
+
+    @Test fun scanFreshnessMustMatchBeforeAndAfterForCatalogReuse() {
+        val before = FolderReturnCheckpoint(folder, "settings", mapOf("external" to "1:2"), 42, 7, 100)
+        val same = before.copy(capturedAt = 900)
+        assertTrue(FolderReturnCheckpoint.sameSnapshot(before, same))
+        assertFalse(FolderReturnCheckpoint.sameSnapshot(before, same.copy(generations = mapOf("external" to "1:3"))))
+        assertFalse(FolderReturnCheckpoint.sameSnapshot(before, same.copy(directoryModified = 43)))
+        assertFalse(FolderReturnCheckpoint.sameSnapshot(before, same.copy(configuration = "changed")))
+        assertFalse(FolderReturnCheckpoint.sameSnapshot(before, same.copy(revision = 8)))
+        assertFalse(FolderReturnCheckpoint.sameSnapshot(before, null))
+    }
 }

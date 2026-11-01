@@ -234,11 +234,24 @@ class PhotoProfileMediaLoadingTest {
         val preview = PhotoProfileMediaCache.preview(media, "/Camera/200.jpg", 80)
         assertEquals(80, preview.size)
         assertTrue(preview.any { it.path == "/Camera/200.jpg" })
-        PhotoProfileMediaCache.offer(PhotoLoadResult(request, PhotoLoadStage.COMPLETE, media, PhotoAccessSummary(false, true)))
+        PhotoProfileMediaCache.offer(context, PhotoLoadResult(request, PhotoLoadStage.COMPLETE, media, PhotoAccessSummary(false, true)))
         val read = PhotoProfileMediaCache.read(request)!!
         read.first().name = "Changed"
         assertEquals("0.jpg", PhotoProfileMediaCache.read(request)!!.first().name)
         PhotoContentRevision.changed()
+        assertNull(PhotoProfileMediaCache.read(request))
+    }
+
+    @Test fun profileCatalogAboveBoundFallsBackInsteadOfGrowingTheMemoryCache() {
+        val id = profile("/Camera")
+        val scope = PhotoProfileScope.capture(context, id, null)!!
+        val request = PhotoProfileLoadContext(scope, PhotoContentRevision.current(), emptySet())
+        val media = (0..12_000).map { n ->
+            Medium(null, "$n.jpg", "/Camera/$n.jpg", "/Camera", 1, n.toLong(), 1, TYPE_IMAGES, 0, false, 0, 0)
+        }
+        assertFalse(PhotoProfileMediaCache.offer(
+            context, PhotoLoadResult(request, PhotoLoadStage.COMPLETE, media, PhotoAccessSummary(false, true))
+        ))
         assertNull(PhotoProfileMediaCache.read(request))
     }
 
@@ -257,6 +270,35 @@ class PhotoProfileMediaLoadingTest {
             val pending = PhotoViewerSnapshotStore.offer(context, id, null, taken)!!
             PhotoContentRevision.changed()
             assertNull(PhotoViewerSnapshotStore.take(context, pending, id, null, path))
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test @Config(sdk = [31], shadows = [ScopedEnvironment::class])
+    fun unchangedCompletePublicProfileCatalogSkipsTheRepeatedMediaIndexQuery() {
+        val root = Files.createTempDirectory("photo-catalog-reuse")
+        try {
+            val path = Files.write(root.resolve("indexed.jpg"), byteArrayOf(1, 2, 3)).toString()
+            provider.add(path)
+            val id = profile(root.toString())
+            val first = background { PhotoProfileMediaLoader(context).loadStaged(id, allowPreview = false) }
+            assertEquals(PhotoLoadStage.COMPLETE, first.stage)
+            assertEquals(listOf(path), first.media.map { it.path })
+            val queryCountAfterScan = provider.queries.size
+            assertTrue("initial full load should query the index", queryCountAfterScan > 0)
+
+            provider.queries.clear()
+            val reused = background { PhotoProfileMediaLoader(context).loadStaged(id, allowPreview = false) }
+            assertEquals(PhotoLoadStage.COMPLETE, reused.stage)
+            assertEquals(listOf(path), reused.media.map { it.path })
+            assertTrue("fresh validation may query .nomedia markers, but must skip the full media query", provider.queries.size < queryCountAfterScan)
+
+            val added = Files.write(root.resolve("added.jpg"), byteArrayOf(4, 5)).toString()
+            root.toFile().setLastModified(root.toFile().lastModified() + 5_000L)
+            provider.add(added)
+            provider.queries.clear()
+            val rebuilt = background { PhotoProfileMediaLoader(context).loadStaged(id, allowPreview = false) }
+            assertEquals(setOf(path, added), rebuilt.media.map { it.path }.toSet())
+            assertTrue("source directory change must fall back to the index query", provider.queries.isNotEmpty())
         } finally { root.toFile().deleteRecursively() }
     }
 

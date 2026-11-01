@@ -800,7 +800,49 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 initContinue()
                 viewerSelectedImageStarted = selectedStarted
                 logPagerReady("viewer_selected_pager_ready", selectedStarted, 1, path)
-                fun loadCompleteFavorites() {
+                var loadCompleteFavoritesFromScan: (() -> Unit)? = null
+                fun publishValidatedFavorites(
+                    items: List<Medium>,
+                    fullStarted: Long,
+                    expectedFavoritePaths: Set<String>? = null,
+                    catalogStarted: Long? = null
+                ) {
+                    val validationStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+                    val app = applicationContext
+                    submitViewerAccess(request) {
+                        val relationCurrent = expectedFavoritePaths == null || runCatching {
+                            app.getFavoritePaths().toSet() == expectedFavoritePaths
+                        }.getOrDefault(false)
+                        val batch = if (relationCurrent) {
+                            org.fossify.gallery.helpers.FavoriteAccessPolicy.validateViewerItems(
+                                token, items, { it.path }, path
+                            )
+                        } else null
+                        org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                            "viewer_catalog_validation", validationStarted, batch?.items?.size ?: 0
+                        )
+                        runOnUiThread {
+                            if (request != viewerAccessGeneration || load != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                            if (!relationCurrent && expectedFavoritePaths != null) {
+                                // The database relationship changed since this list was prepared.
+                                // Re-enter the original scan path so it can reconcile/revoke the
+                                // full Session before any result is published.
+                                loadCompleteFavoritesFromScan?.invoke()
+                                return@runOnUiThread
+                            }
+                            if (batch == null || batch.items.none { it.path == path } || !FavoriteAccessSessionManager.isPublicationCurrent(batch.validation)) {
+                                closeUnauthorizedFavorites(); return@runOnUiThread
+                            }
+                            val searched = stabilizeRandomViewerOrder(searchedViewerMedia(batch.items))
+                            gotMedia(ArrayList<ThumbnailItem>(searched), refetchViewPagerPosition = true)
+                            if (catalogStarted != null) {
+                                org.fossify.gallery.helpers.GalleryPerfTrace.end("viewer_catalog_hit", catalogStarted, searched.size)
+                            }
+                            logPagerReady("viewer_full_list_ready", fullStarted, searched.size)
+                        }
+                    }
+                }
+                loadCompleteFavoritesFromScan = {
                     val fullStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
                     viewerLoadTask = GetMediaAsynctask(applicationContext, FAVORITES, showAll = false,
                         favoriteSessionId = token, onFailure = {
@@ -811,22 +853,24 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         }
                     ) { items ->
                         if (request == viewerAccessGeneration && load == viewerLoadGeneration && !isFinishing && !isDestroyed) {
-                            submitViewerAccess(request) {
-                                val batch = org.fossify.gallery.helpers.FavoriteAccessPolicy.validateViewerItems(
-                                    token, items.filterIsInstance<Medium>(), { it.path }, path
-                                )
-                                runOnUiThread {
-                                    if (request != viewerAccessGeneration || load != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
-                                    if (batch == null || batch.items.none { it.path == path } || !FavoriteAccessSessionManager.isPublicationCurrent(batch.validation)) {
-                                        closeUnauthorizedFavorites(); return@runOnUiThread
-                                    }
-                                    val searched = stabilizeRandomViewerOrder(searchedViewerMedia(batch.items))
-                                    gotMedia(ArrayList<ThumbnailItem>(searched), refetchViewPagerPosition = true)
-                                    logPagerReady("viewer_full_list_ready", fullStarted, searched.size)
-                                }
-                            }
+                            publishValidatedFavorites(items.filterIsInstance<Medium>(), fullStarted)
                         }
                     }.also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
+                }
+                fun loadCompleteFavorites() {
+                    val catalogStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+                    val catalog = org.fossify.gallery.helpers.FavoriteViewerCatalogStore.take(
+                        intent.getStringExtra(org.fossify.gallery.helpers.FavoriteViewerCatalogStore.EXTRA_ID)
+                    )
+                    if (catalog == null) {
+                        org.fossify.gallery.helpers.GalleryPerfTrace.end("viewer_catalog_miss", catalogStarted, 0)
+                        loadCompleteFavoritesFromScan?.invoke()
+                    } else {
+                        val fullStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+                        publishValidatedFavorites(
+                            catalog.items, fullStarted, catalog.favoritePaths, catalogStarted
+                        )
+                    }
                 }
                 fun validateNeighborsThenContinue(selectedValidation: FavoriteAccessSessionManager.ValidatedPaths?) {
                     val window = neighborWindow
@@ -867,6 +911,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val selectedStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
         viewerLoadTask?.stopFetching()
         val path = mPath
+        // The folder catalog was freshness-checked and consumed on the auth worker.
+        // Keep its list reference while initializing the selected page; don't copy
+        // or scan it on the UI thread.
+        val reusedCatalog = mMediaFiles.takeIf { initialPublicFolderSnapshot }
         val selected = selectedViewerMedium(path)
         val app = applicationContext
         submitViewerAccess(request) {
@@ -899,6 +947,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 // Never treat a nonempty (possibly partial) handoff as the final list.
                 fun scanRemaining() {
                     val fullStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+                    val fallbackStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
                     viewerLoadTask = GetMediaAsynctask(app, mDirectory, showAll = false,
                         onFailure = {
                             if (load == viewerLoadGeneration && !isFinishing && !isDestroyed) {
@@ -911,12 +960,28 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                             val fullMedia = searchedViewerMedia(items.filterIsInstance<Medium>())
                             publishFolderCandidates(request, load, token, path, fullMedia) {
                                 logPagerReady("viewer_full_list_ready", fullStarted, fullMedia.size)
+                                org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                                    "viewer_full_scan_fallback", fallbackStarted, fullMedia.size
+                                )
                             }
                         }
                     }.also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
                 }
+                fun completeFromCatalogOrScan() {
+                    val catalog = reusedCatalog
+                    if (catalog.isNullOrEmpty()) {
+                        scanRemaining()
+                    } else {
+                        val scopedCatalog = searchedViewerMedia(catalog)
+                        val fullStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+                        publishFolderCandidates(request, load, token, path, scopedCatalog) {
+                            org.fossify.gallery.helpers.GalleryPerfTrace.end("viewer_catalog_validation", fullStarted, scopedCatalog.size)
+                            logPagerReady("viewer_full_list_ready", fullStarted, scopedCatalog.size)
+                        }
+                    }
+                }
                 val window = neighborWindow
-                if (window == null) scanRemaining() else {
+                if (window == null) completeFromCatalogOrScan() else {
                     val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
                     adjacentReadyStarted = started
                     submitViewerAccess(request) {
@@ -936,7 +1001,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                                 finish(); return@runOnUiThread
                             }
                             if (safe.any { it.path == path }) publishAdjacent(safe)
-                            scanRemaining()
+                            completeFromCatalogOrScan()
                         }
                     }
                 }
@@ -1120,11 +1185,16 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 val folder = mPath.getParentPath()
                 val path = mPath
                 submitViewerAccess(request) {
+                    val catalogStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
                     val cached = runCatching {
                         org.fossify.gallery.helpers.FolderViewerSnapshotStore.take(
                             app, snapshotId, folder, path
                         )
                     }.getOrNull()
+                    org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                        if (cached == null) "viewer_catalog_miss" else "viewer_catalog_hit",
+                        catalogStarted, cached?.size ?: 0
+                    )
                     runOnUiThread {
                         if (request != viewerAccessGeneration || isFinishing || isDestroyed) return@runOnUiThread
                         if (cached != null) {

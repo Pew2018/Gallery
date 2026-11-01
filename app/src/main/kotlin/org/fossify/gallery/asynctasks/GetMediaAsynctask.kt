@@ -35,9 +35,16 @@ class GetMediaAsynctask(
     private var scanFailure: Exception? = null
     private var folderFailures: Map<String, Exception> = emptyMap()
     private var profileResult: PhotoLoadResult? = null
+    /** Non-null only when a public single-folder scan was stable at start and completion. */
+    var folderCatalogCheckpoint: FolderReturnCheckpoint? = null
+        private set
 
     override fun doInBackground(vararg params: Void): ArrayList<ThumbnailItem> {
         return try {
+        val folderCheckpointStarted = if (!showAll && mPath.startsWith('/') && mPath != FAVORITES &&
+            mPath != RECYCLE_BIN && photoProfileId == null) {
+            runCatching { FolderReturnCheckpoint.capture(context, mPath) }.getOrNull()
+        } else null
         if (mPath == PhotoProfileMediaLoader.PATH || photoProfileId != null) {
             val loader = PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId) { isCancelled }
             val final = loader.loadStaged(photoProfileId, photoAllowPreview && onPhotoResult != null, photoAnchorPath) {
@@ -140,6 +147,14 @@ class GetMediaAsynctask(
         } else result
         if (mPath == FAVORITES && context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             android.util.Log.d("GalleryFavorites", "savedPaths=${favoritePaths.size}, scannedMedia=${safeResult.count { it is Medium }}")
+        }
+        if (folderCheckpointStarted != null && folderFailures.isEmpty() && !isCancelled && scanFailure == null) {
+            val freshnessStarted = GalleryPerfTrace.begin()
+            val finished = runCatching { FolderReturnCheckpoint.capture(context, mPath) }.getOrNull()
+            folderCatalogCheckpoint = finished.takeIf {
+                FolderReturnCheckpoint.sameSnapshot(folderCheckpointStarted, it)
+            }
+            GalleryPerfTrace.end("viewer_catalog_freshness", freshnessStarted, if (folderCatalogCheckpoint != null) 1 else 0)
         }
         safeResult
         } catch (error: Exception) {

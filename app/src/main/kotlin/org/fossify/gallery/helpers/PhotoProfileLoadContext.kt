@@ -75,7 +75,11 @@ data class PhotoProfileLoadContext(
         fun capture(context: Context, profileId: String?, sessionId: String?): PhotoProfileLoadContext? {
             val revision = PhotoContentRevision.current()
             val scope = PhotoProfileScope.capture(context, profileId, sessionId) ?: return null
-            val favorites = context.getFavoritePaths().toSet()
+            // A profile without the virtual Favorites source has no dependency on
+            // the library-wide favorite relation; don't read it for folder-only catalogs.
+            val favorites = if (scope.sources.any { it.type == PhotoSourceType.FAVORITES }) {
+                context.getFavoritePaths().toSet()
+            } else emptySet()
             return PhotoProfileLoadContext(scope, revision, favorites).takeIf { it.isCurrent(context) }
         }
 

@@ -1606,7 +1606,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         // A canceled or superseded scan must not change the visible list or cached data.
         val scanGeneration = ++mediaScanGeneration
         mCurrAsyncTask?.stopFetching()
-        mCurrAsyncTask = GetMediaAsynctask(
+        val requestedFolder = mPath
+        lateinit var scanTask: GetMediaAsynctask
+        scanTask = GetMediaAsynctask(
             context = applicationContext,
             mPath = mPath,
             isPickImage = mIsGetImageIntent && !mIsGetVideoIntent,
@@ -1652,6 +1654,22 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     return@ensureBackgroundThread
                 }
                 try {
+                    val folderCheckpoint = scanTask.folderCatalogCheckpoint
+                    if (folderCheckpoint != null && !mShowAll && requestedFolder.isNotEmpty() &&
+                        requestedFolder != FAVORITES && requestedFolder != RECYCLE_BIN) {
+                        val catalogStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+                        org.fossify.gallery.helpers.FolderViewerSnapshotStore.prepare(
+                            applicationContext, requestedFolder, folderCheckpoint, folderCheckpoint,
+                            scannedMedia.filterIsInstance<Medium>()
+                        ) {
+                            scanGeneration == mediaScanGeneration && mediaLoadRequests.isCurrent(request) &&
+                                requestedFolder == mPath && !isFinishing && !isDestroyed
+                        }
+                        org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                            "viewer_catalog_handoff", catalogStarted,
+                            scannedMedia.count { it is Medium }
+                        )
+                    }
                     val oldMedia = mMedia.filterIsInstance<Medium>()
                     val newPaths = scannedMedia.filterIsInstance<Medium>()
                         .mapTo(HashSet()) { it.path }
@@ -1684,7 +1702,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
         }
 
-        mCurrAsyncTask!!.execute()
+        mCurrAsyncTask = scanTask
+        scanTask.execute()
     }
 
     /** Resolve the whole virtual album before publishing cache, adapter or scan data. */
@@ -2100,12 +2119,25 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
         val completePublicFolder = !showAll && folderToken == null && source.isNotEmpty() &&
             source != FAVORITES && source != RECYCLE_BIN && displayedMediaIsFinal && !mIsGettingMedia &&
-            getMediaAdapter() != null && mMedia.any { it is Medium } &&
-            mMedia.none { it is Medium && it.mediaStoreId <= 0L }
+            getMediaAdapter() != null
+        val catalogLookupStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
         ensureBackgroundThread {
             // Keep the existing constant-size return checkpoint before launching,
             // but never copy or validate the whole media list on the click path.
             val checkpoint = if (completePublicFolder) FolderReturnCheckpoint.capture(app, source) else null
+            val catalogId = if (completePublicFolder) {
+                org.fossify.gallery.helpers.FolderViewerSnapshotStore.handoffId(app, source)
+            } else null
+            val catalogCount = org.fossify.gallery.helpers.FolderViewerSnapshotStore.handoffCount(catalogId)
+            val favoriteCatalogId = if (source == FAVORITES && displayedMediaIsFinal && !mIsGettingMedia) {
+                org.fossify.gallery.helpers.FavoriteViewerCatalogStore.handoffId()
+            } else null
+            val favoriteCatalogCount = org.fossify.gallery.helpers.FavoriteViewerCatalogStore.handoffCount(favoriteCatalogId)
+            val hasCatalog = catalogId != null || favoriteCatalogId != null
+            org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                if (hasCatalog) "viewer_catalog_handoff" else "viewer_catalog_miss",
+                catalogLookupStarted, catalogCount ?: favoriteCatalogCount ?: 0
+            )
             runOnUiThread {
                 if (request != viewerHandoffGeneration || source != mPath || isFinishing || isDestroyed) {
                     org.fossify.gallery.helpers.ViewerNeighborHandoffStore.clear(neighborId)
@@ -2124,6 +2156,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         org.fossify.gallery.helpers.ViewerSearchPolicy.EXTRA_QUERY, mCommittedSearchText
                     )
                     neighborId?.let { putExtra(org.fossify.gallery.helpers.ViewerNeighborHandoffStore.EXTRA_ID, it) }
+                    catalogId?.let { putExtra(org.fossify.gallery.helpers.FolderViewerSnapshotStore.EXTRA_ID, it) }
+                    favoriteCatalogId?.let { putExtra(org.fossify.gallery.helpers.FavoriteViewerCatalogStore.EXTRA_ID, it) }
                 })
             }
         }
@@ -2295,6 +2329,27 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 setupAdapter {
                     if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return@setupAdapter
                     displayedMediaIsFinal = !isFromCache
+                    if (mPath == FAVORITES && !isFromCache && media.isNotEmpty()) {
+                        val committedItems = media
+                        val token = favoriteSessionId
+                        val sourceFavorites = favoriteAccessPaths.orEmpty()
+                        ensureBackgroundThread {
+                            val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+                            val items = committedItems.filterIsInstance<Medium>()
+                            val catalogId = org.fossify.gallery.helpers.FavoriteViewerCatalogStore.prepare(
+                                applicationContext, items, sourceFavorites
+                            ) {
+                                mediaLoadRequests.isCurrent(request) && displayedMediaRequest == request &&
+                                    mPath == FAVORITES && favoriteSessionId == token &&
+                                    favoriteAccessPaths == sourceFavorites &&
+                                    FavoriteAccessSessionManager.isActive(token) && !isFinishing && !isDestroyed
+                            }
+                            org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                                if (catalogId == null) "viewer_catalog_miss" else "viewer_catalog_handoff",
+                                started, items.size
+                            )
+                        }
+                    }
                     // Restore the authorized path only after the new adapter rows are committed.
                     if (mLastSearchedText.isEmpty()) {
                         restoreFavoritesScrollAnchor(request, !isFromCache)
@@ -2318,11 +2373,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
             if (!isFromCache && !isPhotoProfiles) {
                 // Never let a previous request persist stale favorites after a new refresh.
-                val mediaToInsert = mMedia.filterIsInstance<Medium>().filter { it.deletedTS == 0L }
+                val publishedMedia = mMedia
                 ensureBackgroundThread {
                     if (mediaLoadRequests.isCurrent(request)) {
                         try {
-                            mediaDB.insertAll(mediaToInsert)
+                            mediaDB.insertAll(publishedMedia.filterIsInstance<Medium>().filter { it.deletedTS == 0L })
                         } catch (error: Exception) {
                             android.util.Log.e("GalleryMedia", "Cannot cache scanned media", error)
                         }
