@@ -239,6 +239,32 @@ class PhotoProfileMediaLoadingTest {
         } finally { root.toFile().deleteRecursively() }
     }
 
+    @Test fun viewerNeighborValidationChecksOnlyBoundedCurrentProfileCandidates() {
+        val root = Files.createTempDirectory("photo-viewer-neighbors")
+        try {
+            val previous = Files.write(root.resolve("previous.jpg"), byteArrayOf(1)).toString()
+            val selected = Files.write(root.resolve("selected.jpg"), byteArrayOf(2)).toString()
+            val next = Files.write(root.resolve("next.jpg"), byteArrayOf(3)).toString()
+            val hidden = Files.write(root.resolve(".hidden.jpg"), byteArrayOf(4)).toString()
+            val id = profile(root.toString())
+            val items = listOf(previous, selected, next, hidden).map { path ->
+                Medium(null, java.io.File(path).name, path, root.toString(), 1, 1, 1, TYPE_IMAGES, 0, false, 0, 0)
+            }
+
+            val result = background {
+                PhotoViewerSnapshotStore.validateNeighborWindow(context, id, null, items, selected)
+            }
+
+            assertEquals(listOf(previous, selected, next), result!!.media.map { it.path })
+            assertEquals(0, provider.queries.size)
+            assertNull(background {
+                PhotoViewerSnapshotStore.validateNeighborWindow(
+                    context, id, null, items + items, selected
+                )
+            })
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     @Test fun viewerHandoffRejectsScopeChange() {
         val root = Files.createTempDirectory("photo-viewer-scope")
         try {

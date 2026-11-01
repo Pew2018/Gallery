@@ -87,6 +87,25 @@ internal object PhotoViewerSnapshotStore {
         return PhotoLoadResult(request, PhotoLoadStage.COMPLETE, safe, access)
     }
 
+    /** Freshly validates only the bounded adjacent candidates; never substitutes for full validation. */
+    fun validateNeighborWindow(
+        context: Context, profileId: String?, sessionId: String?, items: List<Medium>, selectedPath: String,
+        cancelled: () -> Boolean = { false }
+    ): PhotoLoadResult? {
+        if (items.size > ViewerNeighborWindow.MAX_ITEMS || items.none { it.path == selectedPath }) return null
+        val request = PhotoProfileLoadContext.capture(context, profileId, sessionId) ?: return null
+        if (request.scope.selectedId != profileId || cancelled()) return null
+        val candidates = if (request.scope.allFiles || android.os.Build.VERSION.SDK_INT < 30) {
+            items.filter { runCatching { java.io.File(it.path).isFile }.getOrDefault(false) }
+        } else items
+        val (safe, access) = PhotoAccessValidationBatch(
+            context, request, cancelled,
+            directVisibilityOnly = true
+        ).validate(candidates)
+        if (cancelled() || !request.isCurrent(context) || safe.none { it.path == selectedPath }) return null
+        return PhotoLoadResult(request, PhotoLoadStage.INDEXED, safe, access)
+    }
+
     @Synchronized
     fun clear() {
         pending = null

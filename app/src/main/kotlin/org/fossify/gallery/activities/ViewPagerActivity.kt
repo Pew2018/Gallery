@@ -266,6 +266,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private val isPhotoProfile get() = intent.hasExtra(PhotoProfileMediaLoader.EXTRA_ID)
     private val favoriteSessionId get() = intent.getStringExtra(FAVORITE_ACCESS_SESSION)
     private val isFavoriteRequest get() = intent.getBooleanExtra(SHOW_FAVORITES, false) || intent.hasExtra(FAVORITE_ACCESS_SESSION)
+    private val neighborHandoffId get() = intent.getStringExtra(org.fossify.gallery.helpers.ViewerNeighborHandoffStore.EXTRA_ID)
     private var viewerLoadGeneration = 0L
     private var viewerLoadTask: GetMediaAsynctask? = null
     @Volatile
@@ -359,7 +360,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         refreshMenuItems()
 
         window.decorView.setBackgroundColor(getProperBackgroundColor())
-        if (!isPhotoProfile) (MediaActivity.mMedia.clone() as ArrayList<ThumbnailItem>).filterIsInstanceTo(mMediaFiles, Medium::class.java)
+        // Internal gallery taps carry a bounded neighbor window; do not duplicate
+        // the entire grid (which can contain tens of thousands of entries) here.
+        if (!isPhotoProfile && !intent.getBooleanExtra(IS_FROM_GALLERY, false)) {
+            (MediaActivity.mMedia.clone() as ArrayList<ThumbnailItem>).filterIsInstanceTo(mMediaFiles, Medium::class.java)
+        }
 
         requestMediaPermissions {
             initViewPager(
@@ -399,6 +404,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         PhotoProfileAccessSessionManager.removeListener(favoriteListenerId)
         getSharedPrefs().unregisterOnSharedPreferenceChangeListener(favoriteProtectionPrefsListener)
         FavoriteAccessSessionManager.removeRevocationListener(favoriteListenerId)
+        org.fossify.gallery.helpers.ViewerNeighborHandoffStore.clear(neighborHandoffId)
         viewerAccessGeneration++
         ViewerAccessCoordinator.cancel(viewerAccessTask)
         FolderUnlockSessionManager.revokeSession(ownedFolderUnlockSessionId)
@@ -618,7 +624,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     /** Populate swiping only after the selected file can render; never initialize the pager twice. */
     private fun completePhotoViewerLoad(
         request: Long, cached: ArrayList<Medium>?, firstContext: org.fossify.gallery.helpers.PhotoProfileLoadContext?,
-        initialized: Boolean
+        initialized: Boolean,
+        neighborWindow: org.fossify.gallery.helpers.ViewerNeighborWindow?
     ) {
         val profile = photoProfileId
         val session = photoSessionId
@@ -634,26 +641,54 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 initContinue()
             }
         }
-        if (cached != null && firstContext != null) {
-            viewerAccessTask = try { ViewerAccessCoordinator.submit {
-                val safe = runCatching {
-                    org.fossify.gallery.helpers.PhotoViewerSnapshotStore.validate(applicationContext, profile, cached, clicked) {
-                        Thread.currentThread().isInterrupted
+        fun loadFullCollection() {
+            val fullStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+            if (cached != null && firstContext != null) {
+                viewerAccessTask = try { ViewerAccessCoordinator.submit {
+                    val safe = runCatching {
+                        org.fossify.gallery.helpers.PhotoViewerSnapshotStore.validate(applicationContext, profile, cached, clicked) {
+                            Thread.currentThread().isInterrupted
+                        }
+                    }.getOrNull()
+                    runOnUiThread {
+                        if (request != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                        if (safe == null || !safe.context.isCurrent(applicationContext)) { finish(); return@runOnUiThread }
+                        publish(safe.media)
+                        logPagerReady("viewer_full_list_ready", fullStarted, safe.media.size)
                     }
-                }.getOrNull()
-                runOnUiThread {
-                    if (request != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
-                    if (safe == null || !safe.context.isCurrent(applicationContext)) { finish(); return@runOnUiThread }
-                    publish(safe.media)
-                }
-            } } catch (_: java.util.concurrent.RejectedExecutionException) { finish(); null }
-        } else {
-            viewerLoadTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
-                showAll = false, photoProfileId = profile, photoSessionId = session,
-                onFailure = { if (request == viewerLoadGeneration && !isFinishing && !isDestroyed) finish() }
-            ) { items -> publish(items.filterIsInstance<Medium>()) }
-                .also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
+                } } catch (_: java.util.concurrent.RejectedExecutionException) { finish(); null }
+            } else {
+                viewerLoadTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
+                    showAll = false, photoProfileId = profile, photoSessionId = session,
+                    onFailure = { if (request == viewerLoadGeneration && !isFinishing && !isDestroyed) finish() }
+                ) { items ->
+                    val fullMedia = items.filterIsInstance<Medium>()
+                    publish(fullMedia)
+                    logPagerReady("viewer_full_list_ready", fullStarted, fullMedia.size)
+                }.also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
+            }
         }
+        val window = neighborWindow
+        if (!initialized || firstContext == null || window == null) { loadFullCollection(); return }
+        val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+        adjacentReadyStarted = started
+        viewerAccessTask = try { ViewerAccessCoordinator.submit {
+            val safe = runCatching {
+                org.fossify.gallery.helpers.PhotoViewerSnapshotStore.validateNeighborWindow(
+                    applicationContext, profile, session, window.items, clicked
+                ) { Thread.currentThread().isInterrupted }
+            }.getOrNull()
+            runOnUiThread {
+                if (request != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                org.fossify.gallery.helpers.GalleryPerfTrace.end("viewer_neighbors_validation", started, window.items.size)
+                if (safe != null && safe.context.isCurrent(applicationContext) && safe.media.any { it.path == clicked }) {
+                    publishAdjacent(safe.media)
+                }
+                // A local denial must not discard the selected image. The full request
+                // performs the existing complete authorization and error handling.
+                loadFullCollection()
+            }
+        } } catch (_: java.util.concurrent.RejectedExecutionException) { loadFullCollection(); null }
     }
 
     private fun selectedViewerMedium(path: String): Medium =
@@ -662,15 +697,55 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             0, 0, 0, getTypeFromPath(path), 0, false, 0L, 0L
         )
 
+    private fun takeNeighborWindow(
+        sourceType: org.fossify.gallery.helpers.ViewerSourceType,
+        sourceKey: String
+    ): org.fossify.gallery.helpers.ViewerNeighborWindow? {
+        if (isExternalIntent() || !intent.getBooleanExtra(IS_FROM_GALLERY, false)) {
+            org.fossify.gallery.helpers.ViewerNeighborHandoffStore.clear(neighborHandoffId)
+            return null
+        }
+        return org.fossify.gallery.helpers.ViewerNeighborHandoffStore.take(
+            neighborHandoffId, mPath, sourceType, sourceKey
+        )
+    }
+
+    private fun publishAdjacent(media: List<Medium>) {
+        if (media.size < 2 || media.none { it.path == mPath } || isFinishing || isDestroyed) return
+        gotMedia(ArrayList<ThumbnailItem>(media), refetchViewPagerPosition = true)
+        logPagerReady("viewer_adjacent_ready", adjacentReadyStarted, media.size, mPath, requireMultiplePages = true)
+    }
+
+    private var adjacentReadyStarted = 0L
+
+    private fun logPagerReady(
+        stage: String, started: Long, count: Int, expectedPath: String? = null,
+        requireMultiplePages: Boolean = false, remainingFrames: Int = 8
+    ) {
+        binding.viewPager.postOnAnimation {
+            val adapterCount = binding.viewPager.adapter?.count ?: 0
+            val pathReady = expectedPath == null || getCurrentMedium()?.path == expectedPath
+            val countReady = adapterCount > 0 && (!requireMultiplePages || adapterCount > 1)
+            if (!isFinishing && !isDestroyed && pathReady && countReady) {
+                org.fossify.gallery.helpers.GalleryPerfTrace.end(stage, started, count)
+            } else if (!isFinishing && !isDestroyed && remainingFrames > 0) {
+                logPagerReady(stage, started, count, expectedPath, requireMultiplePages, remainingFrames - 1)
+            }
+        }
+    }
+
     /** Freshly validate one captured favorite, then reconcile the full capability on a worker. */
     private fun startFavoriteViewer() {
         val request = ++viewerAccessGeneration
         val load = ++viewerLoadGeneration
+        val selectedStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
         viewerLoadTask?.stopFetching()
         val path = mPath
         val selected = selectedViewerMedium(path)
-        val candidates = mMediaFiles.toList()
         val token = favoriteSessionId
+        val neighborWindow = takeNeighborWindow(
+            org.fossify.gallery.helpers.ViewerSourceType.FAVORITES, FAVORITES
+        )
         submitViewerAccess(request) {
             val first = FavoriteAccessSessionManager.validateSelectedPath(token, path)
             runOnUiThread {
@@ -679,29 +754,57 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 stagedInternalViewer = true
                 mMediaFiles = arrayListOf(selected)
                 initContinue()
-                fun validateRemaining(items: List<Medium>) {
-                    submitViewerAccess(request) {
-                        val batch = org.fossify.gallery.helpers.FavoriteAccessPolicy.validateViewerItems(
-                            token, items, { it.path }, path
-                        )
-                        runOnUiThread {
-                            if (request != viewerAccessGeneration || load != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
-                            if (batch == null || batch.items.none { it.path == path } || !FavoriteAccessSessionManager.isPublicationCurrent(batch.validation)) {
-                                closeUnauthorizedFavorites(); return@runOnUiThread
-                            }
-                            gotMedia(ArrayList<ThumbnailItem>(batch.items), refetchViewPagerPosition = true)
-                        }
-                    }
-                }
-                if (candidates.isNotEmpty()) validateRemaining(candidates)
-                else {
+                logPagerReady("viewer_selected_ready", selectedStarted, 1, path)
+                fun loadCompleteFavorites() {
+                    val fullStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
                     viewerLoadTask = GetMediaAsynctask(applicationContext, FAVORITES, showAll = false,
                         favoriteSessionId = token, onFailure = { if (load == viewerLoadGeneration) finish() }
                     ) { items ->
-                        if (request == viewerAccessGeneration && load == viewerLoadGeneration && !isFinishing && !isDestroyed)
-                            validateRemaining(items.filterIsInstance<Medium>())
+                        if (request == viewerAccessGeneration && load == viewerLoadGeneration && !isFinishing && !isDestroyed) {
+                            submitViewerAccess(request) {
+                                val batch = org.fossify.gallery.helpers.FavoriteAccessPolicy.validateViewerItems(
+                                    token, items.filterIsInstance<Medium>(), { it.path }, path
+                                )
+                                runOnUiThread {
+                                    if (request != viewerAccessGeneration || load != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                                    if (batch == null || batch.items.none { it.path == path } || !FavoriteAccessSessionManager.isPublicationCurrent(batch.validation)) {
+                                        closeUnauthorizedFavorites(); return@runOnUiThread
+                                    }
+                                    gotMedia(ArrayList<ThumbnailItem>(batch.items), refetchViewPagerPosition = true)
+                                    logPagerReady("viewer_full_list_ready", fullStarted, batch.items.size)
+                                }
+                            }
+                        }
                     }.also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
                 }
+                fun validateNeighborsThenContinue(selectedValidation: FavoriteAccessSessionManager.ValidatedPaths?) {
+                    val window = neighborWindow
+                    if (window == null) { loadCompleteFavorites(); return }
+                    val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+                    adjacentReadyStarted = started
+                    submitViewerAccess(request) {
+                        if (Thread.currentThread().isInterrupted) return@submitViewerAccess
+                        val validations = window.items.mapNotNull { item ->
+                            val validation = if (item.path == path) selectedValidation
+                                else FavoriteAccessSessionManager.validateSelectedPath(token, item.path)
+                            validation?.let { item to it }
+                        }
+                        val selectedStillValid = validations.any { it.first.path == path } &&
+                            FavoriteAccessSessionManager.isActive(token)
+                        val safe = window.items.filter { item -> validations.any { it.first.path == item.path } }
+                        val validPublication = validations.all { FavoriteAccessSessionManager.isPublicationCurrent(it.second) }
+                        runOnUiThread {
+                            if (request != viewerAccessGeneration || load != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                            org.fossify.gallery.helpers.GalleryPerfTrace.end("viewer_neighbors_validation", started, window.items.size)
+                            if (!selectedStillValid || !validPublication || !FavoriteAccessSessionManager.isActive(token)) {
+                                closeUnauthorizedFavorites(); return@runOnUiThread
+                            }
+                            if (safe.isNotEmpty()) publishAdjacent(safe)
+                            loadCompleteFavorites()
+                        }
+                    }
+                }
+                validateNeighborsThenContinue(first)
             }
         }
     }
@@ -710,10 +813,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun startFolderViewer(existingToken: String?, authenticatedRoot: String?, onInvalid: () -> Unit) {
         val request = ++viewerAccessGeneration
         val load = ++viewerLoadGeneration
+        val selectedStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
         viewerLoadTask?.stopFetching()
         val path = mPath
         val selected = selectedViewerMedium(path)
-        val candidates = mMediaFiles.toList()
         val app = applicationContext
         submitViewerAccess(request) {
             val token = existingToken ?: runCatching {
@@ -736,9 +839,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 stagedInternalViewer = true
                 mMediaFiles = arrayListOf(selected)
                 initContinue()
+                logPagerReady("viewer_selected_ready", selectedStarted, 1, path)
+                val neighborWindow = takeNeighborWindow(
+                    org.fossify.gallery.helpers.ViewerSourceType.FOLDER, mDirectory
+                )
                 // Publish the already displayed folder candidates before a fresh scan.
                 // Never treat a nonempty (possibly partial) handoff as the final list.
                 fun scanRemaining() {
+                    val fullStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
                     viewerLoadTask = GetMediaAsynctask(app, mDirectory, showAll = false,
                         onFailure = {
                             if (load == viewerLoadGeneration && !isFinishing && !isDestroyed) {
@@ -748,13 +856,38 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         }
                     ) { items ->
                         if (request == viewerAccessGeneration && load == viewerLoadGeneration && !isFinishing && !isDestroyed) {
-                            publishFolderCandidates(request, load, token, path, items.filterIsInstance<Medium>())
+                            val fullMedia = items.filterIsInstance<Medium>()
+                            publishFolderCandidates(request, load, token, path, fullMedia) {
+                                logPagerReady("viewer_full_list_ready", fullStarted, fullMedia.size)
+                            }
                         }
                     }.also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
                 }
-                if (candidates.any { it.path == path }) {
-                    publishFolderCandidates(request, load, token, path, candidates) { scanRemaining() }
-                } else scanRemaining()
+                val window = neighborWindow
+                if (window == null) scanRemaining() else {
+                    val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+                    adjacentReadyStarted = started
+                    submitViewerAccess(request) {
+                        val candidates = window.items.filter {
+                            it.path.getParentPath() == path.getParentPath() ||
+                                (it.type == TYPE_PORTRAITS && it.path.getParentPath().getParentPath() == path.getParentPath())
+                        }
+                        val paths = LinkedHashSet<String>().apply { add(path); candidates.forEach { add(it.path) } }
+                        val authorized = runCatching {
+                            FolderUnlockSessionManager.authorizedPaths(token, paths, app.config::isFolderProtected)
+                        }.getOrDefault(emptySet())
+                        val safe = candidates.filter { it.path in authorized && runCatching { File(it.path).isFile }.getOrDefault(false) }
+                        runOnUiThread {
+                            if (request != viewerAccessGeneration || load != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                            org.fossify.gallery.helpers.GalleryPerfTrace.end("viewer_neighbors_validation", started, window.items.size)
+                            if (!FolderUnlockSessionManager.isActive(token) || path !in authorized) {
+                                finish(); return@runOnUiThread
+                            }
+                            if (safe.any { it.path == path }) publishAdjacent(safe)
+                            scanRemaining()
+                        }
+                    }
+                }
             }
         }
     }
@@ -775,21 +908,20 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             val authorized = runCatching {
                 FolderUnlockSessionManager.authorizedPaths(token, paths, app.config::isFolderProtected)
             }.getOrDefault(emptySet())
-            val safe = directItems.filter { it.path in authorized }
+                val safe = directItems.filter { it.path in authorized && runCatching { File(it.path).isFile }.getOrDefault(false) }
             runOnUiThread {
                 if (request != viewerAccessGeneration || load != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
-                if (!FolderUnlockSessionManager.isActive(token) || selectedPath !in authorized) {
+                val currentPath = getCurrentPath().ifEmpty { selectedPath }
+                if (!FolderUnlockSessionManager.isActive(token) || currentPath !in authorized || safe.none { it.path == currentPath }) {
                     finish(); return@runOnUiThread
                 }
-                if (safe.any { it.path == selectedPath }) {
-                    val random = config.getFolderSorting(folder) and SORT_BY_RANDOM != 0
-                    val ordered = org.fossify.gallery.helpers.FolderViewerMediaPolicy.reconcile(
-                        if (onPublished != null) emptyList() else mMediaFiles, safe, random
-                    ) { it.path }
-                    // A late scan must retain the photo the user has already swiped to.
-                    mPath = getCurrentPath().ifEmpty { selectedPath }
-                    gotMedia(ArrayList<ThumbnailItem>(ordered), refetchViewPagerPosition = true)
-                }
+                val random = config.getFolderSorting(folder) and SORT_BY_RANDOM != 0
+                val ordered = org.fossify.gallery.helpers.FolderViewerMediaPolicy.reconcile(
+                    if (onPublished != null) emptyList() else mMediaFiles, safe, random
+                ) { it.path }
+                // A late scan must retain the photo the user has already swiped to.
+                mPath = currentPath
+                gotMedia(ArrayList<ThumbnailItem>(ordered), refetchViewPagerPosition = true)
                 onPublished?.invoke()
             }
         }
@@ -813,6 +945,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             val profile = photoProfileId
             val session = photoSessionId
             val clicked = mPath
+            val neighborWindow = takeNeighborWindow(
+                org.fossify.gallery.helpers.ViewerSourceType.PHOTO_PROFILE, profile.orEmpty()
+            )
             val selected = cached?.firstOrNull { it.path == clicked } ?: Medium(
                 null, clicked.getFilenameFromPath(), clicked, clicked.getParentPath(),
                 0, 0, 0, getTypeFromPath(clicked), 0, false, 0L, 0L
@@ -830,11 +965,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     if (first != null) {
                         mMediaFiles = ArrayList(first.media)
                         initContinue()
-                        binding.viewPager.postOnAnimation {
-                            org.fossify.gallery.helpers.GalleryPerfTrace.end("photo_viewer_selected_ready", started, 1)
-                        }
+                        logPagerReady("viewer_selected_ready", started, 1, clicked)
                     }
-                    completePhotoViewerLoad(request, cached, first?.context, first != null)
+                    completePhotoViewerLoad(request, cached, first?.context, first != null, neighborWindow)
                 }
             } } catch (_: java.util.concurrent.RejectedExecutionException) { finish(); null }
             return
@@ -1940,14 +2073,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun refreshUI(media: ArrayList<Medium>, refetchViewPagerPosition: Boolean) {
+        // Capture the currently displayed path before replacing the backing list.
+        // The original click path is only a fallback; background stages must not
+        // pull the user back after they have already swiped to another medium.
+        val currentPathBeforeUpdate = getCurrentPath().ifEmpty { mPath }
+        val previousPosition = mPos
         mPrevHashcode = media.hashCode()
         mMediaFiles = media
 
         if (refetchViewPagerPosition || mPos == -1) {
-            mPos = getPositionInList(media)
-            if (mPos == -1) {
-                min(mPos, media.lastIndex)
-            }
+            mPos = org.fossify.gallery.helpers.ViewerPositionPolicy.resolve(
+                media, currentPathBeforeUpdate, previousPosition
+            ).takeIf { it >= 0 } ?: getPositionInList(media).coerceIn(0, (media.lastIndex).coerceAtLeast(0))
         }
 
         updateActionbarTitle()
