@@ -641,7 +641,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             if (request != viewerLoadGeneration || isFinishing || isDestroyed) return
             if (firstContext != null && !firstContext.isCurrent(applicationContext)) { finish(); return }
             if (!checkFavoriteAccess() || items.isEmpty()) { finish(); return }
-            val scopedItems = searchedViewerMedia(items)
+            val scopedItems = stabilizeRandomViewerOrder(searchedViewerMedia(items))
             if (initialized) {
                 gotMedia(ArrayList<ThumbnailItem>(scopedItems), refetchViewPagerPosition = true)
             } else {
@@ -726,6 +726,19 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         return grouped.filterIsInstance<Medium>()
     }
 
+    /** Keeps an already exposed random neighborhood stable as any source completes. */
+    private fun stabilizeRandomViewerOrder(media: List<Medium>): List<Medium> {
+        val sortPath = when {
+            isPhotoProfile -> PhotoProfileMediaLoader.PATH
+            isFavoriteRequest -> FAVORITES
+            else -> mDirectory
+        }
+        if (config.getFolderSorting(sortPath) and SORT_BY_RANDOM == 0) return media
+        return org.fossify.gallery.helpers.FolderViewerMediaPolicy.reconcile(
+            mMediaFiles, media, random = true
+        ) { it.path }
+    }
+
     private fun takeNeighborWindow(
         sourceType: org.fossify.gallery.helpers.ViewerSourceType,
         sourceKey: String
@@ -805,7 +818,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                                     if (batch == null || batch.items.none { it.path == path } || !FavoriteAccessSessionManager.isPublicationCurrent(batch.validation)) {
                                         closeUnauthorizedFavorites(); return@runOnUiThread
                                     }
-                                    val searched = searchedViewerMedia(batch.items)
+                                    val searched = stabilizeRandomViewerOrder(searchedViewerMedia(batch.items))
                                     gotMedia(ArrayList<ThumbnailItem>(searched), refetchViewPagerPosition = true)
                                     logPagerReady("viewer_full_list_ready", fullStarted, searched.size)
                                 }

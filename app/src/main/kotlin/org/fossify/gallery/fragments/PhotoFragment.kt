@@ -133,9 +133,9 @@ class PhotoFragment : ViewPagerFragment() {
 
     private fun reportImageRendered() {
         val path = mMedium.path
-        if (mReportedImagePath == path) return
+        if (mReportedImagePath == path || !mIsFragmentVisible) return
         binding.gesturesView.post {
-            if (mReportedImagePath != path && binding.gesturesView.drawable != null && mMedium.path == path) {
+            if (mIsFragmentVisible && mReportedImagePath != path && binding.gesturesView.drawable != null && mMedium.path == path) {
                 mReportedImagePath = path
                 listener?.imageRendered(path)
             }
@@ -366,6 +366,7 @@ class PhotoFragment : ViewPagerFragment() {
         super.setMenuVisibility(menuVisible)
         mIsFragmentVisible = menuVisible
         if (mWasInit) {
+            if (menuVisible) reportImageRendered()
             val isNotAnimatedContent =
                 !mMedium.isGIF() && !mMedium.isApng() && !mMedium.isAvif() && !mMedium.isWebP()
             if (isNotAnimatedContent) {

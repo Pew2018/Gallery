@@ -3,6 +3,7 @@ package org.fossify.gallery.helpers
 import android.content.Context
 import android.provider.MediaStore.Files
 import org.fossify.commons.helpers.FAVORITES
+import org.fossify.commons.extensions.getDoesFilePathExist
 import org.fossify.gallery.extensions.*
 import org.fossify.gallery.models.Medium
 
@@ -93,7 +94,9 @@ internal class PhotoAccessValidationBatch(
                 val column = cursor.getColumnIndex(Files.FileColumns.DATA)
                 if (column >= 0) while (cursor.moveToNext()) {
                     val path = cursor.getString(column) ?: continue
-                    if (path.endsWith("/.nomedia")) folders.add(path.removeSuffix("/.nomedia"))
+                    if (path.endsWith("/.nomedia") && context.getDoesFilePathExist(path, context.config.OTGPath)) {
+                        folders.add(path.removeSuffix("/.nomedia"))
+                    }
                 }
             }
         }
