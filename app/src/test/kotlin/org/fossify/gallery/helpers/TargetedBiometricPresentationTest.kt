@@ -11,6 +11,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
@@ -53,7 +54,7 @@ class TargetedBiometricPresentationTest {
             assertEquals(1, failures)
             launch()
             shadowOf(android.os.Looper.getMainLooper()).idle()
-            val result = BiometricPrompt.AuthenticationResult(null, BiometricPrompt.AUTHENTICATION_RESULT_TYPE_BIOMETRIC)
+            val result = androidx.biometric.TestAuthenticationResultFactory.success()
             callback.onAuthenticationSucceeded(host, result)
             callback.onAuthenticationSucceeded(host, result)
             assertEquals(1, successes)
