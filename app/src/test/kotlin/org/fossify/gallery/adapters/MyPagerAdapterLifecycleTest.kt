@@ -32,7 +32,7 @@ class MyPagerAdapterLifecycleTest {
         override fun isFullScreen() = false
     }
 
-    private class ProbeFragment : ViewPagerFragment() {
+    class ProbeFragment : ViewPagerFragment() {
         var listenerReadyAtViewCreation = false
         override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, state: Bundle?): View {
             listenerReadyAtViewCreation = listener != null
