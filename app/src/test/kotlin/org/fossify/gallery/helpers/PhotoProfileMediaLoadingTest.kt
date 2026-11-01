@@ -3,9 +3,11 @@ package org.fossify.gallery.helpers
 import android.app.Application
 import android.content.ContentProvider
 import android.content.ContentValues
+import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
+import android.provider.MediaStore
 import org.fossify.gallery.databases.GalleryDatabase
 import org.fossify.gallery.extensions.config
 import org.fossify.commons.extensions.getSharedPrefs
@@ -273,13 +275,16 @@ class PhotoProfileMediaLoadingTest {
         } finally { root.toFile().deleteRecursively() }
     }
 
-    @Test @Config(sdk = [31], shadows = [ScopedEnvironment::class])
+    @Test @Config(sdk = [31], shadows = [ScopedEnvironment::class, ScopedMediaStore::class])
     fun unchangedCompletePublicProfileCatalogSkipsTheRepeatedMediaIndexQuery() {
         val root = Files.createTempDirectory("photo-catalog-reuse")
         try {
             val path = Files.write(root.resolve("indexed.jpg"), byteArrayOf(1, 2, 3)).toString()
             provider.add(path)
             val id = profile(root.toString())
+            val scope = PhotoProfileScope.capture(context, id, null)!!
+            assertNotNull("test MediaStore must provide a stable catalog checkpoint",
+                PhotoProfileCatalogCheckpoint.capture(context, scope))
             val first = background { PhotoProfileMediaLoader(context).loadStaged(id, allowPreview = false) }
             assertEquals(PhotoLoadStage.COMPLETE, first.stage)
             assertEquals(listOf(path), first.media.map { it.path })
@@ -453,6 +458,21 @@ class PhotoProfileMediaLoadingTest {
         companion object {
             @JvmStatic @Implementation(minSdk = 30)
             fun isExternalStorageManager(): Boolean = false
+        }
+    }
+
+    /** Supplies stable MediaStore freshness generations so this test exercises reusable catalogs. */
+    @Implements(MediaStore::class)
+    class ScopedMediaStore {
+        companion object {
+            @JvmStatic @Implementation(minSdk = 29)
+            fun getExternalVolumeNames(context: Context): Set<String> = setOf("external")
+
+            @JvmStatic @Implementation(minSdk = 29)
+            fun getVersion(context: Context, volumeName: String): String = "catalog-test-version"
+
+            @JvmStatic @Implementation(minSdk = 30)
+            fun getGeneration(context: Context, volumeName: String): Long = 1L
         }
     }
 
