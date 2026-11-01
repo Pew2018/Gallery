@@ -3,7 +3,7 @@ package org.fossify.gallery.helpers
 import org.fossify.gallery.models.Medium
 
 /** A fragment may only survive a catalog update when every value that affects its content is stable. */
-internal data class ViewerMediumIdentity(
+data class ViewerMediumIdentity(
     val path: String,
     val databaseId: Long?,
     val mediaStoreId: Long,

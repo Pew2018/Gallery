@@ -67,6 +67,9 @@ class MyPagerAdapter(
             fm.beginTransaction()
                 .add(container.id, fragment, fragmentTag(identity))
                 .commitNow()
+            fm.beginTransaction()
+                .setMaxLifecycle(fragment, androidx.lifecycle.Lifecycle.State.STARTED)
+                .commitNow()
         }
         if (fragment is ViewPagerFragment) {
             fragment.listener = activity
