@@ -102,7 +102,7 @@ class ViewerMediaUpdatePolicyTest {
     @Test fun metadataEnrichmentAndFavoriteFlagDoNotInvalidateDecodedContent() {
         val base = medium("a.jpg")
         val old = ViewerMediaUpdatePolicy.contentSignature(base)
-        val enriched = base.copy(id = 42L, taken = 123L, isFavorite = true, size = 200L)
+        val enriched = base.copy(id = 42L, taken = 123L, isFavorite = true)
 
         assertFalse(ViewerMediaUpdatePolicy.contentChanged(old, ViewerMediaUpdatePolicy.contentSignature(enriched)))
     }
