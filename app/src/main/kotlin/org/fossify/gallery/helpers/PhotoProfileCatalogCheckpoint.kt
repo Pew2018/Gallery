@@ -5,6 +5,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import org.fossify.commons.helpers.isRPlus
 import org.fossify.gallery.extensions.config
+import org.fossify.gallery.models.Medium
 import java.io.File
 
 /** Freshness evidence for reusing a complete public Photos-profile catalog. */
@@ -15,6 +16,10 @@ internal data class PhotoProfileCatalogCheckpoint(
     internal data class FolderState(val canonicalPath: String, val modified: Long)
 
     companion object {
+        /** Supplement files have no generation row proving that cached content stayed fresh. */
+        fun hasReliableMediaStoreIdentity(media: List<Medium>): Boolean =
+            media.all { it.mediaStoreId > 0L }
+
         fun capture(context: Context, scope: PhotoProfileScope): PhotoProfileCatalogCheckpoint? {
             if (!isRPlus() || Environment.isExternalStorageManager() || scope.sessionId != null || scope.allFiles) return null
             return runCatching {

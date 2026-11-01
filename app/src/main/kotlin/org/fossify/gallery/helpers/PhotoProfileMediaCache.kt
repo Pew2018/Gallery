@@ -38,7 +38,8 @@ internal object PhotoProfileMediaCache {
     ): Boolean {
         val scope = result.context.scope
         if (result.stage != PhotoLoadStage.COMPLETE || !result.access.publicOnly || scope.sessionId != null ||
-            result.media.size > MAX_ITEMS || result.context.revision != PhotoContentRevision.current()) return false
+            result.media.size > MAX_ITEMS || result.context.revision != PhotoContentRevision.current() ||
+            !PhotoProfileCatalogCheckpoint.hasReliableMediaStoreIdentity(result.media)) return false
         val freshnessStarted = GalleryPerfTrace.begin()
         val finishedCheckpoint = PhotoProfileCatalogCheckpoint.capture(context, scope)
         val checkpoint = finishedCheckpoint.takeIf { scanCheckpoint != null && scanCheckpoint == it }
