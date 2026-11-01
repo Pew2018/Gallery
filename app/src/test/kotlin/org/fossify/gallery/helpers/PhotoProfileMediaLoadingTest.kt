@@ -296,7 +296,7 @@ class PhotoProfileMediaLoadingTest {
             assertEquals(PhotoLoadStage.COMPLETE, reused.stage)
             assertEquals(listOf(path), reused.media.map { it.path })
             assertTrue("fresh validation may query .nomedia markers, but must skip the full media query",
-                provider.queries.none { it?.contains("LIKE", ignoreCase = true) == true })
+                provider.queries.none { it?.contains("_data LIKE", ignoreCase = true) == true })
 
             val added = Files.write(root.resolve("added.jpg"), byteArrayOf(4, 5)).toString()
             root.toFile().setLastModified(root.toFile().lastModified() + 5_000L)
@@ -305,7 +305,7 @@ class PhotoProfileMediaLoadingTest {
             val rebuilt = background { PhotoProfileMediaLoader(context).loadStaged(id, allowPreview = false) }
             assertEquals(setOf(path, added), rebuilt.media.map { it.path }.toSet())
             assertTrue("source directory change must fall back to the index query",
-                provider.queries.any { it?.contains("LIKE", ignoreCase = true) == true })
+                provider.queries.any { it?.contains("_data LIKE", ignoreCase = true) == true })
         } finally { root.toFile().deleteRecursively() }
     }
 
