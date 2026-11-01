@@ -88,4 +88,29 @@ class MyPagerAdapterLifecycleTest {
             controller.pause().stop().destroy()
         }
     }
+
+    @Test fun stateSavedInstantiationUsesRealViewPlaceholderAndRecreatesAfterResume() {
+        val controller = Robolectric.buildActivity(Host::class.java).setup()
+        try {
+            val host = controller.get()
+            val container = FrameLayout(host).apply { id = View.generateViewId() }
+            host.setContentView(container)
+            val adapter = MyPagerAdapter(host, host.supportFragmentManager, listOf(medium(10L)), fragmentFactory = { ProbeFragment() })
+
+            controller.saveInstanceState(Bundle())
+            assertTrue(host.supportFragmentManager.isStateSaved)
+            val deferred = adapter.instantiateItem(container, 0)
+            assertTrue(deferred is View)
+            assertSame(container, (deferred as View).parent)
+
+            controller.resume()
+            adapter.onHostResumed()
+            assertFalse(host.supportFragmentManager.isStateSaved)
+            adapter.destroyItem(container, 0, deferred)
+            val page = adapter.instantiateItem(container, 0)
+            assertTrue(page is ProbeFragment)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
 }

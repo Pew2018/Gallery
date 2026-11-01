@@ -3,6 +3,7 @@ package org.fossify.gallery.adapters
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.Lifecycle
@@ -35,12 +36,25 @@ internal class MyPagerAdapter(
     private var positionByIdentity = preparedPositions ?: ViewerMediaUpdatePolicy.positionIndex(media)
     private val fragments = LinkedHashMap<ViewerMediumIdentity, ViewPagerFragment>()
     private val pendingRemovals = LinkedHashSet<ViewPagerFragment>()
+    private var hasDeferredPages = false
     val media: List<Medium> get() = items
     private var currentPrimary: ViewPagerFragment? = null
 
     override fun getCount() = items.size
 
-    override fun isViewFromObject(view: View, item: Any) = (item as? Fragment)?.view === view
+    override fun isViewFromObject(view: View, item: Any) = when (item) {
+        is Fragment -> item.view === view
+        is View -> item === view
+        else -> false
+    }
+
+    private fun addDeferredPage(container: ViewGroup): View {
+        hasDeferredPages = true
+        return FrameLayout(container.context).also {
+            it.isClickable = false
+            container.addView(it, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+    }
 
     private fun createItem(medium: Medium): ViewPagerFragment {
         val bundle = Bundle().apply {
@@ -76,7 +90,7 @@ internal class MyPagerAdapter(
 
     override fun instantiateItem(container: ViewGroup, position: Int): Any {
         val medium = items[position]
-        if (!activity.mayLoadFavoritePath(medium.path)) return Fragment()
+        if (!activity.mayLoadFavoritePath(medium.path)) return addDeferredPage(container)
         val identity = ViewerMediaUpdatePolicy.identity(medium)
         val existing = fragments[identity]
         if (fm.isStateSaved) {
@@ -84,7 +98,7 @@ internal class MyPagerAdapter(
                 existing.listener = activity
                 return existing
             }
-            return Fragment()
+            return addDeferredPage(container)
         }
         val fragment = existing?.takeUnless { it in pendingRemovals } ?: createItem(medium)
         GalleryPerfTrace.event(if (fragment === existing) "viewer_fragment_reused" else "viewer_fragment_created")
@@ -102,6 +116,10 @@ internal class MyPagerAdapter(
     }
 
     override fun destroyItem(container: ViewGroup, position: Int, any: Any) {
+        if (any is View) {
+            container.removeView(any)
+            return
+        }
         val fragment = any as? ViewPagerFragment ?: return
         if (fragment === currentPrimary) currentPrimary = null
         if (fm.isStateSaved) {
@@ -136,6 +154,10 @@ internal class MyPagerAdapter(
             fragments.entries.removeAll { entry -> entry.value === it }
             pendingRemovals.remove(it)
             it.listener = null
+        }
+        if (hasDeferredPages) {
+            hasDeferredPages = false
+            notifyDataSetChanged()
         }
     }
 
@@ -179,20 +201,18 @@ internal class MyPagerAdapter(
         putLong(KEY_SIZE, signature.size)
         putLong(KEY_MODIFIED, signature.modified)
         putLong(KEY_MEDIA_STORE_ID, signature.mediaStoreId)
-        putLong(KEY_FOLDER_REVISION, signature.folderRevision)
-        putLong(KEY_PHOTO_REVISION, signature.photoRevision)
+        putLong(KEY_INVALIDATION_VERSION, signature.invalidationVersion)
     }
 
     private fun Bundle.getSignature() = ViewerContentSignature(
         getLong(KEY_SIZE), getLong(KEY_MODIFIED), getLong(KEY_MEDIA_STORE_ID),
-        getLong(KEY_FOLDER_REVISION), getLong(KEY_PHOTO_REVISION)
+        getLong(KEY_INVALIDATION_VERSION)
     )
 
     private companion object {
         const val KEY_SIZE = "viewer_size"
         const val KEY_MODIFIED = "viewer_modified"
         const val KEY_MEDIA_STORE_ID = "viewer_media_store_id"
-        const val KEY_FOLDER_REVISION = "viewer_folder_revision"
-        const val KEY_PHOTO_REVISION = "viewer_photo_revision"
+        const val KEY_INVALIDATION_VERSION = "viewer_invalidation_version"
     }
 }

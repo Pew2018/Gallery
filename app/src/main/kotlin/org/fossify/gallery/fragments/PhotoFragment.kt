@@ -130,6 +130,7 @@ class PhotoFragment : ViewPagerFragment() {
     private var mInitialZoom = 1f
     private var mHasInitialZoom = false
     private var mReportedImagePath: String? = null
+    private var detailsGeneration = 0L
 
     private fun reportImageRendered() {
         val path = mMedium.path
@@ -326,6 +327,7 @@ class PhotoFragment : ViewPagerFragment() {
     }
 
     override fun onDestroyView() {
+        detailsGeneration++
         super.onDestroyView()
         if (activity?.isDestroyed == false) {
             binding.subsamplingView.recycle()
@@ -938,10 +940,13 @@ class PhotoFragment : ViewPagerFragment() {
     }
 
     private fun initExtendedDetails() {
+        val generation = ++detailsGeneration
+        val medium = mMedium.copy()
         if (requireContext().config.showExtendedDetails) {
             ensureBackgroundThread {
-                val details = getMediumExtendedDetails(mMedium)
+                val details = getMediumExtendedDetails(medium)
                 activity?.runOnUiThread {
+                    if (generation != detailsGeneration || !isAdded || view == null || mMedium.path != medium.path || context?.config?.showExtendedDetails != true) return@runOnUiThread
                     binding.photoDetails.apply {
                         text = details
                         beVisibleIf(text.isNotEmpty())

@@ -168,6 +168,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     private lateinit var mSeekBar: SeekBar
     private lateinit var mPlaybackSpeedPill: TextView
     private var mTouchSlop = 0
+    private var detailsGeneration = 0L
     private var mInitialX = 0f
     private var mInitialY = 0f
 
@@ -176,6 +177,11 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         mMedium = medium
         super.updateMedium(medium)
         if (this::binding.isInitialized && view != null) checkExtendedDetails()
+    }
+
+    override fun onDestroyView() {
+        detailsGeneration++
+        super.onDestroyView()
     }
 
     override fun onCreateView(
@@ -622,12 +628,20 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     }
 
     private fun checkExtendedDetails() {
+        val generation = ++detailsGeneration
+        val medium = mMedium.copy()
         if (mConfig.showExtendedDetails) {
-            binding.videoDetails.apply {
-                text = getMediumExtendedDetails(mMedium)
-                beVisibleIf(text.isNotEmpty())
-                alpha = if (!mConfig.hideExtendedDetails || !mIsFullscreen) 1f else 0f
-                (activity as? BaseViewerActivity)?.applyProperHorizontalInsets(this)
+            ensureBackgroundThread {
+                val details = getMediumExtendedDetails(medium)
+                activity?.runOnUiThread {
+                    if (generation != detailsGeneration || !isAdded || view == null || mMedium.path != medium.path || !mConfig.showExtendedDetails) return@runOnUiThread
+                    binding.videoDetails.apply {
+                        text = details
+                        beVisibleIf(text.isNotEmpty())
+                        alpha = if (!mConfig.hideExtendedDetails || !mIsFullscreen) 1f else 0f
+                        (activity as? BaseViewerActivity)?.applyProperHorizontalInsets(this)
+                    }
+                }
             }
         } else {
             binding.videoDetails.beGone()

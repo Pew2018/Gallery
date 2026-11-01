@@ -76,4 +76,42 @@ class ViewerMediaUpdatePolicyTest {
         assertEquals(3, update.survivingIdentities.size)
         assertEquals(0, update.invalidatedIdentities.size)
     }
+
+    @Test fun unrelatedPathInvalidationDoesNotReloadUnchangedPage() {
+        val a = medium("a.jpg")
+        val b = medium("b.jpg")
+        val beforeA = ViewerMediaUpdatePolicy.contentSignature(a)
+        val beforeB = ViewerMediaUpdatePolicy.contentSignature(b)
+
+        ViewerContentInvalidationRegistry.invalidate(b.path)
+
+        assertFalse(ViewerMediaUpdatePolicy.contentChanged(beforeA, ViewerMediaUpdatePolicy.contentSignature(a)))
+        assertTrue(ViewerMediaUpdatePolicy.contentChanged(beforeB, ViewerMediaUpdatePolicy.contentSignature(b)))
+    }
+
+    @Test fun globalCatalogRevisionDoesNotInvalidateIndividualPageSignature() {
+        val a = medium("a.jpg")
+        val before = ViewerMediaUpdatePolicy.contentSignature(a)
+
+        FolderContentRevision.changed()
+        PhotoContentRevision.changed()
+
+        assertFalse(ViewerMediaUpdatePolicy.contentChanged(before, ViewerMediaUpdatePolicy.contentSignature(a)))
+    }
+
+    @Test fun metadataEnrichmentAndFavoriteFlagDoNotInvalidateDecodedContent() {
+        val base = medium("a.jpg")
+        val old = ViewerMediaUpdatePolicy.contentSignature(base)
+        val enriched = base.copy(id = 42L, taken = 123L, isFavorite = true, size = 200L)
+
+        assertFalse(ViewerMediaUpdatePolicy.contentChanged(old, ViewerMediaUpdatePolicy.contentSignature(enriched)))
+    }
+
+    @Test fun entirelyUnknownContentFactsFailConservatively() {
+        val unknown = Medium(null, "a.jpg", "/gallery/a.jpg", "/gallery", 0L, 0L, 0L, 1, 0, false, 0L, 0L)
+
+        assertTrue(ViewerMediaUpdatePolicy.contentChanged(
+            ViewerMediaUpdatePolicy.contentSignature(unknown), ViewerMediaUpdatePolicy.contentSignature(unknown)
+        ))
+    }
 }

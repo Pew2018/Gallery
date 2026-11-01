@@ -10,9 +10,25 @@ internal data class ViewerContentSignature(
     val size: Long,
     val modified: Long,
     val mediaStoreId: Long,
-    val folderRevision: Long,
-    val photoRevision: Long
+    val invalidationVersion: Long
 )
+
+/** Process-local, bounded-by-active-paths invalidation for explicit file mutations. */
+internal object ViewerContentInvalidationRegistry {
+    private val versions = object : LinkedHashMap<String, Long>(512, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean = size > MAX_PATHS
+    }
+    private val lock = Any()
+    private val sequence = java.util.concurrent.atomic.AtomicLong()
+
+    fun current(path: String): Long = synchronized(lock) { versions[path] ?: 0L }
+
+    fun invalidate(path: String) {
+        if (path.isNotEmpty()) synchronized(lock) { versions[path] = sequence.incrementAndGet() }
+    }
+
+    private const val MAX_PATHS = 4096
+}
 
 internal data class ViewerMediaUpdate(
     val currentPosition: Int,
@@ -27,24 +43,24 @@ internal object ViewerMediaUpdatePolicy {
         medium.size.takeIf { it > 0L } ?: 0L,
         medium.modified.takeIf { it > 0L } ?: 0L,
         medium.mediaStoreId.takeIf { it > 0L } ?: 0L,
-        FolderContentRevision.current(),
-        PhotoContentRevision.current()
+        ViewerContentInvalidationRegistry.current(medium.path)
     )
 
     /** Unknown facts do not conflict with known facts, so provisional rows can be enriched in place. */
     fun contentChanged(
         old: ViewerContentSignature,
         fresh: ViewerContentSignature
-    ): Boolean = old.folderRevision != fresh.folderRevision || old.photoRevision != fresh.photoRevision ||
+    ): Boolean = old.invalidationVersion != fresh.invalidationVersion ||
         knownConflict(old.size, fresh.size) || knownConflict(old.modified, fresh.modified) ||
-        knownConflict(old.mediaStoreId, fresh.mediaStoreId)
+        knownConflict(old.mediaStoreId, fresh.mediaStoreId) ||
+        (old.size == 0L && old.modified == 0L && old.mediaStoreId == 0L &&
+            fresh.size == 0L && fresh.modified == 0L && fresh.mediaStoreId == 0L)
 
     fun mergeSignature(old: ViewerContentSignature, fresh: ViewerContentSignature) = ViewerContentSignature(
         knownValue(old.size, fresh.size),
         knownValue(old.modified, fresh.modified),
         knownValue(old.mediaStoreId, fresh.mediaStoreId),
-        fresh.folderRevision,
-        fresh.photoRevision
+        fresh.invalidationVersion
     )
 
     /** Keep the most complete row while taking presentation and state fields from the newest result. */
