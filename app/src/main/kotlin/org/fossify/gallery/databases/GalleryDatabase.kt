@@ -25,9 +25,9 @@ abstract class GalleryDatabase : RoomDatabase() {
     abstract fun FavoriteFoldersDao(): FavoriteFoldersDao
 
     companion object {
-        private var db: GalleryDatabase? = null
+        @Volatile private var db: GalleryDatabase? = null
 
-        fun getInstance(context: Context): GalleryDatabase {
+        @Synchronized fun getInstance(context: Context): GalleryDatabase {
             if (db == null) {
                 synchronized(GalleryDatabase::class) {
                     if (db == null) {
@@ -48,7 +48,7 @@ abstract class GalleryDatabase : RoomDatabase() {
             return db!!
         }
 
-        fun destroyInstance() {
+        @Synchronized fun destroyInstance() {
             if (db?.isOpen == true) {
                 db?.close()
             }

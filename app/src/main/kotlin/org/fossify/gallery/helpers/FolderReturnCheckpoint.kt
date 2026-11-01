@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Environment
 import android.os.SystemClock
 import android.provider.MediaStore
+import org.fossify.commons.extensions.isPathOnOTG
 import org.fossify.commons.helpers.isRPlus
 import org.fossify.gallery.extensions.config
 import java.io.File
@@ -37,6 +38,7 @@ internal data class FolderReturnCheckpoint(
                 !folder.startsWith('/') || folder.contains("/.")) return null
             return runCatching {
                 val cfg = context.config
+                if (context.isPathOnOTG(folder)) return null
                 if (FolderUnlockSessionManager.findProtectedAncestor(folder, cfg::isFolderProtected) != null ||
                     FavoriteFolderRules.isExcluded(folder, cfg.excludedFolders)) return null
                 val directory = File(folder)
@@ -58,15 +60,22 @@ internal data class FolderReturnCheckpoint(
 
         fun isCurrent(context: Context, folder: String, previous: FolderReturnCheckpoint): Boolean {
             val current = capture(context, folder) ?: return false
-            return FolderReturnPolicy.canReuse(
-                publicOrdinaryFolder = previous.folder == folder,
-                completeDisplay = true,
-                sameSettings = previous.configuration == current.configuration,
-                sameMediaStore = previous.generations == current.generations,
-                sameDirectoryTimestamp = previous.directoryModified == current.directoryModified,
-                unchangedViewerContent = previous.revision == current.revision,
-                ageMillis = current.capturedAt - previous.capturedAt
-            )
+            return sameSnapshot(previous, current) &&
+                FolderReturnPolicy.canReuse(
+                    publicOrdinaryFolder = previous.folder == folder,
+                    completeDisplay = true,
+                    sameSettings = previous.configuration == current.configuration,
+                    sameMediaStore = previous.generations == current.generations,
+                    sameDirectoryTimestamp = previous.directoryModified == current.directoryModified,
+                    unchangedViewerContent = previous.revision == current.revision,
+                    ageMillis = current.capturedAt - previous.capturedAt
+                )
         }
+
+        /** Compares a scan's before/after proof, intentionally ignoring capture time. */
+        fun sameSnapshot(first: FolderReturnCheckpoint?, second: FolderReturnCheckpoint?): Boolean =
+            first != null && second != null && first.folder == second.folder &&
+                first.configuration == second.configuration && first.generations == second.generations &&
+                first.directoryModified == second.directoryModified && first.revision == second.revision
     }
 }

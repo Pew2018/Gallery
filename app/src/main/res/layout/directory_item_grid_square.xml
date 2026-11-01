@@ -144,16 +144,4 @@
         android:src="@drawable/ic_sd_card_vector"
         android:visibility="gone" />
 
-
-    <com.google.android.material.progressindicator.LinearProgressIndicator
-        android:id="@+id/dir_loading_progress"
-        android:layout_width="match_parent"
-        android:layout_height="3dp"
-        android:layout_alignParentTop="true"
-        android:indeterminate="true"
-        android:visibility="gone"
-        app:indicatorColor="#FFFFFFFF"
-        app:trackColor="#99000000"
-        app:trackThickness="3dp" />
-
 </RelativeLayout>

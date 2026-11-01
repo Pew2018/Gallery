@@ -1,13 +1,18 @@
 package org.fossify.gallery.helpers
 
 import android.app.Application
+import android.graphics.Rect
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.ContextThemeWrapper
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.CheckBox
+import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.view.menu.MenuAdapter
+import androidx.appcompat.view.menu.MenuBuilder
 import com.google.android.material.appbar.MaterialToolbar
 import org.fossify.commons.views.MySearchMenu
 import org.fossify.gallery.R
@@ -103,6 +108,97 @@ class ClassicToolbarLayoutTest {
             attributes.recycle()
             val surface = if (mode == "light") 0xFFFFFFFF.toInt() else 0xFF303030.toInt()
             assertTrue(OxygenThemeColors.contrastRatio(text, surface) >= 4.5)
+        }
+    }
+
+    @android.annotation.SuppressLint("RestrictedApi")
+    @Test fun classicOverflowMeasuresLongCheckedLabelsWithoutControlOverlap() {
+        val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
+        activity.config.oxygenThemeActivated = true
+        for (mode in listOf("light", "dark")) for (layout in listOf(
+            androidx.appcompat.R.layout.abc_popup_menu_item_layout,
+            androidx.appcompat.R.layout.abc_cascading_menu_item_layout)) {
+            activity.config.oxygenAppearanceMode = mode
+            val context = ContextThemeWrapper(activity, OxygenClassicMenus.theme(activity))
+            val popup = OxygenClassicMenus.createPopup(activity, View(activity))
+            popup.menu.add(0, 1, 0, "始终显示已排除项目").apply {
+                isCheckable = true
+                isChecked = true
+            }
+            val adapter = MenuAdapter(popup.menu as MenuBuilder, LayoutInflater.from(context),
+                false, layout)
+            val row = adapter.getView(0, null, FrameLayout(context))
+            val density = context.resources.displayMetrics.density
+            row.measure(View.MeasureSpec.makeMeasureSpec((256 * density).toInt(), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+            row.layout(0, 0, row.measuredWidth, row.measuredHeight)
+            val title = descendants(row).filterIsInstance<TextView>()
+                .single { it.text.toString() == "始终显示已排除项目" }
+            val check = descendants(row).filterIsInstance<CheckBox>().single()
+            assertTrue(check.isChecked)
+            assertEquals(16f, title.textSize / context.resources.displayMetrics.scaledDensity, 0.2f)
+            assertTrue(row.measuredHeight >= (48 * density).toInt())
+            val titleBounds = Rect().also { title.getDrawingRect(it) }
+            val checkBounds = Rect().also { check.getDrawingRect(it) }
+            (row as ViewGroup).offsetDescendantRectToMyCoords(title, titleBounds)
+            row.offsetDescendantRectToMyCoords(check, checkBounds)
+            assertTrue("Menu title overlaps its checked control", titleBounds.right <= checkBounds.left)
+        }
+    }
+
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    @Test fun anchoredOverflowUsesClassicWindowAndDispatchesItsActualRows() {
+        val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
+        activity.config.oxygenThemeActivated = true
+        val density = activity.resources.displayMetrics.density
+        fun dp(value: Int) = (value * density + 0.5f).toInt()
+        val host = FrameLayout(activity)
+        val anchor = View(activity)
+        host.addView(anchor, FrameLayout.LayoutParams(dp(48), dp(48), android.view.Gravity.END))
+        activity.setContentView(host)
+        host.measure(View.MeasureSpec.makeMeasureSpec(dp(360), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(dp(640), View.MeasureSpec.EXACTLY))
+        host.layout(0, 0, host.measuredWidth, host.measuredHeight)
+        val output = java.io.File("build/reports/photo-source-previews").apply { mkdirs() }
+        for (mode in listOf("light", "dark")) {
+            activity.config.oxygenAppearanceMode = mode
+            val popup = OxygenClassicMenus.createPopup(activity, anchor)
+            listOf("分享", "发送到桌面", "取消关注").forEachIndexed { index, label ->
+                popup.menu.add(0, index + 1, index, label)
+            }
+            var clicked = 0
+            popup.setOnMenuItemClickListener { clicked = it.itemId; true }
+            popup.show()
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            val window = org.robolectric.Shadows.shadowOf(activity.application).latestPopupWindow!!
+            try {
+                assertTrue(window.isShowing)
+                assertTrue("Anchored overflow must share the toolbar overlap policy", window.overlapAnchor)
+                assertEquals(dp(8).toFloat(), window.elevation, 0.5f)
+                val background = window.background as android.graphics.drawable.GradientDrawable
+                assertEquals(dp(4).toFloat(), background.cornerRadius, 0.5f)
+                assertEquals(if (mode == "light") android.graphics.Color.WHITE else 0xFF303030.toInt(),
+                    background.color!!.defaultColor)
+                val list = descendants(window.contentView).filterIsInstance<android.widget.ListView>().single()
+                val panel = window.contentView.rootView
+                panel.measure(View.MeasureSpec.makeMeasureSpec(window.width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(window.height, View.MeasureSpec.EXACTLY))
+                panel.layout(0, 0, panel.measuredWidth, panel.measuredHeight)
+                assertEquals(3, list.childCount)
+                assertTrue("Short menu should not retain AppCompat's 196dp minimum", window.width < dp(196))
+                val bitmap = android.graphics.Bitmap.createBitmap(panel.width, panel.height,
+                    android.graphics.Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(bitmap)
+                panel.draw(canvas)
+                java.io.File(output, "classic-overflow-$mode.png").outputStream().use {
+                    assertTrue(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it))
+                }
+                bitmap.recycle()
+                assertTrue(list.performItemClick(list.getChildAt(1), 1, list.adapter.getItemId(1)))
+                assertEquals(2, clicked)
+            } finally {
+                popup.dismiss()
+            }
         }
     }
 }

@@ -3,14 +3,18 @@ package org.fossify.gallery.helpers
 import android.app.Application
 import android.content.ContentProvider
 import android.content.ContentValues
+import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
+import android.provider.MediaStore
 import org.fossify.gallery.databases.GalleryDatabase
 import org.fossify.gallery.extensions.config
 import org.fossify.commons.extensions.getSharedPrefs
 import org.fossify.gallery.extensions.mediaDB
 import org.fossify.gallery.models.Medium
+import org.fossify.gallery.models.Favorite
+import org.fossify.gallery.extensions.favoritesDB
 import org.fossify.gallery.extensions.dateTakensDB
 import org.fossify.gallery.models.DateTaken
 import org.junit.After
@@ -107,6 +111,46 @@ class PhotoProfileMediaLoadingTest {
         return id
     }
 
+    @Test fun boundedNeighborContextDoesNotEnumerateTenThousandFavoriteRowsAndRechecksMembership() {
+        val root = Files.createTempDirectory("photo-bounded-favorites")
+        try {
+            val paths = (0 until ViewerNeighborWindow.MAX_ITEMS).map { index ->
+                Files.write(root.resolve("near-$index.jpg"), byteArrayOf(index.toByte())).toString()
+            }
+            val manyFavorites = (0 until 10_000).map { index ->
+                val path = "${root}/unrelated-$index.jpg"
+                Favorite(null, path, "unrelated-$index.jpg", root.toString())
+            }
+            background {
+                context.favoritesDB.insertAll(manyFavorites + paths.take(4).map {
+                    Favorite(null, it, java.io.File(it).name, root.toString())
+                })
+            }
+            val id = java.util.UUID.randomUUID().toString()
+            PhotoProfileRepository.of(context).save(PhotoProfile(id, "Mixed", listOf(
+                PhotoSource(PhotoSourceType.FOLDER, root.toString()), PhotoSource(PhotoSourceType.FAVORITES)
+            )))
+
+            val request = background {
+                PhotoProfileLoadContext.captureNeighbors(context, id, null, paths)
+            }!!
+
+            assertEquals(paths.take(4).toSet(), request.favorites)
+            assertEquals(paths.toSet(), request.favoriteMembershipPaths)
+            assertTrue(background { request.isCurrent(context) })
+            val items = paths.map { path -> Medium(
+                null, java.io.File(path).name, path, root.toString(), 1, 1, 1, TYPE_IMAGES, 0, false, 0, 1
+            ) }
+            val validated = background {
+                PhotoViewerSnapshotStore.validateNeighborWindow(context, id, null, items, paths.first())
+            }!!
+            assertEquals(paths, validated.media.map { it.path })
+            assertEquals(paths.take(4).toSet(), validated.media.filter { it.isFavorite }.map { it.path }.toSet())
+            background { context.favoritesDB.deleteFavoritePath(paths.first()) }
+            assertFalse(background { request.isCurrent(context) })
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     @Test fun indexedStagePrecedesSupplementAndSecondEntryUsesFreshlyValidatedCache() {
         val root = Files.createTempDirectory("photo-stages")
         try {
@@ -192,11 +236,24 @@ class PhotoProfileMediaLoadingTest {
         val preview = PhotoProfileMediaCache.preview(media, "/Camera/200.jpg", 80)
         assertEquals(80, preview.size)
         assertTrue(preview.any { it.path == "/Camera/200.jpg" })
-        PhotoProfileMediaCache.offer(PhotoLoadResult(request, PhotoLoadStage.COMPLETE, media, PhotoAccessSummary(false, true)))
+        PhotoProfileMediaCache.offer(context, PhotoLoadResult(request, PhotoLoadStage.COMPLETE, media, PhotoAccessSummary(false, true)))
         val read = PhotoProfileMediaCache.read(request)!!
         read.first().name = "Changed"
         assertEquals("0.jpg", PhotoProfileMediaCache.read(request)!!.first().name)
         PhotoContentRevision.changed()
+        assertNull(PhotoProfileMediaCache.read(request))
+    }
+
+    @Test fun profileCatalogAboveBoundFallsBackInsteadOfGrowingTheMemoryCache() {
+        val id = profile("/Camera")
+        val scope = PhotoProfileScope.capture(context, id, null)!!
+        val request = PhotoProfileLoadContext(scope, PhotoContentRevision.current(), emptySet())
+        val media = (0..12_000).map { n ->
+            Medium(null, "$n.jpg", "/Camera/$n.jpg", "/Camera", 1, n.toLong(), 1, TYPE_IMAGES, 0, false, 0, 0)
+        }
+        assertFalse(PhotoProfileMediaCache.offer(
+            context, PhotoLoadResult(request, PhotoLoadStage.COMPLETE, media, PhotoAccessSummary(false, true))
+        ))
         assertNull(PhotoProfileMediaCache.read(request))
     }
 
@@ -218,6 +275,40 @@ class PhotoProfileMediaLoadingTest {
         } finally { root.toFile().deleteRecursively() }
     }
 
+    @Test @Config(sdk = [31], shadows = [ScopedEnvironment::class, ScopedMediaStore::class])
+    fun unchangedCompletePublicProfileCatalogSkipsTheRepeatedMediaIndexQuery() {
+        val root = Files.createTempDirectory("photo-catalog-reuse")
+        try {
+            val path = Files.write(root.resolve("indexed.jpg"), byteArrayOf(1, 2, 3)).toString()
+            provider.add(path)
+            val id = profile(root.toString())
+            val scope = PhotoProfileScope.capture(context, id, null)!!
+            assertNotNull("test MediaStore must provide a stable catalog checkpoint",
+                PhotoProfileCatalogCheckpoint.capture(context, scope))
+            val first = background { PhotoProfileMediaLoader(context).loadStaged(id, allowPreview = false) }
+            assertEquals(PhotoLoadStage.COMPLETE, first.stage)
+            assertEquals(listOf(path), first.media.map { it.path })
+            val queryCountAfterScan = provider.queries.size
+            assertTrue("initial full load should query the index", queryCountAfterScan > 0)
+
+            provider.queries.clear()
+            val reused = background { PhotoProfileMediaLoader(context).loadStaged(id, allowPreview = false) }
+            assertEquals(PhotoLoadStage.COMPLETE, reused.stage)
+            assertEquals(listOf(path), reused.media.map { it.path })
+            assertTrue("fresh validation may query .nomedia markers, but must skip the full media query",
+                provider.queries.none { it?.contains("_data LIKE", ignoreCase = true) == true })
+
+            val added = Files.write(root.resolve("added.jpg"), byteArrayOf(4, 5)).toString()
+            root.toFile().setLastModified(root.toFile().lastModified() + 5_000L)
+            provider.add(added)
+            provider.queries.clear()
+            val rebuilt = background { PhotoProfileMediaLoader(context).loadStaged(id, allowPreview = false) }
+            assertEquals(setOf(path, added), rebuilt.media.map { it.path }.toSet())
+            assertTrue("source directory change must fall back to the index query",
+                provider.queries.any { it?.contains("_data LIKE", ignoreCase = true) == true })
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     @Test fun viewerSnapshotRechecksCanonicalTargetAndRejectsDeletedClickedFile() {
         val root = Files.createTempDirectory("photo-viewer-link")
         try {
@@ -236,6 +327,33 @@ class PhotoProfileMediaLoadingTest {
             assertNull(background { PhotoViewerSnapshotStore.validate(context, id, taken, alias.toString()) })
             Files.delete(alias)
             assertNull(background { PhotoViewerSnapshotStore.validate(context, id, taken, alias.toString()) })
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun viewerNeighborValidationChecksOnlyBoundedCurrentProfileCandidates() {
+        val root = Files.createTempDirectory("photo-viewer-neighbors")
+        try {
+            val previous = Files.write(root.resolve("previous.jpg"), byteArrayOf(1)).toString()
+            val selected = Files.write(root.resolve("selected.jpg"), byteArrayOf(2)).toString()
+            val next = Files.write(root.resolve("next.jpg"), byteArrayOf(3)).toString()
+            val hidden = Files.write(root.resolve(".hidden.jpg"), byteArrayOf(4)).toString()
+            val id = profile(root.toString())
+            val items = listOf(previous, selected, next, hidden).map { path ->
+                Medium(null, java.io.File(path).name, path, root.toString(), 1, 1, 1, TYPE_IMAGES, 0, false, 0, 0)
+            }
+
+            val result = background {
+                PhotoViewerSnapshotStore.validateNeighborWindow(context, id, null, items, selected)
+            }
+
+            assertEquals(listOf(previous, selected, next), result!!.media.map { it.path })
+            assertEquals(1, provider.queries.size)
+            assertFalse(provider.queries.single()!!.contains("LIKE"))
+            assertNull(background {
+                PhotoViewerSnapshotStore.validateNeighborWindow(
+                    context, id, null, items + items, selected
+                )
+            })
         } finally { root.toFile().deleteRecursively() }
     }
 
@@ -264,7 +382,8 @@ class PhotoProfileMediaLoadingTest {
             val first = background { PhotoViewerSnapshotStore.firstFrame(context, id, null, item) }!!
             assertEquals(listOf(path), first.media.map { it.path })
             assertEquals(PhotoLoadStage.INDEXED, first.stage)
-            assertTrue(provider.queries.isEmpty())
+            assertEquals(1, provider.queries.size)
+            assertFalse(provider.queries.single()!!.contains("LIKE"))
             Files.delete(java.nio.file.Paths.get(path))
             assertNull(background { PhotoViewerSnapshotStore.firstFrame(context, id, null, item) })
         } finally { root.toFile().deleteRecursively() }
@@ -280,7 +399,24 @@ class PhotoProfileMediaLoadingTest {
             assertNotNull(background { PhotoViewerSnapshotStore.firstFrame(context, id, null, item) })
             Files.write(root.resolve(".nomedia"), byteArrayOf())
             assertNull(background { PhotoViewerSnapshotStore.firstFrame(context, id, null, item) })
-            assertTrue(provider.queries.isEmpty())
+            assertEquals(2, provider.queries.size)
+            assertTrue(provider.queries.none { it!!.contains("LIKE") })
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun neighborAndCompleteValidationRejectTheSameNoMediaAncestor() {
+        val root = Files.createTempDirectory("photo-neighbor-nomedia-parity")
+        try {
+            val folder = Files.createDirectory(root.resolve("camera"))
+            val path = Files.write(folder.resolve("a.jpg"), byteArrayOf(1)).toString()
+            val item = Medium(null, "a.jpg", path, folder.toString(), 1, 1, 1, TYPE_IMAGES, 0, false, 0, 1)
+            val id = profile(folder.toString())
+            assertNotNull(background { PhotoViewerSnapshotStore.validateNeighborWindow(context, id, null, listOf(item), path) })
+            assertNotNull(background { PhotoViewerSnapshotStore.validate(context, id, listOf(item), path) })
+
+            Files.write(root.resolve(".nomedia"), byteArrayOf())
+            assertNull(background { PhotoViewerSnapshotStore.validateNeighborWindow(context, id, null, listOf(item), path) })
+            assertNull(background { PhotoViewerSnapshotStore.validate(context, id, listOf(item), path) })
         } finally { root.toFile().deleteRecursively() }
     }
 
@@ -322,6 +458,21 @@ class PhotoProfileMediaLoadingTest {
         companion object {
             @JvmStatic @Implementation(minSdk = 30)
             fun isExternalStorageManager(): Boolean = false
+        }
+    }
+
+    /** Supplies stable MediaStore freshness generations so this test exercises reusable catalogs. */
+    @Implements(MediaStore::class)
+    class ScopedMediaStore {
+        companion object {
+            @JvmStatic @Implementation(minSdk = 29)
+            fun getExternalVolumeNames(context: Context): Set<String> = setOf("external")
+
+            @JvmStatic @Implementation(minSdk = 29)
+            fun getVersion(context: Context, volumeName: String): String = "catalog-test-version"
+
+            @JvmStatic @Implementation(minSdk = 30)
+            fun getGeneration(context: Context, volumeName: String): Long = 1L
         }
     }
 

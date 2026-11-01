@@ -172,6 +172,7 @@ internal object FavoriteAccessSessionManager {
             addAll(requestedPaths.filter { it in session.snapshot.entries })
             addAll(session.snapshot.entries.keys)
         }
+        val validationStarted = GalleryPerfTrace.begin()
         val fresh = try {
             captureSnapshot(orderedPaths, session.protection)
         } catch (_: InterruptedException) {
@@ -180,6 +181,7 @@ internal object FavoriteAccessSessionManager {
         } catch (_: Exception) {
             null
         }
+        GalleryPerfTrace.end("favorites_full_validation", validationStarted, orderedPaths.size)
         if (Thread.currentThread().isInterrupted) return null
         if (fresh != session.snapshot) {
             revokeSession(token)

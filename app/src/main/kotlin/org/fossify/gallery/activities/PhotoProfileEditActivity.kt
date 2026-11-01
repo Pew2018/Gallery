@@ -69,6 +69,7 @@ class PhotoProfileEditActivity : SimpleActivity() {
         sourcePickerDraftPaths = savedInstanceState?.getStringArrayList(STATE_SOURCE_PICKER_DRAFT)?.toSet()
         setupEdgeToEdge(padTopSystem = listOf(binding.photoProfileEditAppbar), padBottomImeAndSystem = listOf(binding.photoProfileEditScroll))
         binding.photoProfileEditToolbar.apply {
+            OxygenToolbarStyle.preparePopup(this@PhotoProfileEditActivity, this)
             title = getString(if (creating) R.string.photo_profiles_create else R.string.photo_profiles_edit)
             inflateMenu(R.menu.menu_photo_profile_edit)
             setOnMenuItemClickListener { item -> if (item.itemId == R.id.photo_profile_edit_save) { saveDraft(); true } else false }

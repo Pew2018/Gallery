@@ -2,6 +2,7 @@
 
 package org.fossify.gallery.activities
 
+import org.fossify.gallery.helpers.OxygenToolbarStyle
 import org.fossify.commons.helpers.REAL_FILE_PATH
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_MEDIA_PATH
@@ -322,6 +323,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
 
     override fun onResume() {
         super.onResume()
+        OxygenToolbarStyle.applyViewerPopup(this, binding.videoToolbar)
         if (!checkFavoriteVideo()) return
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
@@ -361,6 +363,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
     }
 
     private fun setupOptionsMenu() {
+        OxygenToolbarStyle.preparePopup(this, binding.videoToolbar)
         binding.videoToolbar.apply {
             setTitleTextColor(Color.WHITE)
             overflowIcon = resources.getColoredDrawableWithColor(
@@ -610,19 +613,20 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
                             !isFinishing && !isDestroyed) {
                             mUnsupportedPromptShown = true
                             mExoPlayer?.pause()
-                            AlertDialog.Builder(this@VideoPlayerActivity)
-                                .setTitle("内置播放器无法解码此视频")
-                                .setMessage("该媒体格式或解码配置不受支持。你可以自行选择其他应用打开。")
-                                .setNegativeButton("取消", null)
-                                .setPositiveButton("使用其他应用打开") { _, _ ->
+                            org.fossify.gallery.helpers.OxygenClassicDialog.show(this@VideoPlayerActivity,
+                                org.fossify.gallery.helpers.OxygenClassicDialog.builder(this@VideoPlayerActivity,
+                                    getString(R.string.video_decode_failed_title))
+                                .setMessage(R.string.video_decode_failed_message)
+                                .setNegativeButton(org.fossify.commons.R.string.cancel, null)
+                                .setPositiveButton(R.string.video_open_external) { _, _ ->
                                     try {
                                         mUri?.let { openPath(it.toString(), true) }
                                     } catch (_: android.content.ActivityNotFoundException) {
-                                        toast("没有可用的其他播放器")
+                                        toast(R.string.video_no_external_player)
                                     } catch (_: Exception) {
-                                        toast("无法打开外部播放器")
+                                        toast(R.string.video_open_external_failed)
                                     }
-                                }.show()
+                                })
                         }
                         text = error.getFriendlyMessage(context)
                         setTextColor(if (context.config.blackBackground) Color.WHITE else context.getProperTextColor())

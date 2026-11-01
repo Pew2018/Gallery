@@ -129,6 +129,19 @@ class PhotoFragment : ViewPagerFragment() {
     private var mCurrentGestureViewZoom = 1f
     private var mInitialZoom = 1f
     private var mHasInitialZoom = false
+    private var mReportedImagePath: String? = null
+    private var detailsGeneration = 0L
+
+    private fun reportImageRendered() {
+        val path = mMedium.path
+        if (mReportedImagePath == path || !mIsFragmentVisible) return
+        binding.gesturesView.post {
+            if (mIsFragmentVisible && mReportedImagePath != path && binding.gesturesView.drawable != null && mMedium.path == path) {
+                mReportedImagePath = path
+                listener?.imageRendered(path)
+            }
+        }
+    }
 
     private var mStoredShowExtendedDetails = false
     private var mStoredHideExtendedDetails = false
@@ -139,6 +152,13 @@ class PhotoFragment : ViewPagerFragment() {
     private lateinit var mView: ViewGroup
     private lateinit var binding: PagerPhotoItemBinding
     private lateinit var mMedium: Medium
+
+    override fun updateMedium(medium: Medium) {
+        if (!::mMedium.isInitialized || medium.path != mOriginalPath) return
+        mMedium = medium
+        super.updateMedium(medium)
+        if (this::binding.isInitialized && view != null) initExtendedDetails()
+    }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -307,6 +327,7 @@ class PhotoFragment : ViewPagerFragment() {
     }
 
     override fun onDestroyView() {
+        detailsGeneration++
         super.onDestroyView()
         if (activity?.isDestroyed == false) {
             binding.subsamplingView.recycle()
@@ -354,6 +375,7 @@ class PhotoFragment : ViewPagerFragment() {
         super.setMenuVisibility(menuVisible)
         mIsFragmentVisible = menuVisible
         if (mWasInit) {
+            if (menuVisible) reportImageRendered()
             val isNotAnimatedContent =
                 !mMedium.isGIF() && !mMedium.isApng() && !mMedium.isAvif() && !mMedium.isWebP()
             if (isNotAnimatedContent) {
@@ -472,6 +494,7 @@ class PhotoFragment : ViewPagerFragment() {
         if (context != null) {
             val drawable = APNGDrawable.fromFile(mMedium.path)
             binding.gesturesView.setImageDrawable(drawable)
+            reportImageRendered()
         }
     }
 
@@ -484,6 +507,7 @@ class PhotoFragment : ViewPagerFragment() {
             }
 
             binding.gesturesView.setImageDrawable(drawable)
+            reportImageRendered()
         }
     }
 
@@ -497,6 +521,7 @@ class PhotoFragment : ViewPagerFragment() {
                 loadWithGlide(path, addZoomableView)
             } else {
                 binding.gesturesView.setImageDrawable(drawable)
+                reportImageRendered()
             }
         } else {
             loadWithGlide(path, addZoomableView)
@@ -545,6 +570,7 @@ class PhotoFragment : ViewPagerFragment() {
                     if (mIsFragmentVisible && addZoomableView) {
                         scheduleZoomableView()
                     }
+                    reportImageRendered()
                     return false
                 }
             }).into(binding.gesturesView)
@@ -575,6 +601,7 @@ class PhotoFragment : ViewPagerFragment() {
                     if (mIsFragmentVisible && addZoomableView) {
                         scheduleZoomableView()
                     }
+                    reportImageRendered()
                 }
 
                 override fun onError(e: Exception?) {
@@ -913,10 +940,13 @@ class PhotoFragment : ViewPagerFragment() {
     }
 
     private fun initExtendedDetails() {
+        val generation = ++detailsGeneration
+        val medium = mMedium.copy()
         if (requireContext().config.showExtendedDetails) {
             ensureBackgroundThread {
-                val details = getMediumExtendedDetails(mMedium)
+                val details = getMediumExtendedDetails(medium)
                 activity?.runOnUiThread {
+                    if (generation != detailsGeneration || !isAdded || view == null || mMedium.path != medium.path || context?.config?.showExtendedDetails != true) return@runOnUiThread
                     binding.photoDetails.apply {
                         text = details
                         beVisibleIf(text.isNotEmpty())

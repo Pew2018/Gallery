@@ -8,7 +8,6 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -88,7 +87,7 @@ object BottomNavigationOrderDialog {
                     val boundPosition = holder.bindingAdapterPosition
                     if (boundPosition == RecyclerView.NO_POSITION) return@setOnClickListener
                     val boundItem = pending.getOrNull(boundPosition) ?: return@setOnClickListener
-                    val popup = PopupMenu(activity, anchor)
+                    val popup = OxygenClassicMenus.createPopup(activity, anchor)
                     if (boundPosition > 0) popup.menu.add(0, 0, 0, R.string.navigation_order_move_up)
                     if (boundPosition < pending.lastIndex) popup.menu.add(0, 1, 1, R.string.navigation_order_move_down)
                     popup.setOnMenuItemClickListener { item ->

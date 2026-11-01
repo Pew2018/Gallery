@@ -1,14 +1,11 @@
 package org.fossify.gallery.adapters
 
-import android.view.ContextThemeWrapper
-import android.view.Gravity
+import org.fossify.gallery.helpers.OxygenClassicMenus
 import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
-import androidx.appcompat.widget.PopupMenu
 import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.adapters.MyRecyclerViewAdapter
-import org.fossify.commons.extensions.getPopupMenuTheme
 import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.commons.extensions.isPathOnSD
 import org.fossify.commons.extensions.setupViewBackground
@@ -80,17 +77,14 @@ class ManageHiddenFoldersAdapter(
             }
 
             overflowMenuIcon.setOnClickListener {
-                showPopupMenu(overflowMenuAnchor, folder)
+                showPopupMenu(overflowMenuIcon, folder)
             }
         }
     }
 
     private fun showPopupMenu(view: View, folder: String) {
         finishActMode()
-        val theme = activity.getPopupMenuTheme()
-        val contextTheme = ContextThemeWrapper(activity, theme)
-
-        PopupMenu(contextTheme, view, Gravity.END).apply {
+        OxygenClassicMenus.createPopup(activity, view).apply {
             inflate(getActionMenuId())
             setOnMenuItemClickListener { item ->
                 val folderId = folder.hashCode()

@@ -10,6 +10,9 @@
     <color name="oxygen_classic_file_manager_blue">#0071CD</color>
     <color name="oxygen_classic_divider">#E6E6E6</color>
 
+    <!-- AppCompat overflow buttons are 40dp wide; explicit menu targets are 48dp.
+         Align the popup edge at the glyph center (within 4dp), as in the reference. -->
+    <dimen name="oxygen_classic_overflow_horizontal_offset">-20dp</dimen>
     <dimen name="oxygen_classic_toolbar_height">56dp</dimen>
     <dimen name="oxygen_classic_horizontal_margin">16dp</dimen>
     <dimen name="oxygen_classic_single_row">56dp</dimen>
@@ -177,58 +180,88 @@
         <item name="android:textColorHint">#BDBDBD</item>
         <item name="android:windowBackground">@drawable/oxygen_classic_popup_dark</item>
     </style>
-    <style name="OxygenClassicOverflow.Light" parent="Widget.AppCompat.PopupMenu.Overflow">
-        <item name="android:popupBackground">@drawable/oxygen_classic_popup_light</item>
+    <style name="OxygenClassicOverflow.Light" parent="OxygenClassicPopupMenu.Light">
+        <!-- Align the panel end near the overflow glyph, overlapping the action slot. -->
+        <item name="overlapAnchor">true</item>
+        <item name="android:dropDownHorizontalOffset">@dimen/oxygen_classic_overflow_horizontal_offset</item>
+        <item name="android:dropDownVerticalOffset">16dp</item>
     </style>
-    <style name="OxygenClassicOverflow.Dark" parent="Widget.AppCompat.PopupMenu.Overflow">
-        <item name="android:popupBackground">@drawable/oxygen_classic_popup_dark</item>
+    <style name="OxygenClassicOverflow.Dark" parent="OxygenClassicPopupMenu.Dark">
+        <!-- Align the panel end near the overflow glyph, overlapping the action slot. -->
+        <item name="overlapAnchor">true</item>
+        <item name="android:dropDownHorizontalOffset">@dimen/oxygen_classic_overflow_horizontal_offset</item>
+        <item name="android:dropDownVerticalOffset">16dp</item>
     </style>
 
     <!-- Keep menus on a neutral surface, never the user's accent color. -->
     <style name="OxygenClassicPopupTheme.Light" parent="ThemeOverlay.AppCompat.Light">
-        <item name="android:textColorPrimary">@color/oxygen_classic_on_light</item>
-        <item name="android:textColorSecondary">@color/oxygen_classic_on_light</item>
-        <item name="android:textColor">@color/oxygen_classic_on_light</item>
-        <item name="colorControlNormal">@color/oxygen_classic_on_light</item>
+        <item name="android:textColorPrimary">@color/oxygen_classic_menu_text_light</item>
+        <item name="android:textColorSecondary">@color/oxygen_classic_menu_text_light</item>
+        <item name="android:textColor">@color/oxygen_classic_menu_text_light</item>
+        <item name="colorControlNormal">@color/oxygen_classic_menu_text_light</item>
         <item name="colorControlActivated">@color/oxygen_classic_accent</item>
         <item name="checkboxStyle">@style/OxygenClassicPopupCheckbox</item>
         <item name="android:checkboxStyle">@style/OxygenClassicPopupCheckbox</item>
         <item name="colorSurface">@color/oxygen_classic_surface</item>
-        <item name="colorOnSurface">@color/oxygen_classic_on_light</item>
+        <item name="colorOnSurface">@color/oxygen_classic_menu_text_light</item>
         <item name="textAppearanceLargePopupMenu">@style/OxygenClassicPopupText.Light</item>
         <item name="textAppearanceSmallPopupMenu">@style/OxygenClassicPopupText.Light</item>
         <item name="popupMenuStyle">@style/OxygenClassicPopupMenu.Light</item>
         <item name="android:popupMenuStyle">@style/OxygenClassicPopupMenu.Light</item>
+        <item name="actionOverflowMenuStyle">@style/OxygenClassicOverflow.Light</item>
+        <item name="listPreferredItemHeightSmall">48dp</item>
+        <item name="dropdownListPreferredItemHeight">48dp</item>
+        <item name="listPreferredItemPaddingLeft">16dp</item>
+        <item name="listPreferredItemPaddingRight">16dp</item>
+        <item name="listMenuViewStyle">@style/OxygenClassicMenuList</item>
     </style>
     <style name="OxygenClassicPopupTheme.Dark" parent="ThemeOverlay.AppCompat.Dark">
-        <item name="android:textColorPrimary">@color/oxygen_classic_on_dark</item>
-        <item name="android:textColorSecondary">@color/oxygen_classic_on_dark</item>
-        <item name="android:textColor">@color/oxygen_classic_on_dark</item>
-        <item name="colorControlNormal">@color/oxygen_classic_on_dark</item>
+        <item name="android:textColorPrimary">@color/oxygen_classic_menu_text_dark</item>
+        <item name="android:textColorSecondary">@color/oxygen_classic_menu_text_dark</item>
+        <item name="android:textColor">@color/oxygen_classic_menu_text_dark</item>
+        <item name="colorControlNormal">@color/oxygen_classic_menu_text_dark</item>
         <item name="colorControlActivated">@color/oxygen_classic_accent</item>
         <item name="checkboxStyle">@style/OxygenClassicPopupCheckbox</item>
         <item name="android:checkboxStyle">@style/OxygenClassicPopupCheckbox</item>
         <item name="colorSurface">@color/oxygen_classic_dialog_dark</item>
-        <item name="colorOnSurface">@color/oxygen_classic_on_dark</item>
+        <item name="colorOnSurface">@color/oxygen_classic_menu_text_dark</item>
         <item name="textAppearanceLargePopupMenu">@style/OxygenClassicPopupText.Dark</item>
         <item name="textAppearanceSmallPopupMenu">@style/OxygenClassicPopupText.Dark</item>
         <item name="popupMenuStyle">@style/OxygenClassicPopupMenu.Dark</item>
         <item name="android:popupMenuStyle">@style/OxygenClassicPopupMenu.Dark</item>
+        <item name="actionOverflowMenuStyle">@style/OxygenClassicOverflow.Dark</item>
+        <item name="listPreferredItemHeightSmall">48dp</item>
+        <item name="dropdownListPreferredItemHeight">48dp</item>
+        <item name="listPreferredItemPaddingLeft">16dp</item>
+        <item name="listPreferredItemPaddingRight">16dp</item>
+        <item name="listMenuViewStyle">@style/OxygenClassicMenuList</item>
     </style>
     <style name="OxygenClassicPopupMenu.Light" parent="Widget.AppCompat.PopupMenu">
-        <item name="android:popupBackground">@drawable/oxygen_classic_popup_light</item>
+        <item name="android:popupBackground">@drawable/oxygen_classic_menu_light</item>
+        <item name="android:popupElevation">8dp</item>
     </style>
     <style name="OxygenClassicPopupMenu.Dark" parent="Widget.AppCompat.PopupMenu">
-        <item name="android:popupBackground">@drawable/oxygen_classic_popup_dark</item>
+        <item name="android:popupBackground">@drawable/oxygen_classic_menu_dark</item>
+        <item name="android:popupElevation">8dp</item>
     </style>
 
     <style name="OxygenClassicPopupText.Light" parent="TextAppearance.AppCompat.Widget.PopupMenu.Large">
-        <item name="android:textColor">@color/oxygen_classic_on_light</item>
+        <item name="android:textColor">@color/oxygen_classic_menu_text_light</item>
         <item name="android:textSize">16sp</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textStyle">normal</item>
     </style>
     <style name="OxygenClassicPopupText.Dark" parent="TextAppearance.AppCompat.Widget.PopupMenu.Large">
-        <item name="android:textColor">@color/oxygen_classic_on_dark</item>
+        <item name="android:textColor">@color/oxygen_classic_menu_text_dark</item>
         <item name="android:textSize">16sp</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textStyle">normal</item>
+    </style>
+
+    <!-- Native menu dispatch, checkbox state, submenus and window clipping stay AppCompat-owned. -->
+    <style name="OxygenClassicMenuList" parent="Widget.AppCompat.ListView.Menu">
+        <item name="android:divider">@null</item>
+        <item name="android:dividerHeight">0dp</item>
     </style>
 
     <style name="OxygenClassicDialogButton" parent="Widget.AppCompat.Button.Borderless.Colored">

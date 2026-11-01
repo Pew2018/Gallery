@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gallery_file_view">文件视图</string>
+    <string name="folder_unavailable_suffix">（暂时不可访问）</string>
+    <string name="favorite_folders_auth_required">请完成验证后查看受保护的收藏文件夹</string>
+    <string name="favorite_folders_load_failed">收藏文件夹加载失败，请下拉重试</string>
+    <string name="favorite_folders_none_unavailable">没有检测到不可用的收藏路径</string>
+    <string name="favorite_folders_cleanup_title">清理不可用的收藏路径</string>
+    <string name="favorite_folders_cleanup_message">以下 %1$d 个收藏路径目前无法访问。它们也可能位于暂时未连接的存储设备。\n\n%2$s\n\n仅删除收藏记录，不删除任何原始文件。</string>
+    <string name="favorite_folders_keep">保留</string>
+    <string name="favorite_folders_cleanup_action">清理收藏记录</string>
+    <string name="folder_filter_hidden">显示隐藏文件夹</string>
+    <string name="folder_filter_excluded">显示排除文件夹</string>
+    <string name="folder_filter_nomedia">显示含 .nomedia 的文件夹</string>
+    <string name="folder_filter_protected">显示受保护／锁定文件夹</string>
+    <string name="folder_filter_title">文件夹分类筛选</string>
+    <string name="folder_filter_apply">应用</string>
+    <string name="folder_status_hidden">隐藏</string>
+    <string name="folder_status_excluded">排除</string>
+    <string name="folder_status_nomedia">隐藏媒体</string>
+    <string name="folder_status_protected">已锁定</string>
+    <string name="folder_load_failed">文件夹加载失败，请下拉重试</string>
+    <string name="video_decode_failed_title">内置播放器无法解码此视频</string>
+    <string name="video_decode_failed_message">该媒体格式或解码配置不受支持。你可以自行选择其他应用打开。</string>
+    <string name="video_open_external">使用其他应用打开</string>
+    <string name="video_no_external_player">没有可用的其他播放器</string>
+    <string name="video_open_external_failed">无法打开外部播放器</string>
+    <string name="media_load_permission_error">无法读取媒体。请检查照片和视频权限后重试。</string>
+    <string name="media_load_storage_error">媒体来源暂时不可用。请检查存储设备连接后重试。</string>
+    <string name="media_load_retry">重试</string>
+    <string name="media_load_partial_error">部分文件夹读取失败，已保留可读内容及已有缓存。请下拉重试。</string>
+</resources>

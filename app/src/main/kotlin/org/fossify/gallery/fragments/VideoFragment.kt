@@ -168,8 +168,16 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     private lateinit var mSeekBar: SeekBar
     private lateinit var mPlaybackSpeedPill: TextView
     private var mTouchSlop = 0
+    private var detailsGeneration = 0L
     private var mInitialX = 0f
     private var mInitialY = 0f
+
+    override fun updateMedium(medium: Medium) {
+        if (!::mMedium.isInitialized || medium.path != mMedium.path) return
+        mMedium = medium
+        super.updateMedium(medium)
+        if (this::binding.isInitialized && view != null) checkExtendedDetails()
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -404,6 +412,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     }
 
     override fun onDestroyView() {
+        detailsGeneration++
         // Fragment views are discarded on rotation too. Never keep their player,
         // timer or video Surface alive across view destruction.
         cleanup()
@@ -615,12 +624,20 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     }
 
     private fun checkExtendedDetails() {
+        val generation = ++detailsGeneration
+        val medium = mMedium.copy()
         if (mConfig.showExtendedDetails) {
-            binding.videoDetails.apply {
-                text = getMediumExtendedDetails(mMedium)
-                beVisibleIf(text.isNotEmpty())
-                alpha = if (!mConfig.hideExtendedDetails || !mIsFullscreen) 1f else 0f
-                (activity as? BaseViewerActivity)?.applyProperHorizontalInsets(this)
+            ensureBackgroundThread {
+                val details = getMediumExtendedDetails(medium)
+                activity?.runOnUiThread {
+                    if (generation != detailsGeneration || !isAdded || view == null || mMedium.path != medium.path || !mConfig.showExtendedDetails) return@runOnUiThread
+                    binding.videoDetails.apply {
+                        text = details
+                        beVisibleIf(text.isNotEmpty())
+                        alpha = if (!mConfig.hideExtendedDetails || !mIsFullscreen) 1f else 0f
+                        (activity as? BaseViewerActivity)?.applyProperHorizontalInsets(this)
+                    }
+                }
             }
         } else {
             binding.videoDetails.beGone()
@@ -803,6 +820,14 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
 
         binding.bottomVideoTimeHolder.videoToggleMute.setImageResource(drawableId)
+    }
+
+    /** Lifecycle and media identity can change between page selection and playback. */
+    fun playSlideshowVideo(expectedPath: String): Boolean {
+        if (!isResumed || view == null || !::mMedium.isInitialized || !mWasFragmentInit ||
+            mMedium.path != expectedPath || listener?.isSlideShowActive() != true) return false
+        playVideo()
+        return true
     }
 
     fun playVideo() {

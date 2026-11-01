@@ -87,6 +87,7 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun setupOptionsMenu() {
+        OxygenToolbarStyle.preparePopup(this, binding.searchMenu)
         binding.searchMenu.requireToolbar().inflateMenu(R.menu.menu_search)
         binding.searchMenu.toggleHideOnScroll(true)
         binding.searchMenu.setupMenu()
@@ -121,13 +122,14 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun textChanged(text: String) {
+        val source = mAllMedia
         ensureBackgroundThread {
             try {
-                val filtered = ArrayList(mAllMedia.filter { it is Medium && it.name.contains(text, true) })
+                val filtered = ArrayList(source.filter { it is Medium && it.name.contains(text, true) })
                 filtered.sortBy { it is Medium && !it.name.startsWith(text, true) }
                 val grouped = MediaFetcher(applicationContext).groupMedia(filtered as ArrayList<Medium>, "")
                 runOnUiThread {
-                    if (exitGate.exiting || isFinishing || isDestroyed || text != mLastSearchedText) return@runOnUiThread
+                    if (exitGate.exiting || isFinishing || isDestroyed || text != mLastSearchedText || source !== mAllMedia) return@runOnUiThread
                     if (grouped.isEmpty()) {
                         binding.searchEmptyTextPlaceholder.text = getString(org.fossify.commons.R.string.no_items_found)
                         binding.searchEmptyTextPlaceholder.beVisible()
@@ -135,8 +137,10 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
                         binding.searchEmptyTextPlaceholder.beGone()
                     }
 
-                    handleGridSpacing(grouped)
-                    getMediaAdapter()?.updateMedia(grouped)
+                    getMediaAdapter()?.updateMedia(grouped, preserveScroll = false, isCurrent = {
+                        !exitGate.exiting && !isFinishing && !isDestroyed &&
+                            text == mLastSearchedText && source === mAllMedia
+                    })
                 }
             } catch (ignored: Exception) {
             }
@@ -156,8 +160,10 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
             setupLayoutManager()
             handleGridSpacing(mAllMedia)
         } else if (mLastSearchedText.isEmpty()) {
-            (currAdapter as MediaAdapter).updateMedia(mAllMedia)
-            handleGridSpacing(mAllMedia)
+            val source = mAllMedia
+            (currAdapter as MediaAdapter).updateMedia(source, preserveScroll = false, isCurrent = {
+                !exitGate.exiting && !isFinishing && !isDestroyed && source === mAllMedia && mLastSearchedText.isEmpty()
+            })
         } else {
             textChanged(mLastSearchedText)
         }
@@ -261,26 +267,36 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
                 mAllMedia = ArrayList(it)
             }
             runOnUiThread {
+                if (exitGate.exiting || isFinishing || isDestroyed) return@runOnUiThread
                 setupAdapter()
+                startAsyncTask()
             }
-            startAsyncTask(false)
         }
     }
 
-    private fun startAsyncTask(updateItems: Boolean) {
+    private fun startAsyncTask() {
         mCurrAsyncTask?.stopFetching()
-        mCurrAsyncTask = GetMediaAsynctask(applicationContext, "", showAll = true) {
-            mAllMedia = it.clone() as ArrayList<ThumbnailItem>
-            if (updateItems) {
-                textChanged(mLastSearchedText)
+        mCurrAsyncTask = GetMediaAsynctask(applicationContext, "", showAll = true,
+            cachedMediaFallback = mAllMedia.filterIsInstance<Medium>().map { it.copy() },
+            onPartialFailure = {
+                if (!exitGate.exiting && !isFinishing && !isDestroyed) toast(R.string.media_load_partial_error)
+            }, onFailure = {
+            if (!exitGate.exiting && !isFinishing && !isDestroyed) {
+                binding.searchEmptyTextPlaceholder.setText(R.string.failed_to_load_media)
+                binding.searchEmptyTextPlaceholder.beVisibleIf(getMediaAdapter()?.itemCount == 0)
             }
+        }) {
+            if (exitGate.exiting || isFinishing || isDestroyed) return@GetMediaAsynctask
+            mAllMedia = ArrayList(it)
+            setupAdapter()
+            textChanged(mLastSearchedText)
         }
 
         mCurrAsyncTask!!.execute()
     }
 
     override fun refreshItems() {
-        startAsyncTask(true)
+        startAsyncTask()
     }
 
     override fun tryDeleteFiles(fileDirItems: ArrayList<FileDirItem>, skipRecycleBin: Boolean) {
@@ -329,5 +345,5 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun selectedPaths(paths: ArrayList<String>) {}
 
-    override fun updateMediaGridDecoration(media: ArrayList<ThumbnailItem>) {}
+    override fun updateMediaGridDecoration(media: ArrayList<ThumbnailItem>) { handleGridSpacing(media) }
 }

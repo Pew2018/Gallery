@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gallery_file_view">File view</string>
+    <string name="folder_unavailable_suffix">\u0020(temporarily unavailable)</string>
+    <string name="favorite_folders_auth_required">Authenticate to view protected favorite folders</string>
+    <string name="favorite_folders_load_failed">Could not load favorite folders. Pull down to retry.</string>
+    <string name="favorite_folders_none_unavailable">No unavailable favorite folders found</string>
+    <string name="favorite_folders_cleanup_title">Remove unavailable favorites</string>
+    <string name="favorite_folders_cleanup_message">%1$d favorite folders are currently unavailable. Their storage device may be disconnected.\n\n%2$s\n\nOnly favorite records will be removed. Original files will be kept.</string>
+    <string name="favorite_folders_keep">Keep</string>
+    <string name="favorite_folders_cleanup_action">Remove favorite records</string>
+    <string name="folder_filter_hidden">Show hidden folders</string>
+    <string name="folder_filter_excluded">Show excluded folders</string>
+    <string name="folder_filter_nomedia">Show folders containing .nomedia</string>
+    <string name="folder_filter_protected">Show protected folders</string>
+    <string name="folder_filter_title">Folder visibility</string>
+    <string name="folder_filter_apply">Apply</string>
+    <string name="folder_status_hidden">Hidden</string>
+    <string name="folder_status_excluded">Excluded</string>
+    <string name="folder_status_nomedia">Hidden media</string>
+    <string name="folder_status_protected">Locked</string>
+    <string name="folder_load_failed">Could not load folders. Pull down to retry.</string>
+    <string name="video_decode_failed_title">Cannot decode this video</string>
+    <string name="video_decode_failed_message">This media format or decoder configuration is unsupported. Choose another app to open it.</string>
+    <string name="video_open_external">Open with another app</string>
+    <string name="video_no_external_player">No other video player available</string>
+    <string name="video_open_external_failed">Could not open another video player</string>
+    <string name="media_load_permission_error">Media access was denied. Check photo and video permissions, then retry.</string>
+    <string name="media_load_storage_error">The media source is unavailable. Check the storage connection, then retry.</string>
+    <string name="media_load_retry">Retry</string>
+    <string name="media_load_partial_error">Some folders could not be read. Available content and cached items have been kept. Pull down to retry.</string>
+</resources>

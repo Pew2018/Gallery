@@ -73,6 +73,6 @@ class ResizeDialog(val activity: BaseSimpleActivity, val size: Point, val callba
 
     private fun getViewValue(view: EditText): Int {
         val textValue = view.value
-        return if (textValue.isEmpty()) 0 else textValue.toInt()
+        return textValue.toIntOrNull() ?: 0
     }
 }

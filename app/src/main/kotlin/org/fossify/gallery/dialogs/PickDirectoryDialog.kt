@@ -1,13 +1,12 @@
 package org.fossify.gallery.dialogs
 
+import org.fossify.gallery.helpers.OxygenClassicMenus
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.LayerDrawable
 import android.util.TypedValue
 import androidx.core.graphics.ColorUtils
-import android.view.ContextThemeWrapper
 import android.view.Gravity
-import androidx.appcompat.widget.PopupMenu
 import android.content.res.ColorStateList
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
@@ -214,9 +213,7 @@ class PickDirectoryDialog(
 
     /** A reversible, dialog-local reveal; Commons preferences are never rewritten. */
     private fun showPickerOptions() {
-        val dark = OxygenThemeEngine.snapshot(activity, config).dark
-        val theme = if (dark) R.style.OxygenClassicPopupTheme_Dark else R.style.OxygenClassicPopupTheme_Light
-        val popup = PopupMenu(ContextThemeWrapper(activity, theme), binding.directoriesOverflowMenu, Gravity.END)
+        val popup = OxygenClassicMenus.createPopup(activity, binding.directoriesOverflowMenu)
         popup.menu.add(
             0, 1, 0,
             if (temporarilyRevealAll) R.string.picker_restore_default_folders

@@ -1,5 +1,7 @@
 package org.fossify.gallery.adapters
 
+import java.util.concurrent.Executor
+import org.fossify.gallery.helpers.GalleryListDiffExecutor
 import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
@@ -16,6 +18,8 @@ import android.widget.RelativeLayout
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.DiffUtil
+import org.fossify.gallery.helpers.DirectoryPresentation
+import org.fossify.gallery.helpers.FavoritesScrollRestorer
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.bumptech.glide.Glide
@@ -120,16 +124,19 @@ import java.util.Collections
 
 class DirectoryAdapter(
     activity: BaseSimpleActivity,
-    var dirs: ArrayList<Directory>,
+    dirs: ArrayList<Directory>,
     val listener: DirectoryOperationsListener?,
     recyclerView: MyRecyclerView,
     val isPickIntent: Boolean,
     val swipeRefreshLayout: SwipeRefreshLayout? = null,
+    private val diffExecutor: Executor = GalleryListDiffExecutor,
     itemClick: (Any) -> Unit
 ) :
     MyRecyclerViewAdapter(activity, recyclerView, itemClick), ItemTouchHelperContract,
     RecyclerViewFastScroller.OnPopupTextUpdate {
 
+    var dirs = dirs.mapTo(ArrayList()) { it.snapshot() }
+        private set
     private val config = activity.config
     private val isListViewType = config.viewTypeFolders == VIEW_TYPE_LIST
     private var pinnedFolders = config.pinnedFolders
@@ -137,11 +144,10 @@ class DirectoryAdapter(
     private var animateGifs = config.animateGifs
     private var cropThumbnails = config.cropThumbnails
     private var groupDirectSubfolders = config.groupDirectSubfolders
-    private var currentDirectoriesHash = dirs.hashCode()
+    private var forceDirectoryRebind = false
     private var lockedFolderPaths = ArrayList<String>()
     @Volatile private var favoriteFolderPaths: Set<String> = emptySet()
     private var isDragAndDropping = false
-    private var isRefreshLoading = false
     private var startReorderDragListener: StartReorderDragListener? = null
 
     private var showMediaCount = config.showFolderMediaCount
@@ -183,12 +189,6 @@ class DirectoryAdapter(
     }
 
     override fun getItemCount() = dirs.size
-
-    fun setRefreshLoading(loading: Boolean) {
-        if (isRefreshLoading == loading) return
-        isRefreshLoading = loading
-        if (itemCount > 0) notifyItemChanged(0)
-    }
 
     /** A password change does not change Directory equality, so explicitly rebind the card. */
     fun refreshFavoriteProtection() {
@@ -273,10 +273,15 @@ class DirectoryAdapter(
 
     override fun getItemKeyPosition(key: Int) = dirs.indexOfFirst { it.path.hashCode() == key }
 
-    override fun onActionModeCreated() {}
+    override fun onActionModeCreated() {
+        // Keep an in-flight result for later, but never dispatch it into selection/drag UI.
+        diffGeneration++
+        latestDirectoryUpdate?.let { pendingDirectoryUpdate = it }
+    }
 
     override fun onActionModeDestroyed() {
-        if (isDragAndDropping) {
+        val reordered = isDragAndDropping
+        if (reordered) {
             notifyDataSetChanged()
 
             val reorderedFoldersList = dirs.map { it.path }
@@ -285,6 +290,27 @@ class DirectoryAdapter(
         }
 
         isDragAndDropping = false
+        if (reordered) {
+            pendingDirectoryUpdate = pendingDirectoryUpdate?.let {
+                it.copy(directories = DirectoryPresentation.retainOrder(it.directories, dirs))
+            }
+        }
+        // Post outside the Commons action-mode teardown before applying queued data.
+        recyclerView.post { applyPendingDirectoryUpdate() }
+    }
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        recyclerView.addOnScrollListener(directoryScrollListener)
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        recyclerView.removeOnScrollListener(directoryScrollListener)
+        diffGeneration++
+        pendingDirectoryUpdate = null
+        latestDirectoryUpdate = null
+        directoryScrollAnchor.clear()
+        super.onDetachedFromRecyclerView(recyclerView)
     }
 
     override fun onViewRecycled(holder: ViewHolder) {
@@ -381,6 +407,8 @@ class DirectoryAdapter(
                 if (success) {
                     RenameItemDialog(activity, dir.absolutePath) {
                         activity.runOnUiThread {
+                            discardPendingUpdates()
+                            listener?.onDirectoryMutation()
                             firstDir.apply {
                                 path = it
                                 name = it.getFilenameFromPath()
@@ -500,12 +528,15 @@ class DirectoryAdapter(
     private fun updateFolderNames() {
         val includedFolders = config.includedFolders
         val hidden = activity.getString(R.string.hidden)
-        dirs.forEach {
-            it.name = activity.checkAppendingHidden(it.path, hidden, includedFolders, ArrayList())
+        val renamed = dirs.mapTo(ArrayList()) { directory ->
+            directory.snapshot().apply {
+                name = activity.checkAppendingHidden(path, hidden, includedFolders, ArrayList())
+            }
         }
-        listener?.updateDirectories(dirs.toMutableList() as ArrayList)
         activity.runOnUiThread {
-            updateDirs(dirs)
+            discardPendingUpdates()
+            listener?.updateDirectories(renamed)
+            updateDirs(renamed)
         }
     }
 
@@ -525,15 +556,15 @@ class DirectoryAdapter(
                 } as ArrayList<Directory>
 
                 activity.runOnUiThread {
+                    discardPendingUpdates()
+                    listener?.updateDirectories(newDirs, dirs.filter { it !in newDirs }.mapTo(HashSet()) { it.path })
                     affectedPositions.sortedDescending().forEach {
                         notifyItemRemoved(it)
                     }
 
-                    currentDirectoriesHash = newDirs.hashCode()
                     dirs = newDirs
 
                     finishActMode()
-                    listener?.updateDirectories(newDirs)
                 }
             }
         }
@@ -626,7 +657,7 @@ class DirectoryAdapter(
             config.removePinnedFolders(getSelectedPaths().toHashSet())
         }
 
-        currentDirectoriesHash = 0
+        forceDirectoryRebind = true
         pinnedFolders = config.pinnedFolders
         listener?.recheckPinnedFolders()
     }
@@ -890,7 +921,39 @@ class DirectoryAdapter(
         }
     }
 
-    private var diffGeneration = 0
+    @Volatile private var diffGeneration = 0
+    private data class DirectoryUpdate(
+        val directories: ArrayList<Directory>,
+        val isCurrent: () -> Boolean,
+        val onCommitted: () -> Unit,
+        val preserveOrder: Boolean
+    )
+    private var pendingDirectoryUpdate: DirectoryUpdate? = null
+    private var latestDirectoryUpdate: DirectoryUpdate? = null
+    private val directoryScrollListener = object : RecyclerView.OnScrollListener() {
+        override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+            if (newState == RecyclerView.SCROLL_STATE_IDLE) applyPendingDirectoryUpdate()
+        }
+    }
+    private val directoryScrollAnchor = FavoritesScrollRestorer()
+
+    private fun defersDirectoryUpdates() = selectedKeys.isNotEmpty() || isDragAndDropping ||
+        recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE
+
+    /** A local mutation supersedes both queued results and already calculating diffs. */
+    fun discardPendingUpdates() {
+        diffGeneration++
+        pendingDirectoryUpdate = null
+        latestDirectoryUpdate = null
+        directoryScrollAnchor.clear()
+    }
+
+    private fun applyPendingDirectoryUpdate() {
+        if (activity.isDestroyed || defersDirectoryUpdates()) return
+        val pending = pendingDirectoryUpdate ?: return
+        pendingDirectoryUpdate = null
+        if (pending.isCurrent()) updateDirs(pending.directories, pending.isCurrent, pending.onCommitted, pending.preserveOrder)
+    }
 
     override fun getItemId(position: Int): Long {
         return dirs.getOrNull(position)?.path?.fold(1469598103934665603L) { hash, ch ->
@@ -898,29 +961,73 @@ class DirectoryAdapter(
         } ?: RecyclerView.NO_ID
     }
 
-    fun updateDirs(newDirs: ArrayList<Directory>) {
-        val directories = ArrayList(newDirs)
-        if (directories.hashCode() == currentDirectoriesHash) return
-        // Snapshot both lists on the UI thread. Diffing large albums off the
-        // main thread avoids stalling scroll or gesture navigation.
-        val old = ArrayList(dirs)
+    fun updateDirs(
+        newDirs: ArrayList<Directory>,
+        isCurrent: () -> Boolean = { true },
+        onCommitted: () -> Unit = {},
+        preserveOrder: Boolean = false
+    ) {
+        if (!isCurrent() || activity.isDestroyed) return
         val generation = ++diffGeneration
-        ensureBackgroundThread {
+        val snapshots = newDirs.mapTo(ArrayList()) { it.snapshot() }
+        val directories = if (preserveOrder) DirectoryPresentation.retainOrder(snapshots, dirs) else snapshots
+        val update = DirectoryUpdate(directories, isCurrent, onCommitted, preserveOrder)
+        latestDirectoryUpdate = update
+        if (defersDirectoryUpdates()) {
+            pendingDirectoryUpdate = update
+            return
+        }
+        pendingDirectoryUpdate = null
+        if (DirectoryPresentation.sameContents(directories, dirs)) {
+            latestDirectoryUpdate = null
+            if (forceDirectoryRebind) {
+                forceDirectoryRebind = false
+                notifyItemRangeChanged(0, itemCount)
+            }
+            onCommitted()
+            return
+        }
+        val old = dirs.mapTo(ArrayList()) { it.snapshot() }
+        diffExecutor.execute {
+            if (generation != diffGeneration) return@execute
             val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
                 override fun getOldListSize() = old.size
                 override fun getNewListSize() = directories.size
                 override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int) =
                     old[oldItemPosition].path == directories[newItemPosition].path
                 override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int) =
-                    old[oldItemPosition] == directories[newItemPosition]
+                    old[oldItemPosition] == directories[newItemPosition] &&
+                        old[oldItemPosition].folderStatuses == directories[newItemPosition].folderStatuses
             })
             activity.runOnUiThread {
-                if (generation != diffGeneration || activity.isDestroyed) return@runOnUiThread
-                currentDirectoriesHash = directories.hashCode()
-                finishActMode()
+                if (generation != diffGeneration || activity.isDestroyed ||
+                    recyclerView.adapter !== this || !isCurrent()) return@runOnUiThread
+                if (defersDirectoryUpdates()) {
+                    pendingDirectoryUpdate = update
+                    return@runOnUiThread
+                }
+                // Local actions may have changed the adapter while diffing. Rebase
+                // rather than dispatching notifications calculated for another list.
+                if (!DirectoryPresentation.sameContents(old, dirs)) {
+                    updateDirs(directories, isCurrent, onCommitted, preserveOrder)
+                    return@runOnUiThread
+                }
+                directoryScrollAnchor.clear()
+                directoryScrollAnchor.remember(recyclerView, dirs.map { it.path })
                 dirs = directories
+                latestDirectoryUpdate = null
                 fillLockedFolders()
                 diff.dispatchUpdatesTo(this)
+                if (forceDirectoryRebind) {
+                    forceDirectoryRebind = false
+                    notifyItemRangeChanged(0, itemCount)
+                }
+                if (directoryScrollAnchor.pending != null) directoryScrollAnchor.restore(recyclerView,
+                    dirs.map { it.path }, true, isCurrent = {
+                        generation == diffGeneration && recyclerView.adapter === this && isCurrent() &&
+                            recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE
+                    })
+                onCommitted()
             }
         }
     }
@@ -938,12 +1045,6 @@ class DirectoryAdapter(
     private fun setupView(view: View, directory: Directory, holder: ViewHolder) {
         val isSelected = selectedKeys.contains(directory.path.hashCode())
         bindItem(view).apply {
-            dirLoadingProgress.visibility = if (isRefreshLoading && holder.bindingAdapterPosition == 0) View.VISIBLE else View.GONE
-            dirLoadingProgress.apply {
-                setIndicatorColor(Color.WHITE)
-                setTrackColor(0x99000000.toInt())
-                trackThickness = (3 * activity.resources.displayMetrics.density + 0.5f).toInt()
-            }
             dirPath?.text = "${directory.path.substringBeforeLast("/")}/"
             dirCheck.beVisibleIf(isSelected)
             if (isSelected) {

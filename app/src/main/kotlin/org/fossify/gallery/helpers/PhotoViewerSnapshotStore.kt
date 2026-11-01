@@ -59,7 +59,7 @@ internal object PhotoViewerSnapshotStore {
         context: Context, profileId: String?, sessionId: String?, item: Medium,
         cancelled: () -> Boolean = { false }
     ): PhotoLoadResult? {
-        val request = PhotoProfileLoadContext.capture(context, profileId, sessionId) ?: return null
+        val request = PhotoProfileLoadContext.captureNeighbors(context, profileId, sessionId, listOf(item.path)) ?: return null
         if (request.scope.selectedId != profileId || cancelled()) return null
         val (safe, access) = PhotoAccessValidationBatch(context, request, cancelled,
             directVisibilityOnly = request.scope.allFiles || android.os.Build.VERSION.SDK_INT < 30
@@ -75,6 +75,7 @@ internal object PhotoViewerSnapshotStore {
     /** Worker-only: taking a metadata snapshot is not fresh file authorization. */
     fun validate(
         context: Context, profileId: String?, media: List<Medium>, clickedPath: String,
+        requireClickedPath: Boolean = true,
         cancelled: () -> Boolean = { false }
     ): PhotoLoadResult? {
         val request = PhotoProfileLoadContext.capture(context, profileId, null) ?: return null
@@ -83,8 +84,30 @@ internal object PhotoViewerSnapshotStore {
             media.filter { java.io.File(it.path).isFile }
         } else media
         val (safe, access) = PhotoAccessValidationBatch(context, request, cancelled).validate(candidates)
-        if (cancelled() || !request.isCurrent(context) || safe.none { it.path == clickedPath }) return null
+        if (cancelled() || !request.isCurrent(context) ||
+            (requireClickedPath && safe.none { it.path == clickedPath })) return null
         return PhotoLoadResult(request, PhotoLoadStage.COMPLETE, safe, access)
+    }
+
+    /** Freshly validates only the bounded adjacent candidates; never substitutes for full validation. */
+    fun validateNeighborWindow(
+        context: Context, profileId: String?, sessionId: String?, items: List<Medium>, selectedPath: String,
+        cancelled: () -> Boolean = { false }
+    ): PhotoLoadResult? {
+        if (items.size > ViewerNeighborWindow.MAX_ITEMS || items.none { it.path == selectedPath }) return null
+        val request = PhotoProfileLoadContext.captureNeighbors(
+            context, profileId, sessionId, items.map { it.path }
+        ) ?: return null
+        if (request.scope.selectedId != profileId || cancelled()) return null
+        val candidates = if (request.scope.allFiles || android.os.Build.VERSION.SDK_INT < 30) {
+            items.filter { runCatching { java.io.File(it.path).isFile }.getOrDefault(false) }
+        } else items
+        val (safe, access) = PhotoAccessValidationBatch(
+            context, request, cancelled,
+            directVisibilityOnly = true
+        ).validate(candidates)
+        if (cancelled() || !request.isCurrent(context) || safe.none { it.path == selectedPath }) return null
+        return PhotoLoadResult(request, PhotoLoadStage.INDEXED, safe, access)
     }
 
     @Synchronized

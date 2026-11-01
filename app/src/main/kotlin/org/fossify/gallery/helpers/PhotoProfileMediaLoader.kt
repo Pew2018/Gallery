@@ -53,16 +53,43 @@ class PhotoProfileMediaLoader(
                 media.sortWith(compareBy<Medium> { randomRanks[it.path] }.thenBy { it.path })
             } else fetcher.sortMedia(media, scope.sorting)
         }
-        fun result(stage: PhotoLoadStage, media: List<Medium>): PhotoLoadResult {
+        fun result(stage: PhotoLoadStage, media: List<Medium>, preserveInputOrder: Boolean = false): PhotoLoadResult {
             checkCurrent(request)
             val (safe, access) = PhotoAccessValidationBatch(context, request, ::stopped).validate(media)
             safe.forEach { if (it.taken <= 0L) it.taken = it.modified }
-            val sorting = GalleryPerfTrace.begin()
-            sort(safe)
-            GalleryPerfTrace.end("photo_sort", sorting, safe.size)
+            if (!preserveInputOrder) {
+                val sorting = GalleryPerfTrace.begin()
+                sort(safe)
+                GalleryPerfTrace.end("photo_sort", sorting, safe.size)
+            }
             checkCurrent(request)
             return PhotoLoadResult(request, stage, safe, access)
         }
+
+        val cacheLookup = GalleryPerfTrace.begin()
+        val reusable = PhotoProfileMediaCache.readReusable(request, context)
+        if (reusable == null) GalleryPerfTrace.end("viewer_catalog_miss", cacheLookup, 0)
+        if (reusable != null) {
+            val validationStarted = GalleryPerfTrace.begin()
+            val validated = runCatching { result(PhotoLoadStage.COMPLETE, reusable, preserveInputOrder = true) }
+                .getOrElse { throw it }
+            GalleryPerfTrace.end("viewer_catalog_validation", validationStarted, validated.media.size)
+            checkCurrent(request)
+            // A generation-stable catalog should validate as the same complete set.
+            // If any row disappeared or became hidden, use the existing full query
+            // and supplement path to rebuild completeness conservatively.
+            if (validated.media.size == reusable.size) {
+                if (PhotoProfileMediaCache.isReusableCurrent(request, context, reusable)) {
+                    GalleryPerfTrace.end("viewer_catalog_hit", cacheLookup, validated.media.size)
+                    return validated
+                }
+            }
+            GalleryPerfTrace.end("viewer_catalog_miss", cacheLookup, validated.media.size)
+        }
+
+        // A catalog is reusable only when the source was stable across the scan
+        // that created it. Capture this before index queries and file supplements.
+        val scanCheckpointStarted = PhotoProfileCatalogCheckpoint.capture(context, scope)
 
         var preview = emptyList<Medium>()
         if (allowPreview) {
@@ -83,7 +110,7 @@ class PhotoProfileMediaLoader(
         checkCurrent(request)
         val query = GalleryPerfTrace.begin()
         val indexed = fetcher.queryProfileIndexedMedia(folders, favoriteFiles, ArrayList(request.favorites))
-        GalleryPerfTrace.end("photo_index", query, indexed.mediaByPath.size)
+        GalleryPerfTrace.end("photo_index_query", query, indexed.mediaByPath.size)
         if (allowPreview && indexed.mediaByPath.isNotEmpty()) {
             // Keep freshly validated preview-only files until filesystem reconciliation completes.
             // Full-access mode also needs a cheap existence check before showing stale indexed rows.
@@ -101,11 +128,16 @@ class PhotoProfileMediaLoader(
         checkCurrent(request)
         val scanning = GalleryPerfTrace.begin()
         val media = fetcher.scanProfileFileSupplements(folders, favoriteFiles, ArrayList(request.favorites), indexed)
-        GalleryPerfTrace.end("photo_supplement", scanning, media.size)
+        GalleryPerfTrace.end("photo_supplement_scan", scanning, media.size)
         val complete = result(PhotoLoadStage.COMPLETE, media)
         checkCurrent(request)
         if (complete.access.publicOnly && scope.sessionId == null) {
-            PhotoProfileMediaCache.offer(complete)
+            val handoffStarted = GalleryPerfTrace.begin()
+            val reusableCatalog = PhotoProfileMediaCache.offer(context, complete, scanCheckpointStarted)
+            GalleryPerfTrace.end(
+                if (reusableCatalog) "viewer_catalog_handoff" else "viewer_catalog_miss",
+                handoffStarted, complete.media.size
+            )
             // Public metadata only, never persist an authorization or a partial result.
             runCatching {
                 checkCurrent(request)

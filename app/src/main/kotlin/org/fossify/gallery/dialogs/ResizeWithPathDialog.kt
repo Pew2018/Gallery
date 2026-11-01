@@ -122,6 +122,6 @@ class ResizeWithPathDialog(val activity: BaseSimpleActivity, val size: Point, va
 
     private fun getViewValue(view: EditText): Int {
         val textValue = view.value
-        return if (textValue.isEmpty()) 0 else textValue.toInt()
+        return textValue.toIntOrNull() ?: 0
     }
 }
