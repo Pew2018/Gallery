@@ -26,26 +26,42 @@ class ClassicSecurityViewPagerTest {
         val pager = root.findViewById<MyDialogViewPager>(org.fossify.commons.R.id.dialog_tab_view_pager)
         assertTrue(pager is ClassicSecurityViewPager)
 
-        pager.adapter = object : PagerAdapter() {
-            override fun getCount() = 2
+        val pages = listOf(
+            View(activity).apply {
+                id = org.fossify.commons.R.id.pattern_lock_holder
+                layoutParams = androidx.viewpager.widget.ViewPager.LayoutParams().apply {
+                    width = ViewGroup.LayoutParams.MATCH_PARENT
+                    height = 240
+                }
+            },
+            View(activity).apply {
+                id = org.fossify.commons.R.id.pin_lock_holder
+                layoutParams = androidx.viewpager.widget.ViewPager.LayoutParams().apply {
+                    width = ViewGroup.LayoutParams.MATCH_PARENT
+                    height = 370
+                }
+            }
+        )
+        val adapter = object : PagerAdapter() {
+            override fun getCount() = pages.size
             override fun isViewFromObject(view: View, item: Any) = view === item
             override fun instantiateItem(container: ViewGroup, position: Int): Any {
-                val child = View(activity).apply {
-                    id = if (position == 0) org.fossify.commons.R.id.pattern_lock_holder
-                        else org.fossify.commons.R.id.pin_lock_holder
-                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                        if (position == 0) 240 else 370)
-                }
-                container.addView(child)
+                val child = pages[position]
+                if (child.parent == null) container.addView(child)
                 return child
             }
             override fun destroyItem(container: ViewGroup, position: Int, item: Any) {
                 container.removeView(item as View)
             }
         }
+        pager.adapter = adapter
+        // Robolectric does not populate a wrap-content ViewPager automatically
+        // before its first nonzero measurement. Supply the two adapter pages
+        // explicitly; production SecurityDialog populates them when shown.
+        adapter.instantiateItem(pager, 0)
+        adapter.instantiateItem(pager, 1)
 
-        // ViewPager creates adapter pages on its first attached layout, not when
-        // measured in isolation. Match the real dialog's attach/layout lifecycle.
+        // Verify the measured height after the parent attaches and lays out.
         activity.setContentView(root)
         val width = View.MeasureSpec.makeMeasureSpec(340, View.MeasureSpec.EXACTLY)
         val height = View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.AT_MOST)
