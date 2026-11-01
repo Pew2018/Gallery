@@ -179,11 +179,6 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         if (this::binding.isInitialized && view != null) checkExtendedDetails()
     }
 
-    override fun onDestroyView() {
-        detailsGeneration++
-        super.onDestroyView()
-    }
-
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -417,6 +412,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     }
 
     override fun onDestroyView() {
+        detailsGeneration++
         // Fragment views are discarded on rotation too. Never keep their player,
         // timer or video Surface alive across view destruction.
         cleanup()
