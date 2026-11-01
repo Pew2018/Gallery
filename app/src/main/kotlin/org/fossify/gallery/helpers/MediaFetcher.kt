@@ -22,7 +22,12 @@ import java.io.File
 import java.util.Calendar
 import java.util.Locale
 
-class MediaFetcher(val context: Context, private val filterOverride: Int? = null, private val cancelled: () -> Boolean = { false }) {
+class MediaFetcher(
+    val context: Context,
+    private val filterOverride: Int? = null,
+    private val cancelled: () -> Boolean = { false },
+    private val reportReadFailures: Boolean = false
+) {
     @Volatile var shouldStop = false
         get() = field || cancelled()
 
@@ -40,6 +45,7 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
 
         val curMedia = ArrayList<Medium>()
         if (context.isPathOnOTG(curPath)) {
+            if (reportReadFailures && !context.hasOTGConnected()) throw java.io.IOException("External storage is disconnected")
             if (context.hasOTGConnected()) {
                 val newMedia = getMediaOnOTG(curPath, isPickImage, isPickVideo, filterMedia, favoritePaths, getVideoDurations)
                 curMedia.addAll(newMedia)
@@ -106,7 +112,9 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
             val projection = arrayOf(Images.Media.DATA)
             val selection = getSelectionQuery(filterMedia)
             val selectionArgs = getSelectionArgsQuery(filterMedia).toTypedArray()
+            if (filterMedia == 0) return arrayListOf()
             val cursor = context.contentResolver.query(uri, projection, selection, selectionArgs, null)
+            if (cursor == null && reportReadFailures) throw java.io.IOException("MediaStore did not return a cursor")
             cursor?.let { folders.addAll(parseCursor(it)) }
 
             val config = context.config
@@ -143,6 +151,7 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
                 }
             }.toMutableList() as ArrayList<String>
         } catch (e: Exception) {
+            if (reportReadFailures) throw e
             ArrayList()
         }
     }
@@ -369,7 +378,12 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
         val files = explicitFiles ?: when (folder) {
             FAVORITES -> favoritePaths.filter { showHidden || !it.contains("/.") }.map { File(it) }.toMutableList() as ArrayList<File>
             RECYCLE_BIN -> deletedMedia.map { File(it.path) }.toMutableList() as ArrayList<File>
-            else -> File(folder).listFiles()?.toMutableList() ?: return media
+            else -> File(folder).listFiles()?.toMutableList() ?: run {
+                if (reportReadFailures && (!isRPlus() || Environment.isExternalStorageManager())) {
+                    throw java.io.IOException("Media folder is unavailable")
+                }
+                return media
+            }
         }
 
         for (curFile in files) {
@@ -510,6 +524,22 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
             getProperDateTaken, dateTakens, allowedFolders)
     }
 
+    /** Primary scans must distinguish provider failure from a successful empty cursor. */
+    private fun queryMediaCursor(
+        uri: Uri, projection: Array<String>, selection: String?, args: Array<String>?,
+        callback: (Cursor) -> Unit
+    ) {
+        if (!reportReadFailures) {
+            context.queryCursor(uri, projection, selection, args, callback = callback)
+            return
+        }
+        val cursor = context.contentResolver.query(uri, projection, selection, args, null)
+            ?: throw java.io.IOException("MediaStore did not return a cursor")
+        cursor.use {
+            while (!shouldStop && it.moveToNext()) callback(it)
+        }
+    }
+
     /** Same complete projection in both storage permission modes. */
     private fun getIndexedMedia(
         isPickImage: Boolean, isPickVideo: Boolean, favoritePaths: ArrayList<String>,
@@ -543,11 +573,12 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
         }
         val queryStarted = GalleryPerfTrace.begin()
         var indexedCount = 0
+        var rowFailure: Exception? = null
         for (query in queries) {
             if (shouldStop) break
-            context.queryCursor(uri, projection, query.selection, query.args) { cursor ->
+            queryMediaCursor(uri, projection, query.selection, query.args) { cursor ->
                 if (shouldStop) {
-                    return@queryCursor
+                    return@queryMediaCursor
                 }
 
                 try {
@@ -555,10 +586,10 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
                     val filename = cursor.getStringValue(Images.Media.DISPLAY_NAME)
                     val path = cursor.getStringValue(Images.Media.DATA)
                     if (folderScope != null && path !in allowedPaths && !PhotoMediaQueryPlan.includesDirectFile(path, folderScope)) {
-                        return@queryCursor
+                        return@queryMediaCursor
                     }
                     if (getFavoritePathsOnly && path !in favoritePathSet) {
-                        return@queryCursor
+                        return@queryMediaCursor
                     }
 
                     val isPortrait = false
@@ -569,30 +600,30 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
                     val isSvg = if (isImage || isVideo || isGif || isRaw) false else path.isSvg()
 
                     if (!isImage && !isVideo && !isGif && !isRaw && !isSvg) {
-                        return@queryCursor
+                        return@queryMediaCursor
                     }
 
                     if (isVideo && (isPickImage || filterMedia and TYPE_VIDEOS == 0))
-                        return@queryCursor
+                        return@queryMediaCursor
 
                     if (isImage && (isPickVideo || filterMedia and TYPE_IMAGES == 0))
-                        return@queryCursor
+                        return@queryMediaCursor
 
                     if (isGif && filterMedia and TYPE_GIFS == 0)
-                        return@queryCursor
+                        return@queryMediaCursor
 
                     if (isRaw && filterMedia and TYPE_RAWS == 0)
-                        return@queryCursor
+                        return@queryMediaCursor
 
                     if (isSvg && filterMedia and TYPE_SVGS == 0)
-                        return@queryCursor
+                        return@queryMediaCursor
 
                     if (!showHidden && (filename.startsWith('.') || (getFavoritePathsOnly && path.contains("/."))))
-                        return@queryCursor
+                        return@queryMediaCursor
 
                     val size = cursor.getLongValue(Images.Media.SIZE)
                     if (size <= 0L) {
-                        return@queryCursor
+                        return@queryMediaCursor
                     }
 
                     val type = when {
@@ -630,6 +661,8 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
                     media[parent]?.add(medium)
                     indexedCount++
                 } catch (e: Exception) {
+                    rowFailure = e
+                    android.util.Log.w("GalleryMedia", "Could not read indexed media row", e)
                 }
             }
         }
@@ -638,6 +671,9 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
             queryStarted, indexedCount
         )
 
+        if (reportReadFailures && indexedCount == 0 && rowFailure != null) {
+            throw java.io.IOException("MediaStore returned unreadable metadata", rowFailure)
+        }
         return media
     }
 
@@ -646,7 +682,10 @@ class MediaFetcher(val context: Context, private val filterOverride: Int? = null
         getVideoDurations: Boolean
     ): ArrayList<Medium> {
         val media = ArrayList<Medium>()
-        val files = context.getDocumentFile(folder)?.listFiles() ?: return media
+        val files = context.getDocumentFile(folder)?.listFiles() ?: run {
+            if (reportReadFailures) throw java.io.IOException("External storage is unavailable")
+            return media
+        }
         val checkFileExistence = context.config.fileLoadingPriority == PRIORITY_VALIDITY
         val showHidden = context.config.shouldShowHidden
         val OTGPath = context.config.OTGPath

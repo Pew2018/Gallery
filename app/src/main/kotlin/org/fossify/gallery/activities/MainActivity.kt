@@ -210,6 +210,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private val favoriteLoad = FavoriteFolderLoadCoordinator()
     private var favoriteViewForeground = false
     private var categorizedLoadVersion = 0L
+    private var categorizedLoadActive = false
     private var mFavoriteFolderPaths: Set<String> = emptySet()
     // Saved visibility preferences never serve as authentication credentials.
     private var mFavoriteHiddenAuthorized = false
@@ -246,6 +247,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     /** Called on the UI thread before navigation, invalidation or final stop. */
     private fun retireDirectoryScan() {
         directoryScanEpoch.retire()
+        categorizedLoadVersion++
+        categorizedLoadActive = false
         directoryScanReady = null
         mShouldStopFetching = true
         mLastMediaFetcher?.shouldStop = true
@@ -506,6 +509,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         // Authentication Activities can temporarily pause us. Favorite requests are
         // retired at onStop, not here, so their successful results are not lost.
         categorizedLoadVersion++
+        if (categorizedLoadActive) {
+            categorizedLoadActive = false
+            mIsGettingDirs = false
+            setDirectoryLoading(false)
+        }
         if (!mShowingFolderFavorites) {
             binding.directoriesRefreshLayout.isRefreshing = false
             // Pausing for authentication must not allow a duplicate scan.
@@ -1202,9 +1210,22 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         mIsGettingDirs = true
         setDirectoryLoading(true)
         val requestVersion = ++categorizedLoadVersion
+        categorizedLoadActive = true
         val requestedVisibility = mFolderVisibility.copyOf()
         mLastMediaFetcher?.shouldStop = true
-        getCachedDirectories(forceShowHidden = true, forceShowExcluded = true) { cached ->
+        val failed: (Exception) -> Unit = { error ->
+            android.util.Log.e("GalleryFolders", "Folder category scan failed", error)
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed && requestVersion == categorizedLoadVersion) {
+                    categorizedLoadActive = false
+                    mIsGettingDirs = false
+                    setDirectoryLoading(false)
+                    binding.directoriesRefreshLayout.isRefreshing = false
+                    toast(R.string.folder_load_failed)
+                }
+            }
+        }
+        getCachedDirectories(forceShowHidden = true, forceShowExcluded = true, onFailure = failed) { cached ->
             try {
                 val excluded = config.excludedFolders
                 val noMedia = getNoMediaFoldersSync().toSet()
@@ -1241,26 +1262,20 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 runOnUiThread {
                     if (isFinishing || isDestroyed || requestVersion != categorizedLoadVersion ||
                         !requestedVisibility.contentEquals(mFolderVisibility)) return@runOnUiThread
+                    categorizedLoadActive = false
                     mDirs = visible
                     mDirsIgnoringSearch = ArrayList(visible)
                     mLoadedInitialPhotos = true
                     mIsGettingDirs = false
                     setDirectoryLoading(false)
-                    setupAdapter(visible)
+                    setupAdapter(visible, presentationIsCurrent = {
+                        requestVersion == categorizedLoadVersion && requestedVisibility.contentEquals(mFolderVisibility)
+                    })
                     checkPlaceholderVisibility(visible)
                     binding.directoriesRefreshLayout.isRefreshing = false
                 }
             } catch (error: Exception) {
-                android.util.Log.e("GalleryFolders", "Folder category scan failed", error)
-                runOnUiThread {
-                    if (isFinishing || isDestroyed || requestVersion != categorizedLoadVersion)
-                        return@runOnUiThread
-                    mIsGettingDirs = false
-                    setDirectoryLoading(false)
-                    binding.directoriesRefreshLayout.isRefreshing = false
-                    android.widget.Toast.makeText(this, R.string.folder_load_failed,
-                        android.widget.Toast.LENGTH_LONG).show()
-                }
+                failed(error)
             }
         }
     }
@@ -1862,7 +1877,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         mLastMediaFetcher?.shouldStop = true
         val scanFetcher = MediaFetcher(applicationContext, cancelled = {
             !isCurrentDirectoryScan(scanRequest)
-        })
+        }, reportReadFailures = true)
         mLastMediaFetcher = scanFetcher
         val getImages = mIsPickImageIntent || mIsGetImageContentIntent
         val getVideos = mIsPickVideoIntent || mIsGetVideoContentIntent
@@ -2297,13 +2312,14 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         forceRecreate: Boolean = false,
         sortDirs: Boolean = true,
         scanRequest: Long? = null,
-        scanComplete: Boolean = false
+        scanComplete: Boolean = false,
+        presentationIsCurrent: () -> Boolean = { true }
     ) {
         // Do not share mutable Directory instances with a scanning worker or DiffUtil.
         val snapshot = dirs.map { it.copy().also { copy -> copy.folderStatuses = it.folderStatuses } }
             .toCollection(ArrayList())
         runOnUiThread {
-            if (isFinishing || isDestroyed ||
+            if (isFinishing || isDestroyed || !presentationIsCurrent() ||
                 (scanRequest != null && !isCurrentDirectoryScan(scanRequest))) return@runOnUiThread
             if (scanComplete) directoryScanReady = scanRequest
             val query = textToSearch ?: binding.mainMenu.getCurrentQuery()
@@ -2324,7 +2340,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 .sortedBy { !it.name.startsWith(query, true) }.toCollection(ArrayList())
 
             val committed = {
-                if (scanRequest == null || isCurrentDirectoryScan(scanRequest)) {
+                if (presentationIsCurrent() && (scanRequest == null || isCurrentDirectoryScan(scanRequest))) {
                     if (directoryScanReady?.let(::isCurrentDirectoryScan) == true) {
                         directoryScanReady = null
                         mIsGettingDirs = false
@@ -2360,7 +2376,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             } else {
                 current.directorySorting = config.directorySorting
                 current.updateDirs(visible, isCurrent = {
-                    !isFinishing && !isDestroyed && binding.directoriesGrid.adapter === current &&
+                    !isFinishing && !isDestroyed && presentationIsCurrent() && binding.directoriesGrid.adapter === current &&
                         (scanRequest == null || isCurrentDirectoryScan(scanRequest))
                 }, onCommitted = committed, preserveOrder = !sortDirs)
             }

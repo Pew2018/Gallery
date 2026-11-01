@@ -1550,6 +1550,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mCurrAsyncTask?.stopFetching()
         mIsGettingMedia = true
         setMediaLoading(true)
+        binding.mediaEmptyTextPlaceholder.beGone()
+        binding.mediaEmptyDescription.beGone()
+        binding.mediaEmptyTextPlaceholder2.beGone()
+        binding.mediaEmptyTextPlaceholder2.setText(R.string.change_filters_underlined)
+        binding.mediaEmptyTextPlaceholder2.setOnClickListener { showFilterMediaDialog() }
         if (mPath == FAVORITES) {
             binding.mediaEmptyTextPlaceholder.beGone()
             binding.mediaEmptyDescription.beGone()
@@ -1620,6 +1625,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             binding.mediaEmptyTextPlaceholder2.beGone()
                             binding.mediaFastscroller.beGone()
                             favoritesReturnCover?.showError(::retryFavoritesReturn)
+                        } else {
+                            val hasContent = getMediaAdapter()?.media?.any { it is Medium } == true
+                            org.fossify.gallery.helpers.MediaLoadFailure.present(
+                                this, binding.mediaEmptyTextPlaceholder, binding.mediaEmptyDescription,
+                                binding.mediaEmptyTextPlaceholder2, hasContent, error
+                            ) { getMedia() }
+                            if (!hasContent) binding.mediaFastscroller.beGone()
                         }
                     }
                 }

@@ -816,88 +816,103 @@ fun Context.getCachedDirectories(
     getImagesOnly: Boolean = false,
     forceShowHidden: Boolean = false,
     forceShowExcluded: Boolean = false,
+    onFailure: ((Exception) -> Unit)? = null,
     callback: (ArrayList<Directory>) -> Unit,
 ) {
     ensureBackgroundThread {
-        try {
-            Process.setThreadPriority(Process.THREAD_PRIORITY_MORE_FAVORABLE)
-        } catch (ignored: Exception) {
-        }
-
-        val directories = try {
-            directoryDB.getAll() as ArrayList<Directory>
-        } catch (e: Exception) {
-            ArrayList()
-        }
-
-        if (!config.showRecycleBinAtFolders) {
-            directories.removeAll { it.isRecycleBin() }
-        }
-
-        val shouldShowHidden = config.shouldShowHidden || forceShowHidden
-        val excludedPaths = if (config.temporarilyShowExcluded || forceShowExcluded) {
-            HashSet()
-        } else {
-            config.excludedFolders
-        }
-
-        val includedPaths = config.includedFolders
-
-        val folderNoMediaStatuses = HashMap<String, Boolean>()
-        val noMediaFolders = getNoMediaFoldersSync()
-        noMediaFolders.forEach { folder ->
-            folderNoMediaStatuses["$folder/$NOMEDIA"] = true
-        }
-
-        var filteredDirectories = directories.filter {
-            it.path.shouldFolderBeVisible(
-                excludedPaths = excludedPaths,
-                includedPaths = includedPaths,
-                showHidden = shouldShowHidden,
-                folderNoMediaStatuses = folderNoMediaStatuses
-            ) { path, hasNoMedia ->
-                folderNoMediaStatuses[path] = hasNoMedia
+        val result = try {
+            try {
+                Process.setThreadPriority(Process.THREAD_PRIORITY_MORE_FAVORABLE)
+            } catch (ignored: Exception) {
             }
-        } as ArrayList<Directory>
 
-        val filterMedia = config.filterMedia
-        filteredDirectories = (when {
-            getVideosOnly -> filteredDirectories.filter { it.types and TYPE_VIDEOS != 0 }
-            getImagesOnly -> filteredDirectories.filter { it.types and TYPE_IMAGES != 0 }
-            else -> filteredDirectories.filter {
-                (filterMedia and TYPE_IMAGES != 0 && it.types and TYPE_IMAGES != 0)
-                        || (filterMedia and TYPE_VIDEOS != 0 && it.types and TYPE_VIDEOS != 0)
-                        || (filterMedia and TYPE_GIFS != 0 && it.types and TYPE_GIFS != 0)
-                        || (filterMedia and TYPE_RAWS != 0 && it.types and TYPE_RAWS != 0)
-                        || (filterMedia and TYPE_SVGS != 0 && it.types and TYPE_SVGS != 0)
-                        || (filterMedia and TYPE_PORTRAITS != 0 && it.types and TYPE_PORTRAITS != 0)
+            val directories = try {
+                directoryDB.getAll() as ArrayList<Directory>
+            } catch (e: Exception) {
+                if (onFailure != null) throw e
+                ArrayList()
             }
-        }) as ArrayList<Directory>
 
-        if (shouldShowHidden) {
-            val hiddenString = resources.getString(R.string.hidden)
-            filteredDirectories.forEach {
-                val noMediaPath = "${it.path}/$NOMEDIA"
-                val hasNoMedia = if (folderNoMediaStatuses.keys.contains(noMediaPath)) {
-                    folderNoMediaStatuses[noMediaPath]!!
-                } else {
-                    it.path.doesThisOrParentHaveNoMedia(folderNoMediaStatuses) { path, hasNoMedia ->
-                        val newPath = "$path/$NOMEDIA"
-                        folderNoMediaStatuses[newPath] = hasNoMedia
+            if (!config.showRecycleBinAtFolders) {
+                directories.removeAll { it.isRecycleBin() }
+            }
+
+            val shouldShowHidden = config.shouldShowHidden || forceShowHidden
+            val excludedPaths = if (config.temporarilyShowExcluded || forceShowExcluded) {
+                HashSet()
+            } else {
+                config.excludedFolders
+            }
+
+            val includedPaths = config.includedFolders
+
+            val folderNoMediaStatuses = HashMap<String, Boolean>()
+            val noMediaFolders = getNoMediaFoldersSync()
+            noMediaFolders.forEach { folder ->
+                folderNoMediaStatuses["$folder/$NOMEDIA"] = true
+            }
+
+            var filteredDirectories = directories.filter {
+                it.path.shouldFolderBeVisible(
+                    excludedPaths = excludedPaths,
+                    includedPaths = includedPaths,
+                    showHidden = shouldShowHidden,
+                    folderNoMediaStatuses = folderNoMediaStatuses
+                ) { path, hasNoMedia ->
+                    folderNoMediaStatuses[path] = hasNoMedia
+                }
+            } as ArrayList<Directory>
+
+            val filterMedia = config.filterMedia
+            filteredDirectories = (when {
+                getVideosOnly -> filteredDirectories.filter { it.types and TYPE_VIDEOS != 0 }
+                getImagesOnly -> filteredDirectories.filter { it.types and TYPE_IMAGES != 0 }
+                else -> filteredDirectories.filter {
+                    (filterMedia and TYPE_IMAGES != 0 && it.types and TYPE_IMAGES != 0)
+                            || (filterMedia and TYPE_VIDEOS != 0 && it.types and TYPE_VIDEOS != 0)
+                            || (filterMedia and TYPE_GIFS != 0 && it.types and TYPE_GIFS != 0)
+                            || (filterMedia and TYPE_RAWS != 0 && it.types and TYPE_RAWS != 0)
+                            || (filterMedia and TYPE_SVGS != 0 && it.types and TYPE_SVGS != 0)
+                            || (filterMedia and TYPE_PORTRAITS != 0 && it.types and TYPE_PORTRAITS != 0)
+                }
+            }) as ArrayList<Directory>
+
+            if (shouldShowHidden) {
+                val hiddenString = resources.getString(R.string.hidden)
+                filteredDirectories.forEach {
+                    val noMediaPath = "${it.path}/$NOMEDIA"
+                    val hasNoMedia = if (folderNoMediaStatuses.keys.contains(noMediaPath)) {
+                        folderNoMediaStatuses[noMediaPath]!!
+                    } else {
+                        it.path.doesThisOrParentHaveNoMedia(folderNoMediaStatuses) { path, hasNoMedia ->
+                            val newPath = "$path/$NOMEDIA"
+                            folderNoMediaStatuses[newPath] = hasNoMedia
+                        }
+                    }
+
+                    it.name = if (hasNoMedia && !it.path.isThisOrParentIncluded(includedPaths)) {
+                        "${it.name.removeSuffix(hiddenString).trim()} $hiddenString"
+                    } else {
+                        it.name.removeSuffix(hiddenString).trim()
                     }
                 }
-
-                it.name = if (hasNoMedia && !it.path.isThisOrParentIncluded(includedPaths)) {
-                    "${it.name.removeSuffix(hiddenString).trim()} $hiddenString"
-                } else {
-                    it.name.removeSuffix(hiddenString).trim()
-                }
             }
-        }
 
-        val clone = filteredDirectories.clone() as ArrayList<Directory>
-        callback(ArrayList(clone.distinctBy { it.path.getDistinctPath() }))
-        removeInvalidDBDirectories(filteredDirectories)
+            val clone = filteredDirectories.clone() as ArrayList<Directory>
+            val loaded = ArrayList(clone.distinctBy { it.path.getDistinctPath() })
+            loaded
+        } catch (error: Exception) {
+            android.util.Log.w("GalleryDirs", "Directory cache unavailable", error)
+            if (onFailure != null) {
+                onFailure(error)
+                return@ensureBackgroundThread
+            }
+            arrayListOf()
+        }
+        callback(result)
+        // Cleanup must not turn a successfully delivered cache into a second callback.
+        runCatching { removeInvalidDBDirectories(result) }
+            .onFailure { android.util.Log.w("GalleryDirs", "Cache cleanup failed", it) }
     }
 }
 
@@ -940,70 +955,76 @@ fun Context.getCachedMedia(
     }
 
     ensureBackgroundThread {
-        val mediaFetcher = MediaFetcher(this)
-        val foldersToScan = arrayListOf(path)
+        val cached = try {
+            val mediaFetcher = MediaFetcher(this)
+            val foldersToScan = arrayListOf(path)
 
-        var media = ArrayList<Medium>()
-        if (path == FAVORITES) {
-            // Cached metadata can contain protected media from an earlier
-            // authorized session. It is never authorization by itself.
-            media.addAll(mediaDB.getCachedFavoriteMedia().filter { item ->
-                if (allowedFavoritePaths != null) item.path in allowedFavoritePaths
-                else FavoriteAccessSessionManager.captureSnapshot(listOf(item.path), ::favoriteProtection)
-                    .entries.values.all { it.locks.isEmpty() }
-            })
-        }
+            var media = ArrayList<Medium>()
+            if (path == FAVORITES) {
+                // Cached metadata can contain protected media from an earlier
+                // authorized session. It is never authorization by itself.
+                media.addAll(mediaDB.getCachedFavoriteMedia().filter { item ->
+                    if (allowedFavoritePaths != null) item.path in allowedFavoritePaths
+                    else FavoriteAccessSessionManager.captureSnapshot(listOf(item.path), ::favoriteProtection)
+                        .entries.values.all { it.locks.isEmpty() }
+                })
+            }
 
-        if (path == RECYCLE_BIN) {
-            media.addAll(getUpdatedDeletedMedia())
-        }
+            if (path == RECYCLE_BIN) {
+                media.addAll(getUpdatedDeletedMedia())
+            }
 
-        if (config.filterMedia and TYPE_PORTRAITS != 0) {
-            val foldersToAdd = ArrayList<String>()
-            for (folder in foldersToScan) {
-                val allFiles = File(folder).listFiles() ?: continue
-                allFiles.filter { it.name.startsWith("img_", true) && it.isDirectory }.forEach {
-                    foldersToAdd.add(it.absolutePath)
+            if (config.filterMedia and TYPE_PORTRAITS != 0) {
+                val foldersToAdd = ArrayList<String>()
+                for (folder in foldersToScan) {
+                    val allFiles = File(folder).listFiles() ?: continue
+                    allFiles.filter { it.name.startsWith("img_", true) && it.isDirectory }.forEach {
+                        foldersToAdd.add(it.absolutePath)
+                    }
+                }
+                foldersToScan.addAll(foldersToAdd)
+            }
+
+            val shouldShowHidden = config.shouldShowHidden
+            foldersToScan.filter { path.isNotEmpty() || !config.isFolderProtected(it) }.forEach {
+                try {
+                    val currMedia = mediaDB.getMediaFromPath(it)
+                    media.addAll(currMedia)
+                } catch (ignored: Exception) {
                 }
             }
-            foldersToScan.addAll(foldersToAdd)
-        }
 
-        val shouldShowHidden = config.shouldShowHidden
-        foldersToScan.filter { path.isNotEmpty() || !config.isFolderProtected(it) }.forEach {
-            try {
-                val currMedia = mediaDB.getMediaFromPath(it)
-                media.addAll(currMedia)
-            } catch (ignored: Exception) {
+            if (!shouldShowHidden) {
+                media = media.filter { !it.path.contains("/.") } as ArrayList<Medium>
             }
+
+            val filterMedia = config.filterMedia
+            media = (when {
+                getVideosOnly -> media.filter { it.type == TYPE_VIDEOS }
+                getImagesOnly -> media.filter { it.type == TYPE_IMAGES }
+                else -> media.filter {
+                    (filterMedia and TYPE_IMAGES != 0 && it.type == TYPE_IMAGES)
+                            || (filterMedia and TYPE_VIDEOS != 0 && it.type == TYPE_VIDEOS)
+                            || (filterMedia and TYPE_GIFS != 0 && it.type == TYPE_GIFS)
+                            || (filterMedia and TYPE_RAWS != 0 && it.type == TYPE_RAWS)
+                            || (filterMedia and TYPE_SVGS != 0 && it.type == TYPE_SVGS)
+                            || (filterMedia and TYPE_PORTRAITS != 0 && it.type == TYPE_PORTRAITS)
+                }
+            }) as ArrayList<Medium>
+
+            val pathToUse = path.ifEmpty { SHOW_ALL }
+            mediaFetcher.sortMedia(media, config.getFolderSorting(pathToUse))
+            val grouped = mediaFetcher.groupMedia(media, pathToUse)
+            grouped.clone() as ArrayList<ThumbnailItem>
+            // Cached metadata is not proof of file existence. Missing permissions,
+            // transient unmounted volumes and incomplete MediaStore scans must never
+            // delete media favorites. Confirmed cache pruning is handled by the
+            // guarded MediaCachePrunePolicy in the scan path.
+        } catch (error: Exception) {
+            android.util.Log.w("GalleryMedia", "Media cache unavailable; scanning source", error)
+            arrayListOf()
         }
-
-        if (!shouldShowHidden) {
-            media = media.filter { !it.path.contains("/.") } as ArrayList<Medium>
-        }
-
-        val filterMedia = config.filterMedia
-        media = (when {
-            getVideosOnly -> media.filter { it.type == TYPE_VIDEOS }
-            getImagesOnly -> media.filter { it.type == TYPE_IMAGES }
-            else -> media.filter {
-                (filterMedia and TYPE_IMAGES != 0 && it.type == TYPE_IMAGES)
-                        || (filterMedia and TYPE_VIDEOS != 0 && it.type == TYPE_VIDEOS)
-                        || (filterMedia and TYPE_GIFS != 0 && it.type == TYPE_GIFS)
-                        || (filterMedia and TYPE_RAWS != 0 && it.type == TYPE_RAWS)
-                        || (filterMedia and TYPE_SVGS != 0 && it.type == TYPE_SVGS)
-                        || (filterMedia and TYPE_PORTRAITS != 0 && it.type == TYPE_PORTRAITS)
-            }
-        }) as ArrayList<Medium>
-
-        val pathToUse = path.ifEmpty { SHOW_ALL }
-        mediaFetcher.sortMedia(media, config.getFolderSorting(pathToUse))
-        val grouped = mediaFetcher.groupMedia(media, pathToUse)
-        callback(grouped.clone() as ArrayList<ThumbnailItem>)
-        // Cached metadata is not proof of file existence. Missing permissions,
-        // transient unmounted volumes and incomplete MediaStore scans must never
-        // delete media favorites. Confirmed cache pruning is handled by the
-        // guarded MediaCachePrunePolicy in the scan path.
+        callback(cached)
     }
 }
 

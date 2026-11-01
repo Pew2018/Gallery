@@ -311,10 +311,23 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override val appBarLayout: AppBarLayout
         get() = binding.mediumViewerAppbar
 
+    private val slideshowFragments = object : androidx.fragment.app.FragmentManager.FragmentLifecycleCallbacks() {
+        override fun onFragmentResumed(manager: androidx.fragment.app.FragmentManager, fragment: androidx.fragment.app.Fragment) {
+            if (fragment !is VideoFragment) return
+            // The adapter records instantiated fragments after its transaction. Wait
+            // for that record, then check identity again instead of polling forever.
+            binding.viewPager.post {
+                if (mIsSlideshowActive && !isFinishing && !isDestroyed &&
+                    fragment === getCurrentFragment() && fragment.isResumed) scheduleSwipe()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // Never restore media fragments before the current password/session
         // flow validates the viewer request.
         super.onCreate(null)
+        supportFragmentManager.registerFragmentLifecycleCallbacks(slideshowFragments, false)
         setContentView(binding.root)
         PhotoProfileAccessSessionManager.addListener(favoriteListenerId) { event ->
             if (event == PhotoAccessEvent.REVOKED && isPhotoProfile && photoSessionId != null) runOnUiThread {
@@ -381,6 +394,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun onDestroy() {
+        supportFragmentManager.unregisterFragmentLifecycleCallbacks(slideshowFragments)
+        mSlideshowHandler.removeCallbacksAndMessages(null)
         PhotoProfileAccessSessionManager.removeListener(favoriteListenerId)
         getSharedPrefs().unregisterOnSharedPreferenceChangeListener(favoriteProtectionPrefsListener)
         FavoriteAccessSessionManager.removeRevocationListener(favoriteListenerId)
@@ -1126,7 +1141,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun startSlideshow() {
         if (getMediaForSlideshow()) {
             binding.viewPager.onGlobalLayout {
-                if (!isDestroyed) {
+                if (!isFinishing && !isDestroyed &&
+                    lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
                     if (config.slideshowAnimation == SLIDESHOW_ANIMATION_FADE) {
                         binding.viewPager.setPageTransformer(false, FadePageTransformer())
                     }
@@ -1244,7 +1260,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun scheduleSwipe() {
         mSlideshowHandler.removeCallbacksAndMessages(null)
-        if (mIsSlideshowActive) {
+        if (mIsSlideshowActive && !isFinishing && !isDestroyed) {
+            if (!checkFavoriteAccess()) return
             val medium = getCurrentMedium() ?: run { stopSlideshow(); return }
             if (medium.isImage() || medium.isGIF() || medium.isPortrait()) {
                 mSlideshowHandler.postDelayed({
@@ -1253,11 +1270,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     }
                 }, mSlideshowInterval * 1000L)
             } else {
-                val fragment = getCurrentFragment() as? VideoFragment
-                if (fragment != null && fragment.isResumed) fragment.playVideo()
-                else mSlideshowHandler.postDelayed({
-                    if (mIsSlideshowActive && !isFinishing && !isDestroyed) scheduleSwipe()
-                }, 100L)
+                (getCurrentFragment() as? VideoFragment)?.playSlideshowVideo(medium.path)
             }
         }
     }
@@ -2129,6 +2142,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override fun onPageScrollStateChanged(state: Int) {
         if (state == ViewPager.SCROLL_STATE_IDLE && getCurrentMedium() != null) {
             checkOrientation()
+            if (mIsSlideshowActive) scheduleSwipe()
         }
     }
 

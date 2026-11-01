@@ -29,7 +29,7 @@ class GetMediaAsynctask(
     val callback: (media: ArrayList<ThumbnailItem>) -> Unit
 ) :
     AsyncTask<Void, PhotoLoadResult, ArrayList<ThumbnailItem>>() {
-    private val mediaFetcher = MediaFetcher(context)
+    private val mediaFetcher = MediaFetcher(context, reportReadFailures = true)
     private var scanFailure: Exception? = null
     private var profileResult: PhotoLoadResult? = null
 

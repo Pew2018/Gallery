@@ -25,4 +25,7 @@
     <string name="video_open_external">Open with another app</string>
     <string name="video_no_external_player">No other video player available</string>
     <string name="video_open_external_failed">Could not open another video player</string>
+    <string name="media_load_permission_error">Media access was denied. Check photo and video permissions, then retry.</string>
+    <string name="media_load_storage_error">The media source is unavailable. Check the storage connection, then retry.</string>
+    <string name="media_load_retry">Retry</string>
 </resources>

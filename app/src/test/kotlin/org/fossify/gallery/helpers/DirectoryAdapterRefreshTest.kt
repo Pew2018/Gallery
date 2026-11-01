@@ -99,4 +99,36 @@ class DirectoryAdapterRefreshTest {
         awaitList(adapter, listOf("/c", "/a"))
         assertEquals(0, adapter.dirs[1].subfoldersMediaCount)
     }
+    @Test fun intermediateBatchesKeepOrderAndTheFinalBatchCanSortOnce() = withAdapter { adapter, _ ->
+        val incoming = arrayListOf(directory("/b"), directory("/a"), directory("/c"))
+        adapter.updateDirs(incoming, preserveOrder = true)
+        awaitList(adapter, listOf("/a", "/b", "/c"))
+        adapter.updateDirs(incoming)
+        awaitList(adapter, listOf("/b", "/a", "/c"))
+    }
+
+    @Test fun refreshDuringReorderCannotUndoTheUsersSavedOrder() = withAdapter { adapter, _ ->
+        val selected = keys(adapter)
+        selected.add("/a".hashCode())
+        adapter.onActionModeCreated()
+        adapter.actionItemPressed(org.fossify.gallery.R.id.cab_change_order)
+        adapter.onRowMoved(0, 1)
+        adapter.updateDirs(arrayListOf(directory("/a"), directory("/b"), directory("/c")))
+        assertEquals(listOf("/b", "/a"), adapter.dirs.map { it.path })
+        selected.clear()
+        adapter.onActionModeDestroyed()
+        awaitList(adapter, listOf("/b", "/a", "/c"))
+    }
+
+    @Test fun refreshWaitsForScrollIdleBeforeChangingTheVisibleList() = withAdapter { adapter, recycler ->
+        val scrollState = androidx.recyclerview.widget.RecyclerView::class.java
+            .getDeclaredMethod("setScrollState", Int::class.javaPrimitiveType).apply { isAccessible = true }
+        scrollState.invoke(recycler, androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_DRAGGING)
+        adapter.updateDirs(arrayListOf(directory("/c"), directory("/a"), directory("/b")))
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(listOf("/a", "/b"), adapter.dirs.map { it.path })
+        scrollState.invoke(recycler, androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE)
+        awaitList(adapter, listOf("/c", "/a", "/b"))
+    }
+
 }

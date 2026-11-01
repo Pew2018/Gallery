@@ -805,6 +805,14 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         binding.bottomVideoTimeHolder.videoToggleMute.setImageResource(drawableId)
     }
 
+    /** Lifecycle and media identity can change between page selection and playback. */
+    fun playSlideshowVideo(expectedPath: String): Boolean {
+        if (!isResumed || view == null || !::mMedium.isInitialized || !mWasFragmentInit ||
+            mMedium.path != expectedPath || listener?.isSlideShowActive() != true) return false
+        playVideo()
+        return true
+    }
+
     fun playVideo() {
         if (mExoPlayer == null) {
             initExoPlayer()
