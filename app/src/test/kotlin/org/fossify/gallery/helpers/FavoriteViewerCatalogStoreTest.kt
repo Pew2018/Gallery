@@ -22,10 +22,10 @@ class FavoriteViewerCatalogStoreTest {
         assertNotNull(id)
         media.first().name = "changed-after-handoff"
 
-        assertNull(FavoriteViewerCatalogStore.take("forged-id"))
-        val catalog = FavoriteViewerCatalogStore.take(id)
+        assertNull(FavoriteViewerCatalogStore.take(context, "forged-id"))
+        val catalog = FavoriteViewerCatalogStore.take(context, id)
         assertEquals("a.jpg", catalog?.items?.single()?.name)
         assertEquals(setOf("/Camera/a.jpg"), catalog?.favoritePaths)
-        assertNull(FavoriteViewerCatalogStore.take(id))
+        assertNull(FavoriteViewerCatalogStore.take(context, id))
     }
 }

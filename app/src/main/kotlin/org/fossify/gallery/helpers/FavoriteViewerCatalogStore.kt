@@ -6,6 +6,8 @@ import android.content.res.Configuration
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import org.fossify.commons.helpers.FAVORITES
+import org.fossify.gallery.extensions.config
 import org.fossify.gallery.models.Medium
 import java.util.UUID
 
@@ -16,11 +18,17 @@ internal object FavoriteViewerCatalogStore {
     private const val MAX_ITEMS = 12_000
 
     data class Catalog(val items: List<Medium>, val favoritePaths: Set<String>)
-    private data class Entry(val id: String, val createdAt: Long, val catalog: Catalog)
+    private data class Entry(val id: String, val fingerprint: String, val createdAt: Long, val catalog: Catalog)
     @Volatile private var prepared: Entry? = null
     private val handler = Handler(Looper.getMainLooper())
     private var expiry: Runnable? = null
     private var callbacksRegistered = false
+
+    private fun fingerprint(context: Context): String = context.config.let { cfg ->
+        listOf(cfg.getFolderSorting(FAVORITES), cfg.getFolderGrouping(FAVORITES), cfg.filterMedia,
+            cfg.shouldShowHidden, cfg.excludedFolders, cfg.includedFolders, cfg.fileLoadingPriority,
+            cfg.temporarilyShowHidden, cfg.temporarilyShowExcluded).joinToString("|")
+    }
 
     @Synchronized private fun registerMemoryCallbacks(context: Context) {
         if (callbacksRegistered) return
@@ -46,7 +54,7 @@ internal object FavoriteViewerCatalogStore {
         if (items.isEmpty() || items.size > MAX_ITEMS || !stillCurrent()) return null
         val id = UUID.randomUUID().toString()
         prepared = Entry(
-            id, SystemClock.elapsedRealtime(),
+            id, fingerprint(context), SystemClock.elapsedRealtime(),
             Catalog(ArrayList(items.map { it.copy() }), favoritePaths.toSet())
         )
         if (!stillCurrent()) {
@@ -61,9 +69,10 @@ internal object FavoriteViewerCatalogStore {
     }
 
     /** Constant-time lookup for the internal intent; not an authorization check. */
-    @Synchronized fun handoffId(): String? {
+    @Synchronized fun handoffId(context: Context): String? {
         val entry = prepared ?: return null
-        if (SystemClock.elapsedRealtime() - entry.createdAt !in 0..MAX_AGE_MS) {
+        if (SystemClock.elapsedRealtime() - entry.createdAt !in 0..MAX_AGE_MS ||
+            entry.fingerprint != fingerprint(context)) {
             clear()
             return null
         }
@@ -73,10 +82,12 @@ internal object FavoriteViewerCatalogStore {
     @Synchronized fun handoffCount(id: String?): Int? = prepared?.takeIf { id != null && it.id == id }?.catalog?.items?.size
 
     /** Single-use metadata take; fresh session/file checks must still run before publication. */
-    @Synchronized fun take(id: String?): Catalog? {
+    @Synchronized fun take(context: Context, id: String?): Catalog? {
         val entry = prepared
         if (entry == null || id == null || id != entry.id) return null
         clear()
+        if (entry.fingerprint != fingerprint(context) ||
+            SystemClock.elapsedRealtime() - entry.createdAt !in 0..MAX_AGE_MS) return null
         return entry.catalog
     }
 
