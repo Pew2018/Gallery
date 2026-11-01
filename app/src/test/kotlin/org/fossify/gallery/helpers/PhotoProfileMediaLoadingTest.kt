@@ -367,7 +367,7 @@ class PhotoProfileMediaLoadingTest {
 
             Files.write(root.resolve(".nomedia"), byteArrayOf())
             assertNull(background { PhotoViewerSnapshotStore.validateNeighborWindow(context, id, null, listOf(item), path) })
-            assertTrue(background { PhotoViewerSnapshotStore.validate(context, id, listOf(item), path) }!!.media.isEmpty())
+            assertNull(background { PhotoViewerSnapshotStore.validate(context, id, listOf(item), path) })
         } finally { root.toFile().deleteRecursively() }
     }
 
