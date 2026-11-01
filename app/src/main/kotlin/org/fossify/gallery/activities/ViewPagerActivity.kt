@@ -1150,7 +1150,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun goToNextMedium(forward: Boolean) {
         val oldPosition = binding.viewPager.currentItem
         val newPosition = if (forward) oldPosition + 1 else oldPosition - 1
-        if (newPosition == -1 || newPosition > binding.viewPager.adapter!!.count - 1) {
+        val count = binding.viewPager.adapter?.count ?: return
+        if (newPosition !in 0 until count) {
             slideshowEnded(forward)
         } else {
             binding.viewPager.setCurrentItem(newPosition, false)
@@ -1216,7 +1217,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             if (forward) {
                 binding.viewPager.setCurrentItem(0, false)
             } else {
-                binding.viewPager.setCurrentItem(binding.viewPager.adapter!!.count - 1, false)
+                binding.viewPager.adapter?.count?.takeIf { it > 0 }?.let { binding.viewPager.setCurrentItem(it - 1, false) }
             }
         } else {
             stopSlideshow()
@@ -1244,14 +1245,19 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun scheduleSwipe() {
         mSlideshowHandler.removeCallbacksAndMessages(null)
         if (mIsSlideshowActive) {
-            if (getCurrentMedium()!!.isImage() || getCurrentMedium()!!.isGIF() || getCurrentMedium()!!.isPortrait()) {
+            val medium = getCurrentMedium() ?: run { stopSlideshow(); return }
+            if (medium.isImage() || medium.isGIF() || medium.isPortrait()) {
                 mSlideshowHandler.postDelayed({
                     if (mIsSlideshowActive && !isDestroyed) {
                         swipeToNextMedium()
                     }
                 }, mSlideshowInterval * 1000L)
             } else {
-                (getCurrentFragment() as? VideoFragment)!!.playVideo()
+                val fragment = getCurrentFragment() as? VideoFragment
+                if (fragment != null && fragment.isResumed) fragment.playVideo()
+                else mSlideshowHandler.postDelayed({
+                    if (mIsSlideshowActive && !isFinishing && !isDestroyed) scheduleSwipe()
+                }, 100L)
             }
         }
     }

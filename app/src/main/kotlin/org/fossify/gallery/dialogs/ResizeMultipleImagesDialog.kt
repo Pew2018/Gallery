@@ -48,12 +48,13 @@ class ResizeMultipleImagesDialog(
                     val negativeButton = alertDialog.getButton(AlertDialog.BUTTON_NEGATIVE)
                     positiveButton.setOnClickListener {
                         val resizeFactorText = resizeFactorEditText.text?.toString()
-                        if (resizeFactorText.isNullOrEmpty() || resizeFactorText.toInt() !in 10..90) {
+                        val percent = resizeFactorText?.toIntOrNull()
+                        if (percent == null || percent !in 10..90) {
                             activity.toast(R.string.resize_factor_error)
                             return@setOnClickListener
                         }
 
-                        val resizeFactor = resizeFactorText.toFloat().div(100)
+                        val resizeFactor = percent / 100f
 
                         alertDialog.setCanceledOnTouchOutside(false)
                         arrayOf(binding.resizeFactorInputLayout, positiveButton, negativeButton).forEach {

@@ -16,6 +16,7 @@ import android.view.View
 import android.widget.RelativeLayout
 import android.widget.Toast
 import java.util.concurrent.Future
+import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.helpers.DirectoryScanEpoch
 import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.RecyclerView
@@ -235,6 +236,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mZoomListener: MyRecyclerView.MyZoomListener? = null
     @Volatile private var mLastMediaFetcher: MediaFetcher? = null
     private val directoryScanEpoch = DirectoryScanEpoch()
+    private var directoryScanReady: Long? = null
+    private val directoryRandomOrder = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     private fun isCurrentDirectoryScan(id: Long): Boolean =
         directoryScanEpoch.isCurrent(id) && !mShouldStopFetching &&
@@ -243,6 +246,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     /** Called on the UI thread before navigation, invalidation or final stop. */
     private fun retireDirectoryScan() {
         directoryScanEpoch.retire()
+        directoryScanReady = null
         mShouldStopFetching = true
         mLastMediaFetcher?.shouldStop = true
         mIsGettingDirs = false
@@ -555,7 +559,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
             if (!config.showAll) {
                 mLastMediaFetcher?.shouldStop = true
-                GalleryDatabase.destroyInstance()
+                // The application database outlives pages and their background workers.
             }
         }
     }
@@ -619,7 +623,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         if (!mIsThirdPartyIntent) {
             binding.mainMenu.requireToolbar().menu.apply {
                 findItem(R.id.show_all).title = if (mShowingFolderFavorites)
-                    "文件视图" else getString(R.string.show_all)
+                    getString(R.string.gallery_file_view) else getString(R.string.show_all)
                 findItem(R.id.manage_unavailable_folder_favorites).isVisible = mShowingFolderFavorites
                 findItem(R.id.favorite_always_show_excluded).apply {
                     isVisible = mShowingFolderFavorites
@@ -886,6 +890,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         mLastMediaFetcher?.shouldStop = true
         val scanRequest = directoryScanEpoch.begin()
+        directoryScanReady = null
         mShouldStopFetching = false
         mIsGettingDirs = true
         setDirectoryLoading(true)
@@ -893,7 +898,19 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val getVideos = mIsPickVideoIntent || mIsGetVideoContentIntent
         getCachedDirectories(getVideos && !getImages, getImages && !getVideos) {
             if (isCurrentDirectoryScan(scanRequest)) {
-                gotDirectories(addTempFolderIfNeeded(it), scanRequest)
+                try {
+                    gotDirectories(addTempFolderIfNeeded(it), scanRequest)
+                } catch (error: Exception) {
+                    android.util.Log.e("GalleryDirs", "Directory scan failed", error)
+                    runOnUiThread {
+                        if (isCurrentDirectoryScan(scanRequest)) {
+                            mIsGettingDirs = false
+                            setDirectoryLoading(false)
+                            binding.directoriesRefreshLayout.isRefreshing = false
+                            toast(R.string.folder_load_failed)
+                        }
+                    }
+                }
             }
         }
     }
@@ -992,14 +1009,17 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     emptyMap()
                 }
                 val selected = ArrayList<Directory>(paths.size)
+                val fetcher = MediaFetcher(applicationContext, cancelled = { !favoriteLoad.isCurrent(request) })
+                val favorites = getFavoritePaths()
+                val noMedia = getNoMediaFoldersSync()
+                val covers = config.parseAlbumCovers()
                 for (path in paths) {
                     if (!favoriteLoad.isCurrent(request)) return@ensureBackgroundThread
                     val file = File(path)
                     val cached = cachedByPath[FavoriteFolderRules.normalizedPath(path)]
                     // Only inspect immediate children for uncached favorites.
-                    val children = if (cached == null && file.isDirectory && file.canRead()) {
-                        file.listFiles()
-                    } else null
+                    val children = if (cached == null && file.isDirectory && file.canRead() &&
+                        !config.isFolderProtected(path)) file.listFiles() else null
                     val accessible = file.isDirectory && file.canRead() &&
                         (cached != null || children != null)
 
@@ -1012,22 +1032,26 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     if (!FavoriteFolderRules.shouldShow(hidden, excluded, showHidden, showExcluded))
                         continue
 
-                    val media = children?.filter { it.isFile &&
-                        (it.path.isImageFast() || it.path.isVideoFast()) }.orEmpty()
-                    val item = if (cached != null && accessible) {
+                    val isProtected = config.isFolderProtected(path)
+                    // Scoped storage may expose a directory only through MediaStore.
+                    val media = if (!isProtected) fetcher.getFilesFrom(
+                        path, false, false, true, true,
+                        config.directorySorting and SORT_BY_SIZE != 0, favorites, false,
+                        HashMap(), fetcher.getSelectedFolderDateOverrides(listOf(path)), null
+                    ) else arrayListOf()
+                    if (!favoriteLoad.isCurrent(request)) return@ensureBackgroundThread
+                    val canAccess = accessible || media.isNotEmpty()
+                    val item = if (!isProtected && media.isNotEmpty()) {
+                        createDirectoryFromMedia(path, media, covers, getString(R.string.hidden),
+                            config.includedFolders, config.directorySorting and SORT_BY_SIZE != 0, noMedia)
+                    } else if (isProtected && cached != null && accessible) {
                         cached.copy().apply { name = file.name.ifBlank { path } }
-                    } else {
-                        Directory().apply {
-                            this.path = path
-                            name = file.name.ifBlank { path }
-                            // Never reuse a cached thumbnail on inaccessible media.
-                            tmb = media.firstOrNull()?.path.orEmpty()
-                            mediaCnt = media.size
-                            modified = if (accessible) file.lastModified() else 0L
-                            location = LOCATION_INTERNAL
-                        }
+                    } else Directory().apply {
+                        this.path = path
+                        name = file.name.ifBlank { path }
+                        location = LOCATION_INTERNAL
                     }
-                    if (!accessible) item.name += "（暂时不可访问）"
+                    if (!canAccess) item.name += getString(R.string.folder_unavailable_suffix)
                     selected.add(item)
                 }
 
@@ -1045,7 +1069,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     setupAdapter(selected)
                     checkPlaceholderVisibility(selected)
                     if (selected.isEmpty() && authorizationPending) {
-                        binding.directoriesEmptyPlaceholder.text = "请完成验证后查看受保护的收藏文件夹"
+                        binding.directoriesEmptyPlaceholder.setText(R.string.favorite_folders_auth_required)
                         binding.directoriesEmptyPlaceholder2.beGone()
                     }
                     binding.directoriesRefreshLayout.isRefreshing = false
@@ -1059,7 +1083,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     setDirectoryLoading(false)
                     binding.directoriesRefreshLayout.isRefreshing = false
                     android.widget.Toast.makeText(this,
-                        "收藏文件夹加载失败，请下拉重试", android.widget.Toast.LENGTH_LONG).show()
+                        getString(R.string.favorite_folders_load_failed), android.widget.Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -1086,7 +1110,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             return
         }
         retireDirectoryScan()
-        val sorted = getSortedDirectories(dirs)
+        val sorted = getSortedDirectories(dirs, directoryRandomOrder)
         mDirs = ArrayList(sorted)
         mDirsIgnoringSearch = ArrayList(sorted)
         setupAdapter(ArrayList(sorted))
@@ -1094,7 +1118,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     private fun showSortingDialog() {
         ChangeSortingDialog(this, true, false) {
-            binding.directoriesGrid.adapter = null
+            directoryRandomOrder.clear()
             if (config.directorySorting and SORT_BY_DATE_MODIFIED != 0 || config.directorySorting and SORT_BY_DATE_TAKEN != 0) {
                 retireDirectoryScan()
                 getDirectories()
@@ -1114,42 +1138,40 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 if (unavailable.isEmpty()) {
-                    toast("没有检测到不可用的收藏路径")
+                    toast(R.string.favorite_folders_none_unavailable)
                     return@runOnUiThread
                 }
-                AlertDialog.Builder(this)
-                    .setTitle("清理不可用的收藏路径")
+                OxygenClassicDialog.show(this,
+                    OxygenClassicDialog.builder(this, getString(R.string.favorite_folders_cleanup_title))
                     .setMessage(
-                        "以下 ${unavailable.size} 个收藏路径目前无法访问。它们也可能位于暂时未连接的存储设备。\n\n" +
+                        getString(R.string.favorite_folders_cleanup_message, unavailable.size,
                             unavailable.take(8).joinToString("\n") +
-                            (if (unavailable.size > 8) "\n……" else "") +
-                            "\n\n仅删除收藏记录，不删除任何原始文件。"
+                                if (unavailable.size > 8) "\n…" else "")
                     )
-                    .setNegativeButton("保留", null)
-                    .setPositiveButton("清理收藏记录") { _, _ ->
+                    .setNegativeButton(R.string.favorite_folders_keep, null)
+                    .setPositiveButton(R.string.favorite_folders_cleanup_action) { _, _ ->
                         ensureBackgroundThread {
                             unavailable.forEach { favoriteFoldersDB.delete(it) }
                             runOnUiThread { if (!isFinishing && !isDestroyed) getDirectories() }
                         }
-                    }
-                    .show()
+                    })
             }
         }
     }
 
     private fun showFolderVisibilityDialog() {
         val labels = arrayOf(
-            "显示隐藏文件夹",
-            "显示排除文件夹",
-            "显示含 .nomedia 的文件夹",
-            "显示受保护／锁定文件夹"
+            getString(R.string.folder_filter_hidden),
+            getString(R.string.folder_filter_excluded),
+            getString(R.string.folder_filter_nomedia),
+            getString(R.string.folder_filter_protected)
         )
         val checked = mFolderVisibility.copyOf()
-        AlertDialog.Builder(this)
-            .setTitle("文件夹分类筛选")
+        OxygenClassicDialog.show(this,
+            OxygenClassicDialog.builder(this, getString(R.string.folder_filter_title))
             .setMultiChoiceItems(labels, checked) { _, index, value -> checked[index] = value }
-            .setNegativeButton("取消", null)
-            .setPositiveButton("应用") { _, _ ->
+            .setNegativeButton(org.fossify.commons.R.string.cancel, null)
+            .setPositiveButton(R.string.folder_filter_apply) { _, _ ->
                 val apply = {
                     mFolderVisibility = checked
                     retireDirectoryScan()
@@ -1168,7 +1190,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 } else {
                     verifyExcluded()
                 }
-            }.show()
+            })
     }
 
     private fun loadCategorizedFolders() {
@@ -1205,10 +1227,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     val isNoMedia = FavoriteFolderRules.isExcluded(path, noMedia)
                     val isProtected = config.isFolderProtected(path)
                     folder.folderStatuses = listOfNotNull(
-                        "隐藏".takeIf { hidden },
-                        "排除".takeIf { isExcluded },
-                        "隐藏媒体".takeIf { isNoMedia },
-                        "已锁定".takeIf { isProtected }
+                        getString(R.string.folder_status_hidden).takeIf { hidden },
+                        getString(R.string.folder_status_excluded).takeIf { isExcluded },
+                        getString(R.string.folder_status_nomedia).takeIf { isNoMedia },
+                        getString(R.string.folder_status_protected).takeIf { isProtected }
                     ).joinToString(" · ")
                     (!hidden || requestedVisibility[0]) &&
                         (!isExcluded || requestedVisibility[1]) &&
@@ -1235,7 +1257,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     mIsGettingDirs = false
                     setDirectoryLoading(false)
                     binding.directoriesRefreshLayout.isRefreshing = false
-                    android.widget.Toast.makeText(this, "文件夹加载失败，请下拉重试",
+                    android.widget.Toast.makeText(this, R.string.folder_load_failed,
                         android.widget.Toast.LENGTH_LONG).show()
                 }
             }
@@ -1801,7 +1823,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         // has one stable order throughout the subsequent media scan.
         val dirs = ArrayList(newDirs.filterNot { it.path == FAVORITES })
         if (favoritesDB.getFavoritesCount() > 0L) {
-            dirs.add(Directory().apply {
+            dirs.add(newDirs.firstOrNull { it.path == FAVORITES }?.copy() ?: Directory().apply {
                 path = FAVORITES
                 name = getString(org.fossify.commons.R.string.favorites)
                 location = LOCATION_INTERNAL
@@ -1826,21 +1848,15 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
 
         if (!isCurrentDirectoryScan(scanRequest)) return
-        val orderedDirs = getSortedDirectories(dirs)
+        val orderedDirs = getSortedDirectories(dirs, directoryRandomOrder)
         dirs.clear()
         dirs.addAll(orderedDirs)
-        if (config.groupDirectSubfolders) {
-            mDirs = dirs.clone() as ArrayList<Directory>
-        }
 
         var isPlaceholderVisible = dirs.isEmpty()
 
         runOnUiThread {
             if (!isCurrentDirectoryScan(scanRequest)) return@runOnUiThread
-            mIsGettingDirs = false
-            setDirectoryLoading(false)
-            checkPlaceholderVisibility(dirs)
-            setupAdapter(dirs.clone() as ArrayList<Directory>, sortDirs = false, scanRequest = scanRequest)
+            setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
         }
 
         // The worker always retains its own fetcher; a newer scan cannot hijack it.
@@ -1992,9 +2008,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 }
 
                 // we are looping through the already displayed folders looking for changes, do not do anything if nothing changed
-                if (directory.copy(subfoldersCount = 0, subfoldersMediaCount = 0) == newDir) {
-                    continue
-                }
 
                 // Adapter holds the previous Directory instance. Replace it, so
                 // DiffUtil can compare stable immutable before/after snapshots.
@@ -2010,6 +2023,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                         curMedia, directory.path, newDir.name, newDir.size, newDir.mediaCnt
                     )
                 ).also { it.folderStatuses = directory.folderStatuses }
+                if (directory == revisedDir) continue
                 dirs[index] = revisedDir
                 cachedCardUpdates++
                 if (cachedCardUpdates >= 8) {
@@ -2182,20 +2196,15 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         if (!isCurrentDirectoryScan(scanRequest)) return
         commitBatch()
-        // One final differential adapter submission, including the last partial batch.
-        setupAdapter(dirs, sortDirs = true, scanRequest = scanRequest)
+        // Prune before the only final reorder, under the same scan identity.
+        checkInvalidDirectories(dirs, scanRequest)
+        if (!isCurrentDirectoryScan(scanRequest)) return
+        setupAdapter(dirs, sortDirs = true, scanRequest = scanRequest, scanComplete = true)
         mLoadedInitialPhotos = true
         if (config.appRunCount > 1) {
             checkLastMediaChanged()
         }
 
-        runOnUiThread {
-            if (!isCurrentDirectoryScan(scanRequest)) return@runOnUiThread
-            binding.directoriesRefreshLayout.isRefreshing = false
-            checkPlaceholderVisibility(dirs)
-        }
-
-        checkInvalidDirectories(dirs)
         if (mDirs.size > 50) {
             excludeSpamFolders()
         }
@@ -2220,9 +2229,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             config.everShownFolders = HashSet()
         }
 
-        if (isCurrentDirectoryScan(scanRequest)) {
-            mDirs = dirs.clone() as ArrayList<Directory>
-        }
     }
 
     private fun setAsDefaultFolder() {
@@ -2287,84 +2293,78 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     private fun setupAdapter(
         dirs: ArrayList<Directory>,
-        textToSearch: String = binding.mainMenu.getCurrentQuery(),
+        textToSearch: String? = null,
         forceRecreate: Boolean = false,
         sortDirs: Boolean = true,
-        scanRequest: Long? = null
+        scanRequest: Long? = null,
+        scanComplete: Boolean = false
     ) {
-        if (scanRequest != null && !isCurrentDirectoryScan(scanRequest)) return
-        val currAdapter = binding.directoriesGrid.adapter
-        val distinctDirs = dirs
-            .filter { !mShowingFolderFavorites || mFavoriteFolderPaths.contains(it.path) }
-            .distinctBy {
-                if (mShowingFolderFavorites) FavoriteFolderRules.normalizedPath(it.path)
-                else it.path.getDistinctPath()
+        // Do not share mutable Directory instances with a scanning worker or DiffUtil.
+        val snapshot = dirs.map { it.copy().also { copy -> copy.folderStatuses = it.folderStatuses } }
+            .toCollection(ArrayList())
+        runOnUiThread {
+            if (isFinishing || isDestroyed ||
+                (scanRequest != null && !isCurrentDirectoryScan(scanRequest))) return@runOnUiThread
+            if (scanComplete) directoryScanReady = scanRequest
+            val query = textToSearch ?: binding.mainMenu.getCurrentQuery()
+            val distinctDirs = snapshot.filter { !mShowingFolderFavorites || mFavoriteFolderPaths.contains(it.path) }
+                .distinctBy {
+                    if (mShowingFolderFavorites) FavoriteFolderRules.normalizedPath(it.path)
+                    else it.path.getDistinctPath()
+                }.toCollection(ArrayList())
+            val sorted = if (sortDirs) getSortedDirectories(distinctDirs, directoryRandomOrder) else distinctDirs
+            if (textToSearch == null) {
+                // Search always derives from the latest complete catalog, not the first cache.
+                mDirs = ArrayList(sorted)
+                mDirsIgnoringSearch = ArrayList(sorted)
             }
-            .toMutableList() as ArrayList<Directory>
+            var visible = getDirsToShow(sorted, mDirs, mCurrentPathPrefix, directoryRandomOrder)
+                .toCollection(ArrayList())
+            if (query.isNotEmpty()) visible = visible.filter { it.name.contains(query, true) }
+                .sortedBy { !it.name.startsWith(query, true) }.toCollection(ArrayList())
 
-        val sortedDirs = if (sortDirs) getSortedDirectories(distinctDirs) else distinctDirs
-        var dirsToShow = getDirsToShow(
-            dirs = sortedDirs,
-            allDirs = mDirs,
-            currentPathPrefix = mCurrentPathPrefix
-        ).clone() as ArrayList<Directory>
-
-        if (currAdapter == null || forceRecreate) {
-            mDirsIgnoringSearch = dirs
-            initZoomListener()
-            DirectoryAdapter(
-                this,
-                dirsToShow,
-                this,
-                binding.directoriesGrid,
-                isPickIntent(intent) || isGetAnyContentIntent(intent),
-                binding.directoriesRefreshLayout
-            ) {
-                val clickedDir = it as Directory
-                val path = clickedDir.path
-                if (clickedDir.subfoldersCount == 1 || !config.groupDirectSubfolders) {
-                    if (path != config.tempFolderPath) {
-                        itemClicked(path)
+            val committed = {
+                if (scanRequest == null || isCurrentDirectoryScan(scanRequest)) {
+                    if (directoryScanReady?.let(::isCurrentDirectoryScan) == true) {
+                        directoryScanReady = null
+                        mIsGettingDirs = false
+                        setDirectoryLoading(false)
+                        binding.directoriesRefreshLayout.isRefreshing = false
                     }
-                } else {
-                    mCurrentPathPrefix = path
-                    mOpenedSubfolders.add(path)
-                    setupAdapter(mDirs, "")
+                    checkPlaceholderVisibility(visible)
                 }
-            }.apply {
-                setupZoomListener(mZoomListener)
-                setRefreshLoading(mIsGettingDirs)
-                runOnUiThread {
-                    if (scanRequest != null && !isCurrentDirectoryScan(scanRequest)) return@runOnUiThread
+            }
+            val current = getRecyclerAdapter()
+            if (current == null || forceRecreate) {
+                initZoomListener()
+                DirectoryAdapter(this, visible, this, binding.directoriesGrid,
+                    isPickIntent(intent) || isGetAnyContentIntent(intent), binding.directoriesRefreshLayout) {
+                    val clicked = it as Directory
+                    if (clicked.subfoldersCount == 1 || !config.groupDirectSubfolders) {
+                        if (clicked.path != config.tempFolderPath) itemClicked(clicked.path)
+                    } else {
+                        mCurrentPathPrefix = clicked.path
+                        mOpenedSubfolders.add(clicked.path)
+                        setupAdapter(mDirs, "")
+                    }
+                }.apply {
+                    setupZoomListener(mZoomListener)
                     binding.directoriesGrid.adapter = this
+                    setRefreshLoading(mIsGettingDirs)
                     setupScrollDirection()
-
                     if (config.viewTypeFolders == VIEW_TYPE_LIST && areSystemAnimationsEnabled) {
                         binding.directoriesGrid.scheduleLayoutAnimation()
                     }
                 }
-            }
-        } else {
-            runOnUiThread {
-                if (scanRequest != null && !isCurrentDirectoryScan(scanRequest)) return@runOnUiThread
-                if (textToSearch.isNotEmpty()) {
-                    dirsToShow = dirsToShow
-                        .filter { it.name.contains(textToSearch, true) }
-                        .sortedBy { !it.name.startsWith(textToSearch, true) }
-                        .toMutableList() as ArrayList
-                }
-                checkPlaceholderVisibility(dirsToShow)
-
-                (binding.directoriesGrid.adapter as? DirectoryAdapter)?.updateDirs(dirsToShow)
+                committed()
+            } else {
+                current.directorySorting = config.directorySorting
+                current.updateDirs(visible, isCurrent = {
+                    !isFinishing && !isDestroyed && binding.directoriesGrid.adapter === current &&
+                        (scanRequest == null || isCurrentDirectoryScan(scanRequest))
+                }, onCommitted = committed)
             }
         }
-
-        // recyclerview sometimes becomes empty at init/update, triggering an invisible refresh like this seems to work fine
-        binding.directoriesGrid.postDelayed({
-            if (scanRequest == null || isCurrentDirectoryScan(scanRequest)) {
-                binding.directoriesGrid.scrollBy(0, 0)
-            }
-        }, 500)
     }
 
     private fun setupScrollDirection() {
@@ -2380,7 +2380,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             if (mIsThirdPartyIntent) 0 else resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height))
     }
 
-    private fun checkInvalidDirectories(dirs: ArrayList<Directory>) {
+    private fun checkInvalidDirectories(dirs: ArrayList<Directory>, scanRequest: Long) {
+        if (!isCurrentDirectoryScan(scanRequest)) return
         val invalidDirs = ArrayList<Directory>()
         val verifiedMissingPaths = HashSet<String>()
         val OTGPath = config.OTGPath
@@ -2437,11 +2438,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
 
         if (invalidDirs.isNotEmpty()) {
+            if (!isCurrentDirectoryScan(scanRequest)) return
             dirs.removeAll(invalidDirs.toSet())
-            setupAdapter(dirs)
             // A virtual folder, an empty folder, or an unmounted SD card must
             // never lose its DB record because a scan returned no media.
             verifiedMissingPaths.forEach { path ->
+                if (!isCurrentDirectoryScan(scanRequest)) return
                 try {
                     directoryDB.deleteDirPath(path)
                 } catch (error: Exception) {

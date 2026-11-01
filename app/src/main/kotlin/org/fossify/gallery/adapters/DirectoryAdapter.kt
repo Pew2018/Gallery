@@ -1,5 +1,7 @@
 package org.fossify.gallery.adapters
 
+import java.util.concurrent.Executor
+import org.fossify.gallery.helpers.GalleryListDiffExecutor
 import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
@@ -101,6 +103,8 @@ import org.fossify.gallery.helpers.FOLDER_STYLE_SQUARE
 import org.fossify.gallery.helpers.LOCATION_INTERNAL
 import org.fossify.gallery.helpers.LOCATION_SD
 import org.fossify.gallery.helpers.DirectoryThumbnailBinder
+import org.fossify.gallery.helpers.FavoritesScrollRestorer
+import org.fossify.gallery.helpers.OxygenProgressStyle
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.OxygenSelectionMode
@@ -125,6 +129,7 @@ class DirectoryAdapter(
     recyclerView: MyRecyclerView,
     val isPickIntent: Boolean,
     val swipeRefreshLayout: SwipeRefreshLayout? = null,
+    private val diffExecutor: Executor = GalleryListDiffExecutor,
     itemClick: (Any) -> Unit
 ) :
     MyRecyclerViewAdapter(activity, recyclerView, itemClick), ItemTouchHelperContract,
@@ -890,7 +895,7 @@ class DirectoryAdapter(
         }
     }
 
-    private var diffGeneration = 0
+    @Volatile private var diffGeneration = 0
 
     override fun getItemId(position: Int): Long {
         return dirs.getOrNull(position)?.path?.fold(1469598103934665603L) { hash, ch ->
@@ -898,31 +903,58 @@ class DirectoryAdapter(
         } ?: RecyclerView.NO_ID
     }
 
-    fun updateDirs(newDirs: ArrayList<Directory>) {
-        val directories = ArrayList(newDirs)
-        if (directories.hashCode() == currentDirectoriesHash) return
-        // Snapshot both lists on the UI thread. Diffing large albums off the
-        // main thread avoids stalling scroll or gesture navigation.
-        val old = ArrayList(dirs)
+    private val refreshScroll = FavoritesScrollRestorer()
+
+    fun updateDirs(newDirs: ArrayList<Directory>, isCurrent: () -> Boolean = { true },
+                   onCommitted: () -> Unit = {}) {
+        // Even a no-op submission supersedes an in-flight different list (A -> B -> A).
         val generation = ++diffGeneration
-        ensureBackgroundThread {
+        val directories = newDirs.map { it.copy().also { copy -> copy.folderStatuses = it.folderStatuses } }
+            .toCollection(ArrayList())
+        if (!isCurrent()) return
+        if (directories == dirs && directories.indices.all { directories[it].folderStatuses == dirs[it].folderStatuses }) {
+            onCommitted()
+            return
+        }
+        val old = dirs.map { it.copy().also { copy -> copy.folderStatuses = it.folderStatuses } }
+        diffExecutor.execute {
+            if (generation != diffGeneration) return@execute
             val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
                 override fun getOldListSize() = old.size
                 override fun getNewListSize() = directories.size
                 override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int) =
                     old[oldItemPosition].path == directories[newItemPosition].path
                 override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int) =
-                    old[oldItemPosition] == directories[newItemPosition]
+                    old[oldItemPosition] == directories[newItemPosition] &&
+                        old[oldItemPosition].folderStatuses == directories[newItemPosition].folderStatuses
             })
             activity.runOnUiThread {
-                if (generation != diffGeneration || activity.isDestroyed) return@runOnUiThread
+                if (generation != diffGeneration || activity.isDestroyed ||
+                    recyclerView.adapter !== this || !isCurrent()) return@runOnUiThread
+                refreshScroll.clear()
+                if (recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE) {
+                    refreshScroll.remember(recyclerView, dirs.map { it.path })
+                }
                 currentDirectoriesHash = directories.hashCode()
-                finishActMode()
                 dirs = directories
+                selectedKeys.retainAll(directories.map { it.path.hashCode() }.toSet())
+                if (selectedKeys.isEmpty()) finishActMode() else actMode?.invalidate()
                 fillLockedFolders()
                 diff.dispatchUpdatesTo(this)
+                if (refreshScroll.pending != null) refreshScroll.restore(recyclerView,
+                    dirs.map { it.path }, true, isCurrent = {
+                        generation == diffGeneration && recyclerView.adapter === this && isCurrent() &&
+                            recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE
+                    })
+                onCommitted()
             }
         }
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        ++diffGeneration
+        refreshScroll.clear()
+        super.onDetachedFromRecyclerView(recyclerView)
     }
 
     fun updateAnimateGifs(animateGifs: Boolean) {
@@ -940,9 +972,7 @@ class DirectoryAdapter(
         bindItem(view).apply {
             dirLoadingProgress.visibility = if (isRefreshLoading && holder.bindingAdapterPosition == 0) View.VISIBLE else View.GONE
             dirLoadingProgress.apply {
-                setIndicatorColor(Color.WHITE)
-                setTrackColor(0x99000000.toInt())
-                trackThickness = (3 * activity.resources.displayMetrics.density + 0.5f).toInt()
+                OxygenProgressStyle.apply(activity, config, this)
             }
             dirPath?.text = "${directory.path.substringBeforeLast("/")}/"
             dirCheck.beVisibleIf(isSelected)

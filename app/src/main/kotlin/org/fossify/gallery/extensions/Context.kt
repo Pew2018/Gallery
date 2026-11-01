@@ -181,12 +181,16 @@ fun Context.movePinnedDirectoriesToFront(dirs: ArrayList<Directory>): ArrayList<
 }
 
 @Suppress("UNCHECKED_CAST")
-fun Context.getSortedDirectories(source: ArrayList<Directory>): ArrayList<Directory> {
+fun Context.getSortedDirectories(source: ArrayList<Directory>, randomOrder: MutableMap<String, Long>? = null): ArrayList<Directory> {
     val sorting = config.directorySorting
     val dirs = source.clone() as ArrayList<Directory>
 
     if (sorting and SORT_BY_RANDOM != 0) {
-        dirs.shuffle()
+        if (randomOrder == null) dirs.shuffle()
+        else {
+            dirs.forEach { randomOrder.getOrPut(it.path) { java.util.concurrent.ThreadLocalRandom.current().nextLong() } }
+            dirs.sortWith(compareBy<Directory> { randomOrder[it.path] }.thenBy { it.path })
+        }
         return movePinnedDirectoriesToFront(dirs)
     } else if (sorting and SORT_BY_CUSTOM != 0) {
         val newDirsOrdered = ArrayList<Directory>()
@@ -263,7 +267,8 @@ fun Context.getSortedDirectories(source: ArrayList<Directory>): ArrayList<Direct
 fun Context.getDirsToShow(
     dirs: ArrayList<Directory>,
     allDirs: ArrayList<Directory>,
-    currentPathPrefix: String
+    currentPathPrefix: String,
+    randomOrder: MutableMap<String, Long>? = null
 ): ArrayList<Directory> {
     return if (config.groupDirectSubfolders) {
         dirs.forEach {
@@ -289,7 +294,7 @@ fun Context.getDirsToShow(
             }
         }
 
-        getSortedDirectories(parentDirs)
+        getSortedDirectories(parentDirs, randomOrder)
     } else {
         dirs.forEach { it.subfoldersMediaCount = it.mediaCnt }
         dirs

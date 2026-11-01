@@ -1,5 +1,7 @@
 package org.fossify.gallery.adapters
 
+import java.util.concurrent.Executor
+import org.fossify.gallery.helpers.GalleryListDiffExecutor
 import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
@@ -11,6 +13,10 @@ import android.widget.ImageView
 import android.widget.Toast
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.view.allViews
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.RecyclerView
+import org.fossify.gallery.helpers.FavoritesScrollRestorer
+import org.fossify.gallery.helpers.PhotoProfileMediaLoader
 import com.bumptech.glide.Glide
 import com.squareup.picasso.Picasso
 import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
@@ -107,6 +113,7 @@ class MediaAdapter(
     val allowMultiplePicks: Boolean,
     val path: String,
     recyclerView: MyRecyclerView,
+    private val diffExecutor: Executor = GalleryListDiffExecutor,
     itemClick: (Any) -> Unit
 ) : MyRecyclerViewAdapter(activity, recyclerView, itemClick),
     RecyclerViewFastScroller.OnPopupTextUpdate {
@@ -136,6 +143,7 @@ class MediaAdapter(
     init {
         actModeCallback = OxygenSelectionMode.wrap(activity, actModeCallback)
         setupDragListener(true)
+        setHasStableIds(true)
     }
 
     override fun getActionMenuId() = R.menu.cab_media
@@ -636,6 +644,7 @@ class MediaAdapter(
                     removeMedia.add(medium)
                 }
 
+                ++diffGeneration
                 media.removeAll(removeMedia)
                 listener?.tryDeleteFiles(fileDirItems, skipRecycleBin)
                 listener?.updateMediaGridDecoration(media)
@@ -653,14 +662,79 @@ class MediaAdapter(
 
     private fun getItemWithKey(key: Int): Medium? = media.firstOrNull { (it as? Medium)?.path?.hashCode() == key } as? Medium
 
-    fun updateMedia(newMedia: ArrayList<ThumbnailItem>) {
-        val thumbnailItems = newMedia.clone() as ArrayList<ThumbnailItem>
-        if (thumbnailItems.hashCode() != currentMediaHash) {
-            currentMediaHash = thumbnailItems.hashCode()
-            media = thumbnailItems
-            notifyDataSetChanged()
-            finishActMode()
+    @Volatile private var diffGeneration = 0
+    private val refreshScroll = FavoritesScrollRestorer()
+
+    private fun itemIdentity(item: ThumbnailItem): String = when (item) {
+        is Medium -> "media:${item.path}"
+        is ThumbnailSection -> "section:${item.title}"
+        else -> error("Unknown thumbnail item")
+    }
+
+    override fun getItemId(position: Int): Long = media.getOrNull(position)?.let { item ->
+        itemIdentity(item).fold(1469598103934665603L) { hash, ch ->
+            (hash xor ch.code.toLong()) * 1099511628211L
         }
+    } ?: RecyclerView.NO_ID
+
+    private fun snapshot(items: List<ThumbnailItem>): ArrayList<ThumbnailItem> = items.map { item ->
+        when (item) {
+            is Medium -> item.copy()
+            is ThumbnailSection -> item.copy()
+            else -> item
+        }
+    }.toCollection(ArrayList())
+
+    fun updateMedia(newMedia: ArrayList<ThumbnailItem>, preserveScroll: Boolean = true,
+                    isCurrent: () -> Boolean = { true }, onCommitted: () -> Unit = {}) {
+        val generation = ++diffGeneration
+        val incoming = snapshot(newMedia)
+        if (!isCurrent()) return
+        if (incoming == media) { onCommitted(); return }
+        val old = snapshot(media)
+        diffExecutor.execute {
+            if (generation != diffGeneration) return@execute
+            val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+                override fun getOldListSize() = old.size
+                override fun getNewListSize() = incoming.size
+                override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int) =
+                    itemIdentity(old[oldItemPosition]) == itemIdentity(incoming[newItemPosition])
+                override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+                    val before = old[oldItemPosition]
+                    val after = incoming[newItemPosition]
+                    // Room-generated IDs are not thumbnail content.
+                    return if (before is Medium && after is Medium) before.copy(id = null) == after.copy(id = null)
+                    else before == after
+                }
+            }, false)
+            activity.runOnUiThread {
+                if (generation != diffGeneration || activity.isDestroyed ||
+                    recyclerView.adapter !== this || !isCurrent()) return@runOnUiThread
+                refreshScroll.clear()
+                if (preserveScroll && path != FAVORITES && path != PhotoProfileMediaLoader.PATH &&
+                    recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE) {
+                    refreshScroll.remember(recyclerView, media.map { (it as? Medium)?.path })
+                }
+                media = incoming
+                currentMediaHash = media.hashCode()
+                selectedKeys.retainAll(media.filterIsInstance<Medium>().map { it.path.hashCode() }.toSet())
+                if (selectedKeys.isEmpty()) finishActMode() else actMode?.invalidate()
+                listener?.updateMediaGridDecoration(media)
+                diff.dispatchUpdatesTo(this)
+                if (refreshScroll.pending != null) refreshScroll.restore(recyclerView,
+                    media.map { (it as? Medium)?.path }, true, isCurrent = {
+                        generation == diffGeneration && recyclerView.adapter === this && isCurrent() &&
+                            recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE
+                    })
+                onCommitted()
+            }
+        }
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        ++diffGeneration
+        refreshScroll.clear()
+        super.onDetachedFromRecyclerView(recyclerView)
     }
 
     fun updateDisplayFilenames(displayFilenames: Boolean) {

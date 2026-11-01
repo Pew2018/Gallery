@@ -982,7 +982,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             config.tempSkipDeleteConfirmation = false
             config.tempSkipRecycleBin = false
             unregisterFileUpdateListener()
-            GalleryDatabase.destroyInstance()
+            // The application database outlives pages and their background workers.
         }
 
         mTempShowHiddenHandler.removeCallbacksAndMessages(null)
@@ -1233,7 +1233,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun searchQueryChanged(text: String) {
         val searchGeneration = ++mediaSearchGeneration
         val request = displayedMediaRequest
-        val finalResult = displayedMediaIsFinal
+        val finalResult = completedMediaRequest == request
         val sourceMedia = ArrayList(mMedia)
         ensureBackgroundThread {
             try {
@@ -1265,9 +1265,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         binding.mediaFastscroller.beVisibleIf(safeGrouped.isNotEmpty())
                     }
 
-                    handleGridSpacing(safeGrouped)
-                    getMediaAdapter()?.updateMedia(safeGrouped)
-                    restoreFavoritesScrollAnchor(request, finalResult)
+                    getMediaAdapter()?.updateMedia(safeGrouped, preserveScroll = false, isCurrent = {
+                        searchGeneration == mediaSearchGeneration && mLastSearchedText == text &&
+                            mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed &&
+                            (mPath != FAVORITES || FavoriteAccessSessionManager.isActive(favoriteSessionId))
+                    }, onCommitted = {
+                        displayedMediaIsFinal = finalResult
+                        restoreFavoritesScrollAnchor(request, finalResult)
+                    })
                 }
             } catch (ignored: Exception) {
             }
@@ -1312,7 +1317,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private fun getMediaAdapter() = binding.mediaGrid.adapter as? MediaAdapter
 
-    private fun setupAdapter() {
+    private fun setupAdapter(onCommitted: () -> Unit = {}) {
         if (mPath == FAVORITES) {
             if (!FavoriteAccessSessionManager.isActive(favoriteSessionId)) return
         }
@@ -1350,9 +1355,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             setupLayoutManager()
             handleGridSpacing()
             if (mLastSearchedText.isNotEmpty()) searchQueryChanged(mLastSearchedText)
+            else onCommitted()
         } else if (mLastSearchedText.isEmpty()) {
-            (currAdapter as MediaAdapter).updateMedia(mMedia)
-            handleGridSpacing()
+            val request = displayedMediaRequest
+            val searchGeneration = mediaSearchGeneration
+            (currAdapter as MediaAdapter).updateMedia(mMedia, isCurrent = {
+                mediaLoadRequests.isCurrent(request) && searchGeneration == mediaSearchGeneration &&
+                    !isFinishing && !isDestroyed &&
+                    (mPath != FAVORITES || FavoriteAccessSessionManager.isActive(favoriteSessionId))
+            }, onCommitted = {
+                handleGridSpacing(currAdapter.media)
+                onCommitted()
+            })
         } else {
             searchQueryChanged(mLastSearchedText)
         }
@@ -2219,7 +2233,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 refreshMenuItems()
             }
             displayedMediaRequest = request
-            displayedMediaIsFinal = !isFromCache
+            displayedMediaIsFinal = false
             binding.loadingIndicator.hide()
             binding.mediaRefreshLayout.isRefreshing = false
             binding.mediaEmptyDescription.beGone()
@@ -2246,26 +2260,24 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 val token = favoriteSessionId
                 favoritesReturnCover?.revealAfterLayout { isFavoritesReturnCurrent(request, token) }
             } else {
-                setupAdapter()
-            }
-
-            // Cache can avoid a top-of-list flash, but only the final authorized
-            // dataset may consume the anchor after layout confirms the scroll.
-            if (mLastSearchedText.isEmpty()) {
-                restoreFavoritesScrollAnchor(request, !isFromCache)
-                if (isPhotoProfiles && photoScroll.pending != null) {
-                    val adapter = getMediaAdapter()
-                    if (adapter != null) photoScroll.restore(
-                        binding.mediaGrid,
-                        adapter.media.map { (it as? Medium)?.path },
-                        !isFromCache,
-                        isCurrent = {
-                            mediaLoadRequests.isCurrent(request) &&
-                                binding.mediaGrid.adapter === adapter &&
-                                photoProfileId == PhotoProfileRepository.of(this).state().current?.id &&
-                                !isFinishing && !isDestroyed
+                setupAdapter {
+                    if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return@setupAdapter
+                    displayedMediaIsFinal = !isFromCache
+                    // Restore the authorized path only after the new adapter rows are committed.
+                    if (mLastSearchedText.isEmpty()) {
+                        restoreFavoritesScrollAnchor(request, !isFromCache)
+                        if (isPhotoProfiles && photoScroll.pending != null) {
+                            val adapter = getMediaAdapter()
+                            if (adapter != null) photoScroll.restore(
+                                binding.mediaGrid, adapter.media.map { (it as? Medium)?.path }, !isFromCache,
+                                isCurrent = {
+                                    mediaLoadRequests.isCurrent(request) && binding.mediaGrid.adapter === adapter &&
+                                        photoProfileId == PhotoProfileRepository.of(this).state().current?.id &&
+                                        !isFinishing && !isDestroyed
+                                }
+                            )
                         }
-                    )
+                    }
                 }
             }
 
