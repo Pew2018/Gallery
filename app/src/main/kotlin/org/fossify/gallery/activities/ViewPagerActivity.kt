@@ -721,32 +721,61 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 stagedInternalViewer = true
                 mMediaFiles = arrayListOf(selected)
                 initContinue()
-                fun validateRemaining(items: List<Medium>) {
-                    submitViewerAccess(request) {
-                        val paths = LinkedHashSet<String>().apply { add(path); items.forEach { add(it.path) } }
-                        val authorized = runCatching {
-                            FolderUnlockSessionManager.authorizedPaths(token, paths, app.config::isFolderProtected)
-                        }.getOrDefault(emptySet())
-                        val safe = items.filter { it.path in authorized }
-                        runOnUiThread {
-                            if (request != viewerAccessGeneration || load != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
-                            if (!FolderUnlockSessionManager.isActive(token) || path !in authorized || safe.none { it.path == path }) {
-                                finish(); return@runOnUiThread
-                            }
-                            gotMedia(ArrayList<ThumbnailItem>(safe), refetchViewPagerPosition = true)
-                        }
-                    }
-                }
-                val random = config.getFolderSorting(mDirectory) and SORT_BY_RANDOM != 0
-                if (random && candidates.isNotEmpty()) validateRemaining(candidates)
-                else {
+                // Publish the already displayed folder candidates before a fresh scan.
+                // Never treat a nonempty (possibly partial) handoff as the final list.
+                fun scanRemaining() {
                     viewerLoadTask = GetMediaAsynctask(app, mDirectory, showAll = false,
-                        onFailure = { if (load == viewerLoadGeneration) finish() }
+                        onFailure = {
+                            if (load == viewerLoadGeneration && !isFinishing && !isDestroyed) {
+                                showErrorToast(it)
+                                // Keep authorized pages usable; allow another entry to retry.
+                            }
+                        }
                     ) { items ->
-                        if (request == viewerAccessGeneration && load == viewerLoadGeneration && !isFinishing && !isDestroyed)
-                            validateRemaining(items.filterIsInstance<Medium>())
+                        if (request == viewerAccessGeneration && load == viewerLoadGeneration && !isFinishing && !isDestroyed) {
+                            publishFolderCandidates(request, load, token, path, items.filterIsInstance<Medium>())
+                        }
                     }.also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
                 }
+                if (candidates.any { it.path == path }) {
+                    publishFolderCandidates(request, load, token, path, candidates) { scanRemaining() }
+                } else scanRemaining()
+            }
+        }
+    }
+
+    /** Validate every candidate off the UI thread before exposing adjacent pages. */
+    private fun publishFolderCandidates(
+        request: Long, load: Long, token: String?, selectedPath: String,
+        items: List<Medium>, onPublished: (() -> Unit)? = null
+    ) {
+        val app = applicationContext
+        val folder = selectedPath.getParentPath()
+        submitViewerAccess(request) {
+            val directItems = items.filter {
+                it.path.getParentPath() == folder ||
+                    (it.type == TYPE_PORTRAITS && it.path.getParentPath().getParentPath() == folder)
+            }
+            val paths = LinkedHashSet<String>().apply { add(selectedPath); directItems.forEach { add(it.path) } }
+            val authorized = runCatching {
+                FolderUnlockSessionManager.authorizedPaths(token, paths, app.config::isFolderProtected)
+            }.getOrDefault(emptySet())
+            val safe = directItems.filter { it.path in authorized }
+            runOnUiThread {
+                if (request != viewerAccessGeneration || load != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                if (!FolderUnlockSessionManager.isActive(token) || selectedPath !in authorized) {
+                    finish(); return@runOnUiThread
+                }
+                if (safe.any { it.path == selectedPath }) {
+                    val random = config.getFolderSorting(folder) and SORT_BY_RANDOM != 0
+                    val ordered = org.fossify.gallery.helpers.FolderViewerMediaPolicy.reconcile(
+                        if (onPublished != null) emptyList() else mMediaFiles, safe, random
+                    ) { it.path }
+                    // A late scan must retain the photo the user has already swiped to.
+                    mPath = getCurrentPath().ifEmpty { selectedPath }
+                    gotMedia(ArrayList<ThumbnailItem>(ordered), refetchViewPagerPosition = true)
+                }
+                onPublished?.invoke()
             }
         }
     }

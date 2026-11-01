@@ -80,12 +80,13 @@ class GetMediaAsynctask(
         // Only user-edited dates need a separate Room lookup.
         val indexedMetadata = scopedAvailable && (showAll || scopedFolder)
         val lastModifieds = if (getProperLastModified && !indexedMetadata) {
-            mediaFetcher.getLastModifieds()
+            if (!showAll && mPath.startsWith('/')) mediaFetcher.getFolderLastModifieds(mPath) else mediaFetcher.getLastModifieds()
         } else HashMap()
         val dateTakens = when {
             !getProperDateTaken -> HashMap<String, Long>()
             scopedFolder -> mediaFetcher.getSelectedFolderDateOverrides(listOf(mPath))
             scopedAvailable && showAll -> mediaFetcher.getCustomDateTakenOverrides()
+            !showAll && mPath.startsWith('/') -> mediaFetcher.getFolderDateTakens(mPath)
             else -> mediaFetcher.getDateTakens()
         }
 
