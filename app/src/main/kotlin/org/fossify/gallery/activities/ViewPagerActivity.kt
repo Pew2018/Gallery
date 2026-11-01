@@ -654,7 +654,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             if (cached != null && firstContext != null) {
                 viewerAccessTask = try { ViewerAccessCoordinator.submit {
                     val safe = runCatching {
-                        org.fossify.gallery.helpers.PhotoViewerSnapshotStore.validate(applicationContext, profile, cached, clicked) {
+                        org.fossify.gallery.helpers.PhotoViewerSnapshotStore.validate(
+                            applicationContext, profile, cached, clicked, requireClickedPath = false
+                        ) {
                             Thread.currentThread().isInterrupted
                         }
                     }.getOrNull()

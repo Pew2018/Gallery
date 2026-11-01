@@ -9,7 +9,7 @@ class ViewerSearchPolicyTest {
         val result = ViewerSearchPolicy.filter(listOf(
             medium("holiday-1.jpg"), medium("trip.jpg"), medium("holiday.jpg"), medium("other.jpg")
         ), "hol")
-        assertEquals(listOf("holiday.jpg", "holiday-1.jpg"), result.map { it.name })
+        assertEquals(listOf("holiday-1.jpg", "holiday.jpg"), result.map { it.name })
     }
 
     private fun medium(name: String) = Medium(

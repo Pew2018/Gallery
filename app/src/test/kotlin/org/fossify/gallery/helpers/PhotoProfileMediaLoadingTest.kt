@@ -275,9 +275,9 @@ class PhotoProfileMediaLoadingTest {
             val taken = PhotoViewerSnapshotStore.take(context, token, id, null, alias.toString())!!
             Files.delete(alias)
             Files.createSymbolicLink(alias, secret)
-            assertTrue(background { PhotoViewerSnapshotStore.validate(context, id, taken, alias.toString()) }!!.media.isEmpty())
+            assertNull(background { PhotoViewerSnapshotStore.validate(context, id, taken, alias.toString()) })
             Files.delete(alias)
-            assertTrue(background { PhotoViewerSnapshotStore.validate(context, id, taken, alias.toString()) }!!.media.isEmpty())
+            assertNull(background { PhotoViewerSnapshotStore.validate(context, id, taken, alias.toString()) })
         } finally { root.toFile().deleteRecursively() }
     }
 

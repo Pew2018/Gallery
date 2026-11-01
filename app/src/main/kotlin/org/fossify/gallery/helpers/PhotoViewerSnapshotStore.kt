@@ -75,6 +75,7 @@ internal object PhotoViewerSnapshotStore {
     /** Worker-only: taking a metadata snapshot is not fresh file authorization. */
     fun validate(
         context: Context, profileId: String?, media: List<Medium>, clickedPath: String,
+        requireClickedPath: Boolean = true,
         cancelled: () -> Boolean = { false }
     ): PhotoLoadResult? {
         val request = PhotoProfileLoadContext.capture(context, profileId, null) ?: return null
@@ -83,7 +84,8 @@ internal object PhotoViewerSnapshotStore {
             media.filter { java.io.File(it.path).isFile }
         } else media
         val (safe, access) = PhotoAccessValidationBatch(context, request, cancelled).validate(candidates)
-        if (cancelled() || !request.isCurrent(context)) return null
+        if (cancelled() || !request.isCurrent(context) ||
+            (requireClickedPath && safe.none { it.path == clickedPath })) return null
         return PhotoLoadResult(request, PhotoLoadStage.COMPLETE, safe, access)
     }
 

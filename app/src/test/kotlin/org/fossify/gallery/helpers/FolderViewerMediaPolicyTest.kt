@@ -23,12 +23,12 @@ class FolderViewerMediaPolicyTest {
         val local = listOf("b", "c", "a", "d", "e")
         val beforeFullResult = FolderViewerMediaPolicy.reconcile(emptyList(), local, random = true) { it }
         assertEquals(3, ViewerPositionPolicy.resolve(
-            beforeFullResult.map(::medium), "d", previousPosition = 0
+            beforeFullResult.map(::medium), "/gallery/d", previousPosition = 0
         ))
 
         val fullRandomResult = listOf("x", "a", "c", "d", "b", "e", "y")
         val published = FolderViewerMediaPolicy.reconcile(beforeFullResult, fullRandomResult, random = true) { it }
-        val position = ViewerPositionPolicy.resolve(published.map(::medium), "d", previousPosition = 1)
+        val position = ViewerPositionPolicy.resolve(published.map(::medium), "/gallery/d", previousPosition = 1)
 
         assertEquals(listOf("b", "c", "a", "d", "e", "x", "y"), published)
         assertEquals("d", published[position])
