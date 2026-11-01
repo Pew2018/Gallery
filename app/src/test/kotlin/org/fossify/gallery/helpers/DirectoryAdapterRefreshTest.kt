@@ -131,4 +131,18 @@ class DirectoryAdapterRefreshTest {
         awaitList(adapter, listOf("/c", "/a", "/b"))
     }
 
+    @Test fun localMutationDiscardsQueuedRefreshInsteadOfResurrectingRemovedAlbum() = withAdapter { adapter, _ ->
+        val selected = keys(adapter)
+        selected.add("/a".hashCode())
+        adapter.onActionModeCreated()
+        adapter.updateDirs(arrayListOf(directory("/a"), directory("/b"), directory("/new")))
+        adapter.discardPendingUpdates()
+        adapter.updateDirs(arrayListOf(directory("/b")))
+        selected.clear()
+        adapter.onActionModeDestroyed()
+        awaitList(adapter, listOf("/b"))
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(listOf("/b"), adapter.dirs.map { it.path })
+    }
+
 }

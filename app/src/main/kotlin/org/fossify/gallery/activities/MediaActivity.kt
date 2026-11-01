@@ -1606,6 +1606,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             isPickImage = mIsGetImageIntent && !mIsGetVideoIntent,
             isPickVideo = mIsGetVideoIntent && !mIsGetImageIntent,
             showAll = mShowAll,
+            cachedMediaFallback = if (mShowAll) mMedia.filterIsInstance<Medium>().map { it.copy() } else emptyList(),
+            onPartialFailure = {
+                if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed) toast(R.string.media_load_partial_error)
+            },
             favoritePathsOverride = if (mPath == FAVORITES)
                 favoriteAccessPaths?.toCollection(ArrayList()) else null,
             favoriteSessionId = if (mPath == FAVORITES) favoriteSessionId else null,

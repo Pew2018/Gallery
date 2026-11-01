@@ -415,6 +415,8 @@ class DirectoryAdapter(
                 if (success) {
                     RenameItemDialog(activity, dir.absolutePath) {
                         activity.runOnUiThread {
+                            discardPendingUpdates()
+                            listener?.onDirectoryMutation()
                             firstDir.apply {
                                 path = it
                                 name = it.getFilenameFromPath()
@@ -539,8 +541,11 @@ class DirectoryAdapter(
                 name = activity.checkAppendingHidden(path, hidden, includedFolders, ArrayList())
             }
         }
-        listener?.updateDirectories(renamed)
-        activity.runOnUiThread { updateDirs(renamed) }
+        activity.runOnUiThread {
+            discardPendingUpdates()
+            listener?.updateDirectories(renamed)
+            updateDirs(renamed)
+        }
     }
 
     private fun hideFolder(path: String) {
@@ -559,6 +564,8 @@ class DirectoryAdapter(
                 } as ArrayList<Directory>
 
                 activity.runOnUiThread {
+                    discardPendingUpdates()
+                    listener?.updateDirectories(newDirs, dirs.filter { it !in newDirs }.mapTo(HashSet()) { it.path })
                     affectedPositions.sortedDescending().forEach {
                         notifyItemRemoved(it)
                     }
@@ -566,7 +573,6 @@ class DirectoryAdapter(
                     dirs = newDirs
 
                     finishActMode()
-                    listener?.updateDirectories(newDirs)
                 }
             }
         }
@@ -941,6 +947,14 @@ class DirectoryAdapter(
 
     private fun defersDirectoryUpdates() = selectedKeys.isNotEmpty() || isDragAndDropping ||
         recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE
+
+    /** A local mutation supersedes both queued results and already calculating diffs. */
+    fun discardPendingUpdates() {
+        diffGeneration++
+        pendingDirectoryUpdate = null
+        latestDirectoryUpdate = null
+        directoryScrollAnchor.clear()
+    }
 
     private fun applyPendingDirectoryUpdate() {
         if (activity.isDestroyed || defersDirectoryUpdates()) return

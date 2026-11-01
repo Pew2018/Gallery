@@ -379,7 +379,10 @@ class MediaFetcher(
             FAVORITES -> favoritePaths.filter { showHidden || !it.contains("/.") }.map { File(it) }.toMutableList() as ArrayList<File>
             RECYCLE_BIN -> deletedMedia.map { File(it.path) }.toMutableList() as ArrayList<File>
             else -> File(folder).listFiles()?.toMutableList() ?: run {
-                if (reportReadFailures && (!isRPlus() || Environment.isExternalStorageManager())) {
+                val storageAvailable = if (isRPlus()) runCatching {
+                    Environment.getExternalStorageState(File(folder)) in setOf(Environment.MEDIA_MOUNTED, Environment.MEDIA_MOUNTED_READ_ONLY)
+                }.getOrDefault(false) else true
+                if (reportReadFailures && (!isRPlus() || Environment.isExternalStorageManager() || !storageAvailable)) {
                     throw java.io.IOException("Media folder is unavailable")
                 }
                 return media

@@ -28,4 +28,5 @@
     <string name="media_load_permission_error">无法读取媒体。请检查照片和视频权限后重试。</string>
     <string name="media_load_storage_error">媒体来源暂时不可用。请检查存储设备连接后重试。</string>
     <string name="media_load_retry">重试</string>
+    <string name="media_load_partial_error">部分文件夹读取失败，已保留可读内容及已有缓存。请下拉重试。</string>
 </resources>

@@ -275,7 +275,11 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
 
     private fun startAsyncTask() {
         mCurrAsyncTask?.stopFetching()
-        mCurrAsyncTask = GetMediaAsynctask(applicationContext, "", showAll = true, onFailure = {
+        mCurrAsyncTask = GetMediaAsynctask(applicationContext, "", showAll = true,
+            cachedMediaFallback = mAllMedia.filterIsInstance<Medium>().map { it.copy() },
+            onPartialFailure = {
+                if (!exitGate.exiting && !isFinishing && !isDestroyed) toast(R.string.media_load_partial_error)
+            }, onFailure = {
             if (!exitGate.exiting && !isFinishing && !isDestroyed) {
                 binding.searchEmptyTextPlaceholder.setText(R.string.failed_to_load_media)
                 binding.searchEmptyTextPlaceholder.beVisibleIf(getMediaAdapter()?.itemCount == 0)

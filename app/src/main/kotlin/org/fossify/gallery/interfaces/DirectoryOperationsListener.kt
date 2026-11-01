@@ -10,5 +10,7 @@ interface DirectoryOperationsListener {
 
     fun recheckPinnedFolders()
 
-    fun updateDirectories(directories: ArrayList<Directory>)
+    fun onDirectoryMutation() {}
+
+    fun updateDirectories(directories: ArrayList<Directory>, removedPaths: Set<String> = emptySet())
 }

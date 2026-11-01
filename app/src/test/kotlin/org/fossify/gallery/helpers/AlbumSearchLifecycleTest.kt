@@ -97,4 +97,69 @@ class AlbumSearchLifecycleTest {
         assertTrue(field(activity, "mIsGettingDirs").getBoolean(activity))
         Shadows.shadowOf(Looper.getMainLooper()).idle()
     }
+    @Test fun sortingSearchResultsKeepsTheFullCatalogAndTheActiveScan() = withActivity { activity ->
+        activity.config.groupDirectSubfolders = false
+        activity.config.searchAllFilesByDefault = false
+        val a = directory("alpha")
+        val b = directory("beta")
+        publish(activity, arrayListOf(a, b))
+        val recycler = activity.findViewById<MyRecyclerView>(R.id.directories_grid)
+        val executor = ManualExecutor()
+        val adapter = DirectoryAdapter(activity, arrayListOf(a), null, recycler, false, diffExecutor = executor) {}
+        recycler.adapter = adapter
+        val epoch = field(activity, "directoryScanEpoch").get(activity) as DirectoryScanEpoch
+        val request = epoch.begin()
+        field(activity, "mIsGettingDirs").setBoolean(activity, true)
+        activity.config.directorySorting = org.fossify.commons.helpers.SORT_BY_NAME
+        MainActivity::class.java.getDeclaredMethod("refreshDirectoryPresentation").apply { isAccessible = true }.invoke(activity)
+        executor.drain()
+        @Suppress("UNCHECKED_CAST")
+        val catalog = field(activity, "mDirsIgnoringSearch").get(activity) as ArrayList<Directory>
+        assertEquals(setOf(a.path, b.path), catalog.map { it.path }.toSet())
+        assertTrue(epoch.isCurrent(request))
+        assertTrue(field(activity, "mIsGettingDirs").getBoolean(activity))
+        publish(activity, catalog, "")
+        executor.drain()
+        assertEquals(setOf(a.path, b.path), adapter.dirs.map { it.path }.toSet())
+    }
+
+    @Test fun sortingGroupedRowsDoesNotDiscardThePhysicalChildren() = withActivity { activity ->
+        activity.config.groupDirectSubfolders = true
+        val a = directory("a").apply { path = "/pictures/shared/a" }
+        val b = directory("b").apply { path = "/pictures/shared/b" }
+        publish(activity, arrayListOf(a, b))
+        val recycler = activity.findViewById<MyRecyclerView>(R.id.directories_grid)
+        val executor = ManualExecutor()
+        val adapter = DirectoryAdapter(activity,
+            arrayListOf(directory("shared").apply { path = "/pictures/shared"; containsMediaFilesDirectly = false }),
+            null, recycler, false, diffExecutor = executor) {}
+        recycler.adapter = adapter
+        MainActivity::class.java.getDeclaredMethod("refreshDirectoryPresentation").apply { isAccessible = true }.invoke(activity)
+        @Suppress("UNCHECKED_CAST")
+        val catalog = field(activity, "mDirs").get(activity) as ArrayList<Directory>
+        assertEquals(setOf(a.path, b.path), catalog.map { it.path }.toSet())
+        field(activity, "mCurrentPathPrefix").set(activity, "/pictures/shared")
+        publish(activity, catalog, "")
+        executor.drain()
+        assertEquals(setOf(a.path, b.path), adapter.dirs.map { it.path }.toSet())
+    }
+
+    @Test fun pausedCategoryRestartsWhileInlineSearchStaysOpen() = withActivity { activity ->
+        activity.config.searchAllFilesByDefault = false
+        field(activity, "mFolderVisibility").set(activity, booleanArrayOf(true, false, false, true))
+        val menu = activity.findViewById<org.fossify.commons.views.MySearchMenu>(R.id.main_menu)
+        menu.focusView()
+        assertTrue(menu.isSearchOpen)
+        field(activity, "categorizedLoadActive").setBoolean(activity, true)
+        field(activity, "mIsGettingDirs").setBoolean(activity, true)
+        MainActivity::class.java.getDeclaredMethod("onPause").apply { isAccessible = true }.invoke(activity)
+        assertTrue(field(activity, "categorizedReloadPending").getBoolean(activity))
+        val before = field(activity, "categorizedLoadVersion").getLong(activity)
+        MainActivity::class.java.getDeclaredMethod("resumeCategorizedLoadIfNeeded").apply { isAccessible = true }.invoke(activity)
+        assertTrue(menu.isSearchOpen)
+        assertTrue(field(activity, "categorizedLoadActive").getBoolean(activity))
+        assertFalse(field(activity, "categorizedReloadPending").getBoolean(activity))
+        assertTrue(field(activity, "categorizedLoadVersion").getLong(activity) > before)
+    }
+
 }

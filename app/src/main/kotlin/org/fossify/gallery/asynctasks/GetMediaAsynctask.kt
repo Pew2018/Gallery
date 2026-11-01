@@ -19,6 +19,8 @@ import org.fossify.gallery.models.ThumbnailItem
 class GetMediaAsynctask(
     val context: Context, val mPath: String, val isPickImage: Boolean = false, val isPickVideo: Boolean = false,
     val showAll: Boolean, val onFailure: (Exception) -> Unit = {},
+    private val cachedMediaFallback: List<Medium> = emptyList(),
+    private val onPartialFailure: (Map<String, Exception>) -> Unit = {},
     private val favoritePathsOverride: ArrayList<String>? = null,
     private val favoriteSessionId: String? = null,
     private val photoProfileId: String? = null,
@@ -31,6 +33,7 @@ class GetMediaAsynctask(
     AsyncTask<Void, PhotoLoadResult, ArrayList<ThumbnailItem>>() {
     private val mediaFetcher = MediaFetcher(context, reportReadFailures = true)
     private var scanFailure: Exception? = null
+    private var folderFailures: Map<String, Exception> = emptyMap()
     private var profileResult: PhotoLoadResult? = null
 
     override fun doInBackground(vararg params: Void): ArrayList<ThumbnailItem> {
@@ -93,20 +96,20 @@ class GetMediaAsynctask(
         val scanStarted = GalleryPerfTrace.begin()
         val media = if (showAll) {
             val foldersToScan = mediaFetcher.getFoldersToScan().filter { it != RECYCLE_BIN && it != FAVORITES && !context.config.isFolderProtected(it) }
-            val media = ArrayList<Medium>()
             // Scoped-storage MediaStore can be queried just once for all folders.
             // Reusing the grouped result avoids O(folderCount) full-store queries.
             val scopedFiles = mediaFetcher.getAndroid11FolderMedia(
                 isPickImage, isPickVideo, favoritePaths, false, getProperDateTaken, dateTakens
             )
-            foldersToScan.forEach {
-                if (isCancelled || mediaFetcher.shouldStop) return@forEach
-                val newMedia = mediaFetcher.getFilesFrom(
-                    it, isPickImage, isPickVideo, getProperDateTaken, getProperLastModified, getProperFileSize,
+            val result = FolderMediaScan.load(foldersToScan, cachedMediaFallback,
+                cancelled = { isCancelled || mediaFetcher.shouldStop }) { folder ->
+                mediaFetcher.getFilesFrom(
+                    folder, isPickImage, isPickVideo, getProperDateTaken, getProperLastModified, getProperFileSize,
                     favoritePaths, getVideoDurations, lastModifieds, dateTakens, scopedFiles
                 )
-                media.addAll(newMedia)
             }
+            folderFailures = result.failures
+            val media = result.media
 
             mediaFetcher.sortMedia(media, context.config.getFolderSorting(SHOW_ALL))
             media
@@ -160,7 +163,10 @@ class GetMediaAsynctask(
         if (result != null) {
             if (!result.context.isCurrent(context)) { onFailure(PhotoLoadInvalidatedException()); return }
             if (onPhotoResult != null) onPhotoResult.invoke(result) else callback(media)
-        } else callback(media)
+        } else {
+            if (folderFailures.isNotEmpty()) onPartialFailure(folderFailures)
+            callback(media)
+        }
     }
 
     fun stopFetching() {

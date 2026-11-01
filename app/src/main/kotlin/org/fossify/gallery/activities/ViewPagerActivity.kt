@@ -1903,6 +1903,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             viewerLoadTask?.stopFetching()
             viewerLoadTask = GetMediaAsynctask(
                 applicationContext, mDirectory, isPickImage = false, isPickVideo = false, showAll = mShowAll,
+                cachedMediaFallback = if (mShowAll) mMediaFiles.map { it.copy() } else emptyList(),
+                onPartialFailure = {
+                    if (request == viewerLoadGeneration && !isFinishing && !isDestroyed && checkFavoriteAccess()) toast(R.string.media_load_partial_error)
+                },
                 favoritePathsOverride = null,
                 favoriteSessionId = if (isFavoriteRequest) favoriteSessionId else null,
                 photoProfileId = photoProfileId,

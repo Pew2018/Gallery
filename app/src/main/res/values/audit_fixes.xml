@@ -28,4 +28,5 @@
     <string name="media_load_permission_error">Media access was denied. Check photo and video permissions, then retry.</string>
     <string name="media_load_storage_error">The media source is unavailable. Check the storage connection, then retry.</string>
     <string name="media_load_retry">Retry</string>
+    <string name="media_load_partial_error">Some folders could not be read. Available content and cached items have been kept. Pull down to retry.</string>
 </resources>

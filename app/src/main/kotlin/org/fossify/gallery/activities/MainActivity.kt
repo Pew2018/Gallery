@@ -211,6 +211,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var favoriteViewForeground = false
     private var categorizedLoadVersion = 0L
     private var categorizedLoadActive = false
+    private var categorizedReloadPending = false
     private var mFavoriteFolderPaths: Set<String> = emptySet()
     // Saved visibility preferences never serve as authentication credentials.
     private var mFavoriteHiddenAuthorized = false
@@ -491,6 +492,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         binding.directoriesSwitchSearching.underlineText()
         binding.directoriesEmptyPlaceholder2.bringToFront()
 
+        // A canceled category request must resume even while inline search is open.
+        resumeCategorizedLoadIfNeeded()
         if (!binding.mainMenu.isSearchOpen) {
             refreshMenuItems()
             tryLoadGallery()
@@ -509,6 +512,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         // Authentication Activities can temporarily pause us. Favorite requests are
         // retired at onStop, not here, so their successful results are not lost.
         categorizedLoadVersion++
+        if (!mShowingFolderFavorites && isSpecialFolderFilterActive()) categorizedReloadPending = true
         if (categorizedLoadActive) {
             categorizedLoadActive = false
             mIsGettingDirs = false
@@ -1111,17 +1115,20 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 
-    /** Lightweight reordering does not require a full MediaStore rescan. */
-    private fun refreshDirectoryPresentation(dirs: ArrayList<Directory>) {
+    /** The catalog contains physical children too; adapter rows may be searched/grouped. */
+    private fun refreshDirectoryPresentation() {
         if (mShowingFolderFavorites) {
             getDirectories(forceFavoriteReload = true)
             return
         }
-        retireDirectoryScan()
-        val sorted = getSortedDirectories(dirs, directoryRandomOrder)
-        mDirs = ArrayList(sorted)
-        mDirsIgnoringSearch = ArrayList(sorted)
-        setupAdapter(ArrayList(sorted))
+        // Keep an active scan alive so sorting a partial cache cannot lose unseen albums.
+        setupAdapter(mDirs)
+    }
+
+    private fun resumeCategorizedLoadIfNeeded() {
+        if (categorizedReloadPending && !mShowingFolderFavorites && isSpecialFolderFilterActive() && !mIsGettingDirs) {
+            loadCategorizedFolders()
+        }
     }
 
     private fun showSortingDialog() {
@@ -1132,7 +1139,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 retireDirectoryScan()
                 getDirectories()
             } else {
-                refreshDirectoryPresentation(getCurrentlyDisplayedDirs())
+                refreshDirectoryPresentation()
             }
 
             getRecyclerAdapter()?.directorySorting = config.directorySorting
@@ -1211,6 +1218,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         setDirectoryLoading(true)
         val requestVersion = ++categorizedLoadVersion
         categorizedLoadActive = true
+        categorizedReloadPending = false
         val requestedVisibility = mFolderVisibility.copyOf()
         mLastMediaFetcher?.shouldStop = true
         val failed: (Exception) -> Unit = { error ->
@@ -1912,17 +1920,80 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         )
         GalleryPerfTrace.end("album_index_ready", indexedStarted, android11Files?.size)
         if (!isCurrentDirectoryScan(scanRequest)) return
+        val folderFailures = LinkedHashMap<String, Exception>()
         var cachedCardUpdates = 0
-        try {
-            for (index in dirs.indices) {
-                val directory = dirs[index]
-                if (!isCurrentDirectoryScan(scanRequest)) {
-                    return
-                }
-                // A locked album is represented by its cached metadata only.
-                // Its media may be scanned only by MediaActivity after authentication.
-                if (config.isFolderProtected(directory.path)) continue
-                if (directory.path == FAVORITES && config.isFavoritePasswordProtectionOn) {
+        for (index in dirs.indices) {
+            val directory = dirs[index]
+            if (!isCurrentDirectoryScan(scanRequest)) {
+                return
+            }
+            // A locked album is represented by its cached metadata only.
+            // Its media may be scanned only by MediaActivity after authentication.
+            if (config.isFolderProtected(directory.path)) continue
+            if (directory.path == FAVORITES && config.isFavoritePasswordProtectionOn) {
+                directory.tmb = ""
+                directory.mediaCnt = 0
+                directory.subfoldersMediaCount = 0
+                updateDBDirectory(directory)
+                setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
+                continue
+            }
+
+            val pathsForCard = if (directory.path == FAVORITES) {
+                runCatching {
+                    FavoriteAccessPolicy.unprotectedPaths(
+                        FavoriteAccessSessionManager.captureSnapshot(
+                            favoritePaths, applicationContext::favoriteProtection
+                        )
+                    ).toCollection(ArrayList())
+                }.getOrDefault(arrayListOf())
+            } else favoritePaths
+
+            val sorting = config.getFolderSorting(directory.path)
+            val grouping = config.getFolderGrouping(directory.path)
+            val getProperDateTaken = config.directorySorting and SORT_BY_DATE_TAKEN != 0
+                    || sorting and SORT_BY_DATE_TAKEN != 0
+                    || grouping and GROUP_BY_DATE_TAKEN_DAILY != 0
+                    || grouping and GROUP_BY_DATE_TAKEN_MONTHLY != 0
+
+            val getProperLastModified =
+                config.directorySorting and SORT_BY_DATE_MODIFIED != 0
+                        || sorting and SORT_BY_DATE_MODIFIED != 0
+                        || grouping and GROUP_BY_LAST_MODIFIED_DAILY != 0
+                        || grouping and GROUP_BY_LAST_MODIFIED_MONTHLY != 0
+
+            val curMedia = try { scanFetcher.getFilesFrom(
+                curPath = directory.path,
+                isPickImage = getImagesOnly,
+                isPickVideo = getVideosOnly,
+                getProperDateTaken = getProperDateTaken,
+                getProperLastModified = getProperLastModified,
+                getProperFileSize = getProperFileSize,
+                favoritePaths = pathsForCard,
+                getVideoDurations = false,
+                lastModifieds = lastModifieds,
+                dateTakens = dateTakens,
+                android11Files = android11Files
+            ) } catch (error: Exception) {
+                folderFailures[directory.path] = error
+                android.util.Log.w("GalleryDirs", "Could not refresh album", error)
+                continue
+            }
+
+            if (!isCurrentDirectoryScan(scanRequest)) return
+            if (directory.path == FAVORITES) {
+                // Match the album's current saved and unprotected paths, even
+                // if the favorites table or source locks changed during the scan.
+                val latestPublicPaths = runCatching {
+                    val saved = getFavoritePaths()
+                    FavoriteAccessPolicy.unprotectedPaths(
+                        FavoriteAccessSessionManager.captureSnapshot(
+                            saved, applicationContext::favoriteProtection
+                        )
+                    )
+                }.getOrDefault(emptySet())
+                curMedia.retainAll { it.path in latestPublicPaths }
+                if (config.isFavoritePasswordProtectionOn || config.isFolderProtected(FAVORITES)) {
                     directory.tmb = ""
                     directory.mediaCnt = 0
                     directory.subfoldersMediaCount = 0
@@ -1930,175 +2001,114 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
                     continue
                 }
+            }
 
-                val pathsForCard = if (directory.path == FAVORITES) {
-                    runCatching {
-                        FavoriteAccessPolicy.unprotectedPaths(
-                            FavoriteAccessSessionManager.captureSnapshot(
-                                favoritePaths, applicationContext::favoriteProtection
-                            )
-                        ).toCollection(ArrayList())
-                    }.getOrDefault(arrayListOf())
-                } else favoritePaths
-
-                val sorting = config.getFolderSorting(directory.path)
-                val grouping = config.getFolderGrouping(directory.path)
-                val getProperDateTaken = config.directorySorting and SORT_BY_DATE_TAKEN != 0
-                        || sorting and SORT_BY_DATE_TAKEN != 0
-                        || grouping and GROUP_BY_DATE_TAKEN_DAILY != 0
-                        || grouping and GROUP_BY_DATE_TAKEN_MONTHLY != 0
-
-                val getProperLastModified =
-                    config.directorySorting and SORT_BY_DATE_MODIFIED != 0
-                            || sorting and SORT_BY_DATE_MODIFIED != 0
-                            || grouping and GROUP_BY_LAST_MODIFIED_DAILY != 0
-                            || grouping and GROUP_BY_LAST_MODIFIED_MONTHLY != 0
-
-                val curMedia = scanFetcher.getFilesFrom(
-                    curPath = directory.path,
-                    isPickImage = getImagesOnly,
-                    isPickVideo = getVideosOnly,
-                    getProperDateTaken = getProperDateTaken,
-                    getProperLastModified = getProperLastModified,
+            val newDir = if (curMedia.isEmpty()) {
+                // An empty scan can mean permission loss, a changed filter,
+                // or a temporarily unavailable volume. Never delete a valid
+                // directory record based only on an empty result.
+                val folder = File(directory.path)
+                val parentReadable = folder.parentFile?.let {
+                    it.isDirectory && it.canRead()
+                } == true
+                if (directory.path != tempFolderPath &&
+                    !directory.areFavorites() && !directory.isRecycleBin() &&
+                    MediaCachePrunePolicy.canPruneDirectory(
+                        directory.path, parentReadable, folder.exists()
+                    )
+                ) {
+                    dirPathsToRemove.add(directory.path)
+                }
+                if (directory.areFavorites()) directory.copy(tmb = "", mediaCnt = 0)
+                else directory
+            } else {
+                createDirectoryFromMedia(
+                    path = directory.path,
+                    curMedia = curMedia,
+                    albumCovers = albumCovers,
+                    hiddenString = hiddenString,
+                    includedFolders = includedFolders,
                     getProperFileSize = getProperFileSize,
-                    favoritePaths = pathsForCard,
-                    getVideoDurations = false,
-                    lastModifieds = lastModifieds,
-                    dateTakens = dateTakens,
-                    android11Files = android11Files
+                    noMediaFolders = noMediaFolders
                 )
-
-                if (!isCurrentDirectoryScan(scanRequest)) return
-                if (directory.path == FAVORITES) {
-                    // Match the album's current saved and unprotected paths, even
-                    // if the favorites table or source locks changed during the scan.
-                    val latestPublicPaths = runCatching {
-                        val saved = getFavoritePaths()
-                        FavoriteAccessPolicy.unprotectedPaths(
-                            FavoriteAccessSessionManager.captureSnapshot(
-                                saved, applicationContext::favoriteProtection
-                            )
-                        )
-                    }.getOrDefault(emptySet())
-                    curMedia.retainAll { it.path in latestPublicPaths }
-                    if (config.isFavoritePasswordProtectionOn || config.isFolderProtected(FAVORITES)) {
-                        directory.tmb = ""
-                        directory.mediaCnt = 0
-                        directory.subfoldersMediaCount = 0
-                        updateDBDirectory(directory)
-                        setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
-                        continue
-                    }
-                }
-
-                val newDir = if (curMedia.isEmpty()) {
-                    // An empty scan can mean permission loss, a changed filter,
-                    // or a temporarily unavailable volume. Never delete a valid
-                    // directory record based only on an empty result.
-                    val folder = File(directory.path)
-                    val parentReadable = folder.parentFile?.let {
-                        it.isDirectory && it.canRead()
-                    } == true
-                    if (directory.path != tempFolderPath &&
-                        !directory.areFavorites() && !directory.isRecycleBin() &&
-                        MediaCachePrunePolicy.canPruneDirectory(
-                            directory.path, parentReadable, folder.exists()
-                        )
-                    ) {
-                        dirPathsToRemove.add(directory.path)
-                    }
-                    if (directory.areFavorites()) directory.copy(tmb = "", mediaCnt = 0)
-                    else directory
-                } else {
-                    createDirectoryFromMedia(
-                        path = directory.path,
-                        curMedia = curMedia,
-                        albumCovers = albumCovers,
-                        hiddenString = hiddenString,
-                        includedFolders = includedFolders,
-                        getProperFileSize = getProperFileSize,
-                        noMediaFolders = noMediaFolders
-                    )
-                }
-
-                // An unavailable physical folder is not evidence of changed content.
-                if (curMedia.isEmpty() && !directory.areFavorites() && !directory.isRecycleBin()) continue
-
-                // Adapter holds the previous Directory instance. Replace it, so
-                // DiffUtil can compare stable immutable before/after snapshots.
-                val revisedDir = directory.copy(
-                    tmb = newDir.tmb,
-                    name = newDir.name,
-                    mediaCnt = newDir.mediaCnt,
-                    modified = newDir.modified,
-                    taken = newDir.taken,
-                    size = newDir.size,
-                    types = newDir.types,
-                    sortValue = getDirectorySortingValue(
-                        curMedia, directory.path, newDir.name, newDir.size, newDir.mediaCnt
-                    )
-                ).also { it.folderStatuses = directory.folderStatuses }
-                if (directory == revisedDir) continue
-                dirs[index] = revisedDir
-                cachedCardUpdates++
-                if (cachedCardUpdates >= 8) {
-                    setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
-                    cachedCardUpdates = 0
-                }
-
-                // Already on the cached-media worker thread: do not create a
-                // short-lived Thread per album during a large library refresh.
-                updateDBDirectory(revisedDir)
-                if (!directory.isRecycleBin() && !directory.areFavorites()) {
-                    try {
-                        mediaDB.insertAll(curMedia)
-                    } catch (ignored: Exception) {
-                    }
-                }
-
-                if (!directory.isRecycleBin() && !directory.areFavorites()) {
-                    val scanOwner = scanFetcher
-                    val freshPaths = curMedia.mapTo(HashSet()) { it.path }
-                    getCachedMedia(directory.path, getVideosOnly, getImagesOnly) { cached ->
-                        if (mShouldStopFetching || isDestroyed || isFinishing ||
-                            scanOwner !== mLastMediaFetcher || !isCurrentDirectoryScan(scanRequest)
-                        ) return@getCachedMedia
-
-                        // Comparing entire Medium objects is unsafe: modified
-                        // metadata makes a still-existing file look "deleted".
-                        // Absence from MediaStore alone is also not proof.
-                        val stale = cached.filterIsInstance<Medium>().filter { old ->
-                            val file = File(old.path)
-                            val parentReadable = file.parentFile?.let {
-                                it.isDirectory && it.canRead()
-                            } == true
-                            MediaCachePrunePolicy.canPrune(
-                                oldPath = old.path,
-                                latestPaths = freshPaths,
-                                isFavoritesView = false,
-                                parentReadable = parentReadable,
-                                fileExists = file.exists()
-                            )
-                        }
-                        if (stale.isNotEmpty()) {
-                            mediaDB.deleteMedia(*stale.toTypedArray())
-                        }
-                    }
-                }
             }
 
-            if (cachedCardUpdates > 0 && isCurrentDirectoryScan(scanRequest)) {
+            // An unavailable physical folder is not evidence of changed content.
+            if (curMedia.isEmpty() && !directory.areFavorites() && !directory.isRecycleBin()) continue
+
+            // Adapter holds the previous Directory instance. Replace it, so
+            // DiffUtil can compare stable immutable before/after snapshots.
+            val revisedDir = directory.copy(
+                tmb = newDir.tmb,
+                name = newDir.name,
+                mediaCnt = newDir.mediaCnt,
+                modified = newDir.modified,
+                taken = newDir.taken,
+                size = newDir.size,
+                types = newDir.types,
+                sortValue = getDirectorySortingValue(
+                    curMedia, directory.path, newDir.name, newDir.size, newDir.mediaCnt
+                )
+            ).also { it.folderStatuses = directory.folderStatuses }
+            if (directory == revisedDir) continue
+            dirs[index] = revisedDir
+            cachedCardUpdates++
+            if (cachedCardUpdates >= 8) {
                 setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
+                cachedCardUpdates = 0
             }
-            if (dirPathsToRemove.isNotEmpty()) {
-                val dirsToRemove = dirs.filter { dirPathsToRemove.contains(it.path) }
-                dirsToRemove.forEach {
-                    directoryDB.deleteDirPath(it.path)
+
+            // Already on the cached-media worker thread: do not create a
+            // short-lived Thread per album during a large library refresh.
+            updateDBDirectory(revisedDir)
+            if (!directory.isRecycleBin() && !directory.areFavorites()) {
+                try {
+                    mediaDB.insertAll(curMedia)
+                } catch (ignored: Exception) {
                 }
-                dirs.removeAll(dirsToRemove)
-                setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
             }
-        } catch (ignored: Exception) {
+
+            if (!directory.isRecycleBin() && !directory.areFavorites()) {
+                val scanOwner = scanFetcher
+                val freshPaths = curMedia.mapTo(HashSet()) { it.path }
+                getCachedMedia(directory.path, getVideosOnly, getImagesOnly) { cached ->
+                    if (mShouldStopFetching || isDestroyed || isFinishing ||
+                        scanOwner !== mLastMediaFetcher || !isCurrentDirectoryScan(scanRequest)
+                    ) return@getCachedMedia
+
+                    // Comparing entire Medium objects is unsafe: modified
+                    // metadata makes a still-existing file look "deleted".
+                    // Absence from MediaStore alone is also not proof.
+                    val stale = cached.filterIsInstance<Medium>().filter { old ->
+                        val file = File(old.path)
+                        val parentReadable = file.parentFile?.let {
+                            it.isDirectory && it.canRead()
+                        } == true
+                        MediaCachePrunePolicy.canPrune(
+                            oldPath = old.path,
+                            latestPaths = freshPaths,
+                            isFavoritesView = false,
+                            parentReadable = parentReadable,
+                            fileExists = file.exists()
+                        )
+                    }
+                    if (stale.isNotEmpty()) {
+                        mediaDB.deleteMedia(*stale.toTypedArray())
+                    }
+                }
+            }
+        }
+
+        if (cachedCardUpdates > 0 && isCurrentDirectoryScan(scanRequest)) {
+            setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
+        }
+        if (dirPathsToRemove.isNotEmpty()) {
+            val dirsToRemove = dirs.filter { dirPathsToRemove.contains(it.path) }
+            dirsToRemove.forEach {
+                directoryDB.deleteDirPath(it.path)
+            }
+            dirs.removeAll(dirsToRemove)
+            setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
         }
 
         if (!isCurrentDirectoryScan(scanRequest)) return
@@ -2158,7 +2168,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     || grouping and GROUP_BY_LAST_MODIFIED_DAILY != 0
                     || grouping and GROUP_BY_LAST_MODIFIED_MONTHLY != 0
 
-            val newMedia = scanFetcher.getFilesFrom(
+            val newMedia = try { scanFetcher.getFilesFrom(
                 curPath = folder,
                 isPickImage = getImagesOnly,
                 isPickVideo = getVideosOnly,
@@ -2170,7 +2180,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 lastModifieds = lastModifieds,
                 dateTakens = dateTakens,
                 android11Files = android11Files
-            )
+            ) } catch (error: Exception) {
+                folderFailures[folder] = error
+                android.util.Log.w("GalleryDirs", "Could not load album", error)
+                continue
+            }
 
             if (!isCurrentDirectoryScan(scanRequest)) return
             if (newMedia.isEmpty()) {
@@ -2212,9 +2226,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         if (!isCurrentDirectoryScan(scanRequest)) return
         commitBatch()
         // Prune before the only final reorder, under the same scan identity.
-        checkInvalidDirectories(dirs, scanRequest)
+        checkInvalidDirectories(dirs, scanRequest, folderFailures.keys)
         if (!isCurrentDirectoryScan(scanRequest)) return
         setupAdapter(dirs, sortDirs = true, scanRequest = scanRequest, scanComplete = true)
+        if (folderFailures.isNotEmpty()) runOnUiThread {
+            if (isCurrentDirectoryScan(scanRequest)) toast(R.string.media_load_partial_error)
+        }
         mLoadedInitialPhotos = true
         if (config.appRunCount > 1) {
             checkLastMediaChanged()
@@ -2396,13 +2413,14 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             if (mIsThirdPartyIntent) 0 else resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height))
     }
 
-    private fun checkInvalidDirectories(dirs: ArrayList<Directory>, scanRequest: Long) {
+    private fun checkInvalidDirectories(dirs: ArrayList<Directory>, scanRequest: Long, failedPaths: Set<String> = emptySet()) {
         if (!isCurrentDirectoryScan(scanRequest)) return
         val invalidDirs = ArrayList<Directory>()
         val verifiedMissingPaths = HashSet<String>()
         val OTGPath = config.OTGPath
         dirs.filter { !it.areFavorites() && !it.isRecycleBin() }.forEach { directory ->
             val path = directory.path
+            if (path in failedPaths) return@forEach
             val folder = File(path)
             val parentReadable = folder.parentFile?.let {
                 it.isDirectory && it.canRead()
@@ -2593,21 +2611,56 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     override fun refreshItems() {
-        getDirectories()
+        runOnUiThread {
+            getRecyclerAdapter()?.discardPendingUpdates()
+            retireDirectoryScan()
+            if (mShowingFolderFavorites || lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                getDirectories(forceFavoriteReload = true)
+            }
+        }
     }
 
     override fun recheckPinnedFolders() {
         runOnUiThread {
             if (!isFinishing && !isDestroyed) {
-                refreshDirectoryPresentation(movePinnedDirectoriesToFront(getCurrentlyDisplayedDirs()))
+                refreshDirectoryPresentation()
             }
         }
     }
 
-    override fun updateDirectories(directories: ArrayList<Directory>) {
-        ensureBackgroundThread {
-            storeDirectoryItems(directories)
-            removeInvalidDBDirectories()
+    override fun onDirectoryMutation() {
+        runOnUiThread {
+            getRecyclerAdapter()?.discardPendingUpdates()
+            retireDirectoryScan()
+        }
+    }
+
+    override fun updateDirectories(directories: ArrayList<Directory>, removedPaths: Set<String>) {
+        // These are adapter rows, not an authoritative replacement for the catalog.
+        // Invalidate the old scan before selection teardown can replay its snapshot.
+        runOnUiThread {
+            getRecyclerAdapter()?.discardPendingUpdates()
+            retireDirectoryScan()
+            val snapshots = directories.map { it.snapshot() }
+            val updates = snapshots.associateBy { it.path }
+            mDirs = mDirs.filterNot { directory -> removedPaths.any { path ->
+                directory.path == path || directory.path.startsWith("${path.trimEnd('/')}/")
+            } }.mapTo(ArrayList()) { updates[it.path]?.snapshot() ?: it.snapshot() }
+            mDirsIgnoringSearch = mDirs.mapTo(ArrayList()) { it.snapshot() }
+            ensureBackgroundThread {
+                try {
+                    directoryDB.insertAll(snapshots.filter { it.containsMediaFilesDirectly })
+                    removeInvalidDBDirectories()
+                } catch (error: Exception) {
+                    android.util.Log.w("GalleryDirs", "Could not save local directory change", error)
+                } finally {
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed && lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                            getDirectories(forceFavoriteReload = true)
+                        }
+                    }
+                }
+            }
         }
     }
 
