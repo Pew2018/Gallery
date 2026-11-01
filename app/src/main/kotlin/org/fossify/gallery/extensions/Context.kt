@@ -180,11 +180,12 @@ fun Context.movePinnedDirectoriesToFront(dirs: ArrayList<Directory>): ArrayList<
     return dirs
 }
 
-@Suppress("UNCHECKED_CAST")
-fun Context.getSortedDirectories(source: ArrayList<Directory>, randomOrder: MutableMap<String, Long>? = null): ArrayList<Directory> {
+fun Context.getSortedDirectories(
+    source: ArrayList<Directory>,
+    randomOrder: MutableMap<String, Long>? = null
+): ArrayList<Directory> {
     val sorting = config.directorySorting
-    val dirs = source.clone() as ArrayList<Directory>
-
+    val dirs = source.mapTo(ArrayList()) { it.snapshot() }
     if (sorting and SORT_BY_RANDOM != 0) {
         if (randomOrder == null) dirs.shuffle()
         else {
@@ -193,74 +194,33 @@ fun Context.getSortedDirectories(source: ArrayList<Directory>, randomOrder: Muta
         }
         return movePinnedDirectoriesToFront(dirs)
     } else if (sorting and SORT_BY_CUSTOM != 0) {
-        val newDirsOrdered = ArrayList<Directory>()
-        config.customFoldersOrder.split("|||").forEach { path ->
-            val index = dirs.indexOfFirst { it.path == path }
-            if (index != -1) {
-                val dir = dirs.removeAt(index)
-                newDirsOrdered.add(dir)
-            }
-        }
-
-        dirs.mapTo(newDirsOrdered, { it })
-        return movePinnedDirectoriesToFront(newDirsOrdered)
+        val remaining = dirs.associateByTo(LinkedHashMap()) { it.path }
+        val ordered = ArrayList<Directory>()
+        config.customFoldersOrder.split("|||").forEach { remaining.remove(it)?.let(ordered::add) }
+        ordered.addAll(remaining.values)
+        return movePinnedDirectoriesToFront(ordered)
     }
 
-    dirs.sortWith { o1, o2 ->
-        o1 as Directory
-        o2 as Directory
-
-        var result = when {
-            sorting and SORT_BY_NAME != 0 -> {
-                if (o1.sortValue.isEmpty()) {
-                    o1.sortValue = o1.name.lowercase(Locale.getDefault())
-                }
-
-                if (o2.sortValue.isEmpty()) {
-                    o2.sortValue = o2.name.lowercase(Locale.getDefault())
-                }
-
-                if (sorting and SORT_USE_NUMERIC_VALUE != 0) {
-                    AlphanumericComparator().compare(
-                        string1 = o1.sortValue.normalizeString().lowercase(Locale.getDefault()),
-                        string2 = o2.sortValue.normalizeString().lowercase(Locale.getDefault())
-                    )
-                } else {
-                    o1.sortValue.normalizeString().lowercase(Locale.getDefault())
-                        .compareTo(o2.sortValue.normalizeString().lowercase(Locale.getDefault()))
-                }
+    val locale = Locale.getDefault()
+    val numeric = sorting and SORT_USE_NUMERIC_VALUE != 0
+    fun text(directory: Directory): String = if (sorting and SORT_BY_PATH != 0) {
+        directory.path.lowercase(locale)
+    } else directory.name.normalizeString().lowercase(locale)
+    // sortValue belongs to the previous scan's sorting mode. It is never an
+    // authority for a newly selected mode (including grouped synthetic parents).
+    dirs.sortWith { first, second ->
+        val result = when {
+            sorting and SORT_BY_NAME != 0 || sorting and SORT_BY_PATH != 0 -> {
+                if (numeric) AlphanumericComparator().compare(text(first), text(second))
+                else text(first).compareTo(text(second))
             }
-
-            sorting and SORT_BY_PATH != 0 -> {
-                if (o1.sortValue.isEmpty()) {
-                    o1.sortValue = o1.path.lowercase(Locale.getDefault())
-                }
-
-                if (o2.sortValue.isEmpty()) {
-                    o2.sortValue = o2.path.lowercase(Locale.getDefault())
-                }
-
-                if (sorting and SORT_USE_NUMERIC_VALUE != 0) {
-                    AlphanumericComparator().compare(
-                        string1 = o1.sortValue.lowercase(Locale.getDefault()),
-                        string2 = o2.sortValue.lowercase(Locale.getDefault())
-                    )
-                } else {
-                    o1.sortValue.lowercase(Locale.getDefault())
-                        .compareTo(o2.sortValue.lowercase(Locale.getDefault()))
-                }
-            }
-
-            // SORT_BY_SIZE, SORT_BY_COUNT, SORT_BY_DATE_MODIFIED are numerical
-            else -> (o1.sortValue.toLongOrNull() ?: 0).compareTo(o2.sortValue.toLongOrNull() ?: 0)
+            sorting and SORT_BY_SIZE != 0 -> first.size.compareTo(second.size)
+            sorting and SORT_BY_COUNT != 0 -> first.mediaCnt.compareTo(second.mediaCnt)
+            sorting and SORT_BY_DATE_MODIFIED != 0 -> first.modified.compareTo(second.modified)
+            else -> first.taken.compareTo(second.taken)
         }
-
-        if (sorting and SORT_DESCENDING != 0) {
-            result *= -1
-        }
-        result
+        if (sorting and SORT_DESCENDING != 0) -result else result
     }
-
     return movePinnedDirectoriesToFront(dirs)
 }
 
@@ -268,15 +228,17 @@ fun Context.getDirsToShow(
     dirs: ArrayList<Directory>,
     allDirs: ArrayList<Directory>,
     currentPathPrefix: String,
-    randomOrder: MutableMap<String, Long>? = null
+    randomOrder: MutableMap<String, Long>? = null,
+    sortDirs: Boolean = true
 ): ArrayList<Directory> {
+    val snapshots = dirs.mapTo(ArrayList()) { it.snapshot() }
     return if (config.groupDirectSubfolders) {
-        dirs.forEach {
+        snapshots.forEach {
             it.subfoldersCount = 0
             it.subfoldersMediaCount = it.mediaCnt
         }
 
-        val filledDirs = fillWithSharedDirectParents(dirs)
+        val filledDirs = fillWithSharedDirectParents(snapshots)
         val parentDirs = getDirectParentSubfolders(filledDirs, currentPathPrefix)
         updateSubfolderCounts(filledDirs, parentDirs)
 
@@ -288,21 +250,21 @@ fun Context.getDirsToShow(
                 } == null && it.path.equals(currentPathPrefix, true)
             }
 
-            currentFolder?.apply {
+            currentFolder?.snapshot()?.apply {
                 subfoldersCount = 1
                 parentDirs.add(this)
             }
         }
 
-        getSortedDirectories(parentDirs, randomOrder)
+        if (sortDirs) getSortedDirectories(parentDirs, randomOrder) else parentDirs
     } else {
-        dirs.forEach { it.subfoldersMediaCount = it.mediaCnt }
-        dirs
+        snapshots.forEach { it.subfoldersMediaCount = it.mediaCnt }
+        snapshots
     }
 }
 
 private fun Context.addParentWithoutMediaFiles(into: ArrayList<Directory>, path: String): Boolean {
-    val isSortingAscending = config.sorting.isSortingAscending()
+    val isSortingAscending = config.directorySorting.isSortingAscending()
     val subDirs = into.filter { File(it.path).parent.equals(path, true) } as ArrayList<Directory>
     val newDirId = max(1000L, into.maxOf { it.id ?: 0L })
     if (subDirs.isNotEmpty()) {
@@ -1317,20 +1279,17 @@ fun Context.createDirectoryFromMedia(
     }
 
     val isSortingAscending = config.directorySorting.isSortingAscending()
-    val defaultMedium = Medium(0, "", "", "", 0L, 0L, 0L, 0, 0, false, 0L, 0L)
-    val firstItem = curMedia.firstOrNull() ?: defaultMedium
-    val lastItem = curMedia.lastOrNull() ?: defaultMedium
     val dirName = checkAppendingHidden(path, hiddenString, includedFolders, noMediaFolders)
     val lastModified = if (isSortingAscending) {
-        min(firstItem.modified, lastItem.modified)
+        curMedia.minOfOrNull { it.modified } ?: 0L
     } else {
-        max(firstItem.modified, lastItem.modified)
+        curMedia.maxOfOrNull { it.modified } ?: 0L
     }
 
     val dateTaken = if (isSortingAscending) {
-        min(firstItem.taken, lastItem.taken)
+        curMedia.minOfOrNull { it.taken } ?: 0L
     } else {
-        max(firstItem.taken, lastItem.taken)
+        curMedia.maxOfOrNull { it.taken } ?: 0L
     }
 
     val size = if (getProperFileSize) curMedia.sumByLong { it.size } else 0L

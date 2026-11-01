@@ -1119,7 +1119,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun showSortingDialog() {
         ChangeSortingDialog(this, true, false) {
             directoryRandomOrder.clear()
-            if (config.directorySorting and SORT_BY_DATE_MODIFIED != 0 || config.directorySorting and SORT_BY_DATE_TAKEN != 0) {
+            if (config.directorySorting and SORT_BY_DATE_MODIFIED != 0 || config.directorySorting and SORT_BY_DATE_TAKEN != 0 ||
+                config.directorySorting and SORT_BY_SIZE != 0) {
                 retireDirectoryScan()
                 getDirectories()
             } else {
@@ -2317,7 +2318,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 mDirs = ArrayList(sorted)
                 mDirsIgnoringSearch = ArrayList(sorted)
             }
-            var visible = getDirsToShow(sorted, mDirs, mCurrentPathPrefix, directoryRandomOrder)
+            var visible = getDirsToShow(sorted, mDirs, mCurrentPathPrefix, directoryRandomOrder, sortDirs = sortDirs)
                 .toCollection(ArrayList())
             if (query.isNotEmpty()) visible = visible.filter { it.name.contains(query, true) }
                 .sortedBy { !it.name.startsWith(query, true) }.toCollection(ArrayList())
@@ -2361,7 +2362,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 current.updateDirs(visible, isCurrent = {
                     !isFinishing && !isDestroyed && binding.directoriesGrid.adapter === current &&
                         (scanRequest == null || isCurrentDirectoryScan(scanRequest))
-                }, onCommitted = committed)
+                }, onCommitted = committed, preserveOrder = !sortDirs)
             }
         }
     }

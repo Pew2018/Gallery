@@ -34,6 +34,9 @@ data class Directory(
 
     @Ignore var folderStatuses: String = ""
 
+    /** A presentation snapshot must not share mutable grouping fields with a scanner. */
+    fun snapshot() = copy().also { it.folderStatuses = folderStatuses }
+
     fun getBubbleText(sorting: Int, context: Context, dateFormat: String? = null, timeFormat: String? = null): String {
         val fallback = FastScrollerBubble.displayName(name, path, context.getString(R.string.unknown_file_location))
         return when {
