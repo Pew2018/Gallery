@@ -113,15 +113,24 @@ class TiebaStyleMigrationTest {
         assertNull(second.buttonDrawable)
         assertNotNull(second.compoundDrawablesRelative[2])
         assertTrue(second.typeface.isBold)
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         val decor = dialog.window!!.decorView
         measure(decor, 278)
-        val bitmap = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
-        decor.draw(Canvas(bitmap))
-        val output = File("build/reports/photo-source-previews").apply { mkdirs() }
-        File(output, "tieba-choice-dialog-${android.os.Build.VERSION.SDK_INT}.png").outputStream().use {
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+        decor.viewTreeObserver.dispatchOnPreDraw()
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        measure(decor, 278)
+        // API 28's detached AlertController scroll-indicator views cannot draw
+        // to a software Canvas; interaction assertions still run on both SDKs.
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            val bitmap = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
+            decor.draw(Canvas(bitmap))
+            val output = File("build/reports/photo-source-previews").apply { mkdirs() }
+            File(output, "tieba-choice-dialog-${android.os.Build.VERSION.SDK_INT}.png").outputStream().use {
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
         }
         dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         assertEquals(1, cancels)
         assertFalse(dialog.isShowing)
         controller.pause().stop().destroy()

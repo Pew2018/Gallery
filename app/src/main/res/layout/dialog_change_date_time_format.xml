@@ -10,9 +10,9 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingLeft="@dimen/classic_dialog_content_padding"
+        android:paddingLeft="0dp"
         android:paddingTop="@dimen/classic_dialog_content_padding"
-        android:paddingRight="@dimen/classic_dialog_content_padding">
+        android:paddingRight="0dp">
 
         <RadioGroup
             android:id="@+id/change_date_time_dialog_radio_group"

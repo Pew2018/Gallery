@@ -9,9 +9,9 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingLeft="@dimen/classic_dialog_content_padding"
+        android:paddingLeft="0dp"
         android:paddingTop="@dimen/activity_margin"
-        android:paddingRight="@dimen/classic_dialog_content_padding">
+        android:paddingRight="0dp">
 
         <RadioGroup
             android:id="@+id/change_view_type_dialog_radio"

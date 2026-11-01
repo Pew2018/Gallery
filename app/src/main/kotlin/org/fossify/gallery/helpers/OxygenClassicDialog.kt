@@ -367,16 +367,23 @@ object OxygenClassicDialog {
                     }
                 }
                 if (v is android.widget.CheckedTextView) {
-                    val mark = AppCompatResources.getDrawable(v.context, R.drawable.tieba_choice_check)!!.mutate()
-                    mark.setTint(readableAccent)
+                    val list = v.parent as? android.widget.AbsListView
+                    val multiple = list != null && list.choiceMode != android.widget.AbsListView.CHOICE_MODE_SINGLE
+                    val mark = if (multiple) OxygenClassicControls.selectionDrawable(false, dp, OxygenThemeEngine.snapshot(activity, activity.config))
+                        else AppCompatResources.getDrawable(v.context, R.drawable.tieba_choice_check)!!.mutate().apply { setTint(readableAccent) }
                     v.checkMarkDrawable = mark
-                    v.checkMarkTintList = ColorStateList.valueOf(readableAccent)
+                    v.checkMarkTintList = if (multiple) tints else ColorStateList.valueOf(readableAccent)
                     v.textSize = 16f
-                    v.typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    v.typeface = Typeface.create("sans-serif", if (multiple) Typeface.NORMAL else Typeface.BOLD)
                     v.minHeight = (56 * dp).toInt()
                     v.setSingleLine(false)
                     v.setPaddingRelative((24 * dp).toInt(), (16 * dp).toInt(), (24 * dp).toInt(), (16 * dp).toInt())
-                    v.setTextColor(dialogText)
+                    v.setTextColor(ColorStateList(
+                        arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                        intArrayOf(disabled, readableAccent, dialogText)
+                    ))
+                    v.background = RippleDrawable(ColorStateList.valueOf(ColorUtils.setAlphaComponent(readableAccent, 24)),
+                        TiebaDialogChoices.selectedBackground(readableAccent, surface), android.graphics.drawable.ColorDrawable(Color.WHITE))
                 }
             }
             if (needsStyle && (v is RadioButton || v is CheckBox)) {
@@ -389,6 +396,10 @@ object OxygenClassicDialog {
                 button.isAllCaps = false
                 button.minHeight = (48f * dp).toInt()
                 button.compoundDrawablePadding = (16 * dp).toInt()
+                if (v is CheckBox) {
+                    val insets = TiebaDialogChoices.remainingInsets(v, (24 * dp).toInt())
+                    v.setPaddingRelative(insets.first, v.paddingTop, insets.second, v.paddingBottom)
+                }
                 (button as TextView).setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
                 button.setTextColor(ColorStateList(
                     arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),

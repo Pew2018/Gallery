@@ -216,7 +216,8 @@ class OxygenThemeActivity : SimpleActivity() {
             isClickable = true
             setOnClickListener { action() }
         }
-        row.addView(text(label), LinearLayout.LayoutParams(0, -2, 1f))
+        val name = text(label)
+        row.addView(name, LinearLayout.LayoutParams(0, -2, 1f))
         val radio = AppCompatRadioButton(this).apply {
             isClickable = false
             isFocusable = false
@@ -231,7 +232,10 @@ class OxygenThemeActivity : SimpleActivity() {
         binders.add {
             radio.isChecked = selected()
             row.isSelected = radio.isChecked
-            radio.setTextColor(colors.primaryText)
+            name.setTextColor(colors.primaryText)
+            ViewCompat.setStateDescription(row, getString(
+                if (radio.isChecked) R.string.classic_selected else R.string.classic_not_selected
+            ))
             ripple(row)
         }
     }

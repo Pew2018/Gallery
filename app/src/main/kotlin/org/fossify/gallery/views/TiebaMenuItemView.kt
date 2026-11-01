@@ -13,6 +13,12 @@ class TiebaMenuItemView(context: Context, attrs: AttributeSet?) : ListMenuItemVi
         val maximum = (280 * resources.displayMetrics.density).roundToInt()
         val mode = MeasureSpec.getMode(widthMeasureSpec)
         val size = MeasureSpec.getSize(widthMeasureSpec)
+        if (mode == MeasureSpec.UNSPECIFIED) {
+            // Measure natural content first; imposing AT_MOST immediately makes
+            // the MATCH_PARENT content group expand even for a three-item menu.
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+            if (measuredWidth <= maximum) return
+        }
         val bounded = if (mode == MeasureSpec.UNSPECIFIED) {
             MeasureSpec.makeMeasureSpec(maximum, MeasureSpec.AT_MOST)
         } else MeasureSpec.makeMeasureSpec(minOf(size, maximum), mode)
