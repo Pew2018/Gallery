@@ -188,7 +188,7 @@ object OxygenClassicDialog {
         val density = activity.resources.displayMetrics.density
         val profile = widthProfile(dialog)
         val width = if (profile == WidthProfile.COMPACT) widthFor(available, density)
-            else widthForContent(available, density, profile.maxDp
+            else widthForContent(available, density, profile.maxDp)
         val changed = window.attributes.width != width
         if (changed) window.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
         applySurface(activity, dialog)
