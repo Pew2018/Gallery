@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="classic_date_display_title">Date display format</string>
+    <string name="classic_sort_basis">Sort by</string>
+    <string name="classic_sort_order">Sort order</string>
+    <string name="classic_sort_options">Additional options</string>
+    <string name="photo_profiles_sources_heading">Existing media sources</string>
+    <string name="photo_profiles_sources_empty">No media sources yet</string>
+</resources>

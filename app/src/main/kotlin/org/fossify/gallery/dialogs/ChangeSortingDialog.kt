@@ -59,7 +59,6 @@ class ChangeSortingDialog(
 
             sortingDialogUseForThisFolder.beVisibleIf(showFolderCheckbox && path != org.fossify.gallery.helpers.PhotoProfileMediaLoader.PATH)
             sortingDialogUseForThisFolder.isChecked = config.hasCustomSorting(pathToUse)
-            sortingDialogBottomNote.beVisibleIf(!isDirectorySorting)
             sortingDialogRadioCustom.beVisibleIf(isDirectorySorting)
         }
 
@@ -95,6 +94,10 @@ class ChangeSortingDialog(
 
             binding.sortingDialogRadioOrder.beGoneIf(hideSortOrder)
             binding.sortingDialogSortingDivider.beGoneIf(hideSortOrder)
+            binding.sortingDialogOrderTitle.beGoneIf(hideSortOrder)
+            binding.sortingDialogOptionsTitle.beVisibleIf(
+                binding.sortingDialogNumericSorting.isVisible() || binding.sortingDialogUseForThisFolder.isVisible()
+            )
         }
 
         val sortBtn = when {

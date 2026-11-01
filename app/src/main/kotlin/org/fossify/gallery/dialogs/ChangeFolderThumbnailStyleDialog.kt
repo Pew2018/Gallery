@@ -108,7 +108,7 @@ class ChangeFolderThumbnailStyleDialog(val activity: BaseSimpleActivity, val cal
 
             val options = RequestOptions().centerCrop()
             var builder = Glide.with(activity)
-                .load(R.drawable.oxygen_folder_preview_scene)
+                .load(R.drawable.sample_folder_preview)
                 .apply(options)
 
             // The preview overlays labels over an image, not a white dialog

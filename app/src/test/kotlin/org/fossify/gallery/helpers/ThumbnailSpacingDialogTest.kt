@@ -1,0 +1,58 @@
+package org.fossify.gallery.helpers
+
+import android.app.Application
+import android.content.Intent
+import android.widget.CheckBox
+import android.widget.SeekBar
+import androidx.appcompat.app.AlertDialog
+import org.fossify.gallery.R
+import org.fossify.gallery.activities.PhotoProfileEditActivity
+import org.fossify.gallery.dialogs.ChangeFileThumbnailStyleDialog
+import org.fossify.gallery.extensions.config
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowDialog
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28], application = Application::class)
+class ThumbnailSpacingDialogTest {
+    @Test fun spacingAndCheckboxStayTemporaryUntilPositiveAction() {
+        val app = RuntimeEnvironment.getApplication()
+        val intent = Intent(app, PhotoProfileEditActivity::class.java)
+            .putExtra(PhotoProfileEditActivity.EXTRA_CREATING, true)
+        val controller = Robolectric.buildActivity(PhotoProfileEditActivity::class.java, intent).setup()
+        val host = controller.get()
+        host.config.thumbnailSpacing = 1
+        host.config.fileRoundedCorners = false
+        fun open(): AlertDialog {
+            ChangeFileThumbnailStyleDialog(host)
+            return ShadowDialog.getLatestDialog() as AlertDialog
+        }
+        val first = open()
+        val slider = first.findViewById<SeekBar>(R.id.dialog_file_style_spacing_slider)!!
+        assertEquals(7, slider.max)
+        assertEquals(1, slider.progress)
+        slider.progress = 6
+        first.findViewById<android.view.View>(R.id.dialog_file_style_rounded_corners_holder)!!.performClick()
+        assertTrue(first.findViewById<CheckBox>(R.id.dialog_file_style_rounded_corners)!!.isChecked)
+        assertEquals(1, host.config.thumbnailSpacing)
+        assertFalse(host.config.fileRoundedCorners)
+        first.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(1, host.config.thumbnailSpacing)
+        assertFalse(host.config.fileRoundedCorners)
+        val second = open()
+        second.findViewById<SeekBar>(R.id.dialog_file_style_spacing_slider)!!.progress = 7
+        second.findViewById<android.view.View>(R.id.dialog_file_style_rounded_corners_holder)!!.performClick()
+        second.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(64, host.config.thumbnailSpacing)
+        assertTrue(host.config.fileRoundedCorners)
+        controller.pause().stop().destroy()
+    }
+}

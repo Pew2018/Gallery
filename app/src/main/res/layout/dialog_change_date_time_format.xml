@@ -14,11 +14,15 @@
         android:paddingTop="@dimen/classic_dialog_content_padding"
         android:paddingRight="0dp">
 
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/classic_date_display_title" android:textSize="20sp"
+            android:fontFamily="sans-serif-medium" android:paddingStart="24dp" android:paddingEnd="24dp"
+            android:paddingTop="8dp" android:paddingBottom="16dp" />
         <RadioGroup
             android:id="@+id/change_date_time_dialog_radio_group"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="@dimen/medium_margin">
+            android:layout_marginBottom="8dp">
 
             <org.fossify.commons.views.MyCompatRadioButton
                 android:id="@+id/change_date_time_dialog_radio_one"
@@ -34,6 +38,7 @@
                 android:id="@+id/change_date_time_dialog_radio_two"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:minHeight="48dp"
                 android:paddingTop="@dimen/normal_margin"
                 android:paddingBottom="@dimen/normal_margin"
                 android:textAllCaps="false"
@@ -43,6 +48,7 @@
                 android:id="@+id/change_date_time_dialog_radio_three"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:minHeight="48dp"
                 android:paddingTop="@dimen/normal_margin"
                 android:paddingBottom="@dimen/normal_margin"
                 android:textAllCaps="false"
@@ -52,6 +58,7 @@
                 android:id="@+id/change_date_time_dialog_radio_eight"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:minHeight="48dp"
                 android:paddingTop="@dimen/normal_margin"
                 android:paddingBottom="@dimen/normal_margin"
                 tools:text="dd-MM-yyyy" />
@@ -60,6 +67,7 @@
                 android:id="@+id/change_date_time_dialog_radio_seven"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:minHeight="48dp"
                 android:paddingTop="@dimen/normal_margin"
                 android:paddingBottom="@dimen/normal_margin"
                 tools:text="MM-dd-yyyy" />
@@ -68,6 +76,7 @@
                 android:id="@+id/change_date_time_dialog_radio_four"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:minHeight="48dp"
                 android:paddingTop="@dimen/normal_margin"
                 android:paddingBottom="@dimen/normal_margin"
                 android:textAllCaps="false"
@@ -77,6 +86,7 @@
                 android:id="@+id/change_date_time_dialog_radio_five"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:minHeight="48dp"
                 android:paddingTop="@dimen/normal_margin"
                 android:paddingBottom="@dimen/normal_margin"
                 tools:text="d MMMM yyyy" />
@@ -85,6 +95,7 @@
                 android:id="@+id/change_date_time_dialog_radio_six"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:minHeight="48dp"
                 android:paddingTop="@dimen/normal_margin"
                 android:paddingBottom="@dimen/normal_margin"
                 tools:text="MMMM d yyyy" />

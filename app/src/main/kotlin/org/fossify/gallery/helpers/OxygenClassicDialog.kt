@@ -250,7 +250,7 @@ object OxygenClassicDialog {
             nestedDialogs.keys.any { it !== dialog && it.isShowing && dialogHosts[it]?.get() === activity }
         }
         dialogHosts[dialog] = java.lang.ref.WeakReference(activity)
-        val dim = if (nested) 0.20f else 0.45f
+        val dim = if (ClassicBiometricPresentation.isHidden(dialog)) 0f else if (nested) 0.20f else 0.45f
         if (window.attributes.dimAmount != dim) window.setDimAmount(dim)
         // Also enforce screenshot protection on already-shown dialogs. Some callers
         // enter through apply() rather than prepareWindow(), so doing this in the
@@ -442,8 +442,35 @@ object OxygenClassicDialog {
                         v.minimumHeight = (56 * dp).toInt()
                     }
                 }
-                if (v is android.widget.SeekBar) {
-                    OxygenClassicControls.applySwitches(v, OxygenThemeEngine.snapshot(activity, activity.config))
+                if (v is android.widget.SeekBar && v.id == R.id.dialog_file_style_spacing_slider) {
+                    OxygenClassicControls.applySwitches(v, OxygenThemeEngine.snapshot(activity, activity.config).copy(
+                        pageBackground = surface, primaryText = dialogText, interactiveAccent = readableAccent
+                    ))
+                }
+                if (v.id in intArrayOf(R.id.sorting_dialog_basis_title, R.id.sorting_dialog_order_title,
+                    R.id.sorting_dialog_options_title) && v is TextView) v.setTextColor(readableAccent)
+                if (v.id in intArrayOf(org.fossify.commons.R.id.pin_1, org.fossify.commons.R.id.pin_2,
+                    org.fossify.commons.R.id.pin_3, org.fossify.commons.R.id.pin_4, org.fossify.commons.R.id.pin_5,
+                    org.fossify.commons.R.id.pin_6, org.fossify.commons.R.id.pin_7, org.fossify.commons.R.id.pin_8,
+                    org.fossify.commons.R.id.pin_9, org.fossify.commons.R.id.pin_0, org.fossify.commons.R.id.pin_c,
+                    org.fossify.commons.R.id.pin_ok)) v.background = ripple(readableAccent, dp)
+                if (v is com.andrognito.patternlockview.PatternLockView) {
+                    v.normalStateColor = inactive
+                    v.correctStateColor = readableAccent
+                    v.wrongStateColor = OxygenClassicPalette.readableAccent(Color.RED, surface)
+                    // The library uses normalStateColor while drawing. Its public listener
+                    // switches that state only during a gesture; Commons retains validation.
+                    (v.getTag(R.id.classic_pattern_color_listener) as? com.andrognito.patternlockview.listener.PatternLockViewListener)?.let {
+                        v.removePatternLockListener(it)
+                    }
+                    val colorListener = object : com.andrognito.patternlockview.listener.PatternLockViewListener {
+                        override fun onStarted() { v.normalStateColor = ColorUtils.blendARGB(surface, readableAccent, 0.8f) }
+                        override fun onCleared() { v.normalStateColor = inactive }
+                        override fun onComplete(pattern: MutableList<com.andrognito.patternlockview.PatternLockView.Dot>?) = Unit
+                        override fun onProgress(progressPattern: MutableList<com.andrognito.patternlockview.PatternLockView.Dot>?) = Unit
+                    }
+                    v.addPatternLockListener(colorListener)
+                    v.setTag(R.id.classic_pattern_color_listener, colorListener)
                 }
                 if (v is TabLayout) {
                     v.setBackgroundColor(surface)
@@ -501,13 +528,24 @@ object OxygenClassicDialog {
             }
             if (needsStyle && (v is RadioButton || v is CheckBox)) {
                 val button = v as android.widget.CompoundButton
-                button.buttonDrawable = OxygenClassicControls.selectionDrawable(
-                    v is RadioButton, dp, org.fossify.gallery.helpers.OxygenThemeEngine.snapshot(activity, activity.config)
-                )
-                CompoundButtonCompat.setButtonTintList(button, tints)
-                if (button.text.isNotEmpty() && v.layoutDirection != View.LAYOUT_DIRECTION_RTL) {
-                    // Compound drawable padding does not separate a CompoundButton glyph
-                    // from its label. Reserve real drawable space for every labelled row.
+                val targeted = v.id in intArrayOf(R.id.sorting_dialog_numeric_sorting, R.id.sorting_dialog_use_for_this_folder,
+                    R.id.change_date_time_dialog_24_hour, R.id.dialog_file_style_rounded_corners,
+                    R.id.dialog_file_style_show_thumbnail_video_duration, R.id.dialog_file_style_show_thumbnail_file_types,
+                    R.id.dialog_file_style_mark_favorite_items)
+                val tokens = OxygenThemeEngine.snapshot(activity, activity.config)
+                val controlColors = if (targeted) tokens.copy(
+                    pageBackground = surface, primaryText = dialogText,
+                    rawAccent = readableAccent, interactiveAccent = readableAccent
+                ) else tokens
+                button.buttonDrawable = OxygenClassicControls.selectionDrawable(v is RadioButton, dp, controlColors)
+                CompoundButtonCompat.setButtonTintList(button, if (targeted) null else tints)
+                val trailing = v.id == R.id.sorting_dialog_numeric_sorting || v.id == R.id.sorting_dialog_use_for_this_folder
+                if (trailing) {
+                    val mark = button.buttonDrawable
+                    button.buttonDrawable = null
+                    button.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, mark, null)
+                    button.setPaddingRelative((24 * dp).toInt(), (8 * dp).toInt(), (24 * dp).toInt(), (8 * dp).toInt())
+                } else if (button.text.isNotEmpty() && v.layoutDirection != View.LAYOUT_DIRECTION_RTL) {
                     button.buttonDrawable = InsetDrawable(button.buttonDrawable, 0, 0, (12 * dp).toInt(), 0)
                 }
                 button.background = ripple(dialogText, dp)

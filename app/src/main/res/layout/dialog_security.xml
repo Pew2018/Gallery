@@ -2,7 +2,7 @@
 <!-- Overlay the Commons layout only to substitute a current-page-height ViewPager.
      IDs, root ScrollView type, tab setup and all Commons SecurityDialog callbacks
      are otherwise preserved exactly. -->
-<org.fossify.commons.views.MyScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<org.fossify.gallery.views.ClassicSecurityScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/dialog_scrollview"
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
@@ -36,4 +36,4 @@
             android:layout_below="@+id/dialog_tab_layout" />
 
     </RelativeLayout>
-</org.fossify.commons.views.MyScrollView>
+</org.fossify.gallery.views.ClassicSecurityScrollView>

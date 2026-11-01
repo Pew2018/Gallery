@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="classic_date_display_title">日期显示方式</string>
+    <string name="classic_sort_basis">排序依据</string>
+    <string name="classic_sort_order">排序顺序</string>
+    <string name="classic_sort_options">附加选项</string>
+    <string name="photo_profiles_sources_heading">已有媒体来源</string>
+    <string name="photo_profiles_sources_empty">尚未添加媒体来源</string>
+</resources>
