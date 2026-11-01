@@ -148,6 +148,10 @@ class AlbumSearchLifecycleTest {
         activity.config.searchAllFilesByDefault = false
         field(activity, "mFolderVisibility").set(activity, booleanArrayOf(true, false, false, true))
         val menu = activity.findViewById<org.fossify.commons.views.MySearchMenu>(R.id.main_menu)
+        // Commons installs its focus listener in a posted callback. Attach it
+        // before requesting focus, as happens after a real screen is displayed.
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        menu.binding.topToolbarSearch.clearFocus()
         menu.focusView()
         assertTrue(menu.isSearchOpen)
         field(activity, "categorizedLoadActive").setBoolean(activity, true)
