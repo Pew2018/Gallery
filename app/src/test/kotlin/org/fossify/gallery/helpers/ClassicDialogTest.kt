@@ -291,9 +291,9 @@ class ClassicDialogTest {
     }
 
     @Test fun widthPolicyRetainsClassicMarginsAndTabletCapWithoutInvalidSizes() {
-        assertEquals(312, OxygenClassicDialog.widthFor(360, 1f))
-        assertEquals(560, OxygenClassicDialog.widthFor(1200, 1f))
-        assertEquals(624, OxygenClassicDialog.widthFor(720, 2f))
+        assertEquals(278, OxygenClassicDialog.widthFor(360, 1f))
+        assertEquals(278, OxygenClassicDialog.widthFor(1200, 1f))
+        assertEquals(556, OxygenClassicDialog.widthFor(720, 2f))
         assertEquals(1, OxygenClassicDialog.widthFor(20, 1f))
     }
 

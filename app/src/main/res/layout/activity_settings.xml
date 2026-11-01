@@ -29,8 +29,9 @@
         android:scrollbars="none"
         app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
-        <LinearLayout
+        <org.fossify.gallery.views.TiebaSettingsContainer
             android:id="@+id/settings_holder"
+            android:layout_gravity="center_horizontal"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical">
@@ -1129,6 +1130,6 @@
                     android:text="@string/import_settings" />
 
             </RelativeLayout>
-        </LinearLayout>
+        </org.fossify.gallery.views.TiebaSettingsContainer>
     </androidx.core.widget.NestedScrollView>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

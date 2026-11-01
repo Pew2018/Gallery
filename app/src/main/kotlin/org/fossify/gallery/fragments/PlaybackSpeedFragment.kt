@@ -1,16 +1,10 @@
 package org.fossify.gallery.fragments
 
-import android.graphics.drawable.GradientDrawable
-import android.graphics.Color
-import androidx.core.graphics.ColorUtils
 import org.fossify.gallery.helpers.OxygenClassicDialog
 import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import com.google.android.material.bottomsheet.BottomSheetBehavior
-import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import androidx.fragment.app.DialogFragment
+import androidx.appcompat.app.AlertDialog
+import org.fossify.gallery.helpers.ClassicCommonsHooks
 import org.fossify.commons.extensions.*
 import org.fossify.commons.views.MySeekBar
 import org.fossify.commons.views.MyTextView
@@ -20,7 +14,7 @@ import org.fossify.gallery.extensions.config
 import org.fossify.gallery.helpers.Config
 import org.fossify.gallery.interfaces.PlaybackSpeedListener
 
-class PlaybackSpeedFragment : BottomSheetDialogFragment() {
+class PlaybackSpeedFragment : DialogFragment() {
     private val MIN_PLAYBACK_SPEED = 0.25f
     private val MAX_PLAYBACK_SPEED = 3f
     private val MAX_PROGRESS = (MAX_PLAYBACK_SPEED * 100 + MIN_PLAYBACK_SPEED * 100).toInt()
@@ -30,23 +24,12 @@ class PlaybackSpeedFragment : BottomSheetDialogFragment() {
     private var seekBar: MySeekBar? = null
     private var listener: PlaybackSpeedListener? = null
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setStyle(STYLE_NORMAL, R.style.CustomBottomSheetDialogTheme)
-    }
-
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+    override fun onCreateDialog(savedInstanceState: Bundle?): android.app.Dialog {
+        val inflater = requireActivity().layoutInflater
         val config = requireContext().config
-        val binding = FragmentPlaybackSpeedBinding.inflate(inflater, container, false)
-        val light = ColorUtils.calculateLuminance(requireContext().getProperBackgroundColor()) >= 0.5
-        val background = GradientDrawable().apply {
-            setColor(if (light) Color.WHITE else Color.rgb(48, 48, 48))
-            cornerRadius = 3f * resources.displayMetrics.density
-        }
-
+        val binding = FragmentPlaybackSpeedBinding.inflate(inflater)
         binding.apply {
             seekBar = playbackSpeedSeekbar
-            root.setBackgroundDrawable(background)
             requireContext().updateTextColors(playbackSpeedHolder)
             playbackSpeedSlow.applyColorFilter(requireContext().getProperTextColor())
             playbackSpeedFast.applyColorFilter(requireContext().getProperTextColor())
@@ -61,8 +44,24 @@ class PlaybackSpeedFragment : BottomSheetDialogFragment() {
             initSeekbar(playbackSpeedSeekbar, playbackSpeedLabel, config)
         }
 
-        (dialog as? BottomSheetDialog)?.behavior?.state = BottomSheetBehavior.STATE_EXPANDED
-        return binding.root
+        val alert = OxygenClassicDialog.builder(requireActivity(), "")
+            .setView(binding.root)
+            .setPositiveButton(org.fossify.commons.R.string.ok, null)
+            .create()
+        ClassicCommonsHooks.beforeDialogShow(requireActivity(), alert, binding.root)
+        return alert
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val alert = dialog as? AlertDialog ?: return
+        OxygenClassicDialog.apply(requireActivity(), alert, alert.window!!.decorView)
+        ClassicCommonsHooks.onDialogShown(requireActivity(), alert, null)
+    }
+
+    override fun onDestroyView() {
+        seekBar = null
+        super.onDestroyView()
     }
 
     private fun initSeekbar(seekbar: MySeekBar, speedLabel: MyTextView, config: Config) {

@@ -98,8 +98,8 @@ class OxygenThemeActivity : SimpleActivity() {
         })
         root.addView(titleBar, LinearLayout.LayoutParams(-1, dp(56)))
         scroll = ScrollView(this).apply { isFillViewport = true }
-        body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, dp(16)) }
-        scroll.addView(body)
+        body = org.fossify.gallery.views.TiebaSettingsContainer(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, dp(16)) }
+        scroll.addView(body, android.widget.FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_HORIZONTAL))
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
@@ -175,7 +175,7 @@ class OxygenThemeActivity : SimpleActivity() {
     private fun section(id: Int) {
         val label = text(getString(id), 12f).apply {
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setPadding(dp(16), dp(20), dp(16), dp(8))
+            setPadding(dp(16), dp(20), dp(16), dp(4))
         }
         body.addView(label, LinearLayout.LayoutParams(-1, -2))
         binders.add { label.setTextColor(colors.interactiveAccent) }
@@ -200,7 +200,7 @@ class OxygenThemeActivity : SimpleActivity() {
     private fun actionRow(id: Int, action: () -> Unit) {
         val row = text(getString(id)).apply {
             minimumHeight = dp(56)
-            setPadding(dp(16), dp(12), dp(16), dp(12))
+            setPadding(dp(16), dp(8), dp(16), dp(8))
             isFocusable = true
             setOnClickListener { action() }
         }
@@ -216,91 +216,71 @@ class OxygenThemeActivity : SimpleActivity() {
             isClickable = true
             setOnClickListener { action() }
         }
+        row.addView(text(label), LinearLayout.LayoutParams(0, -2, 1f))
         val radio = AppCompatRadioButton(this).apply {
-            text = label
-            textSize = 16f
-            gravity = Gravity.CENTER_VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_RTL
-            setPadding(0, dp(8), 0, dp(8))
-            setOnClickListener { action() }
+            isClickable = false
+            isFocusable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            setPadding(0, 0, 0, 0)
+            minWidth = dp(24)
+            minHeight = dp(24)
         }
-        row.addView(radio, LinearLayout.LayoutParams(-1, -2))
+        row.contentDescription = label
+        row.addView(radio, LinearLayout.LayoutParams(dp(24), dp(24)))
         body.addView(row, LinearLayout.LayoutParams(-1, -2))
         binders.add {
             radio.isChecked = selected()
+            row.isSelected = radio.isChecked
             radio.setTextColor(colors.primaryText)
             ripple(row)
         }
     }
 
-    /** Same cells, dimensions and selection semantics on both palette pages. */
+    /** TiebaLite ThemePresetRow: 28dp swatch, 16dp gap and one trailing 24dp radio. */
     private fun colorGrid(presets: List<OxygenPreset>, showCurrentColor: Boolean = false) {
-        val columns = OxygenThemePresets.columnsForWidth(
-            resources.configuration.screenWidthDp.coerceAtLeast(240),
-            resources.configuration.fontScale
-        )
-        val grid = GridLayout(this).apply {
-            columnCount = columns
-            setPadding(dp(16), 0, dp(16), 0)
-        }
-        presets.forEachIndexed { index, preset ->
-            val cell = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                minimumHeight = dp(88)
+        presets.forEach { preset ->
+            val row = LinearLayout(this).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dp(56)
+                setPadding(dp(16), dp(8), dp(16), dp(8))
                 isClickable = true
                 isFocusable = true
-                setPadding(dp(3), dp(8), dp(3), dp(8))
                 contentDescription = label(preset)
                 setOnClickListener { activatePreset(preset) }
             }
-            val swatch = text("", 18f).apply {
-                gravity = Gravity.CENTER
-                includeFontPadding = false
+            val swatch = View(this).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(preset.color)
+                }
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }
-            cell.addView(swatch, LinearLayout.LayoutParams(dp(44), dp(44)))
-            val name = text(label(preset), 11f).apply {
-                gravity = Gravity.CENTER
-                maxLines = 2
-                textAlignment = View.TEXT_ALIGNMENT_CENTER
+            row.addView(swatch, LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(16) })
+            val name = text(label(preset))
+            row.addView(name, LinearLayout.LayoutParams(0, -2, 1f))
+            val radio = AppCompatRadioButton(this).apply {
+                isClickable = false
+                isFocusable = false
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                setPadding(0, 0, 0, 0)
+                minWidth = dp(24)
+                minHeight = dp(24)
             }
-            cell.addView(name, LinearLayout.LayoutParams(-1, -2).apply {
-                topMargin = dp(5)
-            })
-            grid.addView(cell, GridLayout.LayoutParams(
-                GridLayout.spec(index / columns), GridLayout.spec(index % columns, 1f)
-            ).apply {
-                width = 0
-                height = -2
-                setGravity(Gravity.FILL)
-            })
+            row.addView(radio, LinearLayout.LayoutParams(dp(24), dp(24)))
+            body.addView(row, LinearLayout.LayoutParams(-1, -2))
             binders.add {
-                val tokens = colors
                 val selected = OxygenThemePresets.isSelected(
                     config.oxygenThemeActivated, config.oxygenThemePresetId, preset.id
                 )
-                cell.isSelected = selected
-                ViewCompat.setStateDescription(cell, getString(
+                row.isSelected = selected
+                radio.isChecked = selected
+                ViewCompat.setStateDescription(row, getString(
                     if (selected) R.string.classic_selected else R.string.classic_not_selected
                 ))
-                swatch.text = if (selected) "✓" else ""
-                swatch.setTextColor(OxygenThemeColors.autoForeground(preset.color))
-                swatch.background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(preset.color)
-                    setStroke(
-                        dp(if (selected) 2 else 1),
-                        if (selected) tokens.primaryText else
-                            OxygenThemeColors.blend(preset.color, tokens.primaryText, 0.23)
-                    )
-                }
-                name.setTextColor(tokens.primaryText)
-                ripple(cell)
+                name.setTextColor(colors.primaryText)
+                ripple(row)
             }
         }
-        body.addView(grid, LinearLayout.LayoutParams(-1, -2))
         if (showCurrentColor) {
             val current = text("", 12f).apply {
                 setPadding(dp(16), dp(6), dp(16), dp(8))

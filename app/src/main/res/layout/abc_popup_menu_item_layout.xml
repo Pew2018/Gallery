@@ -14,7 +14,7 @@
      limitations under the License.
 -->
 
-<androidx.appcompat.view.menu.ListMenuItemView
+<org.fossify.gallery.views.TiebaMenuItemView
         xmlns:android="http://schemas.android.com/apk/res/android"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -57,9 +57,7 @@
                     android:layout_height="wrap_content"
                     android:layout_alignParentTop="true"
                     android:textAppearance="?attr/textAppearanceLargePopupMenu"
-                    android:maxLines="2"
                     android:duplicateParentState="true"
-                    android:ellipsize="end"
                     android:fadingEdge="horizontal"
                     style="@style/RtlOverlay.Widget.AppCompat.PopupMenuItem.Text" />
 
@@ -88,4 +86,4 @@
 
     </LinearLayout>
 
-</androidx.appcompat.view.menu.ListMenuItemView>
+</org.fossify.gallery.views.TiebaMenuItemView>

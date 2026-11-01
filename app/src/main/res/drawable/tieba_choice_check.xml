@@ -1,0 +1,6 @@
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_checked="true" android:drawable="@drawable/tieba_choice_check_mark" />
+    <item>
+        <shape><size android:width="24dp" android:height="24dp" /><solid android:color="@android:color/transparent" /></shape>
+    </item>
+</selector>

@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<org.fossify.gallery.helpers.ClassicDialogScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="wrap_content">
+<org.fossify.gallery.views.TiebaDimensionFieldsLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/resize_image_with_path_holder"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
+    android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:paddingLeft="@dimen/activity_margin"
+    android:paddingLeft="@dimen/classic_dialog_content_padding"
     android:paddingTop="@dimen/activity_margin"
-    android:paddingRight="@dimen/activity_margin">
+    android:paddingRight="@dimen/classic_dialog_content_padding">
 
     <org.fossify.commons.views.MyTextInputLayout
         android:id="@+id/resize_image_width_hint"
@@ -113,4 +114,6 @@
 
     </org.fossify.commons.views.MyTextInputLayout>
 
-</RelativeLayout>
+</org.fossify.gallery.views.TiebaDimensionFieldsLayout>
+
+</org.fossify.gallery.helpers.ClassicDialogScrollView>

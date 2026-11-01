@@ -148,7 +148,7 @@
 
     <style name="OxygenClassicDialogShape" parent="ShapeAppearance.Material3.SmallComponent">
         <item name="cornerFamily">rounded</item>
-        <item name="cornerSize">3dp</item>
+        <item name="cornerSize">4dp</item>
     </style>
     <style name="OxygenClassicMaterialDialog.Light" parent="ThemeOverlay.Material3.MaterialAlertDialog">
         <item name="colorSurface">@color/oxygen_classic_surface</item>
@@ -266,7 +266,7 @@
 
     <style name="OxygenClassicDialogButton" parent="Widget.AppCompat.Button.Borderless.Colored">
         <item name="android:minHeight">48dp</item>
-        <item name="android:textAllCaps">true</item>
+        <item name="android:textAllCaps">false</item>
         <item name="android:textSize">14sp</item>
     </style>
 </resources>

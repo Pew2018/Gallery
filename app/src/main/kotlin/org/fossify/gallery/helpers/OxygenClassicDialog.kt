@@ -26,6 +26,7 @@ import com.google.android.material.shape.RelativeCornerSize
 import com.google.android.material.textfield.TextInputLayout
 import com.google.android.material.tabs.TabLayout
 import android.os.Build
+import org.fossify.gallery.extensions.config
 import org.fossify.gallery.R
 import org.fossify.commons.extensions.getProperBackgroundColor
 import org.fossify.commons.extensions.getProperPrimaryColor
@@ -48,7 +49,7 @@ object OxygenClassicDialog {
             textSize = 20f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             gravity = Gravity.CENTER_VERTICAL
-            setPadding((24*dp).toInt(), (20*dp).toInt(), (24*dp).toInt(), (8*dp).toInt())
+            setPadding((24*dp).toInt(), (24*dp).toInt(), (24*dp).toInt(), (16*dp).toInt())
         }
         return AlertDialog.Builder(context).let { builder ->
             if (title.isEmpty()) builder else builder.setCustomTitle(titleView)
@@ -71,8 +72,9 @@ object OxygenClassicDialog {
     private data class SurfaceState(val colors: List<Int>, val drawable: android.graphics.drawable.Drawable?)
 
     internal fun widthFor(availableWidth: Int, density: Float): Int =
-        (availableWidth - 48f * density).toInt().coerceAtLeast(1)
-            .coerceAtMost((560f * density).toInt().coerceAtLeast(1))
+        // TiebaLite caps the outer layout at 310dp, then applies 16dp on each side
+        // BEFORE painting the surface: the visible panel is at most 278dp.
+        (minOf(availableWidth.toFloat(), 310f * density) - 32f * density).toInt().coerceAtLeast(1)
 
     /** Window bounds/system insets exclude IME geometry, including in multi-window mode. */
     internal fun availableWidth(activity: Activity): Int {
@@ -153,12 +155,12 @@ object OxygenClassicDialog {
         if (state != null && state.colors == palette && state.drawable === decor.background) return false
         val shape = GradientDrawable().apply {
             setColor(surface)
-            cornerRadius = 3f * activity.resources.displayMetrics.density
+            cornerRadius = 4f * activity.resources.displayMetrics.density
         }
         if (window.attributes.flags and WindowManager.LayoutParams.FLAG_DIM_BEHIND == 0) {
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         }
-        if (window.attributes.dimAmount != 0.60f) window.setDimAmount(0.60f)
+        if (window.attributes.dimAmount != 0.45f) window.setDimAmount(0.45f)
         window.setBackgroundDrawable(shape)
         // Record the actual decor drawable; platforms may wrap the supplied background.
         decor.setTag(R.id.classic_dialog_palette, SurfaceState(palette, decor.background))
@@ -291,6 +293,11 @@ object OxygenClassicDialog {
             val needsStyle = v.getTag(R.id.classic_control_styled) != palette
             if (needsStyle) {
                 v.setTag(R.id.classic_control_styled, palette)
+                when (v.id) {
+                    androidx.appcompat.R.id.topPanel -> v.setPadding(0, 0, 0, 0)
+                    androidx.appcompat.R.id.title_template -> v.setPadding((24 * dp).toInt(), (24 * dp).toInt(), (24 * dp).toInt(), (16 * dp).toInt())
+                    androidx.appcompat.R.id.buttonPanel -> v.setPadding((24 * dp).toInt(), (16 * dp).toInt(), (24 * dp).toInt(), (24 * dp).toInt())
+                }
                 if (v.id == org.fossify.commons.R.id.open_biometric_dialog && v is Button) {
                     styleBiometricAction(
                         button = v,
@@ -302,8 +309,11 @@ object OxygenClassicDialog {
                 }
                 if (v is TextInputLayout) {
                     // Preserve MyTextInputLayout's public API and error/validation behavior.
-                    v.boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_NONE
-                    v.setBoxCornerRadii(0f, 0f, 0f, 0f)
+                    v.boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+                    v.setBoxCornerRadii(4 * dp, 4 * dp, 4 * dp, 4 * dp)
+                    v.boxStrokeWidth = dp.toInt().coerceAtLeast(1)
+                    v.boxStrokeWidthFocused = (2 * dp).toInt()
+                    v.boxStrokeColor = readableAccent
                     v.defaultHintTextColor = ColorStateList.valueOf(inactive)
                     v.hintTextColor = ColorStateList.valueOf(readableAccent)
                 }
@@ -312,6 +322,15 @@ object OxygenClassicDialog {
                     // global EditText skin would paint a second, competing rule.
                     v.background = AppCompatResources.getDrawable(v.context, androidx.appcompat.R.drawable.abc_edit_text_material)
                     styleInput(activity, v)
+                    v.textSize = 16f
+                    val input = (v.parent as? View)?.parent as? TextInputLayout
+                    if (input != null) {
+                        v.background = null
+                        v.minimumHeight = (56 * dp).toInt()
+                    }
+                }
+                if (v is android.widget.SeekBar) {
+                    OxygenClassicControls.applySwitches(v, OxygenThemeEngine.snapshot(activity, activity.config))
                 }
                 if (v is TabLayout) {
                     v.setBackgroundColor(surface)
@@ -347,21 +366,37 @@ object OxygenClassicDialog {
                         }
                     }
                 }
+                if (v is android.widget.CheckedTextView) {
+                    val mark = AppCompatResources.getDrawable(v.context, R.drawable.tieba_choice_check)!!.mutate()
+                    mark.setTint(readableAccent)
+                    v.checkMarkDrawable = mark
+                    v.checkMarkTintList = ColorStateList.valueOf(readableAccent)
+                    v.textSize = 16f
+                    v.typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    v.minHeight = (56 * dp).toInt()
+                    v.setSingleLine(false)
+                    v.setPaddingRelative((24 * dp).toInt(), (16 * dp).toInt(), (24 * dp).toInt(), (16 * dp).toInt())
+                    v.setTextColor(dialogText)
+                }
             }
             if (needsStyle && (v is RadioButton || v is CheckBox)) {
                 val button = v as android.widget.CompoundButton
-                button.buttonDrawable = AppCompatResources.getDrawable(button.context,
-                    if (v is RadioButton) androidx.appcompat.R.drawable.abc_btn_radio_material
-                    else androidx.appcompat.R.drawable.abc_btn_check_material)
+                button.buttonDrawable = OxygenClassicControls.selectionDrawable(
+                    v is RadioButton, dp, org.fossify.gallery.helpers.OxygenThemeEngine.snapshot(activity, activity.config)
+                )
                 CompoundButtonCompat.setButtonTintList(button, tints)
                 button.background = ripple(dialogText, dp)
                 button.isAllCaps = false
                 button.minHeight = (48f * dp).toInt()
+                button.compoundDrawablePadding = (16 * dp).toInt()
                 (button as TextView).setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
                 button.setTextColor(ColorStateList(
                     arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
                     intArrayOf(disabled, dialogText)
                 ))
+                if (v is RadioButton && v.parent is android.widget.RadioGroup) {
+                    TiebaDialogChoices.apply(v, readableAccent, dialogText, surface)
+                }
             }
             if (v is ViewGroup) {
                 for (i in 0 until v.childCount) visit(v.getChildAt(i))
@@ -374,11 +409,13 @@ object OxygenClassicDialog {
                 setTag(R.id.classic_dialog_action, palette)
                 setTextColor(ColorStateList(
                     arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
-                    intArrayOf(disabled, readableAccent)
+                    intArrayOf(disabled, if (which == AlertDialog.BUTTON_POSITIVE) readableAccent else dialogText)
                 ))
                 minHeight = (48f * dp).toInt()
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                isAllCaps = true
+                isAllCaps = false
+                minWidth = (64 * dp).toInt()
+                setPadding((20 * dp).toInt(), (12 * dp).toInt(), (20 * dp).toInt(), (12 * dp).toInt())
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 this.background = ripple(readableAccent, dp)
             }

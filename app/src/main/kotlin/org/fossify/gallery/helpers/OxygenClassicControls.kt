@@ -36,6 +36,9 @@ internal data class OxygenClassicSwitchGeometry(val density: Float) {
 
 /** Shared control skin. No listeners or preference writes; each view owns its drawables. */
 object OxygenClassicControls {
+    internal fun selectionDrawable(radio: Boolean, density: Float, colors: OxygenThemeTokens): Drawable =
+        ClassicDrawable(if (radio) "radio" else "check", density, colors, false)
+
     fun applySwitches(root: View, colors: OxygenThemeTokens) {
         val density = root.resources.displayMetrics.density
         fun dp(n: Int) = (n * density + 0.5f).toInt()
@@ -55,7 +58,7 @@ object OxygenClassicControls {
             val changed = view.getTag(R.id.classic_control_skin) != key
             if (view is CompoundButton) {
                 view.setTextColor(labelColors)
-                view.minHeight = maxOf(view.minHeight, dp(48))
+                view.minHeight = if (view is RadioButton && !view.isClickable && view.text.isEmpty()) dp(24) else maxOf(view.minHeight, dp(48))
             }
             when (view) {
                 is SwitchCompat -> {
@@ -275,15 +278,15 @@ object OxygenClassicControls {
                     if (checked) circle(5f, active)
                 }
                 "check" -> {
-                    // One consistent 18dp box in every state, not two
-                    // differently sized nested squares on selection.
+                    // 20dp painted box inside the 24dp layout, including the unchecked stroke.
                     val fill = if (enabled) OxygenThemeColors.toolbarBackground(colors.rawAccent)
                         else OxygenThemeColors.blend(bg, fg, 0.49)
                     color(if (checked) fill else outline)
                     paint.style = if (checked) Paint.Style.FILL else Paint.Style.STROKE
                     paint.strokeWidth = 2 * density
-                    canvas.drawRoundRect(cx - 9 * density, cy - 9 * density,
-                        cx + 9 * density, cy + 9 * density, density, density, paint)
+                    val radius = if (checked) 10 else 9
+                    canvas.drawRoundRect(cx - radius * density, cy - radius * density,
+                        cx + radius * density, cy + radius * density, density, density, paint)
                     if (checked) {
                         color(Color.WHITE); paint.style = Paint.Style.STROKE; paint.strokeWidth = 2 * density
                         paint.strokeCap = Paint.Cap.ROUND

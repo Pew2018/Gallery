@@ -238,14 +238,14 @@ class ClassicSettingsControlsTest {
         color.performClick()
         assertEquals("oxygen_jade_green", config.oxygenThemePresetId)
         assertSame(original, label(R.string.classic_more_colors))
-        assertEquals(3, children(root).filterIsInstance<RadioButton>().size)
+        assertEquals(3 + OxygenThemePresets.featured.size, children(root).filterIsInstance<RadioButton>().size)
         label(R.string.classic_more_colors).performClick()
-        // More colors is now a bounded 23-swatch grid, not 23 RadioButtons.
+        // Each TiebaLite preset row has one passive trailing radio.
         val palette = children(root).filterIsInstance<LinearLayout>().filter {
             it.isClickable && it.contentDescription != null
         }
         assertEquals(23, palette.size)
-        assertEquals(0, children(root).filterIsInstance<RadioButton>().size)
+        assertEquals(23, children(root).filterIsInstance<RadioButton>().size)
         assertEquals(1, palette.count { it.isSelected })
         assertEquals(activity.getString(R.string.theme_oxygen_jade_green),
             palette.single { it.isSelected }.contentDescription.toString())

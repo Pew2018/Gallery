@@ -17,7 +17,7 @@
 
 <!-- Keep in sync with abc_popup_menu_item_layout.xml (which only differs in the title and shortcut
     position). -->
-<androidx.appcompat.view.menu.ListMenuItemView
+<org.fossify.gallery.views.TiebaMenuItemView
         xmlns:android="http://schemas.android.com/apk/res/android"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -49,8 +49,6 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="center_vertical"
                 android:textAppearance="?attr/textAppearanceLargePopupMenu"
-                android:maxLines="2"
-                android:ellipsize="end"
                 android:duplicateParentState="true"
                 style="@style/RtlOverlay.Widget.AppCompat.PopupMenuItem.Title" />
 
@@ -77,4 +75,4 @@
 
     </LinearLayout>
 
-</androidx.appcompat.view.menu.ListMenuItemView>
+</org.fossify.gallery.views.TiebaMenuItemView>
