@@ -79,11 +79,17 @@ class PhotoProfileMediaLoader(
             // If any row disappeared or became hidden, use the existing full query
             // and supplement path to rebuild completeness conservatively.
             if (validated.media.size == reusable.size) {
-                GalleryPerfTrace.end("viewer_catalog_hit", cacheLookup, validated.media.size)
-                return validated
+                if (PhotoProfileMediaCache.isReusableCurrent(request, context, reusable)) {
+                    GalleryPerfTrace.end("viewer_catalog_hit", cacheLookup, validated.media.size)
+                    return validated
+                }
             }
             GalleryPerfTrace.end("viewer_catalog_miss", cacheLookup, validated.media.size)
         }
+
+        // A catalog is reusable only when the source was stable across the scan
+        // that created it. Capture this before index queries and file supplements.
+        val scanCheckpointStarted = PhotoProfileCatalogCheckpoint.capture(context, scope)
 
         var preview = emptyList<Medium>()
         if (allowPreview) {
@@ -127,7 +133,7 @@ class PhotoProfileMediaLoader(
         checkCurrent(request)
         if (complete.access.publicOnly && scope.sessionId == null) {
             val handoffStarted = GalleryPerfTrace.begin()
-            val reusableCatalog = PhotoProfileMediaCache.offer(context, complete)
+            val reusableCatalog = PhotoProfileMediaCache.offer(context, complete, scanCheckpointStarted)
             GalleryPerfTrace.end(
                 if (reusableCatalog) "viewer_catalog_handoff" else "viewer_catalog_miss",
                 handoffStarted, complete.media.size

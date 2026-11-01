@@ -397,6 +397,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     // Only paths whose parent folder is unprotected or has passed the normal
     // folder-lock flow may enter the favorites cache or scan for this Activity.
     private var favoriteAccessPaths: Set<String>? = null
+    @Volatile private var favoriteCatalogRelationshipPaths: Set<String>? = null
     private var resolvingFavoriteAccess = false
     private var favoritesNeedReload = false
     private val favoritesScroll = FavoritesScrollRestorer()
@@ -1655,6 +1656,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 }
                 try {
                     val folderCheckpoint = scanTask?.folderCatalogCheckpoint
+                    if (requestedFolder == FAVORITES) {
+                        favoriteCatalogRelationshipPaths = scanTask?.favoriteRelationshipSnapshot
+                    }
                     if (folderCheckpoint != null && !mShowAll && requestedFolder.isNotEmpty() &&
                         requestedFolder != FAVORITES && requestedFolder != RECYCLE_BIN) {
                         val catalogStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
@@ -2333,7 +2337,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     if (mPath == FAVORITES && !isFromCache && media.isNotEmpty()) {
                         val committedItems = media
                         val token = favoriteSessionId
-                        val sourceFavorites = favoriteAccessPaths.orEmpty()
+                        val sourceFavorites = favoriteCatalogRelationshipPaths.orEmpty()
                         ensureBackgroundThread {
                             val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
                             val items = committedItems.filterIsInstance<Medium>()
@@ -2342,7 +2346,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             ) {
                                 mediaLoadRequests.isCurrent(request) && displayedMediaRequest == request &&
                                     mPath == FAVORITES && favoriteSessionId == token &&
-                                    favoriteAccessPaths == sourceFavorites &&
+                                    favoriteCatalogRelationshipPaths == sourceFavorites &&
                                     FavoriteAccessSessionManager.isActive(token) && !isFinishing && !isDestroyed
                             }
                             org.fossify.gallery.helpers.GalleryPerfTrace.end(

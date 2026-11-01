@@ -31,11 +31,18 @@ internal object PhotoProfileMediaCache {
         })
     }
 
-    @Synchronized fun offer(context: android.content.Context, result: PhotoLoadResult): Boolean {
+    @Synchronized fun offer(
+        context: android.content.Context,
+        result: PhotoLoadResult,
+        scanCheckpoint: PhotoProfileCatalogCheckpoint? = null
+    ): Boolean {
         val scope = result.context.scope
         if (result.stage != PhotoLoadStage.COMPLETE || !result.access.publicOnly || scope.sessionId != null ||
             result.media.size > MAX_ITEMS || result.context.revision != PhotoContentRevision.current()) return false
-        val checkpoint = PhotoProfileCatalogCheckpoint.capture(context, scope)
+        val freshnessStarted = GalleryPerfTrace.begin()
+        val finishedCheckpoint = PhotoProfileCatalogCheckpoint.capture(context, scope)
+        val checkpoint = finishedCheckpoint.takeIf { scanCheckpoint != null && scanCheckpoint == it }
+        GalleryPerfTrace.end("viewer_catalog_freshness", freshnessStarted, if (checkpoint != null) 1 else 0)
         entries[scope.profileId] = Entry(
             scope, result.context.revision, result.context.favorites, checkpoint,
             SystemClock.elapsedRealtime(), result.media.map { it.copy() }
@@ -71,6 +78,20 @@ internal object PhotoProfileMediaCache {
         // The list is private and immutable after insertion. Validation returns
         // fresh Medium copies, so no second 10k-item copy is needed here.
         return entry.media
+    }
+
+    /** Recheck catalog completeness after the potentially long per-item authorization batch. */
+    @Synchronized fun isReusableCurrent(
+        request: PhotoProfileLoadContext,
+        appContext: android.content.Context,
+        items: List<Medium>
+    ): Boolean {
+        val entry = entries[request.scope.profileId] ?: return false
+        return entry.media === items && entry.scope == request.scope && entry.revision == request.revision &&
+            entry.favorites == request.favorites && entry.checkpoint != null &&
+            SystemClock.elapsedRealtime() - entry.at in 0..MAX_AGE_MS &&
+            request.revision == PhotoContentRevision.current() &&
+            PhotoProfileCatalogCheckpoint.isCurrent(appContext, request.scope, entry.checkpoint)
     }
 
     @Synchronized fun invalidate(profileId: String? = null) {

@@ -221,6 +221,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var mPos = -1
     private var mShowAll = false
     private var initialPublicFolderSnapshot = false
+    private var initialPublicFolderCheckpoint: org.fossify.gallery.helpers.FolderReturnCheckpoint? = null
     private var stagedInternalViewer = false
     private var mIsSlideshowActive = false
     private var mPrevHashcode = 0
@@ -915,6 +916,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         // Keep its list reference while initializing the selected page; don't copy
         // or scan it on the UI thread.
         val reusedCatalog = mMediaFiles.takeIf { initialPublicFolderSnapshot }
+        val reusedCatalogCheckpoint = initialPublicFolderCheckpoint
         val selected = selectedViewerMedium(path)
         val app = applicationContext
         submitViewerAccess(request) {
@@ -974,8 +976,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     } else {
                         val scopedCatalog = searchedViewerMedia(catalog)
                         val fullStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
-                        publishFolderCandidates(request, load, token, path, scopedCatalog) {
+                        publishFolderCandidates(
+                            request, load, token, path, scopedCatalog,
+                            freshnessCheckpoint = reusedCatalogCheckpoint,
+                            onStale = {
+                                org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                                    "viewer_catalog_miss", fullStarted, scopedCatalog.size
+                                )
+                                scanRemaining()
+                            }
+                        ) {
                             org.fossify.gallery.helpers.GalleryPerfTrace.end("viewer_catalog_validation", fullStarted, scopedCatalog.size)
+                            org.fossify.gallery.helpers.GalleryPerfTrace.end("viewer_catalog_hit", fullStarted, scopedCatalog.size)
                             logPagerReady("viewer_full_list_ready", fullStarted, scopedCatalog.size)
                         }
                     }
@@ -1012,7 +1024,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     /** Validate every candidate off the UI thread before exposing adjacent pages. */
     private fun publishFolderCandidates(
         request: Long, load: Long, token: String?, selectedPath: String,
-        items: List<Medium>, onPublished: (() -> Unit)? = null
+        items: List<Medium>,
+        freshnessCheckpoint: org.fossify.gallery.helpers.FolderReturnCheckpoint? = null,
+        onStale: (() -> Unit)? = null,
+        onPublished: (() -> Unit)? = null
     ) {
         val app = applicationContext
         val folder = selectedPath.getParentPath()
@@ -1025,9 +1040,16 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             val authorized = runCatching {
                 FolderUnlockSessionManager.authorizedPaths(token, paths, app.config::isFolderProtected)
             }.getOrDefault(emptySet())
-                val safe = directItems.filter { it.path in authorized && runCatching { File(it.path).isFile }.getOrDefault(false) }
+            val safe = directItems.filter { it.path in authorized && runCatching { File(it.path).isFile }.getOrDefault(false) }
+            val freshnessCurrent = freshnessCheckpoint == null || runCatching {
+                org.fossify.gallery.helpers.FolderReturnCheckpoint.isCurrent(app, folder, freshnessCheckpoint)
+            }.getOrDefault(false)
             runOnUiThread {
                 if (request != viewerAccessGeneration || load != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                if (!freshnessCurrent) {
+                    onStale?.invoke()
+                    return@runOnUiThread
+                }
                 val currentPath = getCurrentPath().ifEmpty { selectedPath }
                 val currentFileExists = runCatching { File(currentPath).exists() }.getOrDefault(true)
                 val currentDeniedWhilePresent = currentFileExists &&
@@ -1192,13 +1214,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         )
                     }.getOrNull()
                     org.fossify.gallery.helpers.GalleryPerfTrace.end(
-                        if (cached == null) "viewer_catalog_miss" else "viewer_catalog_hit",
-                        catalogStarted, cached?.size ?: 0
+                        if (cached == null) "viewer_catalog_miss" else "viewer_catalog_handoff",
+                        catalogStarted, cached?.items?.size ?: 0
                     )
                     runOnUiThread {
                         if (request != viewerAccessGeneration || isFinishing || isDestroyed) return@runOnUiThread
                         if (cached != null) {
-                            mMediaFiles = cached
+                            mMediaFiles = cached.items
+                            initialPublicFolderCheckpoint = cached.checkpoint
                             initialPublicFolderSnapshot = true
                         }
                         continueAfterFailedFolderCapability()

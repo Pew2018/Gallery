@@ -38,6 +38,8 @@ class GetMediaAsynctask(
     /** Non-null only when a public single-folder scan was stable at start and completion. */
     var folderCatalogCheckpoint: FolderReturnCheckpoint? = null
         private set
+    @Volatile var favoriteRelationshipSnapshot: Set<String>? = null
+        private set
 
     override fun doInBackground(vararg params: Void): ArrayList<ThumbnailItem> {
         return try {
@@ -66,6 +68,7 @@ class GetMediaAsynctask(
 
         val getProperFileSize = folderSorting and SORT_BY_SIZE != 0
         val savedFavorites = context.getFavoritePaths()
+        if (mPath == FAVORITES) favoriteRelationshipSnapshot = savedFavorites.toSet()
         val favoritePaths = if (mPath == FAVORITES) {
             val allowed = if (favoriteSessionId != null) {
                 FavoriteAccessSessionManager.validatePaths(favoriteSessionId, savedFavorites)?.paths.orEmpty()

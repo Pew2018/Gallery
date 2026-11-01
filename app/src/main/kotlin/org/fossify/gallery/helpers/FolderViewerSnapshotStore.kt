@@ -26,6 +26,7 @@ internal object FolderViewerSnapshotStore {
         val createdAt: Long,
         val items: ArrayList<Medium>
     )
+    data class Catalog(val items: ArrayList<Medium>, val checkpoint: FolderReturnCheckpoint)
 
     @Volatile private var prepared: Entry? = null
     private val expiryHandler = Handler(Looper.getMainLooper())
@@ -110,7 +111,7 @@ internal object FolderViewerSnapshotStore {
     fun handoffCount(id: String?): Int? = prepared?.takeIf { id != null && it.id == id }?.items?.size
 
     @Synchronized
-    fun take(context: Context, id: String?, folder: String, selected: String): ArrayList<Medium>? {
+    fun take(context: Context, id: String?, folder: String, selected: String): Catalog? {
         val entry = prepared
         if (entry == null || id == null || id != entry.id) return null
         prepared = null
@@ -122,7 +123,7 @@ internal object FolderViewerSnapshotStore {
             !FolderReturnCheckpoint.isCurrent(context, folder, entry.checkpoint)) return null
         // The deep copy was done while preparing the catalog. This shallow list
         // wrapper is cheap and the returned medium instances are now viewer-owned.
-        return ArrayList(entry.items)
+        return Catalog(ArrayList(entry.items), entry.checkpoint)
     }
 
     @Synchronized private fun clear() {
