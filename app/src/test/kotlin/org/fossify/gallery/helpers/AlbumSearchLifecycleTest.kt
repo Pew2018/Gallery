@@ -148,12 +148,10 @@ class AlbumSearchLifecycleTest {
         activity.config.searchAllFilesByDefault = false
         field(activity, "mFolderVisibility").set(activity, booleanArrayOf(true, false, false, true))
         val menu = activity.findViewById<org.fossify.commons.views.MySearchMenu>(R.id.main_menu)
-        // Commons installs its focus listener in a posted callback. Attach it
-        // before requesting focus, as happens after a real screen is displayed.
-        Shadows.shadowOf(Looper.getMainLooper()).idle()
-        menu.binding.topToolbarSearch.clearFocus()
-        menu.focusView()
-        assertTrue(menu.isSearchOpen)
+        // This fixture deliberately never resumes the Activity (to avoid an
+        // unrelated permission/storage scan), so there is no real window focus.
+        // Supply the search state; the behavior under test is load recovery.
+        menu.isSearchOpen = true
         field(activity, "categorizedLoadActive").setBoolean(activity, true)
         field(activity, "mIsGettingDirs").setBoolean(activity, true)
         MainActivity::class.java.getDeclaredMethod("onPause").apply { isAccessible = true }.invoke(activity)
