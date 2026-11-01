@@ -157,7 +157,12 @@ class TiebaStyleMigrationTest {
         })
         fragment.showNow(activity.supportFragmentManager, "speed")
         val dialog = fragment.requireDialog() as AlertDialog
-        assertEquals(278, dialog.window!!.attributes.width)
+        assertEquals(
+            OxygenClassicDialog.widthForContent(
+                OxygenClassicDialog.availableWidth(activity), activity.resources.displayMetrics.density, 400
+            ),
+            dialog.window!!.attributes.width
+        )
         dialog.findViewById<View>(R.id.playback_speed_fast)!!.performClick()
         assertTrue(activity.config.playbackSpeed > 1f)
         assertTrue(changes > 0)
