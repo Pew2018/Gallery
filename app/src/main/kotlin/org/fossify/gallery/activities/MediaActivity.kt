@@ -1607,7 +1607,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val scanGeneration = ++mediaScanGeneration
         mCurrAsyncTask?.stopFetching()
         val requestedFolder = mPath
-        lateinit var scanTask: GetMediaAsynctask
+        var scanTask: GetMediaAsynctask? = null
         scanTask = GetMediaAsynctask(
             context = applicationContext,
             mPath = mPath,
@@ -1654,7 +1654,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     return@ensureBackgroundThread
                 }
                 try {
-                    val folderCheckpoint = scanTask.folderCatalogCheckpoint
+                    val folderCheckpoint = scanTask?.folderCatalogCheckpoint
                     if (folderCheckpoint != null && !mShowAll && requestedFolder.isNotEmpty() &&
                         requestedFolder != FAVORITES && requestedFolder != RECYCLE_BIN) {
                         val catalogStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
@@ -1702,8 +1702,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
         }
 
-        mCurrAsyncTask = scanTask
-        scanTask.execute()
+        val task = scanTask ?: return
+        mCurrAsyncTask = task
+        task.execute()
     }
 
     /** Resolve the whole virtual album before publishing cache, adapter or scan data. */
