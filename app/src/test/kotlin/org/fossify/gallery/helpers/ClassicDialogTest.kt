@@ -338,10 +338,17 @@ class ClassicDialogTest {
                 .setNeutralButton("Remove EXIF", null)
                 .setPositiveButton("OK", null)
         )
-        val actionBar = dialog.findViewById<View>(androidx.appcompat.R.id.buttonPanel)
-        assertTrue(actionBar is LinearLayout)
-        assertEquals(android.view.Gravity.END, (actionBar as LinearLayout).gravity and android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK)
-        assertEquals(View.GONE, actionBar.findViewById<View>(androidx.appcompat.R.id.spacer)?.visibility)
+        // The outer buttonPanel is a wrapper in AppCompat; inspect the actual
+        // ButtonBarLayout containing the existing neutral and positive actions.
+        val actionRow = dialog.getButton(AlertDialog.BUTTON_NEUTRAL).parent
+        assertTrue(actionRow is LinearLayout)
+        assertEquals(
+            android.view.Gravity.END,
+            (actionRow as LinearLayout).gravity and android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK
+        )
+        actionRow.findViewById<View>(androidx.appcompat.R.id.spacer)?.let {
+            assertEquals(View.GONE, it.visibility)
+        }
         dialog.dismiss()
     }
 

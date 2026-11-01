@@ -507,9 +507,14 @@ object OxygenClassicDialog {
         val exifConfirmation = exifMessage?.text?.toString() ==
             activity.getString(org.fossify.commons.R.string.remove_exif_confirmation)
         if (propertiesActions || exifConfirmation) {
-            val actionBar = dialog.findViewById<ViewGroup>(androidx.appcompat.R.id.buttonPanel)
-            (actionBar as? LinearLayout)?.gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            actionBar?.findViewById<View>(androidx.appcompat.R.id.spacer)?.visibility = View.GONE
+            // AppCompat's buttonPanel can be a wrapper. The actual horizontal
+            // ButtonBarLayout is the parent of the neutral/negative action.
+            val leadingAction = dialog.getButton(
+                if (propertiesActions) AlertDialog.BUTTON_NEUTRAL else AlertDialog.BUTTON_NEGATIVE
+            )
+            val actionRow = leadingAction?.parent as? LinearLayout
+            actionRow?.gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            actionRow?.findViewById<View>(androidx.appcompat.R.id.spacer)?.visibility = View.GONE
             if (exifConfirmation) {
                 listOf(AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_POSITIVE).forEach { which ->
                     dialog.getButton(which)?.setPadding(
