@@ -111,11 +111,19 @@ class ChangeFolderThumbnailStyleDialog(val activity: BaseSimpleActivity, val cal
                 .load(R.drawable.oxygen_folder_preview_scene)
                 .apply(options)
 
+            // The preview overlays labels over an image, not a white dialog
+            // surface. Use the same contrasting labels in both layout modes.
+            sampleBinding.dirName.setTextColor(android.graphics.Color.WHITE)
+            sampleBinding.photoCnt.setTextColor(android.graphics.Color.WHITE)
             if (useRoundedCornersLayout) {
                 val cornerRadius = root.resources.getDimension(org.fossify.commons.R.dimen.rounded_corner_radius_big).toInt()
                 builder = builder.transform(CenterCrop(), RoundedCorners(cornerRadius))
-                sampleBinding.dirName.setTextColor(activity.getProperTextColor())
-                sampleBinding.photoCnt.setTextColor(activity.getProperTextColor())
+                sampleView.outlineProvider = object : android.view.ViewOutlineProvider() {
+                    override fun getOutline(view: android.view.View, outline: android.graphics.Outline) {
+                        outline.setRoundRect(0, 0, view.width, view.height, cornerRadius.toFloat())
+                    }
+                }
+                sampleView.clipToOutline = true
             }
 
             builder.into(sampleBinding.dirThumbnail)

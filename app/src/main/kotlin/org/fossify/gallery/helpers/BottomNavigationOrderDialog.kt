@@ -131,7 +131,16 @@ object BottomNavigationOrderDialog {
             setPadding(dp(24), 0, dp(24), 0)
             minHeight = dp(48)
             background = OxygenClassicDialog.ripple(colors.accent, density)
-            setOnClickListener { pending.clear(); pending.addAll(defaults); adapter.notifyDataSetChanged() }
+            setOnClickListener {
+                pending.clear()
+                pending.addAll(defaults)
+                // The legacy navigation order may have two entries. Restore all
+                // three without clipping the newly added Photos row.
+                val params = list.layoutParams
+                params.height = dp(56 * pending.size + 16)
+                list.layoutParams = params
+                adapter.notifyDataSetChanged()
+            }
         }
         // Three rows plus the RecyclerView's 8dp top and bottom padding.
         content.addView(list, LinearLayout.LayoutParams(-1, dp(56 * pending.size + 16)))
