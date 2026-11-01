@@ -133,7 +133,8 @@ object BottomNavigationOrderDialog {
             background = OxygenClassicDialog.ripple(colors.accent, density)
             setOnClickListener { pending.clear(); pending.addAll(defaults); adapter.notifyDataSetChanged() }
         }
-        content.addView(list)
+        // Three rows plus the RecyclerView's 8dp top and bottom padding.
+        content.addView(list, LinearLayout.LayoutParams(-1, dp(56 * pending.size + 16)))
         content.addView(reset)
         val builder = OxygenClassicDialog.builder(activity, activity.getString(R.string.oxygen_bottom_navigation_order))
             .setView(content)

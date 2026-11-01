@@ -97,6 +97,9 @@
 
         <org.fossify.commons.views.MyAppCompatCheckbox
             android:id="@+id/change_date_time_dialog_24_hour"
+            android:layoutDirection="rtl"
+            android:gravity="left|center_vertical"
+            android:textDirection="locale"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingTop="8dp"

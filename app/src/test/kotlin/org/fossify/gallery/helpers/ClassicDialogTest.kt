@@ -319,6 +319,30 @@ class ClassicDialogTest {
         val picker = dialogWithContentId(R.id.directories_holder)
         assertEquals(OxygenClassicDialog.widthForContent(available, density, 560), picker.window!!.attributes.width)
         picker.dismiss()
+
+        // Commons security tabs contain a 250dp minimum PIN/pattern grid.
+        // They must not inherit the compact confirmation width.
+        val security = dialogWithContentId(org.fossify.commons.R.id.dialog_tab_view_pager)
+        assertEquals(OxygenClassicDialog.widthForContent(available, density, 360), security.window!!.attributes.width)
+        security.dismiss()
+
+        val reorder = dialogWithContentId(R.id.classic_dialog_navigation_content)
+        assertEquals(OxygenClassicDialog.widthForContent(available, density, 340), reorder.window!!.attributes.width)
+        reorder.dismiss()
+    }
+
+    @Test fun propertiesActionsRemainTogetherAtTheTrailingEdge() {
+        val dialog = OxygenClassicDialog.show(
+            activity, OxygenClassicDialog.builder(activity, "Properties")
+                .setView(FrameLayout(activity).apply { id = R.id.properties_scrollview })
+                .setNeutralButton("Remove EXIF", null)
+                .setPositiveButton("OK", null)
+        )
+        val actionBar = dialog.findViewById<View>(androidx.appcompat.R.id.buttonPanel)
+        assertTrue(actionBar is LinearLayout)
+        assertEquals(android.view.Gravity.END, (actionBar as LinearLayout).gravity and android.view.Gravity.HORIZONTAL_GRAVITY_MASK)
+        assertEquals(View.GONE, actionBar.findViewById<View>(androidx.appcompat.R.id.spacer)?.visibility)
+        dialog.dismiss()
     }
 
     @Test fun rootPositionUsesChildCoordinatesRatherThanScrollViewPosition() {

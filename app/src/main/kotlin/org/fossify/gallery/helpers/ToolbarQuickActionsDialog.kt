@@ -108,6 +108,7 @@ object ToolbarQuickActionsDialog {
         }
 
         fun createCheckBox(): CheckBox = CheckBox(activity).apply {
+            id = R.id.classic_toolbar_action_checkbox
             textSize = 16f
             minHeight = dp(56)
             setTextColor(palette.primaryText)

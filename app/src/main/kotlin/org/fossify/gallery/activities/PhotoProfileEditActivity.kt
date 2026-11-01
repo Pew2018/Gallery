@@ -136,6 +136,10 @@ class PhotoProfileEditActivity : SimpleActivity() {
             OxygenClassicPageInput.readableTextColor(tokens.secondaryText, tokens)
         )
         OxygenClassicPageInput.style(binding.photoProfileEditName, tokens)
+        // Align entered text with the label and dynamic source rows.
+        binding.photoProfileEditName.apply {
+            setPaddingRelative(0, paddingTop, 0, paddingBottom)
+        }
         binding.photoProfileEditAddSource.apply {
             setTextColor(tokens.interactiveAccent)
             background = OxygenClassicDialog.ripple(tokens.interactiveAccent, resources.displayMetrics.density)

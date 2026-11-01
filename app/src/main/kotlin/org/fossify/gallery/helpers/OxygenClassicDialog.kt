@@ -15,6 +15,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.LinearLayout
+import android.graphics.drawable.InsetDrawable
 import android.widget.RadioButton
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
@@ -78,7 +80,7 @@ object OxygenClassicDialog {
 
     /** Classify dialog widths by their content and scrolling needs. */
     private enum class WidthProfile(val maxDp: Int) {
-        COMPACT(278), OPTIONS(360), FORM(400), DETAILS(480), PICKER(560)
+        COMPACT(278), REORDER(340), OPTIONS(360), SECURITY(360), FORM(400), DETAILS(480), PICKER(560)
     }
 
     internal fun widthForContent(availableWidth: Int, density: Float, maxWidthDp: Int): Int =
@@ -90,6 +92,9 @@ object OxygenClassicDialog {
     private fun widthProfile(dialog: AlertDialog): WidthProfile {
         fun has(vararg ids: Int) = ids.any { dialog.findViewById<View>(it) != null }
         return when {
+            // Commons security dialogs need a 250dp minimum pattern/PIN grid.
+            has(org.fossify.commons.R.id.dialog_tab_view_pager) -> WidthProfile.SECURITY
+
             has(
                 R.id.filepicker_coordinator,
                 R.id.directories_holder,
@@ -122,9 +127,10 @@ object OxygenClassicDialog {
                 R.id.other_aspect_ratio_dialog_scrollview,
                 R.id.filter_media_dialog_holder,
                 R.id.manage_bottom_actions_scrollview,
-                R.id.manage_extended_details_scrollview,
-                R.id.classic_dialog_navigation_content
+                R.id.manage_extended_details_scrollview
             ) || (dialog.findViewById<android.widget.RadioGroup>(R.id.dialog_radio_group)?.childCount ?: 0) >= 7 -> WidthProfile.OPTIONS
+
+            has(R.id.classic_dialog_navigation_content) -> WidthProfile.REORDER
 
             else -> WidthProfile.COMPACT
         }
@@ -354,7 +360,7 @@ object OxygenClassicDialog {
                 when (v.id) {
                     androidx.appcompat.R.id.topPanel -> v.setPadding(0, 0, 0, 0)
                     androidx.appcompat.R.id.title_template -> v.setPadding((24 * dp).toInt(), (24 * dp).toInt(), (24 * dp).toInt(), (16 * dp).toInt())
-                    androidx.appcompat.R.id.buttonPanel -> v.setPadding((24 * dp).toInt(), (16 * dp).toInt(), (24 * dp).toInt(), (24 * dp).toInt())
+                    androidx.appcompat.R.id.buttonPanel -> v.setPadding((24 * dp).toInt(), (8 * dp).toInt(), (24 * dp).toInt(), (12 * dp).toInt())
                 }
                 if (v.id == org.fossify.commons.R.id.open_biometric_dialog && v is Button) {
                     styleBiometricAction(
@@ -450,6 +456,10 @@ object OxygenClassicDialog {
                     v is RadioButton, dp, org.fossify.gallery.helpers.OxygenThemeEngine.snapshot(activity, activity.config)
                 )
                 CompoundButtonCompat.setButtonTintList(button, tints)
+                if (v.id == R.id.classic_toolbar_action_checkbox) {
+                    // Reserve genuine space between checkbox and its text.
+                    button.buttonDrawable = InsetDrawable(button.buttonDrawable, 0, 0, (12 * dp).toInt(), 0)
+                }
                 button.background = ripple(dialogText, dp)
                 button.isAllCaps = false
                 button.minHeight = (48f * dp).toInt()
@@ -487,6 +497,26 @@ object OxygenClassicDialog {
                 setPadding((20 * dp).toInt(), (12 * dp).toInt(), (20 * dp).toInt(), (12 * dp).toInt())
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 this.background = ripple(readableAccent, dp)
+            }
+        }
+        // AppCompat places a flex spacer after the neutral button. Properties
+        // should keep Remove EXIF and OK together at the trailing edge.
+        val propertiesActions = dialog.findViewById<View>(R.id.properties_scrollview) != null &&
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL) != null
+        val exifMessage = dialog.findViewById<TextView>(org.fossify.commons.R.id.message)
+        val exifConfirmation = exifMessage?.text?.toString() ==
+            activity.getString(org.fossify.commons.R.string.remove_exif_confirmation)
+        if (propertiesActions || exifConfirmation) {
+            val actionBar = dialog.findViewById<ViewGroup>(androidx.appcompat.R.id.buttonPanel)
+            (actionBar as? LinearLayout)?.gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            actionBar?.findViewById<View>(androidx.appcompat.R.id.spacer)?.visibility = View.GONE
+            if (exifConfirmation) {
+                listOf(AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_POSITIVE).forEach { which ->
+                    dialog.getButton(which)?.setPadding(
+                        (12 * dp).toInt(), (12 * dp).toInt(),
+                        (12 * dp).toInt(), (12 * dp).toInt()
+                    )
+                }
             }
         }
         return StyleResult(windowChanged, content.isLayoutRequested)

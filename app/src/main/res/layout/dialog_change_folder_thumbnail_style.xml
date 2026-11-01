@@ -81,6 +81,9 @@
 
         <org.fossify.commons.views.MyAppCompatCheckbox
             android:id="@+id/dialog_folder_limit_title"
+            android:layoutDirection="rtl"
+            android:gravity="left|center_vertical"
+            android:textDirection="locale"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingTop="@dimen/activity_margin"

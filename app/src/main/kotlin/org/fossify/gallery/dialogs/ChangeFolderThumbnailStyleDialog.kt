@@ -81,8 +81,12 @@ class ChangeFolderThumbnailStyleDialog(val activity: BaseSimpleActivity, val cal
             val sampleView = sampleBinding.root
             binding.dialogFolderSampleHolder.addView(sampleView)
 
-            sampleView.layoutParams.width = activity.resources.getDimension(R.dimen.sample_thumbnail_size).toInt()
-            (sampleView.layoutParams as RelativeLayout.LayoutParams).addRule(RelativeLayout.CENTER_HORIZONTAL)
+            val sampleSize = activity.resources.getDimensionPixelSize(R.dimen.sample_thumbnail_size)
+            (sampleView.layoutParams as RelativeLayout.LayoutParams).apply {
+                width = sampleSize
+                height = sampleSize
+                addRule(RelativeLayout.CENTER_HORIZONTAL)
+            }
 
             when (binding.dialogRadioFolderCountHolder.checkedRadioButtonId) {
                 R.id.dialog_radio_folder_count_line -> {
@@ -104,7 +108,7 @@ class ChangeFolderThumbnailStyleDialog(val activity: BaseSimpleActivity, val cal
 
             val options = RequestOptions().centerCrop()
             var builder = Glide.with(activity)
-                .load(R.drawable.sample_logo)
+                .load(R.drawable.oxygen_folder_preview_scene)
                 .apply(options)
 
             if (useRoundedCornersLayout) {
