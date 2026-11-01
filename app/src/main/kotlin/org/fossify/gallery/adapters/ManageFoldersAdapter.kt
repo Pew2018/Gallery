@@ -2,7 +2,6 @@ package org.fossify.gallery.adapters
 
 import org.fossify.gallery.helpers.OxygenClassicMenus
 import android.view.*
-import androidx.appcompat.widget.PopupMenu
 import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.adapters.MyRecyclerViewAdapter
 import org.fossify.gallery.R
@@ -77,7 +76,7 @@ class ManageFoldersAdapter(
             }
 
             overflowMenuIcon.setOnClickListener {
-                showPopupMenu(overflowMenuAnchor, folder)
+                showPopupMenu(overflowMenuIcon, folder)
             }
         }
     }

@@ -29,10 +29,4 @@
         android:padding="@dimen/activity_margin"
         android:src="@drawable/ic_three_dots_vector" />
 
-    <View
-        android:id="@+id/overflow_menu_anchor"
-        style="@style/OverflowMenuAnchorStyle"
-        android:layout_alignParentEnd="true"
-        android:layout_centerVertical="true" />
-
 </RelativeLayout>

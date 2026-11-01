@@ -18,5 +18,6 @@ object OxygenClassicMenus {
         }
 
     fun createPopup(context: Context, anchor: View): PopupMenu =
-        PopupMenu(ContextThemeWrapper(context, theme(context)), anchor, Gravity.END)
+        PopupMenu(ContextThemeWrapper(context, theme(context)), anchor, Gravity.END,
+            androidx.appcompat.R.attr.actionOverflowMenuStyle, 0)
 }

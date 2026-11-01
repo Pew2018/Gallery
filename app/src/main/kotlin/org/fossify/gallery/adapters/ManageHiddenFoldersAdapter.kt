@@ -4,7 +4,6 @@ import org.fossify.gallery.helpers.OxygenClassicMenus
 import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
-import androidx.appcompat.widget.PopupMenu
 import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.adapters.MyRecyclerViewAdapter
 import org.fossify.commons.extensions.getProperTextColor
@@ -78,7 +77,7 @@ class ManageHiddenFoldersAdapter(
             }
 
             overflowMenuIcon.setOnClickListener {
-                showPopupMenu(overflowMenuAnchor, folder)
+                showPopupMenu(overflowMenuIcon, folder)
             }
         }
     }
