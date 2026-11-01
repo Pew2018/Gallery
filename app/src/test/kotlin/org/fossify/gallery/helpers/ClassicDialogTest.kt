@@ -297,6 +297,30 @@ class ClassicDialogTest {
         assertEquals(1, OxygenClassicDialog.widthFor(20, 1f))
     }
 
+    @Test fun functionalWidthProfilesKeepCompactConfirmationsAndExpandComplexContent() {
+        val density = activity.resources.displayMetrics.density
+        val available = OxygenClassicDialog.availableWidth(activity)
+        val compact = OxygenClassicDialog.widthFor(available, density)
+
+        assertEquals(328, OxygenClassicDialog.widthForContent(360, 1f, 360))
+        assertEquals(400, OxygenClassicDialog.widthForContent(800, 1f, 400))
+        assertEquals(480, OxygenClassicDialog.widthForContent(800, 1f, 480))
+        assertEquals(560, OxygenClassicDialog.widthForContent(800, 1f, 560))
+
+        fun dialogWithContentId(viewId: Int): AlertDialog = OxygenClassicDialog.show(
+            activity, OxygenClassicDialog.builder(activity, "Test")
+                .setView(android.widget.FrameLayout(activity).apply { id = viewId })
+        )
+
+        val generic = dialogWithContentId(View.generateViewId())
+        assertEquals(compact, generic.window!!.attributes.width)
+        generic.dismiss()
+
+        val picker = dialogWithContentId(R.id.directories_holder)
+        assertEquals(OxygenClassicDialog.widthForContent(available, density, 560), picker.window!!.attributes.width)
+        picker.dismiss()
+    }
+
     @Test fun rootPositionUsesChildCoordinatesRatherThanScrollViewPosition() {
         val scroll = FrameLayout(activity)
         val items = LinearLayout(activity)

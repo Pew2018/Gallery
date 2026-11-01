@@ -388,6 +388,7 @@ object ToolbarQuickActionsDialog {
         }
 
         val dialogContent = LinearLayout(activity).apply {
+            id = R.id.classic_dialog_toolbar_content
             orientation = LinearLayout.VERTICAL
             addView(tabs, LinearLayout.LayoutParams(-1, dp(48)))
             addView(scroll, LinearLayout.LayoutParams(-1, -2))

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<org.fossify.gallery.helpers.ClassicDialogScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/grouping_dialog_scrollview"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="wrap_content">
 
     <LinearLayout
         android:id="@+id/grouping_dialog_holder"
@@ -119,4 +119,4 @@
             android:textSize="@dimen/smaller_text_size" />
 
     </LinearLayout>
-</ScrollView>
+</org.fossify.gallery.helpers.ClassicDialogScrollView>

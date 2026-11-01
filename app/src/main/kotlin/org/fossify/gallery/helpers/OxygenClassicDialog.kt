@@ -76,6 +76,60 @@ object OxygenClassicDialog {
         // BEFORE painting the surface: the visible panel is at most 278dp.
         (minOf(availableWidth.toFloat(), 310f * density) - 32f * density).toInt().coerceAtLeast(1)
 
+    /** Classify dialog widths by their content and scrolling needs. */
+    private enum class WidthProfile(val maxDp: Int) {
+        COMPACT(278), OPTIONS(360), FORM(400), DETAILS(480), PICKER(560)
+    }
+
+    internal fun widthForContent(availableWidth: Int, density: Float, maxWidthDp: Int): Int =
+        (availableWidth - 32f * density).toInt()
+            .coerceAtMost((maxWidthDp * density).toInt())
+            .coerceAtLeast(1)
+
+    /** Dialog.create() inflates the content before prepareWindow() inspects its IDs. */
+    private fun widthProfile(dialog: AlertDialog): WidthProfile {
+        fun has(vararg ids: Int) = ids.any { dialog.findViewById<View>(it) != null }
+        return when {
+            has(
+                R.id.filepicker_coordinator,
+                R.id.directories_holder,
+                R.id.media_grid_holder
+            ) -> WidthProfile.PICKER
+
+            has(R.id.properties_scrollview) -> WidthProfile.DETAILS
+
+            has(
+                R.id.dialog_folder_sample_holder,
+                R.id.dialog_file_style_spacing_holder,
+                R.id.aspect_ratio_holder,
+                R.id.resize_image_holder,
+                R.id.resize_image_with_path_holder,
+                R.id.save_as_holder,
+                R.id.folder_path_hint,
+                R.id.resize_factor_input_layout,
+                R.id.export_favorites_wrapper,
+                R.id.slideshow_scrollview,
+                R.id.playback_speed_holder,
+                R.id.exclude_folder_scrollview,
+                R.id.classic_dialog_toolbar_content
+            ) -> WidthProfile.FORM
+
+            has(
+                R.id.sorting_dialog_scrollview,
+                R.id.grouping_dialog_scrollview,
+                R.id.change_date_time_dialog_scrollview,
+                R.id.change_view_type_dialog_scrollview,
+                R.id.other_aspect_ratio_dialog_scrollview,
+                R.id.filter_media_dialog_holder,
+                R.id.manage_bottom_actions_scrollview,
+                R.id.manage_extended_details_scrollview,
+                R.id.classic_dialog_navigation_content
+            ) || (dialog.findViewById<android.widget.RadioGroup>(R.id.dialog_radio_group)?.childCount ?: 0) >= 7 -> WidthProfile.OPTIONS
+
+            else -> WidthProfile.COMPACT
+        }
+    }
+
     /** Window bounds/system insets exclude IME geometry, including in multi-window mode. */
     internal fun availableWidth(activity: Activity): Int {
         if (Build.VERSION.SDK_INT >= 30) {
@@ -130,7 +184,11 @@ object OxygenClassicDialog {
             window.setSoftInputMode((softInput and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or
                 WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         }
-        val width = widthFor(availableWidth(activity), activity.resources.displayMetrics.density)
+        val available = availableWidth(activity)
+        val density = activity.resources.displayMetrics.density
+        val profile = widthProfile(dialog)
+        val width = if (profile == WidthProfile.COMPACT) widthFor(available, density)
+            else widthForContent(available, density, profile.maxDp
         val changed = window.attributes.width != width
         if (changed) window.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
         applySurface(activity, dialog)

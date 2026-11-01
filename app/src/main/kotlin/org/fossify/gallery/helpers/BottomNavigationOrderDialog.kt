@@ -119,7 +119,10 @@ object BottomNavigationOrderDialog {
             override fun isLongPressDragEnabled() = false
         }).also { it.attachToRecyclerView(list) }
 
-        val content = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val content = LinearLayout(activity).apply {
+            id = R.id.classic_dialog_navigation_content
+            orientation = LinearLayout.VERTICAL
+        }
         val reset = TextView(activity).apply {
             setText(R.string.navigation_order_restore_default)
             textSize = 14f
