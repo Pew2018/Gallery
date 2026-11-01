@@ -32,7 +32,7 @@ class AlbumSearchLifecycleTest {
     private fun field(activity: MainActivity, name: String) = MainActivity::class.java.getDeclaredField(name).apply { isAccessible = true }
 
     private fun withActivity(block: (MainActivity) -> Unit) {
-        val app = RuntimeEnvironment.getApplication<Application>()
+        val app = RuntimeEnvironment.getApplication()
         Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE)
         app.config.lastMainViewAll = false
         // Create/start without resuming: exercise real presentation and lifecycle
