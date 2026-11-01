@@ -36,7 +36,7 @@ class GetMediaAsynctask(
     private var folderFailures: Map<String, Exception> = emptyMap()
     private var profileResult: PhotoLoadResult? = null
     /** Non-null only when a public single-folder scan was stable at start and completion. */
-    var folderCatalogCheckpoint: FolderReturnCheckpoint? = null
+    internal var folderCatalogCheckpoint: FolderReturnCheckpoint? = null
         private set
     @Volatile var favoriteRelationshipSnapshot: Set<String>? = null
         private set
