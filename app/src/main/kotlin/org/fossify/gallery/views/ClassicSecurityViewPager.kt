@@ -43,7 +43,12 @@ class ClassicSecurityViewPager : MyDialogViewPager {
         )
         fun naturalHeight(page: View?): Int {
             if (page == null) return 0
-            page.measure(pageWidthSpec, View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+            // Honor explicit page heights while still letting Commons'
+            // MATCH_PARENT security tabs report their intrinsic minimum.
+            val heightSpec = page.layoutParams?.height?.takeIf { it >= 0 }?.let {
+                View.MeasureSpec.makeMeasureSpec(it, View.MeasureSpec.EXACTLY)
+            } ?: View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            page.measure(pageWidthSpec, heightSpec)
             return page.measuredHeight
         }
 
