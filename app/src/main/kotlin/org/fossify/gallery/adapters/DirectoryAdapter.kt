@@ -183,7 +183,7 @@ class DirectoryAdapter(
     override fun onBindViewHolder(holder: MyRecyclerViewAdapter.ViewHolder, position: Int) {
         val dir = dirs.getOrNull(position) ?: return
         holder.bindView(dir, true, !isPickIntent) { itemView, adapterPosition ->
-            setupView(itemView, dir)
+            setupView(itemView, dir, holder)
         }
         bindViewHolder(holder)
     }
@@ -1042,7 +1042,7 @@ class DirectoryAdapter(
         notifyDataSetChanged()
     }
 
-    private fun setupView(view: View, directory: Directory) {
+    private fun setupView(view: View, directory: Directory, holder: ViewHolder) {
         val isSelected = selectedKeys.contains(directory.path.hashCode())
         bindItem(view).apply {
             dirPath?.text = "${directory.path.substringBeforeLast("/")}/"
