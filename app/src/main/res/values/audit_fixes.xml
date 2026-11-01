@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="gallery_file_view">File view</string>
-    <string name="folder_unavailable_suffix"> (temporarily unavailable)</string>
+    <string name="folder_unavailable_suffix">\u0020(temporarily unavailable)</string>
     <string name="favorite_folders_auth_required">Authenticate to view protected favorite folders</string>
     <string name="favorite_folders_load_failed">Could not load favorite folders. Pull down to retry.</string>
     <string name="favorite_folders_none_unavailable">No unavailable favorite folders found</string>

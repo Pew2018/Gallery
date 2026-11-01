@@ -1854,10 +1854,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         var isPlaceholderVisible = dirs.isEmpty()
 
-        runOnUiThread {
-            if (!isCurrentDirectoryScan(scanRequest)) return@runOnUiThread
-            setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
-        }
+        // Snapshot on the scanning thread before it starts replacing entries.
+        setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
 
         // The worker always retains its own fetcher; a newer scan cannot hijack it.
         mLastMediaFetcher?.shouldStop = true
@@ -2007,7 +2005,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     )
                 }
 
-                // we are looping through the already displayed folders looking for changes, do not do anything if nothing changed
+                // An unavailable physical folder is not evidence of changed content.
+                if (curMedia.isEmpty() && !directory.areFavorites() && !directory.isRecycleBin()) continue
 
                 // Adapter holds the previous Directory instance. Replace it, so
                 // DiffUtil can compare stable immutable before/after snapshots.
