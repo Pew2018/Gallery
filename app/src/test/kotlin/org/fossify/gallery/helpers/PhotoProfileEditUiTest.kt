@@ -100,7 +100,10 @@ class PhotoProfileEditUiTest {
         assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, label.layoutParams.height)
         assertEquals(0, context.resources.getIdentifier("photo_profile_edit_sources_title", "id", context.packageName))
         assertEquals((16 * context.resources.displayMetrics.density).toInt(), (sources.layoutParams as ViewGroup.MarginLayoutParams).topMargin)
-        assertEquals((48 * context.resources.displayMetrics.density).toInt(), addSource.layoutParams.height)
+        assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, addSource.layoutParams.height)
+        assertEquals((56 * context.resources.displayMetrics.density).toInt(), addSource.minimumHeight)
+        assertTrue(field.hint.isNullOrEmpty())
+        assertNotNull(addSource.compoundDrawablesRelative[0])
         assertTrue(root.findViewById<ScrollView>(R.id.photo_profile_edit_scroll).isFillViewport)
     }
 

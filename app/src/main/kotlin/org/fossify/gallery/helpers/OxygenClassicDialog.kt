@@ -38,6 +38,10 @@ import org.fossify.commons.extensions.getProperPrimaryColor
  * an AlertDialog. This does not replace its builders or business callbacks.
  */
 object OxygenClassicDialog {
+    // Weak keys retain no dismissed windows. Nesting is assigned once, so showing
+    // a child does not restyle the parent's scrim or temporary state.
+    private val nestedDialogs = java.util.WeakHashMap<AlertDialog, Boolean>()
+    private val dialogHosts = java.util.WeakHashMap<AlertDialog, java.lang.ref.WeakReference<Activity>>()
     /** Build a consistent small-radius MD1 dialog independently of Commons M3. */
     fun builder(activity: Activity, title: CharSequence): AlertDialog.Builder {
         val light = ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
@@ -80,7 +84,7 @@ object OxygenClassicDialog {
 
     /** Classify dialog widths by their content and scrolling needs. */
     private enum class WidthProfile(val maxDp: Int) {
-        COMPACT(278), REORDER(340), OPTIONS(360), SECURITY(360), FORM(400), DETAILS(480), PICKER(560)
+        COMPACT(278), CONFIRM(320), REORDER(340), OPTIONS(360), SECURITY(340), INPUT(400), FORM(400), DETAILS(480), PICKER(560)
     }
 
     internal fun widthForContent(availableWidth: Int, density: Float, maxWidthDp: Int): Int =
@@ -103,6 +107,15 @@ object OxygenClassicDialog {
 
             has(R.id.properties_scrollview) -> WidthProfile.DETAILS
 
+            // Use the actual form roots, not the presence of an arbitrary EditText
+            // (pickers and security pages also contain inputs).
+            has(R.id.export_favorites_wrapper, org.fossify.commons.R.id.export_settings_wrapper,
+                R.id.save_as_holder, R.id.folder_path_hint) -> WidthProfile.INPUT
+
+            has(R.id.classic_dialog_toolbar_content) -> WidthProfile.OPTIONS
+            has(R.id.delete_remember_holder, R.id.dialog_confirm_delete_folder_holder,
+                R.id.message_scrollview) || dialog.findViewById<View>(android.R.id.message) != null -> WidthProfile.CONFIRM
+
             has(
                 R.id.dialog_folder_sample_holder,
                 R.id.dialog_file_style_spacing_holder,
@@ -115,8 +128,7 @@ object OxygenClassicDialog {
                 R.id.export_favorites_wrapper,
                 R.id.slideshow_scrollview,
                 R.id.playback_speed_holder,
-                R.id.exclude_folder_scrollview,
-                R.id.classic_dialog_toolbar_content
+                R.id.exclude_folder_scrollview
             ) -> WidthProfile.FORM
 
             has(
@@ -128,7 +140,7 @@ object OxygenClassicDialog {
                 R.id.filter_media_dialog_holder,
                 R.id.manage_bottom_actions_scrollview,
                 R.id.manage_extended_details_scrollview
-            ) || (dialog.findViewById<android.widget.RadioGroup>(R.id.dialog_radio_group)?.childCount ?: 0) >= 7 -> WidthProfile.OPTIONS
+            ) -> WidthProfile.OPTIONS
 
             has(R.id.classic_dialog_navigation_content) -> WidthProfile.REORDER
 
@@ -174,12 +186,43 @@ object OxygenClassicDialog {
         val imeBottom = androidx.core.view.ViewCompat.getRootWindowInsets(host)
             ?.takeIf { it.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) }
             ?.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())?.bottom ?: 0
-        return (height - (insets?.top ?: 0) - maxOf(insets?.bottom ?: 0, imeBottom)).coerceAtLeast(1)
+        // Below API 30 the resized host already excludes the IME. Do not deduct it twice.
+        val bottom = if (imeBottom > 0 && host.height > 0) (insets?.bottom ?: 0) else maxOf(insets?.bottom ?: 0, imeBottom)
+        return (height - (insets?.top ?: 0) - bottom).coerceAtLeast(1)
     }
 
     /** Viewport left for scrollable dialog content after fixed title, tabs and actions. */
     internal fun availableContentHeight(activity: Activity, reservedHeightPx: Int): Int {
         return (availableHeight(activity) - reservedHeightPx).coerceAtLeast(0)
+    }
+
+    /** Reserve only visible siblings outside this scroller, including real tabs,
+     * title and actions. Incoming parent constraints remain the final authority. */
+    internal fun scrollViewportHeight(view: View, available: Int): Int {
+        val density = view.resources.displayMetrics.density
+        var reserve = (32 * density).toInt() // clearance to the host window edges
+        var child = view
+        var parent = child.parent as? ViewGroup
+        while (parent != null) {
+            reserve += parent.paddingTop + parent.paddingBottom
+            for (index in 0 until parent.childCount) {
+                val sibling = parent.getChildAt(index)
+                if (sibling === child || sibling.visibility == View.GONE) continue
+                val lp = sibling.layoutParams
+                val fallback = when (sibling.id) {
+                    androidx.appcompat.R.id.topPanel -> (80 * density * view.resources.configuration.fontScale).toInt()
+                    androidx.appcompat.R.id.buttonPanel -> (64 * density).toInt()
+                    else -> sibling.minimumHeight
+                }
+                reserve += sibling.measuredHeight.takeIf { it > 0 }
+                    ?: lp.height.takeIf { it > 0 } ?: fallback
+                if (lp is ViewGroup.MarginLayoutParams) reserve += lp.topMargin + lp.bottomMargin
+            }
+            if (parent.id == androidx.appcompat.R.id.parentPanel) break
+            child = parent
+            parent = parent.parent as? ViewGroup
+        }
+        return (available - reserve).coerceAtLeast(1)
     }
 
     /** Called before WindowManager.addView; later only for actual host geometry changes. */
@@ -203,6 +246,12 @@ object OxygenClassicDialog {
 
     private fun applySurface(activity: Activity, dialog: AlertDialog): Boolean {
         val window = dialog.window ?: return false
+        val nested = nestedDialogs.getOrPut(dialog) {
+            nestedDialogs.keys.any { it !== dialog && it.isShowing && dialogHosts[it]?.get() === activity }
+        }
+        dialogHosts[dialog] = java.lang.ref.WeakReference(activity)
+        val dim = if (nested) 0.20f else 0.45f
+        if (window.attributes.dimAmount != dim) window.setDimAmount(dim)
         // Also enforce screenshot protection on already-shown dialogs. Some callers
         // enter through apply() rather than prepareWindow(), so doing this in the
         // shared surface pass closes that gap without changing window geometry.
@@ -224,7 +273,6 @@ object OxygenClassicDialog {
         if (window.attributes.flags and WindowManager.LayoutParams.FLAG_DIM_BEHIND == 0) {
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         }
-        if (window.attributes.dimAmount != 0.45f) window.setDimAmount(0.45f)
         window.setBackgroundDrawable(shape)
         // Record the actual decor drawable; platforms may wrap the supplied background.
         decor.setTag(R.id.classic_dialog_palette, SurfaceState(palette, decor.background))
@@ -360,7 +408,8 @@ object OxygenClassicDialog {
                 when (v.id) {
                     androidx.appcompat.R.id.topPanel -> v.setPadding(0, 0, 0, 0)
                     androidx.appcompat.R.id.title_template -> v.setPadding((24 * dp).toInt(), (24 * dp).toInt(), (24 * dp).toInt(), (16 * dp).toInt())
-                    androidx.appcompat.R.id.buttonPanel -> v.setPadding((24 * dp).toInt(), (8 * dp).toInt(), (24 * dp).toInt(), (12 * dp).toInt())
+                    // The actual ButtonBarLayout, which can sit inside this panel, owns its gutters.
+                    androidx.appcompat.R.id.buttonPanel -> v.setPadding(0, 0, 0, 0)
                 }
                 if (v.id == org.fossify.commons.R.id.open_biometric_dialog && v is Button) {
                     styleBiometricAction(
@@ -438,10 +487,10 @@ object OxygenClassicDialog {
                     v.checkMarkDrawable = mark
                     v.checkMarkTintList = if (multiple) tints else ColorStateList.valueOf(readableAccent)
                     v.textSize = 16f
-                    v.typeface = Typeface.create("sans-serif", if (multiple) Typeface.NORMAL else Typeface.BOLD)
-                    v.minHeight = (56 * dp).toInt()
+                    v.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+                    v.minHeight = (48 * dp).toInt()
                     v.setSingleLine(false)
-                    v.setPaddingRelative((24 * dp).toInt(), (16 * dp).toInt(), (24 * dp).toInt(), (16 * dp).toInt())
+                    v.setPaddingRelative((24 * dp).toInt(), (8 * dp).toInt(), (24 * dp).toInt(), (8 * dp).toInt())
                     v.setTextColor(ColorStateList(
                         arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf(android.R.attr.state_checked), intArrayOf()),
                         intArrayOf(disabled, readableAccent, dialogText)
@@ -456,15 +505,17 @@ object OxygenClassicDialog {
                     v is RadioButton, dp, org.fossify.gallery.helpers.OxygenThemeEngine.snapshot(activity, activity.config)
                 )
                 CompoundButtonCompat.setButtonTintList(button, tints)
-                if (v.id == R.id.classic_toolbar_action_checkbox) {
-                    // Reserve genuine space between checkbox and its text.
+                if (button.text.isNotEmpty() && v.layoutDirection != View.LAYOUT_DIRECTION_RTL) {
+                    // Compound drawable padding does not separate a CompoundButton glyph
+                    // from its label. Reserve real drawable space for every labelled row.
                     button.buttonDrawable = InsetDrawable(button.buttonDrawable, 0, 0, (12 * dp).toInt(), 0)
                 }
                 button.background = ripple(dialogText, dp)
                 button.isAllCaps = false
                 button.minHeight = (48f * dp).toInt()
+                button.gravity = Gravity.CENTER_VERTICAL or Gravity.START
                 button.compoundDrawablePadding = (16 * dp).toInt()
-                if (v is CheckBox) {
+                if (v is CheckBox && button.text.isNotEmpty()) {
                     val insets = TiebaDialogChoices.remainingInsets(v, (24 * dp).toInt())
                     v.setPaddingRelative(insets.first, v.paddingTop, insets.second, v.paddingBottom)
                 }
@@ -491,36 +542,46 @@ object OxygenClassicDialog {
                     intArrayOf(disabled, if (which == AlertDialog.BUTTON_POSITIVE) readableAccent else dialogText)
                 ))
                 minHeight = (48f * dp).toInt()
+                minimumHeight = (48f * dp).toInt()
+                gravity = Gravity.CENTER
+                includeFontPadding = false
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                 isAllCaps = false
                 minWidth = (64 * dp).toInt()
-                setPadding((20 * dp).toInt(), (12 * dp).toInt(), (20 * dp).toInt(), (12 * dp).toInt())
+                setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 this.background = ripple(readableAccent, dp)
             }
         }
-        // AppCompat places a flex spacer after the neutral button. Properties
-        // should keep Remove EXIF and OK together at the trailing edge.
-        val propertiesActions = dialog.findViewById<View>(R.id.properties_scrollview) != null &&
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL) != null
-        val exifMessage = dialog.findViewById<TextView>(org.fossify.commons.R.id.message)
-        val exifConfirmation = exifMessage?.text?.toString() ==
-            activity.getString(org.fossify.commons.R.string.remove_exif_confirmation)
-        if (propertiesActions || exifConfirmation) {
-            // AppCompat's buttonPanel can be a wrapper. The actual horizontal
-            // ButtonBarLayout is the parent of the neutral/negative action.
-            val leadingAction = dialog.getButton(
-                if (propertiesActions) AlertDialog.BUTTON_NEUTRAL else AlertDialog.BUTTON_NEGATIVE
-            )
-            val actionRow = leadingAction?.parent as? LinearLayout
-            actionRow?.gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            actionRow?.findViewById<View>(androidx.appcompat.R.id.spacer)?.visibility = View.GONE
-            if (exifConfirmation) {
-                listOf(AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_POSITIVE).forEach { which ->
-                    dialog.getButton(which)?.setPadding(
-                        (12 * dp).toInt(), (12 * dp).toInt(),
-                        (12 * dp).toInt(), (12 * dp).toInt()
-                    )
+        // Keep the original Buttons, callbacks and AppCompat's narrow-window
+        // stacking. Normalize the real row, not only its optional outer wrapper.
+        val actions = listOf(AlertDialog.BUTTON_NEUTRAL, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_POSITIVE)
+            .mapNotNull { dialog.getButton(it) }.filter { it.visibility != View.GONE }
+        val actionRow = actions.firstOrNull()?.parent as? LinearLayout
+        if (actionRow != null) {
+            val endGravity = Gravity.END or Gravity.CENTER_VERTICAL
+            if (actionRow.gravity != endGravity) actionRow.gravity = endGravity
+            val gutter = (16 * dp).toInt()
+            val vertical = (8 * dp).toInt()
+            if (actionRow.paddingStart != gutter || actionRow.paddingTop != vertical ||
+                actionRow.paddingEnd != gutter || actionRow.paddingBottom != vertical) {
+                actionRow.setPaddingRelative(gutter, vertical, gutter, vertical)
+            }
+            // Only true three-action dialogs keep a neutral action at the start.
+            // A two-action Properties dialog belongs to the same trailing group.
+            if (actions.size <= 2) {
+                actionRow.findViewById<View>(androidx.appcompat.R.id.spacer)?.let {
+                    if (it.visibility != View.GONE) it.visibility = View.GONE
+                }
+            }
+            actions.forEachIndexed { index, button ->
+                val lp = button.layoutParams as? LinearLayout.LayoutParams
+                if (lp != null) {
+                    val gap = if (index == 0) 0 else (8 * dp).toInt()
+                    if (lp.marginStart != gap) {
+                        lp.marginStart = gap
+                        button.layoutParams = lp
+                    }
                 }
             }
         }

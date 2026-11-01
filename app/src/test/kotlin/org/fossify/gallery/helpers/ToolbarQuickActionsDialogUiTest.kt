@@ -61,8 +61,8 @@ class ToolbarQuickActionsDialogUiTest {
         assertTrue(isDescendant(optional, scroll!!))
         val list = views.filterIsInstance<RecyclerView>().single()
         assertTrue("optional rows are present", list.adapter!!.itemCount > 0)
-        assertTrue("nested list has its complete row extent", list.layoutParams.height >= list.adapter!!.itemCount *
-            (56 * activity.resources.displayMetrics.density + 0.5f).toInt())
+        assertEquals("nested list measures wrapping rows instead of assuming 56dp for every font scale",
+            ViewGroup.LayoutParams.WRAP_CONTENT, list.layoutParams.height)
         val cancel = dialog.getButton(AlertDialog.BUTTON_NEGATIVE)
         val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
         assertTrue(cancel.isShown && cancel.isEnabled)

@@ -36,7 +36,9 @@ object BottomNavigationOrderDialog {
         val list = RecyclerView(activity).apply {
             layoutManager = LinearLayoutManager(activity)
             overScrollMode = RecyclerView.OVER_SCROLL_NEVER
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setPadding(0, dp(8), 0, dp(8))
+            addItemDecoration(ClassicReorderDecoration(
+                androidx.core.graphics.ColorUtils.setAlphaComponent(colors.text, 28), dp(24)))
             clipToPadding = false
         }
         class RowHolder(val row: LinearLayout, val label: TextView, val handle: ImageView) : RecyclerView.ViewHolder(row)
@@ -47,13 +49,16 @@ object BottomNavigationOrderDialog {
                 val wrapper = LinearLayout(activity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(16), 0, dp(16), 0)
-                    layoutParams = RecyclerView.LayoutParams(-1, dp(56))
+                    setPadding(dp(24), 0, dp(16), 0)
+                    minimumHeight = dp(56)
+                    layoutParams = RecyclerView.LayoutParams(-1, -2)
                     background = OxygenClassicDialog.ripple(activity.getProperPrimaryColor(), density)
                 }
                 val handle = ImageView(activity).apply {
                     setImageResource(R.drawable.oxygen_classic_drag_handle)
-                    imageTintList = ColorStateList.valueOf(colors.text)
+                    imageTintList = ColorStateList.valueOf(
+                        colors.secondary)
+                    scaleType = ImageView.ScaleType.CENTER
                     contentDescription = activity.getString(R.string.navigation_order_reorder)
                     isClickable = true
                     isFocusable = true
@@ -63,9 +68,10 @@ object BottomNavigationOrderDialog {
                     textSize = 16f
                     setTextColor(colors.text)
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(16), 0, 0, 0)
+                    minHeight = dp(56)
+                    setPadding(0, dp(8), dp(8), dp(8))
                 }
-                wrapper.addView(title, LinearLayout.LayoutParams(0, -1, 1f))
+                wrapper.addView(title, LinearLayout.LayoutParams(0, -2, 1f))
                 wrapper.addView(handle, LinearLayout.LayoutParams(dp(48), dp(48)))
                 return RowHolder(wrapper, title, handle)
             }
@@ -116,6 +122,14 @@ object BottomNavigationOrderDialog {
                 return true
             }
             override fun onSwiped(holder: RecyclerView.ViewHolder, direction: Int) = Unit
+            override fun onSelectedChanged(holder: RecyclerView.ViewHolder?, actionState: Int) {
+                super.onSelectedChanged(holder, actionState)
+                if (actionState == ItemTouchHelper.ACTION_STATE_DRAG) holder?.itemView?.isPressed = true
+            }
+            override fun clearView(rv: RecyclerView, holder: RecyclerView.ViewHolder) {
+                super.clearView(rv, holder)
+                holder.itemView.isPressed = false
+            }
             override fun isLongPressDragEnabled() = false
         }).also { it.attachToRecyclerView(list) }
 
@@ -137,13 +151,16 @@ object BottomNavigationOrderDialog {
                 // The legacy navigation order may have two entries. Restore all
                 // three without clipping the newly added Photos row.
                 val params = list.layoutParams
-                params.height = dp(56 * pending.size + 16)
+                params.height = ViewGroup.LayoutParams.WRAP_CONTENT
                 list.layoutParams = params
                 adapter.notifyDataSetChanged()
             }
         }
-        // Three rows plus the RecyclerView's 8dp top and bottom padding.
-        content.addView(list, LinearLayout.LayoutParams(-1, dp(56 * pending.size + 16)))
+        // Natural row heights can grow with font scale; only the middle scrolls.
+        val scroll = ClassicDialogScrollView(activity).apply {
+            addView(list, ViewGroup.LayoutParams(-1, -2))
+        }
+        content.addView(scroll, LinearLayout.LayoutParams(-1, -2))
         content.addView(reset)
         val builder = OxygenClassicDialog.builder(activity, activity.getString(R.string.oxygen_bottom_navigation_order))
             .setView(content)

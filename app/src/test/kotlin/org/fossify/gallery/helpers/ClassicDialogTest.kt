@@ -323,7 +323,7 @@ class ClassicDialogTest {
         // Commons security tabs contain a 250dp minimum PIN/pattern grid.
         // They must not inherit the compact confirmation width.
         val security = dialogWithContentId(org.fossify.commons.R.id.dialog_tab_view_pager)
-        assertEquals(OxygenClassicDialog.widthForContent(available, density, 360), security.window!!.attributes.width)
+        assertEquals(OxygenClassicDialog.widthForContent(available, density, 340), security.window!!.attributes.width)
         security.dismiss()
 
         val reorder = dialogWithContentId(R.id.classic_dialog_navigation_content)
@@ -462,7 +462,7 @@ class ClassicDialogTest {
         scroll.measure(View.MeasureSpec.makeMeasureSpec(500, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
         assertTrue(scroll.measuredHeight > 0)
-        assertTrue(scroll.measuredHeight <= activity.resources.displayMetrics.heightPixels * 0.60f)
+        assertTrue(scroll.measuredHeight <= OxygenClassicDialog.scrollViewportHeight(scroll, OxygenClassicDialog.availableHeight(activity)))
         assertTrue(scroll.getChildAt(0).measuredHeight > scroll.measuredHeight)
     }
 

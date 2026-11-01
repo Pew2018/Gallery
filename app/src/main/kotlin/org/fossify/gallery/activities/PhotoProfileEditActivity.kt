@@ -142,6 +142,8 @@ class PhotoProfileEditActivity : SimpleActivity() {
         }
         binding.photoProfileEditAddSource.apply {
             setTextColor(tokens.interactiveAccent)
+            androidx.core.widget.TextViewCompat.setCompoundDrawableTintList(this,
+                android.content.res.ColorStateList.valueOf(tokens.interactiveAccent))
             background = OxygenClassicDialog.ripple(tokens.interactiveAccent, resources.displayMetrics.density)
         }
         binding.photoProfileEditError.setTextColor(
@@ -155,7 +157,8 @@ class PhotoProfileEditActivity : SimpleActivity() {
         draft.sources.forEachIndexed { index, source ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(6), 0, dp(6))
+                setPadding(0, dp(8), 0, dp(8))
+                minimumHeight = dp(72)
             }
             val labels = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
             labels.addView(TextView(this).apply {

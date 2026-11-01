@@ -115,11 +115,12 @@
 
         <ImageView
             android:id="@+id/dir_drag_handle"
-            android:layout_width="@dimen/selection_check_size"
-            android:layout_height="@dimen/selection_check_size"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:layout_marginStart="@dimen/small_margin"
+            android:scaleType="center"
             android:contentDescription="@string/reorder_by_dragging"
-            android:src="@drawable/ic_drag_handle_vector"
+            android:src="@drawable/oxygen_classic_drag_handle"
             android:visibility="gone" />
 
     </LinearLayout>

@@ -31,8 +31,7 @@ class ClassicDialogScrollView @JvmOverloads constructor(context: Context, attrs:
         // with AppCompat title and action bar outside the scroller.
         val available = hostActivity()?.let(OxygenClassicDialog::availableHeight)
             ?: resources.displayMetrics.heightPixels
-        val chromeReserve = (136f * resources.displayMetrics.density).toInt()
-        val limit = minOf((available * 0.60f).toInt(), available - chromeReserve).coerceAtLeast(1)
+        val limit = OxygenClassicDialog.scrollViewportHeight(this, available)
         val mode = View.MeasureSpec.getMode(heightMeasureSpec)
         val size = View.MeasureSpec.getSize(heightMeasureSpec)
         val cap = if (mode == View.MeasureSpec.UNSPECIFIED) limit else minOf(size, limit)
@@ -148,7 +147,7 @@ class ClassicDialogPickerLayout @JvmOverloads constructor(
         if (!imeVisible || normalViewportHeight == 0) normalViewportHeight = hostHeight
         val available = normalViewportHeight
         // The alert's title and action buttons live outside this view.
-        val limit = minOf((available * 0.62f).toInt(), available - dp(136)).coerceAtLeast(1)
+        val limit = OxygenClassicDialog.scrollViewportHeight(this, available)
         val mode = View.MeasureSpec.getMode(heightMeasureSpec)
         val size = View.MeasureSpec.getSize(heightMeasureSpec)
         val cap = if (mode == View.MeasureSpec.UNSPECIFIED) limit else minOf(size, limit)

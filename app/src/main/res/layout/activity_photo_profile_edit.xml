@@ -24,18 +24,20 @@
             <EditText android:id="@+id/photo_profile_edit_name"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:minHeight="52dp" android:singleLine="true"
-                android:textSize="16sp" android:hint="@string/photo_profiles_name"
+                android:textSize="16sp"
                 android:inputType="textCapSentences" />
             <LinearLayout android:id="@+id/photo_profile_edit_sources"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:orientation="vertical" />
             <TextView android:id="@+id/photo_profile_edit_add_source"
-                android:layout_width="match_parent" android:layout_height="48dp"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:minHeight="56dp" android:paddingTop="8dp" android:paddingBottom="8dp"
+                android:drawableStart="@drawable/ic_plus_vector" android:drawablePadding="16dp"
                 android:gravity="center_vertical"
                 android:clickable="true" android:focusable="true"
                 android:text="@string/photo_profiles_add_source" android:fontFamily="sans-serif-medium"
-                android:textSize="14sp" />
+                android:textSize="16sp" />
             <TextView android:id="@+id/photo_profile_edit_error"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:paddingStart="8dp" android:paddingEnd="8dp" android:paddingBottom="12dp"

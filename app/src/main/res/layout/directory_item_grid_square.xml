@@ -67,15 +67,16 @@
 
         <ImageView
             android:id="@+id/dir_drag_handle"
-            android:layout_width="@dimen/drag_handle_size"
-            android:layout_height="@dimen/drag_handle_size"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:layout_alignParentTop="true"
             android:layout_centerHorizontal="true"
             android:layout_margin="@dimen/medium_margin"
             android:background="@drawable/circle_black_background"
+            android:scaleType="center"
             android:contentDescription="@string/reorder_by_dragging"
-            android:padding="@dimen/small_margin"
-            android:src="@drawable/ic_drag_handle_vector" />
+            android:padding="12dp"
+            android:src="@drawable/oxygen_classic_drag_handle" />
 
 
 </RelativeLayout>

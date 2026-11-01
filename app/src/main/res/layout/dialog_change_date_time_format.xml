@@ -95,16 +95,19 @@
             android:id="@+id/sorting_dialog_order_divider"
             layout="@layout/divider" />
 
-        <org.fossify.commons.views.MyAppCompatCheckbox
-            android:id="@+id/change_date_time_dialog_24_hour"
-            android:layoutDirection="rtl"
-            android:gravity="left|center_vertical"
-            android:textDirection="locale"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:text="@string/use_24_hour_time_format" />
+        <org.fossify.gallery.views.ClassicCheckboxRow
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="56dp" android:orientation="horizontal"
+            android:gravity="center_vertical" android:paddingStart="24dp" android:paddingEnd="12dp"
+            android:background="?attr/selectableItemBackground" >
+            <org.fossify.commons.views.MyTextView
+                android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:paddingTop="8dp" android:paddingBottom="8dp" android:paddingEnd="12dp"
+                android:textSize="16sp" android:text="@string/use_24_hour_time_format" />
+            <org.fossify.commons.views.MyAppCompatCheckbox
+                android:id="@+id/change_date_time_dialog_24_hour" android:layout_width="48dp" android:layout_height="48dp"
+                android:padding="12dp" android:buttonTint="?attr/colorControlActivated" />
+        </org.fossify.gallery.views.ClassicCheckboxRow>
 
     </LinearLayout>
 </org.fossify.gallery.helpers.ClassicDialogScrollView>

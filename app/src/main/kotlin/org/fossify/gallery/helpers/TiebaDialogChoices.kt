@@ -40,9 +40,12 @@ internal object TiebaDialogChoices {
         check.setTint(accent)
         button.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, check, null)
         button.compoundDrawablePadding = dp(16)
-        button.typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        button.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
         val insets = remainingInsets(button, dp(24))
-        button.setPaddingRelative(insets.first, dp(16), insets.second, dp(16))
+        button.minHeight = dp(48)
+        button.gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+        button.setSingleLine(false)
+        button.setPaddingRelative(insets.first, dp(8), insets.second, dp(8))
         button.background = RippleDrawable(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 24)),
             selectedBackground(accent, surface), android.graphics.drawable.ColorDrawable(Color.WHITE))
         button.setTextColor(ColorStateList(
