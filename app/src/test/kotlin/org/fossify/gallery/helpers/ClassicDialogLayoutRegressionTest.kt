@@ -22,11 +22,13 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28, 35], manifest = Config.NONE, application = Application::class,
     qualifiers = "w360dp-h800dp-mdpi")
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ClassicDialogLayoutRegressionTest {
     private fun activity() = Robolectric.buildActivity(Activity::class.java).setup().get().apply {
         setTheme(R.style.OxygenClassicAlertDialog_Light)
@@ -64,6 +66,7 @@ class ClassicDialogLayoutRegressionTest {
         assertTrue("positive action is at the trailing edge", root.width - rect.right <= 32)
         assertTrue(cancel.right <= ok.left)
         ok.performClick()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         assertEquals(1, accepted)
         assertFalse(dialog.isShowing)
         host.finish()
@@ -162,6 +165,21 @@ class ClassicDialogLayoutRegressionTest {
         assertEquals(width, parent.window!!.attributes.width)
         assertEquals(0.45f, parent.window!!.attributes.dimAmount, 0.001f)
         parent.dismiss()
+        host.finish()
+    }
+
+    @Test fun singleCancelDoesNotKeepAlertControllersCenteringWeight() {
+        val host = activity()
+        val dialog = OxygenClassicDialog.show(host, OxygenClassicDialog.builder(host, "")
+            .setView(TextView(host).apply { text = "Security input" })
+            .setNegativeButton("Cancel", null))
+        measure(dialog)
+        val cancel = dialog.getButton(AlertDialog.BUTTON_NEGATIVE)
+        val lp = cancel.layoutParams as LinearLayout.LayoutParams
+        assertEquals(0f, lp.weight, 0f)
+        assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, lp.width)
+        assertEquals(Gravity.END, (cancel.parent as LinearLayout).gravity and Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK)
+        dialog.dismiss()
         host.finish()
     }
 }

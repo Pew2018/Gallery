@@ -178,8 +178,8 @@ class ClassicDialogTest {
         assertFalse(dialog.isShowing)
         assertNotNull(dialog.getButton(AlertDialog.BUTTON_POSITIVE))
         val width = dialog.window!!.attributes.width
-        assertEquals(OxygenClassicDialog.widthFor(OxygenClassicDialog.availableWidth(activity),
-            activity.resources.displayMetrics.density), width)
+        assertEquals(OxygenClassicDialog.widthForContent(OxygenClassicDialog.availableWidth(activity),
+            activity.resources.displayMetrics.density, 320), width)
         val mode = dialog.window!!.attributes.softInputMode
         assertEquals(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE,
             mode and android.view.WindowManager.LayoutParams.SOFT_INPUT_MASK_STATE)

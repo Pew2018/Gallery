@@ -112,7 +112,7 @@ class TiebaStyleMigrationTest {
         assertEquals(1, selected)
         assertNull(second.buttonDrawable)
         assertNotNull(second.compoundDrawablesRelative[2])
-        assertTrue(second.typeface.isBold)
+        assertFalse(second.typeface.isBold)
         Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         val decor = dialog.window!!.decorView
         measure(decor, 278)

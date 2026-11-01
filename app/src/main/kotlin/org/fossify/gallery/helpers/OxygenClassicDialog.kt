@@ -114,7 +114,7 @@ object OxygenClassicDialog {
 
             has(R.id.classic_dialog_toolbar_content) -> WidthProfile.OPTIONS
             has(R.id.delete_remember_holder, R.id.dialog_confirm_delete_folder_holder,
-                R.id.message_scrollview) || dialog.findViewById<View>(android.R.id.message) != null -> WidthProfile.CONFIRM
+                R.id.message_scrollview) || dialog.findViewById<TextView>(android.R.id.message)?.text?.isNotEmpty() == true -> WidthProfile.CONFIRM
 
             has(
                 R.id.dialog_folder_sample_holder,
@@ -578,8 +578,12 @@ object OxygenClassicDialog {
                 val lp = button.layoutParams as? LinearLayout.LayoutParams
                 if (lp != null) {
                     val gap = if (index == 0) 0 else (8 * dp).toInt()
-                    if (lp.marginStart != gap) {
+                    // AlertController can center a lone button using weight=0.5.
+                    // Clear that allocation while retaining ButtonBarLayout stacking.
+                    if (lp.marginStart != gap || lp.weight != 0f || lp.width != ViewGroup.LayoutParams.WRAP_CONTENT) {
                         lp.marginStart = gap
+                        lp.weight = 0f
+                        lp.width = ViewGroup.LayoutParams.WRAP_CONTENT
                         button.layoutParams = lp
                     }
                 }
