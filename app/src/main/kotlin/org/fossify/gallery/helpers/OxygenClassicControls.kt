@@ -70,7 +70,7 @@ object OxygenClassicControls {
                     }
                     view.showText = false
                     view.splitTrack = false
-                    view.switchPadding = dp(16)
+                    view.switchPadding = dp(if (view is ClassicSettingsSwitch) 24 else 16)
                     view.thumbTextPadding = 0
                 }
                 is RadioButton, is CheckBox -> {

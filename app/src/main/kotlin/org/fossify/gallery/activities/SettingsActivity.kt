@@ -171,42 +171,9 @@ class SettingsActivity : SimpleActivity() {
         val colors = OxygenThemeEngine.snapshot(this, config)
         settingsHub.removeAllViews()
         settingsCategories.forEachIndexed { index, category ->
-            val row = android.widget.LinearLayout(this).apply {
-                orientation = android.widget.LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-                isClickable = true
-                isFocusable = true
-                val value = android.util.TypedValue()
-                theme.resolveAttribute(android.R.attr.selectableItemBackground, value, true)
-                background = androidx.appcompat.content.res.AppCompatResources.getDrawable(this@SettingsActivity, value.resourceId)
-                setPadding(dp(16), dp(10), dp(16), dp(10))
-                minimumHeight = dp(72)
-                setOnClickListener { openSettingsCategory(category) }
-            }
-            row.addView(android.widget.ImageView(this).apply {
-                setImageResource(category.icon)
-                imageTintList = android.content.res.ColorStateList.valueOf(colors.interactiveAccent)
-                contentDescription = null
-            }, android.widget.LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(20) })
-            val textColumn = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.VERTICAL }
-            textColumn.addView(android.widget.TextView(this).apply {
-                text = getString(category.title)
-                textSize = 16f
-                setTextColor(colors.primaryText)
-                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-            })
-            textColumn.addView(android.widget.TextView(this).apply {
-                text = getString(category.summary)
-                textSize = 12f
-                setTextColor(colors.secondaryText)
-                setPadding(0, dp(3), 0, 0)
-            })
-            row.addView(textColumn, android.widget.LinearLayout.LayoutParams(0, -2, 1f))
-            row.addView(android.widget.ImageView(this).apply {
-                setImageResource(org.fossify.commons.R.drawable.ic_chevron_right_vector)
-                imageTintList = android.content.res.ColorStateList.valueOf(colors.secondaryText)
-                contentDescription = null
-            }, android.widget.LinearLayout.LayoutParams(dp(20), dp(20)))
+            val row = org.fossify.gallery.views.TiebaSettingsCategoryRow(
+                this, category.icon, getString(category.title), getString(category.summary), colors
+            ) { openSettingsCategory(category) }
             settingsHub.addView(row, android.widget.LinearLayout.LayoutParams(-1, -2))
             if (index < settingsCategories.lastIndex) {
                 settingsHub.addView(View(this).apply {
@@ -214,7 +181,7 @@ class SettingsActivity : SimpleActivity() {
                         colors.pageBackground, colors.primaryText, 0.10
                     ))
                 },
-                    android.widget.LinearLayout.LayoutParams(-1, dp(1)).apply { marginStart = dp(60) })
+                    android.widget.LinearLayout.LayoutParams(-1, dp(1)))
             }
         }
         renderSettingsPage()
