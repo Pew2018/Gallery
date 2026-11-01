@@ -36,8 +36,8 @@ internal data class OxygenClassicSwitchGeometry(val density: Float) {
 
 /** Shared control skin. No listeners or preference writes; each view owns its drawables. */
 object OxygenClassicControls {
-    internal fun selectionDrawable(radio: Boolean, density: Float, colors: OxygenThemeTokens): Drawable =
-        ClassicDrawable(if (radio) "radio" else "check", density, colors, false)
+    internal fun selectionDrawable(radio: Boolean, density: Float, colors: OxygenThemeTokens, surfaceAccent: Boolean = false): Drawable =
+        ClassicDrawable(if (radio) "radio" else "check", density, colors, false, surfaceAccent)
 
     fun applySwitches(root: View, colors: OxygenThemeTokens) {
         val density = root.resources.displayMetrics.density
@@ -113,7 +113,7 @@ object OxygenClassicControls {
      */
     private class ClassicDrawable(
         private val kind: String, private val density: Float, private val colors: OxygenThemeTokens,
-        private val animationsEnabled: Boolean
+        private val animationsEnabled: Boolean, private val surfaceAccent: Boolean = false
     ) : Drawable() {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val geometry = OxygenClassicSwitchGeometry(density)
@@ -279,7 +279,7 @@ object OxygenClassicControls {
                 }
                 "check" -> {
                     // 20dp painted box inside the 24dp layout, including the unchecked stroke.
-                    val fill = if (enabled) OxygenThemeColors.toolbarBackground(colors.rawAccent)
+                    val fill = if (enabled) { if (surfaceAccent) accent else OxygenThemeColors.toolbarBackground(colors.rawAccent) }
                         else OxygenThemeColors.blend(bg, fg, 0.49)
                     color(if (checked) fill else outline)
                     paint.style = if (checked) Paint.Style.FILL else Paint.Style.STROKE
@@ -288,7 +288,7 @@ object OxygenClassicControls {
                     canvas.drawRoundRect(cx - radius * density, cy - radius * density,
                         cx + radius * density, cy + radius * density, density, density, paint)
                     if (checked) {
-                        color(Color.WHITE); paint.style = Paint.Style.STROKE; paint.strokeWidth = 2 * density
+                        color(if (surfaceAccent) OxygenThemeColors.autoForeground(fill) else Color.WHITE); paint.style = Paint.Style.STROKE; paint.strokeWidth = 2 * density
                         paint.strokeCap = Paint.Cap.ROUND
                         paint.strokeJoin = Paint.Join.ROUND
                         val path = Path().apply {

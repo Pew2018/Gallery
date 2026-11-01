@@ -541,7 +541,7 @@ object OxygenClassicDialog {
                     // Commons can install an AppCompat tint separately from framework tint.
                     button.supportButtonTintList = null
                 }
-                button.buttonDrawable = OxygenClassicControls.selectionDrawable(v is RadioButton, dp, controlColors)
+                button.buttonDrawable = OxygenClassicControls.selectionDrawable(v is RadioButton, dp, controlColors, surfaceAccent = targeted)
                 CompoundButtonCompat.setButtonTintList(button, if (targeted) null else tints)
                 val trailing = v.id == R.id.sorting_dialog_numeric_sorting || v.id == R.id.sorting_dialog_use_for_this_folder
                 if (trailing) {
