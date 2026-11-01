@@ -44,11 +44,18 @@ class ClassicSecurityViewPagerTest {
             }
         }
 
+        // ViewPager creates adapter pages on its first attached layout, not when
+        // measured in isolation. Match the real dialog's attach/layout lifecycle.
+        activity.setContentView(root)
+        val width = View.MeasureSpec.makeMeasureSpec(340, View.MeasureSpec.EXACTLY)
+        val height = View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.AT_MOST)
+        root.measure(width, height)
+        root.layout(0, 0, 340, root.measuredHeight)
+
         fun measuredHeight(): Int {
-            pager.measure(
-                View.MeasureSpec.makeMeasureSpec(340, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.AT_MOST)
-            )
+            pager.measure(width, height)
+            pager.layout(0, 0, 340, pager.measuredHeight)
+            pager.measure(width, height)
             return pager.measuredHeight
         }
 
