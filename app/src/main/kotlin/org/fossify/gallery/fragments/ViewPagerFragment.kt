@@ -17,6 +17,11 @@ import com.awxkee.jxlcoder.JxlCoder
 abstract class ViewPagerFragment : Fragment() {
     var listener: FragmentListener? = null
 
+    /** Update presentation fields without replacing the page or its decoded media. */
+    open fun updateMedium(medium: Medium) {
+        arguments?.putSerializable(MEDIUM, medium)
+    }
+
     private var mTouchDownTime = 0L
     private var mTouchDownX = 0f
     private var mTouchDownY = 0f
@@ -42,6 +47,11 @@ abstract class ViewPagerFragment : Fragment() {
 
         /** Called after a photo drawable has been installed; paths remain in-process only. */
         fun imageRendered(path: String) {}
+    }
+
+    override fun onDestroy() {
+        listener = null
+        super.onDestroy()
     }
 
     fun getMediumExtendedDetails(medium: Medium): String {

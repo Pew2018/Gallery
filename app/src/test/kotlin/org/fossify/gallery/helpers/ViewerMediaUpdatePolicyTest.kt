@@ -31,13 +31,38 @@ class ViewerMediaUpdatePolicyTest {
         assertEquals(setOf(ViewerMediaUpdatePolicy.identity(old[1])), update.invalidatedIdentities)
     }
 
-    @Test fun contentAndMediaTypeChangesInvalidateTheOldFragmentIdentity() {
+    @Test fun stableIdentityDoesNotIncludeMetadataButTypeAndPathRemainDistinct() {
         val old = medium("same.jpg", modified = 10L, type = 1)
         val changedContent = medium("same.jpg", modified = 11L, type = 1)
         val changedType = medium("same.jpg", modified = 10L, type = 2)
 
-        assertFalse(ViewerMediaUpdatePolicy.identity(old) == ViewerMediaUpdatePolicy.identity(changedContent))
+        assertEquals(ViewerMediaUpdatePolicy.identity(old), ViewerMediaUpdatePolicy.identity(changedContent))
         assertFalse(ViewerMediaUpdatePolicy.identity(old) == ViewerMediaUpdatePolicy.identity(changedType))
+        assertFalse(ViewerMediaUpdatePolicy.identity(old) == ViewerMediaUpdatePolicy.identity(medium("renamed.jpg")))
+        assertTrue(ViewerMediaUpdatePolicy.contentChanged(
+            ViewerMediaUpdatePolicy.contentSignature(old), ViewerMediaUpdatePolicy.contentSignature(changedContent)
+        ))
+    }
+
+    @Test fun provisionalMetadataCanBeEnrichedWithoutTreatingUnknownAsReplacement() {
+        val provisional = Medium(null, "same.jpg", "/gallery/same.jpg", "/gallery", 0L, 0L, 0L, 1, 0, false, 0L, 0L)
+        val complete = Medium(42L, "same.jpg", "/gallery/same.jpg", "/gallery", 11L, 123L, 400L, 1, 0, true, 0L, 1234L)
+        val oldSignature = ViewerMediaUpdatePolicy.contentSignature(provisional)
+        val freshSignature = ViewerMediaUpdatePolicy.contentSignature(complete)
+
+        assertFalse(ViewerMediaUpdatePolicy.contentChanged(oldSignature, freshSignature))
+        val merged = ViewerMediaUpdatePolicy.mergeMetadata(provisional, complete)
+        assertEquals(42L, merged.id)
+        assertEquals(123L, merged.taken)
+        assertTrue(merged.isFavorite)
+        assertEquals(400L, merged.size)
+    }
+
+    @Test fun samePathReplacementAndMediaTypeChangeInvalidateContent() {
+        val old = medium("same.jpg", modified = 10L)
+        val replacement = medium("same.jpg", modified = 11L)
+        val oldSignature = ViewerMediaUpdatePolicy.contentSignature(old)
+        assertTrue(ViewerMediaUpdatePolicy.contentChanged(oldSignature, ViewerMediaUpdatePolicy.contentSignature(replacement)))
     }
 
     @Test fun fullCatalogUpgradeKeepsSelectedItemPositionForLargeCollections() {

@@ -11,6 +11,10 @@ import org.fossify.gallery.BuildConfig
 internal object GalleryPerfTrace {
     fun begin(): Long = if (BuildConfig.DEBUG) SystemClock.elapsedRealtimeNanos() else 0L
 
+    fun event(name: String, count: Int? = null) {
+        if (BuildConfig.DEBUG) Log.d("GalleryPerf", "event=$name count=${count ?: -1}")
+    }
+
     fun end(stage: String, startedNanos: Long, count: Int? = null) {
         if (startedNanos == 0L) return
         val millis = (SystemClock.elapsedRealtimeNanos() - startedNanos) / 1_000_000.0

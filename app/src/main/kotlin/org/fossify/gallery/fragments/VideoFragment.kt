@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 9485)
+Total output lines: 1057
+
 @file:androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 
 package org.fossify.gallery.fragments
@@ -170,6 +173,13 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     private var mTouchSlop = 0
     private var mInitialX = 0f
     private var mInitialY = 0f
+
+    override fun updateMedium(medium: Medium) {
+        if (!::mMedium.isInitialized || medium.path != mMedium.path) return
+        mMedium = medium
+        super.updateMedium(medium)
+        if (this::binding.isInitialized && view != null) checkExtendedDetails()
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -387,179 +397,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         binding.videoSurfaceFrame.beGoneIf(mTextureView.isGone())
 
         mVolumeSideScroll.beVisibleIf(allowVideoGestures && !mIsPanorama)
-        mBrightnessSideScroll.beVisibleIf(allowVideoGestures && !mIsPanorama)
-
-        checkExtendedDetails()
-        initTimeHolder()
-        storeStateVariables()
-    }
-
-    override fun onPause() {
-        super.onPause()
-        storeStateVariables()
-        pauseVideo()
-        if (mStoredRememberLastVideoPosition && mIsFragmentVisible && mWasVideoStarted) {
-            saveVideoProgress()
-        }
-    }
-
-    override fun onDestroyView() {
-        // Fragment views are discarded on rotation too. Never keep their player,
-        // timer or video Surface alive across view destruction.
-        cleanup()
-        mTextureView.surfaceTextureListener = null
-        super.onDestroyView()
-    }
-
-    override fun setMenuVisibility(menuVisible: Boolean) {
-        super.setMenuVisibility(menuVisible)
-        if (mIsFragmentVisible && !menuVisible) {
-            pauseVideo()
-        }
-
-        mIsFragmentVisible = menuVisible
-        val shouldPlayVideo = mWasFragmentInit && menuVisible && mConfig.autoplayVideos && !mConfig.gestureVideoPlayer
-        if (shouldPlayVideo) playVideo()
-    }
-
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-        setVideoSize()
-        binding.videoSurfaceFrame.onGlobalLayout {
-            binding.videoSurfaceFrame.controller.resetState()
-        }
-    }
-
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        outState.putLong(PROGRESS, mCurrTime)
-    }
-
-    private fun storeStateVariables() {
-        mConfig.apply {
-            mStoredShowExtendedDetails = showExtendedDetails
-            mStoredHideExtendedDetails = hideExtendedDetails
-            mStoredExtendedDetails = extendedDetails
-            mStoredBottomActions = bottomActions
-            mStoredRememberLastVideoPosition = rememberLastVideoPosition
-        }
-    }
-
-    private fun saveVideoProgress() {
-        if (!videoEnded()) {
-            if (mExoPlayer != null) {
-                mConfig.saveLastVideoPosition(
-                    mMedium.path,
-                    mExoPlayer!!.currentPosition.toInt() / 1000
-                )
-            } else {
-                mConfig.saveLastVideoPosition(mMedium.path, mPositionAtPause.toInt() / 1000)
-            }
-        }
-    }
-
-    private fun restoreLastVideoSavedPosition() {
-        val seconds = mConfig.getLastVideoPosition(mMedium.path)
-        if (seconds > 0) {
-            mPositionAtPause = seconds * 1000L
-            setPosition(seconds * 1000L)
-        }
-    }
-
-    private fun setupTimeHolder() {
-        mSeekBar.max = mDuration.toInt()
-        binding.bottomVideoTimeHolder.videoDuration.text = mDuration.getFormattedDuration()
-        setupTimer()
-    }
-
-    private fun setupTimer() {
-        // Repeated duration updates must not schedule parallel 250-ms loops.
-        mTimerHandler.removeCallbacks(mProgressRunnable)
-        mTimerHandler.post(mProgressRunnable)
-    }
-
-    private fun initExoPlayer() {
-        val shouldSkipInit = activity == null || mConfig.gestureVideoPlayer || mIsPanorama || mExoPlayer != null
-        if (shouldSkipInit) return
-
-        val isContentUri = mMedium.path.startsWith("content://")
-        val uri = if (isContentUri) Uri.parse(mMedium.path) else Uri.fromFile(File(mMedium.path))
-        val dataSpec = DataSpec(uri)
-        val fileDataSource = if (isContentUri) {
-            ContentDataSource(requireContext())
-        } else {
-            FileDataSource()
-        }
-
-        try {
-            fileDataSource.open(dataSpec)
-        } catch (e: Exception) {
-            fileDataSource.close()
-            activity?.showErrorToast(e)
-            return
-        }
-
-        val factory = DataSource.Factory { fileDataSource }
-        val mediaSource: MediaSource = ProgressiveMediaSource.Factory(factory)
-            .createMediaSource(MediaItem.fromUri(fileDataSource.uri!!))
-
-        fileDataSource.close()
-
-        mPlayOnPrepared = true
-
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                EXOPLAYER_MIN_BUFFER_MS,
-                EXOPLAYER_MAX_BUFFER_MS,
-                EXOPLAYER_MIN_BUFFER_MS,
-                EXOPLAYER_MIN_BUFFER_MS
-            )
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .build()
-
-        mExoPlayer = ExoPlayer.Builder(requireContext())
-            .setMediaSourceFactory(DefaultMediaSourceFactory(requireContext()))
-            .setSeekParameters(SeekParameters.EXACT)
-            .setLoadControl(loadControl)
-            .build()
-            .apply {
-                if (mConfig.loopVideos && listener?.isSlideShowActive() == false) {
-                    repeatMode = Player.REPEAT_MODE_ONE
-                }
-                setPlaybackSpeed(mConfig.playbackSpeed)
-                setMediaSource(mediaSource)
-                setAudioAttributes(
-                    AudioAttributes
-                        .Builder()
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                        .build(), false
-                )
-                prepare()
-
-                mTextureView.surfaceTexture?.let { attachVideoSurface(this, it) }
-
-                initListeners()
-            }
-
-        updatePlayerMuteState()
-    }
-
-    private fun ExoPlayer.initListeners() {
-        addListener(object : Player.Listener {
-            override fun onPositionDiscontinuity(
-                oldPosition: Player.PositionInfo,
-                newPosition: Player.PositionInfo,
-                @Player.DiscontinuityReason reason: Int,
-            ) {
-                // Reset progress views when video loops.
-                if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
-                    mSeekBar.progress = 0
-                    mCurrTimeView.text = 0.getFormattedDuration()
-                }
-            }
-
-            override fun onPlaybackStateChanged(@Player.State playbackState: Int) {
-                when (playbackState) {
+        mBrightnessSideScroll.be…1485 tokens truncated…          when (playbackState) {
                     Player.STATE_READY -> videoPrepared()
                     Player.STATE_ENDED -> videoCompleted()
                 }

@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 10292)
+Total output lines: 1031
+
 package org.fossify.gallery.fragments
 
 import android.annotation.SuppressLint
@@ -151,6 +154,13 @@ class PhotoFragment : ViewPagerFragment() {
     private lateinit var mView: ViewGroup
     private lateinit var binding: PagerPhotoItemBinding
     private lateinit var mMedium: Medium
+
+    override fun updateMedium(medium: Medium) {
+        if (!::mMedium.isInitialized || medium.path != mOriginalPath) return
+        mMedium = medium
+        super.updateMedium(medium)
+        if (this::binding.isInitialized && view != null) initExtendedDetails()
+    }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -385,246 +395,7 @@ class PhotoFragment : ViewPagerFragment() {
         }
     }
 
-    private fun checkScreenDimensions() {
-        if (mScreenWidth == 0 || mScreenHeight == 0) {
-            measureScreen()
-        }
-    }
-
-    private fun measureScreen() {
-        val metrics = DisplayMetrics()
-        activity?.windowManager?.defaultDisplay?.getRealMetrics(metrics)
-        mScreenWidth = metrics.widthPixels
-        mScreenHeight = metrics.heightPixels
-    }
-
-    private fun photoFragmentVisibilityChanged(isVisible: Boolean) {
-        if (isVisible) {
-            applyProperColorMode(binding.gesturesView.drawable)
-            scheduleZoomableView()
-        } else {
-            hideZoomableView()
-            ColorModeHelper.resetColorMode(activity)
-        }
-    }
-
-    private fun degreesForRotation(orientation: Int) = when (orientation) {
-        ORIENTATION_ROTATE_270, ORIENTATION_TRANSPOSE -> 270
-        ORIENTATION_ROTATE_180 -> 180
-        ORIENTATION_ROTATE_90, ORIENTATION_TRANSVERSE -> 90
-        else -> 0
-    }
-
-    private fun rotateViaMatrix(original: Bitmap, orientation: Int): Bitmap {
-        val degrees = degreesForRotation(orientation).toFloat()
-        return if (degrees == 0f) {
-            original
-        } else {
-            val matrix = Matrix()
-            matrix.setRotate(degrees)
-            Bitmap.createBitmap(original, 0, 0, original.width, original.height, matrix, true)
-        }
-    }
-
-    private fun loadImage() {
-        mHasInitialZoom = false
-        checkScreenDimensions()
-
-        if (mMedium.isPortrait() && context != null) {
-            showPortraitStripe()
-        }
-
-        ensureBackgroundThread {
-            mImageOrientation = getImageOrientation()
-            activity?.runOnUiThread {
-                when {
-                    mMedium.isGIF() -> loadGif()
-                    mMedium.isSVG() -> loadSVG()
-                    mMedium.isApng() -> loadAPNG()
-                    mMedium.isAvif() -> loadAVIF()
-                    else -> loadBitmap()
-                }
-            }
-        }
-    }
-
-    private fun loadGif() {
-        try {
-            val pathToLoad = getPathToLoad(mMedium)
-            val source = if (pathToLoad.startsWith("content://") || pathToLoad.startsWith("file://")) {
-                InputSource.UriSource(requireContext().contentResolver, Uri.parse(pathToLoad))
-            } else {
-                InputSource.FileSource(pathToLoad)
-            }
-
-            binding.apply {
-                gesturesView.beGone()
-                gifViewFrame.beVisible()
-                ensureBackgroundThread {
-                    gifView.setInputSource(source)
-                }
-            }
-        } catch (e: Exception) {
-            loadBitmap()
-        } catch (e: OutOfMemoryError) {
-            loadBitmap()
-        }
-    }
-
-    private fun loadSVG() {
-        if (context != null) {
-            Glide.with(requireContext())
-                .`as`(PictureDrawable::class.java)
-                .listener(SvgSoftwareLayerSetter())
-                .load(mMedium.path)
-                .into(binding.gesturesView)
-        }
-    }
-
-    private fun loadAPNG() {
-        if (context != null) {
-            val drawable = APNGDrawable.fromFile(mMedium.path)
-            binding.gesturesView.setImageDrawable(drawable)
-            reportImageRendered()
-        }
-    }
-
-    private fun loadAVIF() {
-        if (context != null) {
-            val drawable = AVIFDrawable.fromFile(mMedium.path)
-            if (drawable.intrinsicWidth == 0 || drawable.intrinsicHeight == 0) {
-                loadBitmap()
-                return
-            }
-
-            binding.gesturesView.setImageDrawable(drawable)
-            reportImageRendered()
-        }
-    }
-
-    private fun loadBitmap(addZoomableView: Boolean = true) {
-        mHasInitialZoom = false
-        if (context == null) return
-        val path = getFilePathToShow()
-        if (path.isWebP()) {
-            val drawable = WebPDrawable.fromFile(path)
-            if (drawable.intrinsicWidth == 0) {
-                loadWithGlide(path, addZoomableView)
-            } else {
-                binding.gesturesView.setImageDrawable(drawable)
-                reportImageRendered()
-            }
-        } else {
-            loadWithGlide(path, addZoomableView)
-        }
-    }
-
-    private fun loadWithGlide(path: String, addZoomableView: Boolean) {
-        val priority = if (mIsFragmentVisible) Priority.IMMEDIATE else Priority.NORMAL
-        val options = RequestOptions()
-            .signature(mMedium.getKey())
-            .format(DecodeFormat.PREFER_ARGB_8888)
-            .priority(priority)
-            .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-            .fitCenter()
-            .run {
-                if (mCurrentRotationDegrees != 0) {
-                    transform(Rotate(mCurrentRotationDegrees))
-                        .diskCacheStrategy(DiskCacheStrategy.NONE)
-                } else {
-                    this
-                }
-            }
-
-        Glide.with(requireContext())
-            .load(path)
-            .apply(options)
-            .listener(object : RequestListener<Drawable> {
-                override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
-                    resetColorModeIfVisible()
-                    if (activity != null && !activity!!.isDestroyed && !activity!!.isFinishing) {
-                        tryLoadingWithPicasso(addZoomableView)
-                    }
-                    return false
-                }
-
-                override fun onResourceReady(
-                    resource: Drawable,
-                    model: Any,
-                    target: Target<Drawable>,
-                    dataSource: DataSource,
-                    isFirstResource: Boolean
-                ): Boolean {
-                    applyProperColorMode(resource)
-                    val allowZoomingImages = context?.config?.allowZoomingImages ?: true
-                    binding.gesturesView.controller.settings.isZoomEnabled = mMedium.isRaw() || mCurrentRotationDegrees != 0 || allowZoomingImages == false
-                    if (mIsFragmentVisible && addZoomableView) {
-                        scheduleZoomableView()
-                    }
-                    reportImageRendered()
-                    return false
-                }
-            }).into(binding.gesturesView)
-    }
-
-    private fun tryLoadingWithPicasso(addZoomableView: Boolean) {
-        var pathToLoad = if (getFilePathToShow().startsWith("content://")) getFilePathToShow() else "file://${getFilePathToShow()}"
-        pathToLoad = pathToLoad.replace("%", "%25").replace("#", "%23")
-
-        try {
-            val picasso = Picasso.get()
-                .load(pathToLoad)
-                .centerInside()
-                .stableKey(mMedium.getSignature())
-                .resize(mScreenWidth, mScreenHeight)
-
-            if (mCurrentRotationDegrees != 0) {
-                picasso.rotate(mCurrentRotationDegrees.toFloat())
-            } else {
-                degreesForRotation(mImageOrientation).toFloat()
-            }
-
-            picasso.into(binding.gesturesView, object : Callback {
-                override fun onSuccess() {
-                    applyProperColorMode(binding.gesturesView.drawable)
-                    binding.gesturesView.controller.settings.isZoomEnabled =
-                        mMedium.isRaw() || mCurrentRotationDegrees != 0 || context?.config?.allowZoomingImages == false
-                    if (mIsFragmentVisible && addZoomableView) {
-                        scheduleZoomableView()
-                    }
-                    reportImageRendered()
-                }
-
-                override fun onError(e: Exception?) {
-                    resetColorModeIfVisible()
-                    if (mMedium.path != mOriginalPath) {
-                        mMedium.path = mOriginalPath
-                        loadImage()
-                        // TODO: Implement panorama using a FOSS library
-                        // checkIfPanorama()
-                    } else {
-                        binding.errorMessageHolder.errorMessage.apply {
-                            setTextColor(if (context.config.blackBackground) Color.WHITE else context.getProperTextColor())
-                            fadeIn()
-                        }
-                    }
-                }
-            })
-        } catch (ignored: Exception) {
-        }
-    }
-
-    private fun setupGesturesViewStateListener() {
-        binding.gesturesView.controller.addOnStateChangeListener(object : GestureController.OnStateChangeListener {
-            override fun onStateChanged(state: State) {
-                val settings = binding.gesturesView.controller.settings
-                if (settings.hasImageSize() && settings.hasViewportSize() && !mHasInitialZoom) {
-                    val zoomByWidth = settings.viewportWidth.toFloat() / settings.imageWidth
-                    val zoomByHeight = settings.viewportHeight.toFloat() / settings.imageHeight
-                    val fitZoom = maxOf(zoomByWidth, zoomByHeight)
-                    mInitialZoom = state.zoom
-                    var target = fitZoom
-                    if (abs(target - mInitialZoom) < MAX_ZOOM_EQUALITY_TOLERANCE) {
+    …2292 tokens truncated…< MAX_ZOOM_EQUALITY_TOLERANCE) {
                         target = mInitialZoom * DEFAULT_DOUBLE_TAP_ZOOM
                     }
                     settings.doubleTapZoom = target.coerceAtMost(settings.maxZoom)
