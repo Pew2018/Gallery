@@ -17,7 +17,7 @@ class FavoriteViewerCatalogStoreTest {
     @Test fun randomHandoffIdIsOneUseAndDoesNotCarryAuthorization() {
         val context = RuntimeEnvironment.getApplication()
         val media = arrayListOf(Medium(null, "a.jpg", "/Camera/a.jpg", "/Camera", 1, 1, 1,
-            org.fossify.commons.helpers.TYPE_IMAGES, 0, true, 0, 1))
+            TYPE_IMAGES, 0, true, 0, 1))
         val id = FavoriteViewerCatalogStore.prepare(context, media, setOf("/Camera/a.jpg")) { true }
         assertNotNull(id)
         media.first().name = "changed-after-handoff"
