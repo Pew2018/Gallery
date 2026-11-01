@@ -37,7 +37,7 @@ class ClassicOverflowPositionTest {
     fun toolbarAndAnchoredMenusEndNearTheirGlyphInLtr() = checkPositions(false)
 
     @Test
-    @Config(qualifiers = "ldrtl-w360dp-h800dp-mdpi")
+    @Config(qualifiers = "ar-rSA-ldrtl-w360dp-h800dp-mdpi")
     fun toolbarAndAnchoredMenusEndNearTheirGlyphInRtl() = checkPositions(true)
 
     private fun descendants(view: View): List<View> = listOf(view) +
@@ -49,6 +49,9 @@ class ClassicOverflowPositionTest {
         val activity = controller.get()
         activity.config.oxygenThemeActivated = true
         activity.config.oxygenAppearanceMode = "light"
+        assertEquals("Fixture resources must match the view's layout direction",
+            if (rtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR,
+            activity.resources.configuration.layoutDirection)
         val density = activity.resources.displayMetrics.density
         fun dp(value: Int) = (value * density + 0.5f).toInt()
         val output = File("build/reports/photo-source-previews").apply { mkdirs() }
@@ -100,7 +103,9 @@ class ClassicOverflowPositionTest {
                     val centerX = location[0] + anchor.width / 2
                     val panelEnd = if (rtl) params.x else params.x + window.width
                     val label = "${if (nativeToolbar) "toolbar" else "anchored"} rtl=$rtl count=$count"
-                    assertTrue("$label: menu edge $panelEnd is detached from glyph $centerX",
+                    val offset = activity.resources.getDimensionPixelOffset(
+                        org.fossify.gallery.R.dimen.oxygen_classic_overflow_horizontal_offset)
+                    assertTrue("$label: menu edge $panelEnd is detached from glyph $centerX (offset=$offset)",
                         abs(panelEnd - centerX) <= dp(8))
                     val visible = Rect().also { anchor.getWindowVisibleDisplayFrame(it) }
                     assertTrue("$label: popup escapes leading screen edge", params.x >= visible.left)
