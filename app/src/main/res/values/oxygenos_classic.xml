@@ -10,7 +10,9 @@
     <color name="oxygen_classic_file_manager_blue">#0071CD</color>
     <color name="oxygen_classic_divider">#E6E6E6</color>
 
-    <dimen name="oxygen_classic_overflow_horizontal_offset">-40dp</dimen>
+    <!-- AppCompat overflow buttons are 40dp wide; explicit menu targets are 48dp.
+         Align the popup edge at the glyph center (within 4dp), as in the reference. -->
+    <dimen name="oxygen_classic_overflow_horizontal_offset">-20dp</dimen>
     <dimen name="oxygen_classic_toolbar_height">56dp</dimen>
     <dimen name="oxygen_classic_horizontal_margin">16dp</dimen>
     <dimen name="oxygen_classic_single_row">56dp</dimen>
@@ -179,13 +181,13 @@
         <item name="android:windowBackground">@drawable/oxygen_classic_popup_dark</item>
     </style>
     <style name="OxygenClassicOverflow.Light" parent="OxygenClassicPopupMenu.Light">
-        <!-- Float beside the trailing action, leaving its three-dot affordance visible. -->
+        <!-- Align the panel end near the overflow glyph, overlapping the action slot. -->
         <item name="overlapAnchor">true</item>
         <item name="android:dropDownHorizontalOffset">@dimen/oxygen_classic_overflow_horizontal_offset</item>
         <item name="android:dropDownVerticalOffset">16dp</item>
     </style>
     <style name="OxygenClassicOverflow.Dark" parent="OxygenClassicPopupMenu.Dark">
-        <!-- Float beside the trailing action, leaving its three-dot affordance visible. -->
+        <!-- Align the panel end near the overflow glyph, overlapping the action slot. -->
         <item name="overlapAnchor">true</item>
         <item name="android:dropDownHorizontalOffset">@dimen/oxygen_classic_overflow_horizontal_offset</item>
         <item name="android:dropDownVerticalOffset">16dp</item>
