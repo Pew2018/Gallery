@@ -12,6 +12,7 @@ on:
       - feature/customizable-toolbar-actions
       - feature/oxygen-theme
       - feature/oxygen-classic-ui-polish
+      - feature/oxygenos-ui-animation-consistency
       - fix/bottom-bar-tap-ripple
     paths:
       - "app/**"

@@ -35,6 +35,9 @@ internal object TiebaDialogChoices {
     fun apply(button: RadioButton, accent: Int, text: Int, surface: Int, highlightSelection: Boolean = true) {
         val density = button.resources.displayMetrics.density
         fun dp(value: Int) = (value * density + 0.5f).toInt()
+        // The trailing icon is an accent-only mark, not a tinted checkbox drawable.
+        button.buttonTintList = null
+        (button as? androidx.core.widget.TintableCompoundButton)?.supportButtonTintList = null
         button.buttonDrawable = null
         val check = AppCompatResources.getDrawable(button.context, R.drawable.tieba_choice_check)!!.mutate()
         check.setTint(accent)

@@ -81,6 +81,7 @@ object OxygenClassicControls {
                     view.thumbTextPadding = 0
                 }
                 is RadioButton, is CheckBox -> {
+                    if (view.id == R.id.classic_toolbar_action_checkbox) return
                     val button = view as CompoundButton
                     button.buttonTintList = null
                     if (button is androidx.core.widget.TintableCompoundButton) button.supportButtonTintList = null

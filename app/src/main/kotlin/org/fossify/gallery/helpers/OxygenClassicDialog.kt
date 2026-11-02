@@ -521,7 +521,7 @@ object OxygenClassicDialog {
                     val mark = if (multiple) OxygenClassicControls.selectionDrawable(false, dp, OxygenThemeEngine.snapshot(activity, activity.config))
                         else AppCompatResources.getDrawable(v.context, R.drawable.tieba_choice_check)!!.mutate().apply { setTint(readableAccent) }
                     v.checkMarkDrawable = mark
-                    v.checkMarkTintList = if (multiple) tints else ColorStateList.valueOf(readableAccent)
+                    v.checkMarkTintList = if (multiple) null else ColorStateList.valueOf(readableAccent)
                     v.textSize = 16f
                     v.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
                     v.minHeight = (48 * dp).toInt()
@@ -535,7 +535,8 @@ object OxygenClassicDialog {
                         TiebaDialogChoices.selectedBackground(readableAccent, surface), android.graphics.drawable.ColorDrawable(Color.WHITE))
                 }
             }
-            if (needsStyle && (v is RadioButton || v is CheckBox)) {
+            if (needsStyle && (v is RadioButton || v is CheckBox) &&
+                v.id != R.id.classic_toolbar_action_checkbox) {
                 val button = v as android.widget.CompoundButton
                 val targeted = v.id in intArrayOf(R.id.sorting_dialog_numeric_sorting, R.id.sorting_dialog_use_for_this_folder,
                     R.id.change_date_time_dialog_24_hour, R.id.dialog_file_style_rounded_corners,
@@ -546,20 +547,16 @@ object OxygenClassicDialog {
                     pageBackground = surface, primaryText = dialogText,
                     rawAccent = readableAccent, interactiveAccent = readableAccent
                 ) else tokens
-                if (targeted) {
-                    // Both android:buttonTint and AppCompat's support tint can recolor
-                    // the entire hand-drawn checkbox (including its white tick).
-                    // Clear both tint layers before assigning the classic drawable.
-                    button.buttonTintList = null
-                    if (button is androidx.core.widget.TintableCompoundButton) {
-                        button.supportButtonTintList = null
-                    }
+                // The custom drawable already paints the accent box and white check.
+                // Tinting the full drawable would recolor the check itself.
+                button.buttonTintList = null
+                if (button is androidx.core.widget.TintableCompoundButton) {
+                    button.supportButtonTintList = null
                 }
                 button.buttonDrawable = if (v.id == R.id.change_date_time_dialog_24_hour) {
                     // Commons view binding requires MyAppCompatCheckbox, not SwitchCompat.
                     OxygenClassicControls.dateTimeSwitchDrawable(dp, controlColors)
                 } else OxygenClassicControls.selectionDrawable(v is RadioButton, dp, controlColors, surfaceAccent = targeted)
-                if (!targeted) CompoundButtonCompat.setButtonTintList(button, tints)
                 val trailing = v.id == R.id.sorting_dialog_numeric_sorting || v.id == R.id.sorting_dialog_use_for_this_folder
                 if (trailing) {
                     val mark = button.buttonDrawable

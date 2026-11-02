@@ -120,4 +120,58 @@ class ToolbarQuickActionsDialogUiTest {
         assertEquals(originalHome, activity.config.toolbarHomeActions)
         activity.finish()
     }
+    @Test fun checkboxOwnsTheOnlyRowRippleAndFixedOptionsHaveNoPressEffect() {
+        val activity = activity()
+        activity.config.toolbarHomeActions = ToolbarQuickActions.defaults
+        val dialog = ToolbarQuickActionsDialog.show(activity)
+        val views = descendants(dialog.window!!.decorView)
+        val list = views.filterIsInstance<RecyclerView>().single()
+        @Suppress("UNCHECKED_CAST")
+        val adapter = list.adapter as RecyclerView.Adapter<RecyclerView.ViewHolder>
+        val holder = adapter.onCreateViewHolder(list, 0)
+        adapter.onBindViewHolder(holder, 0)
+        val row = holder.itemView as ViewGroup
+        val checkbox = row.getChildAt(0) as CheckBox
+        val drag = row.getChildAt(1)
+        assertNull("row itself must not own a duplicate ripple", row.background)
+        assertTrue(checkbox.background is android.graphics.drawable.RippleDrawable)
+        assertFalse("checkbox click must not include the drag handle", checkbox === drag)
+        assertTrue(checkbox.isClickable)
+        assertTrue(checkbox.isFocusable)
+        val fixed = views.filterIsInstance<CheckBox>().first {
+            it.text == activity.getString(R.string.quick_toolbar_browse_view)
+        }
+        assertFalse(fixed.isClickable)
+        assertNull(fixed.background)
+        dialog.dismiss()
+        activity.finish()
+    }
+
+    @Test fun selectingAnOutOfOrderActionMovesItUsingStableIdsWithoutFade() {
+        val activity = activity()
+        activity.config.toolbarHomeActions = ToolbarQuickActions.defaults
+        val dialog = ToolbarQuickActionsDialog.show(activity)
+        val list = descendants(dialog.window!!.decorView).filterIsInstance<RecyclerView>().single()
+        @Suppress("UNCHECKED_CAST")
+        val adapter = list.adapter as RecyclerView.Adapter<RecyclerView.ViewHolder>
+        assertTrue(adapter.hasStableIds())
+        val animator = list.itemAnimator as androidx.recyclerview.widget.DefaultItemAnimator
+        assertFalse(animator.supportsChangeAnimations)
+        assertEquals(170L, animator.moveDuration)
+        val last = adapter.itemCount - 1
+        val chosenId = adapter.getItemId(last)
+        val holder = adapter.onCreateViewHolder(list, 0)
+        adapter.onBindViewHolder(holder, last)
+        val check = (holder.itemView as ViewGroup).getChildAt(0) as CheckBox
+        assertFalse(check.isChecked)
+        check.performClick()
+        assertTrue(check.isChecked)
+        assertEquals(chosenId, adapter.getItemId(2))
+        assertEquals("unchecked rows never become duplicates", adapter.itemCount,
+            (0 until adapter.itemCount).map { adapter.getItemId(it) }.toSet().size)
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        assertEquals(4, activity.config.toolbarHomeActions.size)
+        activity.finish()
+    }
+
 }

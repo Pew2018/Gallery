@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.view.View
@@ -15,7 +14,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.graphics.ColorUtils
 import androidx.core.widget.CompoundButtonCompat
 import androidx.recyclerview.widget.ItemTouchHelper
@@ -86,7 +84,7 @@ object ToolbarQuickActionsDialog {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(8), 0, 0, 0)
             minimumHeight = dp(56)
-            background = OxygenClassicDialog.ripple(palette.primaryText, density)
+            // Only the child Checkbox handles presses. The row must not draw a second ripple.
             layoutParams = LinearLayout.LayoutParams(-1, -2)
         }
 
@@ -97,12 +95,13 @@ object ToolbarQuickActionsDialog {
             setPaddingRelative(0, dp(8), 0, dp(8))
             setSingleLine(false)
             setTextColor(palette.primaryText)
-            buttonDrawable = AppCompatResources.getDrawable(
-                activity, androidx.appcompat.R.drawable.abc_btn_check_material
+            // Dedicated classic drawable: never tint the white tick as a whole.
+            buttonTintList = null
+            CompoundButtonCompat.setButtonTintList(this, null)
+            buttonDrawable = OxygenClassicControls.selectionDrawable(
+                false, density, palette, surfaceAccent = true
             )
-            CompoundButtonCompat.setButtonTintList(
-                this, ColorStateList.valueOf(palette.interactiveAccent)
-            )
+            background = OxygenClassicDialog.ripple(palette.primaryText, density)
         }
 
         val fixedRows = LinearLayout(activity).apply {
@@ -112,7 +111,7 @@ object ToolbarQuickActionsDialog {
         val searchCheck = createCheckBox().apply {
             text = activity.getString(org.fossify.commons.R.string.search)
         }
-        var searchBackground: android.graphics.drawable.Drawable? = searchCheck.background
+        val searchBackground = searchCheck.background
         val searchClickable = searchCheck.isClickable
         val searchFocusable = searchCheck.isFocusable
         val searchFocusableInTouchMode = searchCheck.isFocusableInTouchMode
@@ -125,6 +124,7 @@ object ToolbarQuickActionsDialog {
         val browseCheck = createCheckBox().apply {
             text = activity.getString(R.string.quick_toolbar_browse_view)
             isChecked = true
+            background = null
             isClickable = false
             isFocusable = false
             contentDescription = activity.getString(R.string.quick_toolbar_fixed_browse_accessibility)
@@ -136,7 +136,14 @@ object ToolbarQuickActionsDialog {
         val list = RecyclerView(activity).apply {
             layoutManager = LinearLayoutManager(activity)
             overScrollMode = RecyclerView.OVER_SCROLL_NEVER
-            itemAnimator = null
+            itemAnimator = androidx.recyclerview.widget.DefaultItemAnimator().apply {
+                // Preserve item translation but never fade the checked row or its checkmark.
+                supportsChangeAnimations = false
+                moveDuration = 170L
+                addDuration = 0L
+                removeDuration = 0L
+                changeDuration = 0L
+            }
             addItemDecoration(ClassicReorderDecoration(
                 ColorUtils.setAlphaComponent(palette.primaryText, 28), dp(8)))
             isNestedScrollingEnabled = false
@@ -144,6 +151,9 @@ object ToolbarQuickActionsDialog {
         class Holder(row: LinearLayout, val check: CheckBox, val drag: ImageView) :
             RecyclerView.ViewHolder(row)
 
+        data class ActionRow(val action: String, val selected: Boolean)
+        var visibleRows: List<ActionRow> = emptyList()
+        fun snapshotRows(): List<ActionRow> = optionalEntries().map { ActionRow(it, it in current()) }
         lateinit var adapter: RecyclerView.Adapter<Holder>
         lateinit var touchHelper: ItemTouchHelper
         lateinit var homeTabLabel: TextView
@@ -199,9 +209,9 @@ object ToolbarQuickActionsDialog {
             searchCheck.isFocusable = if (homeScope) false else searchFocusable
             searchCheck.isFocusableInTouchMode = if (homeScope) false else searchFocusableInTouchMode
             if (homeScope) {
-                searchCheck.background = ColorDrawable(Color.TRANSPARENT)
+                searchCheck.background = null
             } else {
-                searchBackground?.let { searchCheck.background = it }
+                searchCheck.background = searchBackground
                 searchCheck.setOnCheckedChangeListener { _, checked -> updateSearch(checked) }
             }
             browseRow.visibility = if (homeScope) View.VISIBLE else View.GONE
@@ -211,13 +221,32 @@ object ToolbarQuickActionsDialog {
                 Typeface.create("sans-serif-medium", Typeface.NORMAL) else Typeface.DEFAULT
             homeIndicator.alpha = if (scope == ToolbarQuickScope.HOME) 1f else 0f
             folderIndicator.alpha = if (scope == ToolbarQuickScope.FOLDER) 1f else 0f
-            adapter.notifyDataSetChanged()
+            val before = visibleRows
+            val after = snapshotRows()
+            val diff = androidx.recyclerview.widget.DiffUtil.calculateDiff(
+                object : androidx.recyclerview.widget.DiffUtil.Callback() {
+                    override fun getOldListSize() = before.size
+                    override fun getNewListSize() = after.size
+                    override fun areItemsTheSame(oldPos: Int, newPos: Int) =
+                        before[oldPos].action == after[newPos].action
+                    override fun areContentsTheSame(oldPos: Int, newPos: Int) =
+                        before[oldPos] == after[newPos]
+                    override fun getChangePayload(oldPos: Int, newPos: Int): Any =
+                        after[newPos].selected
+                }, true
+            )
+            visibleRows = after
+            diff.dispatchUpdatesTo(adapter)
             // Auto-measure full row heights, including wrapping at large font scales.
             list.requestLayout()
         }
 
         adapter = object : RecyclerView.Adapter<Holder>() {
-            override fun getItemCount(): Int = optionalEntries().size
+            init { setHasStableIds(true) }
+            override fun getItemCount(): Int = visibleRows.size
+            override fun getItemId(position: Int): Long =
+                (ToolbarQuickActions.homeOptions + ToolbarQuickActions.folderOptions)
+                    .distinct().indexOf(visibleRows[position].action).toLong() + 1L
 
             override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
                 val row = controlRow().apply {
@@ -240,11 +269,12 @@ object ToolbarQuickActionsDialog {
             }
 
             override fun onBindViewHolder(holder: Holder, position: Int) {
-                val action = optionalEntries()[position]
-                val isChosen = action in current()
+                val entry = visibleRows[position]
+                val action = entry.action
+                val isChosen = entry.selected
                 holder.check.setOnCheckedChangeListener(null)
                 holder.check.text = activity.getString(ToolbarQuickActions.titleRes(action))
-                holder.check.isChecked = isChosen
+                if (holder.check.isChecked != isChosen) holder.check.isChecked = isChosen
                 val canDrag = isChosen
                 holder.drag.visibility = if (canDrag) View.VISIBLE else View.INVISIBLE
                 holder.drag.contentDescription = activity.getString(
@@ -300,6 +330,7 @@ object ToolbarQuickActionsDialog {
                 if (from !in selectedActions.indices || to !in selectedActions.indices) return false
                 val searchOffset = if (ToolbarQuickActions.SEARCH in current()) 1 else 0
                 Collections.swap(current(), from + searchOffset, to + searchOffset)
+                visibleRows = visibleRows.toMutableList().apply { Collections.swap(this, from, to) }
                 adapter.notifyItemMoved(from, to)
                 return true
             }
@@ -397,7 +428,7 @@ object ToolbarQuickActionsDialog {
                 },
             dialogContent
         )
-        searchBackground = searchCheck.background
+        // apply() leaves dedicated quick-action CheckBoxes untouched, including their ripple.
         render()
         return dialog
     }
