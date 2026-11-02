@@ -11,14 +11,13 @@ import androidx.appcompat.app.AlertDialog
 import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.extensions.*
 import org.fossify.gallery.R
-import org.fossify.gallery.extensions.config
 import org.fossify.gallery.helpers.*
 import org.fossify.gallery.helpers.backup.*
 
 /** Read-only preview; dismissing or cancelling either dialog never invokes the writer. */
 internal object GalleryRestorePreviewDialog {
     fun show(activity: BaseSimpleActivity, plan: GalleryRestorePlan, restore: (GalleryRestoreMode) -> Unit) {
-        val colors = OxygenThemeEngine.snapshot(activity, activity.config)
+        val colors = photoDialogColors(activity)
         fun dp(value: Int) = (value * activity.resources.displayMetrics.density + .5f).toInt()
         val content = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -27,7 +26,7 @@ internal object GalleryRestorePreviewDialog {
         fun heading(label: Int) = TextView(activity).apply {
             setText(label)
             textSize = 14f
-            setTextColor(colors.interactiveAccent)
+            setTextColor(colors.accent)
             setPadding(0, dp(12), 0, dp(8))
         }
         fun row(parent: LinearLayout, label: String, count: Int) {
@@ -37,11 +36,11 @@ internal object GalleryRestorePreviewDialog {
                 setPadding(0, dp(4), 0, dp(4))
             }
             line.addView(TextView(activity).apply {
-                text = label; textSize = 14f; setTextColor(colors.primaryText)
+                text = label; textSize = 14f; setTextColor(colors.text)
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             line.addView(TextView(activity).apply {
                 text = activity.getString(R.string.full_backup_quantity, count)
-                textSize = 14f; setTextColor(colors.primaryText)
+                textSize = 14f; setTextColor(colors.text)
                 gravity = Gravity.END
                 setPadding(dp(12), 0, 0, 0)
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -61,7 +60,7 @@ internal object GalleryRestorePreviewDialog {
         content.addView(changes)
         content.addView(heading(R.string.full_backup_notes_heading))
         content.addView(TextView(activity).apply {
-            textSize = 14f; setTextColor(colors.secondaryText)
+            textSize = 14f; setTextColor(colors.secondary)
             text = activity.getString(R.string.full_backup_mode_note) + "\n" + activity.getString(R.string.full_backup_path_note)
         })
         content.addView(heading(R.string.full_backup_mode_heading))
@@ -82,7 +81,7 @@ internal object GalleryRestorePreviewDialog {
             changeRows(activity, plan, mode).forEach { (label, count) -> row(changes, label, count) }
             if (plan.statuses.values.any { it == BackupPathStatus.PROTECTED }) {
                 changes.addView(TextView(activity).apply {
-                    textSize = 14f; setTextColor(colors.secondaryText)
+                    textSize = 14f; setTextColor(colors.secondary)
                     setText(R.string.full_backup_protected_note)
                 })
             }
@@ -95,7 +94,7 @@ internal object GalleryRestorePreviewDialog {
                 .setPositiveButton(R.string.full_backup_restore_action, null)
                 .setNegativeButton(org.fossify.commons.R.string.cancel, null), scroll)
         listOf(merge, replace).forEach {
-            TiebaDialogChoices.apply(it, colors.interactiveAccent, colors.primaryText, colors.dialogBackground)
+            TiebaDialogChoices.apply(it, colors.accent, colors.text, colors.surface)
         }
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             if (mode == GalleryRestoreMode.MERGE) {

@@ -75,6 +75,13 @@ class BackupPreviewLayoutMatrixTest {
                             root.layout(0, 0, root.measuredWidth, root.measuredHeight)
                             val scroll = dialog.findViewById<ClassicDialogScrollView>(R.id.full_backup_preview)!!
                             val all = views(root)
+                            val sectionTitles = setOf(R.string.full_backup_contents_heading, R.string.full_backup_changes_heading,
+                                R.string.full_backup_notes_heading, R.string.full_backup_mode_heading).map { host.getString(it) }
+                            val surface = org.fossify.gallery.helpers.photoDialogColors(host).surface
+                            all.filterIsInstance<TextView>().filter { it.text.toString() in sectionTitles }.forEach {
+                                assertTrue("section heading contrast on actual dialog surface",
+                                    org.fossify.gallery.helpers.OxygenThemeColors.contrastRatio(it.currentTextColor, surface) >= 4.5)
+                            }
                             val options = all.filterIsInstance<RadioButton>()
                             assertEquals(options[0].width, options[1].width)
                             assertTrue(root.height <= available)
