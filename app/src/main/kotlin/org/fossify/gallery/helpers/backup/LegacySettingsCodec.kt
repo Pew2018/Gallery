@@ -107,6 +107,8 @@ object LegacySettingsCodec {
         ALBUM_COVERS to Kind.COVERS
     )
 
+    val supportedKeys: Set<String> get() = schema.keys
+
     fun encode(values: Map<String, Any>): String = values.entries.joinToString("\n", postfix = "\n") { "${it.key}=${it.value}" }
 
     fun decode(text: String): SettingsImportPlan {

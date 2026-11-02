@@ -1,0 +1,31 @@
+<resources>
+    <string name="full_backup_export">Export complete backup</string>
+    <string name="full_backup_restore">Restore complete backup</string>
+    <string name="full_backup_restore_action">Restore</string>
+    <string name="full_backup_merge">Merge with existing data (default)</string>
+    <string name="full_backup_replace">Replace corresponding data</string>
+    <string name="full_backup_preview_counts">Backup contents\nApplication settings: %1$d\nMedia favorites: %2$d\nFavorite folders: %3$d\nPhoto profiles: %4$d\nExtension settings: %5$d</string>
+    <string name="full_backup_preview_changes">Media: %1$d existing, %2$d new, %3$d removed\nFolders: %4$d existing, %5$d new, %6$d removed, %11$d date conflicts\nProfiles: %7$d equivalent, %8$d new, %9$d conflicts, %10$d removed</string>
+    <string name="full_backup_status_line">%1$s: %2$d</string>
+    <string name="full_backup_path_missing">Missing paths</string>
+    <string name="full_backup_path_offline">Storage offline</string>
+    <string name="full_backup_path_saf">SAF permission required</string>
+    <string name="full_backup_path_permission">Media permission required</string>
+    <string name="full_backup_path_protected">Protected sources</string>
+    <string name="full_backup_path_unconfirmed">Access cannot be confirmed</string>
+    <string name="full_backup_path_note">Paths are not remapped. Offline folders and profile sources are kept. Media that cannot be verified is skipped; existing unsafe media favorites are retained even in Replace mode. Passwords, fingerprints and SAF permissions are not restored. No photos or videos are included.</string>
+    <string name="full_backup_replace_confirm_title">Confirm replacement</string>
+    <string name="full_backup_replace_confirm">Remove %1$d media favorite relationships, %2$d folder relationships and %3$d photo profiles. Corresponding supported settings will be replaced; omitted allowlisted values revert to defaults. Device security stays local. Actual media files will not be deleted. Continue?</string>
+    <string name="full_backup_busy">A complete backup operation is already running</string>
+    <string name="full_backup_working">Processing complete backup…</string>
+    <string name="full_backup_invalid">Invalid or unsupported complete backup. No restore was applied.</string>
+    <string name="full_backup_io_failed">Backup storage could not be read or written. The operation did not complete.</string>
+    <string name="full_backup_stale">Local data or access changed after preview. Select the backup again to review a new plan.</string>
+    <string name="full_backup_rolled_back">Restore failed. The affected data was restored to its previous state.</string>
+    <string name="full_backup_recovery_blocked">Restore did not complete safely. A recovery checkpoint was kept. Restart the app to retry reconciliation; if this persists, keep app data and review the checkpoint before another restore.</string>
+    <string name="full_backup_export_success">Complete backup exported</string>
+    <string name="full_backup_restore_success">Restore completed. %1$d paths need access or source review.</string>
+    <string name="full_backup_recovery_finished">An interrupted restore was reconciled. Please review settings and source paths.</string>
+    <string name="full_backup_recovery_reverted">An interrupted restore was reverted to its previous settings.</string>
+    <string name="full_backup_security_retained">Security policy preserves %1$d local display settings.</string>
+</resources>

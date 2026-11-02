@@ -1220,6 +1220,36 @@
 
             </RelativeLayout>
 
+            <RelativeLayout
+                android:id="@+id/settings_export_full_backup_holder"
+                style="@style/OxygenClassicSettingsSingleRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_export_full_backup"
+                    style="@style/OxygenClassicSettingsPrimaryText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/full_backup_export" />
+
+            </RelativeLayout>
+
+            <RelativeLayout
+                android:id="@+id/settings_restore_full_backup_holder"
+                style="@style/OxygenClassicSettingsSingleRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_restore_full_backup"
+                    style="@style/OxygenClassicSettingsPrimaryText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/full_backup_restore" />
+
+            </RelativeLayout>
+
             <org.fossify.commons.views.PurchaseThankYouItem
                 android:id="@+id/settings_purchase_thank_you_holder"
                 android:layout_width="match_parent"

@@ -39,8 +39,11 @@ class SettingsActivity : SimpleActivity() {
         private const val SELECT_IMPORT_FAVORITE_FOLDERS_INTENT = 5
         private const val SELECT_EXPORT_PHOTO_PROFILES_INTENT = 6
         private const val SELECT_IMPORT_PHOTO_PROFILES_INTENT = 7
+        private const val SELECT_EXPORT_FULL_BACKUP_INTENT = 8
+        private const val SELECT_RESTORE_FULL_BACKUP_INTENT = 9
     }
 
+    private val fullBackupBusy = java.util.concurrent.atomic.AtomicBoolean(false)
     private var mRecycleBinContentSize = 0L
     private val binding by viewBinding(ActivitySettingsBinding::inflate)
     private var activeSettingsCategory: String? = null
@@ -99,7 +102,7 @@ class SettingsActivity : SimpleActivity() {
                 R.id.settings_change_date_time_format_holder, R.id.settings_section_advanced_performance, R.id.settings_file_loading_priority_holder,
                 R.id.settings_clear_cache_holder, R.id.settings_section_advanced_backup, R.id.settings_export_favorites_holder,
                 R.id.settings_import_favorites_holder, R.id.settings_export_favorite_folders_holder, R.id.settings_import_favorite_folders_holder,
-                R.id.settings_export_holder, R.id.settings_import_holder, R.id.settings_export_photo_profiles_holder, R.id.settings_import_photo_profiles_holder, R.id.settings_purchase_thank_you_holder
+                R.id.settings_export_holder, R.id.settings_import_holder, R.id.settings_export_photo_profiles_holder, R.id.settings_import_photo_profiles_holder, R.id.settings_export_full_backup_holder, R.id.settings_restore_full_backup_holder, R.id.settings_purchase_thank_you_holder
             ))
         )
     }
@@ -122,7 +125,7 @@ class SettingsActivity : SimpleActivity() {
         R.id.settings_section_security_media to setOf(R.id.settings_hidden_item_password_protection_holder, R.id.settings_excluded_item_password_protection_holder, R.id.settings_favorite_password_holder, R.id.settings_photo_password_holder),
         R.id.settings_section_advanced_language to setOf(R.id.settings_use_english_holder, R.id.settings_language_holder, R.id.settings_change_date_time_format_holder),
         R.id.settings_section_advanced_performance to setOf(R.id.settings_file_loading_priority_holder, R.id.settings_clear_cache_holder),
-        R.id.settings_section_advanced_backup to setOf(R.id.settings_export_favorites_holder, R.id.settings_import_favorites_holder, R.id.settings_export_favorite_folders_holder, R.id.settings_import_favorite_folders_holder, R.id.settings_export_holder, R.id.settings_import_holder, R.id.settings_export_photo_profiles_holder, R.id.settings_import_photo_profiles_holder)
+        R.id.settings_section_advanced_backup to setOf(R.id.settings_export_favorites_holder, R.id.settings_import_favorites_holder, R.id.settings_export_favorite_folders_holder, R.id.settings_import_favorite_folders_holder, R.id.settings_export_holder, R.id.settings_import_holder, R.id.settings_export_photo_profiles_holder, R.id.settings_import_photo_profiles_holder, R.id.settings_export_full_backup_holder, R.id.settings_restore_full_backup_holder)
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -353,6 +356,7 @@ class SettingsActivity : SimpleActivity() {
         setupExportSettings()
         setupImportSettings()
         setupPhotoProfileBackup()
+        setupFullBackup()
 
         val colors = OxygenThemeEngine.snapshot(this, config)
         binding.settingsCoordinator.setBackgroundColor(colors.pageBackground)
@@ -368,13 +372,21 @@ class SettingsActivity : SimpleActivity() {
         val handled = requestCode in setOf(PICK_IMPORT_SOURCE_INTENT, SELECT_EXPORT_FAVORITES_FILE_INTENT,
             SELECT_IMPORT_FAVORITES_FILE_INTENT, SELECT_EXPORT_FAVORITE_FOLDERS_INTENT,
             SELECT_IMPORT_FAVORITE_FOLDERS_INTENT, SELECT_EXPORT_PHOTO_PROFILES_INTENT,
-            SELECT_IMPORT_PHOTO_PROFILES_INTENT, SELECT_EXPORT_SETTINGS_FILE_INTENT)
+            SELECT_IMPORT_PHOTO_PROFILES_INTENT, SELECT_EXPORT_SETTINGS_FILE_INTENT, SELECT_EXPORT_FULL_BACKUP_INTENT, SELECT_RESTORE_FULL_BACKUP_INTENT)
         if (!handled) {
             super.onActivityResult(requestCode, resultCode, resultData)
             return
         }
         if (resultCode != Activity.RESULT_OK) return
         val uri = resultData?.data ?: return
+        if (requestCode == SELECT_EXPORT_FULL_BACKUP_INTENT) {
+            exportFullBackup { contentResolver.openOutputStream(uri) }
+            return
+        }
+        if (requestCode == SELECT_RESTORE_FULL_BACKUP_INTENT) {
+            previewFullBackup { contentResolver.openInputStream(uri) }
+            return
+        }
         // Preserve Commons' export mapping and dialog/filename; replace only its unsafe stream writer.
         val settingsSnapshot = LinkedHashMap(configItemsToExport)
         backupWork {
@@ -411,7 +423,10 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
-    private fun backupWork(action: () -> Unit) = BackupOperationRunner.execute(action) { error ->
+    private fun backupWork(action: () -> Unit) = BackupOperationRunner.execute({
+        if (GalleryRestoreJournal(applicationContext).exists()) throw PendingGalleryRestore()
+        action()
+    }) { error ->
         android.util.Log.e("GalleryBackup", "Backup operation failed", error)
         backupUi {
             toast(if (error is UnsupportedPhotoBackupVersion) R.string.photo_profiles_backup_unsupported_version
@@ -1383,6 +1398,95 @@ class SettingsActivity : SimpleActivity() {
             .importFolders(records) { path -> path.startsWith('/') && File(path).isFile }
         backupUi { toast(getString(R.string.favorite_folders_import_summary,
             result.imported, result.existing, result.skipped)) }
+    }
+
+    private fun setupFullBackup() {
+        binding.settingsExportFullBackupHolder.setOnClickListener {
+            fun choose() {
+                val date = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(java.util.Date())
+                ExportFavoritesDialog(this, "FossifyGallery-full-backup_$date", isQPlus(), ".zip", R.string.full_backup_export) { path, name ->
+                    if (isQPlus()) try {
+                        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            type = "application/zip"; addCategory(Intent.CATEGORY_OPENABLE); putExtra(Intent.EXTRA_TITLE, name)
+                        }, SELECT_EXPORT_FULL_BACKUP_INTENT)
+                    } catch (error: Exception) { showErrorToast(error) }
+                    else {
+                        fun export() = exportFullBackup { applicationContext.getFileOutputStreamSync(path, "application/zip") }
+                        if (needsStupidWritePermissions(path)) handleSAFDialog(path) { if (it) export() } else export()
+                    }
+                }
+            }
+            if (isQPlus()) choose() else handlePermission(PERMISSION_WRITE_STORAGE) { if (it) choose() }
+        }
+        binding.settingsRestoreFullBackupHolder.setOnClickListener {
+            if (isQPlus()) try {
+                startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    type = "application/zip"
+                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                }, SELECT_RESTORE_FULL_BACKUP_INTENT)
+            } catch (error: Exception) { showErrorToast(error) }
+            else handlePermission(PERMISSION_READ_STORAGE) { granted ->
+                if (granted) FilePickerDialog(this) { path -> previewFullBackup { File(path).inputStream() } }
+            }
+        }
+    }
+
+    private fun fullBackupWork(action: () -> Unit) {
+        if (!fullBackupBusy.compareAndSet(false, true)) { toast(R.string.full_backup_busy); return }
+        toast(R.string.full_backup_working)
+        BackupOperationRunner.execute({ try { action() } finally { fullBackupBusy.set(false) } }) { error ->
+            android.util.Log.e("GalleryFullBackup", "Full backup operation failed", error)
+            backupUi {
+                toast(when (error) {
+                    is StaleGalleryRestorePlan -> R.string.full_backup_stale
+                    is PendingGalleryRestore -> R.string.full_backup_recovery_blocked
+                    is GalleryRestoreFailure -> if (error.compensationSucceeded) R.string.full_backup_rolled_back else R.string.full_backup_recovery_blocked
+                    is InvalidGalleryBackup, is IllegalArgumentException -> R.string.full_backup_invalid
+                    else -> R.string.full_backup_io_failed
+                })
+            }
+        }
+    }
+
+    private fun exportFullBackup(open: () -> OutputStream?) = fullBackupWork {
+        val app = applicationContext
+        val file = File(cacheDir, "full-backup-${java.util.UUID.randomUUID()}.zip")
+        try {
+            GalleryBackupZipCodec.encode(GalleryRestoreService(app).snapshot(), file, baseConfig.appId.removeSuffix(".debug"))
+            (open() ?: throw java.io.IOException("Document provider returned no output stream")).use { output ->
+                file.inputStream().use { it.copyTo(output) }; output.flush()
+            }
+            backupUi { toast(R.string.full_backup_export_success) }
+        } finally { file.delete() }
+    }
+
+    private fun previewFullBackup(open: () -> InputStream?) = fullBackupWork {
+        val service = GalleryRestoreService(applicationContext)
+        service.recoverPending()
+        val snapshot = GalleryBackupZipCodec.decode(open(), cacheDir)
+        val plan = service.preview(snapshot)
+        backupUi {
+            GalleryRestorePreviewDialog.show(this, plan) { mode ->
+                fullBackupWork {
+                    val result = service.restore(plan, mode)
+                    backupUi {
+                        checkAppIconColor()
+                        OxygenThemeEngine.apply(this, config)
+                        setupSettingItems()
+                        renderSettingsPage()
+                        setupBottomNavigationOrder()
+                        setupTopAppBar(binding.settingsAppbar, NavigationIcon.Arrow,
+                            topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
+                        OxygenToolbarStyle.applyToolbar(this, binding.settingsToolbar)
+                        OxygenSystemBars.apply(this)
+                        toast(getString(R.string.full_backup_restore_success, result.unresolvedPaths))
+                        // Shared theme code decides whether ONE normal appearance recreation is needed.
+                        refreshThemeIfNeeded()
+                    }
+                }
+            }
+        }
     }
 
     private fun setupPhotoProfileBackup() {

@@ -1,0 +1,31 @@
+<resources>
+    <string name="full_backup_export">导出完整备份</string>
+    <string name="full_backup_restore">恢复完整备份</string>
+    <string name="full_backup_restore_action">恢复</string>
+    <string name="full_backup_merge">合并到现有数据（默认）</string>
+    <string name="full_backup_replace">替换现有对应数据</string>
+    <string name="full_backup_preview_counts">备份内容\n应用设置：%1$d 项\n虚拟媒体收藏：%2$d 项\n收藏文件夹：%3$d 项\n照片浏览配置：%4$d 项\n扩展设置：%5$d 项</string>
+    <string name="full_backup_preview_changes">媒体收藏：已有 %1$d，新增 %2$d，移除 %3$d\n文件夹：已有 %4$d，新增 %5$d，移除 %6$d，时间冲突 %11$d\n照片配置：等价 %7$d，新增 %8$d，冲突 %9$d，移除 %10$d</string>
+    <string name="full_backup_status_line">%1$s：%2$d</string>
+    <string name="full_backup_path_missing">路径不存在</string>
+    <string name="full_backup_path_offline">存储设备未连接</string>
+    <string name="full_backup_path_saf">缺少 SAF 授权</string>
+    <string name="full_backup_path_permission">缺少媒体访问权限</string>
+    <string name="full_backup_path_protected">来源受保护</string>
+    <string name="full_backup_path_unconfirmed">访问状态无法确认</string>
+    <string name="full_backup_path_note">不会自动重映射路径。离线文件夹和照片来源将保留；无法验证的媒体将跳过，替换时也会保留无法安全移除的现有媒体收藏。密码、指纹与 SAF 权限不迁移。备份不包含照片和视频文件。</string>
+    <string name="full_backup_replace_confirm_title">确认替换</string>
+    <string name="full_backup_replace_confirm">将移除 %1$d 条媒体收藏关系、%2$d 条文件夹收藏关系和 %3$d 个照片配置。支持备份的对应设置将被替换；白名单内缺失项按默认值处理。本机认证状态保留，不会删除实际媒体文件。是否继续？</string>
+    <string name="full_backup_busy">完整备份任务正在执行</string>
+    <string name="full_backup_working">正在处理完整备份…</string>
+    <string name="full_backup_invalid">完整备份无效或版本不受支持，未执行恢复。</string>
+    <string name="full_backup_io_failed">备份存储无法读取或写入，操作未完成。</string>
+    <string name="full_backup_stale">预览后本地数据或访问状态已变化，请重新选择备份并查看新计划。</string>
+    <string name="full_backup_rolled_back">恢复失败，受影响的数据已恢复到操作前状态。</string>
+    <string name="full_backup_recovery_blocked">恢复未能安全完成，已保留恢复检查点。请重启应用尝试协调恢复；若仍提示此错误，请保留应用数据并检查恢复检查点，暂勿再次恢复。</string>
+    <string name="full_backup_export_success">完整备份导出成功</string>
+    <string name="full_backup_restore_success">恢复完成，%1$d 个路径仍需检查访问权限或来源状态。</string>
+    <string name="full_backup_recovery_finished">已协调完成上次中断的恢复，请检查设置与来源路径。</string>
+    <string name="full_backup_recovery_reverted">上次中断的恢复已还原为操作前设置。</string>
+    <string name="full_backup_security_retained">安全策略将保留 %1$d 项本地显示设置。</string>
+</resources>

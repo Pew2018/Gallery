@@ -27,7 +27,7 @@ class BackupSettingsInteractionTest {
             val before = prefs.all
             val method = SettingsActivity::class.java.getDeclaredMethod("onActivityResult", Int::class.javaPrimitiveType,
                 Int::class.javaPrimitiveType, Intent::class.java).apply { isAccessible = true }
-            for (code in listOf(1, 2, 3, 4, 5, 6, 7, 1006)) {
+            for (code in listOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 1006)) {
                 method.invoke(activity, code, Activity.RESULT_CANCELED, null)
                 method.invoke(activity, code, Activity.RESULT_OK, Intent())
             }
@@ -52,7 +52,8 @@ class BackupSettingsInteractionTest {
             val ids = listOf(R.id.settings_export_favorites_holder, R.id.settings_import_favorites_holder,
                 R.id.settings_export_favorite_folders_holder, R.id.settings_import_favorite_folders_holder,
                 R.id.settings_export_holder, R.id.settings_import_holder,
-                R.id.settings_export_photo_profiles_holder, R.id.settings_import_photo_profiles_holder)
+                R.id.settings_export_photo_profiles_holder, R.id.settings_import_photo_profiles_holder,
+                R.id.settings_export_full_backup_holder, R.id.settings_restore_full_backup_holder)
             val parent = activity.findViewById<android.view.ViewGroup>(R.id.settings_holder)
             val rows = ids.map { activity.findViewById<android.view.View>(it) }
             assertEquals(rows.map { parent.indexOfChild(it) }.sorted(), rows.map { parent.indexOfChild(it) })

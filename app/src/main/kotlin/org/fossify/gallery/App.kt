@@ -32,6 +32,23 @@ class App : FossifyApp() {
 
     override fun onCreate() {
         super.onCreate()
+        // Resolve a rare interrupted restore on the backup worker, before accepting another restore.
+        // Normal startup does not open/scan media or wait for backup I/O.
+        org.fossify.gallery.helpers.backup.BackupOperationRunner.execute({
+            if (org.fossify.gallery.helpers.backup.GalleryRestoreJournal(this).exists()) {
+                val result = org.fossify.gallery.helpers.backup.GalleryRestoreService(this).recoverPending()
+                val message = if (result == org.fossify.gallery.helpers.backup.GalleryRecoveryResult.REVERTED)
+                    R.string.full_backup_recovery_reverted else R.string.full_backup_recovery_finished
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+        }) { error ->
+            android.util.Log.e("GalleryRestore", "Checkpoint recovery blocked", error)
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(this, R.string.full_backup_recovery_blocked, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
         OxygenThemeEngine.apply(this, config)
         Reprint.initialize(this)
         getSharedPrefs()

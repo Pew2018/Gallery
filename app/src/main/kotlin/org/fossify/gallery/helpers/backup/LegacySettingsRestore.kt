@@ -12,13 +12,17 @@ import org.fossify.gallery.models.AlbumCover
 /** Prepare every potentially failing conversion before the one scoped preference commit. */
 object LegacySettingsRestore {
     fun apply(context: Context, config: Config, plan: SettingsImportPlan) {
+        BackupPreferences.commit(context.getSharedPrefs(), prepare(context, config, plan))
+    }
+
+    fun prepare(context: Context, config: Config, plan: SettingsImportPlan, merge: Boolean = true): Map<String, Any> {
         require(plan.applicable) { "Settings plan is not applicable" }
         val values = LinkedHashMap(plan.values)
         for ((key, current) in listOf(INCLUDED_FOLDERS to config.includedFolders,
             EXCLUDED_FOLDERS to config.excludedFolders, PINNED_FOLDERS to config.pinnedFolders)) {
             @Suppress("UNCHECKED_CAST")
             val incoming = values[key] as? Set<String> ?: continue
-            values[key] = (current + incoming).filter { it.isNotEmpty() }.toSet()
+            values[key] = ((if (merge) current else emptySet()) + incoming).filter { it.isNotEmpty() }.toSet()
             if (key == PINNED_FOLDERS && RECYCLE_BIN in incoming) values[SHOW_RECYCLE_BIN_LAST] = false
         }
         if (USE_ENGLISH in values && WAS_USE_ENGLISH_TOGGLED !in values) values[WAS_USE_ENGLISH_TOGGLED] = true
@@ -31,7 +35,7 @@ object LegacySettingsRestore {
             val listType = object : TypeToken<List<AlbumCover>>() {}.type
             val raw = values[ALBUM_COVERS] as String
             val incoming: List<AlbumCover> = if (raw.isEmpty()) emptyList() else Gson().fromJson(raw, listType)
-            val existing = config.parseAlbumCovers().toMutableList()
+            val existing = if (merge) config.parseAlbumCovers().toMutableList() else mutableListOf<AlbumCover>()
             val paths = existing.mapTo(hashSetOf()) { it.path }
             incoming.filter { it.path !in paths && context.getDoesFilePathExist(it.tmb) }
                 .forEach { if (paths.add(it.path)) existing.add(it) }
@@ -51,6 +55,6 @@ object LegacySettingsRestore {
             }
             values[actual] = count
         }
-        BackupPreferences.commit(context.getSharedPrefs(), values)
+        return values
     }
 }

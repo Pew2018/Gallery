@@ -47,9 +47,9 @@ class PhotoProfileBackupCodecTest {
         val merged = PhotoProfileBackupCodec.merge(local, state(profile()))
         assertEquals(local, merged.state); assertEquals(1, merged.result.existing)
     }
-    @Test fun distinctUuidIsAddedEvenWithSameContent() {
+    @Test fun distinctUuidEquivalentContentIsSkipped() {
         val merged = PhotoProfileBackupCodec.merge(state(profile()), state(profile(b)))
-        assertEquals(listOf(a, b), merged.state.profiles.map { it.id }); assertEquals(1, merged.result.imported)
+        assertEquals(listOf(a), merged.state.profiles.map { it.id }); assertEquals(0, merged.result.imported)
     }
     @Test fun selectedIncomingIsUsedOnlyIfNoLocalValidSelection() {
         val incoming = state(profile(), profile(b, "工作"), selected = b)

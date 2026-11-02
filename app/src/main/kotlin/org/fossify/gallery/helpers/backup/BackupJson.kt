@@ -8,8 +8,8 @@ import java.math.BigDecimal
 
 /** Unlike JsonParser's lenient entry point, reject comments, duplicate members and trailing data. */
 internal object BackupJson {
-    fun parse(text: String): JsonElement {
-        require(text.toByteArray(Charsets.UTF_8).size <= BackupIo.MAX_BYTES) { "Backup is too large" }
+    fun parse(text: String, maxBytes: Long = BackupIo.MAX_BYTES): JsonElement {
+        require(text.toByteArray(Charsets.UTF_8).size <= maxBytes) { "Backup is too large" }
         try {
             return JsonReader(StringReader(text.removePrefix("\uFEFF"))).use { reader ->
                 reader.isLenient = false

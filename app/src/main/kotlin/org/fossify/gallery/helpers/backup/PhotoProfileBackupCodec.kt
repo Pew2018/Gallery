@@ -85,7 +85,7 @@ object PhotoProfileBackupCodec {
             val copy = profiles.firstOrNull { equivalent(it, profile) }
             when {
                 sameId != null && equivalent(sameId, profile) -> { existing++; mapped[profile.id] = sameId.id }
-                sameId != null && copy != null -> { existing++; mapped[profile.id] = copy.id }
+                copy != null -> { existing++; mapped[profile.id] = copy.id }
                 else -> {
                     val id = if (sameId == null) profile.id else newId().also { candidate ->
                         require(UUID.fromString(candidate).toString().equals(candidate, true))

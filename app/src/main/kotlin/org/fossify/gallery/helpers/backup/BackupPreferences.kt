@@ -6,7 +6,7 @@ import java.io.IOException
 /** One scoped editor, never prefs.clear()/all replacement. Roll back memory on a failed disk commit.
  * SharedPreferences has no database transaction: disk failure is surfaced even after rollback. */
 internal object BackupPreferences {
-    fun commit(prefs: SharedPreferences, values: Map<String, Any>) {
+    fun commit(prefs: SharedPreferences, values: Map<String, Any?>) {
         val before = values.keys.associateWith { key -> prefs.all[key] }
         fun edit(items: Map<String, Any?>): Boolean {
             val editor = prefs.edit()
