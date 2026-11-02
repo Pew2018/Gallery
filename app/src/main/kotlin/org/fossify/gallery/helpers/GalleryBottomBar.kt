@@ -32,7 +32,13 @@ object GalleryBottomBar {
     private val bars = java.util.WeakHashMap<Activity, java.lang.ref.WeakReference<LinearLayout>>()
     private const val SELECTION_TINT_DURATION_MS = 140L
     // Match the existing gallery_root_enter / gallery_root_hold window animations.
-    private const val ROOT_WINDOW_HOLD_MS = 160L
+    internal const val ROOT_ENTER_DURATION_MS = 160L
+    internal const val FIRST_DRAW_LIMIT_MS = 250L
+    internal const val ROOT_FINISH_FALLBACK_MS = FIRST_DRAW_LIMIT_MS + ROOT_ENTER_DURATION_MS + 120L
+    private const val EXTRA_ROOT_TOKEN = "org.fossify.gallery.ROOT_TRANSITION_TOKEN"
+    private data class PendingRoot(val source: java.lang.ref.WeakReference<Activity>, val timeout: Runnable)
+    private val pendingRoots = mutableMapOf<String, PendingRoot>()
+    private val readyRoots = java.util.WeakHashMap<Activity, Boolean>()
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private data class TintTransition(val target: Int, val animator: ValueAnimator)
@@ -41,6 +47,31 @@ object GalleryBottomBar {
 
     /** The public RippleDrawable API is write-only; track our last applied tint. */
     internal fun currentRippleColor(item: LinearLayout): Int? = rippleColors[item]
+
+    internal fun mayDrawRoot(contentCommitted: Boolean, hasBoundRows: Boolean,
+        confirmedEmpty: Boolean, elapsedMs: Long): Boolean =
+        elapsedMs >= FIRST_DRAW_LIMIT_MS || (contentCommitted && (hasBoundRows || confirmedEmpty))
+
+    fun prepareRootSurface(activity: Activity, parent: CoordinatorLayout) {
+        if (!activity.intent.getBooleanExtra(EXTRA_ROOT_TRANSITION, false)) return
+        val surface = OxygenThemeEngine.snapshot(activity, activity.config).pageBackground
+        activity.window.setBackgroundDrawable(ColorDrawable(surface))
+        parent.setBackgroundColor(surface)
+        OxygenSystemBars.apply(activity)
+    }
+
+    fun markRootContentReady(activity: Activity) {
+        if (readyRoots.containsKey(activity)) readyRoots[activity] = true
+    }
+
+    private fun finishOutgoing(token: String?) {
+        if (token == null) return
+        val pending = pendingRoots.remove(token) ?: return
+        mainHandler.removeCallbacks(pending.timeout)
+        mainHandler.postDelayed({
+            pending.source.get()?.let { if (!it.isFinishing && !it.isDestroyed) it.finish() }
+        }, ROOT_ENTER_DURATION_MS)
+    }
 
     private fun rippleColor(accent: Int): Int =
         Color.argb(32, Color.red(accent), Color.green(accent), Color.blue(accent))
@@ -156,26 +187,34 @@ object GalleryBottomBar {
     @Suppress("DEPRECATION")
     fun open(activity: Activity, intent: Intent, finishCurrent: Boolean = false) {
         intent.putExtra(EXTRA_ROOT_TRANSITION, true)
-        activity.startActivity(intent)
-        // Launch immediately. Keep the outgoing Activity alive for the existing 160ms
-        // window cross-fade, so its released ripple is not torn down on the click frame.
-        // This defers teardown, never navigation or touch handling.
-        if (finishCurrent) {
-            mainHandler.postDelayed({
-                if (!activity.isFinishing && !activity.isDestroyed) activity.finish()
-            }, ROOT_WINDOW_HOLD_MS)
+        val token = if (finishCurrent) java.util.UUID.randomUUID().toString() else null
+        if (token != null) {
+            intent.putExtra(EXTRA_ROOT_TOKEN, token)
+            val timeout = Runnable {
+                pendingRoots.remove(token)?.source?.get()?.let {
+                    if (!it.isFinishing && !it.isDestroyed) it.finish()
+                }
+            }
+            pendingRoots[token] = PendingRoot(java.lang.ref.WeakReference(activity), timeout)
+            mainHandler.postDelayed(timeout, ROOT_FINISH_FALLBACK_MS)
         }
-        // The outgoing window stays opaque while the new root fades in.
-        activity.overridePendingTransition(R.anim.gallery_root_enter, R.anim.gallery_root_hold)
+        try {
+            activity.startActivity(intent)
+            activity.overridePendingTransition(R.anim.gallery_root_enter, R.anim.gallery_root_hold)
+        } catch (error: RuntimeException) {
+            token?.let { pendingRoots.remove(it)?.let { pending -> mainHandler.removeCallbacks(pending.timeout) } }
+            throw error
+        }
     }
 
     private const val EXTRA_ROOT_TRANSITION = "org.fossify.gallery.ROOT_TRANSITION"
-    internal const val FIRST_DRAW_LIMIT_MS = 250L
-
-    /** Let a warm cache reach the first layout before starting the window animation. */
+    /** Allow the destination's first content-backed frame before releasing its source. */
     private fun coordinateFirstDraw(activity: Activity, parent: CoordinatorLayout) {
         if (!activity.intent.getBooleanExtra(EXTRA_ROOT_TRANSITION, false)) return
         activity.intent.removeExtra(EXTRA_ROOT_TRANSITION)
+        val token = activity.intent.getStringExtra(EXTRA_ROOT_TOKEN)
+        activity.intent.removeExtra(EXTRA_ROOT_TOKEN)
+        readyRoots[activity] = false
         val started = android.os.SystemClock.uptimeMillis()
         val wake = Runnable { parent.invalidate() }
         val listener = object : android.view.ViewTreeObserver.OnPreDrawListener {
@@ -184,13 +223,18 @@ object GalleryBottomBar {
                 val media: androidx.recyclerview.widget.RecyclerView? = parent.findViewById(R.id.media_grid)
                 val directoryEmpty: android.view.View? = parent.findViewById(R.id.directories_empty_placeholder)
                 val mediaEmpty: android.view.View? = parent.findViewById(R.id.media_empty_text_placeholder)
-                val grid = directories ?: media
-                val empty = directoryEmpty ?: mediaEmpty
-                val ready = (grid?.childCount ?: 0) > 0 || empty?.visibility == android.view.View.VISIBLE
-                if (!ready && !activity.isFinishing && !activity.isDestroyed &&
-                    android.os.SystemClock.uptimeMillis() - started < FIRST_DRAW_LIMIT_MS) return false
+                val grid = media ?: directories
+                val empty = if (media != null) mediaEmpty else directoryEmpty
+                val count = grid?.adapter?.itemCount ?: 0
+                val ready = mayDrawRoot(readyRoots[activity] == true,
+                    count > 0 && (grid?.childCount ?: 0) > 0,
+                    count == 0 && empty?.visibility == android.view.View.VISIBLE,
+                    android.os.SystemClock.uptimeMillis() - started)
+                if (!ready && !activity.isFinishing && !activity.isDestroyed) return false
                 if (parent.viewTreeObserver.isAlive) parent.viewTreeObserver.removeOnPreDrawListener(this)
                 parent.removeCallbacks(wake)
+                readyRoots.remove(activity)
+                finishOutgoing(token)
                 return true
             }
         }
@@ -200,6 +244,7 @@ object GalleryBottomBar {
             override fun onViewDetachedFromWindow(view: android.view.View) {
                 if (parent.viewTreeObserver.isAlive) parent.viewTreeObserver.removeOnPreDrawListener(listener)
                 parent.removeCallbacks(wake)
+                readyRoots.remove(activity)
                 parent.removeOnAttachStateChangeListener(this)
             }
         })

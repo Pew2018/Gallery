@@ -104,7 +104,10 @@ class GalleryBottomBarRippleTest {
         assertNotNull(Shadows.shadowOf(activity).nextStartedActivity)
         assertFalse("navigation must not finish the ripple host on the click frame", activity.isFinishing)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(160, TimeUnit.MILLISECONDS)
-        assertTrue(activity.isFinishing)
+        assertFalse("no first-frame acknowledgement yet", activity.isFinishing)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(
+            GalleryBottomBar.ROOT_FINISH_FALLBACK_MS - 160L, TimeUnit.MILLISECONDS)
+        assertTrue("unresponsive target must not retain source indefinitely", activity.isFinishing)
     }
 
     @Test fun unchangedOrderRefreshDoesNotDetachItemsOrResetRipple() {

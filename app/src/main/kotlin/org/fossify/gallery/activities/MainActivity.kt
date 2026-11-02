@@ -296,6 +296,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
+        GalleryBottomBar.prepareRootSurface(this, binding.root)
         setupDirectoryProgressIndicator()
         binding.directoriesRefreshLayout.setColorSchemeColors(getProperPrimaryColor())
         binding.directoriesRefreshLayout.isEnabled = true
@@ -2364,6 +2365,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                         binding.directoriesRefreshLayout.isRefreshing = false
                     }
                     checkPlaceholderVisibility(visible)
+                    GalleryBottomBar.markRootContentReady(this@MainActivity)
                 }
             }
             val current = getRecyclerAdapter()

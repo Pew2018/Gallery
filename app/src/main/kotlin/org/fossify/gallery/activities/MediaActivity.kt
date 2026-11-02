@@ -244,17 +244,24 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private fun reloadPhotoProfile() {
         getMediaAdapter()?.finishActMode()
-        clearPhotoDisplayState()
-        photoHasContent = false
+        val nextProfile = PhotoProfileRepository.of(this).state().current?.id
+        val sameAuthorizedScope = photoProfileId == nextProfile &&
+            photoLoadedKey == photoDisplayKey() &&
+            photoLoadedRevision == org.fossify.gallery.helpers.PhotoContentRevision.current() &&
+            !photoNeedsUnlock && getMediaAdapter() != null && mMedia.isNotEmpty()
+        if (!sameAuthorizedScope) {
+            // A changed source, preference, or access capability must drop old thumbnails.
+            clearPhotoDisplayState()
+            photoHasContent = false
+        } else rememberPhotoScrollAnchor()
         mediaSearchGeneration++
         mLastSearchedText = ""
         mCommittedSearchText = ""
         if (binding.mediaMenu.isSearchOpen) OxygenSearchNavigation.closeInlineSearch(this, binding.mediaMenu)
-        binding.mediaGrid.adapter = null
-        mMedia = ArrayList()
-        photoProfileId = PhotoProfileRepository.of(this).state().current?.id
+        photoProfileId = nextProfile
         updateMenuColors()
-        getPhotoProfileMedia(org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED)
+        getPhotoProfileMedia(if (sameAuthorizedScope) org.fossify.gallery.helpers.PhotoLoadReason.REFRESH
+            else org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED)
     }
 
     private fun getPhotoProfileMedia(
@@ -272,7 +279,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
         val requestedKey = photoDisplayKey()
         val retainGrid = reason != org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED &&
-            photoLoadedKey == requestedKey && getMediaAdapter() != null && mMedia.isNotEmpty()
+            !photoNeedsUnlock && photoLoadedKey == requestedKey &&
+            photoLoadedRevision == org.fossify.gallery.helpers.PhotoContentRevision.current() &&
+            getMediaAdapter() != null && mMedia.isNotEmpty()
         photoPublishedStage = -1
         photoRequestStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
         if (retainGrid) {
@@ -304,6 +313,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             binding.mediaEmptyTextPlaceholder.beVisible()
             binding.mediaEmptyTextPlaceholder2.beGone()
             binding.mediaFastscroller.beGone()
+            GalleryBottomBar.markRootContentReady(this)
             return
         }
         val requestedToken = photoToken()
@@ -511,6 +521,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
+        GalleryBottomBar.prepareRootSurface(this, binding.root)
         setupMediaProgressIndicator()
         PhotoProfileAccessSessionManager.addListener(favoriteListenerId) { event ->
             if (event.mustClearProtectedMedia()) onPhotoAccessRevoked()
@@ -2334,6 +2345,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 setupAdapter {
                     if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return@setupAdapter
                     displayedMediaIsFinal = !isFromCache
+                    GalleryBottomBar.markRootContentReady(this)
                     if (mPath == FAVORITES && !isFromCache && media.isNotEmpty()) {
                         val committedItems = media
                         val token = favoriteSessionId
@@ -2373,6 +2385,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 }
             }
 
+            if (!isFromCache && media.isEmpty()) {
+                GalleryBottomBar.markRootContentReady(this)
+            }
             if (mPath == FAVORITES && applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
                 android.util.Log.d("GalleryFavorites", "source=${if (isFromCache) "cache" else "scan"}, adapterMedia=${mMedia.count { it is Medium }}")
             }
