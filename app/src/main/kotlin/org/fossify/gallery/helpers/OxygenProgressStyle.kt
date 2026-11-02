@@ -5,6 +5,7 @@ import android.os.SystemClock
 import android.view.View
 import java.lang.ref.WeakReference
 import com.google.android.material.progressindicator.LinearProgressIndicator
+import com.google.android.material.progressindicator.BaseProgressIndicator
 
 /**
  * Shared 2017-style Material linear loading indicator for folder and media screens.
@@ -20,14 +21,16 @@ object OxygenProgressStyle {
         var since = 0L
         var pending: Runnable? = null
     }
-    private val visibilityStates = java.util.WeakHashMap<LinearProgressIndicator, VisibilityState>()
+    private val visibilityStates = java.util.WeakHashMap<BaseProgressIndicator<*>, VisibilityState>()
 
     /**
      * A brief cache hit does not flash a 3dp spinner. Once shown, preserve a
      * minimum visible interval; a new request cancels any pending hide.
      */
-    fun setLoading(indicator: LinearProgressIndicator, loading: Boolean) {
+    fun setLoading(indicator: BaseProgressIndicator<*>, loading: Boolean) {
         val state = visibilityStates.getOrPut(indicator) { VisibilityState() }
+        // Repeated preview/status updates must not restart a pending show timer.
+        if (state.wanted == loading && state.pending != null && OxygenClassicMotion.enabled(indicator.context)) return
         state.wanted = loading
         state.pending?.let(indicator::removeCallbacks)
         state.pending = null
@@ -59,6 +62,25 @@ object OxygenProgressStyle {
         }
         state.pending = task
         indicator.postDelayed(task, delay)
+    }
+
+    /** Used only when the bounded root wait expires; do not invent a new load. */
+    fun revealPending(indicator: BaseProgressIndicator<*>) {
+        val state = visibilityStates[indicator] ?: return
+        if (!state.wanted || indicator.visibility == View.VISIBLE) return
+        state.pending?.let(indicator::removeCallbacks)
+        state.pending = null
+        indicator.visibility = View.VISIBLE
+        state.since = SystemClock.uptimeMillis()
+    }
+
+    fun dispose(indicator: BaseProgressIndicator<*>) {
+        visibilityStates.remove(indicator)?.let { state ->
+            state.wanted = false
+            state.pending?.let(indicator::removeCallbacks)
+            state.pending = null
+        }
+        indicator.visibility = View.GONE
     }
 
     fun thicknessPx(context: Context): Int =

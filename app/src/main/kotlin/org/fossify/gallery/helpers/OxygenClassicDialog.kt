@@ -518,7 +518,8 @@ object OxygenClassicDialog {
                 if (v is android.widget.CheckedTextView) {
                     val list = v.parent as? android.widget.AbsListView
                     val multiple = list != null && list.choiceMode != android.widget.AbsListView.CHOICE_MODE_SINGLE
-                    val mark = if (multiple) OxygenClassicControls.selectionDrawable(false, dp, OxygenThemeEngine.snapshot(activity, activity.config))
+                    val mark = if (multiple) OxygenClassicControls.selectionDrawable(false, dp, OxygenThemeEngine.snapshot(activity, activity.config),
+                        animationsEnabled = OxygenClassicMotion.enabled(activity))
                         else AppCompatResources.getDrawable(v.context, R.drawable.tieba_choice_check)!!.mutate().apply { setTint(readableAccent) }
                     v.checkMarkDrawable = mark
                     v.checkMarkTintList = if (multiple) null else ColorStateList.valueOf(readableAccent)

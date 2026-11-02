@@ -284,7 +284,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     private fun setDirectoryLoading(loading: Boolean) {
         val update = {
-            directoryHeaderProgress?.apply {
+            if (!isDestroyed && !isFinishing) directoryHeaderProgress?.apply {
                 OxygenProgressStyle.apply(this@MainActivity, config, this)
                 OxygenProgressStyle.setLoading(this, loading)
             }
@@ -355,7 +355,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         if (!mIsThirdPartyIntent) {
             GalleryBottomBar.attach(this, binding.root,
-                if (mShowingFolderFavorites) GalleryBottomBar.Tab.FAVORITES else GalleryBottomBar.Tab.ALL
+                if (mShowingFolderFavorites) GalleryBottomBar.Tab.FAVORITES else GalleryBottomBar.Tab.ALL,
+                loadingFrame = { directoryHeaderProgress?.let(OxygenProgressStyle::revealPending) }
             ) { tab ->
                 getRecyclerAdapter()?.finishActMode()
                 val section = GallerySection.valueOf(tab.name)
@@ -557,6 +558,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     override fun onDestroy() {
+        GalleryBottomBar.dispose(this)
+        directoryHeaderProgress?.let(OxygenProgressStyle::dispose)
         folderOpenGeneration++
         ViewerAccessCoordinator.cancel(folderOpenTask)
         super.onDestroy()
@@ -2365,7 +2368,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                         binding.directoriesRefreshLayout.isRefreshing = false
                     }
                     checkPlaceholderVisibility(visible)
-                    GalleryBottomBar.markRootContentReady(this@MainActivity)
+                    GalleryBottomBar.markRootContentReady(this@MainActivity, if (visible.isEmpty())
+                        GalleryBottomBar.RootContent.EMPTY else GalleryBottomBar.RootContent.CONTENT)
                 }
             }
             val current = getRecyclerAdapter()

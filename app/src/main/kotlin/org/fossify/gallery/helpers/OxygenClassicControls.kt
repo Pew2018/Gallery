@@ -146,8 +146,11 @@ object OxygenClassicControls {
                 val shouldAnimate = animationsEnabled && enabled && lastChecked != null &&
                     lastChecked != checked && previous != null && previous != target
                 lastChecked = checked
-                selectionAnimator?.cancel()
-                selectionAnimator = null
+                // Press/focus changes must not snap an in-flight checked transition.
+                if (shouldAnimate || !enabled || !animationsEnabled || previous == null) {
+                    selectionAnimator?.cancel()
+                    selectionAnimator = null
+                }
                 if (shouldAnimate && previous != null) {
                     val animator = ValueAnimator.ofFloat(previous, target).apply {
                         duration = OxygenClassicMotion.CHECKBOX_MS
@@ -164,7 +167,7 @@ object OxygenClassicControls {
                     }
                     selectionAnimator = animator
                     animator.start()
-                } else selectionProgress = target
+                } else if (selectionAnimator == null) selectionProgress = target
             }
             if (kind == "toggleCheckbox") {
                 val checked = state.contains(android.R.attr.state_checked)

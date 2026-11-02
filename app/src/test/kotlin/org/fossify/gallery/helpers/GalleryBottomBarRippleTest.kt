@@ -38,7 +38,7 @@ class GalleryBottomBarRippleTest {
         activity.config.bottomNavigationOrder = listOf("ALL", "FAVORITES", "PHOTOS")
         val root = CoordinatorLayout(activity)
         activity.setContentView(root)
-        GalleryBottomBar.attach(activity, root, active, onNavigate)
+        GalleryBottomBar.attach(activity, root, active, navigate = onNavigate)
         return activity to root.findViewWithTag("oxygen_classic_bottom_bar")
     }
 
@@ -119,4 +119,41 @@ class GalleryBottomBarRippleTest {
         assertTrue(items(bar).indices.all { items(bar)[it].background === backgrounds[it] })
         activity.finish()
     }
+
+    @Test fun actualDownUpKeepsRippleAndAnimationsOffSnapsSelectedTint() {
+        var visits = 0
+        val (activity, bar) = fixture(onNavigate = { visits++ })
+        val tabs = items(bar)
+        val item = tabs[1]
+        val ripple = item.background
+        val resolver = activity.contentResolver
+        val prior = android.provider.Settings.Global.getFloat(resolver,
+            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        android.provider.Settings.Global.putFloat(resolver,
+            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
+        try {
+            item.layout(0, 0, 100, 56)
+            val now = android.os.SystemClock.uptimeMillis()
+            val down = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, 50f, 28f, 0)
+            item.dispatchTouchEvent(down)
+            down.recycle()
+            assertTrue(item.isPressed)
+            assertSame(ripple, item.background)
+            val up = android.view.MotionEvent.obtain(now, now + 40, android.view.MotionEvent.ACTION_UP, 50f, 28f, 0)
+            item.dispatchTouchEvent(up)
+            up.recycle()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(1, visits)
+            assertSame(ripple, item.background)
+            assertTrue(item.isSelected)
+            val tokens = OxygenThemeEngine.snapshot(activity, activity.config)
+            assertEquals(tokens.interactiveAccent, (item.getChildAt(1) as TextView).currentTextColor)
+        } finally {
+            GalleryBottomBar.dispose(activity)
+            android.provider.Settings.Global.putFloat(resolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, prior)
+            activity.finish()
+        }
+    }
+
 }

@@ -55,7 +55,15 @@ class PhotoProfileEditActivity : SimpleActivity() {
     private val sourceLayoutTransition by lazy {
         LayoutTransition().apply {
             disableTransitionType(LayoutTransition.APPEARING)
-            disableTransitionType(LayoutTransition.DISAPPEARING)
+            // Removed children are retained only by ViewGroup's disappearing-view
+            // animation, never by sourceRows or a delayed application callback.
+            setAnimator(LayoutTransition.DISAPPEARING,
+                android.animation.ObjectAnimator.ofFloat(null, "alpha", 1f, 0f))
+            setDuration(LayoutTransition.DISAPPEARING, OxygenClassicMotion.CHECKBOX_MS)
+            setStartDelay(LayoutTransition.DISAPPEARING, 0L)
+            setStartDelay(LayoutTransition.CHANGE_DISAPPEARING, OxygenClassicMotion.CHECKBOX_MS)
+            setStartDelay(LayoutTransition.CHANGE_APPEARING, 0L)
+            setAnimateParentHierarchy(false)
             for (kind in intArrayOf(LayoutTransition.CHANGE_APPEARING,
                 LayoutTransition.CHANGE_DISAPPEARING, LayoutTransition.CHANGING)) {
                 setDuration(kind, OxygenClassicMotion.LIST_MOVE_MS)
@@ -149,6 +157,7 @@ class PhotoProfileEditActivity : SimpleActivity() {
         sourceStatusRequests.invalidate()
         PhotoProfileAccessSessionManager.removeListener(authListenerId)
         sourceRows.values.forEach { it.animate().cancel(); it.alpha = 1f }
+        sourceLayoutTransition.cancel()
         binding.photoProfileEditSources.layoutTransition = null
         sourceRows.clear()
         sourceDividers.clear()
@@ -190,6 +199,7 @@ class PhotoProfileEditActivity : SimpleActivity() {
         val container = binding.photoProfileEditSources
         val animate = sourceRowsRendered && OxygenClassicMotion.enabled(this)
         val transition = if (OxygenClassicMotion.enabled(this)) sourceLayoutTransition else null
+        if (transition == null) sourceLayoutTransition.cancel()
         if (container.layoutTransition !== transition) container.layoutTransition = transition
         binding.photoProfileEditEmpty.visibility = if (draft.sources.isEmpty()) View.VISIBLE else View.GONE
         val desired = ArrayList<View>(draft.sources.size * 2)
@@ -213,6 +223,19 @@ class PhotoProfileEditActivity : SimpleActivity() {
                         layoutParams = LinearLayout.LayoutParams(-1, dp(1))
                     }
                 })
+            }
+        }
+        // Remove obsolete rows first. Otherwise moving a retained row over a removed
+        // one detaches it and aborts its ripple/layout animation on every deletion.
+        for (index in container.childCount - 1 downTo 0) {
+            val child = container.getChildAt(index)
+            if (child !in desired) {
+                child.animate().cancel()
+                child.alpha = 1f
+                container.removeViewAt(index)
+            } else if (!animate) {
+                child.animate().cancel()
+                child.alpha = 1f
             }
         }
         // Reconcile in place rather than removeAllViews(): unchanged rows never detach.

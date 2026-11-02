@@ -36,9 +36,13 @@ object GalleryBottomBar {
     internal const val FIRST_DRAW_LIMIT_MS = 250L
     internal const val ROOT_FINISH_FALLBACK_MS = FIRST_DRAW_LIMIT_MS + ROOT_ENTER_DURATION_MS + 120L
     private const val EXTRA_ROOT_TOKEN = "org.fossify.gallery.ROOT_TRANSITION_TOKEN"
-    private data class PendingRoot(val source: java.lang.ref.WeakReference<Activity>, val timeout: Runnable)
+    private data class PendingRoot(val source: java.lang.ref.WeakReference<Activity>, val timeout: Runnable,
+        var acknowledged: Boolean = false)
     private val pendingRoots = mutableMapOf<String, PendingRoot>()
-    private val readyRoots = java.util.WeakHashMap<Activity, Boolean>()
+    enum class RootContent { LOADING, CONTENT, EMPTY, AUTHORIZATION, FAILED }
+    private val readyRoots = java.util.WeakHashMap<Activity, RootContent>()
+    private val rootCleanups = java.util.WeakHashMap<Activity, () -> Unit>()
+    internal val pendingRootCount: Int get() = pendingRoots.size
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private data class TintTransition(val target: Int, val animator: ValueAnimator)
@@ -60,17 +64,37 @@ object GalleryBottomBar {
         OxygenSystemBars.apply(activity)
     }
 
-    fun markRootContentReady(activity: Activity) {
-        if (readyRoots.containsKey(activity)) readyRoots[activity] = true
+    fun markRootContentReady(activity: Activity, content: RootContent = RootContent.CONTENT) {
+        if (readyRoots.containsKey(activity)) readyRoots[activity] = content
+    }
+
+    /** Activity teardown cancels callbacks rather than leaving a retained window/view. */
+    fun dispose(activity: Activity) {
+        rootCleanups.remove(activity)?.invoke()
+        readyRoots.remove(activity)
+        bars.remove(activity)?.get()?.let { bar ->
+            for (i in 0 until bar.childCount) {
+                val item = bar.getChildAt(i) as? LinearLayout ?: continue
+                tintTransitions.remove(item)?.animator?.cancel()
+                rippleColors.remove(item)
+            }
+        }
+        pendingRoots.entries.filter { it.value.source.get() == null || it.value.source.get() === activity }
+            .map { it.key }.forEach { token ->
+                pendingRoots.remove(token)?.let { mainHandler.removeCallbacks(it.timeout) }
+            }
     }
 
     private fun finishOutgoing(token: String?) {
         if (token == null) return
-        val pending = pendingRoots.remove(token) ?: return
+        val pending = pendingRoots[token] ?: return
+        if (pending.acknowledged) return
+        pending.acknowledged = true
         mainHandler.removeCallbacks(pending.timeout)
-        mainHandler.postDelayed({
-            pending.source.get()?.let { if (!it.isFinishing && !it.isDestroyed) it.finish() }
-        }, ROOT_ENTER_DURATION_MS)
+        // Keep the same tracked callback until it runs, including after acknowledgement.
+        val delay = if (pending.source.get()?.let(OxygenClassicMotion::enabled) == true)
+            ROOT_ENTER_DURATION_MS else 0L
+        mainHandler.postDelayed(pending.timeout, delay)
     }
 
     private fun rippleColor(accent: Int): Int =
@@ -144,7 +168,7 @@ object GalleryBottomBar {
             )
             item.contentDescription = if (selected) "${label.text}, ${activity.getString(R.string.classic_selected)}"
                 else label.text.toString()
-            updateTint(item, if (selected) colors.interactiveAccent else colors.secondaryText, animate = true)
+            updateTint(item, if (selected) colors.interactiveAccent else colors.secondaryText, animate = OxygenClassicMotion.enabled(activity))
         }
     }
 
@@ -186,6 +210,8 @@ object GalleryBottomBar {
 
     @Suppress("DEPRECATION")
     fun open(activity: Activity, intent: Intent, finishCurrent: Boolean = false) {
+        if (activity.isFinishing || activity.isDestroyed ||
+            pendingRoots.values.any { it.source.get() === activity }) return
         intent.putExtra(EXTRA_ROOT_TRANSITION, true)
         val token = if (finishCurrent) java.util.UUID.randomUUID().toString() else null
         if (token != null) {
@@ -200,7 +226,9 @@ object GalleryBottomBar {
         }
         try {
             activity.startActivity(intent)
-            activity.overridePendingTransition(R.anim.gallery_root_enter, R.anim.gallery_root_hold)
+            if (OxygenClassicMotion.enabled(activity)) {
+                activity.overridePendingTransition(R.anim.gallery_root_enter, R.anim.gallery_root_hold)
+            } else activity.overridePendingTransition(0, 0)
         } catch (error: RuntimeException) {
             token?.let { pendingRoots.remove(it)?.let { pending -> mainHandler.removeCallbacks(pending.timeout) } }
             throw error
@@ -209,46 +237,88 @@ object GalleryBottomBar {
 
     private const val EXTRA_ROOT_TRANSITION = "org.fossify.gallery.ROOT_TRANSITION"
     /** Allow the destination's first content-backed frame before releasing its source. */
-    private fun coordinateFirstDraw(activity: Activity, parent: CoordinatorLayout) {
+    internal fun coordinateFirstDraw(activity: Activity, parent: CoordinatorLayout,
+        loadingFrame: () -> Unit = {}) {
         if (!activity.intent.getBooleanExtra(EXTRA_ROOT_TRANSITION, false)) return
+        rootCleanups.remove(activity)?.invoke()
         activity.intent.removeExtra(EXTRA_ROOT_TRANSITION)
         val token = activity.intent.getStringExtra(EXTRA_ROOT_TOKEN)
         activity.intent.removeExtra(EXTRA_ROOT_TOKEN)
-        readyRoots[activity] = false
+        readyRoots[activity] = RootContent.LOADING
         val started = android.os.SystemClock.uptimeMillis()
         val wake = Runnable { parent.invalidate() }
-        val listener = object : android.view.ViewTreeObserver.OnPreDrawListener {
-            override fun onPreDraw(): Boolean {
-                val directories: androidx.recyclerview.widget.RecyclerView? = parent.findViewById(R.id.directories_grid)
-                val media: androidx.recyclerview.widget.RecyclerView? = parent.findViewById(R.id.media_grid)
-                val directoryEmpty: android.view.View? = parent.findViewById(R.id.directories_empty_placeholder)
-                val mediaEmpty: android.view.View? = parent.findViewById(R.id.media_empty_text_placeholder)
-                val grid = media ?: directories
-                val empty = if (media != null) mediaEmpty else directoryEmpty
-                val count = grid?.adapter?.itemCount ?: 0
-                val ready = mayDrawRoot(readyRoots[activity] == true,
-                    count > 0 && (grid?.childCount ?: 0) > 0,
-                    count == 0 && empty?.visibility == android.view.View.VISIBLE,
-                    android.os.SystemClock.uptimeMillis() - started)
-                if (!ready && !activity.isFinishing && !activity.isDestroyed) return false
-                if (parent.viewTreeObserver.isAlive) parent.viewTreeObserver.removeOnPreDrawListener(this)
-                parent.removeCallbacks(wake)
-                readyRoots.remove(activity)
-                finishOutgoing(token)
-                return true
+        var acknowledged = false
+        var waitingForDraw = false
+        var fallbackPrepared = false
+        lateinit var cleanup: () -> Unit
+        lateinit var preDraw: android.view.ViewTreeObserver.OnPreDrawListener
+        lateinit var drawn: android.view.ViewTreeObserver.OnDrawListener
+        lateinit var attachment: android.view.View.OnAttachStateChangeListener
+        val afterDraw = Runnable {
+            if (acknowledged) return@Runnable
+            acknowledged = true
+            cleanup()
+            rootCleanups.remove(activity)
+            finishOutgoing(token)
+        }
+        drawn = android.view.ViewTreeObserver.OnDrawListener {
+            // A pre-draw pass can still be cancelled by another listener. Acknowledge
+            // the actual draw, without mistaking laid-out rows for decoded images.
+            mainHandler.post(afterDraw)
+        }
+        cleanup = {
+            if (parent.viewTreeObserver.isAlive) {
+                parent.viewTreeObserver.removeOnPreDrawListener(preDraw)
+                parent.viewTreeObserver.removeOnDrawListener(drawn)
+            }
+            parent.removeCallbacks(wake)
+            mainHandler.removeCallbacks(afterDraw)
+            readyRoots.remove(activity)
+            parent.removeOnAttachStateChangeListener(attachment)
+        }
+        preDraw = android.view.ViewTreeObserver.OnPreDrawListener {
+            val directories: androidx.recyclerview.widget.RecyclerView? = parent.findViewById(R.id.directories_grid)
+            val media: androidx.recyclerview.widget.RecyclerView? = parent.findViewById(R.id.media_grid)
+            val empty: android.view.View? = parent.findViewById(if (media != null)
+                R.id.media_empty_text_placeholder else R.id.directories_empty_placeholder)
+            val grid = media ?: directories
+            val count = grid?.adapter?.itemCount ?: 0
+            val content = readyRoots[activity] ?: RootContent.LOADING
+            val elapsed = android.os.SystemClock.uptimeMillis() - started
+            val bound = count > 0 && (grid?.childCount ?: 0) > 0 &&
+                !grid!!.isLayoutRequested && !grid.isComputingLayout
+            val confirmedEmpty = count == 0 && empty?.visibility == android.view.View.VISIBLE
+            val ready = mayDrawRoot(content != RootContent.LOADING, bound, confirmedEmpty, elapsed)
+            if (!ready && !activity.isFinishing && !activity.isDestroyed) false
+            else {
+                if (!fallbackPrepared && elapsed >= FIRST_DRAW_LIMIT_MS &&
+                    !(content != RootContent.LOADING && (bound || confirmedEmpty))) {
+                    // Bounded waiting falls back to a fully opaque, themed loading
+                    // surface, never a fade through the system window background.
+                    fallbackPrepared = true
+                    val surface = OxygenThemeEngine.snapshot(activity, activity.config).pageBackground
+                    activity.window.setBackgroundDrawable(ColorDrawable(surface))
+                    parent.setBackgroundColor(surface)
+                    loadingFrame()
+                }
+                if (!waitingForDraw) {
+                    waitingForDraw = true
+                    parent.viewTreeObserver.addOnDrawListener(drawn)
+                }
+                true
             }
         }
-        parent.viewTreeObserver.addOnPreDrawListener(listener)
-        parent.addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
+        attachment = object : android.view.View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(view: android.view.View) = Unit
             override fun onViewDetachedFromWindow(view: android.view.View) {
-                if (parent.viewTreeObserver.isAlive) parent.viewTreeObserver.removeOnPreDrawListener(listener)
-                parent.removeCallbacks(wake)
-                readyRoots.remove(activity)
-                parent.removeOnAttachStateChangeListener(this)
+                cleanup()
+                rootCleanups.remove(activity)
+                // The tracked source timeout still bounds failed destination startup.
             }
-        })
-        // A failed/slow query must never indefinitely block the first frame.
+        }
+        rootCleanups[activity] = cleanup
+        parent.viewTreeObserver.addOnPreDrawListener(preDraw)
+        parent.addOnAttachStateChangeListener(attachment)
         parent.postDelayed(wake, FIRST_DRAW_LIMIT_MS)
     }
 
@@ -256,9 +326,10 @@ object GalleryBottomBar {
         activity: Activity,
         parent: CoordinatorLayout,
         active: Tab,
+        loadingFrame: () -> Unit = {},
         navigate: (Tab) -> Unit
     ) {
-        coordinateFirstDraw(activity, parent)
+        coordinateFirstDraw(activity, parent, loadingFrame)
         val density = activity.resources.displayMetrics.density
         fun dp(value: Int) = (value * density + 0.5f).toInt()
         val tokens = OxygenThemeEngine.snapshot(activity, activity.config)

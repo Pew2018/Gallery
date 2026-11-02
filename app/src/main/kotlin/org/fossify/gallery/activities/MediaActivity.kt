@@ -305,7 +305,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             photoLoadedRevision = org.fossify.gallery.helpers.PhotoContentRevision.current()
             mIsGettingMedia = false
             setMediaLoading(false)
-            binding.loadingIndicator.hide()
+            OxygenProgressStyle.setLoading(binding.loadingIndicator, false)
             binding.mediaRefreshLayout.isRefreshing = false
             binding.mediaEmptyTextPlaceholder.setText(R.string.photo_profiles_empty_title)
             binding.mediaEmptyDescription.setText(R.string.photo_profiles_empty_description)
@@ -313,7 +313,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             binding.mediaEmptyTextPlaceholder.beVisible()
             binding.mediaEmptyTextPlaceholder2.beGone()
             binding.mediaFastscroller.beGone()
-            GalleryBottomBar.markRootContentReady(this)
+            GalleryBottomBar.markRootContentReady(this, GalleryBottomBar.RootContent.EMPTY)
             return
         }
         val requestedToken = photoToken()
@@ -366,7 +366,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     } else if (mMedia.isNotEmpty() && photoDisplayKey() == requestedKey) {
                         mIsGettingMedia = false
                         setMediaLoading(false)
-                        binding.loadingIndicator.hide()
+                        OxygenProgressStyle.setLoading(binding.loadingIndicator, false)
                         binding.mediaRefreshLayout.isRefreshing = false
                         toast(R.string.failed_to_load_media)
                     } else {
@@ -445,9 +445,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun setMediaLoading(loading: Boolean) {
+        if (isDestroyed || isFinishing) return
+        // Root navigation uses the header strip. The central indicator is reserved
+        // for the initial non-root folder/picker load; never show both together.
+        val central = loading && mGallerySection == null && getMediaAdapter() == null
+        if (loading && !central) OxygenProgressStyle.dispose(binding.loadingIndicator)
+        else OxygenProgressStyle.setLoading(binding.loadingIndicator, central)
         mediaHeaderProgress?.apply {
+            if (central) OxygenProgressStyle.dispose(this)
             OxygenProgressStyle.apply(this@MediaActivity, config, this)
-            OxygenProgressStyle.setLoading(this, loading)
+            OxygenProgressStyle.setLoading(this, loading && !central)
         }
     }
 
@@ -638,7 +645,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         storeStateVariables()
         if (mGallerySection != null) {
             GalleryBottomBar.attach(this, binding.root,
-                GalleryBottomBar.Tab.valueOf(mGallerySection!!.name)
+                GalleryBottomBar.Tab.valueOf(mGallerySection!!.name),
+                loadingFrame = { mediaHeaderProgress?.let(OxygenProgressStyle::revealPending) }
             ) { tab ->
                 getMediaAdapter()?.finishActMode()
                 val section = GallerySection.valueOf(tab.name)
@@ -961,6 +969,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     override fun onDestroy() {
+        GalleryBottomBar.dispose(this)
+        mediaHeaderProgress?.let(OxygenProgressStyle::dispose)
+        OxygenProgressStyle.dispose(binding.loadingIndicator)
         PhotoProfileAccessSessionManager.removeListener(favoriteListenerId)
         favoritesReturnCover?.let {
             it.dismiss()
@@ -1324,7 +1335,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
 
             if (mShowLoadingIndicator) {
-                binding.loadingIndicator.show()
+                setMediaLoading(true)
                 mShowLoadingIndicator = false
             }
 
@@ -1639,7 +1650,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed) {
                         mIsGettingMedia = false
                         setMediaLoading(false)
-                        binding.loadingIndicator.hide()
+                        OxygenProgressStyle.setLoading(binding.loadingIndicator, false)
                         binding.mediaRefreshLayout.isRefreshing = false
                         if (mPath == FAVORITES) {
                             // The album is cleared while its viewer is open. Make a
@@ -2292,6 +2303,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed ||
                 (isFromCache && completedMediaRequest == request)) return@runOnUiThread
 
+            if (isFromCache && media.isNotEmpty()) setMediaLoading(true)
             if (!isFromCache) {
                 mIsGettingMedia = false
                 setMediaLoading(false)
@@ -2316,7 +2328,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
             displayedMediaRequest = request
             displayedMediaIsFinal = false
-            binding.loadingIndicator.hide()
+            OxygenProgressStyle.setLoading(binding.loadingIndicator, false)
             binding.mediaRefreshLayout.isRefreshing = false
             binding.mediaEmptyDescription.beGone()
             binding.mediaEmptyTextPlaceholder.beVisibleIf(media.isEmpty() && !isFromCache)
@@ -2345,6 +2357,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 setupAdapter {
                     if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return@setupAdapter
                     displayedMediaIsFinal = !isFromCache
+                    if (isFromCache && media.isNotEmpty()) setMediaLoading(true)
                     GalleryBottomBar.markRootContentReady(this)
                     if (mPath == FAVORITES && !isFromCache && media.isNotEmpty()) {
                         val committedItems = media
@@ -2386,7 +2399,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
 
             if (!isFromCache && media.isEmpty()) {
-                GalleryBottomBar.markRootContentReady(this)
+                GalleryBottomBar.markRootContentReady(this, if (photoNeedsUnlock)
+                    GalleryBottomBar.RootContent.AUTHORIZATION else GalleryBottomBar.RootContent.EMPTY)
             }
             if (mPath == FAVORITES && applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
                 android.util.Log.d("GalleryFavorites", "source=${if (isFromCache) "cache" else "scan"}, adapterMedia=${mMedia.count { it is Medium }}")
