@@ -817,9 +817,12 @@ fun Context.getCachedDirectories(
     forceShowHidden: Boolean = false,
     forceShowExcluded: Boolean = false,
     onFailure: ((Exception) -> Unit)? = null,
+    executor: java.util.concurrent.Executor? = null,
+    isCurrent: () -> Boolean = { true },
     callback: (ArrayList<Directory>) -> Unit,
 ) {
-    ensureBackgroundThread {
+    val load = Runnable {
+        if (!isCurrent()) return@Runnable
         val result = try {
             try {
                 Process.setThreadPriority(Process.THREAD_PRIORITY_MORE_FAVORABLE)
@@ -904,16 +907,20 @@ fun Context.getCachedDirectories(
         } catch (error: Exception) {
             android.util.Log.w("GalleryDirs", "Directory cache unavailable", error)
             if (onFailure != null) {
-                onFailure(error)
-                return@ensureBackgroundThread
+                if (isCurrent()) onFailure(error)
+                return@Runnable
             }
             arrayListOf()
         }
+        if (!isCurrent()) return@Runnable
         callback(result)
+        if (!isCurrent()) return@Runnable
         // Cleanup must not turn a successfully delivered cache into a second callback.
         runCatching { removeInvalidDBDirectories(result) }
             .onFailure { android.util.Log.w("GalleryDirs", "Cache cleanup failed", it) }
     }
+    if (executor != null) executor.execute(load) else ensureBackgroundThread { load.run() }
+
 }
 
 fun Context.getCachedMedia(

@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.OperationCanceledException
 import org.fossify.gallery.databases.GalleryDatabase
 import org.fossify.gallery.extensions.config
+import org.fossify.gallery.extensions.getCachedDirectories
 import org.fossify.commons.extensions.getSharedPrefs
 import org.fossify.gallery.models.Medium
 import org.junit.Assert.*
@@ -120,6 +121,19 @@ class RefreshRepairTest {
         } catch (error: java.util.concurrent.ExecutionException) {
             assertTrue(error.cause is OperationCanceledException)
         }
+    }
+
+    @Test fun supersededQueuedAlbumRefreshDoesNotReadCacheOrDeliverCallbacks() {
+        val queue = mutableListOf<Runnable>()
+        var current = true
+        GalleryDatabase.getInstance(context).close()
+        context.getCachedDirectories(executor = java.util.concurrent.Executor { queue.add(it) },
+            isCurrent = { current }, onFailure = { fail("stale request accessed the closed cache") }) {
+            fail("stale request delivered a result")
+        }
+        assertEquals(1, queue.size)
+        current = false
+        queue.single().run()
     }
 
     @Test fun independentBoundedWorkerAllowsRefreshPastOneBlockedOldTask() {

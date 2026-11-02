@@ -913,7 +913,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         setDirectoryLoading(true)
         val getImages = mIsPickImageIntent || mIsGetImageContentIntent
         val getVideos = mIsPickVideoIntent || mIsGetVideoContentIntent
-        getCachedDirectories(getVideos && !getImages, getImages && !getVideos) {
+        getCachedDirectories(getVideos && !getImages, getImages && !getVideos,
+            executor = org.fossify.gallery.helpers.GalleryMediaScanExecutor,
+            isCurrent = { isCurrentDirectoryScan(scanRequest) }
+        ) {
             if (isCurrentDirectoryScan(scanRequest)) {
                 try {
                     gotDirectories(addTempFolderIfNeeded(it), scanRequest, forceRefresh)

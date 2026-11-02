@@ -599,6 +599,7 @@ class MediaFetcher(
         dateTakens: HashMap<String, Long>, allowedFolders: Set<String>?,
         allowedPaths: Set<String> = emptySet()
     ): HashMap<String, ArrayList<Medium>> {
+        querySignal() // Cancellation is not a successful empty library.
         val media = HashMap<String, ArrayList<Medium>>()
         val filterMedia = filterOverride ?: context.config.filterMedia
         val showHidden = context.config.shouldShowHidden
@@ -723,6 +724,7 @@ class MediaFetcher(
             queryStarted, indexedCount
         )
 
+        querySignal() // Also reject cancellation that arrived while consuming rows.
         if (reportReadFailures && indexedCount == 0 && rowFailure != null) {
             throw java.io.IOException("MediaStore returned unreadable metadata", rowFailure)
         }
