@@ -9,7 +9,8 @@ object PhotoProfileRepository {
         val prefs = context.applicationContext.getSharedPrefs()
         return PhotoProfileStore(
             { prefs.getString(KEY, "").orEmpty() },
-            { prefs.edit().putString(KEY, it).apply() }
+            { prefs.edit().putString(KEY, it).apply() },
+            { org.fossify.gallery.helpers.backup.BackupPreferences.commit(prefs, mapOf(KEY to it)) }
         )
     }
 }

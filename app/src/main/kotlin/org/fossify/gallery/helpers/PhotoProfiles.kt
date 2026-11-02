@@ -284,8 +284,16 @@ object PhotoProfileCodec {
 }
 
 /** One atomic record holds both profiles and selection; cancellation never writes drafts. */
-class PhotoProfileStore(private val read: () -> String, private val write: (String) -> Unit) {
+class PhotoProfileStore(private val read: () -> String, private val write: (String) -> Unit,
+    private val importWrite: (String) -> Unit = write) {
     fun state() = PhotoProfileCodec.decode(read())
+    /** Validate and merge completely before the single write; save() deliberately is not used. */
+    fun importState(incoming: PhotoProfileState): org.fossify.gallery.helpers.backup.PhotoProfileImportResult {
+        val before = state()
+        val merged = org.fossify.gallery.helpers.backup.PhotoProfileBackupCodec.merge(before, incoming)
+        if (merged.state != before) importWrite(PhotoProfileCodec.encode(merged.state))
+        return merged
+    }
     fun select(id: String) {
         val state = state()
         if (state.profiles.any { it.id == id }) write(PhotoProfileCodec.encode(state.copy(selectedId = id)))

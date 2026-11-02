@@ -12,10 +12,7 @@ import android.view.View
 import androidx.activity.OnBackPressedCallback
 import androidx.core.graphics.ColorUtils
 import org.fossify.gallery.helpers.OxygenThemeEngine
-import android.text.TextUtils
 import android.widget.Toast
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import org.fossify.commons.dialogs.*
 import org.fossify.commons.extensions.*
 import org.fossify.commons.helpers.*
@@ -23,11 +20,10 @@ import org.fossify.commons.models.RadioItem
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.ActivitySettingsBinding
 import org.fossify.gallery.databases.GalleryDatabase
-import org.fossify.gallery.models.FavoriteFolder
 import org.fossify.gallery.dialogs.*
 import org.fossify.gallery.extensions.*
 import org.fossify.gallery.helpers.*
-import org.fossify.gallery.models.AlbumCover
+import org.fossify.gallery.helpers.backup.*
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -41,6 +37,8 @@ class SettingsActivity : SimpleActivity() {
         private const val SELECT_IMPORT_FAVORITES_FILE_INTENT = 3
         private const val SELECT_EXPORT_FAVORITE_FOLDERS_INTENT = 4
         private const val SELECT_IMPORT_FAVORITE_FOLDERS_INTENT = 5
+        private const val SELECT_EXPORT_PHOTO_PROFILES_INTENT = 6
+        private const val SELECT_IMPORT_PHOTO_PROFILES_INTENT = 7
     }
 
     private var mRecycleBinContentSize = 0L
@@ -101,7 +99,7 @@ class SettingsActivity : SimpleActivity() {
                 R.id.settings_change_date_time_format_holder, R.id.settings_section_advanced_performance, R.id.settings_file_loading_priority_holder,
                 R.id.settings_clear_cache_holder, R.id.settings_section_advanced_backup, R.id.settings_export_favorites_holder,
                 R.id.settings_import_favorites_holder, R.id.settings_export_favorite_folders_holder, R.id.settings_import_favorite_folders_holder,
-                R.id.settings_export_holder, R.id.settings_import_holder, R.id.settings_purchase_thank_you_holder
+                R.id.settings_export_holder, R.id.settings_import_holder, R.id.settings_export_photo_profiles_holder, R.id.settings_import_photo_profiles_holder, R.id.settings_purchase_thank_you_holder
             ))
         )
     }
@@ -124,7 +122,7 @@ class SettingsActivity : SimpleActivity() {
         R.id.settings_section_security_media to setOf(R.id.settings_hidden_item_password_protection_holder, R.id.settings_excluded_item_password_protection_holder, R.id.settings_favorite_password_holder, R.id.settings_photo_password_holder),
         R.id.settings_section_advanced_language to setOf(R.id.settings_use_english_holder, R.id.settings_language_holder, R.id.settings_change_date_time_format_holder),
         R.id.settings_section_advanced_performance to setOf(R.id.settings_file_loading_priority_holder, R.id.settings_clear_cache_holder),
-        R.id.settings_section_advanced_backup to setOf(R.id.settings_export_favorites_holder, R.id.settings_import_favorites_holder, R.id.settings_export_favorite_folders_holder, R.id.settings_import_favorite_folders_holder, R.id.settings_export_holder, R.id.settings_import_holder)
+        R.id.settings_section_advanced_backup to setOf(R.id.settings_export_favorites_holder, R.id.settings_import_favorites_holder, R.id.settings_export_favorite_folders_holder, R.id.settings_import_favorite_folders_holder, R.id.settings_export_holder, R.id.settings_import_holder, R.id.settings_export_photo_profiles_holder, R.id.settings_import_photo_profiles_holder)
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -354,6 +352,7 @@ class SettingsActivity : SimpleActivity() {
         setupImportFavoriteFolders()
         setupExportSettings()
         setupImportSettings()
+        setupPhotoProfileBackup()
 
         val colors = OxygenThemeEngine.snapshot(this, config)
         binding.settingsCoordinator.setBackgroundColor(colors.pageBackground)
@@ -364,23 +363,59 @@ class SettingsActivity : SimpleActivity() {
 
     }
 
+    /** Opening a DocumentProvider stream can itself block or throw, so do it on the worker. */
     override fun onActivityResult(requestCode: Int, resultCode: Int, resultData: Intent?) {
-        super.onActivityResult(requestCode, resultCode, resultData)
-        if (requestCode == PICK_IMPORT_SOURCE_INTENT && resultCode == Activity.RESULT_OK && resultData != null && resultData.data != null) {
-            val inputStream = contentResolver.openInputStream(resultData.data!!)
-            parseFile(inputStream)
-        } else if (requestCode == SELECT_EXPORT_FAVORITES_FILE_INTENT && resultCode == Activity.RESULT_OK && resultData != null && resultData.data != null) {
-            val outputStream = contentResolver.openOutputStream(resultData.data!!)
-            exportFavoritesTo(outputStream)
-        } else if (requestCode == SELECT_IMPORT_FAVORITES_FILE_INTENT && resultCode == Activity.RESULT_OK && resultData?.data != null) {
-            runCatching { contentResolver.openInputStream(resultData.data!!) }
-                .onSuccess(::importFavorites).onFailure { error -> showErrorToast(error as? Exception ?: Exception(error)) }
-        } else if (requestCode == SELECT_EXPORT_FAVORITE_FOLDERS_INTENT && resultCode == Activity.RESULT_OK && resultData?.data != null) {
-            runCatching { contentResolver.openOutputStream(resultData.data!!) }
-                .onSuccess(::exportFavoriteFoldersTo).onFailure { error -> showErrorToast(error as? Exception ?: Exception(error)) }
-        } else if (requestCode == SELECT_IMPORT_FAVORITE_FOLDERS_INTENT && resultCode == Activity.RESULT_OK && resultData?.data != null) {
-            runCatching { contentResolver.openInputStream(resultData.data!!) }
-                .onSuccess(::importFavoriteFolders).onFailure { error -> showErrorToast(error as? Exception ?: Exception(error)) }
+        val handled = requestCode in setOf(PICK_IMPORT_SOURCE_INTENT, SELECT_EXPORT_FAVORITES_FILE_INTENT,
+            SELECT_IMPORT_FAVORITES_FILE_INTENT, SELECT_EXPORT_FAVORITE_FOLDERS_INTENT,
+            SELECT_IMPORT_FAVORITE_FOLDERS_INTENT, SELECT_EXPORT_PHOTO_PROFILES_INTENT,
+            SELECT_IMPORT_PHOTO_PROFILES_INTENT, SELECT_EXPORT_SETTINGS_FILE_INTENT)
+        if (!handled) {
+            super.onActivityResult(requestCode, resultCode, resultData)
+            return
+        }
+        if (resultCode != Activity.RESULT_OK) return
+        val uri = resultData?.data ?: return
+        // Preserve Commons' export mapping and dialog/filename; replace only its unsafe stream writer.
+        val settingsSnapshot = LinkedHashMap(configItemsToExport)
+        backupWork {
+            when (requestCode) {
+                PICK_IMPORT_SOURCE_INTENT -> parseFile(contentResolver.openInputStream(uri))
+                SELECT_IMPORT_FAVORITES_FILE_INTENT -> importFavorites(contentResolver.openInputStream(uri))
+                SELECT_IMPORT_FAVORITE_FOLDERS_INTENT -> importFavoriteFolders(contentResolver.openInputStream(uri))
+                SELECT_IMPORT_PHOTO_PROFILES_INTENT -> importPhotoProfiles(contentResolver.openInputStream(uri))
+                SELECT_EXPORT_FAVORITES_FILE_INTENT -> exportFavoritesTo(contentResolver.openOutputStream(uri))
+                SELECT_EXPORT_FAVORITE_FOLDERS_INTENT -> exportFavoriteFoldersTo(contentResolver.openOutputStream(uri))
+                SELECT_EXPORT_PHOTO_PROFILES_INTENT -> exportPhotoProfilesTo(contentResolver.openOutputStream(uri))
+                SELECT_EXPORT_SETTINGS_FILE_INTENT -> {
+                    require(settingsSnapshot.isNotEmpty()) { "Missing settings export snapshot" }
+                    BackupIo.writeText(contentResolver.openOutputStream(uri), LegacySettingsCodec.encode(settingsSnapshot))
+                    backupUi { toast(org.fossify.commons.R.string.settings_exported_successfully) }
+                }
+            }
+        }
+    }
+
+    /** Keep the pre-Q storage authorization flow; open and write on the worker afterwards. */
+    private fun legacyBackupOutput(path: String, mime: String, writer: (OutputStream?) -> Unit) {
+        fun write() = backupWork { writer(applicationContext.getFileOutputStreamSync(path, mime)) }
+        if (needsStupidWritePermissions(path)) handleSAFDialog(path) { granted -> if (granted) write() }
+        else write()
+    }
+
+    private fun backupUi(action: () -> Unit) = runOnUiThread {
+        if (!isFinishing && !isDestroyed) {
+            try { action() } catch (error: Exception) {
+                android.util.Log.e("GalleryBackup", "Backup UI refresh failed", error)
+                toast(R.string.backup_operation_failed)
+            }
+        }
+    }
+
+    private fun backupWork(action: () -> Unit) = BackupOperationRunner.execute(action) { error ->
+        android.util.Log.e("GalleryBackup", "Backup operation failed", error)
+        backupUi {
+            toast(if (error is UnsupportedPhotoBackupVersion) R.string.photo_profiles_backup_unsupported_version
+                else R.string.backup_operation_failed)
         }
     }
 
@@ -1209,9 +1244,7 @@ class SettingsActivity : SimpleActivity() {
                     if (it) {
                         ExportFavoritesDialog(this, getExportFavoritesFilename(), false) { path, filename ->
                             val file = File(path)
-                            getFileOutputStream(file.toFileDirItem(this), true) {
-                                exportFavoritesTo(it)
-                            }
+                            legacyBackupOutput(file.path, "text/plain", ::exportFavoritesTo)
                         }
                     }
                 }
@@ -1219,29 +1252,15 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
-    private fun exportFavoritesTo(outputStream: OutputStream?) {
-        if (outputStream == null) {
-            toast(org.fossify.commons.R.string.unknown_error_occurred)
-            return
+    private fun exportFavoritesTo(outputStream: OutputStream?) = backupWork {
+        var count = 0
+        BackupIo.writeText(outputStream) {
+            val paths = favoritesDB.getValidFavoritePaths()
+            count = paths.size
+            FavoriteBackupCodec.encodeMediaPaths(paths)
         }
-
-        ensureBackgroundThread {
-            try {
-                val favoritePaths = favoritesDB.getValidFavoritePaths()
-                // Keep the legacy one-path-per-line bytes unchanged for stock Fossify.
-                outputStream.bufferedWriter().use { out ->
-                    favoritePaths.forEach { path ->
-                        out.writeLn(path)
-                    }
-                }
-                toast(if (favoritePaths.isNotEmpty())
-                    org.fossify.commons.R.string.exporting_successful
-                else org.fossify.commons.R.string.no_items_found)
-            } catch (error: Exception) {
-                android.util.Log.e("GalleryFavoritesBackup", "Media favorites export failed", error)
-                toast(getString(R.string.favorite_backup_export_failed))
-            }
-        }
+        backupUi { toast(if (count > 0) org.fossify.commons.R.string.exporting_successful
+            else org.fossify.commons.R.string.no_items_found) }
     }
 
     private fun getExportFavoritesFilename(): String {
@@ -1255,13 +1274,14 @@ class SettingsActivity : SimpleActivity() {
                 Intent(Intent.ACTION_GET_CONTENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
                     type = "text/plain"
-                    startActivityForResult(this, SELECT_IMPORT_FAVORITES_FILE_INTENT)
+                    try { startActivityForResult(this, SELECT_IMPORT_FAVORITES_FILE_INTENT) }
+                    catch (error: Exception) { showErrorToast(error) }
                 }
             } else {
                 handlePermission(PERMISSION_READ_STORAGE) {
                     if (it) {
                         FilePickerDialog(this) {
-                            ensureBackgroundThread {
+                            backupWork {
                                 importFavorites(File(it).inputStream())
                             }
                         }
@@ -1271,60 +1291,19 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
-    private fun importFavorites(inputStream: InputStream?) {
-        if (inputStream == null) {
-            toast(org.fossify.commons.R.string.unknown_error_occurred)
-            return
-        }
-
-        ensureBackgroundThread {
-            try {
-                val paths = FavoriteBackupCodec.decodeMediaPaths(FavoriteBackupCodec.readLimited(inputStream))
-                val candidates = paths.filter { path ->
-                    runCatching { getDoesFilePathExist(path) && !File(path).isDirectory }
-                        .getOrDefault(false)
-                }
-                val unlockedCandidates = candidates.filter { path ->
-                    runCatching {
-                        FavoriteAccessSessionManager.captureSnapshot(
-                            listOf(path), applicationContext::favoriteProtection
-                        ).entries[path]?.locks?.isEmpty() == true
-                    }.getOrDefault(false)
-                }
-                val protectedSourceSkipped = candidates.size - unlockedCandidates.size
-                var protectionChangedDuringImport = 0
-                var skipped = paths.size - unlockedCandidates.size
-                ensureBackgroundThread {
-                    val database = GalleryDatabase.getInstance(applicationContext)
-                    var added = 0
-                    database.runInTransaction {
-                        val stillUnlocked = unlockedCandidates.filter { path ->
-                            runCatching {
-                                FavoriteAccessSessionManager.captureSnapshot(
-                                    listOf(path), applicationContext::favoriteProtection
-                                ).entries[path]?.locks?.isEmpty() == true
-                            }.getOrDefault(false)
-                        }
-                        skipped += unlockedCandidates.size - stillUnlocked.size
-                        val existing = favoritesDB.getValidFavoritePaths().toHashSet()
-                        val stillNew = stillUnlocked.filterNot { it in existing }
-                        added = favoritesDB.insertAllIgnore(stillNew.map { getFavoriteFromPath(it) })
-                            .count { it >= 0L }
-                        stillUnlocked.forEach { mediaDB.updateFavorite(it, true) }
-                    }
-                    if (added > 0) org.fossify.gallery.helpers.PhotoContentRevision.changed()
-                    runOnUiThread {
-                        if (protectedSourceSkipped > 0 || protectionChangedDuringImport > 0) {
-                            toast(R.string.favorite_import_protected_skipped)
-                        }
-                        toast(getString(R.string.favorite_media_import_summary, added,
-                            unlockedCandidates.size - added, skipped))
-                    }
-                }
-            } catch (error: Exception) {
-                android.util.Log.e("GalleryFavoritesBackup", "Media favorites import failed", error)
-                toast(getString(R.string.favorite_backup_import_failed))
-            }
+    private fun importFavorites(inputStream: InputStream?) = backupWork {
+        val plan = FavoriteBackupCodec.decodeMediaPlan(BackupIo.readText(inputStream))
+        val result = FavoriteBackupRestore(GalleryDatabase.getInstance(applicationContext)).importMedia(
+            plan,
+            { path -> getDoesFilePathExist(path) && !File(path).isDirectory },
+            { path -> FavoriteAccessSessionManager.captureSnapshot(
+                listOf(path), applicationContext::favoriteProtection
+            ).entries[path]?.locks?.isEmpty() == true },
+            { path -> getFavoriteFromPath(path) }
+        )
+        backupUi {
+            if (result.protectedSkipped + result.protectionChanged > 0) toast(R.string.favorite_import_protected_skipped)
+            toast(getString(R.string.favorite_media_import_summary, result.imported, result.existing, result.skipped))
         }
     }
 
@@ -1351,9 +1330,7 @@ class SettingsActivity : SimpleActivity() {
                     if (granted) {
                         ExportFavoritesDialog(this, getExportFavoriteFoldersFilename(), false,
                             ".json", R.string.export_favorite_folder_paths) { path, _ ->
-                            getFileOutputStream(File(path).toFileDirItem(this), true) {
-                                exportFavoriteFoldersTo(it)
-                            }
+                            legacyBackupOutput(path, "application/json", ::exportFavoriteFoldersTo)
                         }
                     }
                 }
@@ -1366,25 +1343,14 @@ class SettingsActivity : SimpleActivity() {
         return "$appName-favorite-folders_${getCurrentFormattedDateTime()}"
     }
 
-    private fun exportFavoriteFoldersTo(outputStream: OutputStream?) {
-        if (outputStream == null) {
-            toast(org.fossify.commons.R.string.unknown_error_occurred)
-            return
+    private fun exportFavoriteFoldersTo(outputStream: OutputStream?) = backupWork {
+        var count = 0
+        BackupIo.writeText(outputStream) {
+            val records = favoriteFoldersDB.getAll().map { FavoriteBackupCodec.FolderRecord(it.path, it.addedAt) }
+            count = records.size
+            FavoriteBackupCodec.encodeFolders(records)
         }
-        ensureBackgroundThread {
-            try {
-                val records = favoriteFoldersDB.getAll().map {
-                    FavoriteBackupCodec.FolderRecord(it.path, it.addedAt)
-                }
-                outputStream.bufferedWriter(Charsets.UTF_8).use {
-                    it.write(FavoriteBackupCodec.encodeFolders(records))
-                }
-                toast(getString(R.string.favorite_folders_export_summary, records.size))
-            } catch (error: Exception) {
-                android.util.Log.e("GalleryFavoritesBackup", "Favorite folders export failed", error)
-                toast(getString(R.string.favorite_backup_export_failed))
-            }
-        }
+        backupUi { toast(getString(R.string.favorite_folders_export_summary, count)) }
     }
 
     private fun setupImportFavoriteFolders() {
@@ -1403,11 +1369,85 @@ class SettingsActivity : SimpleActivity() {
                 handlePermission(PERMISSION_READ_STORAGE) { granted ->
                     if (granted) {
                         FilePickerDialog(this) { path ->
-                            ensureBackgroundThread {
-                                try {
-                                    importFavoriteFolders(File(path).inputStream())
-                                } catch (error: Exception) {
-                                    showErrorToast(error)
+                            backupWork { importFavoriteFolders(File(path).inputStream()) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun importFavoriteFolders(inputStream: InputStream?) = backupWork {
+        val records = FavoriteBackupCodec.decodeFolders(BackupIo.readText(inputStream))
+        val result = FavoriteBackupRestore(GalleryDatabase.getInstance(applicationContext))
+            .importFolders(records) { path -> path.startsWith('/') && File(path).isFile }
+        backupUi { toast(getString(R.string.favorite_folders_import_summary,
+            result.imported, result.existing, result.skipped)) }
+    }
+
+    private fun setupPhotoProfileBackup() {
+        binding.settingsExportPhotoProfilesHolder.setOnClickListener {
+            fun chooseExport() {
+                ExportFavoritesDialog(this, "gallery-photo-profiles_${getCurrentFormattedDateTime()}", isQPlus(),
+                    ".json", R.string.photo_profiles_export) { path, filename ->
+                    if (isQPlus()) {
+                        try {
+                            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                                type = "application/json"
+                                addCategory(Intent.CATEGORY_OPENABLE)
+                                putExtra(Intent.EXTRA_TITLE, filename)
+                            }, SELECT_EXPORT_PHOTO_PROFILES_INTENT)
+                        } catch (error: Exception) { showErrorToast(error) }
+                    } else {
+                        legacyBackupOutput(path, "application/json", ::exportPhotoProfilesTo)
+                    }
+                }
+            }
+            if (isQPlus()) chooseExport() else handlePermission(PERMISSION_WRITE_STORAGE) { if (it) chooseExport() }
+        }
+        binding.settingsImportPhotoProfilesHolder.setOnClickListener {
+            if (isQPlus()) {
+                try {
+                    startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).apply {
+                        type = "application/json"
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                    }, SELECT_IMPORT_PHOTO_PROFILES_INTENT)
+                } catch (error: Exception) { showErrorToast(error) }
+            } else {
+                handlePermission(PERMISSION_READ_STORAGE) { granted ->
+                    if (granted) FilePickerDialog(this) { path -> backupWork { importPhotoProfiles(File(path).inputStream()) } }
+                }
+            }
+        }
+    }
+
+    private fun exportPhotoProfilesTo(outputStream: OutputStream?) = backupWork {
+        BackupIo.writeText(outputStream) {
+            PhotoProfileBackupCodec.encode(PhotoProfileRepository.of(applicationContext).state())
+        }
+        backupUi { toast(R.string.photo_profiles_export_success) }
+    }
+
+    private fun importPhotoProfiles(inputStream: InputStream?) = backupWork {
+        val incoming = PhotoProfileBackupCodec.decodeStrict(BackupIo.readText(inputStream))
+        val result = PhotoProfileRepository.of(applicationContext).importState(incoming).result
+        backupUi {
+            toast(getString(R.string.photo_profiles_import_success, result.imported, result.existing, result.conflicts))
+        }
+    }
+
+    private fun setupExportSettings() {
+        binding.settingsExportHolder.setOnClickListener {
+            val snapshot = collectLegacySettings(config)
+            if (isQPlus()) exportSettings(snapshot) else {
+                handlePermission(PERMISSION_WRITE_STORAGE) { granted ->
+                    if (granted) {
+                        val appName = baseConfig.appId.removeSuffix(".debug").removePrefix("org.fossify.")
+                        ExportSettingsDialog(this, "$appName-settings_${getCurrentFormattedDateTime()}", false) { path, _ ->
+                            legacyBackupOutput(path, "text/plain") { output ->
+                                backupWork {
+                                    BackupIo.writeText(output) { LegacySettingsCodec.encode(snapshot) }
+                                    backupUi { toast(org.fossify.commons.R.string.settings_exported_successfully) }
                                 }
                             }
                         }
@@ -1417,148 +1457,20 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
-    private fun importFavoriteFolders(inputStream: InputStream?) {
-        if (inputStream == null) {
-            toast(org.fossify.commons.R.string.unknown_error_occurred)
-            return
-        }
-        ensureBackgroundThread {
-            try {
-                // Parse and validate the entire backup before touching Room.
-                val records = FavoriteBackupCodec.decodeFolders(FavoriteBackupCodec.readLimited(inputStream))
-                val valid = records.filterNot { File(it.path).isFile }
-                val rejected = records.size - valid.size
-                val existing = favoriteFoldersDB.getPaths()
-                    .map(FavoriteFolderRules::normalizedPath).toHashSet()
-                val newRecords = valid.filterNot {
-                    FavoriteFolderRules.normalizedPath(it.path) in existing
-                }
-                val database = GalleryDatabase.getInstance(applicationContext)
-                var added = 0
-                database.runInTransaction {
-                    added = favoriteFoldersDB.insertAllIgnore(newRecords.map {
-                        FavoriteFolder(it.path, it.addedAt)
-                    }).count { it >= 0L }
-                }
-                toast(getString(R.string.favorite_folders_import_summary, added,
-                    valid.size - added, rejected))
-            } catch (error: Exception) {
-                android.util.Log.e("GalleryFavoritesBackup", "Favorite folders import failed", error)
-                toast(getString(R.string.favorite_backup_import_failed))
-            }
-        }
-    }
-
-    private fun setupExportSettings() {
-        binding.settingsExportHolder.setOnClickListener {
-            val configItems = LinkedHashMap<String, Any>().apply {
-                put(TEXT_COLOR, config.textColor)
-                put(BACKGROUND_COLOR, config.backgroundColor)
-                put(PRIMARY_COLOR, config.primaryColor)
-                put(ACCENT_COLOR, config.accentColor)
-                put(APP_ICON_COLOR, config.appIconColor)
-                put(USE_ENGLISH, config.useEnglish)
-                put(WAS_USE_ENGLISH_TOGGLED, config.wasUseEnglishToggled)
-                put(WIDGET_BG_COLOR, config.widgetBgColor)
-                put(WIDGET_TEXT_COLOR, config.widgetTextColor)
-                put(DATE_FORMAT, config.dateFormat)
-                put(USE_24_HOUR_FORMAT, config.use24HourFormat)
-                put(INCLUDED_FOLDERS, TextUtils.join(",", config.includedFolders))
-                put(EXCLUDED_FOLDERS, TextUtils.join(",", config.excludedFolders))
-                put(SHOW_HIDDEN_MEDIA, config.showHiddenMedia)
-                put(FILE_LOADING_PRIORITY, config.fileLoadingPriority)
-                put(AUTOPLAY_VIDEOS, config.autoplayVideos)
-                put(REMEMBER_LAST_VIDEO_POSITION, config.rememberLastVideoPosition)
-                put(LOOP_VIDEOS, config.loopVideos)
-                put(GESTURE_VIDEO_PLAYER, config.gestureVideoPlayer)
-                put(VIDEO_PLAYER_TYPE, config.videoPlayerType)
-                put(ALLOW_VIDEO_GESTURES, config.allowVideoGestures)
-                put(ANIMATE_GIFS, config.animateGifs)
-                put(CROP_THUMBNAILS, config.cropThumbnails)
-                put(SHOW_THUMBNAIL_VIDEO_DURATION, config.showThumbnailVideoDuration)
-                put(SHOW_THUMBNAIL_FILE_TYPES, config.showThumbnailFileTypes)
-                put(MARK_FAVORITE_ITEMS, config.markFavoriteItems)
-                put(SCROLL_HORIZONTALLY, config.scrollHorizontally)
-                put(ENABLE_PULL_TO_REFRESH, config.enablePullToRefresh)
-                put(MAX_BRIGHTNESS, config.maxBrightness)
-                put(ULTRA_HDR_RENDERING, config.ultraHdrRendering)
-                put(BLACK_BACKGROUND, config.blackBackground)
-                put(HIDE_SYSTEM_UI, config.hideSystemUI)
-                put(ALLOW_INSTANT_CHANGE, config.allowInstantChange)
-                put(KEEP_SCREEN_ON, config.keepScreenOn)
-                put(ALLOW_PHOTO_GESTURES, config.allowPhotoGestures)
-                put(ALLOW_DOWN_GESTURE, config.allowDownGesture)
-                put(ALLOW_ROTATING_WITH_GESTURES, config.allowRotatingWithGestures)
-                put(SHOW_NOTCH, config.showNotch)
-                put(SCREEN_ROTATION, config.screenRotation)
-                put(ALLOW_ZOOMING_IMAGES, config.allowZoomingImages)
-                put(SHOW_HIGHEST_QUALITY, config.showHighestQuality)
-                put(ALLOW_ONE_TO_ONE_ZOOM, config.allowOneToOneZoom)
-                put(SHOW_EXTENDED_DETAILS, config.showExtendedDetails)
-                put(HIDE_EXTENDED_DETAILS, config.hideExtendedDetails)
-                put(EXTENDED_DETAILS, config.extendedDetails)
-                put(DELETE_EMPTY_FOLDERS, config.deleteEmptyFolders)
-                put(KEEP_LAST_MODIFIED, config.keepLastModified)
-                put(SKIP_DELETE_CONFIRMATION, config.skipDeleteConfirmation)
-                put(BOTTOM_ACTIONS, config.bottomActions)
-                put(VISIBLE_BOTTOM_ACTIONS, config.visibleBottomActions)
-                put(USE_RECYCLE_BIN, config.useRecycleBin)
-                put(SHOW_RECYCLE_BIN_AT_FOLDERS, config.showRecycleBinAtFolders)
-                put(SHOW_RECYCLE_BIN_LAST, config.showRecycleBinLast)
-                put(SORT_ORDER, config.sorting)
-                put(DIRECTORY_SORT_ORDER, config.directorySorting)
-                put(GROUP_BY, config.groupBy)
-                put(GROUP_DIRECT_SUBFOLDERS, config.groupDirectSubfolders)
-                put(PINNED_FOLDERS, TextUtils.join(",", config.pinnedFolders))
-                put(DISPLAY_FILE_NAMES, config.displayFileNames)
-                put(FILTER_MEDIA, config.filterMedia)
-                put(DIR_COLUMN_CNT, config.dirColumnCnt)
-                put(MEDIA_COLUMN_CNT, config.mediaColumnCnt)
-                put(SHOW_ALL, config.showAll)
-                put(SHOW_WIDGET_FOLDER_NAME, config.showWidgetFolderName)
-                put(VIEW_TYPE_FILES, config.viewTypeFiles)
-                put(VIEW_TYPE_FOLDERS, config.viewTypeFolders)
-                put(SLIDESHOW_INTERVAL, config.slideshowInterval)
-                put(SLIDESHOW_INCLUDE_VIDEOS, config.slideshowIncludeVideos)
-                put(SLIDESHOW_INCLUDE_GIFS, config.slideshowIncludeGIFs)
-                put(SLIDESHOW_RANDOM_ORDER, config.slideshowRandomOrder)
-                put(SLIDESHOW_MOVE_BACKWARDS, config.slideshowMoveBackwards)
-                put(SLIDESHOW_LOOP, config.loopSlideshow)
-                put(LAST_EDITOR_CROP_ASPECT_RATIO, config.lastEditorCropAspectRatio)
-                put(LAST_EDITOR_CROP_OTHER_ASPECT_RATIO_X, config.lastEditorCropOtherAspectRatioX)
-                put(LAST_EDITOR_CROP_OTHER_ASPECT_RATIO_Y, config.lastEditorCropOtherAspectRatioY)
-                put(LAST_CONFLICT_RESOLUTION, config.lastConflictResolution)
-                put(LAST_CONFLICT_APPLY_TO_ALL, config.lastConflictApplyToAll)
-                put(EDITOR_BRUSH_COLOR, config.editorBrushColor)
-                put(EDITOR_BRUSH_HARDNESS, config.editorBrushHardness)
-                put(EDITOR_BRUSH_SIZE, config.editorBrushSize)
-                put(ALBUM_COVERS, config.albumCovers)
-                put(FOLDER_THUMBNAIL_STYLE, config.folderStyle)
-                put(FOLDER_MEDIA_COUNT, config.showFolderMediaCount)
-                put(LIMIT_FOLDER_TITLE, config.limitFolderTitle)
-                put(THUMBNAIL_SPACING, config.thumbnailSpacing)
-                put(FILE_ROUNDED_CORNERS, config.fileRoundedCorners)
-                put(SEARCH_ALL_FILES_BY_DEFAULT, config.searchAllFilesByDefault)
-                // Favorite credential hashes and biometric fallback remain device-local and are never exported.
-            }
-
-            exportSettings(configItems)
-        }
-    }
-
     private fun setupImportSettings() {
         binding.settingsImportHolder.setOnClickListener {
             if (isQPlus()) {
                 Intent(Intent.ACTION_GET_CONTENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
                     type = "text/plain"
-                    startActivityForResult(this, PICK_IMPORT_SOURCE_INTENT)
+                    try { startActivityForResult(this, PICK_IMPORT_SOURCE_INTENT) }
+                    catch (error: Exception) { showErrorToast(error) }
                 }
             } else {
                 handlePermission(PERMISSION_READ_STORAGE) {
                     if (it) {
                         FilePickerDialog(this) {
-                            ensureBackgroundThread {
+                            backupWork {
                                 parseFile(File(it).inputStream())
                             }
                         }
@@ -1568,142 +1480,17 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
-    private fun parseFile(inputStream: InputStream?) {
-        if (inputStream == null) {
-            toast(org.fossify.commons.R.string.unknown_error_occurred)
-            return
+    private fun parseFile(inputStream: InputStream?) = backupWork {
+        val plan = LegacySettingsCodec.decode(BackupIo.readText(inputStream))
+        require(plan.applicable) {
+            "Invalid settings: ${plan.invalidKeys}; duplicate keys: ${plan.duplicateKeys}; supported values: ${plan.values.size}"
         }
-
-        var importedItems = 0
-        val configValues = LinkedHashMap<String, Any>()
-        inputStream.bufferedReader().use {
-            while (true) {
-                try {
-                    val line = it.readLine() ?: break
-                    val split = line.split("=".toRegex(), 2)
-                    if (split.size == 2) {
-                        configValues[split[0]] = split[1]
-                    }
-                    importedItems++
-                } catch (e: Exception) {
-                    showErrorToast(e)
-                }
-            }
-        }
-
-        for ((key, value) in configValues) {
-            when (key) {
-                TEXT_COLOR -> config.textColor = value.toInt()
-                BACKGROUND_COLOR -> config.backgroundColor = value.toInt()
-                PRIMARY_COLOR -> config.primaryColor = value.toInt()
-                ACCENT_COLOR -> config.accentColor = value.toInt()
-                APP_ICON_COLOR -> {
-                    if (getAppIconColors().contains(value.toInt())) {
-                        config.appIconColor = value.toInt()
-                        checkAppIconColor()
-                    }
-                }
-
-                USE_ENGLISH -> config.useEnglish = value.toBoolean()
-                WAS_USE_ENGLISH_TOGGLED -> config.wasUseEnglishToggled = value.toBoolean()
-                WIDGET_BG_COLOR -> config.widgetBgColor = value.toInt()
-                WIDGET_TEXT_COLOR -> config.widgetTextColor = value.toInt()
-                DATE_FORMAT -> config.dateFormat = value.toString()
-                USE_24_HOUR_FORMAT -> config.use24HourFormat = value.toBoolean()
-                INCLUDED_FOLDERS -> config.addIncludedFolders(value.toStringSet())
-                EXCLUDED_FOLDERS -> config.addExcludedFolders(value.toStringSet())
-                SHOW_HIDDEN_MEDIA -> config.showHiddenMedia = value.toBoolean()
-                FILE_LOADING_PRIORITY -> config.fileLoadingPriority = value.toInt()
-                AUTOPLAY_VIDEOS -> config.autoplayVideos = value.toBoolean()
-                REMEMBER_LAST_VIDEO_POSITION -> config.rememberLastVideoPosition = value.toBoolean()
-                LOOP_VIDEOS -> config.loopVideos = value.toBoolean()
-                GESTURE_VIDEO_PLAYER -> config.gestureVideoPlayer = value.toBoolean()
-                VIDEO_PLAYER_TYPE -> config.videoPlayerType = value.toInt()
-                ALLOW_VIDEO_GESTURES -> config.allowVideoGestures = value.toBoolean()
-                ANIMATE_GIFS -> config.animateGifs = value.toBoolean()
-                CROP_THUMBNAILS -> config.cropThumbnails = value.toBoolean()
-                SHOW_THUMBNAIL_VIDEO_DURATION -> config.showThumbnailVideoDuration = value.toBoolean()
-                SHOW_THUMBNAIL_FILE_TYPES -> config.showThumbnailFileTypes = value.toBoolean()
-                MARK_FAVORITE_ITEMS -> config.markFavoriteItems = value.toBoolean()
-                SCROLL_HORIZONTALLY -> config.scrollHorizontally = value.toBoolean()
-                ENABLE_PULL_TO_REFRESH -> config.enablePullToRefresh = value.toBoolean()
-                MAX_BRIGHTNESS -> config.maxBrightness = value.toBoolean()
-                ULTRA_HDR_RENDERING -> config.ultraHdrRendering = value.toBoolean()
-                BLACK_BACKGROUND -> config.blackBackground = value.toBoolean()
-                HIDE_SYSTEM_UI -> config.hideSystemUI = value.toBoolean()
-                ALLOW_INSTANT_CHANGE -> config.allowInstantChange = value.toBoolean()
-                KEEP_SCREEN_ON -> config.keepScreenOn = value.toBoolean()
-                ALLOW_PHOTO_GESTURES -> config.allowPhotoGestures = value.toBoolean()
-                ALLOW_DOWN_GESTURE -> config.allowDownGesture = value.toBoolean()
-                ALLOW_ROTATING_WITH_GESTURES -> config.allowRotatingWithGestures = value.toBoolean()
-                SHOW_NOTCH -> config.showNotch = value.toBoolean()
-                SCREEN_ROTATION -> config.screenRotation = value.toInt()
-                ALLOW_ZOOMING_IMAGES -> config.allowZoomingImages = value.toBoolean()
-                SHOW_HIGHEST_QUALITY -> config.showHighestQuality = value.toBoolean()
-                ALLOW_ONE_TO_ONE_ZOOM -> config.allowOneToOneZoom = value.toBoolean()
-                SHOW_EXTENDED_DETAILS -> config.showExtendedDetails = value.toBoolean()
-                HIDE_EXTENDED_DETAILS -> config.hideExtendedDetails = value.toBoolean()
-                EXTENDED_DETAILS -> config.extendedDetails = value.toInt()
-                DELETE_EMPTY_FOLDERS -> config.deleteEmptyFolders = value.toBoolean()
-                KEEP_LAST_MODIFIED -> config.keepLastModified = value.toBoolean()
-                SKIP_DELETE_CONFIRMATION -> config.skipDeleteConfirmation = value.toBoolean()
-                BOTTOM_ACTIONS -> config.bottomActions = value.toBoolean()
-                VISIBLE_BOTTOM_ACTIONS -> config.visibleBottomActions = value.toInt()
-                USE_RECYCLE_BIN -> config.useRecycleBin = value.toBoolean()
-                SHOW_RECYCLE_BIN_AT_FOLDERS -> config.showRecycleBinAtFolders = value.toBoolean()
-                SHOW_RECYCLE_BIN_LAST -> config.showRecycleBinLast = value.toBoolean()
-                SORT_ORDER -> config.sorting = value.toInt()
-                DIRECTORY_SORT_ORDER -> config.directorySorting = value.toInt()
-                GROUP_BY -> config.groupBy = value.toInt()
-                GROUP_DIRECT_SUBFOLDERS -> config.groupDirectSubfolders = value.toBoolean()
-                PINNED_FOLDERS -> config.addPinnedFolders(value.toStringSet())
-                DISPLAY_FILE_NAMES -> config.displayFileNames = value.toBoolean()
-                FILTER_MEDIA -> config.filterMedia = value.toInt()
-                DIR_COLUMN_CNT -> config.dirColumnCnt = value.toInt()
-                MEDIA_COLUMN_CNT -> config.mediaColumnCnt = value.toInt()
-                SHOW_ALL -> config.showAll = value.toBoolean()
-                SHOW_WIDGET_FOLDER_NAME -> config.showWidgetFolderName = value.toBoolean()
-                VIEW_TYPE_FILES -> config.viewTypeFiles = value.toInt()
-                VIEW_TYPE_FOLDERS -> config.viewTypeFolders = value.toInt()
-                SLIDESHOW_INTERVAL -> config.slideshowInterval = value.toInt()
-                SLIDESHOW_INCLUDE_VIDEOS -> config.slideshowIncludeVideos = value.toBoolean()
-                SLIDESHOW_INCLUDE_GIFS -> config.slideshowIncludeGIFs = value.toBoolean()
-                SLIDESHOW_RANDOM_ORDER -> config.slideshowRandomOrder = value.toBoolean()
-                SLIDESHOW_MOVE_BACKWARDS -> config.slideshowMoveBackwards = value.toBoolean()
-                SLIDESHOW_LOOP -> config.loopSlideshow = value.toBoolean()
-                LAST_EDITOR_CROP_ASPECT_RATIO -> config.lastEditorCropAspectRatio = value.toInt()
-                LAST_EDITOR_CROP_OTHER_ASPECT_RATIO_X -> config.lastEditorCropOtherAspectRatioX = value.toString().toFloat()
-                LAST_EDITOR_CROP_OTHER_ASPECT_RATIO_Y -> config.lastEditorCropOtherAspectRatioY = value.toString().toFloat()
-                LAST_CONFLICT_RESOLUTION -> config.lastConflictResolution = value.toInt()
-                LAST_CONFLICT_APPLY_TO_ALL -> config.lastConflictApplyToAll = value.toBoolean()
-                EDITOR_BRUSH_COLOR -> config.editorBrushColor = value.toInt()
-                EDITOR_BRUSH_HARDNESS -> config.editorBrushHardness = value.toString().toFloat()
-                EDITOR_BRUSH_SIZE -> config.editorBrushSize = value.toString().toFloat()
-                FOLDER_THUMBNAIL_STYLE -> config.folderStyle = value.toInt()
-                FOLDER_MEDIA_COUNT -> config.showFolderMediaCount = value.toInt()
-                LIMIT_FOLDER_TITLE -> config.limitFolderTitle = value.toBoolean()
-                THUMBNAIL_SPACING -> config.thumbnailSpacing = value.toInt()
-                FILE_ROUNDED_CORNERS -> config.fileRoundedCorners = value.toBoolean()
-                SEARCH_ALL_FILES_BY_DEFAULT -> config.searchAllFilesByDefault = value.toBoolean()
-                ALBUM_COVERS -> {
-                    val existingCovers = config.parseAlbumCovers()
-                    val existingCoverPaths = existingCovers.map { it.path }.toMutableList() as ArrayList<String>
-
-                    val listType = object : TypeToken<List<AlbumCover>>() {}.type
-                    val covers = Gson().fromJson<ArrayList<AlbumCover>>(value.toString(), listType) ?: ArrayList(1)
-                    covers.filter { !existingCoverPaths.contains(it.path) && getDoesFilePathExist(it.tmb) }.forEach {
-                        existingCovers.add(it)
-                    }
-
-                    config.albumCovers = Gson().toJson(existingCovers)
-                }
-            }
-        }
-
-        toast(if (configValues.size > 0) org.fossify.commons.R.string.settings_imported_successfully else org.fossify.commons.R.string.no_entries_for_importing)
-        runOnUiThread {
+        LegacySettingsRestore.apply(applicationContext, config, plan)
+        backupUi {
+            if (APP_ICON_COLOR in plan.values) checkAppIconColor()
             setupSettingItems()
+            renderSettingsPage()
+            toast(org.fossify.commons.R.string.settings_imported_successfully)
         }
     }
 }
-
