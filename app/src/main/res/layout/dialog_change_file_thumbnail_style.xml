@@ -63,7 +63,7 @@
                 android:textSize="16sp" android:text="@string/rounded_corners" />
             <org.fossify.commons.views.MyAppCompatCheckbox
                 android:id="@+id/dialog_file_style_rounded_corners" android:layout_width="48dp" android:layout_height="48dp"
-                android:padding="12dp" android:buttonTint="?attr/colorControlActivated" />
+                android:padding="12dp" />
         </org.fossify.gallery.views.ClassicCheckboxRow>
 
         <org.fossify.gallery.views.ClassicCheckboxRow
@@ -77,7 +77,7 @@
                 android:textSize="16sp" android:text="@string/show_thumbnail_video_duration" />
             <org.fossify.commons.views.MyAppCompatCheckbox
                 android:id="@+id/dialog_file_style_show_thumbnail_video_duration" android:layout_width="48dp" android:layout_height="48dp"
-                android:padding="12dp" android:buttonTint="?attr/colorControlActivated" />
+                android:padding="12dp" />
         </org.fossify.gallery.views.ClassicCheckboxRow>
 
         <org.fossify.gallery.views.ClassicCheckboxRow
@@ -91,7 +91,7 @@
                 android:textSize="16sp" android:text="@string/show_image_file_types" />
             <org.fossify.commons.views.MyAppCompatCheckbox
                 android:id="@+id/dialog_file_style_show_thumbnail_file_types" android:layout_width="48dp" android:layout_height="48dp"
-                android:padding="12dp" android:buttonTint="?attr/colorControlActivated" />
+                android:padding="12dp" />
         </org.fossify.gallery.views.ClassicCheckboxRow>
 
         <org.fossify.gallery.views.ClassicCheckboxRow
@@ -105,7 +105,7 @@
                 android:textSize="16sp" android:text="@string/mark_favorite_items" />
             <org.fossify.commons.views.MyAppCompatCheckbox
                 android:id="@+id/dialog_file_style_mark_favorite_items" android:layout_width="48dp" android:layout_height="48dp"
-                android:padding="12dp" android:buttonTint="?attr/colorControlActivated" />
+                android:padding="12dp" />
         </org.fossify.gallery.views.ClassicCheckboxRow>
     </LinearLayout>
 </org.fossify.gallery.helpers.ClassicDialogScrollView>

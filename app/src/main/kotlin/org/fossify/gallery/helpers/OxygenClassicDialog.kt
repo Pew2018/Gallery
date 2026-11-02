@@ -538,12 +538,17 @@ object OxygenClassicDialog {
                     pageBackground = surface, primaryText = dialogText,
                     rawAccent = readableAccent, interactiveAccent = readableAccent
                 ) else tokens
-                if (targeted && button is androidx.core.widget.TintableCompoundButton) {
-                    // Commons can install an AppCompat tint separately from framework tint.
-                    button.supportButtonTintList = null
+                if (targeted) {
+                    // Both android:buttonTint and AppCompat's support tint can recolor
+                    // the entire hand-drawn checkbox (including its white tick).
+                    // Clear both tint layers before assigning the classic drawable.
+                    button.buttonTintList = null
+                    if (button is androidx.core.widget.TintableCompoundButton) {
+                        button.supportButtonTintList = null
+                    }
                 }
                 button.buttonDrawable = OxygenClassicControls.selectionDrawable(v is RadioButton, dp, controlColors, surfaceAccent = targeted)
-                CompoundButtonCompat.setButtonTintList(button, if (targeted) null else tints)
+                if (!targeted) CompoundButtonCompat.setButtonTintList(button, tints)
                 val trailing = v.id == R.id.sorting_dialog_numeric_sorting || v.id == R.id.sorting_dialog_use_for_this_folder
                 if (trailing) {
                     val mark = button.buttonDrawable

@@ -3,6 +3,7 @@ package org.fossify.gallery.helpers
 import android.app.Application
 import android.content.Intent
 import android.widget.CheckBox
+import androidx.core.widget.TintableCompoundButton
 import android.widget.SeekBar
 import androidx.appcompat.app.AlertDialog
 import org.fossify.gallery.R
@@ -22,6 +23,30 @@ import org.robolectric.shadows.ShadowDialog
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], application = Application::class)
 class ThumbnailSpacingDialogTest {
+    @Test fun fileStyleCheckboxesKeepTheirClassicCheckmarkWithoutFrameworkOrSupportTint() {
+        val app = RuntimeEnvironment.getApplication()
+        val controller = Robolectric.buildActivity(PhotoProfileEditActivity::class.java,
+            Intent(app, PhotoProfileEditActivity::class.java).putExtra(PhotoProfileEditActivity.EXTRA_CREATING, true)).setup()
+        val host = controller.get()
+        ChangeFileThumbnailStyleDialog(host)
+        val dialog = ShadowDialog.getLatestDialog() as AlertDialog
+        val checkboxIds = intArrayOf(
+            R.id.dialog_file_style_rounded_corners,
+            R.id.dialog_file_style_show_thumbnail_video_duration,
+            R.id.dialog_file_style_show_thumbnail_file_types,
+            R.id.dialog_file_style_mark_favorite_items
+        )
+        checkboxIds.forEach { id ->
+            val checkbox = dialog.findViewById<CheckBox>(id)!!
+            assertNull("framework tint should not recolor the classic checkmark", checkbox.buttonTintList)
+            assertNull("AppCompat tint should not recolor the classic checkmark",
+                (checkbox as TintableCompoundButton).supportButtonTintList)
+            assertNotNull(checkbox.buttonDrawable)
+        }
+        dialog.dismiss()
+        controller.pause().stop().destroy()
+    }
+
     @Test fun spacingAndCheckboxStayTemporaryUntilPositiveAction() {
         val app = RuntimeEnvironment.getApplication()
         val intent = Intent(app, PhotoProfileEditActivity::class.java)
