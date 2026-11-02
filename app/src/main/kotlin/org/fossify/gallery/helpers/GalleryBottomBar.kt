@@ -37,6 +37,10 @@ object GalleryBottomBar {
 
     private data class TintTransition(val target: Int, val animator: ValueAnimator)
     private val tintTransitions = java.util.WeakHashMap<LinearLayout, TintTransition>()
+    private val rippleColors = java.util.WeakHashMap<LinearLayout, Int>()
+
+    /** The public RippleDrawable API is write-only; track our last applied tint. */
+    internal fun currentRippleColor(item: LinearLayout): Int? = rippleColors[item]
 
     private fun rippleColor(accent: Int): Int =
         Color.argb(32, Color.red(accent), Color.green(accent), Color.blue(accent))
@@ -54,9 +58,10 @@ object GalleryBottomBar {
                 ColorDrawable(Color.TRANSPARENT),
                 ColorDrawable(Color.WHITE)
             )
-        } else if (ripple.color?.defaultColor != color) {
+        } else if (rippleColors[item] != color) {
             ripple.setColor(ColorStateList.valueOf(color))
         }
+        rippleColors[item] = color
     }
 
     /** Only colors are animated: no scale, movement, elevation or selection pill. */

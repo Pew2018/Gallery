@@ -49,16 +49,16 @@ class GalleryBottomBarRippleTest {
         val (activity, bar) = fixture()
         val tabs = items(bar)
         val ripples = tabs.map { it.background as RippleDrawable }
-        val firstColor = ripples.first().color!!.defaultColor
+        val firstColor = GalleryBottomBar.currentRippleColor(tabs[0])
         tabs[1].isPressed = true
         repeat(4) { GalleryBottomBar.recolor(activity) }
         assertTrue(tabs.indices.all { ripples[it] === tabs[it].background })
         activity.config.oxygenCustomAccent = Color.rgb(215, 55, 95)
         GalleryBottomBar.recolor(activity)
         assertTrue(tabs.indices.all { ripples[it] === tabs[it].background })
-        val secondColor = ripples.first().color!!.defaultColor
+        val secondColor = GalleryBottomBar.currentRippleColor(tabs[0])
         assertNotEquals(firstColor, secondColor)
-        assertTrue(ripples.all { it.color!!.defaultColor == secondColor })
+        assertTrue(tabs.all { GalleryBottomBar.currentRippleColor(it) == secondColor })
         assertTrue(tabs[1].isPressed)
         tabs[1].isPressed = false
         GalleryBottomBar.recolor(activity)
