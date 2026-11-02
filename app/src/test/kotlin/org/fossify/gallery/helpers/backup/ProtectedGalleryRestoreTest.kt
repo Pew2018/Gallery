@@ -447,4 +447,17 @@ class ProtectedGalleryRestoreTest {
         assertTrue(paths().isEmpty()); assertFalse(GalleryRestoreJournal(context).exists())
     }
 
+    @Test fun committedProfileConflictCountMatchesCaseInsensitiveUuidConflictRules() {
+        val original = backupProfile(path = root.absolutePath).copy(sources = listOf(PhotoSource(PhotoSourceType.FOLDER, root.absolutePath)))
+        PhotoProfileRepository.of(context).save(original)
+        val collision = original.copy(id = original.id.uppercase(java.util.Locale.ROOT), name = "conflicting imported name")
+        val incoming = fullBackupFixture(context, profiles = PhotoProfileState(profiles = listOf(collision), selectedId = collision.id))
+        val service = service(); val plan = service.preview(incoming)
+        assertEquals(1, plan.targets.getValue(GalleryRestoreMode.MERGE).profileCount.conflicts)
+        val result = service.restore(plan, GalleryRestoreMode.MERGE)
+        assertEquals(1, result.profiles.conflicts); assertEquals(1, result.profiles.appliedAdded)
+        assertEquals(2, PhotoProfileRepository.of(context).state().profiles.size)
+        assertEquals(0, result.profiles.appliedRemoved)
+    }
+
 }

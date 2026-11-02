@@ -76,7 +76,7 @@ internal object GalleryRestoreResults {
         }
         val profiles = AppliedProfileRestore(actualProfiles.count { p -> oldProfiles.none { it.id == p.id } },
             plan.incoming.photoProfiles.profiles.count { p -> oldProfiles.any { equivalent(it, p) } && actualProfiles.any { equivalent(it, p) } },
-            plan.incoming.photoProfiles.profiles.count { p -> oldProfiles.any { it.id == p.id && !equivalent(it, p) } && actualProfiles.any { equivalent(it, p) } },
+            plan.incoming.photoProfiles.profiles.count { p -> oldProfiles.any { it.id.equals(p.id, ignoreCase = true) && !equivalent(it, p) } && actualProfiles.any { equivalent(it, p) } },
             oldProfiles.count { p -> actualProfiles.none { it.id == p.id } }, inaccessibleSources)
         val changedKeys = (before.preferences.keys + preferencesAfter.keys).filter {
             before.preferences[it] != preferencesAfter[it] || (it in before.preferences) != (it in preferencesAfter)
