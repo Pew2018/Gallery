@@ -42,12 +42,12 @@ class TiebaMenuItemView(context: Context, attrs: AttributeSet?) : ListMenuItemVi
                 // A whole-drawable tint would also recolor the contrasting tick.
                 view.buttonTintList = null
                 if (view is TintableCompoundButton) view.supportButtonTintList = null
-                // 24dp drawable plus a 12dp leading and 8dp trailing control gutter.
-                // This preserves the 20dp square while ensuring stable text separation.
+                // Give the long favorites labels a real 28dp control gutter, not trailing spaces.
+                // AppCompat can measure the slightly wider menu without affecting other rows.
                 view.buttonDrawable = InsetDrawable(
                     OxygenClassicControls.selectionDrawable(
                         radio = false, density = dp, colors = colors, surfaceAccent = true
-                    ), (12 * dp + 0.5f).toInt(), 0, (8 * dp + 0.5f).toInt(), 0
+                    ), (28 * dp + 0.5f).toInt(), 0, (8 * dp + 0.5f).toInt(), 0
                 )
             }
             if (view is ViewGroup) {

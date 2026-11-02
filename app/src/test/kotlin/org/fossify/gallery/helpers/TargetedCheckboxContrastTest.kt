@@ -14,6 +14,31 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [28], application = Application::class, manifest = Config.NONE)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class TargetedCheckboxContrastTest {
+    @Test fun dateTimeSwitchMovesBetweenBothPositionsWithDynamicTheme() {
+        for (dark in listOf(false, true)) {
+            val surface = if (dark) 0xFF303030.toInt() else 0xFFFFFFFF.toInt()
+            val raw = if (dark) 0xFFFFFF99.toInt() else 0xFF075E54.toInt()
+            val accent = OxygenClassicPalette.readableAccent(raw, surface)
+            val tokens = OxygenThemeColors.resolve(true, if (dark) "dark" else "light", dark,
+                raw, surface, 0xFF212121.toInt()).copy(
+                    pageBackground = surface, rawAccent = accent, interactiveAccent = accent
+                )
+            val toggle = OxygenClassicControls.dateTimeSwitchDrawable(1f, tokens)
+            toggle.setBounds(0, 0, 48, 28)
+            val bitmap = Bitmap.createBitmap(48, 28, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            toggle.state = intArrayOf(android.R.attr.state_enabled)
+            toggle.jumpToCurrentState()
+            toggle.draw(canvas)
+            assertEquals(OxygenThemeColors.switchPalette(tokens).offThumb, bitmap.getPixel(14, 14))
+            bitmap.eraseColor(android.graphics.Color.TRANSPARENT)
+            toggle.state = intArrayOf(android.R.attr.state_enabled, android.R.attr.state_checked)
+            toggle.jumpToCurrentState()
+            toggle.draw(canvas)
+            assertEquals(accent, bitmap.getPixel(34, 14))
+        }
+    }
+
     @Test fun dateTimeCheckboxPaintsClassicSwitchUsingDynamicReadableAccent() {
         for (raw in listOf(0xFFFFF59D, 0xFF2196F3, 0xFF311B92)) {
             val surface = 0xFFFFFFFF.toInt()

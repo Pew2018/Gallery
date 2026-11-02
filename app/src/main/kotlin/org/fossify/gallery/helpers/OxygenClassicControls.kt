@@ -41,7 +41,7 @@ object OxygenClassicControls {
 
     /** Retain Commons' Checkbox binding and persistence but paint a classic switch. */
     internal fun dateTimeSwitchDrawable(density: Float, colors: OxygenThemeTokens): Drawable =
-        ClassicDrawable("toggleCheckbox", density, colors, false)
+        ClassicDrawable("toggleCheckbox", density, colors, true)
 
     fun applySwitches(root: View, colors: OxygenThemeTokens) {
         val density = root.resources.displayMetrics.density
@@ -125,6 +125,8 @@ object OxygenClassicControls {
         private var opacity = 255
         private var animatedColor: Int? = null
         private var colorAnimator: ValueAnimator? = null
+        private var toggleAnimator: ValueAnimator? = null
+        private var toggleProgress: Float? = null
         private var lastChecked: Boolean? = null
         private var lastEnabled: Boolean? = null
         override fun getIntrinsicWidth() = ((when (kind) {
@@ -135,6 +137,35 @@ object OxygenClassicControls {
         override fun getIntrinsicHeight() = ((if (kind == "track" || kind == "thumb" || kind == "toggleCheckbox") 28 else 24) * density + 0.5f).toInt()
         override fun isStateful() = true
         override fun onStateChange(state: IntArray): Boolean {
+            if (kind == "toggleCheckbox") {
+                val checked = state.contains(android.R.attr.state_checked)
+                val enabled = state.contains(android.R.attr.state_enabled)
+                val target = if (checked) 1f else 0f
+                val previous = toggleProgress
+                val animate = animationsEnabled && enabled && lastChecked != null &&
+                    lastChecked != checked && previous != null && previous != target
+                lastChecked = checked
+                lastEnabled = enabled
+                toggleAnimator?.cancel()
+                toggleAnimator = null
+                if (animate && previous != null) {
+                    val animator = ValueAnimator.ofFloat(previous, target).apply {
+                        duration = 200L
+                        interpolator = android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)
+                        addUpdateListener {
+                            toggleProgress = it.animatedValue as Float
+                            invalidateSelf()
+                        }
+                        addListener(object : AnimatorListenerAdapter() {
+                            override fun onAnimationEnd(animation: Animator) {
+                                if (toggleAnimator === animation) toggleAnimator = null
+                            }
+                        })
+                    }
+                    toggleAnimator = animator
+                    animator.start()
+                } else toggleProgress = target
+            }
             if (kind == "track" || kind == "thumb") {
                 val target = stateColor(state)
                 val current = animatedColor
@@ -173,7 +204,11 @@ object OxygenClassicControls {
         override fun jumpToCurrentState() {
             colorAnimator?.cancel()
             colorAnimator = null
-            animatedColor = stateColor(state)
+            toggleAnimator?.cancel()
+            toggleAnimator = null
+            if (kind == "toggleCheckbox") {
+                toggleProgress = if (state.contains(android.R.attr.state_checked)) 1f else 0f
+            } else animatedColor = stateColor(state)
             invalidateSelf()
         }
         override fun setColorFilter(filter: ColorFilter?) { paint.colorFilter = filter; invalidateSelf() }
@@ -276,29 +311,22 @@ object OxygenClassicControls {
                     canvas.drawCircle(cx, cy, 11.65f * density, paint)
                 }
                 "toggleCheckbox" -> {
-                    // The Commons date-time dialog casts this control to CheckBox.
-                    // Only the drawable changes; 48x28 thin rail and round knob.
-                    val track = when {
-                        !enabled && checked -> switchPalette.disabledOnTrack
-                        !enabled -> switchPalette.disabledOffTrack
-                        checked -> switchPalette.onTrack
-                        else -> switchPalette.offTrack
-                    }
-                    color(track)
+                    // Drawable animates the visual state, while Commons still owns the Checkbox value.
+                    val progress = toggleProgress ?: if (checked) 1f else 0f
+                    val startTrack = if (enabled) switchPalette.offTrack else switchPalette.disabledOffTrack
+                    val endTrack = if (enabled) switchPalette.onTrack else switchPalette.disabledOnTrack
+                    color(androidx.core.graphics.ColorUtils.blendARGB(startTrack, endTrack, progress))
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = geometry.strokeWidth
                     val railLeft = bounds.left + geometry.trackLeft
                     canvas.drawRoundRect(railLeft, cy - geometry.trackPathHeight / 2f,
                         railLeft + geometry.trackPathWidth, cy + geometry.trackPathHeight / 2f,
                         geometry.trackRadius, geometry.trackRadius, paint)
-                    val face = when {
-                        !enabled && checked -> switchPalette.disabledOnThumb
-                        !enabled -> switchPalette.disabledOffThumb
-                        checked -> switchPalette.onThumb
-                        else -> switchPalette.offThumb
-                    }
-                    val thumbX = bounds.left + (if (checked) geometry.thumbEnd else geometry.thumbStart) +
-                        geometry.thumbDiameter / 2f
+                    val startFace = if (enabled) switchPalette.offThumb else switchPalette.disabledOffThumb
+                    val endFace = if (enabled) switchPalette.onThumb else switchPalette.disabledOnThumb
+                    val face = androidx.core.graphics.ColorUtils.blendARGB(startFace, endFace, progress)
+                    val thumbX = bounds.left + geometry.thumbDiameter / 2f +
+                        geometry.thumbStart + (geometry.thumbEnd - geometry.thumbStart) * progress
                     color(face)
                     canvas.drawCircle(thumbX, cy, 12f * density, paint)
                     color(OxygenThemeColors.blend(face, fg,

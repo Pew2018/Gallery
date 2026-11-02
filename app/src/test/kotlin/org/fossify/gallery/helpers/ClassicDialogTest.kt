@@ -425,6 +425,8 @@ class ClassicDialogTest {
             return org.robolectric.shadows.ShadowDialog.getLatestDialog() as AlertDialog
         }
         val cancelled = open()
+        assertNotNull(cancelled.findViewById<android.widget.TextView>(R.id.change_date_time_dialog_date_heading))
+        assertNotNull(cancelled.findViewById<android.widget.TextView>(R.id.change_date_time_dialog_time_heading))
         cancelled.findViewById<RadioButton>(org.fossify.commons.R.id.change_date_time_dialog_radio_one)!!.performClick()
         cancelled.findViewById<android.widget.CheckBox>(org.fossify.commons.R.id.change_date_time_dialog_24_hour)!!.isChecked = true
         cancelled.cancel()

@@ -505,6 +505,7 @@ object OxygenClassicDialog {
                             v.textSize = 20f
                             v.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                         }
+                        R.id.change_date_time_dialog_date_heading,
                         R.id.change_date_time_dialog_time_heading -> {
                             v.setTextColor(readableAccent)
                             v.textSize = 13f

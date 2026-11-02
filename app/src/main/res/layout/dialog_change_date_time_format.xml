@@ -18,7 +18,17 @@
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="@string/classic_date_display_title" android:textSize="20sp"
             android:fontFamily="sans-serif-medium" android:paddingStart="24dp" android:paddingEnd="24dp"
-            android:paddingTop="8dp" android:paddingBottom="16dp" />
+            android:paddingTop="8dp" android:paddingBottom="12dp" />
+        <TextView
+            android:id="@+id/change_date_time_dialog_date_heading"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:paddingBottom="4dp"
+            android:text="@string/classic_date_format_section"
+            android:textSize="13sp"
+            android:fontFamily="sans-serif-medium" />
         <RadioGroup
             android:id="@+id/change_date_time_dialog_radio_group"
             android:layout_width="match_parent"
