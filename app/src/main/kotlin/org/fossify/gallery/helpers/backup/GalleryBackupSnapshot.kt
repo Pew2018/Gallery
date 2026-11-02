@@ -62,7 +62,13 @@ internal class GalleryBackupCollector(private val context: Context, private val 
             if (before == after && after == prefs.all && relationsStillMatch && revision == PhotoContentRevision.current()) {
                 val snapshot = GalleryBackupSnapshot(legacy, media, folders, profiles, oxygen)
                 val token = BackupDigest.sha256((BackupDigest.preferences(after) + BackupDigest.relations(media, folders)).toByteArray(Charsets.UTF_8))
-                return@serialized GalleryLocalBackupState(snapshot, after, token)
+                // Only Commons' verification bookkeeping may differ before authenticated replanning.
+                // The strict token above remains authoritative for the final commit.
+                val authPreferences = after - setOf(org.fossify.commons.helpers.PASSWORD_RETRY_COUNT,
+                    org.fossify.commons.helpers.PASSWORD_COUNTDOWN_START_MS)
+                val authorizationToken = BackupDigest.sha256((BackupDigest.preferences(authPreferences) +
+                    BackupDigest.relations(media, folders)).toByteArray(Charsets.UTF_8))
+                return@serialized GalleryLocalBackupState(snapshot, after, token, authorizationToken)
             }
         }
         error("Application state changed during snapshot; retry backup")

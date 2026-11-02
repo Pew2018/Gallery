@@ -327,6 +327,7 @@ class ProtectedGalleryRestoreTest {
             assertFalse(checkpoint.contains("fixture-secret")); assertFalse(checkpoint.contains(operation.id))
             assertFalse(checkpoint.contains("credentialVersion")); assertFalse(checkpoint.contains("authorization"))
             assertFalse(formal.authorization!!.current(context, formal, mode))
+            assertThrows(PendingGalleryRestore::class.java) { service().snapshot() }
             val recovery = service().recoverPending()
             assertEquals(if (point == "after_preferences") GalleryRecoveryResult.REVERTED else GalleryRecoveryResult.FINISHED, recovery)
             assertEquals(if (point == "after_preferences") emptySet<String>() else setOf(a), paths())
@@ -336,11 +337,17 @@ class ProtectedGalleryRestoreTest {
 
     @Test fun checkpointFileCreationFailureHappensBeforeRelationsAndSettingsWrites() {
         val a = file("a.jpg")
-        val service = service { if (it == "before_checkpoint") File(context.filesDir, "gallery-restore-checkpoint.json").mkdirs() }
+        // Block both old (.bak) and new (.new) AtomicFile layouts with nonempty directories.
+        val blocked = listOf("", ".bak", ".new").map { File(context.filesDir, "gallery-restore-checkpoint.json$it") }
+        val service = service { if (it == "before_checkpoint") blocked.forEach {
+            it.mkdirs(); File(it, "block-write").writeText("simulated storage obstruction")
+        } }
         val plan = service.preview(fullBackupFixture(context, listOf(a)))
         val before = context.getSharedPrefs().all
-        assertThrows(GalleryRestoreCheckpointFailure::class.java) { service.restore(plan, mode) }
-        assertTrue(paths().isEmpty()); assertEquals(before, context.getSharedPrefs().all)
+        try {
+            assertThrows(GalleryRestoreCheckpointFailure::class.java) { service.restore(plan, mode) }
+            assertTrue(paths().isEmpty()); assertEquals(before, context.getSharedPrefs().all)
+        } finally { blocked.forEach { it.deleteRecursively() } }
     }
 
     @Test fun folderOnlyInterruptedCommitDoesNotRefreshMediaOnRecovery() {

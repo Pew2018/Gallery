@@ -24,7 +24,7 @@ internal class GalleryRestoreService(
     private val consumedPlans = hashSetOf<String>()
 
     fun snapshot(): GalleryBackupSnapshot = BackupOperationRunner.serialized {
-        check(!journal.exists()) { "A pending restore must be recovered before export" }
+        if (journal.exists()) throw PendingGalleryRestore()
         collector.capture().snapshot
     }
     fun preview(snapshot: GalleryBackupSnapshot): GalleryRestorePlan = BackupOperationRunner.serialized {
