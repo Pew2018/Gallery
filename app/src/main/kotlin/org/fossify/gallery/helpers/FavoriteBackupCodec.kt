@@ -2,7 +2,6 @@ package org.fossify.gallery.helpers
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
-import com.google.gson.JsonParser
 import java.io.InputStream
 
 /**
@@ -13,38 +12,38 @@ import java.io.InputStream
 internal object FavoriteBackupCodec {
     private const val FOLDER_FORMAT = "fossify-gallery-favorite-folders"
     private const val FOLDER_VERSION = 1
-    private const val MAX_BACKUP_CHARS = 8 * 1024 * 1024
     private const val MAX_RECORDS = 100000
 
     data class FolderRecord(val path: String, val addedAt: Long)
 
-    fun readLimited(input: InputStream): String =
-        input.bufferedReader(Charsets.UTF_8).use { reader ->
-            val text = StringBuilder()
-            val buffer = CharArray(8192)
-            while (true) {
-                val size = reader.read(buffer)
-                if (size == -1) break
-                require(text.length + size <= MAX_BACKUP_CHARS) { "Backup is too large" }
-                text.append(buffer, 0, size)
-            }
-            text.toString()
-        }
+    fun readLimited(input: InputStream): String = org.fossify.gallery.helpers.backup.BackupIo.readText(input)
+
+    fun encodeMediaPaths(paths: List<String>): String = paths.joinToString("\n", postfix = if (paths.isEmpty()) "" else "\n")
 
     /** The original app writes a raw path per line, without a header. */
-    fun decodeMediaPaths(raw: String): List<String> {
+    fun decodeMediaPlan(raw: String): org.fossify.gallery.helpers.backup.MediaFavoritesPlan {
+        require(raw.toByteArray(Charsets.UTF_8).size <= org.fossify.gallery.helpers.backup.BackupIo.MAX_BYTES)
         val text = raw.removePrefix("\uFEFF")
         require(!text.trimStart().startsWith("{") && !text.trimStart().startsWith("[")) {
             "JSON is not a legacy media favorites TXT backup"
         }
-        val paths = text.lineSequence().map { it.removeSuffix("\r") }
-            .filter { it.isNotBlank() }.toList()
-        require(paths.size <= MAX_RECORDS) { "Too many favorite media paths" }
-        require(paths.all { (it.startsWith("/") || it.startsWith("content://")) && !it.contains('\u0000') }) {
-            "Invalid legacy media favorites path"
+        val lines = text.lineSequence().filter { it.isNotBlank() }.toList()
+        require(lines.size <= MAX_RECORDS) { "Too many favorite media paths" }
+        val paths = linkedSetOf<String>()
+        var invalid = 0
+        var duplicates = 0
+        lines.forEach { path ->
+            val valid = path.length <= 4096 && path.none { it.isISOControl() } &&
+                (org.fossify.gallery.helpers.backup.PhotoProfileBackupCodec.validFolderPath(path) ||
+                    path.startsWith("content://") && path.length > "content://".length)
+            if (!valid) invalid++ else if (!paths.add(path)) duplicates++
         }
-        return paths.distinct()
+        return org.fossify.gallery.helpers.backup.MediaFavoritesPlan(paths.toList(), lines.size, invalid, duplicates)
     }
+
+    fun decodeMediaPaths(raw: String): List<String> = decodeMediaPlan(raw).also {
+        require(it.invalid == 0) { "Invalid legacy media favorites path" }
+    }.paths
 
     fun encodeFolders(records: List<FolderRecord>): String {
         require(records.size <= MAX_RECORDS) { "Too many favorite folder paths" }
@@ -65,7 +64,7 @@ internal object FavoriteBackupCodec {
 
     fun decodeFolders(raw: String): List<FolderRecord> {
         val element = try {
-            JsonParser.parseString(raw.removePrefix("\uFEFF"))
+            org.fossify.gallery.helpers.backup.BackupJson.parse(raw)
         } catch (error: Exception) {
             throw IllegalArgumentException("Invalid folder favorites JSON", error)
         }
@@ -104,8 +103,8 @@ internal object FavoriteBackupCodec {
     private fun validate(record: FolderRecord) {
         require((record.path.startsWith("/") || record.path.startsWith("content://")) &&
             record.path != "/" && record.path != "content://" &&
-            record.path.length <= 4096 && !record.path.contains('\u0000') &&
-            !record.path.contains('\n') && !record.path.contains('\r')) {
+            record.path.length <= 4096 && record.path.none { it.isISOControl() } &&
+            (!record.path.startsWith("/") || org.fossify.gallery.helpers.backup.PhotoProfileBackupCodec.validFolderPath(record.path))) {
             "Invalid favorite folder path"
         }
         require(record.addedAt >= 0) { "Invalid favorite folder timestamp" }

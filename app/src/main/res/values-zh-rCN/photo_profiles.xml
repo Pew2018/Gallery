@@ -73,4 +73,14 @@
     <string name="photo_profiles_current">正在使用</string>
     <string name="photo_password_lock">锁定受保护内容</string>
     <string name="photo_biometric_favorites_scope">是否使用同一次系统生物识别验证授权「照片」和「收藏」？本次复用仅限当前请求。文件夹指纹锁使用独立机制；取消后续任一步骤都不会保存新增绑定。</string>
+    <string name="photo_profiles_export">导出照片浏览配置</string>
+    <string name="photo_profiles_import">导入照片浏览配置</string>
+    <string name="photo_profiles_export_success">照片浏览配置导出成功</string>
+    <string name="photo_profiles_import_success">已导入 %1$d 个配置，跳过 %2$d 个重复配置，%3$d 个冲突配置已另存为副本</string>
+    <string name="photo_profiles_backup_invalid">照片浏览配置备份文件无效</string>
+    <string name="photo_profiles_backup_unsupported_version">不支持的照片浏览配置备份版本</string>
+    <string name="photo_profiles_backup_duplicates">已跳过重复配置</string>
+    <string name="photo_profiles_backup_conflicts">已保留本地配置，冲突配置已作为新副本导入</string>
+    <string name="backup_operation_failed">备份操作失败，文件可能无效、无法访问或过大。</string>
+    <string name="photo_profiles_export_corrupt">照片配置数据损坏或版本不受支持，已取消导出。所选保存位置可能保留空文件；写入失败时也可能留下部分文件。</string>
 </resources>

@@ -9,6 +9,7 @@ import org.fossify.gallery.R
 import org.fossify.gallery.databinding.DialogExportFavoritesBinding
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.helpers.OxygenClassicDialog
+import org.fossify.gallery.helpers.ExportFilename
 
 class ExportFavoritesDialog(
     val activity: BaseSimpleActivity, val defaultFilename: String, val hidePath: Boolean,
@@ -16,7 +17,9 @@ class ExportFavoritesDialog(
     callback: (path: String, filename: String) -> Unit
 ) {
     init {
-        val lastUsedFolder = activity.config.lastExportedFavoritesFolder
+        val settingsExport = dialogTitle == org.fossify.commons.R.string.export_settings
+        val lastUsedFolder = if (settingsExport) activity.baseConfig.lastExportedSettingsFolder
+            else activity.config.lastExportedFavoritesFolder
         var folder = if (lastUsedFolder.isNotEmpty() && activity.getDoesFilePathExist(lastUsedFolder)) {
             lastUsedFolder
         } else {
@@ -24,7 +27,13 @@ class ExportFavoritesDialog(
         }
 
         val binding = DialogExportFavoritesBinding.inflate(activity.layoutInflater).apply {
-            exportFavoritesFilename.setText(defaultFilename.removeSuffix(extension))
+            exportFavoritesHint.setHint(when (extension) {
+                ".json" -> org.fossify.commons.R.string.filename_without_json
+                ".zip" -> org.fossify.commons.R.string.filename_without_zip
+                else -> org.fossify.commons.R.string.filename_without_txt
+            })
+            exportFavoritesFilename.setText(if (defaultFilename.endsWith(extension, ignoreCase = true))
+                defaultFilename.dropLast(extension.length) else defaultFilename)
 
             if (hidePath) {
                 exportFavoritesPathLabel.beGone()
@@ -47,20 +56,28 @@ class ExportFavoritesDialog(
                 activity.setupDialogStuff(binding.root, this, dialogTitle) { alertDialog ->
                     OxygenClassicDialog.apply(activity, alertDialog, binding.root)
                     alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                        var filename = binding.exportFavoritesFilename.value
-                        if (filename.isEmpty()) {
+                        val input = binding.exportFavoritesFilename.value.trim()
+                        if (input.isEmpty()) {
                             activity.toast(org.fossify.commons.R.string.filename_cannot_be_empty)
                             return@setOnClickListener
                         }
 
-                        filename += extension
+                        if (!input.isAValidFilename() || input.contains('/') || input.contains('\\')) {
+                            activity.toast(org.fossify.commons.R.string.filename_invalid_characters)
+                            return@setOnClickListener
+                        }
+                        val filename = ExportFilename.normalize(input, extension) ?: run {
+                            activity.toast(activity.getString(R.string.export_filename_extension_error, extension))
+                            return@setOnClickListener
+                        }
                         val newPath = "${folder.trimEnd('/')}/$filename"
                         if (!newPath.getFilenameFromPath().isAValidFilename()) {
                             activity.toast(org.fossify.commons.R.string.filename_invalid_characters)
                             return@setOnClickListener
                         }
 
-                        activity.config.lastExportedFavoritesFolder = folder
+                        if (settingsExport) activity.baseConfig.lastExportedSettingsFolder = folder
+                        else activity.config.lastExportedFavoritesFolder = folder
                         if (!hidePath && activity.getDoesFilePathExist(newPath)) {
                             val title = String.format(
                                 activity.getString(org.fossify.commons.R.string.file_already_exists_overwrite),

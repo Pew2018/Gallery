@@ -73,4 +73,14 @@
     <string name="photo_profiles_current">Currently in use</string>
     <string name="photo_password_lock">Lock protected content</string>
     <string name="photo_biometric_favorites_scope">Authorize Photos and Favorites with one system biometric verification? This grants Favorites access for the current request only. Folder fingerprint locks use a separate mechanism. Cancelling any later step saves no new bindings.</string>
+    <string name="photo_profiles_export">Export photo browsing profiles</string>
+    <string name="photo_profiles_import">Import photo browsing profiles</string>
+    <string name="photo_profiles_export_success">Photo browsing profiles exported</string>
+    <string name="photo_profiles_import_success">Imported %1$d profiles, skipped %2$d duplicates, kept %3$d conflicts as new copies</string>
+    <string name="photo_profiles_backup_invalid">Invalid photo browsing profile backup</string>
+    <string name="photo_profiles_backup_unsupported_version">Unsupported photo browsing profile backup version</string>
+    <string name="photo_profiles_backup_duplicates">Duplicate profiles were skipped</string>
+    <string name="photo_profiles_backup_conflicts">Local profiles were kept; conflicting profiles were imported as new copies</string>
+    <string name="backup_operation_failed">Backup operation failed. The file may be invalid, inaccessible or too large.</string>
+    <string name="photo_profiles_export_corrupt">Photo profiles are damaged or unsupported. Export was cancelled. The selected provider may retain an empty file; a failed write may leave a partial file.</string>
 </resources>

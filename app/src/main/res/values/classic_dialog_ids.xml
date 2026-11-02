@@ -1,4 +1,6 @@
 <resources>
+    <item name="full_backup_preview" type="id" />
+    <item name="full_backup_changes" type="id" />
     <item name="classic_dialog_observer" type="id" />
     <item name="classic_control_styled" type="id" />
     <item name="classic_dialog_palette" type="id" />
