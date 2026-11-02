@@ -58,7 +58,7 @@ class PhotoProfileEditActivity : SimpleActivity() {
             // Removed children are retained only by ViewGroup's disappearing-view
             // animation, never by sourceRows or a delayed application callback.
             setAnimator(LayoutTransition.DISAPPEARING,
-                android.animation.ObjectAnimator.ofFloat(null, "alpha", 1f, 0f))
+                android.animation.ObjectAnimator.ofFloat(null, "alpha", 0f))
             setDuration(LayoutTransition.DISAPPEARING, OxygenClassicMotion.CHECKBOX_MS)
             setStartDelay(LayoutTransition.DISAPPEARING, 0L)
             setStartDelay(LayoutTransition.CHANGE_DISAPPEARING, OxygenClassicMotion.CHECKBOX_MS)
@@ -229,7 +229,8 @@ class PhotoProfileEditActivity : SimpleActivity() {
             val child = container.getChildAt(index)
             if (child !in desired) {
                 child.animate().cancel()
-                child.alpha = 1f
+                // A just-added row may still be fading in. Fade out from that
+                // actual alpha instead of flashing it fully opaque first.
                 container.removeViewAt(index)
             } else if (!animate) {
                 child.animate().cancel()

@@ -84,6 +84,9 @@ class PhotoSourceMotionTest {
         try {
             display(listOf(a, b, c))
             val cRow = container.getChildAt(4)
+            val aRow = container.getChildAt(0)
+            aRow.animate().cancel()
+            aRow.alpha = 0.35f // Delete while the entrance fade is incomplete.
             var detaches = 0
             cRow.addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(view: android.view.View) = Unit
@@ -91,6 +94,7 @@ class PhotoSourceMotionTest {
             })
             assertTrue(container.layoutTransition.isTransitionTypeEnabled(android.animation.LayoutTransition.DISAPPEARING))
             display(listOf(b, c))
+            assertTrue("deletion must not flash a partly visible row opaque", aRow.alpha <= 0.35f)
             display(listOf(c))
             render.invoke(activity) // A late background status update must use current draft.
             assertSame(cRow, container.getChildAt(0))
