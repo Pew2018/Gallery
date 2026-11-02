@@ -27,6 +27,11 @@ import java.util.concurrent.TimeUnit
 @Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 @LooperMode(LooperMode.Mode.PAUSED)
 class OxygenClassicMotionTest {
+    @org.junit.Before fun useControlledVsync() {
+        org.robolectric.shadows.ShadowChoreographer.setPaused(true)
+        org.robolectric.shadows.ShadowChoreographer.setFrameDelay(java.time.Duration.ofMillis(16))
+    }
+
     @Test fun allClassicDurationsStayBriefAndUseOneSettingsTransition() {
         assertTrue(OxygenClassicMotion.CHECKBOX_MS in 120L..160L)
         assertTrue(OxygenClassicMotion.TAB_MS in 120L..160L)

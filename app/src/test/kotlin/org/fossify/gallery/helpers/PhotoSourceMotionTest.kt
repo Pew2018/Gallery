@@ -17,6 +17,11 @@ import org.robolectric.annotation.Config
 @Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 @org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
 class PhotoSourceMotionTest {
+    @org.junit.Before fun useControlledVsync() {
+        org.robolectric.shadows.ShadowChoreographer.setPaused(true)
+        org.robolectric.shadows.ShadowChoreographer.setFrameDelay(java.time.Duration.ofMillis(16))
+    }
+
     @Test fun addingRemovingAndRefreshingSourcesKeepsUnchangedRowInstances() {
         val app = org.robolectric.RuntimeEnvironment.getApplication()
         val intent = Intent(app, PhotoProfileEditActivity::class.java)

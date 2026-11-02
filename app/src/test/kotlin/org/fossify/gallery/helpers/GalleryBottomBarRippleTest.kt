@@ -27,6 +27,11 @@ import java.util.concurrent.TimeUnit
 @Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 @LooperMode(LooperMode.Mode.PAUSED)
 class GalleryBottomBarRippleTest {
+    @org.junit.Before fun useControlledVsync() {
+        org.robolectric.shadows.ShadowChoreographer.setPaused(true)
+        org.robolectric.shadows.ShadowChoreographer.setFrameDelay(java.time.Duration.ofMillis(16))
+    }
+
     private fun fixture(active: GalleryBottomBar.Tab = GalleryBottomBar.Tab.ALL,
                         onNavigate: (GalleryBottomBar.Tab) -> Unit = {}):
         Pair<android.app.Activity, LinearLayout> {
@@ -137,9 +142,12 @@ class GalleryBottomBarRippleTest {
             val down = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, 50f, 28f, 0)
             item.dispatchTouchEvent(down)
             down.recycle()
+            // ViewGroup may defer pressed feedback until tap timeout.
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(
+                android.view.ViewConfiguration.getTapTimeout().toLong() + 1, TimeUnit.MILLISECONDS)
             assertTrue(item.isPressed)
             assertSame(ripple, item.background)
-            val up = android.view.MotionEvent.obtain(now, now + 40, android.view.MotionEvent.ACTION_UP, 50f, 28f, 0)
+            val up = android.view.MotionEvent.obtain(now, android.os.SystemClock.uptimeMillis(), android.view.MotionEvent.ACTION_UP, 50f, 28f, 0)
             item.dispatchTouchEvent(up)
             up.recycle()
             Shadows.shadowOf(Looper.getMainLooper()).idle()
