@@ -20,6 +20,7 @@ import androidx.core.widget.CompoundButtonCompat
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import org.fossify.gallery.views.ClassicToolbarChoiceBody
 import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
 import java.util.Collections
@@ -85,11 +86,16 @@ object ToolbarQuickActionsDialog {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(8), 0, 0, 0)
             minimumHeight = dp(56)
-            // Only the child Checkbox handles presses. The row must not draw a second ripple.
+            // The body owns one ripple; the adjacent handle is an independent target.
             layoutParams = LinearLayout.LayoutParams(-1, -2)
         }
 
-        fun createCheckBox(): CheckBox = CheckBox(activity).apply {
+        fun createCheckBox(): CheckBox = object : CheckBox(activity) {
+            override fun setChecked(checked: Boolean) {
+                super.setChecked(checked)
+                (parent as? ClassicToolbarChoiceBody)?.syncChecked()
+            }
+        }.apply {
             id = R.id.classic_toolbar_action_checkbox
             textSize = 16f
             minHeight = dp(56)
@@ -99,11 +105,8 @@ object ToolbarQuickActionsDialog {
             // Dedicated classic drawable: never tint the white tick as a whole.
             buttonTintList = null
             CompoundButtonCompat.setButtonTintList(this, null)
-            buttonDrawable = OxygenClassicControls.selectionDrawable(
-                false, density, palette, surfaceAccent = true,
-                animationsEnabled = OxygenClassicMotion.enabled(activity)
-            )
-            background = OxygenClassicDialog.ripple(palette.primaryText, density)
+            buttonDrawable = null
+            background = null
         }
 
         val fixedRows = LinearLayout(activity).apply {
@@ -113,11 +116,8 @@ object ToolbarQuickActionsDialog {
         val searchCheck = createCheckBox().apply {
             text = activity.getString(org.fossify.commons.R.string.search)
         }
-        val searchBackground = searchCheck.background
-        val searchClickable = searchCheck.isClickable
-        val searchFocusable = searchCheck.isFocusable
-        val searchFocusableInTouchMode = searchCheck.isFocusableInTouchMode
-        searchRow.addView(searchCheck, LinearLayout.LayoutParams(-1, -2))
+        val searchBody = ClassicToolbarChoiceBody(activity, searchCheck, palette.interactiveAccent)
+        searchRow.addView(searchBody, LinearLayout.LayoutParams(-1, -2))
 
         val browseRow = controlRow().apply {
             contentDescription = activity.getString(R.string.quick_toolbar_fixed_browse_accessibility)
@@ -131,7 +131,10 @@ object ToolbarQuickActionsDialog {
             isFocusable = false
             contentDescription = activity.getString(R.string.quick_toolbar_fixed_browse_accessibility)
         }
-        browseRow.addView(browseCheck, LinearLayout.LayoutParams(0, -2, 1f))
+        val browseBody = ClassicToolbarChoiceBody(activity, browseCheck, palette.interactiveAccent).apply {
+            setInteractive(false)
+        }
+        browseRow.addView(browseBody, LinearLayout.LayoutParams(0, -2, 1f))
         fixedRows.addView(searchRow)
         fixedRows.addView(browseRow)
 
@@ -220,15 +223,8 @@ object ToolbarQuickActionsDialog {
             val homeScope = scope == ToolbarQuickScope.HOME
             searchCheck.setOnCheckedChangeListener(null)
             searchCheck.isChecked = ToolbarQuickActions.SEARCH in current()
-            searchCheck.isClickable = if (homeScope) false else searchClickable
-            searchCheck.isFocusable = if (homeScope) false else searchFocusable
-            searchCheck.isFocusableInTouchMode = if (homeScope) false else searchFocusableInTouchMode
-            if (homeScope) {
-                searchCheck.background = null
-            } else {
-                searchCheck.background = searchBackground
-                searchCheck.setOnCheckedChangeListener { _, checked -> updateSearch(checked) }
-            }
+            searchBody.setInteractive(!homeScope)
+            if (!homeScope) searchCheck.setOnCheckedChangeListener { _, checked -> updateSearch(checked) }
             browseRow.visibility = if (homeScope) View.VISIBLE else View.GONE
             homeTabLabel.typeface = if (scope == ToolbarQuickScope.HOME)
                 Typeface.create("sans-serif-medium", Typeface.NORMAL) else Typeface.DEFAULT
@@ -279,7 +275,8 @@ object ToolbarQuickActionsDialog {
                     isClickable = true
                     isFocusable = true
                 }
-                row.addView(check, LinearLayout.LayoutParams(0, -2, 1f))
+                row.addView(ClassicToolbarChoiceBody(activity, check, palette.interactiveAccent),
+                    LinearLayout.LayoutParams(0, -2, 1f))
                 row.addView(drag, LinearLayout.LayoutParams(dp(48), dp(48)))
                 return Holder(row, check, drag)
             }

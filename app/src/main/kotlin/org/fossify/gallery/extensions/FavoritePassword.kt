@@ -31,7 +31,7 @@ internal fun Activity.showFavoritePasswordDialog(
     @StringRes title: Int,
     build: AlertDialog.Builder.() -> Unit
 ): AlertDialog = OxygenClassicDialog.show(
-    this, OxygenClassicDialog.builder(this, getString(title)).apply(build)
+    this, OxygenClassicDialog.builder(this, getString(title)).apply(build), securityFlow = true
 )
 
 private object FavoritePasswordSetupRequests {

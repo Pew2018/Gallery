@@ -26,10 +26,22 @@ class MediaFetcher(
     val context: Context,
     private val filterOverride: Int? = null,
     private val cancelled: () -> Boolean = { false },
-    private val reportReadFailures: Boolean = false
+    private val reportReadFailures: Boolean = false,
+    private val discoverUnindexedFolders: Boolean = false
 ) {
+    private val queryCancellation = android.os.CancellationSignal()
     @Volatile var shouldStop = false
         get() = field || cancelled()
+        set(value) {
+            field = value
+            if (value) queryCancellation.cancel()
+        }
+
+    private fun querySignal(): android.os.CancellationSignal {
+        if (shouldStop) queryCancellation.cancel()
+        queryCancellation.throwIfCanceled()
+        return queryCancellation
+    }
 
     // on Android 11 we fetch all files at once from MediaStore and have it split by folder, use it if available
     fun getFilesFrom(
@@ -66,10 +78,16 @@ class MediaFetcher(
                 }
             }
 
-            if (curMedia.isEmpty()) {
+            val physicalFolder = curPath.startsWith('/') && curPath != RECYCLE_BIN && curPath != FAVORITES
+            val scopedFolder = physicalFolder && isRPlus() && !isExternalStorageManager()
+            if (curMedia.isEmpty() || scopedFolder) {
+                // A nonempty index is not proof of a complete directory. Keep
+                // indexed-only accessible rows, and discover unindexed direct files.
+                val indexed = if (scopedFolder) curMedia.associateBy { it.path } else null
                 val newMedia = getMediaInFolder(
                     curPath, isPickImage, isPickVideo, filterMedia, getProperDateTaken, getProperLastModified, getProperFileSize,
-                    favoritePaths, getVideoDurations, lastModifieds, dateTakens
+                    favoritePaths, getVideoDurations, lastModifieds, dateTakens,
+                    indexedMetadata = indexed
                 )
 
                 if (curPath == FAVORITES && isRPlus() && !isExternalStorageManager()) {
@@ -87,6 +105,10 @@ class MediaFetcher(
                     curMedia.addAll(FavoriteMediaLoadPolicy.mergeByPath(
                         newMedia, indexedFavorites, { it.path }
                     ))
+                } else if (scopedFolder) {
+                    val merged = FavoriteMediaLoadPolicy.mergeByPath(curMedia, newMedia) { it.path }
+                    curMedia.clear()
+                    curMedia.addAll(merged)
                 } else {
                     curMedia.addAll(newMedia)
                 }
@@ -113,7 +135,7 @@ class MediaFetcher(
             val selection = getSelectionQuery(filterMedia)
             val selectionArgs = getSelectionArgsQuery(filterMedia).toTypedArray()
             if (filterMedia == 0) return arrayListOf()
-            val cursor = context.contentResolver.query(uri, projection, selection, selectionArgs, null)
+            val cursor = context.contentResolver.query(uri, projection, selection, selectionArgs, null, querySignal())
             if (cursor == null && reportReadFailures) throw java.io.IOException("MediaStore did not return a cursor")
             cursor?.let { folders.addAll(parseCursor(it)) }
 
@@ -129,6 +151,18 @@ class MediaFetcher(
 
             val folderNoMediaStatuses = HashMap<String, Boolean>()
             val distinctPathsMap = HashMap<String, String>()
+            if (discoverUnindexedFolders) {
+                val roots = folders + includedPaths + listOf(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).toString(),
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES).toString()
+                )
+                folders.addAll(FolderDiskDiscovery.find(roots, allowed = { path ->
+                    FolderUnlockSessionManager.findProtectedAncestor(path, config::isFolderProtected) == null &&
+                        path.shouldFolderBeVisible(excludedPaths, includedPaths, shouldShowHidden, folderNoMediaStatuses) { key, value ->
+                            folderNoMediaStatuses[key] = value
+                        }
+                }, cancelled = { shouldStop }))
+            }
             val distinctPaths = folders.distinctBy {
                 when {
                     distinctPathsMap.containsKey(it) -> distinctPathsMap[it]
@@ -169,7 +203,7 @@ class MediaFetcher(
                     putInt(ContentResolver.QUERY_ARG_SORT_DIRECTION, ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
                 }
 
-                cursor = context.contentResolver.query(uri, projection, bundle, null)
+                cursor = context.contentResolver.query(uri, projection, bundle, querySignal())
                 if (cursor?.moveToFirst() == true) {
                     do {
                         val path = cursor.getStringValue(Images.ImageColumns.DATA) ?: continue
@@ -178,7 +212,7 @@ class MediaFetcher(
                 }
             } else {
                 val sorting = "${BaseColumns._ID} DESC LIMIT 10"
-                cursor = context.contentResolver.query(uri, projection, null, null, sorting)
+                cursor = context.contentResolver.query(uri, projection, null, null, sorting, querySignal())
                 if (cursor?.moveToFirst() == true) {
                     do {
                         val path = cursor.getStringValue(Images.ImageColumns.DATA) ?: continue
@@ -186,6 +220,8 @@ class MediaFetcher(
                     } while (cursor.moveToNext())
                 }
             }
+        } catch (e: android.os.OperationCanceledException) {
+            throw e
         } catch (e: Exception) {
             context.showErrorToast(e)
         } finally {
@@ -527,17 +563,30 @@ class MediaFetcher(
             getProperDateTaken, dateTakens, allowedFolders)
     }
 
+    /** Optional metadata can fall back to File values, but must still cancel live queries. */
+    private fun queryMetadataCursor(
+        uri: Uri, projection: Array<String>, selection: String? = null, args: Array<String>? = null,
+        callback: (Cursor) -> Unit
+    ) {
+        try {
+            queryMediaCursor(uri, projection, selection, args, callback)
+        } catch (error: android.os.OperationCanceledException) {
+            throw error
+        } catch (error: Exception) {
+            android.util.Log.w("GalleryMedia", "Optional indexed metadata unavailable", error)
+        }
+    }
+
     /** Primary scans must distinguish provider failure from a successful empty cursor. */
     private fun queryMediaCursor(
         uri: Uri, projection: Array<String>, selection: String?, args: Array<String>?,
         callback: (Cursor) -> Unit
     ) {
-        if (!reportReadFailures) {
-            context.queryCursor(uri, projection, selection, args, callback = callback)
-            return
-        }
-        val cursor = context.contentResolver.query(uri, projection, selection, args, null)
-            ?: throw java.io.IOException("MediaStore did not return a cursor")
+        val cursor = context.contentResolver.query(uri, projection, selection, args, null, querySignal())
+            ?: run {
+                if (reportReadFailures) throw java.io.IOException("MediaStore did not return a cursor")
+                return
+            }
         cursor.use {
             while (!shouldStop && it.moveToNext()) callback(it)
         }
@@ -791,7 +840,7 @@ class MediaFetcher(
             val selection = "${Images.Media.DATA} LIKE ? AND ${Images.Media.DATA} NOT LIKE ?"
             val selectionArgs = arrayOf("$folder/%", "$folder/%/%")
 
-            context.queryCursor(uri, projection, selection, selectionArgs) { cursor ->
+            queryMetadataCursor(uri, projection, selection, selectionArgs) { cursor ->
                 try {
                     val dateTaken = cursor.getLongValue(Images.Media.DATE_TAKEN)
                     if (dateTaken != 0L) {
@@ -830,7 +879,7 @@ class MediaFetcher(
         val uri = Files.getContentUri("external")
 
         try {
-            context.queryCursor(uri, projection) { cursor ->
+            queryMetadataCursor(uri, projection) { cursor ->
                 try {
                     val dateTaken = cursor.getLongValue(Images.Media.DATE_TAKEN)
                     if (dateTaken != 0L) {
@@ -864,7 +913,7 @@ class MediaFetcher(
             val selection = "${Images.Media.DATA} LIKE ? AND ${Images.Media.DATA} NOT LIKE ?"
             val selectionArgs = arrayOf("$folder/%", "$folder/%/%")
 
-            context.queryCursor(uri, projection, selection, selectionArgs) { cursor ->
+            queryMetadataCursor(uri, projection, selection, selectionArgs) { cursor ->
                 try {
                     val lastModified = cursor.getLongValue(Images.Media.DATE_MODIFIED) * 1000
                     if (lastModified != 0L) {
@@ -889,7 +938,7 @@ class MediaFetcher(
         val uri = Files.getContentUri("external")
 
         try {
-            context.queryCursor(uri, projection) { cursor ->
+            queryMetadataCursor(uri, projection) { cursor ->
                 try {
                     val lastModified = cursor.getLongValue(Images.Media.DATE_MODIFIED) * 1000
                     if (lastModified != 0L) {
@@ -917,7 +966,7 @@ class MediaFetcher(
             val selection = "${Images.Media.DATA} LIKE ? AND ${Images.Media.DATA} NOT LIKE ?"
             val selectionArgs = arrayOf("$folder/%", "$folder/%/%")
 
-            context.queryCursor(uri, projection, selection, selectionArgs) { cursor ->
+            queryMetadataCursor(uri, projection, selection, selectionArgs) { cursor ->
                 try {
                     val size = cursor.getLongValue(Images.Media.SIZE)
                     if (size != 0L) {

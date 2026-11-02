@@ -28,10 +28,11 @@ class GetMediaAsynctask(
     private val photoAllowPreview: Boolean = true,
     private val photoAnchorPath: String? = null,
     private val onPhotoResult: ((PhotoLoadResult) -> Unit)? = null,
+    private val manualRefresh: Boolean = false,
     val callback: (media: ArrayList<ThumbnailItem>) -> Unit
 ) :
     AsyncTask<Void, PhotoLoadResult, ArrayList<ThumbnailItem>>() {
-    private val mediaFetcher = MediaFetcher(context, reportReadFailures = true)
+    private val mediaFetcher = MediaFetcher(context, reportReadFailures = true, discoverUnindexedFolders = manualRefresh)
     private var scanFailure: Exception? = null
     private var folderFailures: Map<String, Exception> = emptyMap()
     private var profileResult: PhotoLoadResult? = null

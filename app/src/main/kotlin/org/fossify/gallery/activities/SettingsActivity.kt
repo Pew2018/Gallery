@@ -840,9 +840,10 @@ class SettingsActivity : SimpleActivity() {
                 configurePhotoPassword { status() }
             } else authenticatePhotoPassword { proof ->
                 if (proof != null) showPhotoPasswordDialog(R.string.photo_password_title) {
-                    setItems(arrayOf(getString(R.string.photo_password_change), getString(R.string.photo_password_disable))) { _, index ->
+                    setItems(arrayOf(getString(R.string.photo_password_change), getString(R.string.photo_password_disable))) { dialog, index ->
                         if (!config.isPhotoCredentialCurrent(proof.credential) ||
                             proof.sessionGeneration != org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.currentGeneration()) return@setItems
+                        dialog.dismiss()
                         if (index == 0) configurePhotoPassword { status() }
                         else {
                             config.clearPhotoCredential()
@@ -884,7 +885,8 @@ class SettingsActivity : SimpleActivity() {
                         setItems(arrayOf(
                             getString(R.string.favorite_password_enable),
                             getString(R.string.favorite_password_remain_off)
-                        )) { _, which ->
+                        )) { dialog, which ->
+                            dialog.dismiss()
                             if (which == 0) configureFavoritePassword { configured ->
                                 updateStatus()
                                 if (configured != null) toast(R.string.favorite_password_saved)
@@ -900,7 +902,8 @@ class SettingsActivity : SimpleActivity() {
                         setItems(arrayOf(
                             getString(R.string.favorite_password_change),
                             getString(R.string.favorite_password_disable)
-                        )) { _, which ->
+                        )) { dialog, which ->
+                            dialog.dismiss()
                             if (which == 0) {
                                 configureFavoritePassword { configured ->
                                     updateStatus()

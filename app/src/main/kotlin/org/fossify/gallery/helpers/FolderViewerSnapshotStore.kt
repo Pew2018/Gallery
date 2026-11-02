@@ -32,6 +32,7 @@ internal object FolderViewerSnapshotStore {
     private val expiryHandler = Handler(Looper.getMainLooper())
     private var expiryCallback: Runnable? = null
     private var callbacksRegistered = false
+    private var prepareGeneration = 0L
 
     @Synchronized private fun registerMemoryCallbacks(context: Context) {
         if (callbacksRegistered) return
@@ -64,8 +65,7 @@ internal object FolderViewerSnapshotStore {
             ) && (selected == null || items.any { it.path == selected })
     }
 
-    /** Called after a successful complete scan, from a worker. */
-    @Synchronized
+    /** Provider freshness checks and metadata copies must not hold the photo-tap monitor. */
     fun prepare(
         context: Context,
         folder: String,
@@ -74,9 +74,13 @@ internal object FolderViewerSnapshotStore {
         items: List<Medium>,
         stillCurrent: () -> Boolean = { true }
     ): String? {
-        prepared = null
-        expiryCallback?.let(expiryHandler::removeCallbacks)
-        expiryCallback = null
+        val generation = synchronized(this) {
+            if (!stillCurrent()) return null
+            prepared = null
+            expiryCallback?.let(expiryHandler::removeCallbacks)
+            expiryCallback = null
+            ++prepareGeneration
+        }
         if (!FolderReturnCheckpoint.sameSnapshot(scanStart, scanEnd) ||
             !allowed(context, folder, null, items)) return null
 
@@ -85,10 +89,13 @@ internal object FolderViewerSnapshotStore {
         val entry = Entry(id, folder, fingerprint(context, folder), scanEnd!!,
             SystemClock.elapsedRealtime(), ArrayList(items.map { it.copy() }))
         if (!stillCurrent() || !FolderReturnCheckpoint.isCurrent(context, folder, scanEnd)) return null
-        prepared = entry
-        registerMemoryCallbacks(context)
-        expiryCallback = Runnable { synchronized(this) { if (prepared?.id == id) prepared = null } }.also {
-            expiryHandler.postDelayed(it, MAX_AGE_MS)
+        synchronized(this) {
+            if (generation != prepareGeneration || !stillCurrent()) return null
+            prepared = entry
+            registerMemoryCallbacks(context)
+            expiryCallback = Runnable { synchronized(this) { if (prepared?.id == id) prepared = null } }.also {
+                expiryHandler.postDelayed(it, MAX_AGE_MS)
+            }
         }
         return id
     }
@@ -127,6 +134,7 @@ internal object FolderViewerSnapshotStore {
     }
 
     @Synchronized private fun clear() {
+        prepareGeneration++
         prepared = null
         expiryCallback?.let(expiryHandler::removeCallbacks)
         expiryCallback = null

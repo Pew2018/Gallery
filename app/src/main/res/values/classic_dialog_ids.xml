@@ -1,4 +1,5 @@
 <resources>
+    <item name="classic_dialog_security_management" type="id" />
     <item name="classic_dialog_security_choice" type="id" />
     <item name="full_backup_preview" type="id" />
     <item name="full_backup_changes" type="id" />

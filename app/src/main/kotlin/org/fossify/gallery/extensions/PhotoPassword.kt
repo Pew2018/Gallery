@@ -31,7 +31,7 @@ import org.fossify.gallery.helpers.PhotoProfileAccessSessionManager
 import org.fossify.gallery.helpers.OxygenClassicDialog
 
 internal fun Activity.showPhotoPasswordDialog(@StringRes title: Int, build: AlertDialog.Builder.() -> Unit): AlertDialog =
-    OxygenClassicDialog.show(this, OxygenClassicDialog.builder(this, getString(title)).apply(build))
+    OxygenClassicDialog.show(this, OxygenClassicDialog.builder(this, getString(title)).apply(build), securityFlow = true)
 
 /** All public photo-password entrances acquire the same process-only request lease. */
 private fun Activity.photoRequest(block: (PhotoAuthRequests.Request) -> Unit) {

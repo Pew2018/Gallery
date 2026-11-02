@@ -137,6 +137,7 @@
         <item name="android:textSize">16sp</item>
     </style>
     <style name="OxygenClassicPopupCheckbox" parent="Widget.AppCompat.CompoundButton.CheckBox">
+        <item name="android:background">@null</item>
         <!-- Preserve a row-sized target while drawing a compact classic square. -->
         <item name="android:button">@drawable/oxygen_classic_popup_checkbox</item>
         <item name="buttonTint">@null</item>

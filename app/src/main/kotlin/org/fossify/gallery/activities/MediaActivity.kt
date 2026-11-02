@@ -545,7 +545,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
         binding.mediaRefreshLayout.setOnRefreshListener {
             binding.mediaRefreshLayout.isRefreshing = false
-            getMedia()
+            getMedia(manualRefresh = true)
         }
         try {
             mPath = intent.getStringExtra(DIRECTORY) ?: ""
@@ -1555,7 +1555,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
     }
 
-    private fun getMedia() {
+    private fun getMedia(manualRefresh: Boolean = false) {
         if (isPhotoProfiles) { getPhotoProfileMedia(); return }
         if (mPath == FAVORITES && favoriteSessionId != null) {
             favoriteAccessPaths = FavoriteAccessSessionManager.getCapturedPaths(favoriteSessionId)
@@ -1593,7 +1593,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val sortingBySize = config.getFolderSorting(sortingPath) and SORT_BY_SIZE != 0
 
         if (mLoadedInitialPhotos) {
-            startAsyncTask(request)
+            startAsyncTask(request, manualRefresh)
         } else {
             getCachedMedia(
                 mPath,
@@ -1617,14 +1617,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         gotMedia(cached, true, request)
                     }
                 }
-                startAsyncTask(request)
+                startAsyncTask(request, manualRefresh)
             }
         }
 
         mLoadedInitialPhotos = true
     }
 
-    private fun startAsyncTask(request: Long) {
+    private fun startAsyncTask(request: Long, manualRefresh: Boolean = false) {
         if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return
         // A canceled or superseded scan must not change the visible list or cached data.
         val scanGeneration = ++mediaScanGeneration
@@ -1633,6 +1633,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         var scanTask: GetMediaAsynctask? = null
         scanTask = GetMediaAsynctask(
             context = applicationContext,
+            manualRefresh = manualRefresh,
             mPath = mPath,
             isPickImage = mIsGetImageIntent && !mIsGetVideoIntent,
             isPickVideo = mIsGetVideoIntent && !mIsGetImageIntent,
@@ -1677,10 +1678,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     return@ensureBackgroundThread
                 }
                 try {
-                    val folderCheckpoint = scanTask?.folderCatalogCheckpoint
+                    val oldMedia = mMedia.filterIsInstance<Medium>()
+                    val newPaths = scannedMedia.filterIsInstance<Medium>().mapTo(HashSet()) { it.path }
                     if (requestedFolder == FAVORITES) {
                         favoriteCatalogRelationshipPaths = scanTask?.favoriteRelationshipSnapshot
                     }
+                    gotMedia(scannedMedia, false, request)
+                    val folderCheckpoint = scanTask?.folderCatalogCheckpoint
                     if (folderCheckpoint != null && !mShowAll && requestedFolder.isNotEmpty() &&
                         requestedFolder != FAVORITES && requestedFolder != RECYCLE_BIN) {
                         val catalogStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
@@ -1696,11 +1700,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             scannedMedia.count { it is Medium }
                         )
                     }
-                    val oldMedia = mMedia.filterIsInstance<Medium>()
-                    val newPaths = scannedMedia.filterIsInstance<Medium>()
-                        .mapTo(HashSet()) { it.path }
-                    gotMedia(scannedMedia, false, request)
-
                     // A filtered/partial/permission-limited scan is NOT evidence that an
                     // old file was deleted. Never clear a favorite relationship here.
                     // Only prune cached metadata for files confirmed absent from an
@@ -1730,7 +1729,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
         val task = scanTask ?: return
         mCurrAsyncTask = task
-        task.execute()
+        task.executeOnExecutor(org.fossify.gallery.helpers.GalleryMediaScanExecutor)
     }
 
     /** Resolve the whole virtual album before publishing cache, adapter or scan data. */

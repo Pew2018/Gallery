@@ -40,6 +40,9 @@ class TiebaMenuItemView(context: Context, attrs: AttributeSet?) : ListMenuItemVi
         fun applyCheck(view: View) {
             if (view is CheckBox) {
                 // A whole-drawable tint would also recolor the contrasting tick.
+                view.background = null
+                view.isClickable = false
+                view.isFocusable = false
                 view.buttonTintList = null
                 if (view is TintableCompoundButton) view.supportButtonTintList = null
                 // Give the long favorites labels a real 28dp control gutter, not trailing spaces.

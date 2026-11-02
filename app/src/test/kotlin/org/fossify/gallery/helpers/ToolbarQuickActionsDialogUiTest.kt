@@ -120,7 +120,7 @@ class ToolbarQuickActionsDialogUiTest {
         assertEquals(originalHome, activity.config.toolbarHomeActions)
         activity.finish()
     }
-    @Test fun checkboxOwnsTheOnlyRowRippleAndFixedOptionsHaveNoPressEffect() {
+    @Test fun bodyOwnsTheOnlyRippleAndFixedOptionsHaveNoPressEffect() {
         val activity = activity()
         activity.config.toolbarHomeActions = ToolbarQuickActions.defaults
         val dialog = ToolbarQuickActionsDialog.show(activity)
@@ -131,13 +131,18 @@ class ToolbarQuickActionsDialogUiTest {
         val holder = adapter.onCreateViewHolder(list, 0)
         adapter.onBindViewHolder(holder, 0)
         val row = holder.itemView as ViewGroup
-        val checkbox = row.getChildAt(0) as CheckBox
+        val body = row.getChildAt(0) as ViewGroup
+        val checkbox = descendants(body).filterIsInstance<CheckBox>().single()
         val drag = row.getChildAt(1)
         assertNull("row itself must not own a duplicate ripple", row.background)
-        assertTrue(checkbox.background is android.graphics.drawable.RippleDrawable)
+        assertNull(checkbox.background)
+        assertNull(checkbox.buttonDrawable)
+        assertTrue(body.background is android.graphics.drawable.RippleDrawable)
         assertFalse("checkbox click must not include the drag handle", checkbox === drag)
-        assertTrue(checkbox.isClickable)
-        assertTrue(checkbox.isFocusable)
+        assertFalse(checkbox.isClickable)
+        assertTrue(body.isClickable)
+        assertFalse(checkbox.isFocusable)
+        assertTrue(body.isFocusable)
         val fixed = views.filterIsInstance<CheckBox>().first {
             it.text == activity.getString(R.string.quick_toolbar_browse_view)
         }
@@ -162,7 +167,7 @@ class ToolbarQuickActionsDialogUiTest {
         val chosenId = adapter.getItemId(last)
         val holder = adapter.onCreateViewHolder(list, 0)
         adapter.onBindViewHolder(holder, last)
-        val check = (holder.itemView as ViewGroup).getChildAt(0) as CheckBox
+        val check = descendants(holder.itemView).filterIsInstance<CheckBox>().single()
         assertFalse(check.isChecked)
         check.performClick()
         assertTrue(check.isChecked)

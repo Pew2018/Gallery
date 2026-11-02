@@ -238,7 +238,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mZoomListener: MyRecyclerView.MyZoomListener? = null
     @Volatile private var mLastMediaFetcher: MediaFetcher? = null
     private val directoryScanEpoch = DirectoryScanEpoch()
-    private var directoryScanReady: Long? = null
     private val directoryRandomOrder = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     private fun isCurrentDirectoryScan(id: Long): Boolean =
@@ -250,7 +249,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         directoryScanEpoch.retire()
         categorizedLoadVersion++
         categorizedLoadActive = false
-        directoryScanReady = null
         mShouldStopFetching = true
         mLastMediaFetcher?.shouldStop = true
         mIsGettingDirs = false
@@ -379,7 +377,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         binding.directoriesRefreshLayout.setOnRefreshListener {
             binding.directoriesRefreshLayout.isRefreshing = false
-            getDirectories(forceFavoriteReload = true)
+            getDirectories(forceFavoriteReload = true, forceRefresh = true)
             promptProtectedFavoriteFilters(force = true)
         }
         storeStateVariables()
@@ -890,14 +888,19 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 
-    private fun getDirectories(forceFavoriteReload: Boolean = false) {
+    private fun getDirectories(forceFavoriteReload: Boolean = false, forceRefresh: Boolean = false) {
         // Favorites have their own versioned state. The normal gallery scan lock
         // must never block a favorite reload after permission or auth changes.
         if (mShowingFolderFavorites) {
             loadFavoriteFoldersWithOverrides(forceFavoriteReload)
             return
         }
-        if (mIsGettingDirs) return
+        if (mIsGettingDirs) {
+            if (!forceRefresh) return
+            // A manual pull owns a new generation, even while an old result is
+            // deferred by scrolling or action mode. Cancellation reaches queries.
+            retireDirectoryScan()
+        }
         if (isSpecialFolderFilterActive()) {
             loadCategorizedFolders()
             return
@@ -905,7 +908,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         mLastMediaFetcher?.shouldStop = true
         val scanRequest = directoryScanEpoch.begin()
-        directoryScanReady = null
         mShouldStopFetching = false
         mIsGettingDirs = true
         setDirectoryLoading(true)
@@ -914,15 +916,21 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         getCachedDirectories(getVideos && !getImages, getImages && !getVideos) {
             if (isCurrentDirectoryScan(scanRequest)) {
                 try {
-                    gotDirectories(addTempFolderIfNeeded(it), scanRequest)
+                    gotDirectories(addTempFolderIfNeeded(it), scanRequest, forceRefresh)
                 } catch (error: Exception) {
                     android.util.Log.e("GalleryDirs", "Directory scan failed", error)
                     runOnUiThread {
                         if (isCurrentDirectoryScan(scanRequest)) {
+                            toast(R.string.folder_load_failed)
+                        }
+                    }
+                } finally {
+                    runOnUiThread {
+                        if (isCurrentDirectoryScan(scanRequest)) {
+                            // Worker completion is independent of adapter deferral.
                             mIsGettingDirs = false
                             setDirectoryLoading(false)
                             binding.directoriesRefreshLayout.isRefreshing = false
-                            toast(R.string.folder_load_failed)
                         }
                     }
                 }
@@ -1812,7 +1820,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 
-    private fun gotDirectories(newDirs: ArrayList<Directory>, scanRequest: Long) {
+    private fun gotDirectories(newDirs: ArrayList<Directory>, scanRequest: Long, discoverUnindexed: Boolean = false) {
         if (!isCurrentDirectoryScan(scanRequest)) return
         if (mShowingFolderFavorites) {
             // All favorite results must pass the same authentication and generation
@@ -1888,7 +1896,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         mLastMediaFetcher?.shouldStop = true
         val scanFetcher = MediaFetcher(applicationContext, cancelled = {
             !isCurrentDirectoryScan(scanRequest)
-        }, reportReadFailures = true)
+        }, reportReadFailures = true, discoverUnindexedFolders = discoverUnindexed)
         mLastMediaFetcher = scanFetcher
         val getImages = mIsPickImageIntent || mIsGetImageContentIntent
         val getVideos = mIsPickVideoIntent || mIsGetVideoContentIntent
@@ -2341,7 +2349,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         runOnUiThread {
             if (isFinishing || isDestroyed || !presentationIsCurrent() ||
                 (scanRequest != null && !isCurrentDirectoryScan(scanRequest))) return@runOnUiThread
-            if (scanComplete) directoryScanReady = scanRequest
             val query = textToSearch ?: binding.mainMenu.getCurrentQuery()
             val distinctDirs = snapshot.filter { !mShowingFolderFavorites || mFavoriteFolderPaths.contains(it.path) }
                 .distinctBy {
@@ -2361,12 +2368,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
             val committed = {
                 if (presentationIsCurrent() && (scanRequest == null || isCurrentDirectoryScan(scanRequest))) {
-                    if (directoryScanReady?.let(::isCurrentDirectoryScan) == true) {
-                        directoryScanReady = null
-                        mIsGettingDirs = false
-                        setDirectoryLoading(false)
-                        binding.directoriesRefreshLayout.isRefreshing = false
-                    }
                     // Only an in-progress scan can publish an unconfirmed empty cache.
                     if (scanRequest == null || visible.isNotEmpty() || scanComplete) {
                         checkPlaceholderVisibility(visible)
