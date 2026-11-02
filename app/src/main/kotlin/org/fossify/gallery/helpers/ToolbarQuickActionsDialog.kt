@@ -1,7 +1,6 @@
 package org.fossify.gallery.helpers
 
 import android.app.Activity
-import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
@@ -13,7 +12,6 @@ import android.view.ViewGroup
 import android.widget.CheckBox
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -26,24 +24,6 @@ import androidx.recyclerview.widget.RecyclerView
 import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
 import java.util.Collections
-
-private class ToolbarQuickActionsScrollView(context: Context, private var fixedHeightPx: Int) : ScrollView(context) {
-    fun updateFixedHeight(height: Int) {
-        val next = height.coerceAtLeast(0)
-        if (fixedHeightPx != next) {
-            fixedHeightPx = next
-            requestLayout()
-        }
-    }
-
-    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val available = OxygenClassicDialog.availableContentHeight(context as Activity, fixedHeightPx)
-        val mode = MeasureSpec.getMode(heightMeasureSpec)
-        val size = MeasureSpec.getSize(heightMeasureSpec)
-        val limit = if (mode == MeasureSpec.UNSPECIFIED) available else minOf(size, available)
-        super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(limit, MeasureSpec.AT_MOST))
-    }
-}
 
 /** One classic dialog; home and folder layouts are edited transactionally. */
 object ToolbarQuickActionsDialog {
@@ -60,6 +40,7 @@ object ToolbarQuickActionsDialog {
         val density = activity.resources.displayMetrics.density
         fun dp(n: Int) = (n * density + 0.5f).toInt()
         lateinit var render: () -> Unit
+        var resetScroll: () -> Unit = {}
 
         val content = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -103,13 +84,18 @@ object ToolbarQuickActionsDialog {
         fun controlRow(): LinearLayout = LinearLayout(activity).apply {
             gravity = Gravity.CENTER_VERTICAL
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(8), 0, dp(8), 0)
-            layoutParams = LinearLayout.LayoutParams(-1, dp(56))
+            setPadding(dp(8), 0, 0, 0)
+            minimumHeight = dp(56)
+            background = OxygenClassicDialog.ripple(palette.primaryText, density)
+            layoutParams = LinearLayout.LayoutParams(-1, -2)
         }
 
         fun createCheckBox(): CheckBox = CheckBox(activity).apply {
+            id = R.id.classic_toolbar_action_checkbox
             textSize = 16f
             minHeight = dp(56)
+            setPaddingRelative(0, dp(8), 0, dp(8))
+            setSingleLine(false)
             setTextColor(palette.primaryText)
             buttonDrawable = AppCompatResources.getDrawable(
                 activity, androidx.appcompat.R.drawable.abc_btn_check_material
@@ -130,7 +116,7 @@ object ToolbarQuickActionsDialog {
         val searchClickable = searchCheck.isClickable
         val searchFocusable = searchCheck.isFocusable
         val searchFocusableInTouchMode = searchCheck.isFocusableInTouchMode
-        searchRow.addView(searchCheck, LinearLayout.LayoutParams(-1, dp(56)))
+        searchRow.addView(searchCheck, LinearLayout.LayoutParams(-1, -2))
 
         val browseRow = controlRow().apply {
             contentDescription = activity.getString(R.string.quick_toolbar_fixed_browse_accessibility)
@@ -143,7 +129,7 @@ object ToolbarQuickActionsDialog {
             isFocusable = false
             contentDescription = activity.getString(R.string.quick_toolbar_fixed_browse_accessibility)
         }
-        browseRow.addView(browseCheck, LinearLayout.LayoutParams(0, dp(56), 1f))
+        browseRow.addView(browseCheck, LinearLayout.LayoutParams(0, -2, 1f))
         fixedRows.addView(searchRow)
         fixedRows.addView(browseRow)
 
@@ -151,6 +137,8 @@ object ToolbarQuickActionsDialog {
             layoutManager = LinearLayoutManager(activity)
             overScrollMode = RecyclerView.OVER_SCROLL_NEVER
             itemAnimator = null
+            addItemDecoration(ClassicReorderDecoration(
+                ColorUtils.setAlphaComponent(palette.primaryText, 28), dp(8)))
             isNestedScrollingEnabled = false
         }
         class Holder(row: LinearLayout, val check: CheckBox, val drag: ImageView) :
@@ -224,15 +212,8 @@ object ToolbarQuickActionsDialog {
             homeIndicator.alpha = if (scope == ToolbarQuickScope.HOME) 1f else 0f
             folderIndicator.alpha = if (scope == ToolbarQuickScope.FOLDER) 1f else 0f
             adapter.notifyDataSetChanged()
-            // The surrounding ScrollView owns vertical scrolling. Give the nested
-            // RecyclerView its full row extent so its options are measured and
-            // recycled correctly instead of collapsing to the viewport height.
-            val listParams = list.layoutParams as LinearLayout.LayoutParams
-            val contentHeight = dp(56) * optionalEntries().size
-            if (listParams.height != contentHeight) {
-                listParams.height = contentHeight
-                list.layoutParams = listParams
-            }
+            // Auto-measure full row heights, including wrapping at large font scales.
+            list.requestLayout()
         }
 
         adapter = object : RecyclerView.Adapter<Holder>() {
@@ -240,7 +221,7 @@ object ToolbarQuickActionsDialog {
 
             override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
                 val row = controlRow().apply {
-                    layoutParams = RecyclerView.LayoutParams(-1, dp(56))
+                    layoutParams = RecyclerView.LayoutParams(-1, -2)
                 }
                 val check = createCheckBox()
                 val drag = ImageView(activity).apply {
@@ -253,7 +234,7 @@ object ToolbarQuickActionsDialog {
                     isClickable = true
                     isFocusable = true
                 }
-                row.addView(check, LinearLayout.LayoutParams(0, dp(56), 1f))
+                row.addView(check, LinearLayout.LayoutParams(0, -2, 1f))
                 row.addView(drag, LinearLayout.LayoutParams(dp(48), dp(48)))
                 return Holder(row, check, drag)
             }
@@ -324,6 +305,14 @@ object ToolbarQuickActionsDialog {
             }
 
             override fun onSwiped(holder: RecyclerView.ViewHolder, direction: Int) = Unit
+            override fun onSelectedChanged(holder: RecyclerView.ViewHolder?, actionState: Int) {
+                super.onSelectedChanged(holder, actionState)
+                if (actionState == ItemTouchHelper.ACTION_STATE_DRAG) holder?.itemView?.isPressed = true
+            }
+            override fun clearView(rv: RecyclerView, holder: RecyclerView.ViewHolder) {
+                super.clearView(rv, holder)
+                holder.itemView.isPressed = false
+            }
             override fun isLongPressDragEnabled() = false
         }).also { it.attachToRecyclerView(list) }
 
@@ -354,6 +343,7 @@ object ToolbarQuickActionsDialog {
             container.setOnClickListener {
                 scope = target
                 list.scrollToPosition(0)
+                resetScroll()
                 render()
             }
             return Triple(container, label, indicator)
@@ -381,13 +371,16 @@ object ToolbarQuickActionsDialog {
         content.addView(list, LinearLayout.LayoutParams(-1, -2))
         render()
 
-        val scroll = ToolbarQuickActionsScrollView(activity, dp(160)).apply {
+        val scroll = ClassicDialogScrollView(activity).apply {
             isFillViewport = false
             clipToPadding = false
             addView(content, ViewGroup.LayoutParams(-1, -2))
         }
 
+        resetScroll = { scroll.scrollTo(0, 0) }
+
         val dialogContent = LinearLayout(activity).apply {
+            id = R.id.classic_dialog_toolbar_content
             orientation = LinearLayout.VERTICAL
             addView(tabs, LinearLayout.LayoutParams(-1, dp(48)))
             addView(scroll, LinearLayout.LayoutParams(-1, -2))
@@ -406,13 +399,6 @@ object ToolbarQuickActionsDialog {
         )
         searchBackground = searchCheck.background
         render()
-        dialog.window?.decorView?.post {
-            if (dialog.isShowing && dialogContent.height > 0) {
-                // Recalculate from the actual measured title/action chrome after the first layout.
-                val chrome = (dialog.window!!.decorView.height - dialogContent.height).coerceAtLeast(0)
-                scroll.updateFixedHeight(chrome + tabs.height + dp(8))
-            }
-        }
         return dialog
     }
 }

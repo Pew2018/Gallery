@@ -169,7 +169,7 @@
     <string name="allow_instant_change">点击屏幕边缘切换文件</string>
     <string name="allow_deep_zooming_images">允许大幅度缩放图像</string>
     <string name="hide_extended_details">状态栏隐藏时，同时隐藏更多详细信息</string>
-    <string name="show_at_bottom">显示底部按钮</string>
+    <string name="show_at_bottom">显示底部操作按钮</string>
     <string name="show_recycle_bin">在文件夹界面显示回收站</string>
     <string name="deep_zoomable_images">大幅度缩放图像</string>
     <string name="show_highest_quality">使用最高画质显示图像</string>
@@ -179,7 +179,7 @@
     <string name="open_videos_on_separate_screen">使用横向手势在独立屏幕上播放视频</string>
     <string name="show_notch">显示刘海 (如果可用)</string>
     <string name="allow_rotating_gestures">允许使用手势旋转图像</string>
-    <string name="file_loading_priority">文件加载优先事项</string>
+    <string name="file_loading_priority">媒体加载优先级</string>
     <string name="speed">速度</string>
     <string name="compromise">平衡</string>
     <string name="avoid_showing_invalid_files">尽量避免显示无效的文件</string>
@@ -195,8 +195,8 @@
     <string name="limit_folder_title">单行显示超长的文件夹名称</string>
     <string name="square">方形</string>
     <string name="rounded_corners">圆角</string>
-    <string name="export_favorite_paths">导出收藏文件</string>
-    <string name="import_favorite_paths">导入收藏文件</string>
+    <string name="export_favorite_paths">导出收藏记录</string>
+    <string name="import_favorite_paths">导入收藏记录</string>
     <string name="paths_imported_successfully">路径导入成功</string>
     <string name="media_management_prompt">为了确保文件操作的可靠性，请在本设备的设置页面中将本应用设为媒体管理应用。</string>
     <string name="password_protect_excluded">用密码保护已排除文件夹的可见性</string>
@@ -212,7 +212,7 @@
     <string name="fullscreen_media">全屏显示</string>
     <string name="extended_details">更多详细信息</string>
     <string name="bottom_actions">底部按钮</string>
-    <string name="manage_bottom_actions">管理底部按钮</string>
+    <string name="manage_bottom_actions">自定义底部操作按钮</string>
     <string name="toggle_favorite">收藏/取消收藏</string>
     <string name="toggle_file_visibility">隐藏/取消隐藏文件</string>
     <string name="faq_1_title">如何将 Fossify 相册设置为本设备的默认相册应用？</string>
@@ -267,13 +267,13 @@
     <string name="open_in_app_player">打开应用内播放器</string>
     <string name="open_system_default_player">打开默认播放器应用</string>
     <string name="on_video_tap">点按视频时</string>
-    <string name="oxygen_bottom_navigation_order">底部导航栏顺序</string>
+    <string name="oxygen_bottom_navigation_order">调整底部导航顺序</string>
     <string name="oxygen_favorite_show_hidden">始终显示隐藏项目</string>
     <string name="oxygen_favorite_show_excluded">始终显示已排除项目</string>
     <string name="oxygen_selected_count">已选择 %1$d 项</string>
     <string name="gallery_nav_all_images">所有图片</string>
-    <string name="export_favorite_folder_paths">导出收藏文件夹</string>
-    <string name="import_favorite_folder_paths">导入收藏文件夹</string>
+    <string name="export_favorite_folder_paths">导出收藏文件夹记录</string>
+    <string name="import_favorite_folder_paths">导入收藏文件夹记录</string>
     <string name="favorite_media_import_summary">文件收藏：新增 %1$d 项，已有 %2$d 项，无法访问或无效 %3$d 项</string>
     <string name="favorite_folders_import_summary">文件夹收藏：新增 %1$d 项，已有 %2$d 项，无效 %3$d 项</string>
     <string name="favorite_folders_export_summary">已导出 %1$d 个收藏文件夹</string>

@@ -12,7 +12,8 @@ import org.objectweb.asm.Label;
 /** Bounded compatibility patch for Commons 7.1.3; no file/security callbacks are changed. */
 public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFactory<InstrumentationParameters.None> {
     @Override public boolean isInstrumentable(ClassData data) {
-        return data.getClassName().equals("org.fossify.commons.extensions.ActivityKt")
+        return data.getClassName().equals("org.fossify.commons.views.BiometricIdTab")
+            || data.getClassName().equals("org.fossify.commons.extensions.ActivityKt")
             || data.getClassName().equals("org.fossify.commons.views.Breadcrumbs")
             || data.getClassName().startsWith("org.fossify.gallery.");
     }
@@ -113,6 +114,23 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
                         }
                     };
                 }
+                if (name.equals("org.fossify.commons.views.BiometricIdTab")) {
+                    return new MethodVisitor(Opcodes.ASM9, target) {
+                        @Override public void visitMethodInsn(int opcode, String owner, String called, String descriptor, boolean itf) {
+                            if (opcode == Opcodes.INVOKESTATIC && owner.equals("org/fossify/commons/extensions/ActivityKt")
+                                && called.equals("showBiometricPrompt$default")) {
+                                if ((access & Opcodes.ACC_STATIC) == 0 || !desc.startsWith("(Lorg/fossify/commons/views/BiometricIdTab;")) {
+                                    throw new IllegalStateException("Unexpected Commons biometric click signature: " + desc);
+                                }
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC,
+                                    "org/fossify/gallery/helpers/ClassicBiometricPresentation", "show",
+                                    descriptor.substring(0, descriptor.length() - 2) + "Landroid/view/View;)V", false);
+                                methods++;
+                            } else super.visitMethodInsn(opcode, owner, called, descriptor, itf);
+                        }
+                    };
+                }
                 if (!activity && !breadcrumbs) return new MethodVisitor(Opcodes.ASM9, target) {
                     @Override public void visitMethodInsn(int opcode, String owner, String called, String descriptor, boolean itf) {
                         if (opcode == Opcodes.INVOKEVIRTUAL && owner.equals("androidx/appcompat/app/AlertDialog$Builder")
@@ -129,7 +147,7 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
             }
             @Override public void visitEnd() {
                 // Fail closed if a future Commons update changes the patched structure.
-                if ((activity && (methods != 2 || shows != 2 || beforeShows != 2 || afterShows != 2)) || (breadcrumbs && methods != 5)) {
+                if ((name.equals("org.fossify.commons.views.BiometricIdTab") && methods != 1) || (activity && (methods != 2 || shows != 2 || beforeShows != 2 || afterShows != 2)) || (breadcrumbs && methods != 5)) {
                     throw new IllegalStateException("Commons 7.1.3 classic patch mismatch: " + name + " methods=" + methods + " shows=" + shows);
                 }
                 super.visitEnd();

@@ -11,7 +11,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="0dp"
-        android:layout_marginTop="@dimen/classic_dialog_content_padding"
+        android:layout_marginTop="16dp"
         android:alpha="0.6"
         android:textSize="14sp"
         tools:text="@string/date_taken" />
@@ -22,6 +22,7 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="0dp"
         android:layout_marginEnd="0dp"
+        android:layout_marginTop="2dp"
         android:textSize="16sp"
         tools:text="01.01.2021" />
 

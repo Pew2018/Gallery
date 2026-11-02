@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<org.fossify.gallery.helpers.ClassicDialogScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+<LinearLayout
     android:id="@+id/save_as_holder"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
+    android:layout_height="wrap_content"
     android:orientation="vertical"
     android:padding="@dimen/activity_margin">
 
@@ -55,3 +59,4 @@
 
     </org.fossify.commons.views.MyTextInputLayout>
 </LinearLayout>
+</org.fossify.gallery.helpers.ClassicDialogScrollView>

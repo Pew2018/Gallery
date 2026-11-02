@@ -4,16 +4,16 @@ import org.fossify.gallery.helpers.OxygenClassicDialog
 
 import android.content.DialogInterface
 import org.fossify.commons.activities.BaseSimpleActivity
-import org.fossify.commons.dialogs.RadioGroupDialog
+import android.widget.SeekBar
 import org.fossify.commons.extensions.getAlertDialogBuilder
 import org.fossify.commons.extensions.setupDialogStuff
-import org.fossify.commons.models.RadioItem
 import org.fossify.gallery.databinding.DialogChangeFileThumbnailStyleBinding
 import org.fossify.gallery.extensions.config
 
 class ChangeFileThumbnailStyleDialog(val activity: BaseSimpleActivity) : DialogInterface.OnClickListener {
     private var config = activity.config
     private val binding: DialogChangeFileThumbnailStyleBinding
+    private val spacingSteps = intArrayOf(0, 1, 2, 4, 8, 16, 32, 64)
     private var thumbnailSpacing = config.thumbnailSpacing
 
     init {
@@ -23,27 +23,18 @@ class ChangeFileThumbnailStyleDialog(val activity: BaseSimpleActivity) : DialogI
             dialogFileStyleShowThumbnailFileTypes.isChecked = config.showThumbnailFileTypes
             dialogFileStyleMarkFavoriteItems.isChecked = config.markFavoriteItems
 
-            dialogFileStyleRoundedCornersHolder.setOnClickListener { dialogFileStyleRoundedCorners.toggle() }
-            dialogFileStyleShowThumbnailVideoDurationHolder.setOnClickListener { dialogFileStyleShowThumbnailVideoDuration.toggle() }
-            dialogFileStyleShowThumbnailFileTypesHolder.setOnClickListener { dialogFileStyleShowThumbnailFileTypes.toggle() }
-            dialogFileStyleMarkFavoriteItemsHolder.setOnClickListener { dialogFileStyleMarkFavoriteItems.toggle() }
 
-            dialogFileStyleSpacingHolder.setOnClickListener {
-                val items = arrayListOf(
-                    RadioItem(0, "0x"),
-                    RadioItem(1, "1x"),
-                    RadioItem(2, "2x"),
-                    RadioItem(4, "4x"),
-                    RadioItem(8, "8x"),
-                    RadioItem(16, "16x"),
-                    RadioItem(32, "32x"),
-                    RadioItem(64, "64x")
-                )
-
-                RadioGroupDialog(activity, items, thumbnailSpacing) {
-                    thumbnailSpacing = it as Int
-                    updateThumbnailSpacingText()
-                }
+            dialogFileStyleSpacingSlider.apply {
+                max = spacingSteps.lastIndex
+                progress = spacingSteps.indexOf(thumbnailSpacing).takeIf { it >= 0 } ?: 1
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        thumbnailSpacing = spacingSteps[progress]
+                        updateThumbnailSpacingText()
+                    }
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+                })
             }
         }
 
@@ -68,6 +59,6 @@ class ChangeFileThumbnailStyleDialog(val activity: BaseSimpleActivity) : DialogI
     }
 
     private fun updateThumbnailSpacingText() {
-        binding.dialogFileStyleSpacing.text = "${thumbnailSpacing}x"
+        binding.dialogFileStyleSpacing.text = "${thumbnailSpacing}×"
     }
 }

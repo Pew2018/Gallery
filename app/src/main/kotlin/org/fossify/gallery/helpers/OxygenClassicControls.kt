@@ -36,6 +36,13 @@ internal data class OxygenClassicSwitchGeometry(val density: Float) {
 
 /** Shared control skin. No listeners or preference writes; each view owns its drawables. */
 object OxygenClassicControls {
+    internal fun selectionDrawable(radio: Boolean, density: Float, colors: OxygenThemeTokens, surfaceAccent: Boolean = false): Drawable =
+        ClassicDrawable(if (radio) "radio" else "check", density, colors, false, surfaceAccent)
+
+    /** Retain Commons' Checkbox binding and persistence but paint a classic switch. */
+    internal fun dateTimeSwitchDrawable(density: Float, colors: OxygenThemeTokens): Drawable =
+        ClassicDrawable("toggleCheckbox", density, colors, true)
+
     fun applySwitches(root: View, colors: OxygenThemeTokens) {
         val density = root.resources.displayMetrics.density
         fun dp(n: Int) = (n * density + 0.5f).toInt()
@@ -55,7 +62,7 @@ object OxygenClassicControls {
             val changed = view.getTag(R.id.classic_control_skin) != key
             if (view is CompoundButton) {
                 view.setTextColor(labelColors)
-                view.minHeight = maxOf(view.minHeight, dp(48))
+                view.minHeight = if (view is RadioButton && !view.isClickable && view.text.isEmpty()) dp(24) else maxOf(view.minHeight, dp(48))
             }
             when (view) {
                 is SwitchCompat -> {
@@ -70,7 +77,7 @@ object OxygenClassicControls {
                     }
                     view.showText = false
                     view.splitTrack = false
-                    view.switchPadding = dp(16)
+                    view.switchPadding = dp(if (view is ClassicSettingsSwitch) 24 else 16)
                     view.thumbTextPadding = 0
                 }
                 is RadioButton, is CheckBox -> {
@@ -110,7 +117,7 @@ object OxygenClassicControls {
      */
     private class ClassicDrawable(
         private val kind: String, private val density: Float, private val colors: OxygenThemeTokens,
-        private val animationsEnabled: Boolean
+        private val animationsEnabled: Boolean, private val surfaceAccent: Boolean = false
     ) : Drawable() {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val geometry = OxygenClassicSwitchGeometry(density)
@@ -118,16 +125,47 @@ object OxygenClassicControls {
         private var opacity = 255
         private var animatedColor: Int? = null
         private var colorAnimator: ValueAnimator? = null
+        private var toggleAnimator: ValueAnimator? = null
+        private var toggleProgress: Float? = null
         private var lastChecked: Boolean? = null
         private var lastEnabled: Boolean? = null
         override fun getIntrinsicWidth() = ((when (kind) {
-            "track" -> 48
+            "track", "toggleCheckbox" -> 48
             "thumb" -> 28
             else -> 24
         }) * density + 0.5f).toInt()
-        override fun getIntrinsicHeight() = ((if (kind == "track" || kind == "thumb") 28 else 24) * density + 0.5f).toInt()
+        override fun getIntrinsicHeight() = ((if (kind == "track" || kind == "thumb" || kind == "toggleCheckbox") 28 else 24) * density + 0.5f).toInt()
         override fun isStateful() = true
         override fun onStateChange(state: IntArray): Boolean {
+            if (kind == "toggleCheckbox") {
+                val checked = state.contains(android.R.attr.state_checked)
+                val enabled = state.contains(android.R.attr.state_enabled)
+                val target = if (checked) 1f else 0f
+                val previous = toggleProgress
+                val animate = animationsEnabled && enabled && lastChecked != null &&
+                    lastChecked != checked && previous != null && previous != target
+                lastChecked = checked
+                lastEnabled = enabled
+                toggleAnimator?.cancel()
+                toggleAnimator = null
+                if (animate && previous != null) {
+                    val animator = ValueAnimator.ofFloat(previous, target).apply {
+                        duration = 200L
+                        interpolator = android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)
+                        addUpdateListener {
+                            toggleProgress = it.animatedValue as Float
+                            invalidateSelf()
+                        }
+                        addListener(object : AnimatorListenerAdapter() {
+                            override fun onAnimationEnd(animation: Animator) {
+                                if (toggleAnimator === animation) toggleAnimator = null
+                            }
+                        })
+                    }
+                    toggleAnimator = animator
+                    animator.start()
+                } else toggleProgress = target
+            }
             if (kind == "track" || kind == "thumb") {
                 val target = stateColor(state)
                 val current = animatedColor
@@ -166,7 +204,11 @@ object OxygenClassicControls {
         override fun jumpToCurrentState() {
             colorAnimator?.cancel()
             colorAnimator = null
-            animatedColor = stateColor(state)
+            toggleAnimator?.cancel()
+            toggleAnimator = null
+            if (kind == "toggleCheckbox") {
+                toggleProgress = if (state.contains(android.R.attr.state_checked)) 1f else 0f
+            } else animatedColor = stateColor(state)
             invalidateSelf()
         }
         override fun setColorFilter(filter: ColorFilter?) { paint.colorFilter = filter; invalidateSelf() }
@@ -268,6 +310,31 @@ object OxygenClassicControls {
                     paint.strokeWidth = 0.35f * density
                     canvas.drawCircle(cx, cy, 11.65f * density, paint)
                 }
+                "toggleCheckbox" -> {
+                    // Drawable animates the visual state, while Commons still owns the Checkbox value.
+                    val progress = toggleProgress ?: if (checked) 1f else 0f
+                    val startTrack = if (enabled) switchPalette.offTrack else switchPalette.disabledOffTrack
+                    val endTrack = if (enabled) switchPalette.onTrack else switchPalette.disabledOnTrack
+                    color(androidx.core.graphics.ColorUtils.blendARGB(startTrack, endTrack, progress))
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = geometry.strokeWidth
+                    val railLeft = bounds.left + geometry.trackLeft
+                    canvas.drawRoundRect(railLeft, cy - geometry.trackPathHeight / 2f,
+                        railLeft + geometry.trackPathWidth, cy + geometry.trackPathHeight / 2f,
+                        geometry.trackRadius, geometry.trackRadius, paint)
+                    val startFace = if (enabled) switchPalette.offThumb else switchPalette.disabledOffThumb
+                    val endFace = if (enabled) switchPalette.onThumb else switchPalette.disabledOnThumb
+                    val face = androidx.core.graphics.ColorUtils.blendARGB(startFace, endFace, progress)
+                    val thumbX = bounds.left + geometry.thumbDiameter / 2f +
+                        geometry.thumbStart + (geometry.thumbEnd - geometry.thumbStart) * progress
+                    color(face)
+                    canvas.drawCircle(thumbX, cy, 12f * density, paint)
+                    color(OxygenThemeColors.blend(face, fg,
+                        if (OxygenThemeColors.contrastRatio(face, bg) < 1.5) 0.35 else 0.1))
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = 0.35f * density
+                    canvas.drawCircle(thumbX, cy, 11.65f * density, paint)
+                }
                 "radio" -> {
                     color(if (checked) active else outline)
                     paint.style = Paint.Style.STROKE; paint.strokeWidth = 2 * density
@@ -275,17 +342,21 @@ object OxygenClassicControls {
                     if (checked) circle(5f, active)
                 }
                 "check" -> {
-                    // One consistent 18dp box in every state, not two
-                    // differently sized nested squares on selection.
-                    val fill = if (enabled) OxygenThemeColors.toolbarBackground(colors.rawAccent)
+                    // 20dp painted box inside the 24dp layout, including the unchecked stroke.
+                    val fill = if (enabled) { if (surfaceAccent) accent else OxygenThemeColors.toolbarBackground(colors.rawAccent) }
                         else OxygenThemeColors.blend(bg, fg, 0.49)
                     color(if (checked) fill else outline)
                     paint.style = if (checked) Paint.Style.FILL else Paint.Style.STROKE
                     paint.strokeWidth = 2 * density
-                    canvas.drawRoundRect(cx - 9 * density, cy - 9 * density,
-                        cx + 9 * density, cy + 9 * density, density, density, paint)
+                    val radius = if (checked) 10 else 9
+                    canvas.drawRoundRect(cx - radius * density, cy - radius * density,
+                        cx + radius * density, cy + radius * density, density, density, paint)
                     if (checked) {
-                        color(Color.WHITE); paint.style = Paint.Style.STROKE; paint.strokeWidth = 2 * density
+                        // Prefer the classic white check on a dark enough accent; keep
+                        // readable automatic contrast for unusually light custom accents.
+                        color(if (!surfaceAccent || OxygenThemeColors.contrastRatio(Color.WHITE, fill) >= 3.0)
+                            Color.WHITE else OxygenThemeColors.autoForeground(fill))
+                        paint.style = Paint.Style.STROKE; paint.strokeWidth = 2 * density
                         paint.strokeCap = Paint.Cap.ROUND
                         paint.strokeJoin = Paint.Join.ROUND
                         val path = Path().apply {

@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<org.fossify.gallery.helpers.ClassicDialogScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/export_favorites_wrapper"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="wrap_content">
 
     <LinearLayout
         android:id="@+id/export_favorites_holder"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingLeft="@dimen/activity_margin"
+        android:paddingLeft="@dimen/classic_dialog_content_padding"
         android:paddingTop="@dimen/activity_margin"
-        android:paddingRight="@dimen/activity_margin">
+        android:paddingRight="@dimen/classic_dialog_content_padding">
 
         <org.fossify.commons.views.MyTextView
             android:id="@+id/export_favorites_path_label"
@@ -47,4 +47,4 @@
 
         </org.fossify.commons.views.MyTextInputLayout>
     </LinearLayout>
-</ScrollView>
+</org.fossify.gallery.helpers.ClassicDialogScrollView>

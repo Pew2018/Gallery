@@ -44,7 +44,7 @@ internal class PhotoProfileManageAdapter(
             profileManageSourceCount.text = context.getString(R.string.photo_profiles_source_count, row.sourceCount)
             profileManageSourceCount.setTextColor(colors.secondaryText)
             profileManageCurrent.apply {
-                visibility = if (row.isCurrent) android.view.View.VISIBLE else android.view.View.GONE
+                visibility = if (row.isCurrent) android.view.View.VISIBLE else android.view.View.INVISIBLE
                 setImageResource(org.fossify.commons.R.drawable.ic_check_vector)
                 imageTintList = ColorStateList.valueOf(colors.interactiveAccent)
                 contentDescription = context.getString(R.string.photo_profiles_current_accessibility)

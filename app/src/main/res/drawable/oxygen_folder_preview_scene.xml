@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="144dp"
+    android:height="144dp"
+    android:viewportWidth="144"
+    android:viewportHeight="144">
+    <!-- Restrained landscape illustration for the folder-style preview. -->
+    <path android:fillColor="#D7E2E2" android:pathData="M0,0h144v144H0z"/>
+    <path android:fillColor="#F5F2DF" android:pathData="M106,21a15,15 0,1 0,0.01 0z"/>
+    <path android:fillColor="#A7BDB5" android:pathData="M0,103L43,55L76,88L101,64L144,108V144H0z"/>
+    <path android:fillColor="#6D9284" android:pathData="M0,116L32,91L63,112L91,81L144,122V144H0z"/>
+    <path android:fillColor="#4A7366" android:pathData="M0,131L51,110L95,126L144,111V144H0z"/>
+</vector>

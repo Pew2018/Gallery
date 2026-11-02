@@ -16,11 +16,22 @@ import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 
 /** Bounds only the scrolling content, leaving title/actions available at large font scales. */
 class ClassicDialogScrollView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : ScrollView(context, attrs) {
+    private fun hostActivity(): Activity? {
+        var owner = context
+        while (owner is ContextWrapper && owner !is Activity) {
+            val base = owner.baseContext
+            if (base === owner) break
+            owner = base
+        }
+        return owner as? Activity
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        // The visible frame includes IME changes. Parent AT_MOST already constrains
-        // this view while typing; never persist the keyboard-sized frame as a cap.
-        val available = resources.displayMetrics.heightPixels
-        val limit = (available * 0.60f).toInt().coerceAtLeast(1)
+        // Restrict scrolling to the host window (including IME and multi-window),
+        // with AppCompat title and action bar outside the scroller.
+        val available = hostActivity()?.let(OxygenClassicDialog::availableHeight)
+            ?: resources.displayMetrics.heightPixels
+        val limit = OxygenClassicDialog.scrollViewportHeight(this, available)
         val mode = View.MeasureSpec.getMode(heightMeasureSpec)
         val size = View.MeasureSpec.getSize(heightMeasureSpec)
         val cap = if (mode == View.MeasureSpec.UNSPECIFIED) limit else minOf(size, limit)
@@ -136,7 +147,7 @@ class ClassicDialogPickerLayout @JvmOverloads constructor(
         if (!imeVisible || normalViewportHeight == 0) normalViewportHeight = hostHeight
         val available = normalViewportHeight
         // The alert's title and action buttons live outside this view.
-        val limit = minOf((available * 0.62f).toInt(), available - dp(136)).coerceAtLeast(1)
+        val limit = OxygenClassicDialog.scrollViewportHeight(this, available)
         val mode = View.MeasureSpec.getMode(heightMeasureSpec)
         val size = View.MeasureSpec.getSize(heightMeasureSpec)
         val cap = if (mode == View.MeasureSpec.UNSPECIFIED) limit else minOf(size, limit)

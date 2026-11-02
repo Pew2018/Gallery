@@ -88,6 +88,15 @@ class PhotoProfileEditActivity : SimpleActivity() {
                 }
             }
         }
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(binding.photoProfileEditAddSource) { view, insets ->
+            val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            val params = view.layoutParams as androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams
+            params.bottomMargin = dp(16) + bars.bottom
+            params.marginEnd = dp(16) + bars.right
+            view.layoutParams = params
+            view.visibility = if (insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())) View.GONE else View.VISIBLE
+            insets
+        }
         renderSources()
     }
 
@@ -133,12 +142,23 @@ class PhotoProfileEditActivity : SimpleActivity() {
         binding.root.setBackgroundColor(tokens.pageBackground)
         binding.photoProfileEditScroll.setBackgroundColor(tokens.pageBackground)
         binding.photoProfileEditNameLabel.setTextColor(
-            OxygenClassicPageInput.readableTextColor(tokens.secondaryText, tokens)
+            tokens.interactiveAccent
         )
         OxygenClassicPageInput.style(binding.photoProfileEditName, tokens)
+        // Align entered text with the label and dynamic source rows.
+        binding.photoProfileEditName.apply {
+            setPaddingRelative(0, paddingTop, 0, paddingBottom)
+        }
+        binding.photoProfileEditSourcesTitle.setTextColor(tokens.interactiveAccent)
+        binding.photoProfileEditEmpty.setTextColor(tokens.secondaryText)
         binding.photoProfileEditAddSource.apply {
-            setTextColor(tokens.interactiveAccent)
-            background = OxygenClassicDialog.ripple(tokens.interactiveAccent, resources.displayMetrics.density)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(tokens.rawAccent)
+            val onAccent = if (OxygenThemeColors.contrastRatio(android.graphics.Color.WHITE, tokens.rawAccent) >= 3.0)
+                android.graphics.Color.WHITE else android.graphics.Color.BLACK
+            imageTintList = android.content.res.ColorStateList.valueOf(onAccent)
+            rippleColor = androidx.core.graphics.ColorUtils.setAlphaComponent(onAccent, 30)
+            shapeAppearanceModel = shapeAppearanceModel.toBuilder()
+                .setAllCornerSizes(com.google.android.material.shape.RelativeCornerSize(0.5f)).build()
         }
         binding.photoProfileEditError.setTextColor(
             OxygenThemeColors.readableAccent(android.graphics.Color.RED, tokens.pageBackground)
@@ -148,11 +168,18 @@ class PhotoProfileEditActivity : SimpleActivity() {
     private fun renderSources() {
         val colors = OxygenThemeEngine.snapshot(this, config)
         binding.photoProfileEditSources.removeAllViews()
+        binding.photoProfileEditEmpty.visibility = if (draft.sources.isEmpty()) View.VISIBLE else View.GONE
         draft.sources.forEachIndexed { index, source ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(6), 0, dp(6))
+                setPadding(0, dp(8), 0, dp(8))
+                minimumHeight = dp(72)
             }
+            row.addView(android.widget.ImageView(this).apply {
+                setImageResource(if (source.type == PhotoSourceType.FAVORITES) org.fossify.commons.R.drawable.ic_star_vector else org.fossify.commons.R.drawable.ic_folder_vector)
+                imageTintList = android.content.res.ColorStateList.valueOf(colors.secondaryText)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(16) })
             val labels = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
             labels.addView(TextView(this).apply {
                 text = if (source.type == PhotoSourceType.FAVORITES) getString(R.string.photo_profiles_favorites) else File(source.path.orEmpty()).name.ifBlank { source.path.orEmpty() }
@@ -281,7 +308,7 @@ class PhotoProfileEditActivity : SimpleActivity() {
         captureName()
         val name = draft.name.trim()
         if (name.isEmpty()) { binding.photoProfileEditName.error = getString(R.string.photo_profiles_name_required); return }
-        if (draft.sources.isEmpty()) { showSourceError = true; binding.photoProfileEditError.visibility = View.VISIBLE; binding.photoProfileEditScroll.smoothScrollTo(0, binding.photoProfileEditAddSource.bottom); return }
+        if (draft.sources.isEmpty()) { showSourceError = true; binding.photoProfileEditError.visibility = View.VISIBLE; binding.photoProfileEditScroll.smoothScrollTo(0, binding.photoProfileEditError.bottom); return }
         if (!creating && store.state().profiles.firstOrNull { it.id == draft.id } != editingBaseline) {
             sourceStatusRequests.invalidate()
             binding.photoProfileEditName.error = getString(R.string.photo_profiles_edit_target_missing)

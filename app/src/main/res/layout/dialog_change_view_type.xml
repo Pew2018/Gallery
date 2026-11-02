@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<org.fossify.gallery.helpers.ClassicDialogScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/change_view_type_dialog_scrollview"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="wrap_content">
 
     <LinearLayout
         android:id="@+id/change_view_type_dialog_holder"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingLeft="@dimen/activity_margin"
+        android:paddingLeft="0dp"
         android:paddingTop="@dimen/activity_margin"
-        android:paddingRight="@dimen/activity_margin">
+        android:paddingRight="0dp">
 
         <RadioGroup
             android:id="@+id/change_view_type_dialog_radio"
@@ -54,4 +54,4 @@
             android:text="@string/use_for_this_folder" />
 
     </LinearLayout>
-</ScrollView>
+</org.fossify.gallery.helpers.ClassicDialogScrollView>

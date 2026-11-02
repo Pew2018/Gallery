@@ -47,6 +47,50 @@ class ClassicSettingsControlsTest {
     private fun children(view: View): List<View> = listOf(view) + if (view is ViewGroup)
         (0 until view.childCount).flatMap { children(view.getChildAt(it)) } else emptyList()
 
+    @Test fun settingsCategoryWrapsWithoutClippingAndKeepsItsWholeRowAction() {
+        for (dark in listOf(false, true)) for (rtl in listOf(false, true)) for (scale in listOf(1f, 1.5f)) {
+            val base = context()
+            val configuration = android.content.res.Configuration(base.resources.configuration).apply { fontScale = scale }
+            val ctx = ContextThemeWrapper(base.createConfigurationContext(configuration), R.style.AppTheme)
+            val density = ctx.resources.displayMetrics.density
+            fun dp(value: Int) = (value * density).roundToInt()
+            var opens = 0
+            val row = org.fossify.gallery.views.TiebaSettingsCategoryRow(
+                ctx, org.fossify.commons.R.drawable.ic_chevron_right_vector,
+                "文件与文件夹 / Files and folders",
+                "选择文件显示方式、排序与文件夹内容 / Choose how files and folders are displayed",
+                tokens(dark)
+            ) { opens++ }
+            children(row).forEach { it.layoutDirection = if (rtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR }
+            measure(row, dp(320))
+            val column = row.getChildAt(1) as LinearLayout
+            val labels = children(column).filterIsInstance<TextView>()
+            assertEquals(dp(72), if (rtl) row.width - column.right else column.left)
+            assertEquals(dp(16), if (rtl) column.left else row.width - column.right)
+            assertTrue(row.height >= dp(72))
+            labels.forEach { label ->
+                assertTrue(label.layout.lineCount > 0)
+                assertTrue(label.layout.height <= label.height)
+                for (line in 0 until label.lineCount) {
+                    assertEquals("Settings text must wrap rather than ellipsize", 0, label.layout.getEllipsisCount(line))
+                    assertTrue(label.layout.getLineWidth(line) <= label.width + 1)
+                }
+                assertFalse(label.isClickable)
+            }
+            assertTrue(labels[1].top >= labels[0].bottom + dp(3))
+            assertTrue(column.bottom <= row.height - row.paddingBottom)
+            assertTrue(row.performClick())
+            assertEquals(1, opens)
+            // Keep representative native renders available with the existing CI previews.
+            val bitmap = Bitmap.createBitmap(row.width, row.height, Bitmap.Config.ARGB_8888)
+            Canvas(bitmap).apply { drawColor(tokens(dark).pageBackground); row.draw(this) }
+            val output = File("build/reports/photo-source-previews").apply { mkdirs() }
+            File(output, "settings-category-${android.os.Build.VERSION.SDK_INT}-$dark-$rtl-$scale.png").outputStream().use {
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+        }
+    }
+
     @Test fun entireSettingsLayoutHasReadableTextAtNarrowWidthAndLargeFont() {
         for (dark in listOf(false, true)) for (scale in listOf(1f, 1.5f)) {
             val ctx = context()
@@ -194,14 +238,14 @@ class ClassicSettingsControlsTest {
         color.performClick()
         assertEquals("oxygen_jade_green", config.oxygenThemePresetId)
         assertSame(original, label(R.string.classic_more_colors))
-        assertEquals(3, children(root).filterIsInstance<RadioButton>().size)
+        assertEquals(3 + OxygenThemePresets.featured.size, children(root).filterIsInstance<RadioButton>().size)
         label(R.string.classic_more_colors).performClick()
-        // More colors is now a bounded 23-swatch grid, not 23 RadioButtons.
+        // Each TiebaLite preset row has one passive trailing radio.
         val palette = children(root).filterIsInstance<LinearLayout>().filter {
             it.isClickable && it.contentDescription != null
         }
         assertEquals(23, palette.size)
-        assertEquals(0, children(root).filterIsInstance<RadioButton>().size)
+        assertEquals(23, children(root).filterIsInstance<RadioButton>().size)
         assertEquals(1, palette.count { it.isSelected })
         assertEquals(activity.getString(R.string.theme_oxygen_jade_green),
             palette.single { it.isSelected }.contentDescription.toString())

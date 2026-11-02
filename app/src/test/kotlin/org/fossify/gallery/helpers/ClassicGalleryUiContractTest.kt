@@ -59,7 +59,7 @@ class ClassicGalleryUiContractTest {
             val flags = dialog.window!!.attributes.flags
             assertTrue(flags and WindowManager.LayoutParams.FLAG_SECURE != 0)
             assertTrue(flags and WindowManager.LayoutParams.FLAG_DIM_BEHIND != 0)
-            assertEquals(0.60f, dialog.window!!.attributes.dimAmount, 0.001f)
+            assertEquals(0.45f, dialog.window!!.attributes.dimAmount, 0.001f)
             assertNotNull(dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE))
         } finally {
             dialog.dismiss()

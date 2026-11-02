@@ -1,17 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<org.fossify.gallery.helpers.ClassicDialogScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/sorting_dialog_scrollview"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="wrap_content">
 
     <LinearLayout
         android:id="@+id/sorting_dialog_holder"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingLeft="@dimen/activity_margin"
+        android:paddingLeft="0dp"
         android:paddingTop="@dimen/activity_margin"
-        android:paddingRight="@dimen/activity_margin">
+        android:paddingRight="0dp">
+
+        <TextView android:id="@+id/sorting_dialog_basis_title" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:paddingStart="24dp" android:paddingEnd="24dp"
+            android:paddingTop="12dp" android:paddingBottom="8dp" android:textSize="12sp"
+            android:fontFamily="sans-serif-medium" android:text="@string/classic_sort_basis" />
 
         <RadioGroup
             android:id="@+id/sorting_dialog_radio_sorting"
@@ -76,6 +81,11 @@
             android:background="@color/divider_grey"
             android:importantForAccessibility="no" />
 
+        <TextView android:id="@+id/sorting_dialog_order_title" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:paddingStart="24dp" android:paddingEnd="24dp"
+            android:paddingTop="12dp" android:paddingBottom="8dp" android:textSize="12sp"
+            android:fontFamily="sans-serif-medium" android:text="@string/classic_sort_order" />
+
         <RadioGroup
             android:id="@+id/sorting_dialog_radio_order"
             android:layout_width="match_parent"
@@ -103,6 +113,11 @@
             android:background="@color/divider_grey"
             android:importantForAccessibility="no" />
 
+        <TextView android:id="@+id/sorting_dialog_options_title" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:paddingStart="24dp" android:paddingEnd="24dp"
+            android:paddingTop="12dp" android:paddingBottom="8dp" android:textSize="12sp"
+            android:fontFamily="sans-serif-medium" android:text="@string/classic_sort_options" />
+
         <org.fossify.commons.views.MyAppCompatCheckbox
             android:id="@+id/sorting_dialog_numeric_sorting"
             android:layout_width="match_parent"
@@ -117,14 +132,6 @@
             android:minHeight="@dimen/min_radio_checkbox_height"
             android:text="@string/use_for_this_folder" />
 
-        <org.fossify.commons.views.MyTextView
-            android:id="@+id/sorting_dialog_bottom_note"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:paddingStart="@dimen/small_margin"
-            android:paddingEnd="@dimen/medium_margin"
-            android:text="@string/grouping_and_sorting"
-            android:textSize="@dimen/smaller_text_size" />
 
     </LinearLayout>
-</ScrollView>
+</org.fossify.gallery.helpers.ClassicDialogScrollView>

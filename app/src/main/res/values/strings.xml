@@ -198,7 +198,7 @@
     <string name="allow_instant_change">Allow instantly changing media by clicking on screen sides</string>
     <string name="allow_deep_zooming_images">Allow deep zooming images</string>
     <string name="hide_extended_details">Hide extended details when status bar is hidden</string>
-    <string name="show_at_bottom">Show some action buttons at the bottom of the screen</string>
+    <string name="show_at_bottom">Show bottom action buttons</string>
     <string name="show_recycle_bin">Show the recycle bin on the folders screen</string>
     <string name="deep_zoomable_images">Deep zoomable images</string>
     <string name="show_highest_quality">Show images in the highest possible quality</string>
@@ -211,7 +211,7 @@
     <string name="open_system_default_player">Open default player app</string>
     <string name="show_notch">Show a notch if available</string>
     <string name="allow_rotating_gestures">Allow rotating images with gestures</string>
-    <string name="file_loading_priority">File loading priority</string>
+    <string name="file_loading_priority">Media loading priority</string>
     <string name="speed">Speed</string>
     <string name="compromise">Compromise</string>
     <string name="avoid_showing_invalid_files">Avoid showing invalid files</string>
@@ -227,8 +227,8 @@
     <string name="limit_folder_title">Limit long folder titles to 1 line</string>
     <string name="square">Square</string>
     <string name="rounded_corners">Rounded corners</string>
-    <string name="export_favorite_paths">Export favorite files</string>
-    <string name="import_favorite_paths">Import favorite files</string>
+    <string name="export_favorite_paths">Export favorite records</string>
+    <string name="import_favorite_paths">Import favorite records</string>
     <string name="paths_imported_successfully">Paths imported successfully</string>
     <string name="media_management_prompt">To make sure that all file operations work reliably, please make this app a Media management app in your device settings.</string>
     <string name="password_protect_excluded">Password protect excluded folder visibility</string>
@@ -248,7 +248,7 @@
     <string name="bottom_actions">Bottom actions</string>
 
     <!-- Bottom actions -->
-    <string name="manage_bottom_actions">Manage visible bottom actions</string>
+    <string name="manage_bottom_actions">Customize bottom action buttons</string>
     <string name="toggle_favorite">Toggle favorite</string>
     <string name="toggle_file_visibility">Toggle file visibility</string>
 
@@ -303,13 +303,13 @@
         Haven't found some strings? There's more at
         https://github.com/FossifyOrg/Commons/tree/master/commons/src/main/res
     -->
-    <string name="oxygen_bottom_navigation_order">Bottom navigation order</string>
+    <string name="oxygen_bottom_navigation_order">Reorder bottom navigation</string>
     <string name="oxygen_favorite_show_hidden">Always show hidden items</string>
     <string name="oxygen_favorite_show_excluded">Always show excluded items</string>
     <string name="oxygen_selected_count">Selected %1$d items</string>
     <string name="gallery_nav_all_images">All images</string>
-    <string name="export_favorite_folder_paths">Export favorite folders</string>
-    <string name="import_favorite_folder_paths">Import favorite folders</string>
+    <string name="export_favorite_folder_paths">Export favorite folder records</string>
+    <string name="import_favorite_folder_paths">Import favorite folder records</string>
     <string name="favorite_media_import_summary">File favorites: %1$d added, %2$d already saved, %3$d unavailable or invalid</string>
     <string name="favorite_folders_import_summary">Folder favorites: %1$d added, %2$d already saved, %3$d invalid</string>
     <string name="favorite_folders_export_summary">Exported %1$d favorite folders</string>

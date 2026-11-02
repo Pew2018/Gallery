@@ -178,8 +178,8 @@ class ClassicDialogTest {
         assertFalse(dialog.isShowing)
         assertNotNull(dialog.getButton(AlertDialog.BUTTON_POSITIVE))
         val width = dialog.window!!.attributes.width
-        assertEquals(OxygenClassicDialog.widthFor(OxygenClassicDialog.availableWidth(activity),
-            activity.resources.displayMetrics.density), width)
+        assertEquals(OxygenClassicDialog.widthForContent(OxygenClassicDialog.availableWidth(activity),
+            activity.resources.displayMetrics.density, 320), width)
         val mode = dialog.window!!.attributes.softInputMode
         assertEquals(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE,
             mode and android.view.WindowManager.LayoutParams.SOFT_INPUT_MASK_STATE)
@@ -291,10 +291,65 @@ class ClassicDialogTest {
     }
 
     @Test fun widthPolicyRetainsClassicMarginsAndTabletCapWithoutInvalidSizes() {
-        assertEquals(312, OxygenClassicDialog.widthFor(360, 1f))
-        assertEquals(560, OxygenClassicDialog.widthFor(1200, 1f))
-        assertEquals(624, OxygenClassicDialog.widthFor(720, 2f))
+        assertEquals(278, OxygenClassicDialog.widthFor(360, 1f))
+        assertEquals(278, OxygenClassicDialog.widthFor(1200, 1f))
+        assertEquals(556, OxygenClassicDialog.widthFor(720, 2f))
         assertEquals(1, OxygenClassicDialog.widthFor(20, 1f))
+    }
+
+    @Test fun functionalWidthProfilesKeepCompactConfirmationsAndExpandComplexContent() {
+        val density = activity.resources.displayMetrics.density
+        val available = OxygenClassicDialog.availableWidth(activity)
+        val compact = OxygenClassicDialog.widthFor(available, density)
+
+        assertEquals(328, OxygenClassicDialog.widthForContent(360, 1f, 360))
+        assertEquals(400, OxygenClassicDialog.widthForContent(800, 1f, 400))
+        assertEquals(480, OxygenClassicDialog.widthForContent(800, 1f, 480))
+        assertEquals(560, OxygenClassicDialog.widthForContent(800, 1f, 560))
+
+        fun dialogWithContentId(viewId: Int): AlertDialog = OxygenClassicDialog.show(
+            activity, OxygenClassicDialog.builder(activity, "Test")
+                .setView(android.widget.FrameLayout(activity).apply { id = viewId })
+        )
+
+        val generic = dialogWithContentId(View.generateViewId())
+        assertEquals(compact, generic.window!!.attributes.width)
+        generic.dismiss()
+
+        val picker = dialogWithContentId(R.id.directories_holder)
+        assertEquals(OxygenClassicDialog.widthForContent(available, density, 560), picker.window!!.attributes.width)
+        picker.dismiss()
+
+        // Commons security tabs contain a 250dp minimum PIN/pattern grid.
+        // They must not inherit the compact confirmation width.
+        val security = dialogWithContentId(org.fossify.commons.R.id.dialog_tab_view_pager)
+        assertEquals(OxygenClassicDialog.widthForContent(available, density, 340), security.window!!.attributes.width)
+        security.dismiss()
+
+        val reorder = dialogWithContentId(R.id.classic_dialog_navigation_content)
+        assertEquals(OxygenClassicDialog.widthForContent(available, density, 340), reorder.window!!.attributes.width)
+        reorder.dismiss()
+    }
+
+    @Test fun propertiesActionsRemainTogetherAtTheTrailingEdge() {
+        val dialog = OxygenClassicDialog.show(
+            activity, OxygenClassicDialog.builder(activity, "Properties")
+                .setView(FrameLayout(activity).apply { id = R.id.properties_scrollview })
+                .setNeutralButton("Remove EXIF", null)
+                .setPositiveButton("OK", null)
+        )
+        // The outer buttonPanel is a wrapper in AppCompat; inspect the actual
+        // ButtonBarLayout containing the existing neutral and positive actions.
+        val actionRow = dialog.getButton(AlertDialog.BUTTON_NEUTRAL).parent
+        assertTrue(actionRow is LinearLayout)
+        assertEquals(
+            android.view.Gravity.END,
+            (actionRow as LinearLayout).gravity and android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK
+        )
+        actionRow.findViewById<View>(androidx.appcompat.R.id.spacer)?.let {
+            assertEquals(View.GONE, it.visibility)
+        }
+        dialog.dismiss()
     }
 
     @Test fun rootPositionUsesChildCoordinatesRatherThanScrollViewPosition() {
@@ -370,6 +425,8 @@ class ClassicDialogTest {
             return org.robolectric.shadows.ShadowDialog.getLatestDialog() as AlertDialog
         }
         val cancelled = open()
+        assertNotNull(cancelled.findViewById<android.widget.TextView>(R.id.change_date_time_dialog_date_heading))
+        assertNotNull(cancelled.findViewById<android.widget.TextView>(R.id.change_date_time_dialog_time_heading))
         cancelled.findViewById<RadioButton>(org.fossify.commons.R.id.change_date_time_dialog_radio_one)!!.performClick()
         cancelled.findViewById<android.widget.CheckBox>(org.fossify.commons.R.id.change_date_time_dialog_24_hour)!!.isChecked = true
         cancelled.cancel()
@@ -407,7 +464,7 @@ class ClassicDialogTest {
         scroll.measure(View.MeasureSpec.makeMeasureSpec(500, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
         assertTrue(scroll.measuredHeight > 0)
-        assertTrue(scroll.measuredHeight <= activity.resources.displayMetrics.heightPixels * 0.60f)
+        assertTrue(scroll.measuredHeight <= OxygenClassicDialog.scrollViewportHeight(scroll, OxygenClassicDialog.availableHeight(activity)))
         assertTrue(scroll.getChildAt(0).measuredHeight > scroll.measuredHeight)
     }
 

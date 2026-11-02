@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<org.fossify.gallery.helpers.ClassicDialogScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/dialog_scrollview"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="wrap_content">
 
     <LinearLayout
         android:id="@+id/dialog_holder"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingLeft="@dimen/activity_margin"
+        android:paddingLeft="0dp"
         android:paddingTop="@dimen/activity_margin"
-        android:paddingRight="@dimen/activity_margin">
+        android:paddingRight="0dp">
 
         <RelativeLayout
             android:id="@+id/dialog_folder_sample_holder"
@@ -79,13 +79,19 @@
 
         <include layout="@layout/divider" />
 
-        <org.fossify.commons.views.MyAppCompatCheckbox
-            android:id="@+id/dialog_folder_limit_title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingTop="@dimen/activity_margin"
-            android:paddingBottom="@dimen/activity_margin"
-            android:text="@string/limit_folder_title" />
+        <org.fossify.gallery.views.ClassicCheckboxRow
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="56dp" android:orientation="horizontal"
+            android:gravity="center_vertical" android:paddingStart="24dp" android:paddingEnd="12dp"
+            android:background="?attr/selectableItemBackground" >
+            <org.fossify.commons.views.MyTextView
+                android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:paddingTop="8dp" android:paddingBottom="8dp" android:paddingEnd="12dp"
+                android:textSize="16sp" android:text="@string/limit_folder_title" />
+            <org.fossify.commons.views.MyAppCompatCheckbox
+                android:id="@+id/dialog_folder_limit_title" android:layout_width="48dp" android:layout_height="48dp"
+                android:padding="12dp" android:buttonTint="?attr/colorControlActivated" />
+        </org.fossify.gallery.views.ClassicCheckboxRow>
 
     </LinearLayout>
-</ScrollView>
+</org.fossify.gallery.helpers.ClassicDialogScrollView>
