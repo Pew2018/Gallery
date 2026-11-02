@@ -1,18 +1,24 @@
 package org.fossify.gallery.helpers
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.app.Activity
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
+import androidx.core.graphics.ColorUtils
 import org.fossify.gallery.extensions.config
 import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.view.animation.PathInterpolator
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -24,14 +30,100 @@ import org.fossify.gallery.R
  */
 object GalleryBottomBar {
     private val bars = java.util.WeakHashMap<Activity, java.lang.ref.WeakReference<LinearLayout>>()
+    private const val SELECTION_TINT_DURATION_MS = 140L
+    // Match the existing gallery_root_enter / gallery_root_hold window animations.
+    private const val ROOT_WINDOW_HOLD_MS = 160L
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private data class TintTransition(val target: Int, val animator: ValueAnimator)
+    private val tintTransitions = java.util.WeakHashMap<LinearLayout, TintTransition>()
+
+    private fun rippleColor(accent: Int): Int =
+        Color.argb(32, Color.red(accent), Color.green(accent), Color.blue(accent))
+
+    /**
+     * RippleDrawable owns its pressed/released animation. Replacing its background
+     * (even with the same color) cancels that native state and cuts off its fade.
+     */
+    private fun updateRipple(item: LinearLayout, accent: Int) {
+        val color = rippleColor(accent)
+        val ripple = item.background as? RippleDrawable
+        if (ripple == null) {
+            item.background = RippleDrawable(
+                ColorStateList.valueOf(color),
+                ColorDrawable(Color.TRANSPARENT),
+                ColorDrawable(Color.WHITE)
+            )
+        } else if (ripple.color?.defaultColor != color) {
+            ripple.setColor(ColorStateList.valueOf(color))
+        }
+    }
+
+    /** Only colors are animated: no scale, movement, elevation or selection pill. */
+    private fun updateTint(item: LinearLayout, tint: Int, animate: Boolean) {
+        val icon = item.getChildAt(0) as? ImageView ?: return
+        val label = item.getChildAt(1) as? TextView ?: return
+        val pending = tintTransitions[item]
+        if (pending?.target == tint) return
+        tintTransitions.remove(item)?.animator?.cancel()
+        val fromIcon = icon.imageTintList?.defaultColor ?: tint
+        val fromLabel = label.currentTextColor
+        if (!animate || (fromIcon == tint && fromLabel == tint)) {
+            if (fromIcon != tint) icon.imageTintList = ColorStateList.valueOf(tint)
+            if (fromLabel != tint) label.setTextColor(tint)
+            return
+        }
+        val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = SELECTION_TINT_DURATION_MS
+            interpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
+            addUpdateListener {
+                val progress = it.animatedValue as Float
+                icon.imageTintList = ColorStateList.valueOf(ColorUtils.blendARGB(fromIcon, tint, progress))
+                label.setTextColor(ColorUtils.blendARGB(fromLabel, tint, progress))
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (tintTransitions[item]?.animator === animation) {
+                        icon.imageTintList = ColorStateList.valueOf(tint)
+                        label.setTextColor(tint)
+                        tintTransitions.remove(item)
+                    }
+                }
+            })
+        }
+        tintTransitions[item] = TintTransition(tint, animator)
+        animator.start()
+    }
+
+    private fun selectTab(activity: Activity, bar: LinearLayout, tab: Tab) {
+        val colors = OxygenThemeEngine.snapshot(activity, activity.config)
+        for (i in 0 until bar.childCount) {
+            val item = bar.getChildAt(i) as? LinearLayout ?: continue
+            val selected = item.tag == tab.name
+            if (item.isSelected == selected) continue
+            item.isSelected = selected
+            val label = item.getChildAt(1) as? TextView ?: continue
+            label.typeface = Typeface.create(
+                if (selected) "sans-serif-medium" else "sans-serif", Typeface.NORMAL
+            )
+            item.contentDescription = if (selected) "${label.text}, ${activity.getString(R.string.classic_selected)}"
+                else label.text.toString()
+            updateTint(item, if (selected) colors.interactiveAccent else colors.secondaryText, animate = true)
+        }
+    }
 
     fun refreshAll() {
         bars.entries.toList().forEach { (activity, reference) ->
             val bar = reference.get() ?: return@forEach
             if (activity.isFinishing || activity.isDestroyed) return@forEach
             val children = (0 until bar.childCount).map { bar.getChildAt(it) }.associateBy { it.tag }
-            bar.removeAllViews()
-            activity.config.bottomNavigationOrder.forEach { id -> children[id]?.let { bar.addView(it) } }
+            // Avoid detach/reattach when ordering is unchanged: it can abort a held ripple.
+            val order = activity.config.bottomNavigationOrder
+            val currentOrder = (0 until bar.childCount).map { bar.getChildAt(it).tag }
+            if (currentOrder != order) {
+                bar.removeAllViews()
+                order.forEach { id -> children[id]?.let { bar.addView(it) } }
+            }
             recolor(activity)
         }
     }
@@ -45,17 +137,12 @@ object GalleryBottomBar {
         val accent = tokens.rawAccent
         val selected = tokens.interactiveAccent
         val quiet = tokens.secondaryText
-        bar.setBackgroundColor(surface)
+        if ((bar.background as? ColorDrawable)?.color != surface) bar.setBackgroundColor(surface)
         for (i in 0 until bar.childCount) {
             val item = bar.getChildAt(i) as? LinearLayout ?: continue
-            val tint = if (item.isSelected) selected else quiet
-            (item.getChildAt(0) as? ImageView)?.imageTintList = ColorStateList.valueOf(tint)
-            (item.getChildAt(1) as? TextView)?.setTextColor(tint)
-            // Keep the touch ripple in sync after live theme changes.
-            item.background = RippleDrawable(
-                ColorStateList.valueOf(Color.argb(32, Color.red(accent), Color.green(accent), Color.blue(accent))),
-                ColorDrawable(Color.TRANSPARENT), ColorDrawable(Color.WHITE)
-            )
+            updateTint(item, if (item.isSelected) selected else quiet, animate = false)
+            // setColor() preserves the same Drawable and any in-flight pressed ripple.
+            updateRipple(item, accent)
         }
     }
 
@@ -65,9 +152,15 @@ object GalleryBottomBar {
     fun open(activity: Activity, intent: Intent, finishCurrent: Boolean = false) {
         intent.putExtra(EXTRA_ROOT_TRANSITION, true)
         activity.startActivity(intent)
-        if (finishCurrent) activity.finish()
-        // Keep the outgoing window opaque. Fading both windows exposes the
-        // task background midway through the transition, especially on cold tabs.
+        // Launch immediately. Keep the outgoing Activity alive for the existing 160ms
+        // window cross-fade, so its released ripple is not torn down on the click frame.
+        // This defers teardown, never navigation or touch handling.
+        if (finishCurrent) {
+            mainHandler.postDelayed({
+                if (!activity.isFinishing && !activity.isDestroyed) activity.finish()
+            }, ROOT_WINDOW_HOLD_MS)
+        }
+        // The outgoing window stays opaque while the new root fades in.
         activity.overridePendingTransition(R.anim.gallery_root_enter, R.anim.gallery_root_hold)
     }
 
@@ -160,17 +253,19 @@ object GalleryBottomBar {
                 val accessibilityLabel = label
                 contentDescription = if (selected) "$accessibilityLabel, ${activity.getString(R.string.classic_selected)}"
                     else accessibilityLabel
-                this.background = RippleDrawable(
-                    ColorStateList.valueOf(Color.argb(32, Color.red(primary), Color.green(primary), Color.blue(primary))),
-                    ColorDrawable(Color.TRANSPARENT),
-                    GradientDrawable().apply { setColor(Color.WHITE) }
-                )
-                setOnClickListener { tappedView ->
+                updateRipple(this, primary)
+                setOnClickListener {
                     if (tab != active && !navigating) {
                         navigating = true
-                        // Navigate on release; the Activity cross-fade lets the native
-                        // ripple finish on the outgoing item without a click delay.
-                        navigate(tab)
+                        // Selection feedback starts on release; navigation is immediate.
+                        selectTab(activity, bar, tab)
+                        try {
+                            navigate(tab)
+                        } catch (error: RuntimeException) {
+                            navigating = false
+                            selectTab(activity, bar, active)
+                            throw error
+                        }
                     }
                 }
             }
