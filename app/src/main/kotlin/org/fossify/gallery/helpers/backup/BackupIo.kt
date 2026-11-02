@@ -9,7 +9,12 @@ import java.nio.charset.CodingErrorAction
 object BackupIo {
     const val MAX_BYTES = 8L * 1024 * 1024
 
-    fun readText(input: InputStream?, maxBytes: Long = MAX_BYTES): String {
+    fun readText(input: InputStream?, maxBytes: Long = MAX_BYTES): String = readUtf8(input, maxBytes, allowEmpty = false)
+
+    /** Only legacy media-favorites TXT defines an empty file as an empty collection. */
+    fun readMediaFavorites(input: InputStream?): String = readUtf8(input, MAX_BYTES, allowEmpty = true)
+
+    private fun readUtf8(input: InputStream?, maxBytes: Long, allowEmpty: Boolean): String {
         require(maxBytes in 1..MAX_BYTES)
         requireNotNull(input) { "Document provider returned no input stream" }
         val bytes = input.use { stream ->
@@ -27,7 +32,7 @@ object BackupIo {
         val text = Charsets.UTF_8.newDecoder()
             .onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
             .decode(ByteBuffer.wrap(bytes)).toString().removePrefix("\uFEFF")
-        require(text.isNotBlank()) { "Backup is empty" }
+        require(allowEmpty || text.isNotBlank()) { "Backup is empty" }
         return text
     }
 

@@ -295,4 +295,40 @@ class GalleryRestoreServiceTest {
         assertFalse(config.showHiddenMedia); assertFalse(config.favoriteShowHidden); assertFalse(config.favoriteShowExcluded)
         assertTrue("/private" in config.excludedFolders)
     }
+    @Test fun durableCheckpointDeathBeforeRoomChangesIsRecoveredWithoutLosingIndependentData() {
+        for (point in listOf("after_checkpoint", "before_room_changes")) {
+            val snapshot = fullBackupFixture(context, listOf("/new.jpg"))
+            db.FavoritesDao().clearFavorites()
+            db.FavoritesDao().insert(favorite("/old.jpg"))
+            val prefs = context.getSharedPrefs().all
+            val revision = PhotoContentRevision.current()
+            val service = GalleryRestoreService(context, db, available, fault = { if (it == point) throw SimulatedDeath() })
+            assertThrows(SimulatedDeath::class.java) { service.restore(service.preview(snapshot), GalleryRestoreMode.MERGE) }
+            assertEquals(listOf("/old.jpg"), db.FavoritesDao().getValidFavoritePaths())
+            assertEquals(prefs, context.getSharedPrefs().all)
+            assertEquals(revision, PhotoContentRevision.current())
+            assertTrue(GalleryRestoreJournal(context).exists())
+            assertEquals(GalleryRecoveryResult.REVERTED, service().recoverPending())
+            assertFalse(GalleryRestoreJournal(context).exists())
+        }
+    }
+
+    @Test fun thirdValueAfterPreferenceWriteBlocksCompensationAndRecoveryWithoutOverwritingUserChange() {
+        val key = "oxygen_classic_appearance"
+        context.getSharedPrefs().edit().putString(key, "light").commit()
+        val revision = PhotoContentRevision.current()
+        val service = GalleryRestoreService(context, db, available, fault = { point ->
+            if (point == "after_preferences") context.getSharedPrefs().edit().putString(key, "system").commit()
+        })
+        val plan = service.preview(fullBackupFixture(context, listOf("/new.jpg"), oxygen = mapOf(key to "dark")))
+        val failure = assertThrows(GalleryRestoreFailure::class.java) { service.restore(plan, GalleryRestoreMode.MERGE) }
+        assertFalse(failure.compensationSucceeded)
+        assertEquals("system", context.getSharedPrefs().getString(key, null))
+        assertEquals(0L, db.FavoritesDao().getFavoritesCount())
+        assertTrue(GalleryRestoreJournal(context).exists())
+        assertEquals(revision, PhotoContentRevision.current())
+        assertThrows(GalleryRecoveryBlocked::class.java) { service().recoverPending() }
+        assertEquals("system", context.getSharedPrefs().getString(key, null))
+    }
+
 }

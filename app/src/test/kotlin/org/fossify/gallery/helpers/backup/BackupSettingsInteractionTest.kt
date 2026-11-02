@@ -67,4 +67,27 @@ class BackupSettingsInteractionTest {
             assertEquals(ids.toSet(), sections[R.id.settings_section_advanced_backup])
         } finally { controller.destroy() }
     }
+    @Test fun damagedRawProfilesCancelActualActivityExportWithoutWritingOrChangingPreferences() {
+        val controller = Robolectric.buildActivity(SettingsActivity::class.java).create()
+        try {
+            val activity = controller.get()
+            val raw = "{broken"
+            activity.getSharedPrefs().edit().putString(org.fossify.gallery.helpers.PhotoProfileRepository.KEY, raw).commit()
+            val before = activity.getSharedPrefs().all
+            val closed = java.util.concurrent.CountDownLatch(1)
+            val output = object : java.io.ByteArrayOutputStream() { override fun close() { closed.countDown() } }
+            val method = SettingsActivity::class.java.getDeclaredMethod("exportPhotoProfilesTo", java.io.OutputStream::class.java).apply { isAccessible = true }
+            method.invoke(activity, output)
+            assertTrue(closed.await(10, java.util.concurrent.TimeUnit.SECONDS))
+            BackupOperationRunner.serialized { } // failure callback has been queued before the worker lock is released
+            shadowOf(Looper.getMainLooper()).idle()
+            val log = org.robolectric.shadows.ShadowLog.getLogsForTag("GalleryBackup").last()
+            assertNull(log.throwable)
+            assertFalse(log.msg.contains(raw))
+            assertEquals(0, output.size())
+            assertEquals(before, activity.getSharedPrefs().all)
+            assertEquals(activity.getString(R.string.photo_profiles_export_corrupt), org.robolectric.shadows.ShadowToast.getTextOfLatestToast())
+        } finally { controller.destroy() }
+    }
+
 }

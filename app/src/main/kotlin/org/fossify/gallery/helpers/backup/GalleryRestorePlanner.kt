@@ -37,7 +37,8 @@ internal class GalleryRestorePlanner(private val context: Context, private val a
             val retained = if (merge) oldMedia else oldMedia.filterTo(linkedSetOf()) {
                 effective[BackupPathRequest(it, false)] != BackupPathStatus.AVAILABLE
             }
-            val media = (retained + available).sorted()
+            val mediaSet = retained + available
+            val media = mediaSet.sorted()
             val folders = if (merge) (oldFolders + importedFolders.filterKeys { it !in oldFolders }).values.toList()
                 else importedFolders.values.toList()
             val profiles = if (merge) photoMerge.state else incoming.photoProfiles
@@ -59,7 +60,7 @@ internal class GalleryRestorePlanner(private val context: Context, private val a
             val changed = values.filter { (key, value) -> local.preferences[key] != value || (value == null && key in local.preferences) }
             GalleryRestoreTarget(mode, changed, media, folders.sortedBy { it.path }, profiles,
                 RestoreCategoryCount(incomingMedia.size, incomingMedia.count { it in oldMedia }, media.count { it !in oldMedia },
-                    removed = oldMedia.count { it !in media }),
+                    removed = oldMedia.count { it !in mediaSet }),
                 RestoreCategoryCount(importedFolders.size, importedFolders.keys.count { it in oldFolders },
                     importedFolders.keys.count { it !in oldFolders },
                     importedFolders.count { (key, value) -> key in oldFolders && oldFolders[key] != value },

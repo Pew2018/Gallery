@@ -27,7 +27,9 @@ internal object BackupPreferences {
             if (edit(values)) return
             IOException("Preference commit returned false")
         } catch (error: Exception) { error }
-        val restored = runCatching { edit(before) }.getOrDefault(false)
+        val current = prefs.all
+        val safe = before.keys.all { current[it] == before[it] || current[it] == values[it] }
+        val restored = safe && runCatching { edit(before) }.getOrDefault(false)
         throw IOException("Backup preferences could not be persisted; rollback persisted=$restored", failure)
     }
 }

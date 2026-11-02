@@ -499,5 +499,40 @@ class PhotoProfileMediaLoadingTest {
         override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
         override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
     }
+    @Test fun authorizedBackupAddsRelationsSeenByFreshVirtualFavoriteProfileContext() {
+        val root = Files.createTempDirectory("restored-profile-favorites")
+        try {
+            val old = Files.write(root.resolve("old.jpg"), byteArrayOf(1)).toString()
+            val added = Files.write(root.resolve("new.jpg"), byteArrayOf(2)).toString()
+            background {
+                context.getSharedPrefs().edit().clear().commit()
+                val profile = PhotoProfile("d4dfe496-4e61-4e85-a01b-18e967e59a53", "Favorites", listOf(PhotoSource(PhotoSourceType.FAVORITES)))
+                val state = PhotoProfileState(profiles = listOf(profile), selectedId = profile.id)
+                context.getSharedPrefs().edit().putString(PhotoProfileRepository.KEY, PhotoProfileCodec.encode(state)).commit()
+                context.favoritesDB.insert(Favorite(null, old, "old.jpg", root.toString()))
+                context.mediaDB.insert(Medium().apply { path = added; parentPath = root.toString(); name = "new.jpg" })
+                context.config.saveFavoriteCredential("fixture", org.fossify.commons.helpers.PROTECTION_PIN)
+                val before = PhotoProfileLoadContext.capture(context, profile.id, null)!!
+                assertEquals(setOf(old), before.favorites)
+                val service = org.fossify.gallery.helpers.backup.GalleryRestoreService(context,
+                    access = org.fossify.gallery.helpers.backup.BackupPathAccess { _, _ -> org.fossify.gallery.helpers.backup.BackupPathStatus.AVAILABLE })
+                val incoming = org.fossify.gallery.helpers.backup.fullBackupFixture(context, listOf(old, added, added), profiles = state)
+                val initial = service.preview(incoming)
+                val operation = org.fossify.gallery.helpers.backup.GalleryRestoreOperation()
+                try {
+                    val proof = org.fossify.gallery.helpers.Config.FavoriteCredentialProof(context.config.favoriteCredentialSnapshot(), FavoriteAccessSessionManager.currentGeneration())
+                    val plan = service.authorize(initial, org.fossify.gallery.helpers.backup.GalleryRestoreMode.MERGE, proof, operation)
+                    val result = service.restore(plan, org.fossify.gallery.helpers.backup.GalleryRestoreMode.MERGE, operation)
+                    assertEquals(1, result.media.appliedAdded)
+                    assertFalse(before.isCurrent(context))
+                    val fresh = PhotoProfileLoadContext.capture(context, profile.id, null)!!
+                    assertEquals(setOf(old, added), fresh.favorites)
+                    assertTrue(context.mediaDB.getCachedMediaFromFiles(listOf(added)).single().isFavorite)
+                    assertFalse(PhotoProfileAccessSessionManager.favoritesAuthorized(context, null)) // restore grant never unlocks the viewer
+                } finally { operation.close() }
+            }
+        } finally { root.toFile().deleteRecursively() }
+    }
+
 }
 

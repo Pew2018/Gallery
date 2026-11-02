@@ -4,6 +4,8 @@ import com.google.gson.JsonObject
 import org.fossify.gallery.helpers.*
 import java.util.UUID
 
+class InvalidStoredPhotoProfileBackup(cause: Exception) : IllegalArgumentException("Stored photo profiles are invalid; export cancelled", cause)
+
 class UnsupportedPhotoBackupVersion : IllegalArgumentException("Unsupported photo profile backup version")
 
 data class PhotoProfileImportResult(val state: PhotoProfileState, val result: BackupImportResult)
@@ -12,6 +14,11 @@ data class PhotoProfileImportResult(val state: PhotoProfileState, val result: Ba
 object PhotoProfileBackupCodec {
     const val MAX_PROFILES = 1000
     const val MAX_SOURCES = 1000
+
+    /** Export must validate original persisted bytes before runtime's tolerant decoder can drop records. */
+    fun encodeStored(raw: String): String = try {
+        encode(if (raw.isEmpty()) PhotoProfileState() else decodeStrict(raw))
+    } catch (error: Exception) { throw InvalidStoredPhotoProfileBackup(error) }
 
     fun encode(state: PhotoProfileState): String = PhotoProfileCodec.encode(state).also { decodeStrict(it) }
 

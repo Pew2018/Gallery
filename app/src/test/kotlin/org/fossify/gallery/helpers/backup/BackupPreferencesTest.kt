@@ -40,4 +40,25 @@ class BackupPreferencesTest {
         assertThrows(IllegalStateException::class.java) { BackupIo.writeText(output) { error("snapshot failed") } }
         assertTrue(closed)
     }
+    @Test fun failedCommitDoesNotOverwriteAnIndependentThirdValue() {
+        val prefs = RuntimeEnvironment.getApplication().getSharedPrefs()
+        prefs.edit().clear().putString("existing", "before").commit()
+        var commits = 0
+        val failing = object : SharedPreferences by prefs {
+            override fun edit(): SharedPreferences.Editor {
+                val editor = prefs.edit()
+                return object : SharedPreferences.Editor by editor {
+                    override fun commit(): Boolean {
+                        editor.commit(); commits++
+                        prefs.edit().putString("existing", "independent").commit()
+                        return false
+                    }
+                }
+            }
+        }
+        assertThrows(IOException::class.java) { BackupPreferences.commit(failing, mapOf("existing" to "after")) }
+        assertEquals("independent", prefs.getString("existing", null))
+        assertEquals(1, commits)
+    }
+
 }

@@ -126,4 +126,27 @@ class PhotoProfileBackupCodecTest {
             PhotoProfileBackupCodec.decodeStrict(PhotoProfileCodec.encode(state(PhotoProfile(a, "多来源", sources))))
         }
     }
+
+    @Test fun storedExportRoundTripsNormalAndExplicitEmptyStates() {
+        val original = state(profile(), profile(b, "工作"), selected = b)
+        assertEquals(original, PhotoProfileBackupCodec.decodeStrict(PhotoProfileBackupCodec.encodeStored(PhotoProfileCodec.encode(original))))
+        assertEquals(PhotoProfileState(), PhotoProfileBackupCodec.decodeStrict(PhotoProfileBackupCodec.encodeStored("")))
+        assertEquals(PhotoProfileState(), PhotoProfileBackupCodec.decodeStrict(PhotoProfileBackupCodec.encodeStored(PhotoProfileCodec.encode(PhotoProfileState()))))
+    }
+    @Test fun storedExportRejectsLostRowsMalformedJsonDuplicateUuidAndVersionBeforeWriting() {
+        val good = PhotoProfileCodec.encode(state(profile()))
+        val partial = good.replace("\"profiles\":[", "\"profiles\":[{\"id\":\"broken\"},")
+        assertEquals(1, PhotoProfileCodec.decode(partial).profiles.size) // runtime tolerance stays intact
+        for (raw in listOf(partial, "{broken", " ", good.replace("\"version\":1", "\"version\":2"),
+            PhotoProfileCodec.encode(state(profile(), profile())))) {
+            var closed = false
+            val output = object : java.io.ByteArrayOutputStream() { override fun close() { closed = true } }
+            assertThrows(InvalidStoredPhotoProfileBackup::class.java) {
+                BackupIo.writeText(output) { PhotoProfileBackupCodec.encodeStored(raw) }
+            }
+            assertEquals(0, output.size())
+            assertTrue(closed)
+        }
+    }
+
 }

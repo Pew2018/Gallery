@@ -118,8 +118,9 @@ class GalleryBackupZipCodecTest {
         assertEquals(before, context.cacheDir.listFiles()!!.map { it.name }.toSet())
         assertThrows(IOException::class.java) { GalleryBackupZipCodec.decode(null, context.cacheDir) }
     }
-    @Test fun standaloneFavoriteEmptyTextPolicyIsUnchanged() {
+    @Test fun standaloneFavoriteEmptyTextIsAllowedOnlyByFormatSpecificReader() {
         assertThrows(IllegalArgumentException::class.java) { BackupIo.readText(byteArrayOf().inputStream()) }
+        assertTrue(FavoriteBackupCodec.decodeMediaPlan(BackupIo.readMediaFavorites(byteArrayOf().inputStream())).paths.isEmpty())
     }
     @Test fun totalBudgetIncludesFiveMaximumPayloadsAndManifest() {
         assertEquals(5 * BackupIo.MAX_BYTES + GalleryBackupZipCodec.MANIFEST_LIMIT, GalleryBackupZipCodec.TOTAL_LIMIT)
@@ -160,6 +161,16 @@ class GalleryBackupZipCodecTest {
         files["manifest.json"] = manifest.toString().toByteArray()
         val error = assertThrows(InvalidGalleryBackup::class.java) { GalleryBackupZipCodec.decode(zip(files).inputStream(), context.cacheDir) }
         assertEquals(InvalidGalleryBackupReason.UNSUPPORTED_VERSION, error.reason)
+    }
+
+    @Test fun centralCrcAndDirectorySignatureCorruptionAreRejected() {
+        val original = encoded()
+        val central = (0..original.size - 4).first { i -> original[i] == 0x50.toByte() && original[i + 1] == 0x4b.toByte() && original[i + 2] == 1.toByte() && original[i + 3] == 2.toByte() }
+        for (offset in listOf(central, central + 16)) {
+            val corrupt = original.copyOf()
+            corrupt[offset] = (corrupt[offset].toInt() xor 0x40).toByte()
+            reject(corrupt)
+        }
     }
 
 }

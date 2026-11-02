@@ -81,12 +81,14 @@ internal class GalleryRestoreService(
             var result: GalleryRestoreResult? = null
             var stage = RestoreWriteStage.ROOM
             try {
+                fault("after_checkpoint")
                 database.runInTransaction {
                     if (BackupDigest.relations(database.FavoritesDao().getValidFavoritePaths(),
                             database.FavoriteFoldersDao().getAll().map { FavoriteBackupCodec.FolderRecord(it.path, it.addedAt) }) != beforeDb ||
                         context.getSharedPrefs().all != local.preferences) throw StaleGalleryRestorePlan()
                     validateAccess(plan)
                     validateAuthorization(plan, mode, operation)
+                    fault("before_room_changes")
                     val repaired = applyRelations(local.snapshot, target, eligible.toSet())
                     fault("after_room_changes")
                     if (context.getSharedPrefs().all != local.preferences) throw StaleGalleryRestorePlan()
@@ -107,6 +109,10 @@ internal class GalleryRestoreService(
                 val currentDb = runCatching { relationToken() }.getOrNull()
                 if (currentDb != beforeDb) throw GalleryRestoreFailure(false, error, stage)
                 val compensated = runCatching {
+                    val current = context.getSharedPrefs().all
+                    check(before.keys.all { current[it] == before[it] || current[it] == changes[it] }) {
+                        "Preferences changed independently; checkpoint review required"
+                    }
                     if (!matches(before)) writePreferences(before)
                     check(matches(before))
                     journal.delete()

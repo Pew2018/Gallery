@@ -101,4 +101,22 @@ class FavoriteBackupRestoreTest {
             assertEquals(1, result.invalid); assertEquals(1, result.imported)
         } finally { db.close() }
     }
+
+    @Test fun emptyStandaloneFavoriteBackupsAreRepeatableMergeNoOps() {
+        val db = database()
+        try {
+            db.FavoritesDao().insert(favorite("/Pictures/keep.jpg"))
+            db.MediumDao().insert(Medium().apply { path = "/Pictures/keep.jpg"; isFavorite = true })
+            val before = PhotoContentRevision.current()
+            for (text in listOf("", "\n\r\n", "\uFEFF", "\uFEFF\n")) repeat(2) {
+                val decoded = FavoriteBackupCodec.decodeMediaPlan(BackupIo.readMediaFavorites(text.byteInputStream()))
+                val result = FavoriteBackupRestore(db).importMedia(decoded, { error("empty plan must not inspect") }, { false }, ::favorite)
+                assertEquals(0, result.total); assertEquals(0, result.imported)
+                assertEquals(listOf("/Pictures/keep.jpg"), db.FavoritesDao().getValidFavoritePaths())
+                assertTrue(db.MediumDao().getCachedMediaFromFiles(listOf("/Pictures/keep.jpg")).single().isFavorite)
+            }
+            assertEquals(before, PhotoContentRevision.current())
+        } finally { db.close() }
+    }
+
 }

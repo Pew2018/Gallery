@@ -425,7 +425,7 @@ class SettingsActivity : SimpleActivity() {
     private fun backupUi(action: () -> Unit) = runOnUiThread {
         if (!isFinishing && !isDestroyed) {
             try { action() } catch (error: Exception) {
-                android.util.Log.e("GalleryBackup", "Backup UI refresh failed", error)
+                android.util.Log.e("GalleryBackup", "Backup UI refresh failed (${error.javaClass.simpleName})")
                 toast(R.string.backup_operation_failed)
             }
         }
@@ -435,9 +435,10 @@ class SettingsActivity : SimpleActivity() {
         if (GalleryRestoreJournal(applicationContext).exists()) throw PendingGalleryRestore()
         action()
     }) { error ->
-        android.util.Log.e("GalleryBackup", "Backup operation failed", error)
+        android.util.Log.e("GalleryBackup", "Backup operation failed (${error.javaClass.simpleName})")
         backupUi {
-            toast(if (error is UnsupportedPhotoBackupVersion) R.string.photo_profiles_backup_unsupported_version
+            toast(if (error is InvalidStoredPhotoProfileBackup) R.string.photo_profiles_export_corrupt
+                else if (error is UnsupportedPhotoBackupVersion) R.string.photo_profiles_backup_unsupported_version
                 else R.string.backup_operation_failed)
         }
     }
@@ -1315,7 +1316,7 @@ class SettingsActivity : SimpleActivity() {
     }
 
     private fun importFavorites(inputStream: InputStream?) = backupWork {
-        val plan = FavoriteBackupCodec.decodeMediaPlan(BackupIo.readText(inputStream))
+        val plan = FavoriteBackupCodec.decodeMediaPlan(BackupIo.readMediaFavorites(inputStream))
         val result = FavoriteBackupRestore(GalleryDatabase.getInstance(applicationContext)).importMedia(
             plan,
             { path -> getDoesFilePathExist(path) && !File(path).isDirectory },
@@ -1446,7 +1447,7 @@ class SettingsActivity : SimpleActivity() {
         if (restoreOperation != null || !fullBackupBusy.compareAndSet(false, true)) { toast(R.string.full_backup_busy); return }
         toast(R.string.full_backup_working)
         BackupOperationRunner.execute({ try { action() } finally { fullBackupBusy.set(false) } }) { error ->
-            android.util.Log.e("GalleryFullBackup", "Full backup operation failed", error)
+            android.util.Log.e("GalleryFullBackup", "Full backup operation failed (${error.javaClass.simpleName})")
             backupUi {
                 showFullBackupError(error)
             }
@@ -1659,7 +1660,7 @@ class SettingsActivity : SimpleActivity() {
 
     private fun exportPhotoProfilesTo(outputStream: OutputStream?) = backupWork {
         BackupIo.writeText(outputStream) {
-            PhotoProfileBackupCodec.encode(PhotoProfileRepository.of(applicationContext).state())
+            PhotoProfileBackupCodec.encodeStored(applicationContext.getSharedPrefs().getString(PhotoProfileRepository.KEY, "").orEmpty())
         }
         backupUi { toast(R.string.photo_profiles_export_success) }
     }
