@@ -32,7 +32,7 @@ internal object TiebaDialogChoices {
         return (target - start).coerceAtLeast(0) to (target - end).coerceAtLeast(0)
     }
 
-    fun apply(button: RadioButton, accent: Int, text: Int, surface: Int) {
+    fun apply(button: RadioButton, accent: Int, text: Int, surface: Int, highlightSelection: Boolean = true) {
         val density = button.resources.displayMetrics.density
         fun dp(value: Int) = (value * density + 0.5f).toInt()
         button.buttonDrawable = null
@@ -47,7 +47,9 @@ internal object TiebaDialogChoices {
         button.setSingleLine(false)
         button.setPaddingRelative(insets.first, dp(8), insets.second, dp(8))
         button.background = RippleDrawable(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 24)),
-            selectedBackground(accent, surface), android.graphics.drawable.ColorDrawable(Color.WHITE))
+            if (highlightSelection) selectedBackground(accent, surface)
+            else android.graphics.drawable.ColorDrawable(surface),
+            android.graphics.drawable.ColorDrawable(Color.WHITE))
         button.setTextColor(ColorStateList(
             arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf(android.R.attr.state_checked), intArrayOf()),
             intArrayOf(ColorUtils.blendARGB(surface, text, 0.38f), accent, text)

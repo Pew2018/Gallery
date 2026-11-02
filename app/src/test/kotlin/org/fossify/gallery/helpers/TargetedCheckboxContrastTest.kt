@@ -14,6 +14,24 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [28], application = Application::class, manifest = Config.NONE)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class TargetedCheckboxContrastTest {
+    @Test fun dateTimeCheckboxPaintsClassicSwitchUsingDynamicReadableAccent() {
+        for (raw in listOf(0xFFFFF59D, 0xFF2196F3, 0xFF311B92)) {
+            val surface = 0xFFFFFFFF.toInt()
+            val accent = OxygenClassicPalette.readableAccent(raw.toInt(), surface)
+            val tokens = OxygenThemeColors.resolve(true, "light", false, raw.toInt(), surface, 0xFF212121.toInt())
+                .copy(pageBackground = surface, rawAccent = accent, interactiveAccent = accent)
+            val toggle = OxygenClassicControls.dateTimeSwitchDrawable(1f, tokens)
+            assertEquals(48, toggle.intrinsicWidth)
+            assertEquals(28, toggle.intrinsicHeight)
+            toggle.state = intArrayOf(android.R.attr.state_enabled, android.R.attr.state_checked)
+            toggle.setBounds(0, 0, 48, 28)
+            val bitmap = Bitmap.createBitmap(48, 28, Bitmap.Config.ARGB_8888)
+            toggle.draw(Canvas(bitmap))
+            assertEquals(accent, bitmap.getPixel(34, 14))
+            assertTrue(OxygenThemeColors.contrastRatio(accent, surface) >= 4.5)
+        }
+    }
+
     @Test fun sixAccentsUseSurfaceReadableFillAndContrastingCheckInBothModes() {
         val accents = listOf(0xFFFFF59D, 0xFFF44336, 0xFF4CAF50, 0xFF2196F3, 0xFF311B92, 0xFFFFEEEE).map { it.toInt() }
         for (dark in listOf(false, true)) for (raw in accents) {

@@ -23,7 +23,7 @@
             android:id="@+id/change_date_time_dialog_radio_group"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp">
+            android:layout_marginBottom="0dp">
 
             <org.fossify.commons.views.MyCompatRadioButton
                 android:id="@+id/change_date_time_dialog_radio_one"
@@ -103,9 +103,17 @@
 
         </RadioGroup>
 
-        <include
-            android:id="@+id/sorting_dialog_order_divider"
-            layout="@layout/divider" />
+        <TextView
+            android:id="@+id/change_date_time_dialog_time_heading"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="4dp"
+            android:text="@string/classic_time_format_section"
+            android:textSize="13sp"
+            android:fontFamily="sans-serif-medium" />
 
         <org.fossify.gallery.views.ClassicCheckboxRow
             android:layout_width="match_parent" android:layout_height="wrap_content"

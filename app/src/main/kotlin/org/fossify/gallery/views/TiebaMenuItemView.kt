@@ -5,6 +5,7 @@ import android.content.Context
 import android.util.AttributeSet
 import android.view.View
 import android.view.ViewGroup
+import android.graphics.drawable.InsetDrawable
 import android.widget.CheckBox
 import androidx.appcompat.view.menu.MenuItemImpl
 import androidx.core.widget.TintableCompoundButton
@@ -23,21 +24,30 @@ class TiebaMenuItemView(context: Context, attrs: AttributeSet?) : ListMenuItemVi
         if (itemData.itemId != R.id.favorite_always_show_excluded &&
             itemData.itemId != R.id.favorite_always_show_hidden) return
 
-        // Append at binding time so all translations keep four literal spaces;
-        // rebuilding/recycling the row cannot accumulate additional whitespace.
-        setTitle(itemData.title.toString().trimEnd() + "    ")
+        // Keep translations untouched: the trailing checkbox owns its own fixed spacing.
+        setTitle(itemData.title.toString().trimEnd())
 
         // AppCompat creates the check view lazily during initialize(). Resolve the
         // current palette on each bind, including after an accent/appearance change.
-        val colors = OxygenThemeEngine.snapshot(context, context.config)
+        val palette = OxygenThemeEngine.snapshot(context, context.config)
+        val colors = palette.copy(
+            pageBackground = palette.dialogBackground,
+            interactiveAccent = org.fossify.gallery.helpers.OxygenClassicPalette.readableAccent(
+                palette.rawAccent, palette.dialogBackground
+            )
+        )
+        val dp = resources.displayMetrics.density
         fun applyCheck(view: View) {
             if (view is CheckBox) {
                 // A whole-drawable tint would also recolor the contrasting tick.
                 view.buttonTintList = null
                 if (view is TintableCompoundButton) view.supportButtonTintList = null
-                view.buttonDrawable = OxygenClassicControls.selectionDrawable(
-                    radio = false, density = resources.displayMetrics.density,
-                    colors = colors, surfaceAccent = true
+                // 24dp drawable plus a 12dp leading and 8dp trailing control gutter.
+                // This preserves the 20dp square while ensuring stable text separation.
+                view.buttonDrawable = InsetDrawable(
+                    OxygenClassicControls.selectionDrawable(
+                        radio = false, density = dp, colors = colors, surfaceAccent = true
+                    ), (12 * dp + 0.5f).toInt(), 0, (8 * dp + 0.5f).toInt(), 0
                 )
             }
             if (view is ViewGroup) {

@@ -39,6 +39,10 @@ object OxygenClassicControls {
     internal fun selectionDrawable(radio: Boolean, density: Float, colors: OxygenThemeTokens, surfaceAccent: Boolean = false): Drawable =
         ClassicDrawable(if (radio) "radio" else "check", density, colors, false, surfaceAccent)
 
+    /** Retain Commons' Checkbox binding and persistence but paint a classic switch. */
+    internal fun dateTimeSwitchDrawable(density: Float, colors: OxygenThemeTokens): Drawable =
+        ClassicDrawable("toggleCheckbox", density, colors, false)
+
     fun applySwitches(root: View, colors: OxygenThemeTokens) {
         val density = root.resources.displayMetrics.density
         fun dp(n: Int) = (n * density + 0.5f).toInt()
@@ -124,11 +128,11 @@ object OxygenClassicControls {
         private var lastChecked: Boolean? = null
         private var lastEnabled: Boolean? = null
         override fun getIntrinsicWidth() = ((when (kind) {
-            "track" -> 48
+            "track", "toggleCheckbox" -> 48
             "thumb" -> 28
             else -> 24
         }) * density + 0.5f).toInt()
-        override fun getIntrinsicHeight() = ((if (kind == "track" || kind == "thumb") 28 else 24) * density + 0.5f).toInt()
+        override fun getIntrinsicHeight() = ((if (kind == "track" || kind == "thumb" || kind == "toggleCheckbox") 28 else 24) * density + 0.5f).toInt()
         override fun isStateful() = true
         override fun onStateChange(state: IntArray): Boolean {
             if (kind == "track" || kind == "thumb") {
@@ -270,6 +274,38 @@ object OxygenClassicControls {
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = 0.35f * density
                     canvas.drawCircle(cx, cy, 11.65f * density, paint)
+                }
+                "toggleCheckbox" -> {
+                    // The Commons date-time dialog casts this control to CheckBox.
+                    // Only the drawable changes; 48x28 thin rail and round knob.
+                    val track = when {
+                        !enabled && checked -> switchPalette.disabledOnTrack
+                        !enabled -> switchPalette.disabledOffTrack
+                        checked -> switchPalette.onTrack
+                        else -> switchPalette.offTrack
+                    }
+                    color(track)
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = geometry.strokeWidth
+                    val railLeft = bounds.left + geometry.trackLeft
+                    canvas.drawRoundRect(railLeft, cy - geometry.trackPathHeight / 2f,
+                        railLeft + geometry.trackPathWidth, cy + geometry.trackPathHeight / 2f,
+                        geometry.trackRadius, geometry.trackRadius, paint)
+                    val face = when {
+                        !enabled && checked -> switchPalette.disabledOnThumb
+                        !enabled -> switchPalette.disabledOffThumb
+                        checked -> switchPalette.onThumb
+                        else -> switchPalette.offThumb
+                    }
+                    val thumbX = bounds.left + (if (checked) geometry.thumbEnd else geometry.thumbStart) +
+                        geometry.thumbDiameter / 2f
+                    color(face)
+                    canvas.drawCircle(thumbX, cy, 12f * density, paint)
+                    color(OxygenThemeColors.blend(face, fg,
+                        if (OxygenThemeColors.contrastRatio(face, bg) < 1.5) 0.35 else 0.1))
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = 0.35f * density
+                    canvas.drawCircle(thumbX, cy, 11.65f * density, paint)
                 }
                 "radio" -> {
                     color(if (checked) active else outline)

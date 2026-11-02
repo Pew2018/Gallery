@@ -505,6 +505,11 @@ object OxygenClassicDialog {
                             v.textSize = 20f
                             v.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                         }
+                        R.id.change_date_time_dialog_time_heading -> {
+                            v.setTextColor(readableAccent)
+                            v.textSize = 13f
+                            v.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                        }
                     }
                 }
                 if (v is android.widget.CheckedTextView) {
@@ -547,7 +552,10 @@ object OxygenClassicDialog {
                         button.supportButtonTintList = null
                     }
                 }
-                button.buttonDrawable = OxygenClassicControls.selectionDrawable(v is RadioButton, dp, controlColors, surfaceAccent = targeted)
+                button.buttonDrawable = if (v.id == R.id.change_date_time_dialog_24_hour) {
+                    // Commons view binding requires MyAppCompatCheckbox, not SwitchCompat.
+                    OxygenClassicControls.dateTimeSwitchDrawable(dp, controlColors)
+                } else OxygenClassicControls.selectionDrawable(v is RadioButton, dp, controlColors, surfaceAccent = targeted)
                 if (!targeted) CompoundButtonCompat.setButtonTintList(button, tints)
                 val trailing = v.id == R.id.sorting_dialog_numeric_sorting || v.id == R.id.sorting_dialog_use_for_this_folder
                 if (trailing) {
@@ -573,7 +581,8 @@ object OxygenClassicDialog {
                     intArrayOf(disabled, dialogText)
                 ))
                 if (v is RadioButton && v.parent is android.widget.RadioGroup) {
-                    TiebaDialogChoices.apply(v, readableAccent, dialogText, surface)
+                    TiebaDialogChoices.apply(v, readableAccent, dialogText, surface,
+                        highlightSelection = (v.parent as android.widget.RadioGroup).id != R.id.change_date_time_dialog_radio_group)
                 }
             }
             if (v is ViewGroup) {
