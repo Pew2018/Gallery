@@ -6,7 +6,8 @@ import org.fossify.gallery.helpers.*
 
 /** Pure target computation after snapshot collection and path inspection. No writes or UI. */
 internal class GalleryRestorePlanner(private val context: Context, private val access: BackupPathAccess) {
-    fun plan(incoming: GalleryBackupSnapshot, local: GalleryLocalBackupState): GalleryRestorePlan {
+    fun plan(incoming: GalleryBackupSnapshot, local: GalleryLocalBackupState,
+             authorization: GalleryRestoreAuthorization? = null, id: String = java.util.UUID.randomUUID().toString()): GalleryRestorePlan {
         val legacy = LegacySettingsCodec.decode(incoming.legacySettings)
         require(legacy.applicable)
         OxygenSettingsBackupCodec.validate(incoming.oxygenSettings)
@@ -15,14 +16,14 @@ internal class GalleryRestorePlanner(private val context: Context, private val a
         FavoriteBackupCodec.encodeFolders(incoming.favoriteFolders)
         val requests = buildSet {
             (incoming.mediaFavorites + local.snapshot.mediaFavorites).forEach { add(BackupPathRequest(it, false)) }
-            incoming.favoriteFolders.forEach { add(BackupPathRequest(it.path, true)) }
-            incoming.photoProfiles.profiles.flatMap { it.sources }.forEach {
+            (incoming.favoriteFolders + local.snapshot.favoriteFolders).forEach { add(BackupPathRequest(it.path, true)) }
+            (incoming.photoProfiles.profiles + local.snapshot.photoProfiles.profiles).flatMap { it.sources }.forEach {
                 if (it.type == PhotoSourceType.FOLDER) add(BackupPathRequest(it.path!!, true))
                 else add(BackupPathRequest(FAVORITES, true))
             }
         }
-        val statuses = requests.associateWith { access.inspect(it.path, it.folder) }
-        val available = incoming.mediaFavorites.distinct().filter { statuses[BackupPathRequest(it, false)] == BackupPathStatus.AVAILABLE }
+        val details = access.inspectRestoreBatch(context, requests)
+        val statuses = details.mapValues { it.value.status(authorization != null) }
         val oldMedia = local.snapshot.mediaFavorites.toSet()
         val incomingMedia = incoming.mediaFavorites.toSet()
         val oldFolders = local.snapshot.favoriteFolders.associateBy { FavoriteFolderRules.normalizedPath(it.path) }
@@ -30,9 +31,11 @@ internal class GalleryRestorePlanner(private val context: Context, private val a
         val photoMerge = PhotoProfileBackupCodec.merge(local.snapshot.photoProfiles, incoming.photoProfiles)
         val targets = GalleryRestoreMode.entries.associateWith { mode ->
             val merge = mode == GalleryRestoreMode.MERGE
+            val effective = details.mapValues { it.value.status(authorization?.mode == mode) }
+            val available = incoming.mediaFavorites.distinct().filter { effective[BackupPathRequest(it, false)] == BackupPathStatus.AVAILABLE }
             // Unsafe/unavailable local media are retained in REPLACE too, never silently removed.
             val retained = if (merge) oldMedia else oldMedia.filterTo(linkedSetOf()) {
-                statuses[BackupPathRequest(it, false)] != BackupPathStatus.AVAILABLE
+                effective[BackupPathRequest(it, false)] != BackupPathStatus.AVAILABLE
             }
             val media = (retained + available).sorted()
             val folders = if (merge) (oldFolders + importedFolders.filterKeys { it !in oldFolders }).values.toList()
@@ -66,7 +69,8 @@ internal class GalleryRestorePlanner(private val context: Context, private val a
                     photoMerge.result.conflicts,
                     if (merge) 0 else local.snapshot.photoProfiles.profiles.count { old -> profiles.profiles.none { it.id == old.id } }), retainedSecurity)
         }
-        return GalleryRestorePlan(incoming, local.token, statuses, legacy.values.size, targets)
+        return GalleryRestorePlan(incoming, local.token, statuses, legacy.values.size, targets, details, oldMedia, id,
+            GalleryRestoreAuthorization.securityVersion(context), FavoriteAccessSessionManager.currentGeneration(), authorization, local.authorizationToken)
     }
 
     private fun protectLocalVisibility(values: MutableMap<String, Any?>, local: Map<String, Any?>): Set<String> {

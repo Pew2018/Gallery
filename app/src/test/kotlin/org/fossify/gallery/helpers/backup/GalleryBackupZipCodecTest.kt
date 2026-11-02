@@ -144,4 +144,22 @@ class GalleryBackupZipCodecTest {
         assertThrows(IllegalArgumentException::class.java) { GalleryBackupZipCodec.decode(source, context.cacheDir) }
         assertTrue(closed)
     }
+    @Test fun duplicateMediaCountsAreReadAsMetadataWithoutChangingTheSixFileV1Format() {
+        val snapshot = fullBackupFixture(context, listOf("/Pictures/a.jpg", "/Pictures/a.jpg", "/Pictures/b.jpg"))
+        val raw = encoded(snapshot)
+        assertEquals(GalleryBackupManifest.names, entries(raw).keys.toList())
+        val decoded = GalleryBackupZipCodec.decode(raw.inputStream(), context.cacheDir)
+        assertEquals(listOf("/Pictures/a.jpg", "/Pictures/b.jpg"), decoded.mediaFavorites)
+        assertEquals(3, decoded.mediaTotal); assertEquals(1, decoded.mediaDuplicates)
+    }
+
+    @Test fun unsupportedVersionHasATypedReasonAndRemainsRejected() {
+        val files = entries(encoded())
+        val manifest = JsonParser.parseString(String(files.getValue("manifest.json"))).asJsonObject
+        manifest.addProperty("version", 2)
+        files["manifest.json"] = manifest.toString().toByteArray()
+        val error = assertThrows(InvalidGalleryBackup::class.java) { GalleryBackupZipCodec.decode(zip(files).inputStream(), context.cacheDir) }
+        assertEquals(InvalidGalleryBackupReason.UNSUPPORTED_VERSION, error.reason)
+    }
+
 }

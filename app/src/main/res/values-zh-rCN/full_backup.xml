@@ -48,4 +48,22 @@
     <string name="full_backup_protected_note">受保护项目仍需在本机验证，此数量不代表导入失败。</string>
     <string name="full_backup_mode_note">合并保留现有收藏和配置；替换按备份更新，可能移除现有收藏关系和浏览配置。</string>
     <string name="full_backup_profile_existing_label">已有相同配置</string>
+    <string name="full_backup_auth_migration_required">恢复已取消。请先在安全设置中迁移旧版收藏密码；恢复操作不会修改凭据。</string>
+    <string name="full_backup_auth_not_completed">授权已取消或验证未通过，未执行恢复。</string>
+    <string name="full_backup_cancelled">恢复已取消，未写入数据。</string>
+    <string name="full_backup_access_changed">文件访问或来源保护已变化，请重新预览后恢复。</string>
+    <string name="full_backup_authorization_changed">授权已失效或保护状态已变化，请重新预览并验证。</string>
+    <string name="full_backup_checkpoint_failed">无法保存恢复检查点，未写入用户数据。</string>
+    <string name="full_backup_preferences_rolled_back">设置提交失败，本次恢复已回滚。</string>
+    <string name="full_backup_stale_rolled_back">恢复时数据或权限发生变化，本次更改已回滚，请重新预览。</string>
+    <string name="full_backup_unsupported_version">不支持此备份版本，未执行恢复。</string>
+    <string name="full_backup_preview_updated">验证已通过，请核对更新后的恢复范围并再次确认。</string>
+    <string name="full_backup_no_changes">恢复检查完成，无需更改数据。</string>
+    <string name="full_backup_partial_title">恢复已完成，部分项目受限</string>
+    <string name="full_backup_completed_summary">恢复完成。\n%1$s</string>
+    <string name="full_backup_applied_summary">媒体收藏：新增 %1$d，移除 %2$d，跳过 %3$d，保留 %4$d\n收藏文件夹：新增 %5$d，移除 %6$d\n照片配置：新增 %7$d，移除 %8$d\n设置变更 %9$d 项，修复缓存收藏标记 %10$d 项</string>
+    <string name="full_backup_skip_favorite_auth">缺少收藏授权而跳过的媒体</string>
+    <string name="full_backup_skip_source_protection">真实来源受保护而跳过的媒体</string>
+    <string name="full_backup_retained_summary">保留受限的原有媒体收藏 %1$d 项\n保留离线文件夹记录 %2$d 项\n需检查的配置来源 %3$d 项\n保留本地安全设置 %4$d 项\n去重后需检查的路径 %5$d 个（并非媒体失败数）</string>
+    <string name="full_backup_favorite_auth_needed">需验证收藏密码的媒体</string>
 </resources>

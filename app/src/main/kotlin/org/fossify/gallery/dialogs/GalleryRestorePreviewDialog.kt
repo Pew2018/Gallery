@@ -16,7 +16,9 @@ import org.fossify.gallery.helpers.backup.*
 
 /** Read-only preview; dismissing or cancelling either dialog never invokes the writer. */
 internal object GalleryRestorePreviewDialog {
-    fun show(activity: BaseSimpleActivity, plan: GalleryRestorePlan, restore: (GalleryRestoreMode) -> Unit) {
+    fun show(activity: BaseSimpleActivity, plan: GalleryRestorePlan,
+             initialMode: GalleryRestoreMode = GalleryRestoreMode.MERGE,
+             onCancelled: () -> Unit = {}, onConfirmationCancelled: () -> Unit = {}, restore: (GalleryRestoreMode) -> Unit) {
         val colors = photoDialogColors(activity)
         fun dp(value: Int) = (value * activity.resources.displayMetrics.density + .5f).toInt()
         val content = LinearLayout(activity).apply {
@@ -75,11 +77,13 @@ internal object GalleryRestorePreviewDialog {
             id = R.id.full_backup_preview
             addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        var mode = GalleryRestoreMode.MERGE
+        var mode = initialMode
+        var delivered = false
+        fun cancel() { if (!delivered) { delivered = true; onCancelled() } }
         fun update() {
             changes.removeAllViews()
             changeRows(activity, plan, mode).forEach { (label, count) -> row(changes, label, count) }
-            if (plan.statuses.values.any { it == BackupPathStatus.PROTECTED }) {
+            if (plan.statusesFor(mode).values.any { it == BackupPathStatus.PROTECTED }) {
                 changes.addView(TextView(activity).apply {
                     textSize = 14f; setTextColor(colors.secondary)
                     setText(R.string.full_backup_protected_note)
@@ -87,30 +91,43 @@ internal object GalleryRestorePreviewDialog {
             }
         }
         group.setOnCheckedChangeListener { _, id -> mode = if (id == replace.id) GalleryRestoreMode.REPLACE else GalleryRestoreMode.MERGE; update() }
-        merge.isChecked = true
+        if (initialMode == GalleryRestoreMode.REPLACE) replace.isChecked = true else merge.isChecked = true
         val dialog = OxygenClassicDialog.show(activity,
             OxygenClassicDialog.builder(activity, activity.getString(R.string.full_backup_restore))
                 .setView(scroll)
                 .setPositiveButton(R.string.full_backup_restore_action, null)
-                .setNegativeButton(org.fossify.commons.R.string.cancel, null), scroll)
+                .setNegativeButton(org.fossify.commons.R.string.cancel) { _, _ -> cancel() }, scroll)
+        dialog.setOnCancelListener { cancel() }
+        dialog.setOnDismissListener { cancel() }
+        var confirmation: AlertDialog? = null
+        fun accept(selected: GalleryRestoreMode) {
+            if (delivered) return
+            delivered = true
+            dialog.dismiss()
+            restore(selected)
+        }
         listOf(merge, replace).forEach {
             TiebaDialogChoices.apply(it, colors.accent, colors.text, colors.surface)
         }
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            if (delivered || confirmation?.isShowing == true) return@setOnClickListener
             if (mode == GalleryRestoreMode.MERGE) {
-                dialog.dismiss()
-                restore(mode)
+                accept(mode)
             } else {
                 val target = plan.targets.getValue(mode)
-                OxygenClassicDialog.show(activity,
+                var confirmationDelivered = false
+                fun cancelConfirmation() {
+                    if (!confirmationDelivered) { confirmationDelivered = true; onConfirmationCancelled() }
+                }
+                confirmation = OxygenClassicDialog.show(activity,
                     OxygenClassicDialog.builder(activity, activity.getString(R.string.full_backup_replace_confirm_title))
                         .setMessage(activity.getString(R.string.full_backup_replace_confirm,
                             target.mediaCount.removed, target.folderCount.removed, target.profileCount.removed))
-                        .setNegativeButton(org.fossify.commons.R.string.cancel, null)
+                        .setNegativeButton(org.fossify.commons.R.string.cancel) { _, _ -> cancelConfirmation() }
                         .setPositiveButton(R.string.full_backup_restore_action) { _, _ ->
-                            dialog.dismiss()
-                            restore(GalleryRestoreMode.REPLACE)
-                        })
+                            confirmationDelivered = true
+                            accept(GalleryRestoreMode.REPLACE)
+                        }).also { it.setOnCancelListener { cancelConfirmation() } }
             }
         }
     }
@@ -132,6 +149,15 @@ internal object GalleryRestorePreviewDialog {
                     activity.getString(category), activity.getString(change)) to count)
             }
         }
+        if (plan.authorization?.mode != mode && plan.requiresFavoriteAuthorization(mode)) {
+            val candidates = plan.incoming.mediaFavorites.toSet() + if (mode == GalleryRestoreMode.REPLACE) plan.existingMedia else emptySet()
+            addCount(R.string.full_backup_favorite_auth_needed, candidates.count { path ->
+                plan.accessDetails[BackupPathRequest(path, false)]?.let {
+                    it.requiresFavoriteCredential && it.storageStatus == BackupPathStatus.AVAILABLE &&
+                        it.protectedRoots.isEmpty() && !it.otherProtection
+                } == true
+            })
+        }
         addCount(R.string.full_backup_folder_conflicts_label, target.folderCount.conflicts)
         addCount(R.string.full_backup_profile_conflicts_label, target.profileCount.conflicts)
         addCount(R.string.full_backup_security_label, target.retainedSecuritySettings.size)
@@ -144,7 +170,7 @@ internal object GalleryRestorePreviewDialog {
                 BackupPathStatus.PROTECTED -> R.string.full_backup_path_protected
                 else -> R.string.full_backup_path_unconfirmed
             }
-            addCount(label, plan.statuses.values.count { it == status })
+            addCount(label, plan.statusesFor(mode).values.count { it == status })
         }
     }
 

@@ -121,4 +121,39 @@ class GalleryRestorePreviewDialogTest {
         preview.dismiss(); dialog.dismiss()
     }
 
+    @Test fun duplicateRestoreClicksDoNotOpenTwoConfirmationsAndCancelledConfirmationHasItsOwnCallback() = dialogTest { activity, plan, first, _ ->
+        first.dismiss()
+        var cancelled = 0
+        var restored = 0
+        GalleryRestorePreviewDialog.show(activity, plan, initialMode = GalleryRestoreMode.REPLACE,
+            onConfirmationCancelled = { cancelled++ }) { restored++ }
+        val preview = ShadowDialog.getLatestDialog() as AlertDialog
+        assertTrue(radios(preview.window!!.decorView).last().isChecked)
+        preview.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        val confirm = ShadowDialog.getLatestDialog() as AlertDialog
+        preview.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        assertSame(confirm, ShadowDialog.getLatestDialog())
+        confirm.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(1, cancelled); assertEquals(0, restored); assertTrue(preview.isShowing)
+        preview.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        val next = ShadowDialog.getLatestDialog() as AlertDialog
+        next.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        next.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(1, restored)
+    }
+
+    @Test fun previewCancellationCallbackIsDeliveredOnlyOnceAndNeverRestores() = dialogTest { activity, plan, first, _ ->
+        first.dismiss()
+        var cancelled = 0
+        GalleryRestorePreviewDialog.show(activity, plan, onCancelled = { cancelled++ }) { fail("cancel must not restore") }
+        val preview = ShadowDialog.getLatestDialog() as AlertDialog
+        preview.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        preview.cancel(); preview.dismiss()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(1, cancelled)
+    }
+
 }

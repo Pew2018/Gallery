@@ -44,6 +44,7 @@ class SettingsActivity : SimpleActivity() {
     }
 
     private val fullBackupBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    private var restoreOperation: GalleryRestoreOperation? = null
     private var mRecycleBinContentSize = 0L
     private val binding by viewBinding(ActivitySettingsBinding::inflate)
     private var activeSettingsCategory: String? = null
@@ -145,6 +146,13 @@ class SettingsActivity : SimpleActivity() {
         )
         // Resolve the first toolbar frame with the same theme token as onResume.
         binding.settingsToolbar.setBackgroundColor(OxygenThemeEngine.toolbarSurface(this, config))
+    }
+
+    override fun onDestroy() {
+        if (restoreOperation != null) PhotoAuthentication.requests.cancelOwner(this)
+        restoreOperation?.close()
+        restoreOperation = null
+        super.onDestroy()
     }
 
     override fun onResume() {
@@ -1402,6 +1410,7 @@ class SettingsActivity : SimpleActivity() {
 
     private fun setupFullBackup() {
         binding.settingsExportFullBackupHolder.setOnClickListener {
+            if (restoreOperation != null || fullBackupBusy.get()) { toast(R.string.full_backup_busy); return@setOnClickListener }
             fun choose() {
                 val date = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(java.util.Date())
                 ExportFavoritesDialog(this, "FossifyGallery-full-backup_$date", isQPlus(), ".zip", R.string.full_backup_export) { path, name ->
@@ -1419,6 +1428,7 @@ class SettingsActivity : SimpleActivity() {
             if (isQPlus()) choose() else handlePermission(PERMISSION_WRITE_STORAGE) { if (it) choose() }
         }
         binding.settingsRestoreFullBackupHolder.setOnClickListener {
+            if (restoreOperation != null || fullBackupBusy.get()) { toast(R.string.full_backup_busy); return@setOnClickListener }
             if (isQPlus()) try {
                 startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     type = "application/zip"
@@ -1433,18 +1443,12 @@ class SettingsActivity : SimpleActivity() {
     }
 
     private fun fullBackupWork(action: () -> Unit) {
-        if (!fullBackupBusy.compareAndSet(false, true)) { toast(R.string.full_backup_busy); return }
+        if (restoreOperation != null || !fullBackupBusy.compareAndSet(false, true)) { toast(R.string.full_backup_busy); return }
         toast(R.string.full_backup_working)
         BackupOperationRunner.execute({ try { action() } finally { fullBackupBusy.set(false) } }) { error ->
             android.util.Log.e("GalleryFullBackup", "Full backup operation failed", error)
             backupUi {
-                toast(when (error) {
-                    is StaleGalleryRestorePlan -> R.string.full_backup_stale
-                    is PendingGalleryRestore -> R.string.full_backup_recovery_blocked
-                    is GalleryRestoreFailure -> if (error.compensationSucceeded) R.string.full_backup_rolled_back else R.string.full_backup_recovery_blocked
-                    is InvalidGalleryBackup, is IllegalArgumentException -> R.string.full_backup_invalid
-                    else -> R.string.full_backup_io_failed
-                })
+                showFullBackupError(error)
             }
         }
     }
@@ -1461,31 +1465,159 @@ class SettingsActivity : SimpleActivity() {
         } finally { file.delete() }
     }
 
-    private fun previewFullBackup(open: () -> InputStream?) = fullBackupWork {
-        val service = GalleryRestoreService(applicationContext)
-        service.recoverPending()
-        val snapshot = GalleryBackupZipCodec.decode(open(), cacheDir)
-        val plan = service.preview(snapshot)
-        backupUi {
-            GalleryRestorePreviewDialog.show(this, plan) { mode ->
-                fullBackupWork {
-                    val result = service.restore(plan, mode)
-                    backupUi {
-                        checkAppIconColor()
-                        OxygenThemeEngine.apply(this, config)
-                        setupSettingItems()
-                        renderSettingsPage()
-                        setupBottomNavigationOrder()
-                        setupTopAppBar(binding.settingsAppbar, NavigationIcon.Arrow,
-                            topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
-                        OxygenToolbarStyle.applyToolbar(this, binding.settingsToolbar)
-                        OxygenSystemBars.apply(this)
-                        toast(getString(R.string.full_backup_restore_success, result.unresolvedPaths))
-                        // Shared theme code decides whether ONE normal appearance recreation is needed.
-                        refreshThemeIfNeeded()
-                    }
+    private fun isRestoreCurrent(operation: GalleryRestoreOperation) =
+        restoreOperation === operation && operation.isActive() && !isFinishing && !isDestroyed
+
+    private fun finishRestore(operation: GalleryRestoreOperation) {
+        operation.close()
+        if (restoreOperation === operation) restoreOperation = null
+    }
+
+    private fun showFullBackupError(error: Exception) {
+        toast(when (error) {
+            is RestoreAuthorizationRequired -> if (error.reason == RestoreAuthorizationReason.LEGACY_MIGRATION)
+                R.string.full_backup_auth_migration_required else R.string.full_backup_auth_not_completed
+            is StaleGalleryRestorePlan -> when (error.reason) {
+                RestoreStaleReason.ACCESS -> R.string.full_backup_access_changed
+                RestoreStaleReason.AUTHORIZATION -> R.string.full_backup_authorization_changed
+                else -> R.string.full_backup_stale
+            }
+            is PendingGalleryRestore, is GalleryRecoveryBlocked -> R.string.full_backup_recovery_blocked
+            is GalleryRestoreCheckpointFailure -> R.string.full_backup_checkpoint_failed
+            is GalleryRestoreFailure -> when {
+                !error.compensationSucceeded -> R.string.full_backup_recovery_blocked
+                error.cause is StaleGalleryRestorePlan -> R.string.full_backup_stale_rolled_back
+                error.stage == RestoreWriteStage.PREFERENCES -> R.string.full_backup_preferences_rolled_back
+                else -> R.string.full_backup_rolled_back
+            }
+            is InvalidGalleryBackup -> if (error.reason == InvalidGalleryBackupReason.UNSUPPORTED_VERSION)
+                R.string.full_backup_unsupported_version else R.string.full_backup_invalid
+            is IllegalArgumentException -> R.string.full_backup_invalid
+            else -> R.string.full_backup_io_failed
+        })
+    }
+
+    /** Compute under the existing backup mutex; release it before any authentication UI. */
+    private fun <T> restoreStep(operation: GalleryRestoreOperation, action: () -> T, ready: (T) -> Unit) {
+        if (!isRestoreCurrent(operation)) return
+        if (!fullBackupBusy.compareAndSet(false, true)) { finishRestore(operation); toast(R.string.full_backup_busy); return }
+        BackupOperationRunner.execute({
+            val value = try {
+                if (!operation.isActive()) throw StaleGalleryRestorePlan(RestoreStaleReason.AUTHORIZATION)
+                action()
+            } finally { fullBackupBusy.set(false) }
+            backupUi { if (isRestoreCurrent(operation)) ready(value) }
+        }) { error ->
+            fullBackupBusy.set(false)
+            operation.close()
+            backupUi {
+                if (restoreOperation === operation) {
+                    restoreOperation = null
+                    showFullBackupError(error)
                 }
             }
+        }
+    }
+
+    private fun previewFullBackup(open: () -> InputStream?) {
+        if (restoreOperation != null || fullBackupBusy.get()) { toast(R.string.full_backup_busy); return }
+        val operation = GalleryRestoreOperation { !isFinishing && !isDestroyed }
+        restoreOperation = operation
+        val service = GalleryRestoreService(applicationContext)
+        toast(R.string.full_backup_working)
+        restoreStep(operation, {
+            service.recoverPending()
+            service.preview(GalleryBackupZipCodec.decode(open(), cacheDir))
+        }) { plan -> showRestorePlan(operation, service, plan, GalleryRestoreMode.MERGE) }
+    }
+
+    private fun showRestorePlan(operation: GalleryRestoreOperation, service: GalleryRestoreService,
+                                plan: GalleryRestorePlan, initialMode: GalleryRestoreMode) {
+        if (!isRestoreCurrent(operation)) return
+        operation.awaitConfirmation()
+        GalleryRestorePreviewDialog.show(this, plan, initialMode, onCancelled = {
+            if (isRestoreCurrent(operation)) {
+                finishRestore(operation)
+                toast(R.string.full_backup_cancelled)
+            }
+        }, onConfirmationCancelled = { plan.authorization?.invalidate() }) { mode ->
+            if (!isRestoreCurrent(operation) || !operation.advance()) return@show
+            if (plan.requiresFavoriteAuthorization(mode) && plan.authorization?.current(applicationContext, plan, mode) != true) {
+                if (plan.securityVersion != GalleryRestoreAuthorization.securityVersion(applicationContext) ||
+                    plan.sessionGeneration != FavoriteAccessSessionManager.currentGeneration()) {
+                    finishRestore(operation)
+                    toast(R.string.full_backup_authorization_changed)
+                    return@show
+                }
+                if (config.isFolderProtected(FAVORITES)) {
+                    finishRestore(operation)
+                    toast(R.string.full_backup_auth_migration_required)
+                    return@show
+                }
+                if (!config.isFavoriteCredentialCurrent(config.favoriteCredentialSnapshot())) {
+                    finishRestore(operation)
+                    toast(R.string.full_backup_auth_not_completed)
+                    return@show
+                }
+                val started = authenticateFavoritePassword(allowLegacyMigration = false) { proof ->
+                    if (!isRestoreCurrent(operation)) return@authenticateFavoritePassword
+                    if (proof == null) {
+                        finishRestore(operation)
+                        toast(R.string.full_backup_auth_not_completed)
+                    } else restoreStep(operation, { service.authorize(plan, mode, proof, operation) }) { updated ->
+                        toast(R.string.full_backup_preview_updated)
+                        // Always re-confirm the newly authorized scope, including replacement's deletion count.
+                        showRestorePlan(operation, service, updated, mode)
+                    }
+                }
+                if (!started && isRestoreCurrent(operation)) { finishRestore(operation); toast(R.string.full_backup_busy) }
+            } else restoreStep(operation, { service.restore(plan, mode, operation) }) { result ->
+                finishRestore(operation)
+                if (result.settings.changed > 0 || result.profiles.appliedAdded > 0 || result.profiles.appliedRemoved > 0 || result.profiles.conflicts > 0) {
+                    checkAppIconColor()
+                    OxygenThemeEngine.apply(this, config)
+                    setupSettingItems()
+                    renderSettingsPage()
+                    setupBottomNavigationOrder()
+                    setupTopAppBar(binding.settingsAppbar, NavigationIcon.Arrow,
+                        topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
+                    OxygenToolbarStyle.applyToolbar(this, binding.settingsToolbar)
+                    OxygenSystemBars.apply(this)
+                    refreshThemeIfNeeded()
+                }
+                showRestoreResult(result)
+            }
+        }
+    }
+
+    private fun showRestoreResult(result: GalleryRestoreResult) {
+        if (result.completion == GalleryRestoreCompletion.NO_CHANGES) { toast(R.string.full_backup_no_changes); return }
+        val summary = getString(R.string.full_backup_applied_summary,
+            result.media.appliedAdded, result.media.appliedRemoved, result.media.skippedCount, result.media.retained,
+            result.folders.appliedAdded, result.folders.appliedRemoved, result.profiles.appliedAdded,
+            result.profiles.appliedRemoved, result.settings.changed, result.media.cacheRepaired)
+        if (result.completion == GalleryRestoreCompletion.COMPLETE) {
+            toast(getString(R.string.full_backup_completed_summary, summary))
+        } else {
+            val warnings = result.media.skipped.entries.joinToString("\n") { (reason, count) ->
+                val label = when (reason) {
+                    RestoreSkipReason.FAVORITE_AUTHORIZATION -> R.string.full_backup_skip_favorite_auth
+                    RestoreSkipReason.SOURCE_PROTECTION -> R.string.full_backup_skip_source_protection
+                    RestoreSkipReason.OTHER_PROTECTION -> R.string.full_backup_path_protected
+                    RestoreSkipReason.MISSING -> R.string.full_backup_path_missing
+                    RestoreSkipReason.OFFLINE -> R.string.full_backup_path_offline
+                    RestoreSkipReason.SAF_PERMISSION -> R.string.full_backup_path_saf
+                    RestoreSkipReason.MEDIA_PERMISSION -> R.string.full_backup_path_permission
+                    RestoreSkipReason.UNCONFIRMED -> R.string.full_backup_path_unconfirmed
+                }
+                getString(R.string.full_backup_status_line, getString(label), count)
+            }
+            val retained = getString(R.string.full_backup_retained_summary, result.media.retainedUnsafe,
+                result.folders.offlineRetained, result.profiles.inaccessibleSourcesRetained,
+                result.settings.securityRetained, result.unresolvedPaths)
+            OxygenClassicDialog.show(this, OxygenClassicDialog.builder(this, getString(R.string.full_backup_partial_title))
+                .setMessage(listOf(summary, warnings, retained).filter { it.isNotEmpty() }.joinToString("\n\n"))
+                .setPositiveButton(org.fossify.commons.R.string.ok, null))
         }
     }
 

@@ -12,14 +12,17 @@ internal data class GalleryBackupSnapshot(
     val mediaFavorites: List<String>,
     val favoriteFolders: List<FavoriteBackupCodec.FolderRecord>,
     val photoProfiles: PhotoProfileState,
-    val oxygenSettings: OxygenSettingsSnapshot
+    val oxygenSettings: OxygenSettingsSnapshot,
+    val mediaTotal: Int = mediaFavorites.size,
+    val mediaDuplicates: Int = mediaFavorites.size - mediaFavorites.distinct().size
 )
 
 /** Local-only concurrency evidence. NEVER serialize preferences into a portable archive. */
 internal data class GalleryLocalBackupState(
     val snapshot: GalleryBackupSnapshot,
     val preferences: Map<String, Any?>,
-    val token: String
+    val token: String,
+    val authorizationToken: String = token
 )
 
 internal object BackupDigest {

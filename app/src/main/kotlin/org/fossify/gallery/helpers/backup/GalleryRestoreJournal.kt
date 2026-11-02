@@ -10,7 +10,8 @@ import java.io.File
 /** Local checkpoint, not a portable backup. No credential/binding/permission values are captured. */
 internal data class GalleryRestoreCheckpoint(
     val beforeDb: String, val afterDb: String,
-    val beforePreferences: Map<String, Any?>, val afterPreferences: Map<String, Any?>
+    val beforePreferences: Map<String, Any?>, val afterPreferences: Map<String, Any?>,
+    val mediaChanged: Boolean = true
 )
 internal class GalleryRestoreJournal(context: Context) {
     private val file = AtomicFile(File(context.filesDir, "gallery-restore-checkpoint.json"))
@@ -19,6 +20,7 @@ internal class GalleryRestoreJournal(context: Context) {
     fun write(checkpoint: GalleryRestoreCheckpoint) {
         val root = JsonObject().apply {
             addProperty("version", 1); addProperty("beforeDb", checkpoint.beforeDb); addProperty("afterDb", checkpoint.afterDb)
+            addProperty("mediaChanged", checkpoint.mediaChanged)
             add("before", encodeValues(checkpoint.beforePreferences)); add("after", encodeValues(checkpoint.afterPreferences))
         }
         val bytes = root.toString().toByteArray(Charsets.UTF_8)
@@ -43,7 +45,11 @@ internal class GalleryRestoreJournal(context: Context) {
         val after = decodeValues(root.getAsJsonObject("after"))
         require(before.keys == after.keys)
         fun hash(key: String) = root.get(key).asString.also { require(it.matches(Regex("[0-9a-f]{64}"))) }
-        return GalleryRestoreCheckpoint(hash("beforeDb"), hash("afterDb"), before, after)
+        val mediaChanged = root.get("mediaChanged")?.let {
+            require(it.isJsonPrimitive && it.asJsonPrimitive.isBoolean)
+            it.asBoolean
+        } ?: true // older v1 checkpoints did not distinguish relation types
+        return GalleryRestoreCheckpoint(hash("beforeDb"), hash("afterDb"), before, after, mediaChanged)
     }
     companion object {
         const val MAX_BYTES = 64L * 1024 * 1024

@@ -295,13 +295,14 @@ internal fun Activity.ensureFavoriteAddAllowed(
 /** Verify the enabled virtual-album credential; disabled mode never opens setup UI here. */
 internal fun Activity.authenticateFavoritePassword(
     photoRequest: org.fossify.gallery.helpers.PhotoAuthRequests.Request? = null,
+    allowLegacyMigration: Boolean = true,
     onAuthenticated: (Config.FavoriteCredentialProof?) -> Unit
-) {
-    if (isFinishing || isDestroyed) return
+): Boolean {
+    if (isFinishing || isDestroyed) return false
     val requests = org.fossify.gallery.helpers.PhotoAuthentication.requests
     val request = photoRequest ?: requests.begin(this,
-        org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.currentGeneration()) ?: return
-    if (!requests.current(request, this)) return
+        org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.currentGeneration()) ?: return false
+    if (!requests.current(request, this)) return false
     val delivered = java.util.concurrent.atomic.AtomicBoolean(false)
     fun finish(proof: Config.FavoriteCredentialProof?) {
         if (!delivered.compareAndSet(false, true) || !requests.current(request, this) || isFinishing || isDestroyed) return
@@ -311,11 +312,18 @@ internal fun Activity.authenticateFavoritePassword(
         if (photoRequest == null) requests.finish(request)
         onAuthenticated(currentProof)
     }
+    // Restore is a read-only authentication consumer: never migrate or configure credentials.
+    if (!allowLegacyMigration) {
+        if (config.isFolderProtected(FAVORITES) || !config.isFavoriteCredentialCurrent(config.favoriteCredentialSnapshot())) finish(null)
+        else authenticatePreparedFavoritePassword(::finish)
+        return true
+    }
     prepareFavoritePasswordProtection { prepared ->
         if (!requests.current(request, this) || isFinishing || isDestroyed) return@prepareFavoritePasswordProtection
         if (prepared) authenticatePreparedFavoritePassword(::finish)
         else finish(null)
     }
+    return true
 }
 
 private fun Activity.authenticatePreparedFavoritePassword(onAuthenticated: (Config.FavoriteCredentialProof?) -> Unit) {

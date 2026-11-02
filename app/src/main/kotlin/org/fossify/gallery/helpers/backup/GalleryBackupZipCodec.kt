@@ -8,7 +8,11 @@ import java.security.MessageDigest
 import java.util.UUID
 import java.util.zip.*
 
-internal class InvalidGalleryBackup(cause: Exception) : IllegalArgumentException("Invalid complete backup", cause)
+internal class UnsupportedGalleryBackupVersion : IllegalArgumentException("Unsupported complete backup version")
+internal enum class InvalidGalleryBackupReason { MALFORMED, UNSUPPORTED_VERSION }
+internal class InvalidGalleryBackup(cause: Exception) : IllegalArgumentException("Invalid complete backup", cause) {
+    val reason = if (cause is UnsupportedGalleryBackupVersion) InvalidGalleryBackupReason.UNSUPPORTED_VERSION else InvalidGalleryBackupReason.MALFORMED
+}
 
 /** Fixed names only. No archive entry is ever resolved as a filesystem destination. */
 internal object GalleryBackupZipCodec {
@@ -56,6 +60,8 @@ internal object GalleryBackupZipCodec {
                 inspect(file)
                 var settings: String? = null
                 var media: List<String>? = null
+                var mediaTotal = 0
+                var mediaDuplicates = 0
                 var folders: List<FavoriteBackupCodec.FolderRecord>? = null
                 var profiles: org.fossify.gallery.helpers.PhotoProfileState? = null
                 var oxygen: OxygenSettingsSnapshot? = null
@@ -68,7 +74,7 @@ internal object GalleryBackupZipCodec {
                             "settings.txt" -> { require(LegacySettingsCodec.decode(text).applicable); settings = text }
                             "favorites.txt" -> {
                                 val plan = FavoriteBackupCodec.decodeMediaPlan(text)
-                                require(plan.invalid == 0); media = plan.paths
+                                require(plan.invalid == 0); media = plan.paths; mediaTotal = plan.total; mediaDuplicates = plan.duplicates
                             }
                             "favorite_folders.json" -> folders = FavoriteBackupCodec.decodeFolders(text)
                             "photo_profiles.json" -> profiles = PhotoProfileBackupCodec.decodeStrict(text)
@@ -78,7 +84,7 @@ internal object GalleryBackupZipCodec {
                     }
                 }
                 return GalleryBackupSnapshot(requireNotNull(settings), requireNotNull(media), requireNotNull(folders),
-                    requireNotNull(profiles), requireNotNull(oxygen))
+                    requireNotNull(profiles), requireNotNull(oxygen), mediaTotal, mediaDuplicates)
             } catch (error: Exception) { throw InvalidGalleryBackup(error) }
         } finally { file.delete() }
     }

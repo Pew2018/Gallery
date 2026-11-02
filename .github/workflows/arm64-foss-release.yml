@@ -112,6 +112,7 @@ jobs:
           name: backup-ui-test-reports
           path: |
             **/build/reports/backup-ui-previews/*.png
+            **/build/reports/restore-reliability/*
             app/build/test-results/testFossReleaseUnitTest/TEST-*.xml
             app/build/reports/tests/testFossReleaseUnitTest/**
           if-no-files-found: warn

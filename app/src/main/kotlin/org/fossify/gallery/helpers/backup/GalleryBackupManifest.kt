@@ -25,7 +25,8 @@ internal data class GalleryBackupManifest(val createdAt: String, val appId: Stri
 
         fun decode(text: String): GalleryBackupManifest {
             val root = BackupJson.parse(text).asJsonObject
-            require(string(root, "format") == FORMAT && root.get("version")?.toString() == "1") { "Unsupported complete backup format/version" }
+            require(string(root, "format") == FORMAT) { "Unsupported complete backup format" }
+            if (root.get("version")?.toString() != "1") throw UnsupportedGalleryBackupVersion()
             val appId = string(root, "appId")
             require(appId in setOf("org.fossify.gallery", "org.fossify.gallery.debug")) { "Wrong application ID" }
             val created = string(root, "createdAt")
