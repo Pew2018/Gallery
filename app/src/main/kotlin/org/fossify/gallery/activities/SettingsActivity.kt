@@ -387,7 +387,7 @@ class SettingsActivity : SimpleActivity() {
             previewFullBackup { contentResolver.openInputStream(uri) }
             return
         }
-        // Preserve Commons' export mapping and dialog/filename; replace only its unsafe stream writer.
+        // Preserve the settings snapshot and export mapping; write through the existing safe writer.
         val settingsSnapshot = LinkedHashMap(configItemsToExport)
         backupWork {
             when (requestCode) {
@@ -1543,11 +1543,24 @@ class SettingsActivity : SimpleActivity() {
     private fun setupExportSettings() {
         binding.settingsExportHolder.setOnClickListener {
             val snapshot = collectLegacySettings(config)
-            if (isQPlus()) exportSettings(snapshot) else {
+            if (isQPlus()) {
+                configItemsToExport = snapshot
+                ExportFavoritesDialog(this, "${baseConfig.appId.removeSuffix(".debug").removePrefix("org.fossify.")}-settings_${getCurrentFormattedDateTime()}", true,
+                    dialogTitle = org.fossify.commons.R.string.export_settings) { _, filename ->
+                    Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TITLE, filename)
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        try { startActivityForResult(this, SELECT_EXPORT_SETTINGS_FILE_INTENT) }
+                        catch (error: Exception) { showErrorToast(error) }
+                    }
+                }
+            } else {
                 handlePermission(PERMISSION_WRITE_STORAGE) { granted ->
                     if (granted) {
                         val appName = baseConfig.appId.removeSuffix(".debug").removePrefix("org.fossify.")
-                        ExportSettingsDialog(this, "$appName-settings_${getCurrentFormattedDateTime()}", false) { path, _ ->
+                        ExportFavoritesDialog(this, "$appName-settings_${getCurrentFormattedDateTime()}", false,
+                            dialogTitle = org.fossify.commons.R.string.export_settings) { path, _ ->
                             legacyBackupOutput(path, "text/plain") { output ->
                                 backupWork {
                                     BackupIo.writeText(output) { LegacySettingsCodec.encode(snapshot) }

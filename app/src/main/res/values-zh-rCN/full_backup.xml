@@ -2,8 +2,8 @@
     <string name="full_backup_export">导出完整备份</string>
     <string name="full_backup_restore">恢复完整备份</string>
     <string name="full_backup_restore_action">恢复</string>
-    <string name="full_backup_merge">合并到现有数据（默认）</string>
-    <string name="full_backup_replace">替换现有对应数据</string>
+    <string name="full_backup_merge">合并（保留现有数据）</string>
+    <string name="full_backup_replace">替换（按备份更新数据）</string>
     <string name="full_backup_preview_counts">备份内容\n应用设置：%1$d 项\n虚拟媒体收藏：%2$d 项\n收藏文件夹：%3$d 项\n照片浏览配置：%4$d 项\n扩展设置：%5$d 项</string>
     <string name="full_backup_preview_changes">媒体收藏：已有 %1$d，新增 %2$d，移除 %3$d\n文件夹：已有 %4$d，新增 %5$d，移除 %6$d，时间冲突 %11$d\n照片配置：等价 %7$d，新增 %8$d，冲突 %9$d，移除 %10$d</string>
     <string name="full_backup_status_line">%1$s：%2$d</string>
@@ -11,9 +11,9 @@
     <string name="full_backup_path_offline">存储设备未连接</string>
     <string name="full_backup_path_saf">缺少 SAF 授权</string>
     <string name="full_backup_path_permission">缺少媒体访问权限</string>
-    <string name="full_backup_path_protected">来源受保护</string>
+    <string name="full_backup_path_protected">受保护项目</string>
     <string name="full_backup_path_unconfirmed">访问状态无法确认</string>
-    <string name="full_backup_path_note">不会自动重映射路径。离线文件夹和照片来源将保留；无法验证的媒体将跳过，替换时也会保留无法安全移除的现有媒体收藏。密码、指纹与 SAF 权限不迁移。备份不包含照片和视频文件。</string>
+    <string name="full_backup_path_note">不包含原始照片和视频；不迁移密码、指纹及系统授权；不自动修复跨设备路径。</string>
     <string name="full_backup_replace_confirm_title">确认替换</string>
     <string name="full_backup_replace_confirm">将移除 %1$d 条媒体收藏关系、%2$d 条文件夹收藏关系和 %3$d 个照片配置。支持备份的对应设置将被替换；白名单内缺失项按默认值处理。本机认证状态保留，不会删除实际媒体文件。是否继续？</string>
     <string name="full_backup_busy">完整备份任务正在执行</string>
@@ -28,4 +28,24 @@
     <string name="full_backup_recovery_finished">已协调完成上次中断的恢复，请检查设置与来源路径。</string>
     <string name="full_backup_recovery_reverted">上次中断的恢复已还原为操作前设置。</string>
     <string name="full_backup_security_retained">安全策略将保留 %1$d 项本地显示设置。</string>
+    <string name="full_backup_contents_heading">备份内容</string>
+    <string name="full_backup_changes_heading">恢复变化</string>
+    <string name="full_backup_notes_heading">恢复说明</string>
+    <string name="full_backup_mode_heading">恢复方式</string>
+    <string name="full_backup_settings_label">应用设置</string>
+    <string name="full_backup_media_label">媒体收藏</string>
+    <string name="full_backup_folders_label">收藏文件夹</string>
+    <string name="full_backup_profiles_label">照片浏览配置</string>
+    <string name="full_backup_personalization_label">个性化设置</string>
+    <string name="full_backup_quantity">%1$d</string>
+    <string name="full_backup_change_label">%1$s · %2$s</string>
+    <string name="full_backup_added_label">可新增</string>
+    <string name="full_backup_existing_label">已存在</string>
+    <string name="full_backup_removed_label">将移除</string>
+    <string name="full_backup_folder_conflicts_label">收藏时间不同</string>
+    <string name="full_backup_profile_conflicts_label">配置冲突</string>
+    <string name="full_backup_security_label">保留本地显示设置</string>
+    <string name="full_backup_protected_note">受保护项目仍需在本机验证，此数量不代表导入失败。</string>
+    <string name="full_backup_mode_note">合并保留现有收藏和配置；替换按备份更新，可能移除现有收藏关系和浏览配置。</string>
+    <string name="full_backup_profile_existing_label">已有相同配置</string>
 </resources>

@@ -33,8 +33,7 @@
         <org.fossify.commons.views.MyTextInputLayout
             android:id="@+id/export_favorites_hint"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="@string/filename_without_txt">
+            android:layout_height="wrap_content">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/export_favorites_filename"

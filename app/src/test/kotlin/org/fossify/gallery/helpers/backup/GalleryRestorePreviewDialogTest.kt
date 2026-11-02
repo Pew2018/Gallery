@@ -66,4 +66,59 @@ class GalleryRestorePreviewDialogTest {
         org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         assertEquals(listOf(GalleryRestoreMode.REPLACE), calls())
     }
+    @Test fun previewHasDedicatedWidthAndEqualTrailingChoicesWithoutFixedHeight() = dialogTest { activity, _, dialog, _ ->
+        val root = dialog.window!!.decorView
+        val density = activity.resources.displayMetrics.density
+        assertEquals(org.fossify.gallery.helpers.OxygenClassicDialog.widthForContent(
+            org.fossify.gallery.helpers.OxygenClassicDialog.availableWidth(activity), density, 400), dialog.window!!.attributes.width)
+        assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, dialog.window!!.attributes.height)
+        assertNotNull(dialog.findViewById<android.view.View>(org.fossify.gallery.R.id.full_backup_preview))
+        val buttons = radios(root)
+        buttons.forEach {
+            assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, it.layoutParams.width)
+            assertTrue(it.minHeight >= (48 * density).toInt())
+            assertNull(it.buttonDrawable)
+            assertNotNull(it.compoundDrawablesRelative[2])
+        }
+        root.measure(android.view.View.MeasureSpec.makeMeasureSpec(dialog.window!!.attributes.width, android.view.View.MeasureSpec.EXACTLY),
+            android.view.View.MeasureSpec.makeMeasureSpec((700 * density).toInt(), android.view.View.MeasureSpec.AT_MOST))
+        root.layout(0, 0, root.measuredWidth, root.measuredHeight)
+        assertEquals(buttons[0].width, buttons[1].width)
+        assertEquals(buttons[0].right, buttons[1].right)
+    }
+
+    @Test fun changesHideZerosButKeepActualDeletionsConflictsAndProtectedPaths() = dialogTest { activity, plan, dialog, _ ->
+        val merge = plan.targets.getValue(GalleryRestoreMode.MERGE)
+        val replace = plan.targets.getValue(GalleryRestoreMode.REPLACE).copy(
+            mediaCount = RestoreCategoryCount(1, 3, 1, removed = 2),
+            folderCount = RestoreCategoryCount(1, 2, 0, conflicts = 1, removed = 1),
+            profileCount = RestoreCategoryCount(1, 1, 0, conflicts = 2, removed = 1))
+        val review = plan.copy(statuses = mapOf(BackupPathRequest("/protected", true) to BackupPathStatus.PROTECTED),
+            targets = mapOf(GalleryRestoreMode.MERGE to merge, GalleryRestoreMode.REPLACE to replace))
+        val mergeRows = GalleryRestorePreviewDialog.changeRows(activity, review, GalleryRestoreMode.MERGE)
+        val replaceRows = GalleryRestorePreviewDialog.changeRows(activity, review, GalleryRestoreMode.REPLACE)
+        assertTrue(mergeRows.all { it.second > 0 }); assertTrue(replaceRows.all { it.second > 0 })
+        assertTrue(replaceRows.contains(activity.getString(org.fossify.gallery.R.string.full_backup_path_protected) to 1))
+        assertFalse(replaceRows.any { it.first == activity.getString(org.fossify.gallery.R.string.full_backup_path_missing) })
+        assertTrue(replaceRows.contains(activity.getString(org.fossify.gallery.R.string.full_backup_change_label,
+            activity.getString(org.fossify.gallery.R.string.full_backup_media_label),
+            activity.getString(org.fossify.gallery.R.string.full_backup_removed_label)) to 2))
+        GalleryRestorePreviewDialog.show(activity, review) { fail("preview must not restore") }
+        val preview = ShadowDialog.getLatestDialog() as AlertDialog
+        fun changeTexts(): List<String> {
+            val changes = preview.findViewById<android.widget.LinearLayout>(org.fossify.gallery.R.id.full_backup_changes)!!
+            fun collect(view: android.view.View): List<String> = when (view) {
+                is android.widget.TextView -> listOf(view.text.toString())
+                is ViewGroup -> (0 until view.childCount).flatMap { collect(view.getChildAt(it)) }
+                else -> emptyList()
+            }
+            return collect(changes)
+        }
+        assertTrue(changeTexts().containsAll(mergeRows.map { it.first }))
+        radios(preview.window!!.decorView).last().isChecked = true
+        assertTrue(changeTexts().containsAll(replaceRows.map { it.first }))
+        assertTrue(changeTexts().contains(activity.getString(org.fossify.gallery.R.string.full_backup_protected_note)))
+        preview.dismiss(); dialog.dismiss()
+    }
+
 }

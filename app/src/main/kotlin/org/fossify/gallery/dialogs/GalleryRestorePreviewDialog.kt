@@ -1,5 +1,7 @@
 package org.fossify.gallery.dialogs
 
+import android.view.Gravity
+import android.view.ViewGroup
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.RadioButton
@@ -22,39 +24,68 @@ internal object GalleryRestorePreviewDialog {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(8), dp(24), dp(8))
         }
-        val summary = TextView(activity).apply { textSize = 16f; setTextColor(colors.primaryText) }
-        val note = TextView(activity).apply {
-            textSize = 14f; setTextColor(colors.secondaryText)
-            text = activity.getString(R.string.full_backup_path_note)
+        fun heading(label: Int) = TextView(activity).apply {
+            setText(label)
+            textSize = 14f
+            setTextColor(colors.interactiveAccent)
             setPadding(0, dp(12), 0, dp(8))
         }
-        val group = RadioGroup(activity)
+        fun row(parent: LinearLayout, label: String, count: Int) {
+            val line = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(4), 0, dp(4))
+            }
+            line.addView(TextView(activity).apply {
+                text = label; textSize = 14f; setTextColor(colors.primaryText)
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            line.addView(TextView(activity).apply {
+                text = activity.getString(R.string.full_backup_quantity, count)
+                textSize = 14f; setTextColor(colors.primaryText)
+                gravity = Gravity.END
+                setPadding(dp(12), 0, 0, 0)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            parent.addView(line, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        content.addView(heading(R.string.full_backup_contents_heading))
+        val initial = plan.targets.getValue(GalleryRestoreMode.MERGE)
+        listOf(
+            R.string.full_backup_settings_label to plan.settingsCount,
+            R.string.full_backup_media_label to initial.mediaCount.incoming,
+            R.string.full_backup_folders_label to initial.folderCount.incoming,
+            R.string.full_backup_profiles_label to initial.profileCount.incoming,
+            R.string.full_backup_personalization_label to plan.incoming.oxygenSettings.values.size
+        ).forEach { (label, count) -> row(content, activity.getString(label), count) }
+        content.addView(heading(R.string.full_backup_changes_heading))
+        val changes = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; id = R.id.full_backup_changes }
+        content.addView(changes)
+        content.addView(heading(R.string.full_backup_notes_heading))
+        content.addView(TextView(activity).apply {
+            textSize = 14f; setTextColor(colors.secondaryText)
+            text = activity.getString(R.string.full_backup_mode_note) + "\n" + activity.getString(R.string.full_backup_path_note)
+        })
+        content.addView(heading(R.string.full_backup_mode_heading))
+        val group = RadioGroup(activity).apply { orientation = RadioGroup.VERTICAL }
         val merge = RadioButton(activity).apply { id = View.generateViewId(); setText(R.string.full_backup_merge); textSize = 16f }
         val replace = RadioButton(activity).apply { id = View.generateViewId(); setText(R.string.full_backup_replace); textSize = 16f }
-        group.addView(merge); group.addView(replace)
-        content.addView(summary); content.addView(note); content.addView(group)
-        val scroll = ClassicDialogScrollView(activity).apply { addView(content) }
+        listOf(merge, replace).forEach {
+            group.addView(it, RadioGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        content.addView(group, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val scroll = ClassicDialogScrollView(activity).apply {
+            id = R.id.full_backup_preview
+            addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
         var mode = GalleryRestoreMode.MERGE
         fun update() {
-            val target = plan.targets.getValue(mode)
-            val statuses = BackupPathStatus.entries.filter { it != BackupPathStatus.AVAILABLE }.joinToString("\n") { status ->
-                val title = when (status) {
-                    BackupPathStatus.MISSING -> R.string.full_backup_path_missing
-                    BackupPathStatus.OFFLINE_STORAGE -> R.string.full_backup_path_offline
-                    BackupPathStatus.SAF_PERMISSION -> R.string.full_backup_path_saf
-                    BackupPathStatus.MEDIA_PERMISSION -> R.string.full_backup_path_permission
-                    BackupPathStatus.PROTECTED -> R.string.full_backup_path_protected
-                    else -> R.string.full_backup_path_unconfirmed
-                }
-                activity.getString(R.string.full_backup_status_line, activity.getString(title), plan.statuses.values.count { it == status })
+            changes.removeAllViews()
+            changeRows(activity, plan, mode).forEach { (label, count) -> row(changes, label, count) }
+            if (plan.statuses.values.any { it == BackupPathStatus.PROTECTED }) {
+                changes.addView(TextView(activity).apply {
+                    textSize = 14f; setTextColor(colors.secondaryText)
+                    setText(R.string.full_backup_protected_note)
+                })
             }
-            summary.text = activity.getString(R.string.full_backup_preview_counts, plan.settingsCount,
-                target.mediaCount.incoming, target.folderCount.incoming, target.profileCount.incoming, plan.incoming.oxygenSettings.values.size) +
-                "\n\n" + activity.getString(R.string.full_backup_preview_changes,
-                    target.mediaCount.existing, target.mediaCount.added, target.mediaCount.removed,
-                    target.folderCount.existing, target.folderCount.added, target.folderCount.removed,
-                    target.profileCount.existing, target.profileCount.added, target.profileCount.conflicts, target.profileCount.removed, target.folderCount.conflicts) +
-                "\n\n" + activity.getString(R.string.full_backup_security_retained, target.retainedSecuritySettings.size) + "\n" + statuses
         }
         group.setOnCheckedChangeListener { _, id -> mode = if (id == replace.id) GalleryRestoreMode.REPLACE else GalleryRestoreMode.MERGE; update() }
         merge.isChecked = true
@@ -79,4 +110,37 @@ internal object GalleryRestorePreviewDialog {
                 }
             }
     }
+    internal fun changeRows(activity: BaseSimpleActivity, plan: GalleryRestorePlan, mode: GalleryRestoreMode): List<Pair<String, Int>> = buildList {
+        val target = plan.targets.getValue(mode)
+        fun addCount(label: Int, count: Int) {
+            if (count > 0) add(activity.getString(label) to count)
+        }
+        listOf(
+            R.string.full_backup_media_label to target.mediaCount,
+            R.string.full_backup_folders_label to target.folderCount,
+            R.string.full_backup_profiles_label to target.profileCount
+        ).forEach { (category, counts) ->
+            listOf(R.string.full_backup_added_label to counts.added,
+                (if (category == R.string.full_backup_profiles_label) R.string.full_backup_profile_existing_label else R.string.full_backup_existing_label) to counts.existing,
+                R.string.full_backup_removed_label to counts.removed).forEach { (change, count) ->
+                if (count > 0) add(activity.getString(R.string.full_backup_change_label,
+                    activity.getString(category), activity.getString(change)) to count)
+            }
+        }
+        addCount(R.string.full_backup_folder_conflicts_label, target.folderCount.conflicts)
+        addCount(R.string.full_backup_profile_conflicts_label, target.profileCount.conflicts)
+        addCount(R.string.full_backup_security_label, target.retainedSecuritySettings.size)
+        BackupPathStatus.entries.filter { it != BackupPathStatus.AVAILABLE }.forEach { status ->
+            val label = when (status) {
+                BackupPathStatus.MISSING -> R.string.full_backup_path_missing
+                BackupPathStatus.OFFLINE_STORAGE -> R.string.full_backup_path_offline
+                BackupPathStatus.SAF_PERMISSION -> R.string.full_backup_path_saf
+                BackupPathStatus.MEDIA_PERMISSION -> R.string.full_backup_path_permission
+                BackupPathStatus.PROTECTED -> R.string.full_backup_path_protected
+                else -> R.string.full_backup_path_unconfirmed
+            }
+            addCount(label, plan.statuses.values.count { it == status })
+        }
+    }
+
 }

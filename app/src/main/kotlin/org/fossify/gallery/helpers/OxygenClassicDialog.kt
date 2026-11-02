@@ -84,7 +84,7 @@ object OxygenClassicDialog {
 
     /** Classify dialog widths by their content and scrolling needs. */
     private enum class WidthProfile(val maxDp: Int) {
-        COMPACT(278), CONFIRM(320), REORDER(340), OPTIONS(360), SECURITY(340), INPUT(400), FORM(400), DETAILS(480), PICKER(560)
+        COMPACT(278), CONFIRM(320), REORDER(340), OPTIONS(360), SECURITY(340), INPUT(400), FORM(400), BACKUP(400), DETAILS(480), PICKER(560)
     }
 
     internal fun widthForContent(availableWidth: Int, density: Float, maxWidthDp: Int): Int =
@@ -96,6 +96,8 @@ object OxygenClassicDialog {
     private fun widthProfile(dialog: AlertDialog): WidthProfile {
         fun has(vararg ids: Int) = ids.any { dialog.findViewById<View>(it) != null }
         return when {
+            has(R.id.full_backup_preview) -> WidthProfile.BACKUP
+
             // Commons security dialogs need a 250dp minimum pattern/PIN grid.
             has(org.fossify.commons.R.id.dialog_tab_view_pager) -> WidthProfile.SECURITY
 

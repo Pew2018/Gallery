@@ -2,8 +2,8 @@
     <string name="full_backup_export">Export complete backup</string>
     <string name="full_backup_restore">Restore complete backup</string>
     <string name="full_backup_restore_action">Restore</string>
-    <string name="full_backup_merge">Merge with existing data (default)</string>
-    <string name="full_backup_replace">Replace corresponding data</string>
+    <string name="full_backup_merge">Merge (keep existing data)</string>
+    <string name="full_backup_replace">Replace (update from backup)</string>
     <string name="full_backup_preview_counts">Backup contents\nApplication settings: %1$d\nMedia favorites: %2$d\nFavorite folders: %3$d\nPhoto profiles: %4$d\nExtension settings: %5$d</string>
     <string name="full_backup_preview_changes">Media: %1$d existing, %2$d new, %3$d removed\nFolders: %4$d existing, %5$d new, %6$d removed, %11$d date conflicts\nProfiles: %7$d equivalent, %8$d new, %9$d conflicts, %10$d removed</string>
     <string name="full_backup_status_line">%1$s: %2$d</string>
@@ -11,9 +11,9 @@
     <string name="full_backup_path_offline">Storage offline</string>
     <string name="full_backup_path_saf">SAF permission required</string>
     <string name="full_backup_path_permission">Media permission required</string>
-    <string name="full_backup_path_protected">Protected sources</string>
+    <string name="full_backup_path_protected">Protected items</string>
     <string name="full_backup_path_unconfirmed">Access cannot be confirmed</string>
-    <string name="full_backup_path_note">Paths are not remapped. Offline folders and profile sources are kept. Media that cannot be verified is skipped; existing unsafe media favorites are retained even in Replace mode. Passwords, fingerprints and SAF permissions are not restored. No photos or videos are included.</string>
+    <string name="full_backup_path_note">No original photos or videos are included. Passwords, fingerprints and system permissions stay on this device. Cross-device paths are not repaired automatically.</string>
     <string name="full_backup_replace_confirm_title">Confirm replacement</string>
     <string name="full_backup_replace_confirm">Remove %1$d media favorite relationships, %2$d folder relationships and %3$d photo profiles. Corresponding supported settings will be replaced; omitted allowlisted values revert to defaults. Device security stays local. Actual media files will not be deleted. Continue?</string>
     <string name="full_backup_busy">A complete backup operation is already running</string>
@@ -28,4 +28,24 @@
     <string name="full_backup_recovery_finished">An interrupted restore was reconciled. Please review settings and source paths.</string>
     <string name="full_backup_recovery_reverted">An interrupted restore was reverted to its previous settings.</string>
     <string name="full_backup_security_retained">Security policy preserves %1$d local display settings.</string>
+    <string name="full_backup_contents_heading">Backup contents</string>
+    <string name="full_backup_changes_heading">Restore changes</string>
+    <string name="full_backup_notes_heading">Restore notes</string>
+    <string name="full_backup_mode_heading">Restore mode</string>
+    <string name="full_backup_settings_label">Application settings</string>
+    <string name="full_backup_media_label">Media favorites</string>
+    <string name="full_backup_folders_label">Favorite folders</string>
+    <string name="full_backup_profiles_label">Photo browsing profiles</string>
+    <string name="full_backup_personalization_label">Personalization settings</string>
+    <string name="full_backup_quantity">%1$d</string>
+    <string name="full_backup_change_label">%1$s · %2$s</string>
+    <string name="full_backup_added_label">New</string>
+    <string name="full_backup_existing_label">Already present</string>
+    <string name="full_backup_removed_label">Will be removed</string>
+    <string name="full_backup_folder_conflicts_label">Different favorite dates</string>
+    <string name="full_backup_profile_conflicts_label">Profile conflicts</string>
+    <string name="full_backup_security_label">Local display settings preserved</string>
+    <string name="full_backup_protected_note">Protected items still require local authentication; this is not a count of failed imports.</string>
+    <string name="full_backup_mode_note">Merge keeps existing favorites and profiles. Replace updates them from the backup and may remove existing relationships and profiles.</string>
+    <string name="full_backup_profile_existing_label">Identical profiles already present</string>
 </resources>

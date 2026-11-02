@@ -1,10 +1,8 @@
 package org.fossify.gallery.extensions
 
 import android.app.Activity
-import android.view.Gravity
+import org.fossify.gallery.dialogs.ClassicPasswordMethodDialog
 import android.util.Log
-import android.widget.LinearLayout
-import android.widget.TextView
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
 import androidx.biometric.BiometricManager
@@ -88,20 +86,18 @@ private fun Activity.configurePhotoPasswordWithProof(
         labels.add(getString(R.string.photo_password_biometric))
     }
 
-    showPhotoPasswordDialog(R.string.photo_password_title) {
-        setItems(labels.toTypedArray()) { _, index ->
-            if (!requestCurrent(request) || !modeChoice()) return@setItems
-            val type = modes.getOrNull(index) ?: run {
-                onReady(null, null)
-                return@setItems
-            }
-            when (type) {
-                PROTECTION_PATTERN, PROTECTION_PIN -> configurePhotoPasswordType(request, type, onReady)
-                PROTECTION_FINGERPRINT -> configurePhotoBiometricPassword(request, biometricScope, onReady)
-                else -> onReady(null, null)
-            }
+    ClassicPasswordMethodDialog.show(this, R.string.photo_password_title, labels,
+        canChoose = { requestCurrent(request) && modeChoice() },
+        onCancel = { if (requestCurrent(request) && modeChoice()) onReady(null, null) }) { index ->
+        val type = modes.getOrNull(index) ?: run {
+            onReady(null, null)
+            return@show
         }
-        setOnCancelListener { if (requestCurrent(request) && modeChoice()) onReady(null, null) }
+        when (type) {
+            PROTECTION_PATTERN, PROTECTION_PIN -> configurePhotoPasswordType(request, type, onReady)
+            PROTECTION_FINGERPRINT -> configurePhotoBiometricPassword(request, biometricScope, onReady)
+            else -> onReady(null, null)
+        }
     }
 }
 
@@ -207,42 +203,13 @@ private fun Activity.choosePhotoFallbackCredential(
             finish(credential)
         }
     }
-    val context = OxygenClassicDialog.builder(this, "").context
-    val density = resources.displayMetrics.density
-    val body = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding((24 * density).toInt(), (8 * density).toInt(), (24 * density).toInt(), (8 * density).toInt())
+    ClassicPasswordMethodDialog.show(this, R.string.photo_password_fallback_title,
+        listOf(getString(R.string.photo_password_choose_pin), getString(R.string.photo_password_choose_pattern)),
+        description = R.string.photo_password_fallback_description,
+        canChoose = { !delivered.get() && requestCurrent(request) && fallbackChoice() },
+        onCancel = { if (fallbackChoice()) finish(null) }) { index ->
+        configureFallback(if (index == 0) PROTECTION_PIN else PROTECTION_PATTERN)
     }
-    body.addView(TextView(context).apply {
-        setText(R.string.photo_password_fallback_description)
-        textSize = 14f
-        setTextColor(org.fossify.gallery.helpers.photoDialogColors(this@choosePhotoFallbackCredential).text)
-        setPadding(0, 0, 0, (8 * density).toInt())
-    })
-    lateinit var dialog: AlertDialog
-    fun addChoice(label: Int, type: Int) {
-        body.addView(TextView(context).apply {
-            setText(label)
-            textSize = 16f
-            gravity = Gravity.CENTER_VERTICAL
-            minHeight = (48 * density).toInt()
-            setTextColor(org.fossify.gallery.helpers.photoDialogColors(this@choosePhotoFallbackCredential).text)
-            background = OxygenClassicDialog.ripple(org.fossify.gallery.helpers.photoDialogColors(this@choosePhotoFallbackCredential).accent, density)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                if (delivered.get() || !requestCurrent(request) || !fallbackChoice()) return@setOnClickListener
-                dialog.dismiss()
-                configureFallback(type)
-            }
-        })
-    }
-    addChoice(R.string.photo_password_choose_pin, PROTECTION_PIN)
-    addChoice(R.string.photo_password_choose_pattern, PROTECTION_PATTERN)
-    dialog = OxygenClassicDialog.show(this, OxygenClassicDialog.builder(this, getString(R.string.photo_password_fallback_title))
-        .setView(body)
-        .setNegativeButton(org.fossify.commons.R.string.cancel) { _, _ -> if (fallbackChoice()) finish(null) })
-    dialog.setOnCancelListener { if (fallbackChoice()) finish(null) }
 }
 
 private fun Activity.authenticatePreparedPhotoPassword(request: PhotoAuthRequests.Request, biometricScope: String? = null, onAuthenticated: (Config.PhotoCredentialProof?) -> Unit) {
