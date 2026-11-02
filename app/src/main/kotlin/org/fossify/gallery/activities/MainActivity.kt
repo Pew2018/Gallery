@@ -286,7 +286,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val update = {
             directoryHeaderProgress?.apply {
                 OxygenProgressStyle.apply(this@MainActivity, config, this)
-                visibility = if (loading) View.VISIBLE else View.GONE
+                OxygenProgressStyle.setLoading(this, loading)
             }
         }
         if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) update()

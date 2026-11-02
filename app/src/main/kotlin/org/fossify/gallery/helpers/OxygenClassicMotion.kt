@@ -1,0 +1,27 @@
+package org.fossify.gallery.helpers
+
+import android.content.Context
+import android.provider.Settings
+import android.view.animation.PathInterpolator
+
+/**
+ * OxygenOS 7.1.1 Classic motion tokens. Android owns RippleDrawable's lifecycle;
+ * other motion is brief, unscaled, and observes the global animator switch.
+ */
+object OxygenClassicMotion {
+    const val CHECKBOX_MS = 140L
+    const val TAB_MS = 150L
+    const val SWITCH_MS = 180L
+    const val TOGGLE_CHECKBOX_MS = 200L
+    const val LIST_MOVE_MS = 170L
+    const val SETTINGS_EXIT_MS = 80L
+    const val SETTINGS_ENTER_MS = 100L
+
+    fun enabled(context: Context): Boolean = runCatching {
+        Settings.Global.getFloat(
+            context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f
+        ) > 0f
+    }.getOrDefault(true)
+
+    fun easing() = PathInterpolator(0.4f, 0f, 0.2f, 1f)
+}

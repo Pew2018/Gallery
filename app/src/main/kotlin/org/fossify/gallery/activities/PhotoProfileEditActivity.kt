@@ -1,5 +1,6 @@
 package org.fossify.gallery.activities
 
+import android.animation.LayoutTransition
 import android.content.Intent
 import android.os.Bundle
 import android.view.Gravity
@@ -47,6 +48,21 @@ class PhotoProfileEditActivity : SimpleActivity() {
     private val sourceStatusRequests = PhotoSourceStatusRequests()
     private var resumeVersion = 0L
     private var sourceStatuses: Map<PhotoSource, PhotoSourceStatus> = emptyMap()
+    // Preserve each row's identity (including pressed ripple) across status refreshes.
+    private val sourceRows = LinkedHashMap<PhotoSource, LinearLayout>()
+    private val sourceDividers = LinkedHashMap<PhotoSource, View>()
+    private var sourceRowsRendered = false
+    private val sourceLayoutTransition by lazy {
+        LayoutTransition().apply {
+            disableTransitionType(LayoutTransition.APPEARING)
+            disableTransitionType(LayoutTransition.DISAPPEARING)
+            for (kind in intArrayOf(LayoutTransition.CHANGE_APPEARING,
+                LayoutTransition.CHANGE_DISAPPEARING, LayoutTransition.CHANGING)) {
+                setDuration(kind, OxygenClassicMotion.LIST_MOVE_MS)
+                setInterpolator(kind, OxygenClassicMotion.easing())
+            }
+        }
+    }
     private val authListenerId = "photo-profile-edit-${System.identityHashCode(this)}"
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -132,6 +148,10 @@ class PhotoProfileEditActivity : SimpleActivity() {
     override fun onDestroy() {
         sourceStatusRequests.invalidate()
         PhotoProfileAccessSessionManager.removeListener(authListenerId)
+        sourceRows.values.forEach { it.animate().cancel(); it.alpha = 1f }
+        binding.photoProfileEditSources.layoutTransition = null
+        sourceRows.clear()
+        sourceDividers.clear()
         super.onDestroy()
     }
 
@@ -167,59 +187,119 @@ class PhotoProfileEditActivity : SimpleActivity() {
 
     private fun renderSources() {
         val colors = OxygenThemeEngine.snapshot(this, config)
-        binding.photoProfileEditSources.removeAllViews()
+        val container = binding.photoProfileEditSources
+        val animate = sourceRowsRendered && OxygenClassicMotion.enabled(this)
+        val transition = if (OxygenClassicMotion.enabled(this)) sourceLayoutTransition else null
+        if (container.layoutTransition !== transition) container.layoutTransition = transition
         binding.photoProfileEditEmpty.visibility = if (draft.sources.isEmpty()) View.VISIBLE else View.GONE
+        val desired = ArrayList<View>(draft.sources.size * 2)
         draft.sources.forEachIndexed { index, source ->
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(8), 0, dp(8))
-                minimumHeight = dp(72)
+            val row = sourceRows[source] ?: makeSourceRow(source, colors).also { created ->
+                sourceRows[source] = created
+                if (animate) created.alpha = 0f
             }
-            row.addView(android.widget.ImageView(this).apply {
-                setImageResource(if (source.type == PhotoSourceType.FAVORITES) org.fossify.commons.R.drawable.ic_star_vector else org.fossify.commons.R.drawable.ic_folder_vector)
-                imageTintList = android.content.res.ColorStateList.valueOf(colors.secondaryText)
-                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(16) })
-            val labels = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
-            labels.addView(TextView(this).apply {
-                text = if (source.type == PhotoSourceType.FAVORITES) getString(R.string.photo_profiles_favorites) else File(source.path.orEmpty()).name.ifBlank { source.path.orEmpty() }
-                textSize = 16f; setTextColor(OxygenClassicPageInput.readableTextColor(colors.primaryText, colors)); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
-            })
-            labels.addView(TextView(this).apply {
-                text = source.path ?: getString(R.string.photo_profiles_favorites)
-                textSize = 12f; setTextColor(OxygenClassicPageInput.readableTextColor(colors.secondaryText, colors)); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
-            })
-            sourceStatuses[source]?.takeIf { it != PhotoSourceStatus.READY }?.let { status ->
-                labels.addView(TextView(this).apply {
-                    text = getString(status.stringRes)
-                    textSize = 12f
-                    setTextColor(OxygenClassicPageInput.readableTextColor(colors.secondaryText, colors))
+            // Async access validation changes only the status caption, never the row identity.
+            row.findViewWithTag<TextView>("photo_source_status")?.apply {
+                val status = sourceStatuses[source]?.takeIf { it != PhotoSourceStatus.READY }
+                visibility = if (status == null) View.GONE else View.VISIBLE
+                if (status != null) setText(status.stringRes)
+            }
+            desired.add(row)
+            if (index < draft.sources.lastIndex) {
+                desired.add(sourceDividers.getOrPut(source) {
+                    View(this).apply {
+                        setBackgroundColor(OxygenThemeColors.blend(
+                            colors.pageBackground, colors.primaryText, 0.10))
+                        layoutParams = LinearLayout.LayoutParams(-1, dp(1))
+                    }
                 })
             }
-            row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
-            row.addView(ImageButton(this).apply {
-                setImageResource(org.fossify.commons.R.drawable.ic_cross_vector)
-                imageTintList = android.content.res.ColorStateList.valueOf(
-                    OxygenClassicPageInput.readableTextColor(colors.primaryText, colors)
-                )
-                contentDescription = getString(R.string.photo_profiles_remove_source)
-                background = OxygenClassicDialog.ripple(colors.interactiveAccent, resources.displayMetrics.density)
-                setOnClickListener {
-                    sourceStatusRequests.invalidate()
-                    draft = draft.copy(sources = draft.sources.filterNot { it == source })
-                    sourceStatuses = sourceStatuses - source
-                    renderSources()
-                    checkSourceStatuses()
+        }
+        // Reconcile in place rather than removeAllViews(): unchanged rows never detach.
+        desired.forEachIndexed { index, child ->
+            if (container.getChildAt(index) !== child) {
+                (child.parent as? android.view.ViewGroup)?.removeView(child)
+                container.addView(child, index.coerceAtMost(container.childCount))
+                if (child is LinearLayout && child.alpha == 0f) {
+                    child.animate().cancel()
+                    if (animate) child.animate().alpha(1f)
+                        .setDuration(OxygenClassicMotion.CHECKBOX_MS)
+                        .setInterpolator(OxygenClassicMotion.easing())
+                        .withEndAction { child.alpha = 1f }.start()
+                    else child.alpha = 1f
                 }
-            }, LinearLayout.LayoutParams(dp(48), dp(48)))
-            binding.photoProfileEditSources.addView(row)
-            if (index < draft.sources.lastIndex) {
-                binding.photoProfileEditSources.addView(View(this).apply {
-                    setBackgroundColor(OxygenThemeColors.blend(colors.pageBackground, colors.primaryText, 0.10))
-                }, LinearLayout.LayoutParams(-1, dp(1)))
             }
         }
-        binding.photoProfileEditError.visibility = if (showSourceError && draft.sources.isEmpty()) View.VISIBLE else View.GONE
+        for (index in container.childCount - 1 downTo desired.size) {
+            container.getChildAt(index).animate().cancel()
+            container.removeViewAt(index)
+        }
+        val keep = draft.sources.toSet()
+        sourceRows.keys.retainAll(keep)
+        sourceDividers.keys.retainAll(keep)
+        binding.photoProfileEditError.visibility =
+            if (showSourceError && draft.sources.isEmpty()) View.VISIBLE else View.GONE
+        sourceRowsRendered = true
+    }
+
+    private fun makeSourceRow(source: PhotoSource, colors: OxygenThemeTokens): LinearLayout {
+        val row = LinearLayout(this).apply {
+            tag = source
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(8), 0, dp(8))
+            minimumHeight = dp(72)
+        }
+        row.addView(android.widget.ImageView(this).apply {
+            setImageResource(if (source.type == PhotoSourceType.FAVORITES)
+                org.fossify.commons.R.drawable.ic_star_vector
+            else org.fossify.commons.R.drawable.ic_folder_vector)
+            imageTintList = android.content.res.ColorStateList.valueOf(colors.secondaryText)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(16) })
+        val labels = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        labels.addView(TextView(this).apply {
+            text = if (source.type == PhotoSourceType.FAVORITES)
+                getString(R.string.photo_profiles_favorites)
+            else File(source.path.orEmpty()).name.ifBlank { source.path.orEmpty() }
+            textSize = 16f
+            setTextColor(OxygenClassicPageInput.readableTextColor(colors.primaryText, colors))
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        })
+        labels.addView(TextView(this).apply {
+            text = source.path ?: getString(R.string.photo_profiles_favorites)
+            textSize = 12f
+            setTextColor(OxygenClassicPageInput.readableTextColor(colors.secondaryText, colors))
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+        })
+        labels.addView(TextView(this).apply {
+            tag = "photo_source_status"
+            textSize = 12f
+            setTextColor(OxygenClassicPageInput.readableTextColor(colors.secondaryText, colors))
+            visibility = View.GONE
+        })
+        row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(ImageButton(this).apply {
+            setImageResource(org.fossify.commons.R.drawable.ic_cross_vector)
+            imageTintList = android.content.res.ColorStateList.valueOf(
+                OxygenClassicPageInput.readableTextColor(colors.primaryText, colors))
+            contentDescription = getString(R.string.photo_profiles_remove_source)
+            background = OxygenClassicDialog.ripple(
+                colors.interactiveAccent, resources.displayMetrics.density)
+            setOnClickListener {
+                sourceStatusRequests.invalidate()
+                draft = draft.copy(sources = draft.sources.filterNot { it == source })
+                sourceStatuses = sourceStatuses - source
+                renderSources()
+                checkSourceStatuses()
+            }
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        return row
     }
 
     private fun checkSourceStatuses() {

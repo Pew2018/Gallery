@@ -555,8 +555,13 @@ object OxygenClassicDialog {
                 }
                 button.buttonDrawable = if (v.id == R.id.change_date_time_dialog_24_hour) {
                     // Commons view binding requires MyAppCompatCheckbox, not SwitchCompat.
-                    OxygenClassicControls.dateTimeSwitchDrawable(dp, controlColors)
-                } else OxygenClassicControls.selectionDrawable(v is RadioButton, dp, controlColors, surfaceAccent = targeted)
+                    OxygenClassicControls.dateTimeSwitchDrawable(
+                        dp, controlColors, animationsEnabled = OxygenClassicMotion.enabled(activity)
+                    )
+                } else OxygenClassicControls.selectionDrawable(
+                    v is RadioButton, dp, controlColors, surfaceAccent = targeted,
+                    animationsEnabled = OxygenClassicMotion.enabled(activity)
+                )
                 val trailing = v.id == R.id.sorting_dialog_numeric_sorting || v.id == R.id.sorting_dialog_use_for_this_folder
                 if (trailing) {
                     val mark = button.buttonDrawable

@@ -36,21 +36,19 @@ internal data class OxygenClassicSwitchGeometry(val density: Float) {
 
 /** Shared control skin. No listeners or preference writes; each view owns its drawables. */
 object OxygenClassicControls {
-    internal fun selectionDrawable(radio: Boolean, density: Float, colors: OxygenThemeTokens, surfaceAccent: Boolean = false): Drawable =
-        ClassicDrawable(if (radio) "radio" else "check", density, colors, false, surfaceAccent)
+    internal fun selectionDrawable(radio: Boolean, density: Float, colors: OxygenThemeTokens,
+        surfaceAccent: Boolean = false, animationsEnabled: Boolean = false): Drawable =
+        ClassicDrawable(if (radio) "radio" else "check", density, colors, animationsEnabled, surfaceAccent)
 
     /** Retain Commons' Checkbox binding and persistence but paint a classic switch. */
-    internal fun dateTimeSwitchDrawable(density: Float, colors: OxygenThemeTokens): Drawable =
-        ClassicDrawable("toggleCheckbox", density, colors, true)
+    internal fun dateTimeSwitchDrawable(density: Float, colors: OxygenThemeTokens,
+        animationsEnabled: Boolean = true): Drawable =
+        ClassicDrawable("toggleCheckbox", density, colors, animationsEnabled)
 
     fun applySwitches(root: View, colors: OxygenThemeTokens) {
         val density = root.resources.displayMetrics.density
         fun dp(n: Int) = (n * density + 0.5f).toInt()
-        val animationsEnabled = runCatching {
-            Settings.Global.getFloat(
-                root.context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f
-            ) > 0f
-        }.getOrDefault(true)
+        val animationsEnabled = OxygenClassicMotion.enabled(root.context)
         // Re-skin if mode, selected accent, page tokens, density or animation scale changes.
         val key = listOf(colors, density.toBits(), animationsEnabled)
         val labelColors = ColorStateList(
@@ -130,6 +128,8 @@ object OxygenClassicControls {
         private var toggleProgress: Float? = null
         private var lastChecked: Boolean? = null
         private var lastEnabled: Boolean? = null
+        private var selectionProgress: Float? = null
+        private var selectionAnimator: ValueAnimator? = null
         override fun getIntrinsicWidth() = ((when (kind) {
             "track", "toggleCheckbox" -> 48
             "thumb" -> 28
@@ -138,6 +138,34 @@ object OxygenClassicControls {
         override fun getIntrinsicHeight() = ((if (kind == "track" || kind == "thumb" || kind == "toggleCheckbox") 28 else 24) * density + 0.5f).toInt()
         override fun isStateful() = true
         override fun onStateChange(state: IntArray): Boolean {
+            if (kind == "radio" || kind == "check") {
+                val checked = state.contains(android.R.attr.state_checked)
+                val enabled = state.contains(android.R.attr.state_enabled)
+                val target = if (checked) 1f else 0f
+                val previous = selectionProgress
+                val shouldAnimate = animationsEnabled && enabled && lastChecked != null &&
+                    lastChecked != checked && previous != null && previous != target
+                lastChecked = checked
+                selectionAnimator?.cancel()
+                selectionAnimator = null
+                if (shouldAnimate && previous != null) {
+                    val animator = ValueAnimator.ofFloat(previous, target).apply {
+                        duration = OxygenClassicMotion.CHECKBOX_MS
+                        interpolator = OxygenClassicMotion.easing()
+                        addUpdateListener {
+                            selectionProgress = it.animatedValue as Float
+                            invalidateSelf()
+                        }
+                        addListener(object : AnimatorListenerAdapter() {
+                            override fun onAnimationEnd(animation: Animator) {
+                                if (selectionAnimator === animation) selectionAnimator = null
+                            }
+                        })
+                    }
+                    selectionAnimator = animator
+                    animator.start()
+                } else selectionProgress = target
+            }
             if (kind == "toggleCheckbox") {
                 val checked = state.contains(android.R.attr.state_checked)
                 val enabled = state.contains(android.R.attr.state_enabled)
@@ -151,8 +179,8 @@ object OxygenClassicControls {
                 toggleAnimator = null
                 if (animate && previous != null) {
                     val animator = ValueAnimator.ofFloat(previous, target).apply {
-                        duration = 200L
-                        interpolator = android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)
+                        duration = OxygenClassicMotion.TOGGLE_CHECKBOX_MS
+                        interpolator = OxygenClassicMotion.easing()
                         addUpdateListener {
                             toggleProgress = it.animatedValue as Float
                             invalidateSelf()
@@ -182,7 +210,8 @@ object OxygenClassicControls {
                 } else {
                     colorAnimator?.cancel()
                     val animator = ValueAnimator.ofArgb(current, target).apply {
-                        duration = 180L
+                        duration = OxygenClassicMotion.SWITCH_MS
+                        interpolator = OxygenClassicMotion.easing()
                         addUpdateListener { valueAnimator ->
                             animatedColor = valueAnimator.animatedValue as Int
                             invalidateSelf()
@@ -203,6 +232,11 @@ object OxygenClassicControls {
         override fun setAlpha(alpha: Int) { opacity = alpha.coerceIn(0, 255); invalidateSelf() }
         override fun getAlpha(): Int = opacity
         override fun jumpToCurrentState() {
+            selectionAnimator?.cancel()
+            selectionAnimator = null
+            if (kind == "radio" || kind == "check") {
+                selectionProgress = if (state.contains(android.R.attr.state_checked)) 1f else 0f
+            }
             colorAnimator?.cancel()
             colorAnimator = null
             toggleAnimator?.cancel()
@@ -337,26 +371,35 @@ object OxygenClassicControls {
                     canvas.drawCircle(thumbX, cy, 11.65f * density, paint)
                 }
                 "radio" -> {
-                    color(if (checked) active else outline)
+                    val progress = (selectionProgress ?: if (checked) 1f else 0f).coerceIn(0f, 1f)
+                    color(androidx.core.graphics.ColorUtils.blendARGB(outline, active, progress))
                     paint.style = Paint.Style.STROKE; paint.strokeWidth = 2 * density
                     canvas.drawCircle(cx, cy, 9 * density, paint)
-                    if (checked) circle(5f, active)
+                    if (progress > 0f) {
+                        color(active)
+                        paint.alpha = (paint.alpha * progress).toInt()
+                        canvas.drawCircle(cx, cy, 5f * density, paint)
+                    }
                 }
                 "check" -> {
-                    // 20dp painted box inside the 24dp layout, including the unchecked stroke.
+                    // The classic 20dp square keeps its geometry; only ink fades over 140ms.
+                    val progress = (selectionProgress ?: if (checked) 1f else 0f).coerceIn(0f, 1f)
                     val fill = if (enabled) { if (surfaceAccent) accent else OxygenThemeColors.toolbarBackground(colors.rawAccent) }
                         else OxygenThemeColors.blend(bg, fg, 0.49)
-                    color(if (checked) fill else outline)
-                    paint.style = if (checked) Paint.Style.FILL else Paint.Style.STROKE
+                    color(outline)
+                    paint.style = Paint.Style.STROKE
                     paint.strokeWidth = 2 * density
-                    val radius = if (checked) 10 else 9
-                    canvas.drawRoundRect(cx - radius * density, cy - radius * density,
-                        cx + radius * density, cy + radius * density, density, density, paint)
-                    if (checked) {
-                        // Prefer the classic white check on a dark enough accent; keep
-                        // readable automatic contrast for unusually light custom accents.
+                    canvas.drawRoundRect(cx - 9 * density, cy - 9 * density,
+                        cx + 9 * density, cy + 9 * density, density, density, paint)
+                    if (progress > 0f) {
+                        color(fill)
+                        paint.alpha = (paint.alpha * progress).toInt()
+                        paint.style = Paint.Style.FILL
+                        canvas.drawRoundRect(cx - 10 * density, cy - 10 * density,
+                            cx + 10 * density, cy + 10 * density, density, density, paint)
                         color(if (!surfaceAccent || OxygenThemeColors.contrastRatio(Color.WHITE, fill) >= 3.0)
                             Color.WHITE else OxygenThemeColors.autoForeground(fill))
+                        paint.alpha = (paint.alpha * progress).toInt()
                         paint.style = Paint.Style.STROKE; paint.strokeWidth = 2 * density
                         paint.strokeCap = Paint.Cap.ROUND
                         paint.strokeJoin = Paint.Join.ROUND

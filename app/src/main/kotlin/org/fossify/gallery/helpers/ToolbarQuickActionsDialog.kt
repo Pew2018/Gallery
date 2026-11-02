@@ -100,7 +100,8 @@ object ToolbarQuickActionsDialog {
             buttonTintList = null
             CompoundButtonCompat.setButtonTintList(this, null)
             buttonDrawable = OxygenClassicControls.selectionDrawable(
-                false, density, palette, surfaceAccent = true
+                false, density, palette, surfaceAccent = true,
+                animationsEnabled = OxygenClassicMotion.enabled(activity)
             )
             background = OxygenClassicDialog.ripple(palette.primaryText, density)
         }
@@ -140,7 +141,7 @@ object ToolbarQuickActionsDialog {
             itemAnimator = androidx.recyclerview.widget.DefaultItemAnimator().apply {
                 // Preserve item translation but never fade the checked row or its checkmark.
                 supportsChangeAnimations = false
-                moveDuration = 170L
+                moveDuration = OxygenClassicMotion.LIST_MOVE_MS
                 addDuration = 0L
                 removeDuration = 0L
                 changeDuration = 0L
@@ -161,6 +162,19 @@ object ToolbarQuickActionsDialog {
         lateinit var folderTabLabel: TextView
         lateinit var homeIndicator: View
         lateinit var folderIndicator: View
+        var indicatorInitialized = false
+        fun updateIndicator(view: View, isActive: Boolean) {
+            val target = if (isActive) 1f else 0f
+            if (!indicatorInitialized || !OxygenClassicMotion.enabled(activity)) {
+                view.animate().cancel()
+                view.alpha = target
+            } else if (view.alpha != target) {
+                view.animate().cancel()
+                view.animate().alpha(target).setDuration(OxygenClassicMotion.TAB_MS)
+                    .setInterpolator(OxygenClassicMotion.easing())
+                    .withEndAction { view.alpha = target }.start()
+            }
+        }
 
         fun updateSearch(checked: Boolean) {
             val selectedActions = current()
@@ -220,8 +234,9 @@ object ToolbarQuickActionsDialog {
                 Typeface.create("sans-serif-medium", Typeface.NORMAL) else Typeface.DEFAULT
             folderTabLabel.typeface = if (scope == ToolbarQuickScope.FOLDER)
                 Typeface.create("sans-serif-medium", Typeface.NORMAL) else Typeface.DEFAULT
-            homeIndicator.alpha = if (scope == ToolbarQuickScope.HOME) 1f else 0f
-            folderIndicator.alpha = if (scope == ToolbarQuickScope.FOLDER) 1f else 0f
+            updateIndicator(homeIndicator, scope == ToolbarQuickScope.HOME)
+            updateIndicator(folderIndicator, scope == ToolbarQuickScope.FOLDER)
+            indicatorInitialized = true
             val before = visibleRows
             val after = snapshotRows()
             val diff = androidx.recyclerview.widget.DiffUtil.calculateDiff(
@@ -431,6 +446,12 @@ object ToolbarQuickActionsDialog {
         )
         // apply() leaves dedicated quick-action CheckBoxes untouched, including their ripple.
         render()
+        dialog.setOnDismissListener {
+            homeIndicator.animate().cancel()
+            folderIndicator.animate().cancel()
+            homeIndicator.alpha = if (scope == ToolbarQuickScope.HOME) 1f else 0f
+            folderIndicator.alpha = if (scope == ToolbarQuickScope.FOLDER) 1f else 0f
+        }
         return dialog
     }
 }

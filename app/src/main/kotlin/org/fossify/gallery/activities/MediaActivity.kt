@@ -447,7 +447,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun setMediaLoading(loading: Boolean) {
         mediaHeaderProgress?.apply {
             OxygenProgressStyle.apply(this@MediaActivity, config, this)
-            visibility = if (loading) View.VISIBLE else View.GONE
+            OxygenProgressStyle.setLoading(this, loading)
         }
     }
 

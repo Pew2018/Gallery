@@ -52,6 +52,8 @@ class SettingsActivity : SimpleActivity() {
     private val settingsPageInitialVisibility = mutableListOf<Int>()
     private lateinit var settingsHub: android.widget.LinearLayout
     private lateinit var settingsBackCallback: OnBackPressedCallback
+    private var pendingSettingsCategory: String? = null
+    private var settingsTransitionEpoch = 0L
 
     private data class SettingsCategory(
         val id: String, val title: Int, val summary: Int, val icon: Int, val itemIds: Set<Int>
@@ -149,6 +151,10 @@ class SettingsActivity : SimpleActivity() {
     }
 
     override fun onDestroy() {
+        settingsTransitionEpoch++
+        binding.settingsNestedScrollview.animate().cancel()
+        binding.settingsNestedScrollview.alpha = 1f
+        binding.settingsNestedScrollview.translationX = 0f
         if (restoreOperation != null) PhotoAuthentication.requests.cancelOwner(this)
         restoreOperation?.close()
         restoreOperation = null
@@ -208,8 +214,11 @@ class SettingsActivity : SimpleActivity() {
     }
 
     private fun openSettingsCategory(category: SettingsCategory) {
+        pendingSettingsCategory = category.id
+        settingsBackCallback.isEnabled = true
         animateSettingsPageChange(forward = true) {
             activeSettingsCategory = category.id
+            pendingSettingsCategory = null
             settingsBackCallback.isEnabled = true
             binding.settingsToolbar.title = getString(category.title)
             renderSettingsPage()
@@ -219,22 +228,35 @@ class SettingsActivity : SimpleActivity() {
 
     private fun animateSettingsPageChange(forward: Boolean, changePage: () -> Unit) {
         val content = binding.settingsNestedScrollview
+        val epoch = ++settingsTransitionEpoch
         content.animate().cancel()
-        val animationsEnabled = runCatching {
-            android.provider.Settings.Global.getFloat(
-                contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f
-            ) > 0f
-        }.getOrDefault(true)
-        if (!animationsEnabled) {
+        if (!OxygenClassicMotion.enabled(this)) {
             changePage()
             content.alpha = 1f
             content.translationX = 0f
             return
         }
-        content.alpha = 0.82f
-        content.translationX = dp(if (forward) 14 else -14).toFloat()
-        changePage()
-        content.animate().alpha(1f).translationX(0f).setDuration(180L).start()
+        val direction = if (forward) 1 else -1
+        // Fade the old page *before* replacing rows; then reveal the new page.
+        // A newer navigation cancels both phases without executing the older callback.
+        content.animate().alpha(0.12f).translationX(-dp(8).toFloat() * direction)
+            .setDuration(OxygenClassicMotion.SETTINGS_EXIT_MS)
+            .setInterpolator(OxygenClassicMotion.easing())
+            .withEndAction {
+                if (settingsTransitionEpoch != epoch || isFinishing || isDestroyed) return@withEndAction
+                changePage()
+                content.alpha = 0.12f
+                content.translationX = dp(8).toFloat() * direction
+                content.animate().alpha(1f).translationX(0f)
+                    .setDuration(OxygenClassicMotion.SETTINGS_ENTER_MS)
+                    .setInterpolator(OxygenClassicMotion.easing())
+                    .withEndAction {
+                        if (settingsTransitionEpoch == epoch) {
+                            content.alpha = 1f
+                            content.translationX = 0f
+                        }
+                    }.start()
+            }.start()
     }
 
     // Resolve conditional rows from live configuration rather than the first
@@ -285,7 +307,8 @@ class SettingsActivity : SimpleActivity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
 
     private fun navigateSettingsBack(): Boolean {
-        if (activeSettingsCategory == null) return false
+        if (activeSettingsCategory == null && pendingSettingsCategory == null) return false
+        pendingSettingsCategory = null
         animateSettingsPageChange(forward = false) {
             activeSettingsCategory = null
             settingsBackCallback.isEnabled = false
