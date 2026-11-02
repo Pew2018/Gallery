@@ -59,9 +59,11 @@ class GalleryRestorePreviewDialogTest {
         val confirmation = ShadowDialog.getLatestDialog() as AlertDialog
         assertNotSame(dialog, confirmation); assertTrue(calls().isEmpty())
         confirmation.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         assertTrue(calls().isEmpty()); assertTrue(dialog.isShowing)
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
         (ShadowDialog.getLatestDialog() as AlertDialog).getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         assertEquals(listOf(GalleryRestoreMode.REPLACE), calls())
     }
 }

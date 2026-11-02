@@ -88,7 +88,13 @@ object OxygenSettingsBackupCodec {
         return root.toString()
     }
 
-    fun decode(text: String): OxygenSettingsSnapshot {
+    fun decode(text: String): OxygenSettingsSnapshot = try {
+        decodeValues(text)
+    } catch (error: Exception) {
+        throw IllegalArgumentException("Invalid extension settings backup", error)
+    }
+
+    private fun decodeValues(text: String): OxygenSettingsSnapshot {
         val element = BackupJson.parse(text)
         require(element.isJsonObject)
         val root = element.asJsonObject

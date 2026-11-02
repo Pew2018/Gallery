@@ -57,7 +57,15 @@ class OxygenSettingsBackupCodecTest {
         val forbidden = listOf("photo_source_bindings", "photo_protect_password_hash", "favorite_password_hash",
             "temporarily_show_hidden", "temporarily_show_excluded", "app_run_count", "last_filepicker_path",
             "were_favorites_migrated", "widget_42_path", "tree_uri", "protected_folder_hash_/private")
-        forbidden.forEach { prefs.edit().putString(it, "secret").commit() }
+        forbidden.forEach { key ->
+            val editor = prefs.edit()
+            when (key) {
+                "temporarily_show_hidden", "temporarily_show_excluded", "were_favorites_migrated" -> editor.putBoolean(key, true)
+                "app_run_count" -> editor.putInt(key, 42)
+                else -> editor.putString(key, "secret")
+            }
+            editor.commit()
+        }
         val json = OxygenSettingsBackupCodec.encode(OxygenSettingsBackupCodec.capture(context))
         forbidden.forEach { assertFalse(it, json.contains(it)) }
         assertFalse(json.contains("secret"))
