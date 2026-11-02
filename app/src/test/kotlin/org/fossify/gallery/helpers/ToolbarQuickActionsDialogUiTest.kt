@@ -167,9 +167,16 @@ class ToolbarQuickActionsDialogUiTest {
         check.performClick()
         assertTrue(check.isChecked)
         assertEquals(chosenId, adapter.getItemId(2))
+        // Consecutive taps settle on the newest state despite queued move animations.
+        check.performClick()
+        assertFalse(check.isChecked)
+        check.performClick()
+        assertTrue(check.isChecked)
+        assertEquals(chosenId, adapter.getItemId(2))
         assertEquals("unchecked rows never become duplicates", adapter.itemCount,
             (0 until adapter.itemCount).map { adapter.getItemId(it) }.toSet().size)
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         assertEquals(4, activity.config.toolbarHomeActions.size)
         activity.finish()
     }
