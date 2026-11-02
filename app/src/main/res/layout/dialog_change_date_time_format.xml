@@ -115,6 +115,12 @@
             android:textSize="13sp"
             android:fontFamily="sans-serif-medium" />
 
+        <!-- Keep the Commons ViewBinding-required ID; hide the rule visually. -->
+        <include
+            android:id="@+id/sorting_dialog_order_divider"
+            layout="@layout/divider"
+            android:visibility="gone" />
+
         <org.fossify.gallery.views.ClassicCheckboxRow
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:minHeight="56dp" android:orientation="horizontal"
