@@ -89,27 +89,33 @@ internal object GalleryRestorePreviewDialog {
         }
         group.setOnCheckedChangeListener { _, id -> mode = if (id == replace.id) GalleryRestoreMode.REPLACE else GalleryRestoreMode.MERGE; update() }
         merge.isChecked = true
-        activity.getAlertDialogBuilder().setPositiveButton(R.string.full_backup_restore_action, null)
-            .setNegativeButton(org.fossify.commons.R.string.cancel, null).apply {
-                activity.setupDialogStuff(scroll, this, R.string.full_backup_restore) { dialog ->
-                    OxygenClassicDialog.apply(activity, dialog, scroll)
-                    listOf(merge, replace).forEach { TiebaDialogChoices.apply(it, colors.interactiveAccent, colors.primaryText, colors.dialogBackground) }
-                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                        if (mode == GalleryRestoreMode.MERGE) { dialog.dismiss(); restore(mode) }
-                        else {
-                            val target = plan.targets.getValue(mode)
-                            activity.getAlertDialogBuilder()
-                                .setTitle(R.string.full_backup_replace_confirm_title)
-                                .setMessage(activity.getString(R.string.full_backup_replace_confirm,
-                                    target.mediaCount.removed, target.folderCount.removed, target.profileCount.removed))
-                                .setNegativeButton(org.fossify.commons.R.string.cancel, null)
-                                .setPositiveButton(R.string.full_backup_restore_action) { _, _ -> dialog.dismiss(); restore(GalleryRestoreMode.REPLACE) }
-                                .create().also { confirm -> confirm.show(); OxygenClassicDialog.apply(activity, confirm, confirm.findViewById(android.R.id.message) ?: confirm.window!!.decorView) }
-                        }
-                    }
-                }
+        val dialog = OxygenClassicDialog.show(activity,
+            OxygenClassicDialog.builder(activity, activity.getString(R.string.full_backup_restore))
+                .setView(scroll)
+                .setPositiveButton(R.string.full_backup_restore_action, null)
+                .setNegativeButton(org.fossify.commons.R.string.cancel, null), scroll)
+        listOf(merge, replace).forEach {
+            TiebaDialogChoices.apply(it, colors.interactiveAccent, colors.primaryText, colors.dialogBackground)
+        }
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            if (mode == GalleryRestoreMode.MERGE) {
+                dialog.dismiss()
+                restore(mode)
+            } else {
+                val target = plan.targets.getValue(mode)
+                OxygenClassicDialog.show(activity,
+                    OxygenClassicDialog.builder(activity, activity.getString(R.string.full_backup_replace_confirm_title))
+                        .setMessage(activity.getString(R.string.full_backup_replace_confirm,
+                            target.mediaCount.removed, target.folderCount.removed, target.profileCount.removed))
+                        .setNegativeButton(org.fossify.commons.R.string.cancel, null)
+                        .setPositiveButton(R.string.full_backup_restore_action) { _, _ ->
+                            dialog.dismiss()
+                            restore(GalleryRestoreMode.REPLACE)
+                        })
             }
+        }
     }
+
     internal fun changeRows(activity: BaseSimpleActivity, plan: GalleryRestorePlan, mode: GalleryRestoreMode): List<Pair<String, Int>> = buildList {
         val target = plan.targets.getValue(mode)
         fun addCount(label: Int, count: Int) {

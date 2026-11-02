@@ -43,7 +43,7 @@ class BackupPreviewLayoutMatrixTest {
         try {
             for ((width, height) in listOf(360 to 800, 393 to 800, 412 to 800, 800 to 360)) {
                 for (dark in listOf(false, true)) for (font in listOf(1f, 1.3f, 1.5f)) {
-                    RuntimeEnvironment.setQualifiers("zh-rCN-w${width}dp-h${height}dp-mdpi-" + if (dark) "night" else "notnight")
+                    RuntimeEnvironment.setQualifiers("zh-rCN-w${width}dp-h${height}dp-" + (if (dark) "night" else "notnight") + "-mdpi")
                     val configuration = android.content.res.Configuration(app.resources.configuration).apply { fontScale = font }
                     @Suppress("DEPRECATION")
                     app.resources.updateConfiguration(configuration, app.resources.displayMetrics)
