@@ -154,6 +154,11 @@ internal class GalleryRestoreService(
         val media = database.FavoritesDao().getValidFavoritePaths()
         val folders = database.FavoriteFoldersDao().getAll().map { FavoriteBackupCodec.FolderRecord(it.path, it.addedAt) }
         val preferences = context.getSharedPrefs().all.toMap()
+        val expectedPreferences = before.preferences.toMutableMap().apply {
+            target.preferenceChanges.forEach { (key, value) -> if (value == null) remove(key) else put(key, value) }
+        }
+        // Also guard the no-write fast path: an independent preferences update is not our success.
+        if (preferences != expectedPreferences) throw StaleGalleryRestorePlan()
         val rawProfiles = preferences[PhotoProfileRepository.KEY] as? String
         val profiles = if (rawProfiles.isNullOrBlank()) PhotoProfileState() else PhotoProfileBackupCodec.decodeStrict(rawProfiles)
         check(media.toSet() == target.media.toSet() && folders.toSet() == target.folders.toSet() && profiles == target.profiles) {

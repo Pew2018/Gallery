@@ -415,4 +415,36 @@ class ProtectedGalleryRestoreTest {
         assertTrue(paths().isEmpty())
     }
 
+    @Test fun unrelatedPreferenceChangeOnNoWriteFastPathCannotBeReportedAsAnAppliedSetting() {
+        val snapshot = fullBackupFixture(context)
+        service().restore(service().preview(snapshot), GalleryRestoreMode.MERGE)
+        var changeDuringCheck = false
+        val inspector = BackupPathAccess { _, _ ->
+            if (changeDuringCheck) {
+                changeDuringCheck = false
+                context.getSharedPrefs().edit().putInt("independent_preference", 9).commit()
+            }
+            BackupPathStatus.AVAILABLE
+        }
+        val folder = File(root, "folder").apply { mkdirs() }
+        db.FavoriteFoldersDao().insert(org.fossify.gallery.models.FavoriteFolder(folder.absolutePath, 7))
+        val incoming = fullBackupFixture(context, folders = listOf(FavoriteBackupCodec.FolderRecord(folder.absolutePath, 7)))
+        val service = GalleryRestoreService(context, db, inspector)
+        val plan = service.preview(incoming)
+        assertTrue(plan.targets.getValue(GalleryRestoreMode.MERGE).preferenceChanges.isEmpty())
+        val revision = PhotoContentRevision.current()
+        changeDuringCheck = true
+        assertThrows(StaleGalleryRestorePlan::class.java) { service.restore(plan, GalleryRestoreMode.MERGE) }
+        assertEquals(9, context.getSharedPrefs().getInt("independent_preference", 0))
+        assertEquals(revision, PhotoContentRevision.current()); assertFalse(GalleryRestoreJournal(context).exists())
+    }
+
+    @Test fun authenticatedReplanExcludesOnlyRetryCountersNotOtherPreferences() {
+        val a = file("a.jpg"); enable(); val service = service()
+        val initial = service.preview(fullBackupFixture(context, listOf(a)))
+        context.getSharedPrefs().edit().putBoolean(SHOW_ALL, !context.config.showAll).commit()
+        assertThrows(StaleGalleryRestorePlan::class.java) { service.authorize(initial, mode, proof(), GalleryRestoreOperation()) }
+        assertTrue(paths().isEmpty()); assertFalse(GalleryRestoreJournal(context).exists())
+    }
+
 }
