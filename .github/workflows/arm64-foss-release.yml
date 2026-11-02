@@ -115,6 +115,7 @@ jobs:
             **/build/reports/backup-ui-previews/*.png
             **/build/reports/restore-reliability/*
             **/build/reports/backup-performance/*
+            **/build/reports/ui-regression/*
             app/build/test-results/testFossReleaseUnitTest/TEST-*.xml
             app/build/reports/tests/testFossReleaseUnitTest/**
           if-no-files-found: warn

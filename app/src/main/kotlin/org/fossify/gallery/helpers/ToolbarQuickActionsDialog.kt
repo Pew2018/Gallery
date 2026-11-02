@@ -43,7 +43,7 @@ object ToolbarQuickActionsDialog {
 
         val content = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(4), dp(16), dp(4))
+            setPadding(dp(8), dp(4), dp(8), dp(4))
         }
         val tabs = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
         val count = TextView(activity).apply {

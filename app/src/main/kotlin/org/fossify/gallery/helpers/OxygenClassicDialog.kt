@@ -84,7 +84,7 @@ object OxygenClassicDialog {
 
     /** Classify dialog widths by their content and scrolling needs. */
     private enum class WidthProfile(val maxDp: Int) {
-        COMPACT(278), CONFIRM(320), REORDER(340), OPTIONS(360), SECURITY(340), INPUT(400), FORM(400), BACKUP(400), DETAILS(480), PICKER(560)
+        COMPACT(278), CONFIRM(320), REORDER(340), OPTIONS(360), SECURITY_CHOICE(380), SECURITY(380), TOOLBAR_CONFIG(400), INPUT(400), FORM(400), BACKUP(400), DETAILS(480), PICKER(560)
     }
 
     internal fun widthForContent(availableWidth: Int, density: Float, maxWidthDp: Int): Int =
@@ -114,7 +114,8 @@ object OxygenClassicDialog {
             has(R.id.export_favorites_wrapper, org.fossify.commons.R.id.export_settings_wrapper,
                 R.id.save_as_holder, R.id.folder_path_hint) -> WidthProfile.INPUT
 
-            has(R.id.classic_dialog_toolbar_content) -> WidthProfile.OPTIONS
+            has(R.id.classic_dialog_security_choice) -> WidthProfile.SECURITY_CHOICE
+            has(R.id.classic_dialog_toolbar_content) -> WidthProfile.TOOLBAR_CONFIG
             has(R.id.delete_remember_holder, R.id.dialog_confirm_delete_folder_holder,
                 R.id.message_scrollview) || dialog.findViewById<TextView>(android.R.id.message)?.text?.isNotEmpty() == true -> WidthProfile.CONFIRM
 
@@ -563,21 +564,30 @@ object OxygenClassicDialog {
                     v is RadioButton, dp, controlColors, surfaceAccent = targeted,
                     animationsEnabled = OxygenClassicMotion.enabled(activity)
                 )
+                val row = button.parent as? org.fossify.gallery.views.ClassicDialogCheckboxRow
                 val trailing = v.id == R.id.sorting_dialog_numeric_sorting || v.id == R.id.sorting_dialog_use_for_this_folder
                 if (trailing) {
                     val mark = button.buttonDrawable
                     button.buttonDrawable = null
                     button.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, mark, null)
                     button.setPaddingRelative((24 * dp).toInt(), (8 * dp).toInt(), (24 * dp).toInt(), (8 * dp).toInt())
-                } else if (button.text.isNotEmpty() && v.layoutDirection != View.LAYOUT_DIRECTION_RTL) {
+                } else if (row == null && button.text.isNotEmpty() && v.layoutDirection != View.LAYOUT_DIRECTION_RTL) {
                     button.buttonDrawable = InsetDrawable(button.buttonDrawable, 0, 0, (12 * dp).toInt(), 0)
                 }
-                button.background = ripple(dialogText, dp)
+                if (row != null) {
+                    // CompoundButton updates its background hotspot to the button icon.
+                    // The independent parent keeps a full-width rectangular ripple instead.
+                    // Retain the existing 12dp icon-to-label gap; it no longer controls the ripple.
+                    button.buttonDrawable = InsetDrawable(button.buttonDrawable, 0, 0, (12 * dp).toInt(), 0)
+                    row.background = ripple(readableAccent, dp)
+                    button.background = null
+                    button.setPaddingRelative(0, (8 * dp).toInt(), 0, (8 * dp).toInt())
+                } else button.background = ripple(dialogText, dp)
                 button.isAllCaps = false
-                button.minHeight = (48f * dp).toInt()
+                button.minHeight = ((if (row != null) 56f else 48f) * dp).toInt()
                 button.gravity = Gravity.CENTER_VERTICAL or Gravity.START
                 button.compoundDrawablePadding = (16 * dp).toInt()
-                if (v is CheckBox && button.text.isNotEmpty()) {
+                if (row == null && v is CheckBox && button.text.isNotEmpty()) {
                     val insets = TiebaDialogChoices.remainingInsets(v, (24 * dp).toInt())
                     v.setPaddingRelative(insets.first, v.paddingTop, insets.second, v.paddingBottom)
                 }

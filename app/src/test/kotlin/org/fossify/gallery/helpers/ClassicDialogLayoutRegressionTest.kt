@@ -130,7 +130,7 @@ class ClassicDialogLayoutRegressionTest {
             }
             @Suppress("DEPRECATION")
             host.resources.updateConfiguration(config, host.resources.displayMetrics)
-            for (width in listOf(288, 328, 340)) {
+            for (width in listOf(288, 328, 379, 380)) {
                 val pattern = inflater.inflate(R.layout.tab_pattern, null)
                 val pin = inflater.inflate(R.layout.tab_pin, null)
                 for (page in listOf(pattern, pin)) {
@@ -143,7 +143,7 @@ class ClassicDialogLayoutRegressionTest {
                 assertTrue("pattern must not collapse", grid.width >= 240)
                 for (id in listOf(R.id.pin_1, R.id.pin_5, R.id.pin_9, R.id.pin_c, R.id.pin_0, R.id.pin_ok)) {
                     val key = pin.findViewById<View>(id)
-                    assertTrue("PIN target must be usable", key.height >= 48 && key.width >= 48)
+                    assertTrue("PIN target must be usable", key.height >= 56 && key.width >= 48)
                     assertTrue("PIN target must stay in its page", key.bottom <= pin.height)
                 }
             }

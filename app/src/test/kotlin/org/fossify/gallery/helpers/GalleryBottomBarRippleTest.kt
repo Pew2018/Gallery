@@ -92,7 +92,7 @@ class GalleryBottomBarRippleTest {
             (tabs[1].getChildAt(1) as TextView).typeface)
         assertEquals(Typeface.create("sans-serif", Typeface.NORMAL),
             (tabs[0].getChildAt(1) as TextView).typeface)
-        Shadows.shadowOf(Looper.getMainLooper()).idleFor(200, TimeUnit.MILLISECONDS)
+        // The outgoing window must already match the destination on the click frame.
         val colors = OxygenThemeEngine.snapshot(activity, activity.config)
         assertEquals(colors.interactiveAccent, (tabs[1].getChildAt(0) as ImageView).imageTintList!!.defaultColor)
         assertEquals(colors.secondaryText, (tabs[0].getChildAt(1) as TextView).currentTextColor)

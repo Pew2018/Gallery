@@ -24,19 +24,19 @@ class GalleryRootTransitionTest {
         assertTrue(GalleryBottomBar.mayDrawRoot(true, false, true, 35L))
         assertFalse(GalleryBottomBar.mayDrawRoot(true, false, false, 249L))
         assertTrue(GalleryBottomBar.mayDrawRoot(false, false, false, 250L))
-        assertEquals(160L, GalleryBottomBar.ROOT_ENTER_DURATION_MS)
+        assertEquals(0L, GalleryBottomBar.ROOT_ENTER_DURATION_MS)
         assertTrue(GalleryBottomBar.ROOT_FINISH_FALLBACK_MS >=
             GalleryBottomBar.FIRST_DRAW_LIMIT_MS + GalleryBottomBar.ROOT_ENTER_DURATION_MS)
     }
 
     @Test fun sixTransitionsRespectDestinationForColdCacheAndRapidEntry() {
         val flows = listOf(
+            GallerySection.ALL to GallerySection.FAVORITES,
+            GallerySection.FAVORITES to GallerySection.ALL,
             GallerySection.ALL to GallerySection.PHOTOS,
-            GallerySection.FAVORITES to GallerySection.PHOTOS,
             GallerySection.PHOTOS to GallerySection.ALL,
-            GallerySection.PHOTOS to GallerySection.FAVORITES,
-            GallerySection.ALL to GallerySection.PHOTOS,
-            GallerySection.PHOTOS to GallerySection.ALL
+            GallerySection.FAVORITES to GallerySection.PHOTOS,
+            GallerySection.PHOTOS to GallerySection.FAVORITES
         )
         for (allFiles in listOf(false, true)) for (cacheHit in listOf(false, true)) {
             flows.forEachIndexed { index, (from, to) ->
@@ -105,9 +105,7 @@ class GalleryRootTransitionTest {
             assertFalse("pre-draw is not a drawn frame", source.isFinishing)
             root.viewTreeObserver.dispatchOnDraw()
             clock.idle()
-            assertFalse(source.isFinishing)
-            clock.idleFor(GalleryBottomBar.ROOT_ENTER_DURATION_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
-            assertTrue(source.isFinishing)
+            assertTrue("draw acknowledgement finishes without another animation timer", source.isFinishing)
             assertEquals(0, GalleryBottomBar.pendingRootCount)
             GalleryBottomBar.dispose(target)
             GalleryBottomBar.dispose(source)
@@ -206,6 +204,40 @@ class GalleryRootTransitionTest {
         org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         GalleryBottomBar.dispose(activity)
         activity.finish()
+    }
+
+    class TransitionRecordingActivity : android.app.Activity() {
+        val transitions = mutableListOf<Pair<Int, Int>>()
+        @Suppress("DEPRECATION")
+        override fun overridePendingTransition(enterAnim: Int, exitAnim: Int) {
+            transitions.add(enterAnim to exitAnim)
+            super.overridePendingTransition(enterAnim, exitAnim)
+        }
+    }
+
+    @Test fun rootStartAndDeferredFinishNeverRequestASecondWindowAnimation() {
+        val clock = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+        for (scale in listOf(0f, 1f)) {
+            val source = Robolectric.buildActivity(TransitionRecordingActivity::class.java).setup().get()
+            android.provider.Settings.Global.putFloat(source.contentResolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, scale)
+            GalleryBottomBar.open(source, android.content.Intent(source, android.app.Activity::class.java), true)
+            assertEquals(listOf(0 to 0), source.transitions)
+            val intent = org.robolectric.Shadows.shadowOf(source).nextStartedActivity
+            val target = Robolectric.buildActivity(android.app.Activity::class.java, intent).setup().get()
+            val root = CoordinatorLayout(target)
+            GalleryBottomBar.coordinateFirstDraw(target, root)
+            clock.idleFor(GalleryBottomBar.FIRST_DRAW_LIMIT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+            assertFalse(root.viewTreeObserver.dispatchOnPreDraw())
+            assertFalse(source.isFinishing)
+            root.viewTreeObserver.dispatchOnDraw()
+            clock.idle()
+            assertTrue(source.isFinishing)
+            assertEquals(listOf(0 to 0, 0 to 0), source.transitions)
+            GalleryBottomBar.dispose(source)
+            GalleryBottomBar.dispose(target)
+            target.finish()
+        }
     }
 
 }

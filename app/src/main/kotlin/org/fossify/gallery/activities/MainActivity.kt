@@ -2367,9 +2367,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                         setDirectoryLoading(false)
                         binding.directoriesRefreshLayout.isRefreshing = false
                     }
-                    checkPlaceholderVisibility(visible)
-                    GalleryBottomBar.markRootContentReady(this@MainActivity, if (visible.isEmpty())
-                        GalleryBottomBar.RootContent.EMPTY else GalleryBottomBar.RootContent.CONTENT)
+                    if (visible.isNotEmpty() || scanComplete) {
+                        checkPlaceholderVisibility(visible)
+                        GalleryBottomBar.markRootContentReady(this@MainActivity, if (visible.isEmpty())
+                            GalleryBottomBar.RootContent.EMPTY else GalleryBottomBar.RootContent.CONTENT)
+                    }
                 }
             }
             val current = getRecyclerAdapter()

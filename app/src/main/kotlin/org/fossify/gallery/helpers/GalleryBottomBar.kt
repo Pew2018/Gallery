@@ -1,8 +1,5 @@
 package org.fossify.gallery.helpers
 
-import android.animation.Animator
-import android.animation.AnimatorListenerAdapter
-import android.animation.ValueAnimator
 import android.app.Activity
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -11,14 +8,12 @@ import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.os.Handler
 import android.os.Looper
-import androidx.core.graphics.ColorUtils
 import org.fossify.gallery.extensions.config
 import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.view.animation.PathInterpolator
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -30,11 +25,10 @@ import org.fossify.gallery.R
  */
 object GalleryBottomBar {
     private val bars = java.util.WeakHashMap<Activity, java.lang.ref.WeakReference<LinearLayout>>()
-    private const val SELECTION_TINT_DURATION_MS = 140L
-    // Match the existing gallery_root_enter / gallery_root_hold window animations.
-    internal const val ROOT_ENTER_DURATION_MS = 160L
+    // Root handoff has no window animation; native press ripples remain unchanged.
+    internal const val ROOT_ENTER_DURATION_MS = 0L
     internal const val FIRST_DRAW_LIMIT_MS = 250L
-    internal const val ROOT_FINISH_FALLBACK_MS = FIRST_DRAW_LIMIT_MS + ROOT_ENTER_DURATION_MS + 120L
+    internal const val ROOT_FINISH_FALLBACK_MS = FIRST_DRAW_LIMIT_MS + 280L
     private const val EXTRA_ROOT_TOKEN = "org.fossify.gallery.ROOT_TRANSITION_TOKEN"
     private data class PendingRoot(val source: java.lang.ref.WeakReference<Activity>, val timeout: Runnable,
         var acknowledged: Boolean = false)
@@ -45,8 +39,6 @@ object GalleryBottomBar {
     internal val pendingRootCount: Int get() = pendingRoots.size
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private data class TintTransition(val target: Int, val animator: ValueAnimator)
-    private val tintTransitions = java.util.WeakHashMap<LinearLayout, TintTransition>()
     private val rippleColors = java.util.WeakHashMap<LinearLayout, Int>()
 
     /** The public RippleDrawable API is write-only; track our last applied tint. */
@@ -75,7 +67,6 @@ object GalleryBottomBar {
         bars.remove(activity)?.get()?.let { bar ->
             for (i in 0 until bar.childCount) {
                 val item = bar.getChildAt(i) as? LinearLayout ?: continue
-                tintTransitions.remove(item)?.animator?.cancel()
                 rippleColors.remove(item)
             }
         }
@@ -92,9 +83,7 @@ object GalleryBottomBar {
         pending.acknowledged = true
         mainHandler.removeCallbacks(pending.timeout)
         // Keep the same tracked callback until it runs, including after acknowledgement.
-        val delay = if (pending.source.get()?.let(OxygenClassicMotion::enabled) == true)
-            ROOT_ENTER_DURATION_MS else 0L
-        mainHandler.postDelayed(pending.timeout, delay)
+        mainHandler.post(pending.timeout)
     }
 
     private fun rippleColor(accent: Int): Int =
@@ -119,40 +108,12 @@ object GalleryBottomBar {
         rippleColors[item] = color
     }
 
-    /** Only colors are animated: no scale, movement, elevation or selection pill. */
-    private fun updateTint(item: LinearLayout, tint: Int, animate: Boolean) {
+    /** Both windows use the same final tab colors, without competing tint timelines. */
+    private fun updateTint(item: LinearLayout, tint: Int) {
         val icon = item.getChildAt(0) as? ImageView ?: return
         val label = item.getChildAt(1) as? TextView ?: return
-        val pending = tintTransitions[item]
-        if (pending?.target == tint) return
-        tintTransitions.remove(item)?.animator?.cancel()
-        val fromIcon = icon.imageTintList?.defaultColor ?: tint
-        val fromLabel = label.currentTextColor
-        if (!animate || (fromIcon == tint && fromLabel == tint)) {
-            if (fromIcon != tint) icon.imageTintList = ColorStateList.valueOf(tint)
-            if (fromLabel != tint) label.setTextColor(tint)
-            return
-        }
-        val animator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = SELECTION_TINT_DURATION_MS
-            interpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
-            addUpdateListener {
-                val progress = it.animatedValue as Float
-                icon.imageTintList = ColorStateList.valueOf(ColorUtils.blendARGB(fromIcon, tint, progress))
-                label.setTextColor(ColorUtils.blendARGB(fromLabel, tint, progress))
-            }
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    if (tintTransitions[item]?.animator === animation) {
-                        icon.imageTintList = ColorStateList.valueOf(tint)
-                        label.setTextColor(tint)
-                        tintTransitions.remove(item)
-                    }
-                }
-            })
-        }
-        tintTransitions[item] = TintTransition(tint, animator)
-        animator.start()
+        if (icon.imageTintList?.defaultColor != tint) icon.imageTintList = ColorStateList.valueOf(tint)
+        if (label.currentTextColor != tint) label.setTextColor(tint)
     }
 
     private fun selectTab(activity: Activity, bar: LinearLayout, tab: Tab) {
@@ -168,7 +129,7 @@ object GalleryBottomBar {
             )
             item.contentDescription = if (selected) "${label.text}, ${activity.getString(R.string.classic_selected)}"
                 else label.text.toString()
-            updateTint(item, if (selected) colors.interactiveAccent else colors.secondaryText, animate = OxygenClassicMotion.enabled(activity))
+            updateTint(item, if (selected) colors.interactiveAccent else colors.secondaryText)
         }
     }
 
@@ -200,7 +161,7 @@ object GalleryBottomBar {
         if ((bar.background as? ColorDrawable)?.color != surface) bar.setBackgroundColor(surface)
         for (i in 0 until bar.childCount) {
             val item = bar.getChildAt(i) as? LinearLayout ?: continue
-            updateTint(item, if (item.isSelected) selected else quiet, animate = false)
+            updateTint(item, if (item.isSelected) selected else quiet)
             // setColor() preserves the same Drawable and any in-flight pressed ripple.
             updateRipple(item, accent)
         }
@@ -218,7 +179,11 @@ object GalleryBottomBar {
             intent.putExtra(EXTRA_ROOT_TOKEN, token)
             val timeout = Runnable {
                 pendingRoots.remove(token)?.source?.get()?.let {
-                    if (!it.isFinishing && !it.isDestroyed) it.finish()
+                    if (!it.isFinishing && !it.isDestroyed) {
+                        it.finish()
+                        @Suppress("DEPRECATION")
+                        it.overridePendingTransition(0, 0)
+                    }
                 }
             }
             pendingRoots[token] = PendingRoot(java.lang.ref.WeakReference(activity), timeout)
@@ -226,9 +191,8 @@ object GalleryBottomBar {
         }
         try {
             activity.startActivity(intent)
-            if (OxygenClassicMotion.enabled(activity)) {
-                activity.overridePendingTransition(R.anim.gallery_root_enter, R.anim.gallery_root_hold)
-            } else activity.overridePendingTransition(0, 0)
+            // Root tabs replace a stable surface; neither window should animate.
+            activity.overridePendingTransition(0, 0)
         } catch (error: RuntimeException) {
             token?.let { pendingRoots.remove(it)?.let { pending -> mainHandler.removeCallbacks(pending.timeout) } }
             throw error
@@ -378,7 +342,7 @@ object GalleryBottomBar {
                 setOnClickListener {
                     if (tab != active && !navigating) {
                         navigating = true
-                        // Selection feedback starts on release; navigation is immediate.
+                        // Match the destination initial state without a second color animation.
                         selectTab(activity, bar, tab)
                         try {
                             navigate(tab)

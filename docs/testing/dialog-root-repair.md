@@ -1,0 +1,21 @@
+# Dialog and root navigation repair (2026-11-03)
+
+Baseline: feature/oxygenos-ui-animation-consistency at b302d2ff29d8b53ab6a681d1117b42c32ec6ad91.
+Latest successful APK at task start: Actions 41475935000. This does not independently prove the SHA of an APK already installed on the user's phone.
+Remote archive is an ancestor with six additional commits on the activity branch at task start (the earlier estimate of sixteen is not the current graph).
+
+## Evidence and changes
+
+* CompoundButton.onDraw updates its background hotspot bounds to its button drawable, even when that CheckBox contains full-row text. The previous 12dp InsetDrawable and shared padding calculation therefore also affected the ripple hotspot. Only the 9 extended-detail and 15 bottom-action checkboxes now sit in ClassicDialogCheckboxRow. Parent owns the only bounded ripple; child retains its ID, MyAppCompatCheckbox type, text and state. Row forwards to performClick. The existing 12dp icon-label gap stays inside the child and no longer sizes the parent's hotspot. No save masks/callbacks changed.
+* Password method body had no classification ID and used COMPACT (visible cap 278dp, with the old 310dp outer rule). Add security-choice ID/profile (380dp cap), explicit Cancel on all method entries. Security input cap changes 340 to 380dp; dialog_holder fills its actual window width. Existing square pattern (280dp cap), PIN targets (56dp minimum), current-page pager and bounded security scroll remain. Do not inflate biometric content with empty space or alter system BiometricPrompt.
+* Toolbar configuration changes OPTIONS 360dp to dedicated 400dp, body horizontal padding 16 to 8dp. Fixed tabs/actions and middle scroller remain; business model and 48dp handle untouched.
+* Root enter/hold resources were already opaque alpha=1. The actual lifecycle still started a 160ms synthetic window animation, animated outgoing selected colors for 140ms, and later finished the old Activity without suppressing its default exit transition. Disable root start/finish window transitions, commit selected tint immediately and acknowledge actual draw without an extra 160ms timer. Keep 250ms bounded first-draw loading fallback and 530ms failure cleanup. No delay before startActivity and no thumbnail cache clearing.
+* Directory cache publication could label an empty cache as final EMPTY, reveal the empty state and allow the first draw before scan completion. Only nonempty data or scanComplete can confirm the directory placeholder/root readiness. Existing authorized media/profile scope invalidation stays intact.
+
+## Automated and device validation
+
+DialogUiRepairTest checks all 24 binding-compatible controls with icon/text/blank/bottom-edge taps, rapid toggles, sibling isolation, dark/light/custom accent, repeat styling, unique parent ripple, child background absent and original checkbox performClick path.
+Window measurement matrix: 320, 360, 411, 600, 840dp; portrait/landscape; font 1.0/1.3/1.5. Actual decor/window and action bounds are checked on Robolectric, not physical devices. CSV: build/reports/ui-regression/dialog-measurements.csv. Real pattern/PIN layout bounds also covered by ClassicDialogLayoutRegressionTest.
+Existing password request/cancellation/session tests, toolbar save/cancel/scope/order tests and root draw/timeout/dispose/ripple tests stay enabled. Root tests verify immediate color state and zero window transitions; full FOSS Release suite runs in Actions.
+
+No Android SDK/device/emulator exists in the editing environment. Gradle wrapper distribution is unavailable locally, so no local runtime test success is claimed. Device acceptance remains mandatory: record all six ordered pairs among ALL/FAVORITES/PHOTOS with cold/hot caches, empty/source-backed profiles, protected sources before/after/cancel auth, rapid taps, immediate Back, dark/light themes and animator scale 0/1. Inspect status/navigation/toolbar/bottom-bar colors and source/destination surface handoff frame by frame. Verify ripple release on device; OnDraw acknowledgement alone is not a SurfaceFlinger fence or proof of decoded thumbnails. Confirm scroll anchors/profile state and no stale protected media. Authenticate PIN/pattern/biometric and both fallback types independently for Favorites and Photos; failed/cancelled verification must never authorize.

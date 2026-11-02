@@ -28,6 +28,7 @@ internal object ClassicPasswordMethodDialog {
         val density = activity.resources.displayMetrics.density
         fun dp(value: Int) = (value * density + .5f).toInt()
         val body = LinearLayout(builder.context).apply {
+            id = org.fossify.gallery.R.id.classic_dialog_security_choice
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(8), dp(24), dp(8))
         }
@@ -68,8 +69,8 @@ internal object ClassicPasswordMethodDialog {
         }
         val scroll = ClassicDialogScrollView(builder.context).apply { addView(body) }
         builder.setView(scroll).setOnCancelListener { cancel() }
-        // Initial selection retains its original outside/back cancellation; fallback also has Cancel.
-        if (description != null) builder.setNegativeButton(org.fossify.commons.R.string.cancel) { _, _ -> cancel() }
+        // Every entry has an explicit Cancel; the caller still owns request cancellation.
+        builder.setNegativeButton(org.fossify.commons.R.string.cancel) { _, _ -> cancel() }
         dialog = OxygenClassicDialog.show(activity, builder, scroll)
         return dialog
     }
