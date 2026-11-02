@@ -72,8 +72,11 @@ class GalleryBottomBarRippleTest {
         val tabs = items(bar)
         assertEquals(3, tabs.size)
         assertTrue(tabs[0].isSelected)
-        assertEquals(activity.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height), 56)
-        assertEquals(activity.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_icon_size), 24)
+        val density = activity.resources.displayMetrics.density
+        assertEquals(56f,
+            activity.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height) / density, 0.1f)
+        assertEquals(24f,
+            activity.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_icon_size) / density, 0.1f)
         assertEquals(12f, (tabs[0].getChildAt(1) as TextView).textSize /
             activity.resources.displayMetrics.scaledDensity, 0.01f)
         tabs[1].performClick()
@@ -83,8 +86,11 @@ class GalleryBottomBarRippleTest {
         assertFalse(tabs[0].isSelected)
         assertTrue(tabs[1].isSelected)
         assertFalse(tabs[2].isSelected)
-        assertTrue((tabs[1].getChildAt(1) as TextView).typeface.isBold)
-        assertFalse((tabs[0].getChildAt(1) as TextView).typeface.isBold)
+        // Medium (500) is not Typeface.BOLD (700); test the actual family.
+        assertEquals(Typeface.create("sans-serif-medium", Typeface.NORMAL),
+            (tabs[1].getChildAt(1) as TextView).typeface)
+        assertEquals(Typeface.create("sans-serif", Typeface.NORMAL),
+            (tabs[0].getChildAt(1) as TextView).typeface)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(200, TimeUnit.MILLISECONDS)
         val colors = OxygenThemeEngine.snapshot(activity, activity.config)
         assertEquals(colors.interactiveAccent, (tabs[1].getChildAt(0) as ImageView).imageTintList!!.defaultColor)
