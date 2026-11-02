@@ -27,10 +27,6 @@ import java.util.concurrent.TimeUnit
 @Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 @LooperMode(LooperMode.Mode.PAUSED)
 class GalleryBottomBarRippleTest {
-    @org.junit.Before fun useControlledVsync() {
-        org.robolectric.shadows.ShadowChoreographer.setPaused(true)
-        org.robolectric.shadows.ShadowChoreographer.setFrameDelay(java.time.Duration.ofMillis(16))
-    }
 
     private fun fixture(active: GalleryBottomBar.Tab = GalleryBottomBar.Tab.ALL,
                         onNavigate: (GalleryBottomBar.Tab) -> Unit = {}):
@@ -137,6 +133,10 @@ class GalleryBottomBarRippleTest {
         android.provider.Settings.Global.putFloat(resolver,
             android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
         try {
+            // setContentView/addView after Activity.setup needs a traversal before
+            // delayed touch callbacks have an attached View handler.
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertTrue("touch host must be attached", item.isAttachedToWindow)
             item.layout(0, 0, 100, 56)
             val now = android.os.SystemClock.uptimeMillis()
             val down = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, 50f, 28f, 0)

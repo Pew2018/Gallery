@@ -63,16 +63,16 @@ class SettingsPageMotionTest {
         val next: () -> Unit = { current++ }
         try {
             transition.invoke(activity, true, old)
-            clock.idleFor(32, java.util.concurrent.TimeUnit.MILLISECONDS)
+            repeat(2) { clock.idleFor(16, java.util.concurrent.TimeUnit.MILLISECONDS) }
             transition.invoke(activity, false, next)
-            clock.idleFor(300, java.util.concurrent.TimeUnit.MILLISECONDS)
+            repeat(20) { clock.idleFor(16, java.util.concurrent.TimeUnit.MILLISECONDS) }
             assertEquals(0, obsolete)
             assertEquals(1, current)
             assertEquals(1f, scroll.alpha, 0f)
             assertEquals(0f, scroll.translationX, 0f)
             transition.invoke(activity, true, old)
             controller.pause().stop().destroy()
-            clock.idleFor(300, java.util.concurrent.TimeUnit.MILLISECONDS)
+            repeat(20) { clock.idleFor(16, java.util.concurrent.TimeUnit.MILLISECONDS) }
             assertEquals(0, obsolete)
             assertEquals(1f, scroll.alpha, 0f)
             assertEquals(0f, scroll.translationX, 0f)
