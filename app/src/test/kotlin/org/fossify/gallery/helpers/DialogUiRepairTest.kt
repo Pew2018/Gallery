@@ -157,16 +157,22 @@ class DialogUiRepairTest {
             val pager = security.findViewById<org.fossify.gallery.views.ClassicSecurityViewPager>(R.id.dialog_tab_view_pager)
             val page = activity.layoutInflater.inflate(R.layout.tab_pin, pager, false)
             page.id = R.id.pin_lock_holder
-            pager.adapter = object : androidx.viewpager.widget.PagerAdapter() {
+            val pages = listOf(activity.layoutInflater.inflate(R.layout.tab_pattern, pager, false), page)
+            val adapter = object : androidx.viewpager.widget.PagerAdapter() {
                 override fun getCount() = 2
                 override fun isViewFromObject(view: View, item: Any) = view === item
                 override fun instantiateItem(container: ViewGroup, position: Int): Any {
-                    val child = if (position == 1) page else activity.layoutInflater.inflate(R.layout.tab_pattern, container, false)
+                    val child = pages[position]
                     if (child.parent == null) container.addView(child)
                     return child
                 }
                 override fun destroyItem(container: ViewGroup, position: Int, item: Any) { container.removeView(item as View) }
             }
+            pager.adapter = adapter
+            // A detached wrap-content pager is not populated by Robolectric until
+            // after measurement. Seed its real pages as in ClassicSecurityViewPagerTest.
+            adapter.instantiateItem(pager, 0)
+            adapter.instantiateItem(pager, 1)
             pager.currentItem = 1
             val input = OxygenClassicDialog.show(activity, OxygenClassicDialog.builder(activity, "")
                 .setView(security).setNegativeButton("Cancel", null), security)
@@ -175,9 +181,11 @@ class DialogUiRepairTest {
                 val expected = OxygenClassicDialog.widthForContent(OxygenClassicDialog.availableWidth(activity), 1f, maxWidth)
                 assertEquals(expected, dialog.window!!.attributes.width)
                 val decor = dialog.window!!.decorView
-                decor.measure(View.MeasureSpec.makeMeasureSpec(expected, View.MeasureSpec.EXACTLY),
-                    View.MeasureSpec.makeMeasureSpec(if (land) screen else 800, View.MeasureSpec.AT_MOST))
-                decor.layout(0, 0, decor.measuredWidth, decor.measuredHeight)
+                repeat(3) {
+                    decor.measure(View.MeasureSpec.makeMeasureSpec(expected, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(if (land) screen else 800, View.MeasureSpec.AT_MOST))
+                    decor.layout(0, 0, decor.measuredWidth, decor.measuredHeight)
+                }
                 assertEquals(expected, decor.width)
                 val cancel = dialog.getButton(AlertDialog.BUTTON_NEGATIVE)
                 val bounds = Rect(0, 0, cancel.width, cancel.height)
@@ -187,11 +195,11 @@ class DialogUiRepairTest {
                 measurements.add("$screen,$scale,$land,$kind,${dialog.window!!.attributes.width},${decor.width},${decor.height}")
             }
             val grid = page.findViewById<View>(R.id.pin_5)
-            assertTrue("real PIN key retains its 56dp target", grid.measuredHeight >= 56)
+            assertTrue("real PIN key retains its 56dp target at $screen/$scale/$land (actual=${grid.measuredHeight}, page=${page.measuredHeight}, pager=${pager.measuredHeight}, selected=${pager.currentItem})", grid.measuredHeight >= 56)
             listOf(toolbar, input, method).forEach { it.dismiss() }
             activity.finish()
         }
         val report = java.io.File("build/reports/ui-regression/dialog-measurements.csv")
-        report.parentFile.mkdirs(); report.writeText(measurements.joinToString("\n"))
+        report.parentFile!!.mkdirs(); report.writeText(measurements.joinToString("\n"))
     }
 }

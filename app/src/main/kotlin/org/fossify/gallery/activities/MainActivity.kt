@@ -2367,7 +2367,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                         setDirectoryLoading(false)
                         binding.directoriesRefreshLayout.isRefreshing = false
                     }
-                    if (visible.isNotEmpty() || scanComplete) {
+                    // Only an in-progress scan can publish an unconfirmed empty cache.
+                    if (scanRequest == null || visible.isNotEmpty() || scanComplete) {
                         checkPlaceholderVisibility(visible)
                         GalleryBottomBar.markRootContentReady(this@MainActivity, if (visible.isEmpty())
                             GalleryBottomBar.RootContent.EMPTY else GalleryBottomBar.RootContent.CONTENT)
