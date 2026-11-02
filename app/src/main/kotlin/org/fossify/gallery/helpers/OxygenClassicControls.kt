@@ -288,7 +288,11 @@ object OxygenClassicControls {
                     canvas.drawRoundRect(cx - radius * density, cy - radius * density,
                         cx + radius * density, cy + radius * density, density, density, paint)
                     if (checked) {
-                        color(if (surfaceAccent) OxygenThemeColors.autoForeground(fill) else Color.WHITE); paint.style = Paint.Style.STROKE; paint.strokeWidth = 2 * density
+                        // Prefer the classic white check on a dark enough accent; keep
+                        // readable automatic contrast for unusually light custom accents.
+                        color(if (!surfaceAccent || OxygenThemeColors.contrastRatio(Color.WHITE, fill) >= 3.0)
+                            Color.WHITE else OxygenThemeColors.autoForeground(fill))
+                        paint.style = Paint.Style.STROKE; paint.strokeWidth = 2 * density
                         paint.strokeCap = Paint.Cap.ROUND
                         paint.strokeJoin = Paint.Join.ROUND
                         val path = Path().apply {

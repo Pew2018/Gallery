@@ -499,7 +499,8 @@ object OxygenClassicDialog {
                             v.setSingleLine(false)
                         }
                         android.R.id.message, org.fossify.commons.R.id.message -> { v.setTextColor(dialogText); v.textSize = 16f }
-                        org.fossify.commons.R.id.dialog_title_textview, androidx.appcompat.R.id.alertTitle -> {
+                        org.fossify.commons.R.id.dialog_title_textview, androidx.appcompat.R.id.alertTitle,
+                        R.id.change_date_time_dialog_title -> {
                             v.setTextColor(dialogText)
                             v.textSize = 20f
                             v.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)

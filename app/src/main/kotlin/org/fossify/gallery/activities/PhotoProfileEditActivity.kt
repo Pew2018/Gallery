@@ -142,7 +142,7 @@ class PhotoProfileEditActivity : SimpleActivity() {
         binding.root.setBackgroundColor(tokens.pageBackground)
         binding.photoProfileEditScroll.setBackgroundColor(tokens.pageBackground)
         binding.photoProfileEditNameLabel.setTextColor(
-            OxygenClassicPageInput.readableTextColor(tokens.secondaryText, tokens)
+            tokens.interactiveAccent
         )
         OxygenClassicPageInput.style(binding.photoProfileEditName, tokens)
         // Align entered text with the label and dynamic source rows.
@@ -153,8 +153,8 @@ class PhotoProfileEditActivity : SimpleActivity() {
         binding.photoProfileEditEmpty.setTextColor(tokens.secondaryText)
         binding.photoProfileEditAddSource.apply {
             backgroundTintList = android.content.res.ColorStateList.valueOf(tokens.rawAccent)
-            val onAccent = if (OxygenThemeColors.contrastRatio(android.graphics.Color.BLACK, tokens.rawAccent) >=
-                OxygenThemeColors.contrastRatio(android.graphics.Color.WHITE, tokens.rawAccent)) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+            val onAccent = if (OxygenThemeColors.contrastRatio(android.graphics.Color.WHITE, tokens.rawAccent) >= 3.0)
+                android.graphics.Color.WHITE else android.graphics.Color.BLACK
             imageTintList = android.content.res.ColorStateList.valueOf(onAccent)
             rippleColor = androidx.core.graphics.ColorUtils.setAlphaComponent(onAccent, 30)
             shapeAppearanceModel = shapeAppearanceModel.toBuilder()
