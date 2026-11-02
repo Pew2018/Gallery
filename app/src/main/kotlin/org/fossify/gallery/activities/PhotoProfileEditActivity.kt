@@ -157,7 +157,6 @@ class PhotoProfileEditActivity : SimpleActivity() {
         sourceStatusRequests.invalidate()
         PhotoProfileAccessSessionManager.removeListener(authListenerId)
         sourceRows.values.forEach { it.animate().cancel(); it.alpha = 1f }
-        sourceLayoutTransition.cancel()
         binding.photoProfileEditSources.layoutTransition = null
         sourceRows.clear()
         sourceDividers.clear()
@@ -199,7 +198,6 @@ class PhotoProfileEditActivity : SimpleActivity() {
         val container = binding.photoProfileEditSources
         val animate = sourceRowsRendered && OxygenClassicMotion.enabled(this)
         val transition = if (OxygenClassicMotion.enabled(this)) sourceLayoutTransition else null
-        if (transition == null) sourceLayoutTransition.cancel()
         if (container.layoutTransition !== transition) container.layoutTransition = transition
         binding.photoProfileEditEmpty.visibility = if (draft.sources.isEmpty()) View.VISIBLE else View.GONE
         val desired = ArrayList<View>(draft.sources.size * 2)
