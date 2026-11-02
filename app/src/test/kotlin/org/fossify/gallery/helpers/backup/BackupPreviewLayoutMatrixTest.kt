@@ -49,7 +49,7 @@ class BackupPreviewLayoutMatrixTest {
                     app.resources.updateConfiguration(configuration, app.resources.displayMetrics)
                     app.getSharedPrefs().edit().clear().commit()
                     GalleryRestoreJournal(app).delete()
-                    val controller = Robolectric.buildActivity(SettingsActivity::class.java).create()
+                    val controller = Robolectric.buildActivity(SettingsActivity::class.java).setup().visible()
                     val host = controller.get()
                     try {
                         host.baseConfig.backgroundColor = if (dark) Color.BLACK else Color.WHITE
@@ -66,6 +66,8 @@ class BackupPreviewLayoutMatrixTest {
                                     profileCount = RestoreCategoryCount(20, 10, 10, conflicts = 3, removed = 2)) })
                             GalleryRestorePreviewDialog.show(host, plan) { fail("layout must not restore") }
                             val dialog = ShadowDialog.getLatestDialog() as AlertDialog
+                            // Let WindowManager dispatch attachment/traversal before native Canvas draws scroll indicators.
+                            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
                             val root = dialog.window!!.decorView
                             val available = OxygenClassicDialog.availableHeight(host)
                             root.measure(View.MeasureSpec.makeMeasureSpec(dialog.window!!.attributes.width, View.MeasureSpec.EXACTLY),
