@@ -112,8 +112,11 @@ internal object PhotoSessionViewerCatalogStore {
     fun offerIndexedCandidates(context: Context, request: PhotoProfileLoadContext, items: List<Medium>) {
         if (loading !== request || !request.isCurrent(context)) return
         val segments = if (items.size > MAX_ITEMS) SegmentedPhotoCatalog.write(context.cacheDir, items) else null
-        indexed?.segments?.close()
-        indexed = IndexedCandidates(request, if (segments == null) items else emptyList(), segments)
+        synchronized(this) {
+            if (loading !== request || !request.isCurrent(context)) { segments?.close(); return }
+            indexed?.segments?.close()
+            indexed = IndexedCandidates(request, if (segments == null) items else emptyList(), segments)
+        }
     }
 
     /** Worker-only stage publication. Never call this with unvalidated indexed rows. */
@@ -149,13 +152,18 @@ internal object PhotoSessionViewerCatalogStore {
         val pos = result.media.indexOfFirst { it.path == anchor }.coerceAtLeast(0)
         val start = if (segments == null) 0 else (pos - EXPAND_BATCH).coerceAtLeast(0)
         val end = if (segments == null) result.media.size else (pos + EXPAND_BATCH + 1).coerceAtMost(result.media.size)
-        val next = catalog(result.media.subList(start, end), result.context.revision, segments == null)?.copy(
+        val initial = segments?.range(start, end - 1) ?: result.media.subList(start, end)
+        val next = catalog(initial, result.context.revision, segments == null)?.copy(
             before = if (start == 0) PhotoViewerCatalogCoordinator.Boundary.END else PhotoViewerCatalogCoordinator.Boundary.HAS_MORE,
             after = if (end == result.media.size) PhotoViewerCatalogCoordinator.Boundary.END else PhotoViewerCatalogCoordinator.Boundary.HAS_MORE
         ) ?: return null
         if (!result.context.isCurrent(context)) { segments?.close(); return null }
         val candidate: Entry
         synchronized(this) {
+            if ((loading != null && loading !== result.context) || !result.context.isCurrent(context)) {
+                segments?.close()
+                return null
+            }
             val old = partial?.takeIf { it.request.scope == result.context.scope &&
                 it.request.revision == result.context.revision }
             candidate = Entry(old?.id ?: UUID.randomUUID().toString(), result.context,
@@ -270,7 +278,7 @@ internal object PhotoSessionViewerCatalogStore {
         // Sort only the bounded published set, never reread every disk segment on a swipe.
         val positions = if (source.segments == null) source.order.mapIndexed { index, medium -> medium.path to index }.toMap() else null
         val combined = collected.values.sortedBy { medium ->
-            val index = source.segments?.indexOf(medium.path) ?: positions?.get(medium.path) ?: -1
+            val index = source.segments?.knownIndexOf(medium.path) ?: positions?.get(medium.path) ?: -1
             if (index < 0) Int.MAX_VALUE else index
         }
         val center = combined.indexOfFirst { it.path == anchor }.coerceAtLeast(0)

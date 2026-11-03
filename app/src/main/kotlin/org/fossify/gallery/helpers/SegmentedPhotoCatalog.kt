@@ -32,6 +32,9 @@ internal class SegmentedPhotoCatalog private constructor(private val directory: 
         return cached[index % SEGMENT_SIZE]
     }
 
+    /** No IO: unknown provisional filesystem rows must not trigger a full disk search while sorting. */
+    @Synchronized fun knownIndexOf(path: String): Int? = positions[path]
+
     @Synchronized fun indexOf(path: String): Int {
         positions[path]?.let { return it }
         for (index in 0 until size) {
