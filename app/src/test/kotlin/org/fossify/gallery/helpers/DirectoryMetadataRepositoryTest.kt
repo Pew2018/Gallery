@@ -29,6 +29,10 @@ class DirectoryMetadataRepositoryTest {
     private fun dbCount(): Int? = readExecutor.submit<Int?> {
         context.directoryDB.getByPath(root.path)?.mediaCnt
     }.get(5, TimeUnit.SECONDS)
+    private fun commit(snapshot: DirectoryScanSnapshot): Boolean =
+        readExecutor.submit<Boolean> {
+            commit( snapshot)
+        }.get(5, TimeUnit.SECONDS)
     private val scope get() = DirectoryScanScope(context.config.filterMedia, context.config.shouldShowHidden)
     @Before fun setup() {
         GalleryDatabase.destroyInstance()
@@ -55,22 +59,22 @@ class DirectoryMetadataRepositoryTest {
     @Test fun missingRowIsInsertedAndFullScanSupportsDecreasesAndZero() {
         val a = medium("a.jpg")
         val b = medium("b.jpg")
-        assertTrue(DirectoryMetadataRepository.commit(context, snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a, b))))
+        assertTrue(commit( snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a, b))))
         assertEquals(2, dbCount())
-        assertTrue(DirectoryMetadataRepository.commit(context, snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a))))
+        assertTrue(commit( snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a))))
         assertEquals(1, dbCount())
-        assertTrue(DirectoryMetadataRepository.commit(context, snapshot(DirectoryMetadataRepository.begin(root.path), emptyList())))
+        assertTrue(commit( snapshot(DirectoryMetadataRepository.begin(root.path), emptyList())))
         assertEquals(0, dbCount())
         assertTrue(root.isDirectory)
     }
     @Test fun partialAndMismatchedScopeCannotPoisonACompleteCount() {
         val a = medium("a.jpg")
-        assertTrue(DirectoryMetadataRepository.commit(context, snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a))))
-        assertFalse(DirectoryMetadataRepository.commit(context, snapshot(
+        assertTrue(commit( snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a))))
+        assertFalse(commit( snapshot(
             DirectoryMetadataRepository.begin(root.path), emptyList(), FolderReadStatus.PARTIAL
         )))
         assertEquals(1, dbCount())
-        assertFalse(DirectoryMetadataRepository.commit(context, snapshot(
+        assertFalse(commit( snapshot(
             DirectoryMetadataRepository.begin(root.path), emptyList(),
             scanScope = scope.copy(showDotFiles = !scope.showDotFiles)
         )))
@@ -81,24 +85,24 @@ class DirectoryMetadataRepositoryTest {
         val b = medium("b.jpg")
         val stale = DirectoryMetadataRepository.begin(root.path)
         val latest = DirectoryMetadataRepository.begin(root.path)
-        assertTrue(DirectoryMetadataRepository.commit(context, snapshot(latest, listOf(a, b))))
-        assertFalse(DirectoryMetadataRepository.commit(context, snapshot(stale, listOf(a))))
+        assertTrue(commit( snapshot(latest, listOf(a, b))))
+        assertFalse(commit( snapshot(stale, listOf(a))))
         assertEquals(2, dbCount())
     }
     @Test fun protectedDirectoryRequiresTheExactLiveFolderSession() {
         val a = medium("locked.jpg")
         context.config.addFolderProtection(root.path, "hash", PROTECTION_PIN)
-        assertFalse(DirectoryMetadataRepository.commit(context,
+        assertFalse(commit(
             snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a))))
         assertNull(dbCount())
         val token = FolderUnlockSessionManager.createSession(root.path)
         try {
-            assertTrue(DirectoryMetadataRepository.commit(context,
+            assertTrue(commit(
                 snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a))
                     .copy(folderSessionId = token)))
             assertEquals(1, dbCount())
             FolderUnlockSessionManager.revokeSession(token)
-            assertFalse(DirectoryMetadataRepository.commit(context,
+            assertFalse(commit(
                 snapshot(DirectoryMetadataRepository.begin(root.path), emptyList())
                     .copy(folderSessionId = token)))
             assertEquals(1, dbCount())
@@ -107,7 +111,7 @@ class DirectoryMetadataRepositoryTest {
     @Test fun invalidatedScanIsDeferredRatherThanPublished() {
         val a = medium("a.jpg")
         val ticket = DirectoryMetadataRepository.begin(root.path)
-        assertFalse(DirectoryMetadataRepository.commit(context,
+        assertFalse(commit(
             snapshot(ticket, listOf(a)).copy(isCurrent = { false })))
         assertTrue(root.path in DirectoryMetadataRepository.pendingPaths())
         assertNull(dbCount())
