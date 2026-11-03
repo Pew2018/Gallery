@@ -481,6 +481,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         FavoriteAccessSessionManager.addRevocationListener(favoriteListenerId) { revoked ->
             if (revoked == favoriteSessionId) binding.root.post {
                     if (isFinishing || isDestroyed || revoked != favoriteSessionId) return@post
+                // A Favorite path can be removed while the session remains valid.
+                // Drop any previously prepared/deferred full catalog before it can
+                // republish a photo that has just lost its captured membership.
+                mediaPublicationGeneration++
+                mediaPublicationTask?.cancel(true)
+                swipePublicationGate.clear()
+                deferredBoundaryDirection = null
+                pendingPageAccessRefresh = false
                 if (!FavoriteAccessSessionManager.isActive(revoked)) closeUnauthorizedFavorites()
                 else {
                     stopSlideshow()
