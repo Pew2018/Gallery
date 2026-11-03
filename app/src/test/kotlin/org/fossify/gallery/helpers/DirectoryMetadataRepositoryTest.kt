@@ -2,6 +2,7 @@ package org.fossify.gallery.helpers
 
 import android.app.Application
 import org.fossify.commons.extensions.getSharedPrefs
+import org.fossify.commons.helpers.PROTECTION_PIN
 import org.fossify.gallery.databases.GalleryDatabase
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.directoryDB
@@ -83,6 +84,25 @@ class DirectoryMetadataRepositoryTest {
         assertTrue(DirectoryMetadataRepository.commit(context, snapshot(latest, listOf(a, b))))
         assertFalse(DirectoryMetadataRepository.commit(context, snapshot(stale, listOf(a))))
         assertEquals(2, dbCount())
+    }
+    @Test fun protectedDirectoryRequiresTheExactLiveFolderSession() {
+        val a = medium("locked.jpg")
+        context.config.addFolderProtection(root.path, "hash", PROTECTION_PIN)
+        assertFalse(DirectoryMetadataRepository.commit(context,
+            snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a))))
+        assertNull(dbCount())
+        val token = FolderUnlockSessionManager.createSession(root.path)
+        try {
+            assertTrue(DirectoryMetadataRepository.commit(context,
+                snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a))
+                    .copy(folderSessionId = token)))
+            assertEquals(1, dbCount())
+            FolderUnlockSessionManager.revokeSession(token)
+            assertFalse(DirectoryMetadataRepository.commit(context,
+                snapshot(DirectoryMetadataRepository.begin(root.path), emptyList())
+                    .copy(folderSessionId = token)))
+            assertEquals(1, dbCount())
+        } finally { FolderUnlockSessionManager.revokeSession(token) }
     }
     @Test fun invalidatedScanIsDeferredRatherThanPublished() {
         val a = medium("a.jpg")

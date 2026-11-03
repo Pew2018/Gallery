@@ -80,9 +80,11 @@ internal object DirectoryMetadataRepository {
         if (!snapshot.isCurrent() || !snapshot.readResult.accessCurrent()) return false
         val cfg = context.config
         val protected = FolderUnlockSessionManager.findProtectedAncestor(snapshot.path, cfg::isFolderProtected) != null
-        return !protected || FolderUnlockSessionManager.isMediaAuthorized(
-            snapshot.folderSessionId, snapshot.path, cfg::isFolderProtected
-        )
+        return !protected ||
+            FolderUnlockSessionManager.isFolderAuthorized(snapshot.folderSessionId, snapshot.path) ||
+            FolderUnlockSessionManager.isMediaAuthorized(
+                snapshot.folderSessionId, snapshot.path, cfg::isFolderProtected
+            )
     }
 
     fun commit(context: Context, snapshot: DirectoryScanSnapshot): Boolean {
