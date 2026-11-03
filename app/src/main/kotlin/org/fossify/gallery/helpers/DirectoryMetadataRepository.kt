@@ -36,7 +36,9 @@ internal data class DirectoryScanSnapshot(
     val readResult: FolderMediaReadResult,
     val mediaSnapshot: List<Medium>,
     val folderSessionId: String? = null,
-    val isCurrent: () -> Boolean = { true }
+    val isCurrent: () -> Boolean = { true },
+    // MainActivity already updates its own adapter; do not recursively restart its scan.
+    val notifyObservers: Boolean = true
 )
 
 /**
@@ -158,7 +160,7 @@ internal object DirectoryMetadataRepository {
         }
         if (changed && accepted) {
             FolderRefreshTrace.event(version, "directory_metadata_committed", listOf(path), "count=${calculated.mediaCnt}")
-            recipients.forEach { observer ->
+            if (snapshot.notifyObservers) recipients.forEach { observer ->
                 try { observer(path) } catch (error: Exception) {
                     Log.w("GalleryDirs", "Directory metadata observer failed", error)
                 }

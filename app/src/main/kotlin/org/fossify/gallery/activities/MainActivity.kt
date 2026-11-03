@@ -18,6 +18,11 @@ import android.widget.Toast
 import java.util.concurrent.Future
 import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.helpers.DirectoryScanEpoch
+import org.fossify.gallery.helpers.DirectoryMetadataRepository
+import org.fossify.gallery.helpers.DirectoryScanScope
+import org.fossify.gallery.helpers.DirectoryScanSnapshot
+import org.fossify.gallery.helpers.FolderMediaReadResult
+import org.fossify.gallery.helpers.FolderReadStatus
 import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.commons.dialogs.CreateNewFolderDialog
@@ -1968,6 +1973,24 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         GalleryPerfTrace.end("album_index_ready", indexedStarted, android11Files?.size)
         if (!isCurrentDirectoryScan(scanRequest)) return
         val folderFailures = LinkedHashMap<String, Exception>()
+        val metadataScope = DirectoryScanScope(config.filterMedia, config.shouldShowHidden,
+            getImagesOnly, getVideosOnly)
+        fun beginMetadata(path: String): Long {
+            if (!metadataScope.matches(applicationContext) || !path.startsWith('/') ||
+                FolderUnlockSessionManager.findProtectedAncestor(path, config::isFolderProtected) != null) return 0L
+            return DirectoryMetadataRepository.begin(path)
+        }
+        fun commitMetadata(path: String, version: Long, read: FolderMediaReadResult?): Boolean {
+            if (version == 0L || read == null) return false
+            if (read.status != FolderReadStatus.COMPLETE || !read.accessCurrent()) {
+                DirectoryMetadataRepository.defer(path, version)
+                return false
+            }
+            return DirectoryMetadataRepository.commit(applicationContext,
+                DirectoryScanSnapshot(path, version, metadataScope, read, read.media.map { it.copy() },
+                    isCurrent = { isCurrentDirectoryScan(scanRequest) && scanFetcher === mLastMediaFetcher },
+                    notifyObservers = false))
+        }
         var cachedCardUpdates = 0
         for (index in dirs.indices) {
             val directory = dirs[index]
@@ -1976,7 +1999,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
             // A locked album is represented by its cached metadata only.
             // Its media may be scanned only by MediaActivity after authentication.
-            if (config.isFolderProtected(directory.path)) continue
+            if (config.isFolderProtected(directory.path) ||
+                (directory.path.startsWith('/') &&
+                    FolderUnlockSessionManager.findProtectedAncestor(
+                        directory.path, config::isFolderProtected) != null)) continue
             if (directory.path == FAVORITES && config.isFavoritePasswordProtectionOn) {
                 directory.tmb = ""
                 directory.mediaCnt = 0
@@ -2009,25 +2035,46 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                         || grouping and GROUP_BY_LAST_MODIFIED_DAILY != 0
                         || grouping and GROUP_BY_LAST_MODIFIED_MONTHLY != 0
 
-            val curMedia = try { scanFetcher.getFilesFrom(
-                curPath = directory.path,
-                isPickImage = getImagesOnly,
-                isPickVideo = getVideosOnly,
-                getProperDateTaken = getProperDateTaken,
-                getProperLastModified = getProperLastModified,
-                getProperFileSize = getProperFileSize,
-                favoritePaths = pathsForCard,
-                getVideoDurations = false,
-                lastModifieds = lastModifieds,
-                dateTakens = dateTakens,
-                android11Files = android11Files
-            ) } catch (error: Exception) {
+            val isPhysicalDirectory = directory.path.startsWith('/') &&
+                !directory.areFavorites() && !directory.isRecycleBin()
+            val metadataVersion = if (isPhysicalDirectory) beginMetadata(directory.path) else 0L
+            var physicalRead: FolderMediaReadResult? = null
+            val curMedia = try {
+                if (isPhysicalDirectory) {
+                    scanFetcher.readFolder(directory.path, getImagesOnly, getVideosOnly,
+                        getProperDateTaken, getProperLastModified, getProperFileSize,
+                        pathsForCard, false, lastModifieds, dateTakens, android11Files)
+                        .also { physicalRead = it }.media
+                } else scanFetcher.getFilesFrom(
+                    curPath = directory.path,
+                    isPickImage = getImagesOnly,
+                    isPickVideo = getVideosOnly,
+                    getProperDateTaken = getProperDateTaken,
+                    getProperLastModified = getProperLastModified,
+                    getProperFileSize = getProperFileSize,
+                    favoritePaths = pathsForCard,
+                    getVideoDurations = false,
+                    lastModifieds = lastModifieds,
+                    dateTakens = dateTakens,
+                    android11Files = android11Files
+                )
+            } catch (error: Exception) {
+                DirectoryMetadataRepository.defer(directory.path, metadataVersion)
                 folderFailures[directory.path] = error
                 android.util.Log.w("GalleryDirs", "Could not refresh album", error)
                 continue
             }
 
             if (!isCurrentDirectoryScan(scanRequest)) return
+            // Picker scopes can still display their own results, but never write public counts.
+            // Only fully read physical directories can replace authoritative cache rows.
+            if (isPhysicalDirectory && (physicalRead?.status != FolderReadStatus.COMPLETE ||
+                    !physicalRead.accessCurrent() ||
+                    (metadataVersion != 0L && !commitMetadata(directory.path, metadataVersion, physicalRead)))) {
+                DirectoryMetadataRepository.defer(directory.path, metadataVersion)
+                physicalRead?.error?.let { folderFailures[directory.path] = it }
+                continue
+            }
             if (directory.path == FAVORITES) {
                 // Match the album's current saved and unprotected paths, even
                 // if the favorites table or source locks changed during the scan.
@@ -2050,7 +2097,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 }
             }
 
-            val newDir = if (curMedia.isEmpty()) {
+            val newDir = if (curMedia.isEmpty() && isPhysicalDirectory && metadataVersion != 0L &&
+                physicalRead?.status == FolderReadStatus.COMPLETE) {
+                // This is a verified full scan, not an unavailable folder or an empty preview.
+                createDirectoryFromMedia(directory.path, arrayListOf(), albumCovers,
+                    hiddenString, includedFolders, getProperFileSize, noMediaFolders)
+            } else if (curMedia.isEmpty()) {
                 // An empty scan can mean permission loss, a changed filter,
                 // or a temporarily unavailable volume. Never delete a valid
                 // directory record based only on an empty result.
@@ -2081,7 +2133,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
 
             // An unavailable physical folder is not evidence of changed content.
-            if (curMedia.isEmpty() && !directory.areFavorites() && !directory.isRecycleBin()) continue
+            if (curMedia.isEmpty() && !directory.areFavorites() && !directory.isRecycleBin() &&
+                !(metadataVersion != 0L && physicalRead?.status == FolderReadStatus.COMPLETE)) continue
 
             // Adapter holds the previous Directory instance. Replace it, so
             // DiffUtil can compare stable immutable before/after snapshots.
@@ -2107,7 +2160,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
             // Already on the cached-media worker thread: do not create a
             // short-lived Thread per album during a large library refresh.
-            updateDBDirectory(revisedDir)
+            if (!isPhysicalDirectory) updateDBDirectory(revisedDir)
             if (!directory.isRecycleBin() && !directory.areFavorites()) {
                 try {
                     mediaDB.insertAll(curMedia)
@@ -2184,10 +2237,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val pendingMedia = ArrayList<Medium>()
         var foldersSinceUpdate = 0
         fun commitBatch() {
-            if (pendingDirs.isEmpty() || !isCurrentDirectoryScan(scanRequest)) return
+            if ((pendingDirs.isEmpty() && pendingMedia.isEmpty()) || !isCurrentDirectoryScan(scanRequest)) return
             try {
                 GalleryDatabase.getInstance(applicationContext).runInTransaction {
-                    directoryDB.insertAll(pendingDirs)
+                    if (pendingDirs.isNotEmpty()) directoryDB.insertAll(pendingDirs)
                     if (pendingMedia.isNotEmpty()) mediaDB.insertAll(pendingMedia)
                 }
             } catch (ignored: Exception) {
@@ -2201,7 +2254,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             if (!isCurrentDirectoryScan(scanRequest)) {
                 return
             }
-            if (config.isFolderProtected(folder)) continue
+            if (config.isFolderProtected(folder) ||
+                (folder.startsWith('/') &&
+                    FolderUnlockSessionManager.findProtectedAncestor(folder, config::isFolderProtected) != null)) continue
 
             val sorting = config.getFolderSorting(folder)
             val grouping = config.getFolderGrouping(folder)
@@ -2215,25 +2270,44 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     || grouping and GROUP_BY_LAST_MODIFIED_DAILY != 0
                     || grouping and GROUP_BY_LAST_MODIFIED_MONTHLY != 0
 
-            val newMedia = try { scanFetcher.getFilesFrom(
-                curPath = folder,
-                isPickImage = getImagesOnly,
-                isPickVideo = getVideosOnly,
-                getProperDateTaken = getProperDateTaken,
-                getProperLastModified = getProperLastModified,
-                getProperFileSize = getProperFileSize,
-                favoritePaths = favoritePaths,
-                getVideoDurations = false,
-                lastModifieds = lastModifieds,
-                dateTakens = dateTakens,
-                android11Files = android11Files
-            ) } catch (error: Exception) {
+            val isPhysicalDirectory = folder.startsWith('/') && folder != FAVORITES && folder != RECYCLE_BIN
+            val metadataVersion = if (isPhysicalDirectory) beginMetadata(folder) else 0L
+            var physicalRead: FolderMediaReadResult? = null
+            val newMedia = try {
+                if (isPhysicalDirectory) {
+                    scanFetcher.readFolder(folder, getImagesOnly, getVideosOnly, getProperDateTaken,
+                        getProperLastModified, getProperFileSize, favoritePaths,
+                        false, lastModifieds, dateTakens, android11Files)
+                        .also { physicalRead = it }.media
+                } else scanFetcher.getFilesFrom(
+                    curPath = folder,
+                    isPickImage = getImagesOnly,
+                    isPickVideo = getVideosOnly,
+                    getProperDateTaken = getProperDateTaken,
+                    getProperLastModified = getProperLastModified,
+                    getProperFileSize = getProperFileSize,
+                    favoritePaths = favoritePaths,
+                    getVideoDurations = false,
+                    lastModifieds = lastModifieds,
+                    dateTakens = dateTakens,
+                    android11Files = android11Files
+                )
+            } catch (error: Exception) {
+                DirectoryMetadataRepository.defer(folder, metadataVersion)
                 folderFailures[folder] = error
                 android.util.Log.w("GalleryDirs", "Could not load album", error)
                 continue
             }
 
             if (!isCurrentDirectoryScan(scanRequest)) return
+            if (isPhysicalDirectory && (physicalRead?.status != FolderReadStatus.COMPLETE ||
+                    !physicalRead.accessCurrent() ||
+                    (metadataVersion != 0L && newMedia.isNotEmpty() &&
+                        !commitMetadata(folder, metadataVersion, physicalRead)))) {
+                DirectoryMetadataRepository.defer(folder, metadataVersion)
+                physicalRead?.error?.let { folderFailures[folder] = it }
+                continue
+            }
             if (newMedia.isEmpty()) {
                 continue
             }
@@ -2258,7 +2332,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 noMediaFolders = noMediaFolders
             )
             dirs.add(newDir)
-            pendingDirs.add(newDir)
+            // Physical rows were already saved by DirectoryMetadataRepository under
+            // their scan version. A batch REPLACE here would reintroduce the race.
+            if (!isPhysicalDirectory) pendingDirs.add(newDir)
             if (folder != RECYCLE_BIN && folder != FAVORITES) {
                 pendingMedia.addAll(newMedia)
             }
