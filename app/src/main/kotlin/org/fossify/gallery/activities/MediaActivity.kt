@@ -460,6 +460,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             mediaScanGeneration++
             mCurrAsyncTask?.stopFetching()
             mIsGettingMedia = false
+            mediaChangeGate.scanFinished(success = false)
             setMediaLoading(false)
             binding.mediaRefreshLayout.isRefreshing = false
             toast(R.string.folder_refresh_timeout)
@@ -1456,7 +1457,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mediaPollScheduled = false
     private var mediaPollInFlight = false
     private var mediaPollGeneration = 0L
-    private var mediaChangePending = false
+    private val mediaChangeGate = org.fossify.gallery.helpers.MediaChangeRetryGate()
 
     private fun pollAllowed(): Boolean = !isPhotoProfiles && !isDestroyed && !isFinishing &&
         config.getFolderSorting(mPath) and SORT_BY_RANDOM == 0 &&
@@ -1485,7 +1486,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             mLatestMediaDateId != latest.second)) {
                         mLatestMediaId = latest.first
                         mLatestMediaDateId = latest.second
-                        if (mIsGettingMedia) mediaChangePending = true
+                        if (mIsGettingMedia) mediaChangeGate.mediaChangedDuringScan()
                         else getMedia()
                     }
                     checkLastMediaChanged()
@@ -1626,6 +1627,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         // Every refresh has a separate request identity, including the cache step.
         // A late cache response must never launch an older scan or replace new UI.
         mediaRefreshWatchdog.stop()
+        mediaChangeGate.scanStarted()
         val request = mediaLoadRequests.begin()
         mediaRefreshRequest = request
         if (mPath == FAVORITES && favoritesReturnCover?.covering == true) {
@@ -1755,6 +1757,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             binding.mediaGrid.adapter = null
                         }
                         mIsGettingMedia = false
+                        mediaChangeGate.scanFinished(success = false)
                         setMediaLoading(false)
                         OxygenProgressStyle.setLoading(binding.loadingIndicator, false)
                         binding.mediaRefreshLayout.isRefreshing = false
@@ -1870,6 +1873,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             mediaScanGeneration++
             android.util.Log.w("GalleryMedia", "Media scan executor rejected request", error)
             mIsGettingMedia = false
+            mediaChangeGate.scanFinished(success = false)
             setMediaLoading(false)
             binding.mediaRefreshLayout.isRefreshing = false
             toast(R.string.folder_refresh_busy)
@@ -2476,8 +2480,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 completedMediaRequest = request
             }
             checkLastMediaChanged()
-            if (!isFromCache && mediaChangePending && pollAllowed()) {
-                mediaChangePending = false
+            if (!isFromCache && pollAllowed() && mediaChangeGate.scanFinished(success = true)) {
                 binding.mediaGrid.post {
                     if (mediaLoadRequests.isCurrent(request) && !mIsGettingMedia && pollAllowed()) getMedia()
                 }

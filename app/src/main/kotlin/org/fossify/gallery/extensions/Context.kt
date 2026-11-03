@@ -979,8 +979,14 @@ fun Context.getCachedMedia(
                 } catch (_: Exception) {
                     ArrayList<Medium>()
                 }
-                fetcher.sortMedia(media, config.getFolderSorting(SHOW_ALL))
-                callback(fetcher.groupMedia(media, SHOW_ALL))
+                val preview = try {
+                    fetcher.sortMedia(media, config.getFolderSorting(SHOW_ALL))
+                    fetcher.groupMedia(media, SHOW_ALL)
+                } catch (error: Exception) {
+                    android.util.Log.w("GalleryMedia", "Root cache grouping failed; scanning source", error)
+                    arrayListOf<ThumbnailItem>()
+                }
+                callback(preview)
             }
         }
         return

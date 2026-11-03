@@ -262,10 +262,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mDirs = ArrayList<Directory>()
     private var mDirsIgnoringSearch = ArrayList<Directory>()
     private var displayedDirectoryMetadataRevision = 0L
-    private val pendingDirectoryMetadataPaths = linkedSetOf<String>()
+    private val directoryMetadataRebindGate = org.fossify.gallery.helpers.DirectoryMetadataRebindGate()
     private val directoryMetadataHandler = Handler(android.os.Looper.getMainLooper())
+    private val directoryMetadataRebindWatchdog = org.fossify.gallery.helpers.RefreshWatchdog()
     private var directoryMetadataRebindScheduled = false
-    private var directoryMetadataRebindInFlight = false
     private val directoryMetadataRebindRunnable = Runnable {
         directoryMetadataRebindScheduled = false
         publishPendingDirectoryMetadata()
@@ -277,49 +277,71 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
 
     private fun scheduleDirectoryMetadataRebind() {
-        if (pendingDirectoryMetadataPaths.isEmpty() || directoryMetadataRebindScheduled ||
-            directoryMetadataRebindInFlight || mIsGettingDirs || !canPublishDirectoryMetadata()) return
+        if (!directoryMetadataRebindGate.hasPending() || directoryMetadataRebindScheduled ||
+            directoryMetadataRebindGate.isActive() || mIsGettingDirs || !canPublishDirectoryMetadata()) return
         directoryMetadataRebindScheduled = true
         directoryMetadataHandler.postDelayed(directoryMetadataRebindRunnable, 250L)
     }
 
+    private fun failDirectoryMetadataRebind(requestId: Long, error: Exception) {
+        android.util.Log.w("GalleryDirs", "Metadata catalog read failed", error)
+        runOnUiThread {
+            if (directoryMetadataRebindGate.finish(requestId, applied = false)) {
+                directoryMetadataRebindWatchdog.stop()
+                // Keep changed paths until the next event, resume or manual refresh.
+            }
+        }
+    }
+
     private fun publishPendingDirectoryMetadata() {
-        if (directoryMetadataRebindInFlight || mIsGettingDirs ||
-            pendingDirectoryMetadataPaths.isEmpty() || !canPublishDirectoryMetadata()) return
-        val paths = pendingDirectoryMetadataPaths.toSet()
-        pendingDirectoryMetadataPaths.clear()
-        directoryMetadataRebindInFlight = true
-        val presentationEpoch = directoryScanEpoch.currentVersion()
+        if (mIsGettingDirs || !canPublishDirectoryMetadata()) return
+        val request = directoryMetadataRebindGate.begin() ?: return
+        val scanEpoch = directoryScanEpoch.currentVersion()
         val getImages = mIsPickImageIntent || mIsGetImageContentIntent
         val getVideos = mIsPickVideoIntent || mIsGetVideoContentIntent
+        directoryMetadataRebindWatchdog.stop()
+        directoryMetadataRebindWatchdog.arm {
+            if (directoryMetadataRebindGate.finish(request.id, applied = false)) {
+                android.util.Log.w("GalleryDirs", "Metadata catalog refresh timed out; awaiting retry")
+            }
+        }
         getCachedDirectories(getVideos && !getImages, getImages && !getVideos,
             executor = org.fossify.gallery.helpers.GalleryAlbumScanExecutor,
-            onFailure = { error ->
-                android.util.Log.w("GalleryDirs", "Metadata-only catalog read failed", error)
-                runOnUiThread {
-                    directoryMetadataRebindInFlight = false
-                    // Keep paths until the next change/retry, without a busy loop.
-                    pendingDirectoryMetadataPaths.addAll(paths)
-                }
-            }
+            isCurrent = { directoryMetadataRebindGate.isCurrent(request.id) && !isDestroyed && !isFinishing },
+            onFailure = { error -> failDirectoryMetadataRebind(request.id, error) }
         ) { cached ->
+            val catalog = try {
+                val favoriteCount = runCatching { favoritesDB.getFavoritesCount() }
+                    .onFailure { android.util.Log.w("GalleryDirs", "Cannot read favorites count", it) }.getOrNull()
+                val deletedCount = if (config.showRecycleBinAtFolders) {
+                    runCatching { mediaDB.getDeletedMediaCount().toLong() }
+                        .onFailure { android.util.Log.w("GalleryDirs", "Cannot read recycle count", it) }.getOrNull()
+                } else 0L
+                org.fossify.gallery.helpers.RootVirtualAlbumPolicy.reconcile(
+                    cached, favoriteCount, deletedCount, config.showRecycleBinAtFolders,
+                    config.isFavoritePasswordProtectionOn || config.isFolderProtected(FAVORITES),
+                    config.shouldShowHidden,
+                    getString(org.fossify.commons.R.string.favorites),
+                    getString(org.fossify.commons.R.string.recycle_bin), LOCATION_INTERNAL
+                )
+            } catch (error: Exception) {
+                failDirectoryMetadataRebind(request.id, error)
+                return@getCachedDirectories
+            }
             runOnUiThread {
-                directoryMetadataRebindInFlight = false
-                val stillCurrent = {
-                    canPublishDirectoryMetadata() && !mIsGettingDirs &&
-                        directoryScanEpoch.currentVersion() == presentationEpoch
+                if (!directoryMetadataRebindGate.isCurrent(request.id)) return@runOnUiThread
+                val isCurrentPresentation = {
+                    directoryMetadataRebindGate.isLatest(request.id) &&
+                        canPublishDirectoryMetadata() && !mIsGettingDirs &&
+                        directoryScanEpoch.currentVersion() == scanEpoch
                 }
-                if (stillCurrent()) {
-                    val catalog = addTempFolderIfNeeded(cached)
-                    // Favorites and recycle-bin rows come from separate data sources.
-                    mDirs.filter { it.path == FAVORITES || it.path == RECYCLE_BIN }.forEach { virtual ->
-                        if (catalog.none { it.path == virtual.path }) catalog.add(virtual.copy())
-                    }
-                    setupAdapter(catalog, presentationIsCurrent = stillCurrent)
-                } else {
-                    pendingDirectoryMetadataPaths.addAll(paths)
+                val accepted = isCurrentPresentation()
+                directoryMetadataRebindGate.finish(request.id, applied = accepted)
+                directoryMetadataRebindWatchdog.stop()
+                if (accepted) {
+                    setupAdapter(addTempFolderIfNeeded(catalog), presentationIsCurrent = isCurrentPresentation)
+                    scheduleDirectoryMetadataRebind()
                 }
-                scheduleDirectoryMetadataRebind()
             }
         }
     }
@@ -331,7 +353,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 val changed = repository.changedSince(displayedDirectoryMetadataRevision)
                 displayedDirectoryMetadataRevision = repository.currentRevision()
                 if (changed.isNotEmpty()) {
-                    pendingDirectoryMetadataPaths.addAll(changed)
+                    directoryMetadataRebindGate.enqueue(changed)
                     scheduleDirectoryMetadataRebind()
                 }
             }
@@ -370,7 +392,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 org.fossify.gallery.helpers.FolderRefreshTrace.event(directoryTraceRequest, "album_timeout")
                 retireDirectoryScan()
                 binding.directoriesRefreshLayout.isRefreshing = false
-                onNormalDirectoryScanFinished()
+                onNormalDirectoryScanFinished(success = false)
                 toast(R.string.folder_refresh_timeout)
             } else directoryRefreshWatchdog.stop()
             if (!isDestroyed && !isFinishing) directoryHeaderProgress?.apply {
@@ -607,6 +629,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         org.fossify.gallery.helpers.DirectoryMetadataRepository.removeObserver(directoryMetadataListener)
         directoryMetadataHandler.removeCallbacks(directoryMetadataRebindRunnable)
         directoryMetadataRebindScheduled = false
+        directoryMetadataRebindWatchdog.stop()
+        directoryMetadataRebindGate.cancel()
         mediaPollGeneration++
         mediaPollScheduled = false
         mediaPollInFlight = false
@@ -661,6 +685,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     override fun onDestroy() {
         directoryMetadataHandler.removeCallbacks(directoryMetadataRebindRunnable)
+        directoryMetadataRebindWatchdog.stop()
+        directoryMetadataRebindGate.cancel()
         directoryRefreshWatchdog.stop()
         GalleryBottomBar.dispose(this)
         directoryHeaderProgress?.let(OxygenProgressStyle::dispose)
@@ -1013,6 +1039,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
 
         mLastMediaFetcher?.shouldStop = true
+        directoryMediaChangeGate.scanStarted()
         val scanRequest = directoryScanEpoch.begin()
         directoryTraceRequest = scanRequest
         org.fossify.gallery.helpers.FolderRefreshTrace.event(scanRequest, "album_queued")
@@ -1028,15 +1055,17 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     mIsGettingDirs = false
                     setDirectoryLoading(false)
                     binding.directoriesRefreshLayout.isRefreshing = false
-                    onNormalDirectoryScanFinished()
+                    onNormalDirectoryScanFinished(success = false)
                     toast(R.string.folder_load_failed)
                 }
             } },
             isCurrent = { isCurrentDirectoryScan(scanRequest) }
         ) {
             if (isCurrentDirectoryScan(scanRequest)) {
+                var scanSucceeded = false
                 try {
                     gotDirectories(addTempFolderIfNeeded(it), scanRequest, forceRefresh)
+                    scanSucceeded = isCurrentDirectoryScan(scanRequest)
                 } catch (error: Exception) {
                     android.util.Log.e("GalleryDirs", "Directory scan failed", error)
                     runOnUiThread {
@@ -1051,7 +1080,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                             mIsGettingDirs = false
                             setDirectoryLoading(false)
                             binding.directoriesRefreshLayout.isRefreshing = false
-                            onNormalDirectoryScanFinished()
+                            onNormalDirectoryScanFinished(success = scanSucceeded)
                         }
                     }
                 }
@@ -2691,12 +2720,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mediaPollScheduled = false
     private var mediaPollInFlight = false
     private var mediaPollGeneration = 0L
-    private var mediaChangePending = false
+    private val directoryMediaChangeGate = org.fossify.gallery.helpers.MediaChangeRetryGate()
 
-    private fun onNormalDirectoryScanFinished() {
+    private fun onNormalDirectoryScanFinished(success: Boolean) {
         scheduleDirectoryMetadataRebind()
-        if (mediaChangePending && !mIsGettingDirs && canPublishDirectoryMetadata()) {
-            mediaChangePending = false
+        if (!mIsGettingDirs && canPublishDirectoryMetadata() &&
+            directoryMediaChangeGate.scanFinished(success)) {
             getDirectories()
         }
     }
@@ -2724,7 +2753,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                             mLatestMediaDateId != latest.second)) {
                         mLatestMediaId = latest.first
                         mLatestMediaDateId = latest.second
-                        if (mIsGettingDirs) mediaChangePending = true
+                        if (mIsGettingDirs) directoryMediaChangeGate.mediaChangedDuringScan()
                         else getDirectories()
                     }
                     checkLastMediaChanged()
