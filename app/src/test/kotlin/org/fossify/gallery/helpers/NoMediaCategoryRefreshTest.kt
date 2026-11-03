@@ -60,7 +60,7 @@ class NoMediaCategoryRefreshTest {
             File(root, ".nomedia").createNewFile()
             photo(root, "old.jpg")
             context.config.everShownFolders = setOf(root.path)
-            context.config.saveFolderSorting(root.path, SORT_BY_DATE_MODIFIED or SORT_DESCENDING)
+            context.config.saveCustomSorting(root.path, SORT_BY_DATE_MODIFIED or SORT_DESCENDING)
             val initial = scan(listOf(old(root.path)))
             assertEquals(1, initial.directories.single { it.path == root.path }.mediaCnt)
             val fresh = photo(root, "new.jpg", 2000)
