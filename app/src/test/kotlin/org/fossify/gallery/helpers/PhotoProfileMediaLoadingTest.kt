@@ -208,22 +208,22 @@ class PhotoProfileMediaLoadingTest {
         try {
             val public = Files.createDirectory(root.resolve("public"))
             val noMedia = Files.createDirectory(root.resolve("no-media"))
-            val protected = Files.createDirectory(root.resolve("protected"))
+            val lockedFolder = Files.createDirectory(root.resolve("protected"))
             Files.write(noMedia.resolve(".nomedia"), byteArrayOf())
             val publicPath = Files.write(public.resolve("public.jpg"), byteArrayOf(1)).toString()
             val noMediaPaths = (0 until 150).map {
                 Files.write(noMedia.resolve("unindexed-$it.jpg"), byteArrayOf(1)).toString()
             }
-            val protectedPath = Files.write(protected.resolve("secret.jpg"), byteArrayOf(1)).toString()
+            val protectedPath = Files.write(lockedFolder.resolve("secret.jpg"), byteArrayOf(1)).toString()
             provider.add(publicPath)
             provider.add(protectedPath)
-            context.config.addFolderProtection(protected.toString(), "mixed-secret",
+            context.config.addFolderProtection(lockedFolder.toString(), "mixed-secret",
                 org.fossify.commons.helpers.PROTECTION_PIN)
             val id = java.util.UUID.randomUUID().toString()
             PhotoProfileRepository.of(context).save(PhotoProfile(id, "Mixed", listOf(
                 PhotoSource(PhotoSourceType.FOLDER, public.toString()),
                 PhotoSource(PhotoSourceType.FOLDER, noMedia.toString()),
-                PhotoSource(PhotoSourceType.FOLDER, protected.toString())
+                PhotoSource(PhotoSourceType.FOLDER, lockedFolder.toString())
             )))
             val stages = ArrayList<PhotoLoadResult>()
             val final = background {
