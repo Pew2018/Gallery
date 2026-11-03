@@ -9,7 +9,7 @@
 
 ## 1. 任务目标和结论摘要
 
-本轮依据 [05](05-minimal-scan-sort-display-refactor.md) 审计最新目标分支并实际实施一个窄范围的 O2 优化：照片配置公开来源文件系统扫描按批交付时，先完成新媒体访问校验、与已校验缓存/索引数据按路径合并，再对将要发布的累计列表排序一次。原逻辑在批次校验后先排序批次，合并后又排序累计集合；前一次排序不会影响最终发布顺序。
+本轮依据 [05](05-minimal-scan-sort-display-refactor.md) 审计最新目标分支并实际实施两处窄范围的 O2 优化：已排序缓存经过 preview 截取和访问校验时保留次序，避免再次排序；公开来源文件系统候选按批校验、按路径合并后，只对将要发布的累计列表排序一次。原来的额外排序都不影响最终发布顺序。
 
 保留每阶段渐进发布、最终完整读取、既有随机排序 rank、访问校验与 Viewer 目录交接。没有改动扫描调度器、目录元数据权威规则、数据库、配置格式、缓存、Adapter、动画、Viewer、权限或 CI。
 
@@ -35,7 +35,7 @@
 | 相同媒体是否可能被页面/通知重复读取？ | F：页面各有 request/generation，MediaFetcher 有取消标志；照片配置 Viewer store 提供 active producer 共享。普通媒体扫描与目录元数据/分类扫描是不同 scope，没有全应用级单一读请求表。I：同一底层文件因主页/目录/配置不同 scope 被重复读取是可能的；是否同一次用户动作实际重复需带 requestId 采样。 |
 | 哪些请求可取消？ | F：MediaActivity 新请求会停止 `mCurrAsyncTask`，校验 request + generation + path 后才可回调；`GetMediaAsynctask.stopFetching()` 标记 CANCELLED、设置 `MediaFetcher.shouldStop`、取消任务并清 Handler 回调；MediaFetcher 枚举循环检查 stop；PhotoProfile context 在每个发布/阶段检查 scope、revision 和授权。旧结果不能提交的防护很多。尚未真机验证取消竞态全覆盖。 |
 | 加载是否有唯一终止？ | F：主页有 `GalleryScanTerminalGate`，拒绝/异常/完成/超时归并到 finish；媒体有请求终态与 watchdog；MediaProfile Loader 通过异常取消并由 AsyncTask 承担终结。多处生命周期仍分属不同实现；当前静态证据不支持“没有终止机制”这一旧假设。所有 loading 路径是否都能闭合仍需测试组 A。 |
-| 哪些地方排序、是否重复、随机是否稳定？ | 普通目录 sort 在 `MediaFetcher.sortMedia()`；照片配置在 cache、index、每个渐进累计快照和 COMPLETE 阶段排序。随机配置 `PhotoProfileMediaLoader` 会对路径分配本次 load 固定 rank；Viewer 另有稳定网格顺序交接。确认重复点是公开配置每个文件系统 batch 的临时排序再做累计排序；本轮已移除前者。是否跨刷新会保持随机顺序由 cache/session 路径决定，需要 A04/A05 测试。 |
+| 哪些地方排序、是否重复、随机是否稳定？ | 普通目录 sort 在 `MediaFetcher.sortMedia()`；照片配置在 cache、index、每个渐进累计快照和 COMPLETE 阶段排序。随机配置 `PhotoProfileMediaLoader` 会对路径分配本次 load 固定 rank；Viewer 另有稳定网格顺序交接。确认重复点：cache 全集已排序后 preview 子集再次排序；公开配置每个文件系统 batch 排序后又对累计集合排序。本轮移除了这些不影响输出的额外排序。是否跨刷新会保持随机顺序由 cache/session 路径决定，需要 A04/A05 测试。 |
 | 哪些步骤更新 Adapter？ | `MediaActivity.publishMedia()` 将非缓存阶段更新 `mMedia` 后进入 `setupAdapter()`；MediaAdapter 一次只跑一个 DiffUtil，保留最新待提交快照，并在滚动/布局计算时延期。照片配置各 preview/filesystem 阶段可重复提交累计快照；DirectoryAdapter 同样以 DiffUtil 交付目录更新。分类扫描会将进度和最终结果都交给 adapter。 |
 | 何时 `adapter = null` / 重建？ | F：MediaActivity 在照片配置/收藏结果可信空集时清 adapter；鉴权撤销或文件夹权限错误时清空以免泄露旧内容；目录/筛选/导航路径切换也存在 teardown。不能只按次数降低这类清空，因为其中有安全语义。配置每阶段并非必然重建；`setupAdapter()` 会复用现有 adapter（需再看对应调用路径）。本轮不改变。 |
 | 哪些变化应产生 DiffUtil 操作？ | 媒体身份为 path/stable ID；内容策略由 `MediaUpdatePolicy.sameContent()` 决定，视频时长可用 payload 局部更新；真正新增/删除/顺序变化应产生 insert/remove/move；无变化快照被 `incoming == media` 短路。目录项按 path identity、DirectoryPresentation 内容契约比较。 |
@@ -55,7 +55,9 @@
 3. 对 `supplements.values` 全量排序；
 4. 发布这一累计列表。
 
-批次初次排序结果立即被 LinkedHashMap 以媒体身份收集，后续累计列表按同一个 `scope.sorting` 再次排序。因此第一步的排序对输出没有贡献。`MediaFetcher` 以每 120 项或每 200ms（满足一个阈值）发布 batch，图书规模增大时重复调用数随批次数上升。
+批次初次排序结果立即被 LinkedHashMap 以媒体身份收集，后续累计列表按同一个 `scope.sorting` 再次排序。因此第一步的排序对输出没有贡献。`MediaFetcher` 以每 120 项或每 200ms（满足一个阈值）发布 batch，媒体规模增大时重复调用数随批次数上升。
+
+另一个重复点在 cache preview：cache 全集先排序，`PhotoProfileMediaCache.preview()` 通过有序子列表截取保持次序；`PhotoAccessValidationBatch.validate()` 对媒体做授权过滤且保持输入遍历顺序，之后旧实现又排序 preview 子集。该次排序也不改变可见顺序。
 
 ### 已排除的扩大方向
 
@@ -68,8 +70,9 @@
 
 | 文件/函数 | 修改前 | 修改后 | 目的与风险控制 |
 |---|---|---|---|
-| `app/src/main/kotlin/org/fossify/gallery/helpers/PhotoProfileMediaLoader.kt` / `loadStaged()` 文件系统 batch 分支 | 每批先排序 batch，合并后对累计列表再排序 | 对普通公开配置，batch 校验后保留输入次序；合并去重后只对实际将发布的累计快照排序。受保护混合配置分支未改 | 移除纯冗余排序；保留每阶段访问校验、数据去重、排序语义与渐进 UI。路径排序/随机排序均仍在累计快照处生效。 |
-| `app/src/test/kotlin/org/fossify/gallery/helpers/PhotoProfileMediaLoadingTest.kt` / `unindexedNoMediaFolderPublishesValidatedBatchesBeforeComplete()` | 测试 `.nomedia` 直接读取、批次、去重与最终目录，但未锁住批次顺序 | 对 profile 显式设置名称排序，并断言每个渐进批次与最终结果均为该排序 | 验证优化不让未排序的文件系统候选直接进入用户可见快照，保留 `.nomedia` 回归覆盖。 |
+| `app/src/main/kotlin/org/fossify/gallery/helpers/PhotoProfileMediaLoader.kt` / `loadStaged()` cache preview 分支 | cache 排序、preview 截取/过滤后再排序 | preview 校验时保留已有顺序 | 不改变锚点窗口或授权过滤后的序列。 |
+| 同文件 / `loadStaged()` 文件系统 batch 分支 | 每批先排序 batch，合并后对累计列表再排序 | 普通公开配置 batch 校验后保留输入次序；累计去重后仍按既定设置排序再发布。受保护混合配置分支未改 | 保留每阶段访问校验、排序语义与渐进 UI；路径/随机排序均仍在累计快照处生效。 |
+| `app/src/test/kotlin/org/fossify/gallery/helpers/PhotoProfileMediaLoadingTest.kt` / `unindexedNoMediaFolderPublishesValidatedBatchesBeforeComplete()` | 缓存/渐进扫描测试未锁定这两个顺序契约 | 对 profile 显式设置名称排序，并断言每个渐进批次与最终结果均为该排序 | 确认省略冗余排序后输出顺序不变，并保留 `.nomedia` 回归覆盖。 |
 
 未加新基础设施；未修改数据库 schema、备份格式、Android 最低 SDK、权限判断和 UI/Viewer。
 
@@ -85,4 +88,4 @@
 - A04：跨来源排序、去重、随机顺序跨阶段与 Viewer 顺序待测试。
 - A05/A06：普通、收藏、配置超过五张连续双向滑动和撤权行为待测试。
 - A07：FOSS 完整测试覆盖旧数据/备份/配置兼容，仍需完整测试结果及手动抽检。
-- A08：没有设备基线和后测；只可报告代码已省掉每个公开 profile 文件系统 batch 的一次临时排序。无毫秒、百分比或掉帧改善数据。
+- A08：没有设备基线和后测；只可报告代码已省掉 cache preview 子集的一次排序及每个公开 profile 文件系统 batch 的一次临时排序。无毫秒、百分比或掉帧改善数据。

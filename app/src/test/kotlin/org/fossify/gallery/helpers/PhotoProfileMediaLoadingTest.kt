@@ -179,6 +179,28 @@ class PhotoProfileMediaLoadingTest {
         } finally { root.toFile().deleteRecursively() }
     }
 
+    @Test fun validatedCachePreviewRetainsItsSortedOrder() {
+        val root = Files.createTempDirectory("photo-cache-preview-order")
+        try {
+            val paths = listOf("zeta.jpg", "alpha.jpg", "middle.jpg").map { name ->
+                Files.write(root.resolve(name), byteArrayOf(1)).toString()
+            }
+            val id = profile(root.toString())
+            context.config.saveCustomSorting(PhotoProfileMediaLoader.PATH, SORT_BY_NAME)
+            background {
+                context.mediaDB.insertAll(paths.map { path -> Medium(
+                    null, java.io.File(path).name, path, root.toString(), 1, 1, 1,
+                    TYPE_IMAGES, 0, false, 0, 0
+                ) })
+            }
+            val stages = ArrayList<PhotoLoadResult>()
+            background { PhotoProfileMediaLoader(context).loadStaged(id, true) { stages += it } }
+            val preview = stages.first { it.stage == PhotoLoadStage.CACHE_PREVIEW }
+            val names = preview.media.map { it.name }
+            assertEquals(names.sortedBy { it.lowercase(java.util.Locale.getDefault()) }, names)
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     @Test fun unindexedNoMediaFolderPublishesValidatedBatchesBeforeComplete() {
         val root = Files.createTempDirectory("photo-filesystem-progress")
         try {

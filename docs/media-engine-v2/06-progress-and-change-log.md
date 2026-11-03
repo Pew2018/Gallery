@@ -81,13 +81,13 @@
 
 ### 2026-11-04｜R01 — 照片配置渐进扫描重复排序精简
 
-- **目标/验收编号**：按 05 的 O2、D2 和 A04/A08，减少文件系统批次进入渐进列表前的冗余排序，同时保持候选验证、逐批可见、累计展示顺序、完整结果和 Viewer 交接语义。
+- **目标/验收编号**：按 05 的 O2、D2 和 A04/A08，减少照片配置 cache preview 与文件系统批次进入界面前的冗余排序，同时保持候选验证、逐批可见、累计展示顺序、完整结果和 Viewer 交接语义。
 - **分支、起始 SHA、结束 SHA**：仅 `fix/photo-viewer-five-item-boundary`；本轮起始远程 HEAD `27b488a88de9ed105c3ed6fdbe3931249dabbdb9`。结束 SHA 待集中提交后补入 08。
 - **用户反馈/复现步骤**：用户报告刷新、排序和显示管线复杂及过度动画；本轮未连接设备，不能确认历史视觉症状当前仍复现。
-- **事实 F**：`PhotoProfileMediaLoader.loadStaged()` 对公开配置的每个文件系统候选批次调用 `result(FILESYSTEM, batch)` 排序；紧接着将该批并入 `supplements`，重新排序累计列表并作为渐进快照发布（当前文件行 185–195）。`MediaFetcher.getMediaInFolder()` 每 120 项或 200ms 产生批次（当前行 513–521）。最终 COMPLETE 仍单独排序（loader 行 198–200）。受保护混合配置有独立的授权预览策略（行 177–184）。
-- **推断 I**：公开配置每批排序只影响随后累计快照的输入顺序，不影响最终合并后的排序结果；这是确定的重复 CPU 工作。此次仅省掉该重复排序，不调整发布频率，不推断其能解决大面积动画。
+- **事实 F**：`PhotoProfileMediaLoader.loadStaged()` 先排序 cache 全集，再对 preview 子集校验并排序；`preview()` 截取有序子列表且 `PhotoAccessValidationBatch.validate()` 仅过滤、不重排。公开配置的每个 filesystem batch 被 `result(FILESYSTEM, batch)` 排序，随后并入 `supplements` 后累计再排一次（当前文件约行 129–139、185–199）。`MediaFetcher.getMediaInFolder()` 每 120 项或 200ms 产生批次（当前行 513–521）。受保护混合配置有独立的授权预览策略（loader 行 177–184）。
+- **推断 I**：cache preview 和公开配置的每批首次排序都不会影响最终可见排序，只增加排序工作。此次保留最终累计排序和发布频率，不推断其能解决大面积动画。
 - **未知 U**：每次刷新实际批次数、排序耗时、Adapter commit/rebind 数和帧位移均无设备采样。
-- **修改文件与逻辑**：`PhotoProfileMediaLoader.kt` 的普通公开批次先校验但保留输入顺序，累计合并后仍按既定排序设置排序一次再发布；受保护混合配置保持原处理。扩展 `PhotoProfileMediaLoadingTest`，为 260 项 `.nomedia` 来源显式设名称排序并检查每个渐进阶段和最终结果。
+- **修改文件与逻辑**：`PhotoProfileMediaLoader.kt` 的 cache preview 与普通公开 filesystem batch 校验均保留输入顺序；普通批次累计合并后仍按既定排序设置排序一次再发布，受保护混合配置保持原处理。扩展 `PhotoProfileMediaLoadingTest`，新增缓存 preview 顺序测试，并为 260 项 `.nomedia` 来源检查每个渐进阶段和最终结果。
 - **影响及兼容范围**：不改读取来源、文件枚举顺序契约、去重、授权、缓存、分阶段发布、随机排序策略、用户配置、DB/备份或 Viewer。无数据库/格式/UI/权限改动。
 - **测试与数据**：本地定向命令 `./gradlew :app:testFossReleaseUnitTest --tests org.fossify.gallery.helpers.PhotoProfileMediaLoadingTest --stacktrace` 未能启动；Gradle Wrapper 下载 `gradle-9.5.1-bin.zip` 因环境网络不可达失败，未执行测试。Actions 与完整测试状态见 08。
 - **GitHub Actions / APK / 真机验证**：本条创建时待推送/待触发。不得视为已构建或设备通过；后续由 08 追加实际 Run ID、SHA、artifact 和真机状态。

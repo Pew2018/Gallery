@@ -130,7 +130,9 @@ class PhotoProfileMediaLoader(
             sort(sorted)
             preview = PhotoProfileMediaCache.preview(sorted, anchorPath)
             if (preview.isNotEmpty()) {
-                val validated = result(PhotoLoadStage.CACHE_PREVIEW, preview)
+                // Preview selection preserves the already-sorted cache order;
+                // access validation only filters rows and does not reorder them.
+                val validated = result(PhotoLoadStage.CACHE_PREVIEW, preview, preserveInputOrder = true)
                 preview = validated.media
                 preview.forEach { stagedCandidates[it.path] = it }
                 if (preview.isNotEmpty()) publishValidatedStage(validated)
