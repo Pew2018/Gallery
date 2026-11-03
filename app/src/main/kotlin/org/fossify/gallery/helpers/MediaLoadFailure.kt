@@ -7,9 +7,12 @@ import android.widget.Toast
 import org.fossify.gallery.R
 import java.io.IOException
 
+internal class PartialMediaScanException(cause: Exception? = null) : IOException("Incomplete media scan", cause)
+
 /** A failed scan never means that the previously displayed media was deleted. */
 internal object MediaLoadFailure {
     fun message(error: Exception): Int = when {
+        error is PartialMediaScanException -> R.string.media_load_partial_error
         generateSequence<Throwable>(error) { it.cause }.any { it is java.util.concurrent.TimeoutException } -> R.string.folder_refresh_timeout
         generateSequence<Throwable>(error) { it.cause }.any { it is SecurityException } -> R.string.media_load_permission_error
         generateSequence<Throwable>(error) { it.cause }.any { it is IOException } -> R.string.media_load_storage_error

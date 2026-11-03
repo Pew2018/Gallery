@@ -90,6 +90,9 @@ import org.fossify.commons.models.RadioItem
 import org.fossify.commons.models.Release
 import org.fossify.commons.views.MyGridLayoutManager
 import org.fossify.commons.views.MyRecyclerView
+import org.fossify.gallery.helpers.GalleryScanResult
+import org.fossify.gallery.helpers.GalleryScanState
+import org.fossify.gallery.helpers.GalleryScanTerminalGate
 import org.fossify.gallery.BuildConfig
 import org.fossify.gallery.helpers.PhotoProfileMediaLoader
 import org.fossify.gallery.R
@@ -243,6 +246,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mZoomListener: MyRecyclerView.MyZoomListener? = null
     @Volatile private var mLastMediaFetcher: MediaFetcher? = null
     private val directoryScanEpoch = DirectoryScanEpoch()
+    private val directoryScanTerminals = GalleryScanTerminalGate()
+    // Cache preview is optional. Kept injectable for Activity-level failure regression tests.
+    internal var directoryCacheReader: () -> List<Directory> = { directoryDB.getAll() }
     private val directoryRandomOrder = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     private fun isCurrentDirectoryScan(id: Long): Boolean =
@@ -251,6 +257,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     /** Called on the UI thread before navigation, invalidation or final stop. */
     private fun retireDirectoryScan() {
+        directoryScanTerminals.finish(directoryScanEpoch.currentVersion(), GalleryScanResult(GalleryScanState.CANCELLED))
         directoryScanEpoch.retire()
         categorizedLoadVersion++
         categorizedLoadActive = false
@@ -335,13 +342,20 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                         canPublishDirectoryMetadata() && !mIsGettingDirs &&
                         directoryScanEpoch.currentVersion() == scanEpoch
                 }
-                val accepted = isCurrentPresentation()
-                directoryMetadataRebindGate.finish(request.id, applied = accepted)
                 directoryMetadataRebindWatchdog.stop()
-                if (accepted) {
-                    setupAdapter(addTempFolderIfNeeded(catalog), presentationIsCurrent = isCurrentPresentation)
-                    scheduleDirectoryMetadataRebind()
+                if (!isCurrentPresentation()) {
+                    directoryMetadataRebindGate.finish(request.id, applied = false)
+                    return@runOnUiThread
                 }
+                setupAdapter(addTempFolderIfNeeded(catalog), presentationIsCurrent = isCurrentPresentation,
+                    onCommitted = {
+                        if (directoryMetadataRebindGate.finish(request.id, applied = isCurrentPresentation()))
+                            scheduleDirectoryMetadataRebind()
+                    },
+                    onDiscarded = {
+                        // No self-retry loop: next metadata event/resume/manual scan retries retained paths.
+                        directoryMetadataRebindGate.finish(request.id, applied = false)
+                    })
             }
         }
     }
@@ -411,10 +425,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             if (loading) org.fossify.gallery.helpers.FolderRefreshTrace.configure(applicationContext)
             if (loading) directoryRefreshWatchdog.arm {
                 org.fossify.gallery.helpers.FolderRefreshTrace.event(directoryTraceRequest, "album_timeout")
+                val request = directoryScanEpoch.currentVersion()
+                if (isCurrentDirectoryScan(request) && !mShowingFolderFavorites && !categorizedLoadActive) {
+                    finishDirectoryScan(request, GalleryScanResult(GalleryScanState.TIMED_OUT))
+                } else {
+                    presentDirectoryLoadFailure(R.string.folder_refresh_timeout)
+                }
                 retireDirectoryScan()
-                binding.directoriesRefreshLayout.isRefreshing = false
-                onNormalDirectoryScanFinished(success = false)
-                presentDirectoryLoadFailure(R.string.folder_refresh_timeout)
             } else directoryRefreshWatchdog.stop()
             if (!isDestroyed && !isFinishing) directoryHeaderProgress?.apply {
                 OxygenProgressStyle.apply(this@MainActivity, config, this)
@@ -1061,7 +1078,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         mLastMediaFetcher?.shouldStop = true
         directoryMediaChangeGate.scanStarted()
+        directoryMetadataRebindGate.cancel()
+        directoryMetadataRebindWatchdog.stop()
         val scanRequest = directoryScanEpoch.begin()
+        directoryScanTerminals.begin(scanRequest)
         directoryTraceRequest = scanRequest
         org.fossify.gallery.helpers.FolderRefreshTrace.event(scanRequest, "album_queued")
         mShouldStopFetching = false
@@ -1069,42 +1089,51 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         setDirectoryLoading(true)
         val getImages = mIsPickImageIntent || mIsGetImageContentIntent
         val getVideos = mIsPickVideoIntent || mIsGetVideoContentIntent
+        val launched = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun launch(cached: ArrayList<Directory>) {
+            if (!isCurrentDirectoryScan(scanRequest) || !launched.compareAndSet(false, true)) return
+            try {
+                org.fossify.gallery.helpers.GalleryAlbumScanExecutor.execute {
+                    if (!isCurrentDirectoryScan(scanRequest)) return@execute
+                    val outcome = try {
+                        gotDirectories(addTempFolderIfNeeded(cached), scanRequest, forceRefresh)
+                    } catch (error: Exception) {
+                        android.util.Log.e("GalleryDirs", "Directory scan failed", error)
+                        GalleryScanResult(if (error is java.util.concurrent.CancellationException ||
+                            error is android.os.OperationCanceledException) GalleryScanState.CANCELLED
+                            else GalleryScanState.FAILED, cause = error)
+                    }
+                    finishDirectoryScan(scanRequest, outcome)
+                }
+            } catch (error: java.util.concurrent.RejectedExecutionException) {
+                finishDirectoryScan(scanRequest, GalleryScanResult(GalleryScanState.FAILED, cause = error))
+            }
+        }
+        // Capture an immutable presentation fallback on the UI thread; do not clear it on cache failure.
+        val retained = mDirsIgnoringSearch.mapTo(ArrayList()) { it.snapshot() }
         getCachedDirectories(getVideos && !getImages, getImages && !getVideos,
             executor = org.fossify.gallery.helpers.GalleryAlbumScanExecutor,
-            onFailure = { error -> runOnUiThread {
-                if (isCurrentDirectoryScan(scanRequest)) {
-                    mIsGettingDirs = false
-                    setDirectoryLoading(false)
-                    binding.directoriesRefreshLayout.isRefreshing = false
-                    onNormalDirectoryScanFinished(success = false)
-                    presentDirectoryLoadFailure(R.string.folder_load_failed)
-                }
-            } },
+            readCache = directoryCacheReader,
+            onFailure = { error ->
+                android.util.Log.w("GalleryDirs", "Cache preview skipped; continuing formal scan", error)
+                launch(retained)
+            },
             isCurrent = { isCurrentDirectoryScan(scanRequest) }
-        ) {
-            if (isCurrentDirectoryScan(scanRequest)) {
-                var scanSucceeded = false
-                try {
-                    gotDirectories(addTempFolderIfNeeded(it), scanRequest, forceRefresh)
-                    scanSucceeded = isCurrentDirectoryScan(scanRequest)
-                } catch (error: Exception) {
-                    android.util.Log.e("GalleryDirs", "Directory scan failed", error)
-                    runOnUiThread {
-                        if (isCurrentDirectoryScan(scanRequest)) {
-                            presentDirectoryLoadFailure(R.string.folder_load_failed)
-                        }
-                    }
-                } finally {
-                    runOnUiThread {
-                        if (isCurrentDirectoryScan(scanRequest)) {
-                            // Worker completion is independent of adapter deferral.
-                            mIsGettingDirs = false
-                            setDirectoryLoading(false)
-                            binding.directoriesRefreshLayout.isRefreshing = false
-                            onNormalDirectoryScanFinished(success = scanSucceeded)
-                        }
-                    }
-                }
+        ) { launch(it) }
+    }
+
+    private fun finishDirectoryScan(request: Long, result: GalleryScanResult) {
+        runOnUiThread {
+            if (!isCurrentDirectoryScan(request) || !directoryScanTerminals.finish(request, result)) return@runOnUiThread
+            mIsGettingDirs = false
+            setDirectoryLoading(false)
+            binding.directoriesRefreshLayout.isRefreshing = false
+            onNormalDirectoryScanFinished(result)
+            when (result.state) {
+                GalleryScanState.PARTIAL -> presentDirectoryLoadFailure(R.string.media_load_partial_error)
+                GalleryScanState.FAILED -> presentDirectoryLoadFailure(R.string.folder_load_failed)
+                GalleryScanState.TIMED_OUT -> presentDirectoryLoadFailure(R.string.folder_refresh_timeout)
+                else -> Unit
             }
         }
     }
@@ -1980,8 +2009,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 
-    private fun gotDirectories(newDirs: ArrayList<Directory>, scanRequest: Long, discoverUnindexed: Boolean = false) {
-        if (!isCurrentDirectoryScan(scanRequest)) return
+    private fun gotDirectories(newDirs: ArrayList<Directory>, scanRequest: Long, discoverUnindexed: Boolean = false): GalleryScanResult {
+        if (!isCurrentDirectoryScan(scanRequest)) return GalleryScanResult(GalleryScanState.CANCELLED)
         if (mShowingFolderFavorites) {
             // All favorite results must pass the same authentication and generation
             // checks, including callbacks from sorting/pinning operations.
@@ -1990,7 +2019,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     getDirectories(forceFavoriteReload = true)
                 }
             }
-            return
+            return GalleryScanResult(GalleryScanState.CANCELLED)
         }
         // Keep worker state and UI mutations separate. Initial publication below
         // releases the cache-loading lock on the main thread only if still current.
@@ -2042,7 +2071,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
         }
 
-        if (!isCurrentDirectoryScan(scanRequest)) return
+        if (!isCurrentDirectoryScan(scanRequest)) return GalleryScanResult(GalleryScanState.CANCELLED)
         val orderedDirs = getSortedDirectories(dirs, directoryRandomOrder)
         dirs.clear()
         dirs.addAll(orderedDirs)
@@ -2068,9 +2097,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val albumCovers = config.parseAlbumCovers()
         val includedFolders = config.includedFolders
         val noMediaFolders = getNoMediaFoldersSync()
-        val tempFolderPath = config.tempFolderPath
         val getProperFileSize = config.directorySorting and SORT_BY_SIZE != 0
-        val dirPathsToRemove = ArrayList<String>()
         // In scoped storage the grouped index already contains normal timestamps
         // and sizes. Do not query the entire MediaStore twice more for those columns.
         // The file-system/legacy path retains the original metadata queries.
@@ -2091,8 +2118,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             dateTakens = dateTakens
         )
         GalleryPerfTrace.end("album_index_ready", indexedStarted, android11Files?.size)
-        if (!isCurrentDirectoryScan(scanRequest)) return
+        if (!isCurrentDirectoryScan(scanRequest)) return GalleryScanResult(GalleryScanState.CANCELLED)
         val folderFailures = LinkedHashMap<String, Exception>()
+        var successfulSources = 0
         val metadataScope = DirectoryScanScope(config.filterMedia, config.shouldShowHidden,
             getImagesOnly, getVideosOnly)
         fun beginMetadata(path: String): Long {
@@ -2115,7 +2143,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         for (index in dirs.indices) {
             val directory = dirs[index]
             if (!isCurrentDirectoryScan(scanRequest)) {
-                return
+                return GalleryScanResult(GalleryScanState.CANCELLED)
             }
             // A locked album is represented by its cached metadata only.
             // Its media may be scanned only by MediaActivity after authentication.
@@ -2185,16 +2213,18 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 continue
             }
 
-            if (!isCurrentDirectoryScan(scanRequest)) return
+            if (!isCurrentDirectoryScan(scanRequest)) return GalleryScanResult(GalleryScanState.CANCELLED)
             // Picker scopes can still display their own results, but never write public counts.
             // Only fully read physical directories can replace authoritative cache rows.
-            if (isPhysicalDirectory && (physicalRead?.status != FolderReadStatus.COMPLETE ||
-                    !physicalRead.accessCurrent() ||
-                    (metadataVersion != 0L && !commitMetadata(directory.path, metadataVersion, physicalRead)))) {
+            if (isPhysicalDirectory && (physicalRead?.status != FolderReadStatus.COMPLETE || !physicalRead.accessCurrent())) {
                 DirectoryMetadataRepository.defer(directory.path, metadataVersion)
-                physicalRead?.error?.let { folderFailures[directory.path] = it }
+                folderFailures[directory.path] = physicalRead?.error ?: java.io.IOException("Incomplete directory scan")
+                if (curMedia.isNotEmpty() && physicalRead?.accessCurrent?.invoke() == true) successfulSources++
                 continue
             }
+            if (isPhysicalDirectory && metadataVersion != 0L && !commitMetadata(directory.path, metadataVersion, physicalRead))
+                folderFailures[directory.path] = java.io.IOException("Directory metadata commit deferred")
+            if (isPhysicalDirectory || curMedia.isNotEmpty()) successfulSources++
             if (directory.path == FAVORITES) {
                 // Match the album's current saved and unprotected paths, even
                 // if the favorites table or source locks changed during the scan.
@@ -2226,18 +2256,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 // An empty scan can mean permission loss, a changed filter,
                 // or a temporarily unavailable volume. Never delete a valid
                 // directory record based only on an empty result.
-                val folder = File(directory.path)
-                val parentReadable = folder.parentFile?.let {
-                    it.isDirectory && it.canRead()
-                } == true
-                if (directory.path != tempFolderPath &&
-                    !directory.areFavorites() && !directory.isRecycleBin() &&
-                    MediaCachePrunePolicy.canPruneDirectory(
-                        directory.path, parentReadable, folder.exists()
-                    )
-                ) {
-                    dirPathsToRemove.add(directory.path)
-                }
                 if (directory.areFavorites()) directory.copy(tmb = "", mediaCnt = 0)
                 else directory
             } else {
@@ -2292,7 +2310,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 val scanOwner = scanFetcher
                 val freshPaths = curMedia.mapTo(HashSet()) { it.path }
                 getCachedMedia(directory.path, getVideosOnly, getImagesOnly) { cached ->
-                    if (mShouldStopFetching || isDestroyed || isFinishing ||
+                    if (directoryScanTerminals.result(scanRequest)?.complete != true ||
+                        mShouldStopFetching || isDestroyed || isFinishing ||
                         scanOwner !== mLastMediaFetcher || !isCurrentDirectoryScan(scanRequest)
                     ) return@getCachedMedia
 
@@ -2322,18 +2341,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         if (cachedCardUpdates > 0 && isCurrentDirectoryScan(scanRequest)) {
             setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
         }
-        if (dirPathsToRemove.isNotEmpty()) {
-            val dirsToRemove = dirs.filter { dirPathsToRemove.contains(it.path) }
-            dirsToRemove.forEach {
-                directoryDB.deleteDirPath(it.path)
-            }
-            dirs.removeAll(dirsToRemove)
-            setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
-        }
 
-        if (!isCurrentDirectoryScan(scanRequest)) return
+
+        if (!isCurrentDirectoryScan(scanRequest)) return GalleryScanResult(GalleryScanState.CANCELLED)
         val foldersToScan = scanFetcher.getFoldersToScan()
-        if (!isCurrentDirectoryScan(scanRequest)) return
+        if (!isCurrentDirectoryScan(scanRequest)) return GalleryScanResult(GalleryScanState.CANCELLED)
         foldersToScan.remove(FAVORITES)
         foldersToScan.add(0, FAVORITES)
         if (config.showRecycleBinAtFolders) {
@@ -2360,10 +2372,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             if ((pendingDirs.isEmpty() && pendingMedia.isEmpty()) || !isCurrentDirectoryScan(scanRequest)) return
             try {
                 GalleryDatabase.getInstance(applicationContext).runInTransaction {
+                    if (!isCurrentDirectoryScan(scanRequest)) throw java.util.concurrent.CancellationException()
                     if (pendingDirs.isNotEmpty()) directoryDB.insertAll(pendingDirs)
                     if (pendingMedia.isNotEmpty()) mediaDB.insertAll(pendingMedia)
                 }
-            } catch (ignored: Exception) {
+            } catch (error: Exception) {
+                pendingDirs.forEach { folderFailures[it.path] = error }
+                pendingMedia.forEach { folderFailures[it.parentPath] = error }
             }
             pendingDirs.clear()
             pendingMedia.clear()
@@ -2372,7 +2387,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         // check the remaining folders which were not cached at all yet
         for (folder in foldersToScan) {
             if (!isCurrentDirectoryScan(scanRequest)) {
-                return
+                return GalleryScanResult(GalleryScanState.CANCELLED)
             }
             if (config.isFolderProtected(folder) ||
                 (folder.startsWith('/') &&
@@ -2419,15 +2434,17 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 continue
             }
 
-            if (!isCurrentDirectoryScan(scanRequest)) return
-            if (isPhysicalDirectory && (physicalRead?.status != FolderReadStatus.COMPLETE ||
-                    !physicalRead.accessCurrent() ||
-                    (metadataVersion != 0L && newMedia.isNotEmpty() &&
-                        !commitMetadata(folder, metadataVersion, physicalRead)))) {
+            if (!isCurrentDirectoryScan(scanRequest)) return GalleryScanResult(GalleryScanState.CANCELLED)
+            if (isPhysicalDirectory && (physicalRead?.status != FolderReadStatus.COMPLETE || !physicalRead.accessCurrent())) {
                 DirectoryMetadataRepository.defer(folder, metadataVersion)
-                physicalRead?.error?.let { folderFailures[folder] = it }
+                folderFailures[folder] = physicalRead?.error ?: java.io.IOException("Incomplete directory scan")
+                if (newMedia.isNotEmpty() && physicalRead?.accessCurrent?.invoke() == true) successfulSources++
                 continue
             }
+            if (isPhysicalDirectory && metadataVersion != 0L && newMedia.isNotEmpty() &&
+                !commitMetadata(folder, metadataVersion, physicalRead))
+                folderFailures[folder] = java.io.IOException("Directory metadata commit deferred")
+            if (isPhysicalDirectory || newMedia.isNotEmpty()) successfulSources++
             if (newMedia.isEmpty()) {
                 continue
             }
@@ -2466,15 +2483,18 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
         }
 
-        if (!isCurrentDirectoryScan(scanRequest)) return
+        if (!isCurrentDirectoryScan(scanRequest)) return GalleryScanResult(GalleryScanState.CANCELLED)
         commitBatch()
         // Prune before the only final reorder, under the same scan identity.
-        checkInvalidDirectories(dirs, scanRequest, folderFailures.keys)
-        if (!isCurrentDirectoryScan(scanRequest)) return
-        setupAdapter(dirs, sortDirs = true, scanRequest = scanRequest, scanComplete = true)
-        if (folderFailures.isNotEmpty()) runOnUiThread {
-            if (isCurrentDirectoryScan(scanRequest)) toast(R.string.media_load_partial_error)
+        folderFailures.putAll(scanFetcher.readFailures)
+        scanFetcher.folderDiscovery.unreadablePaths.forEach {
+            folderFailures[it] = java.io.IOException("Incomplete directory discovery")
         }
+        val outcome = GalleryScanResult.sources(successfulSources, folderFailures, scanFetcher.folderDiscovery.complete)
+        if (outcome.complete) checkInvalidDirectories(dirs, scanRequest, folderFailures.keys)
+        if (!isCurrentDirectoryScan(scanRequest)) return GalleryScanResult(GalleryScanState.CANCELLED)
+        if (outcome.state != GalleryScanState.FAILED)
+            setupAdapter(dirs, sortDirs = true, scanRequest = scanRequest, scanComplete = outcome.complete)
         mLoadedInitialPhotos = true
         if (config.appRunCount > 1) {
             checkLastMediaChanged()
@@ -2503,6 +2523,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         } catch (e: Exception) {
             config.everShownFolders = HashSet()
         }
+
+        return outcome
 
     }
 
@@ -2573,14 +2595,19 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         sortDirs: Boolean = true,
         scanRequest: Long? = null,
         scanComplete: Boolean = false,
-        presentationIsCurrent: () -> Boolean = { true }
+        presentationIsCurrent: () -> Boolean = { true },
+        onCommitted: () -> Unit = {},
+        onDiscarded: () -> Unit = {}
     ) {
         // Do not share mutable Directory instances with a scanning worker or DiffUtil.
         val snapshot = dirs.map { it.copy().also { copy -> copy.folderStatuses = it.folderStatuses } }
             .toCollection(ArrayList())
         runOnUiThread {
             if (isFinishing || isDestroyed || !presentationIsCurrent() ||
-                (scanRequest != null && !isCurrentDirectoryScan(scanRequest))) return@runOnUiThread
+                (scanRequest != null && !isCurrentDirectoryScan(scanRequest))) {
+                onDiscarded()
+                return@runOnUiThread
+            }
             val query = textToSearch ?: binding.mainMenu.getCurrentQuery()
             val distinctDirs = snapshot.filter { !mShowingFolderFavorites || mFavoriteFolderPaths.contains(it.path) }
                 .distinctBy {
@@ -2606,7 +2633,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                         GalleryBottomBar.markRootContentReady(this@MainActivity, if (visible.isEmpty())
                             GalleryBottomBar.RootContent.EMPTY else GalleryBottomBar.RootContent.CONTENT)
                     }
-                }
+                    onCommitted()
+                } else onDiscarded()
             }
             val current = getRecyclerAdapter()
             if (current == null || forceRecreate) {
@@ -2635,7 +2663,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 current.updateDirs(visible, isCurrent = {
                     !isFinishing && !isDestroyed && presentationIsCurrent() && binding.directoriesGrid.adapter === current &&
                         (scanRequest == null || isCurrentDirectoryScan(scanRequest))
-                }, onCommitted = committed, preserveOrder = !sortDirs)
+                }, onCommitted = committed, preserveOrder = !sortDirs, onDiscarded = onDiscarded)
             }
         }
     }
@@ -2743,10 +2771,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mediaPollGeneration = 0L
     private val directoryMediaChangeGate = org.fossify.gallery.helpers.MediaChangeRetryGate()
 
-    private fun onNormalDirectoryScanFinished(success: Boolean) {
+    private fun onNormalDirectoryScanFinished(result: GalleryScanResult) {
         scheduleDirectoryMetadataRebind()
         if (!mIsGettingDirs && canPublishDirectoryMetadata() &&
-            directoryMediaChangeGate.scanFinished(success)) {
+            directoryMediaChangeGate.scanFinished(result.complete)) {
             getDirectories()
         }
     }

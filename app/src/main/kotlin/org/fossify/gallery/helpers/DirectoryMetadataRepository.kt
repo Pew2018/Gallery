@@ -9,6 +9,7 @@ import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.createDirectoryFromMedia
 import org.fossify.gallery.extensions.directoryDB
 import org.fossify.gallery.extensions.getFavoritePaths
+import org.fossify.gallery.extensions.isThisOrParentExcluded
 import org.fossify.gallery.models.Directory
 import org.fossify.gallery.models.Medium
 import java.io.File
@@ -51,7 +52,7 @@ internal object DirectoryMetadataRepository {
     private var revision = 0L
     private val activeRequests = hashMapOf<String, Long>()
     private val committedRequests = hashMapOf<String, Long>()
-    private val pending = linkedSetOf<String>()
+    private val pending = MetadataRetryQueue(android.os.SystemClock::elapsedRealtime)
     private val publishedRevisions = hashMapOf<String, Long>()
     private val observers = linkedSetOf<(String) -> Unit>()
     private val retryRunning = AtomicBoolean(false)
@@ -76,7 +77,7 @@ internal object DirectoryMetadataRepository {
     fun changedSince(version: Long): Set<String> = synchronized(lock) {
         publishedRevisions.filterValues { it > version }.keys.toSet()
     }
-    fun pendingPaths(): Set<String> = synchronized(lock) { pending.toSet() }
+    fun pendingPaths(): Set<String> = synchronized(lock) { pending.snapshot() }
 
     private fun authorized(context: Context, snapshot: DirectoryScanSnapshot): Boolean {
         if (!snapshot.isCurrent() || !snapshot.readResult.accessCurrent()) return false
@@ -178,26 +179,31 @@ internal object DirectoryMetadataRepository {
         try {
             GalleryDirectoryMetadataExecutor.execute {
                 try {
-                    val targets = pendingPaths().take(24)
-                    for (path in targets) {
-                        val cfg = context.config
-                        if (!File(path).isDirectory || !File(path).canRead() ||
-                            FolderUnlockSessionManager.findProtectedAncestor(path, cfg::isFolderProtected) != null)
-                            continue
-                        val scope = DirectoryScanScope(cfg.filterMedia, cfg.shouldShowHidden)
-                        if (!scope.matches(context)) continue
-                        val version = begin(path)
+                    // Process a finite ready snapshot, in batches of 24, once per external wake.
+                    // Unreadable heads cannot starve any of the later ready paths.
+                    val batches = pending.ready().chunked(24)
+                    for (batch in batches) for (path in batch) {
                         try {
-                            val fetcher = MediaFetcher(context.applicationContext, reportReadFailures = true)
-                            val read = fetcher.readFolder(path, false, false, true, true,
-                                cfg.directorySorting and SORT_BY_SIZE != 0, context.getFavoritePaths(),
-                                false, hashMapOf(), fetcher.getSelectedFolderDateOverrides(listOf(path)), null)
-                            commit(context, DirectoryScanSnapshot(path, version, scope, read,
-                                read.media.map { it.copy() }))
-                        } catch (error: Exception) {
-                            defer(path, version)
-                            Log.w("GalleryDirs", "Deferred directory scan failed (id=${FolderRefreshTrace.pathId(path)})", error)
-                        }
+                            val cfg = context.config
+                            if (FolderUnlockSessionManager.findProtectedAncestor(path, cfg::isFolderProtected) != null ||
+                                (!cfg.temporarilyShowExcluded && path.isThisOrParentExcluded(cfg.excludedFolders)) ||
+                                !File(path).isDirectory || !File(path).canRead())
+                                continue
+                            val scope = DirectoryScanScope(cfg.filterMedia, cfg.shouldShowHidden)
+                            if (!scope.matches(context)) continue
+                            val version = begin(path)
+                            try {
+                                val fetcher = MediaFetcher(context.applicationContext, reportReadFailures = true)
+                                val read = fetcher.readFolder(path, false, false, true, true,
+                                    cfg.directorySorting and SORT_BY_SIZE != 0, context.getFavoritePaths(),
+                                    false, hashMapOf(), fetcher.getSelectedFolderDateOverrides(listOf(path)), null)
+                                commit(context, DirectoryScanSnapshot(path, version, scope, read,
+                                    read.media.map { it.copy() }))
+                            } catch (error: Exception) {
+                                defer(path, version)
+                                Log.w("GalleryDirs", "Deferred directory scan failed (id=${FolderRefreshTrace.pathId(path)})", error)
+                            }
+                        } finally { pending.failed(path) }
                     }
                 } finally {
                     retryRunning.set(false)

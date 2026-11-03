@@ -884,7 +884,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     items: List<Medium>,
                     fullStarted: Long,
                     expectedFavoritePaths: Set<String>? = null,
-                    catalogStarted: Long? = null
+                    catalogStarted: Long? = null,
+                    completeSource: Boolean = true
                 ) {
                     val validationStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
                     val app = applicationContext
@@ -922,7 +923,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                                     if (publication != mediaPublicationGeneration || request != viewerAccessGeneration ||
                                         load != viewerLoadGeneration || isFinishing || isDestroyed ||
                                         !FavoriteAccessSessionManager.isPublicationCurrent(batch.validation)) return@runOnUiThread
-                                    gotMedia(ArrayList<ThumbnailItem>(searched), refetchViewPagerPosition = true, fullCatalog = true)
+                                    gotMedia(ArrayList<ThumbnailItem>(searched), refetchViewPagerPosition = true, fullCatalog = completeSource)
                                     if (catalogStarted != null) {
                                         org.fossify.gallery.helpers.GalleryPerfTrace.end("viewer_catalog_hit", catalogStarted, searched.size)
                                     }
@@ -943,7 +944,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         }
                     ) { items ->
                         if (request == viewerAccessGeneration && load == viewerLoadGeneration && !isFinishing && !isDestroyed) {
-                            publishValidatedFavorites(items.filterIsInstance<Medium>(), fullStarted)
+                            publishValidatedFavorites(items.filterIsInstance<Medium>(), fullStarted, completeSource = viewerLoadTask?.scanResult?.complete == true)
                         }
                     }.also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
                 }
@@ -1051,7 +1052,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     ) { items ->
                         if (request == viewerAccessGeneration && load == viewerLoadGeneration && !isFinishing && !isDestroyed) {
                             val fullMedia = items.filterIsInstance<Medium>()
-                            publishFolderCandidates(request, load, token, path, fullMedia) {
+                            publishFolderCandidates(request, load, token, path, fullMedia, completeSource = viewerLoadTask?.scanResult?.complete == true) {
                                 logPagerReady("viewer_full_list_prepared", fullStarted, fullMedia.size)
                                 org.fossify.gallery.helpers.GalleryPerfTrace.end(
                                     "viewer_full_scan_fallback", fallbackStarted, fullMedia.size
@@ -1118,6 +1119,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         items: List<Medium>,
         freshnessCheckpoint: org.fossify.gallery.helpers.FolderReturnCheckpoint? = null,
         onStale: (() -> Unit)? = null,
+        completeSource: Boolean = true,
         onPublished: (() -> Unit)? = null
     ) {
         val app = applicationContext
@@ -1155,7 +1157,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 }
                 // A late scan must retain the photo the user has already swiped to.
                 mPath = currentPath
-                gotMedia(ArrayList<ThumbnailItem>(ordered), refetchViewPagerPosition = true, fullCatalog = true)
+                gotMedia(ArrayList<ThumbnailItem>(ordered), refetchViewPagerPosition = true, fullCatalog = completeSource)
                 onPublished?.invoke()
             }
         }
@@ -2370,7 +2372,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 onFailure = { if (isPhotoProfile) finish() }
             ) {
                 if (request == viewerLoadGeneration && !isFinishing && !isDestroyed && checkFavoriteAccess()) {
-                    gotMedia(it, refetchViewPagerPosition = refetchPosition, fullCatalog = true)
+                    gotMedia(it, refetchViewPagerPosition = refetchPosition, fullCatalog = viewerLoadTask?.scanResult?.complete == true)
                 }
             }.also { it.execute() }
         }

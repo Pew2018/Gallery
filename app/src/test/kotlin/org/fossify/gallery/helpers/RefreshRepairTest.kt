@@ -88,13 +88,20 @@ class RefreshRepairTest {
             val denied = Files.createDirectories(root.resolve("protected/child"))
             Files.createSymbolicLink(root.resolve("escape"), outside)
             val deniedRoot = root.resolve("protected").toString()
-            val result = FolderDiskDiscovery.find(listOf(root.toString(), deniedRoot),
+            val discovery = FolderDiskDiscovery.find(listOf(root.toString(), deniedRoot),
                 allowed = { it != deniedRoot && !it.startsWith("$deniedRoot/") }, cancelled = { false })
+            val result = discovery.folders
             assertTrue(album.toString() in result)
             assertFalse(denied.toString() in result)
             assertFalse(result.any { it.contains("escape") || it == outside.toString() })
-            assertTrue(FolderDiskDiscovery.find(listOf(root.toString()), { true }, { true }).isEmpty())
-        } finally { root.toFile().deleteRecursively(); outside.toFile().deleteRecursively() }
+            try {
+                FolderDiskDiscovery.find(listOf(root.toString()), { true }, { true })
+                fail("Canceled discovery claimed success")
+            } catch (_: java.util.concurrent.CancellationException) { }
+        } finally {
+            Files.deleteIfExists(root.resolve("escape"))
+            root.toFile().deleteRecursively(); outside.toFile().deleteRecursively()
+        }
     }
 
     @Test fun explicitAlbumRefreshDiscoversAnUnindexedNewFolderBelowAKnownAlbum() {
@@ -177,5 +184,26 @@ class RefreshRepairTest {
             assertNull(work.get(5, TimeUnit.SECONDS))
             assertNull(FolderViewerSnapshotStore.handoffId(context, root.toString()))
         } finally { release.countDown(); pool.shutdownNow(); root.toFile().deleteRecursively() }
+    }
+
+    @Test fun cacheFailureAndRejectedExecutorDeliverExactlyOneFailure() {
+        var callbacks = 0
+        var failures = 0
+        context.getCachedDirectories(executor = java.util.concurrent.Executor { it.run() },
+            readCache = { throw java.io.IOException("cache unavailable") }, onFailure = { failures++ }) { callbacks++ }
+        assertEquals(1, failures)
+        assertEquals(0, callbacks)
+        context.getCachedDirectories(executor = java.util.concurrent.Executor { throw java.util.concurrent.RejectedExecutionException() },
+            onFailure = { failures++ }) { callbacks++ }
+        assertEquals(2, failures)
+        assertEquals(0, callbacks)
+    }
+    @Test fun throwingCacheConsumerIsNotDeliveredAgainAsAReadFailure() {
+        var callbacks = 0
+        var failures = 0
+        context.getCachedDirectories(executor = java.util.concurrent.Executor { it.run() }, readCache = { emptyList() },
+            onFailure = { failures++ }) { callbacks++; throw IllegalStateException("consumer") }
+        assertEquals(1, callbacks)
+        assertEquals(0, failures)
     }
 }

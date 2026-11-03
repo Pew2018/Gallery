@@ -72,11 +72,21 @@ class MediaFetcher(
             "limited_visibility" in observation.reasons) FolderReadStatus.ACCESS_REQUIRED else observation.status
         FolderRefreshTrace.event(traceRequest, "read_result", media.map { it.path },
             "method=${observation.method} nomedia=${noMediaSnapshot.contains(path)} status=$status enumerated=${observation.enumerated} reasons=${observation.reasons}")
+        if (status != FolderReadStatus.COMPLETE) directoryReadFailures[path] =
+            error ?: java.io.IOException("Incomplete directory read: $status")
         return FolderMediaReadResult(media, status, observation.method, observation.enumerated,
             observation.reasons.toMap(), error, observation.accessCurrent)
     }
     private val directoryReadFailures = linkedMapOf<String, Exception>()
     internal val readFailures: Map<String, Exception> get() = directoryReadFailures.toMap()
+    internal var folderDiscovery = FolderDiscoveryResult(emptySet(), emptySet())
+        private set
+    private fun acceptDiscovery(result: FolderDiscoveryResult): Set<String> {
+        folderDiscovery = FolderDiscoveryResult(folderDiscovery.folders + result.folders,
+            folderDiscovery.unreadablePaths + result.unreadablePaths,
+            folderDiscovery.truncated || result.truncated)
+        return result.folders
+    }
     private val queryCancellation = android.os.CancellationSignal()
     @Volatile var shouldStop = false
         get() = field || cancelled()
@@ -206,12 +216,12 @@ class MediaFetcher(
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).toString(),
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES).toString()
                 )
-                folders.addAll(FolderDiskDiscovery.find(roots, allowed = { path ->
+                folders.addAll(acceptDiscovery(FolderDiskDiscovery.find(roots.filter { File(it).isDirectory || it in includedPaths }, allowed = { path ->
                     FolderUnlockSessionManager.findProtectedAncestor(path, config::isFolderProtected) == null &&
                         path.shouldFolderBeVisible(excludedPaths, includedPaths, shouldShowHidden, folderNoMediaStatuses) { key, value ->
                             folderNoMediaStatuses[key] = value
                         }
-                }, cancelled = { shouldStop }))
+                }, cancelled = { shouldStop })))
             }
             val distinctPaths = folders.distinctBy {
                 when {
@@ -383,13 +393,13 @@ class MediaFetcher(
         if (!discoverUnindexedFolders && includedFolders.isNotEmpty() && !shouldStop) {
             val excluded = if (config.temporarilyShowExcluded) HashSet<String>() else config.excludedFolders
             val statuses = HashMap<String, Boolean>()
-            foldersToScan.addAll(FolderDiskDiscovery.find(includedFolders, allowed = { path ->
+            foldersToScan.addAll(acceptDiscovery(FolderDiskDiscovery.find(includedFolders, allowed = { path ->
                 !shouldStop &&
                     FolderUnlockSessionManager.findProtectedAncestor(path, config::isFolderProtected) == null &&
                     path.shouldFolderBeVisible(excluded, includedFolders, config.shouldShowHidden, statuses) { key, present ->
                         statuses[key] = present
                     }
-            }, cancelled = { shouldStop }))
+            }, cancelled = { shouldStop })))
         }
         if (shouldStop) throw java.util.concurrent.CancellationException("Folder enumeration retired")
         return foldersToScan.toMutableSet() as LinkedHashSet<String>

@@ -837,6 +837,7 @@ fun Context.getCachedDirectories(
     onFailure: ((Exception) -> Unit)? = null,
     executor: java.util.concurrent.Executor? = null,
     isCurrent: () -> Boolean = { true },
+    readCache: () -> List<Directory> = { directoryDB.getAll() },
     callback: (ArrayList<Directory>) -> Unit,
 ) {
     val load = Runnable {
@@ -848,7 +849,7 @@ fun Context.getCachedDirectories(
             }
 
             val directories = try {
-                directoryDB.getAll() as ArrayList<Directory>
+                ArrayList(readCache())
             } catch (e: Exception) {
                 if (onFailure != null) throw e
                 ArrayList()
@@ -931,11 +932,10 @@ fun Context.getCachedDirectories(
             arrayListOf()
         }
         if (!isCurrent()) return@Runnable
-        callback(result)
-        if (!isCurrent()) return@Runnable
-        // Cleanup must not turn a successfully delivered cache into a second callback.
-        runCatching { removeInvalidDBDirectories(result) }
-            .onFailure { android.util.Log.w("GalleryDirs", "Cache cleanup failed", it) }
+        try { callback(result) } catch (error: Exception) {
+            android.util.Log.e("GalleryDirs", "Directory cache consumer failed", error)
+        }
+        // A cache preview never authorizes database cleanup. The formal scan owns it.
     }
     if (executor != null) try { executor.execute(load) }
     catch (error: java.util.concurrent.RejectedExecutionException) {
@@ -1066,7 +1066,8 @@ fun Context.getCachedMedia(
     }
 }
 
-fun Context.removeInvalidDBDirectories(dirs: ArrayList<Directory>? = null) {
+fun Context.removeInvalidDBDirectories(dirs: ArrayList<Directory>? = null, scanComplete: Boolean = false) {
+    if (!scanComplete) return
     val dirsToCheck = dirs ?: directoryDB.getAll()
     dirsToCheck.filter { directory ->
         val path = directory.path

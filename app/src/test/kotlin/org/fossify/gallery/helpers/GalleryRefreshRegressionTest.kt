@@ -133,4 +133,53 @@ class GalleryRefreshRegressionTest {
         dialog.dismiss()
         controller.pause().stop().destroy()
     }
+
+    @Test fun metadataPathsRemainActiveUntilTheDiffReallyCommits() {
+        val controller = activity()
+        val activity = controller.get()
+        val view = recycler(activity)
+        val executor = ManualExecutor()
+        val gate = DirectoryMetadataRebindGate()
+        val a = directory("a")
+        val adapter = DirectoryAdapter(activity, arrayListOf(a), null, view, false, diffExecutor = executor) { }
+        view.adapter = adapter
+        gate.enqueue(listOf(a.path))
+        val request = gate.begin()!!
+        adapter.updateDirs(arrayListOf(a.copy(mediaCnt = 9)),
+            onCommitted = { gate.finish(request.id, true) }, onDiscarded = { gate.finish(request.id, false) })
+        assertTrue(gate.isActive())
+        gate.enqueue(listOf("/another-change"))
+        executor.drain()
+        assertFalse(gate.isActive())
+        assertEquals(9, adapter.dirs.single().mediaCnt)
+        assertEquals(setOf("/another-change"), gate.begin()!!.paths)
+        view.adapter = null
+        controller.pause().stop().destroy()
+    }
+    @Test fun replacingOrSupersedingAnAdapterRetainsUncommittedMetadata() {
+        val controller = activity()
+        val activity = controller.get()
+        val view = recycler(activity)
+        val executor = ManualExecutor()
+        val gate = DirectoryMetadataRebindGate()
+        val a = directory("a")
+        val adapter = DirectoryAdapter(activity, arrayListOf(a), null, view, false, diffExecutor = executor) { }
+        view.adapter = adapter
+        gate.enqueue(listOf(a.path))
+        var request = gate.begin()!!
+        val firstId = request.id
+        adapter.updateDirs(arrayListOf(a.copy(mediaCnt = 9)),
+            onCommitted = { gate.finish(firstId, true) }, onDiscarded = { gate.finish(firstId, false) })
+        adapter.updateDirs(arrayListOf(directory("other")))
+        assertTrue(gate.hasPending())
+        request = gate.begin()!!
+        val secondId = request.id
+        adapter.updateDirs(arrayListOf(a.copy(mediaCnt = 10)),
+            onCommitted = { gate.finish(secondId, true) }, onDiscarded = { gate.finish(secondId, false) })
+        view.adapter = null
+        executor.drain()
+        assertTrue(gate.hasPending())
+        assertFalse(gate.isActive())
+        controller.pause().stop().destroy()
+    }
 }

@@ -13,8 +13,9 @@ class FolderDiskDiscoveryTest {
             val child = Files.createDirectories(root.resolve("one/two"))
             val found = FolderDiskDiscovery.find(listOf(root.toString()),
                 allowed = { true }, cancelled = { false })
-            assertTrue(found.contains(root.toString()))
-            assertTrue(found.contains(child.toString()))
+            assertTrue(found.folders.contains(root.toString()))
+            assertTrue(found.folders.contains(child.toString()))
+            assertTrue(found.complete)
         } finally { root.toFile().deleteRecursively() }
     }
 
@@ -28,8 +29,8 @@ class FolderDiskDiscoveryTest {
             Files.createSymbolicLink(root.resolve("a/parent"), root)
             val found = FolderDiskDiscovery.find(listOf(root.toString(), root.toString()),
                 allowed = { true }, cancelled = { false })
-            assertEquals(2, found.size)
-            assertFalse(found.any { it.contains("outside") })
+            assertEquals(2, found.folders.size)
+            assertFalse(found.folders.any { it.contains("outside") })
         } finally {
             // File.deleteRecursively can follow directory symlinks on some JDKs.
             // Remove links before walking the test fixture's real directories.
@@ -45,9 +46,12 @@ class FolderDiskDiscoveryTest {
         try {
             Files.createDirectories(root.resolve("a/b"))
             var calls = 0
-            val found = FolderDiskDiscovery.find(listOf(root.toString()),
-                allowed = { true }, cancelled = { ++calls > 1 })
-            assertTrue(found.isEmpty())
+            try {
+                FolderDiskDiscovery.find(listOf(root.toString()),
+                    allowed = { true }, cancelled = { ++calls > 1 })
+                fail("Cancellation returned success")
+            } catch (_: java.util.concurrent.CancellationException) { }
+
         } finally { root.toFile().deleteRecursively() }
     }
 
@@ -59,8 +63,54 @@ class FolderDiskDiscoveryTest {
             val found = FolderDiskDiscovery.find(listOf(root.toString()), allowed = {
                 !it.contains("/protected")
             }, cancelled = { false })
-            assertTrue(found.contains(ok.toString()))
-            assertFalse(found.contains(locked.toString()))
+            assertTrue(found.folders.contains(ok.toString()))
+            assertFalse(found.folders.contains(locked.toString()))
         } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun unreadableChildIsReportedWhileOtherAlbumsAreDiscovered() {
+        val root = Files.createTempDirectory("discovery-unreadable")
+        try {
+            val denied = Files.createDirectory(root.resolve("denied"))
+            val good = Files.createDirectories(root.resolve("good/album"))
+            val result = FolderDiskDiscovery.find(listOf(root.toString()), { true }, { false },
+                listFiles = { if (it.path == denied.toString()) null else it.listFiles() })
+            assertFalse(result.complete)
+            assertEquals(setOf(denied.toString()), result.unreadablePaths)
+            assertTrue(good.toString() in result.folders)
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun budgetIsExplicitlyPartialAndNeverPretendsToVisitTheWholeTree() {
+        val root = Files.createTempDirectory("discovery-budget")
+        try {
+            repeat(15) { Files.createDirectory(root.resolve("album$it")) }
+            val result = FolderDiskDiscovery.find(listOf(root.toString()), { true }, { false }, maxFolders = 4)
+            assertFalse(result.complete)
+            assertTrue(result.truncated)
+            assertTrue(result.folders.size <= 4)
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun canonicalAliasCannotBypassProtectedDescendant() {
+        val root = Files.createTempDirectory("discovery-alias")
+        try {
+            val secret = Files.createDirectories(root.resolve("secret/child"))
+            Files.createSymbolicLink(root.resolve("alias"), root.resolve("secret"))
+            val result = FolderDiskDiscovery.find(listOf(root.toString()),
+                { !it.startsWith(root.resolve("secret").toString()) }, { false })
+            assertTrue(result.complete) // policy skips are intentional
+            assertFalse(result.folders.any { it.contains("alias") || it == secret.toString() })
+        } finally {
+            Files.deleteIfExists(root.resolve("alias"))
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun missingSelectedRootRemainsUncertainInsteadOfEmpty() {
+        val missing = Files.createTempDirectory("discovery-missing").also { Files.delete(it) }
+        val result = FolderDiskDiscovery.find(listOf(missing.toString()), { true }, { false })
+        assertFalse(result.complete)
+        assertEquals(setOf(missing.toString()), result.unreadablePaths)
     }
 }

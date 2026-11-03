@@ -116,4 +116,24 @@ class DirectoryMetadataRepositoryTest {
         assertTrue(root.path in DirectoryMetadataRepository.pendingPaths())
         assertNull(dbCount())
     }
+
+    @Test fun deferredRepositoryReachesLaterThirtySixPathsAfterTwentyFourOfflinePaths() {
+        val parent = File(root, "queue").apply { mkdirs() }
+        val paths = (0 until 60).map { File(parent, "album$it") }
+        paths.drop(24).forEach { folder ->
+            folder.mkdirs()
+            File(folder, ".nomedia").createNewFile()
+            File(folder, "new.jpg").writeBytes(byteArrayOf(1, 2))
+        }
+        paths.forEach { DirectoryMetadataRepository.defer(it.path, DirectoryMetadataRepository.begin(it.path)) }
+        DirectoryMetadataRepository.refreshPendingPaths(context)
+        val done = java.util.concurrent.CountDownLatch(1)
+        GalleryDirectoryMetadataExecutor.execute { done.countDown() }
+        assertTrue(done.await(20, TimeUnit.SECONDS))
+        paths.drop(24).forEach { folder ->
+            val count = readExecutor.submit<Int?> { context.directoryDB.getByPath(folder.path)?.mediaCnt }.get(5, TimeUnit.SECONDS)
+            assertEquals("later path was starved", 1, count)
+        }
+        assertTrue(DirectoryMetadataRepository.pendingPaths().containsAll(paths.take(24).map { it.path }))
+    }
 }

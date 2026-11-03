@@ -214,4 +214,106 @@ class FolderRefreshActivityTest {
         }
     }
 
+
+    @Test fun homeCacheQueryFailureStillRunsFormalScanAndCommitsTheAlbum() {
+        val photo = photo("new.jpg")
+        context.config.includedFolders = mutableSetOf(root.path)
+        context.config.showAll = false
+        context.config.groupDirectSubfolders = false
+        val home = Robolectric.buildActivity(MainActivity::class.java,
+            Intent(context, MainActivity::class.java).putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true))
+            .create(Bundle()).start()
+        val queries = java.util.concurrent.atomic.AtomicInteger()
+        home.get().directoryCacheReader = { queries.incrementAndGet(); throw java.io.IOException("injected Room query failure") }
+        try {
+            home.resume()
+            val main = home.get()
+            MainActivity::class.java.getDeclaredMethod("getDirectories", Boolean::class.javaPrimitiveType,
+                Boolean::class.javaPrimitiveType).apply { isAccessible = true }.invoke(main, false, true)
+            await {
+                (main.findViewById<MyRecyclerView>(R.id.directories_grid).adapter as? DirectoryAdapter)
+                    ?.dirs?.any { it.path == root.path && it.mediaCnt == 1 } == true
+            }
+            await { !MainActivity::class.java.getDeclaredField("mIsGettingDirs").apply { isAccessible = true }.getBoolean(main) }
+            assertTrue(queries.get() >= 1)
+            assertTrue(queries.get() <= 2) // startup/resume, no cache retry loop
+            assertEquals(1, databaseCount())
+            assertTrue(photo.isFile)
+        } finally { home.pause().stop().destroy() }
+    }
+
+    @Test fun allFilesRetainsFailedFolderCacheAndNeverClaimsACompleteViewerCatalog() {
+        val fresh = photo("good.jpg")
+        val failed = File(root, "failed").apply { mkdirs() }
+        val old = File(failed, "old.jpg").apply { writeBytes(byteArrayOf(1)) }
+        context.config.includedFolders = mutableSetOf(root.path)
+        context.config.showAll = true
+        val retained = Medium().apply { path = old.path; parentPath = failed.path; name = old.name; type = TYPE_IMAGES }
+        var published: ArrayList<org.fossify.gallery.models.ThumbnailItem>? = null
+        var failure: Exception? = null
+        val task = org.fossify.gallery.asynctasks.GetMediaAsynctask(context, "", showAll = true,
+            cachedMediaFallback = listOf(retained), onFailure = { failure = it }) { published = it }
+        val fetcher = task.javaClass.getDeclaredField("mediaFetcher").apply { isAccessible = true }.get(task) as MediaFetcher
+        fetcher.folderFileAccess = object : FolderFileAccess {
+            override fun enumerate(folder: String): FolderEnumeration {
+                if (folder == failed.path) throw java.io.IOException("injected offline folder")
+                return FolderEnumeration(if (folder == root.path) listOf(fresh) else emptyList())
+            }
+            override fun metadata(file: File) = FolderFileMetadata(2, 1, true, true)
+        }
+        try {
+            task.executeOnExecutor(GalleryMediaScanExecutor)
+            await { published != null || failure != null }
+            assertNull(failure)
+            assertEquals(setOf(fresh.path, old.path), published!!.filterIsInstance<Medium>().map { it.path }.toSet())
+            assertEquals(GalleryScanState.PARTIAL, task.scanResult.state)
+            assertTrue(failed.path in task.scanResult.failedPaths)
+        } finally { task.stopFetching() }
+    }
+
+    @Test fun partialAllFilesPublicationAndSearchDoNotSetDisplayedMediaFinal() {
+        val photo = photo("visible.jpg")
+        withActivity { activity ->
+            refresh(activity)
+            await { photo.path in paths(activity) }
+            val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
+            val request = requests.begin()
+            (field(activity, "mediaScanTerminals").get(activity) as GalleryScanTerminalGate).begin(request)
+            field(activity, "mShowAll").setBoolean(activity, true)
+            field(activity, "mediaScanOutcomeRequest").setLong(activity, request)
+            field(activity, "mediaScanOutcome").set(activity,
+                GalleryScanResult(GalleryScanState.PARTIAL, setOf("/offline")))
+            val media = arrayListOf<org.fossify.gallery.models.ThumbnailItem>(Medium().apply {
+                path = photo.path; parentPath = root.path; name = photo.name; type = TYPE_IMAGES
+            })
+            MediaActivity::class.java.getDeclaredMethod("publishMedia", ArrayList::class.java,
+                Boolean::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
+                .invoke(activity, media, false, request)
+            await { !field(activity, "mIsGettingMedia").getBoolean(activity) }
+            assertFalse(field(activity, "displayedMediaIsFinal").getBoolean(activity))
+            assertEquals(setOf(photo.path), paths(activity))
+        }
+    }
+
+    @Test fun cachedPreviewKeepsTheRefreshDeadlineActiveUntilFormalCompletion() {
+        val old = photo("cached.jpg")
+        withActivity { activity ->
+            val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
+            val request = requests.begin()
+            (field(activity, "mediaScanTerminals").get(activity) as GalleryScanTerminalGate).begin(request)
+            field(activity, "mIsGettingMedia").setBoolean(activity, true)
+            val media = arrayListOf<org.fossify.gallery.models.ThumbnailItem>(Medium().apply {
+                path = old.path; parentPath = root.path; name = old.name; type = TYPE_IMAGES
+            })
+            MediaActivity::class.java.getDeclaredMethod("armMediaRefreshDeadline", Long::class.javaPrimitiveType)
+                .apply { isAccessible = true }.invoke(activity, request)
+            MediaActivity::class.java.getDeclaredMethod("publishMedia", ArrayList::class.java,
+                Boolean::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
+                .invoke(activity, media, true, request)
+            assertTrue(field(activity, "mIsGettingMedia").getBoolean(activity))
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(46, TimeUnit.SECONDS)
+            assertFalse(field(activity, "mIsGettingMedia").getBoolean(activity))
+            assertEquals(setOf(old.path), paths(activity))
+        }
+    }
 }

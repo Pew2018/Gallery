@@ -43,6 +43,9 @@ internal class GetMediaAsynctask(
     /** Captured before cache fallback/group headers; never use an Adapter for directory counts. */
     internal var folderStatsMediaSnapshot: List<Medium> = emptyList()
         private set
+    internal var scanResult = GalleryScanResult(GalleryScanState.CANCELLED)
+        private set
+    private var successfulSources = 0
     private var scanFailure: Exception? = null
     private var folderFailures: Map<String, Exception> = emptyMap()
     private var profileResult: PhotoLoadResult? = null
@@ -74,6 +77,8 @@ internal class GetMediaAsynctask(
                 forceScan = manualRefresh) {
                 if (!isCancelled) publishProgress(it)
             }
+            scanResult = GalleryScanResult(if (final.stage == PhotoLoadStage.COMPLETE)
+                GalleryScanState.COMPLETE else GalleryScanState.PARTIAL)
             profileResult = final
             return ArrayList(final.media)
         }
@@ -127,9 +132,10 @@ internal class GetMediaAsynctask(
             else -> mediaFetcher.getDateTakens()
         }
 
+        successfulSources = if (showAll) 0 else 1
         val scanStarted = GalleryPerfTrace.begin()
         val media = if (showAll) {
-            val foldersToScan = mediaFetcher.getFoldersToScan().filter { it != RECYCLE_BIN && it != FAVORITES && !context.config.isFolderProtected(it) }
+            val foldersToScan = mediaFetcher.getFoldersToScan().filter { it != RECYCLE_BIN && it != FAVORITES && FolderUnlockSessionManager.findProtectedAncestor(it, context.config::isFolderProtected) == null }
             // Scoped-storage MediaStore can be queried just once for all folders.
             // Reusing the grouped result avoids O(folderCount) full-store queries.
             val scopedFiles = mediaFetcher.getAndroid11FolderMedia(
@@ -137,12 +143,18 @@ internal class GetMediaAsynctask(
             )
             val result = FolderMediaScan.load(foldersToScan, cachedMediaFallback,
                 cancelled = { isCancelled || mediaFetcher.shouldStop }) { folder ->
-                mediaFetcher.getFilesFrom(
+                val read = mediaFetcher.readFolder(
                     folder, isPickImage, isPickVideo, getProperDateTaken, getProperLastModified, getProperFileSize,
-                    favoritePaths, getVideoDurations, lastModifieds, dateTakens, scopedFiles
-                )
+                    favoritePaths, getVideoDurations, lastModifieds, dateTakens, scopedFiles)
+                if (!read.accessCurrent()) throw SecurityException("Folder authorization expired")
+                if (read.status != FolderReadStatus.COMPLETE) {
+                    folderFailures = folderFailures + (folder to (read.error ?: java.io.IOException("Incomplete folder refresh")))
+                    if (read.status != FolderReadStatus.PARTIAL) throw folderFailures.getValue(folder)
+                }
+                read.presentation(cachedMediaFallback.filter { java.io.File(it.path).parent == folder }, ::folderAllowed)
             }
-            folderFailures = result.failures
+            successfulSources = result.successfulSources
+            folderFailures = folderFailures + result.failures
             val media = result.media
 
             mediaFetcher.sortMedia(media, context.config.getFolderSorting(SHOW_ALL))
@@ -206,6 +218,9 @@ internal class GetMediaAsynctask(
             )
         }
         folderFailures = folderFailures + mediaFetcher.readFailures
+        val discovery = mediaFetcher.folderDiscovery
+        folderFailures = folderFailures + discovery.unreadablePaths.associateWith { java.io.IOException("Directory discovery incomplete") }
+        scanResult = GalleryScanResult.sources(successfulSources, folderFailures, discovery.complete)
         GalleryPerfTrace.end("media_async_scan", scanStarted, media.size)
 
         if (ordinaryFolder) {
@@ -240,6 +255,7 @@ internal class GetMediaAsynctask(
         } catch (error: Exception) {
             if (isCancelled || error is java.util.concurrent.CancellationException || error is android.os.OperationCanceledException)
                 throw java.util.concurrent.CancellationException()
+            scanResult = GalleryScanResult(GalleryScanState.FAILED, folderFailures.keys, error)
             scanFailure = error
             ArrayList()
         }
@@ -254,7 +270,8 @@ internal class GetMediaAsynctask(
     override fun onPostExecute(media: ArrayList<ThumbnailItem>) {
         super.onPostExecute(media)
         if (isCancelled) return
-        val error = scanFailure
+        val error = scanFailure ?: if (scanResult.state == GalleryScanState.FAILED)
+            scanResult.cause ?: java.io.IOException("Media scan has no reliable source") else null
         if (error != null) { onFailure(error); return }
         val result = profileResult
         if (result != null) {
@@ -288,6 +305,7 @@ internal class GetMediaAsynctask(
     }
 
     fun stopFetching() {
+        scanResult = GalleryScanResult(GalleryScanState.CANCELLED)
         mediaFetcher.shouldStop = true
         cancel(true)
         delivery.removeCallbacksAndMessages(null)

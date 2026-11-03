@@ -307,6 +307,7 @@ class DirectoryAdapter(
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
         recyclerView.removeOnScrollListener(directoryScrollListener)
         diffGeneration++
+        latestDirectoryUpdate?.onDiscarded?.invoke()
         pendingDirectoryUpdate = null
         latestDirectoryUpdate = null
         directoryScrollAnchor.clear()
@@ -926,7 +927,8 @@ class DirectoryAdapter(
         val directories: ArrayList<Directory>,
         val isCurrent: () -> Boolean,
         val onCommitted: () -> Unit,
-        val preserveOrder: Boolean
+        val preserveOrder: Boolean,
+        val onDiscarded: () -> Unit
     )
     private var pendingDirectoryUpdate: DirectoryUpdate? = null
     private var latestDirectoryUpdate: DirectoryUpdate? = null
@@ -943,6 +945,7 @@ class DirectoryAdapter(
     /** A local mutation supersedes both queued results and already calculating diffs. */
     fun discardPendingUpdates() {
         diffGeneration++
+        latestDirectoryUpdate?.onDiscarded?.invoke()
         pendingDirectoryUpdate = null
         latestDirectoryUpdate = null
         directoryScrollAnchor.clear()
@@ -952,7 +955,8 @@ class DirectoryAdapter(
         if (activity.isDestroyed || defersDirectoryUpdates()) return
         val pending = pendingDirectoryUpdate ?: return
         pendingDirectoryUpdate = null
-        if (pending.isCurrent()) updateDirs(pending.directories, pending.isCurrent, pending.onCommitted, pending.preserveOrder)
+        if (pending.isCurrent()) updateDirs(pending.directories, pending.isCurrent, pending.onCommitted, pending.preserveOrder, pending.onDiscarded)
+        else pending.onDiscarded()
     }
 
     override fun getItemId(position: Int): Long {
@@ -965,13 +969,15 @@ class DirectoryAdapter(
         newDirs: ArrayList<Directory>,
         isCurrent: () -> Boolean = { true },
         onCommitted: () -> Unit = {},
-        preserveOrder: Boolean = false
+        preserveOrder: Boolean = false,
+        onDiscarded: () -> Unit = {}
     ) {
-        if (!isCurrent() || activity.isDestroyed) return
+        if (!isCurrent() || activity.isDestroyed) { onDiscarded(); return }
+        latestDirectoryUpdate?.takeIf { it.onCommitted !== onCommitted }?.onDiscarded?.invoke()
         val generation = ++diffGeneration
         val snapshots = newDirs.mapTo(ArrayList()) { it.snapshot() }
         val directories = if (preserveOrder) DirectoryPresentation.retainOrder(snapshots, dirs) else snapshots
-        val update = DirectoryUpdate(directories, isCurrent, onCommitted, preserveOrder)
+        val update = DirectoryUpdate(directories, isCurrent, onCommitted, preserveOrder, onDiscarded)
         latestDirectoryUpdate = update
         if (defersDirectoryUpdates()) {
             pendingDirectoryUpdate = update
@@ -1009,7 +1015,7 @@ class DirectoryAdapter(
                 // Local actions may have changed the adapter while diffing. Rebase
                 // rather than dispatching notifications calculated for another list.
                 if (!DirectoryPresentation.sameContents(old, dirs)) {
-                    updateDirs(directories, isCurrent, onCommitted, preserveOrder)
+                    updateDirs(directories, isCurrent, onCommitted, preserveOrder, onDiscarded)
                     return@runOnUiThread
                 }
                 directoryScrollAnchor.clear()
