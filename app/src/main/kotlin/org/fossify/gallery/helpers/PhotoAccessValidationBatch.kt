@@ -17,13 +17,11 @@ internal class PhotoAccessValidationBatch(
     private val scope = request.scope
     // With full filesystem access, visible() checks each raw/canonical ancestor
     // directly. A single-file first frame needs no global MediaStore .nomedia query.
-    private val folderStatus = HashMap<String, Boolean>()
-    private fun visible(folder: String, noMedia: List<String>) = folderStatus.getOrPut(folder) {
-        folder.startsWith('/') && !folder.contains("/.") &&
-            !FavoriteFolderRules.isExcluded(folder, scope.excluded) &&
-            !FavoriteFolderRules.hasNoMediaAncestor(folder) &&
-            noMedia.none { folder == it || folder.startsWith("$it/") }
-    }
+    private val folderStatus = HashMap<Pair<String, Boolean>, Boolean>()
+    private fun visible(folder: String, explicit: Boolean, noMedia: List<String>) =
+        folderStatus.getOrPut(folder to explicit) {
+            PhotoProfileVisibilityPolicy.visible(folder, explicit, scope.excluded, noMedia)
+        }
 
     fun validate(items: List<Medium>): Pair<ArrayList<Medium>, PhotoAccessSummary> {
         val folders = scope.sources.filter { it.type == PhotoSourceType.FOLDER }.mapNotNull { it.path }.toSet()
@@ -33,7 +31,8 @@ internal class PhotoAccessValidationBatch(
         val favorites = if (includesFavorites && favoritesAllowed) request.favorites else emptySet()
         val candidates = items.asSequence().filter {
             it.type and scope.filter and PhotoProfileMediaLoader.MEDIA_TYPES != 0 && it.deletedTS == 0L &&
-                !it.path.contains("/.") && (it.parentPath in folders || it.path in favorites)
+                !it.path.contains("/.") && java.io.File(it.path).parent == it.parentPath &&
+                (it.parentPath in folders || it.path in favorites)
         }.distinctBy { it.path }.toList()
         val sentinels = folders.map { "${it.trimEnd('/')}/__photo_scope__" }
         // Directory sentinels supply the source hint without canonicalizing every favorite
@@ -72,8 +71,9 @@ internal class PhotoAccessValidationBatch(
         val safe = candidates.filter { item ->
             if (cancelled()) throw PhotoLoadInvalidatedException()
             val entry = evidence.getValue(item.path)
-            authorized(entry) && visible(item.parentPath, noMedia) &&
-                visible(entry.canonicalPath.substringBeforeLast('/', ""), noMedia)
+            val explicit = item.parentPath in folders
+            authorized(entry) && visible(item.parentPath, explicit, noMedia) &&
+                visible(entry.canonicalPath.substringBeforeLast('/', ""), explicit, noMedia)
         }.map { it.copy(isFavorite = it.path in request.favorites) }.toCollection(ArrayList())
         GalleryPerfTrace.end("photo_access", started, paths.size)
         val publicOnly = scope.sessionId == null && evidence.values.all { it.locks.isEmpty() } &&

@@ -486,11 +486,11 @@ class MediaFetcher(
             }
         }
 
-        var lastProgress = -150L
+        var lastProgress = -500L
         fun publishScanProgress() {
             if (!physical || onFolderProgress == null || shouldStop) return
             val now = android.os.SystemClock.elapsedRealtime()
-            if (now - lastProgress < 150) return
+            if (now - lastProgress < 500) return
             lastProgress = now
             onFolderProgress?.invoke(FolderMediaReadResult(ArrayList(media), FolderReadStatus.PARTIAL,
                 observation!!.method, observation.enumerated, observation.reasons.toMap() + ("scan_in_progress" to 1),
@@ -1148,7 +1148,7 @@ class MediaFetcher(
         for ((key, value) in mediumGroups) {
             var currentGridPosition = 0
             val sectionKey = getFormattedKey(key, currentGrouping, today, yesterday, value.size)
-            thumbnailItems.add(ThumbnailSection(sectionKey))
+            thumbnailItems.add(ThumbnailSection(sectionKey, "$currentGrouping:$key"))
 
             value.forEach {
                 it.gridPosition = currentGridPosition++

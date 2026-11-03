@@ -33,12 +33,13 @@ class PhotoProfileMediaLoader(
         profileId: String?,
         allowPreview: Boolean,
         anchorPath: String? = null,
+        forceScan: Boolean = false,
         onStage: (PhotoLoadResult) -> Unit = {}
     ): PhotoLoadResult {
         val request = PhotoProfileLoadContext.capture(context, profileId, sessionId) ?: throw PhotoLoadInvalidatedException()
         val scope = request.scope
         PhotoProfileMediaCache.initialize(context.applicationContext)
-        val fetcher = MediaFetcher(context, scope.filter and MEDIA_TYPES, ::stopped)
+        val fetcher = MediaFetcher(context, scope.filter and MEDIA_TYPES, ::stopped, reportReadFailures = true)
         val folders = scope.sources.filter { it.type == PhotoSourceType.FOLDER }.mapNotNull { it.path }
             .filter { !it.contains("/.") && !FavoriteFolderRules.isExcluded(it, scope.excluded) }.toSet()
         val favoriteFiles = if (scope.sources.any { it.type == PhotoSourceType.FAVORITES } &&
@@ -67,7 +68,7 @@ class PhotoProfileMediaLoader(
         }
 
         val cacheLookup = GalleryPerfTrace.begin()
-        val reusable = PhotoProfileMediaCache.readReusable(request, context)
+        val reusable = if (forceScan) null else PhotoProfileMediaCache.readReusable(request, context)
         if (reusable == null) GalleryPerfTrace.end("viewer_catalog_miss", cacheLookup, 0)
         if (reusable != null) {
             val validationStarted = GalleryPerfTrace.begin()

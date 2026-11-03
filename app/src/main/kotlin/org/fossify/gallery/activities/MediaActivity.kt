@@ -324,6 +324,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         binding.mediaEmptyTextPlaceholder2.beGone()
         mCurrAsyncTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
             showAll = false, photoProfileId = profile.id, photoSessionId = requestedToken,
+            manualRefresh = reason == org.fossify.gallery.helpers.PhotoLoadReason.REFRESH,
             photoAllowPreview = !retainGrid,
             photoAnchorPath = photoScroll.pending?.path,
             onPhotoResult = { result ->
@@ -1638,7 +1639,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         gotMedia(cached, true, request)
                     }
                 }
-                startAsyncTask(request, manualRefresh)
+                startAsyncTask(request, manualRefresh, cached.filterIsInstance<Medium>())
             }
         }
 
@@ -1655,7 +1656,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             FolderUnlockSessionManager.isMediaAuthorized(token, path, config::isFolderProtected)
     }
 
-    private fun startAsyncTask(request: Long, manualRefresh: Boolean = false) {
+    private fun startAsyncTask(request: Long, manualRefresh: Boolean = false,
+        retainedMedia: List<Medium> = mMedia.filterIsInstance<Medium>()) {
         if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return
         // A canceled or superseded scan must not change the visible list or cached data.
         val scanGeneration = ++mediaScanGeneration
@@ -1669,7 +1671,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             isPickImage = mIsGetImageIntent && !mIsGetVideoIntent,
             isPickVideo = mIsGetVideoIntent && !mIsGetImageIntent,
             showAll = mShowAll,
-            cachedMediaFallback = mMedia.filterIsInstance<Medium>().map { it.copy() },
+            cachedMediaFallback = retainedMedia.map { it.copy() },
             folderSessionId = folderUnlockSessionId,
             requestId = request,
             onFolderPreview = { read, partial ->
@@ -1678,6 +1680,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     folderReadRequest = request
                     folderReadResult = read
                     gotMedia(partial, true, request)
+                }
+            },
+            onFolderDetails = { details ->
+                if (scanGeneration == mediaScanGeneration && mediaLoadRequests.isCurrent(request) &&
+                    requestedFolder == mPath && !isFinishing && !isDestroyed) {
+                    // Notify before mutating mMedia: initial adapter rows may share its objects.
+                    getMediaAdapter()?.updateVideoDurations(details)
+                    val byPath = details.associateBy { it.path }
+                    mMedia.filterIsInstance<Medium>().forEach { item ->
+                        byPath[item.path]?.takeIf { it.modified == item.modified && it.size == item.size }
+                            ?.let { item.videoDuration = it.videoDuration }
+                    }
                 }
             },
             onPartialFailure = {

@@ -39,9 +39,9 @@ internal object PhotoSourceStatusResolver {
                 } else {
                     val path = source.path.orEmpty()
                     when {
-                        path.contains("/.") || FavoriteFolderRules.hasNoMediaAncestor(path) ||
-                            noMedia.any { path == it || path.startsWith("$it/") } -> PhotoSourceStatus.HIDDEN
                         FavoriteFolderRules.isExcluded(path, config.excludedFolders) -> PhotoSourceStatus.EXCLUDED
+                        !PhotoProfileVisibilityPolicy.visible(path, true, config.excludedFolders, noMedia) ||
+                            !PhotoProfileVisibilityPolicy.visible(File(path).canonicalPath, true, config.excludedFolders, noMedia) -> PhotoSourceStatus.HIDDEN
                         !PhotoProfileAccessSessionManager.folderAuthorized(app, path, token) ->
                             if (config.photoCredentialSnapshot().enabled) PhotoSourceStatus.LOCKED else PhotoSourceStatus.SETUP_REQUIRED
                         !File(path).isDirectory && path !in indexed -> PhotoSourceStatus.MISSING

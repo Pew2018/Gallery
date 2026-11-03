@@ -2,6 +2,7 @@ package org.fossify.gallery.adapters
 
 import java.util.concurrent.Executor
 import org.fossify.gallery.helpers.GalleryListDiffExecutor
+import org.fossify.gallery.helpers.MediaUpdatePolicy
 import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
@@ -144,6 +145,8 @@ class MediaAdapter(
         actModeCallback = OxygenSelectionMode.wrap(activity, actModeCallback)
         setupDragListener(true)
         setHasStableIds(true)
+        recyclerView.itemAnimator?.endAnimations()
+        recyclerView.itemAnimator = null
     }
 
     override fun getActionMenuId() = R.menu.cab_media
@@ -269,10 +272,11 @@ class MediaAdapter(
             val itemView = holder.itemView
             val tmb = itemView.allViews.firstOrNull { it.id == R.id.medium_thumbnail }
             if (tmb is ImageView) {
+                tmb.tag = null
+                tmb.setTag(R.id.thumbnail_request_key, null)
                 Picasso.get().cancelRequest(tmb)
                 Glide.with(activity).clear(tmb)
                 tmb.setImageDrawable(null)
-                tmb.tag = null
             }
         }
     }
@@ -664,10 +668,28 @@ class MediaAdapter(
 
     @Volatile private var diffGeneration = 0
     private val refreshScroll = FavoritesScrollRestorer()
+    private data class PendingUpdate(
+        val items: ArrayList<ThumbnailItem>, val preserveScroll: Boolean,
+        val current: () -> Boolean, val committed: () -> Unit, val generation: Int
+    )
+    private var pendingUpdate: PendingUpdate? = null
+    private var diffRunning = false
+    private val drainUpdates = Runnable { submitPendingUpdate() }
+    private val scrollUpdates = object : RecyclerView.OnScrollListener() {
+        override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+            if (newState == RecyclerView.SCROLL_STATE_DRAGGING) refreshScroll.clear()
+            if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                recyclerView.removeCallbacks(drainUpdates)
+                submitPendingUpdate()
+            }
+        }
+    }
+    private val durationPayload = Any()
+    private val durationOverrides = HashMap<String, Medium>()
 
     private fun itemIdentity(item: ThumbnailItem): String = when (item) {
         is Medium -> "media:${item.path}"
-        is ThumbnailSection -> "section:${item.title}"
+        is ThumbnailSection -> "section:${item.key}"
         else -> error("Unknown thumbnail item")
     }
 
@@ -687,13 +709,32 @@ class MediaAdapter(
 
     fun updateMedia(newMedia: ArrayList<ThumbnailItem>, preserveScroll: Boolean = true,
                     isCurrent: () -> Boolean = { true }, onCommitted: () -> Unit = {}) {
-        val generation = ++diffGeneration
-        val incoming = snapshot(newMedia)
         if (!isCurrent()) return
-        if (incoming == media) { onCommitted(); return }
+        pendingUpdate = PendingUpdate(snapshot(newMedia), preserveScroll, isCurrent, onCommitted, ++diffGeneration)
+        recyclerView.removeCallbacks(drainUpdates)
+        submitPendingUpdate()
+    }
+
+    /** One in-flight diff plus the newest pending catalog. Never queue every scan preview. */
+    private fun submitPendingUpdate() {
+        if (diffRunning) return
+        val pending = pendingUpdate ?: return
+        if (activity.isDestroyed || recyclerView.adapter !== this || !pending.current()) {
+            pendingUpdate = null
+            return
+        }
+        if (recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE || recyclerView.isComputingLayout) {
+            recyclerView.removeCallbacks(drainUpdates)
+            recyclerView.postDelayed(drainUpdates, 80)
+            return
+        }
+        pendingUpdate = null
+        val incoming = pending.items
+        applyDurationOverrides(incoming)
+        if (incoming == media) { pending.committed(); return }
         val old = snapshot(media)
+        diffRunning = true
         diffExecutor.execute {
-            if (generation != diffGeneration) return@execute
             val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
                 override fun getOldListSize() = old.size
                 override fun getNewListSize() = incoming.size
@@ -702,17 +743,31 @@ class MediaAdapter(
                 override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
                     val before = old[oldItemPosition]
                     val after = incoming[newItemPosition]
-                    // Room-generated IDs are not thumbnail content.
-                    return if (before is Medium && after is Medium) before.copy(id = null) == after.copy(id = null)
+                    return if (before is Medium && after is Medium) MediaUpdatePolicy.sameContent(before, after)
                     else before == after
+                }
+                override fun getChangePayload(oldItemPosition: Int, newItemPosition: Int): Any? {
+                    val before = old[oldItemPosition] as? Medium ?: return null
+                    val after = incoming[newItemPosition] as? Medium ?: return null
+                    return if (MediaUpdatePolicy.durationOnly(before, after)) durationPayload else null
                 }
             }, false)
             activity.runOnUiThread {
-                if (generation != diffGeneration || activity.isDestroyed ||
-                    recyclerView.adapter !== this || !isCurrent()) return@runOnUiThread
+                diffRunning = false
+                if (pending.generation != diffGeneration || activity.isDestroyed ||
+                    recyclerView.adapter !== this || !pending.current()) {
+                    submitPendingUpdate()
+                    return@runOnUiThread
+                }
+                if (recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE || recyclerView.isComputingLayout) {
+                    pendingUpdate = pending
+                    recyclerView.postDelayed(drainUpdates, 80)
+                    return@runOnUiThread
+                }
+                // Details may have completed while the background diff ran.
+                applyDurationOverrides(incoming)
                 refreshScroll.clear()
-                if (preserveScroll && path != FAVORITES && path != PhotoProfileMediaLoader.PATH &&
-                    recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE) {
+                if (pending.preserveScroll && path != FAVORITES && path != PhotoProfileMediaLoader.PATH) {
                     refreshScroll.remember(recyclerView, media.map { (it as? Medium)?.path })
                 }
                 media = incoming
@@ -723,16 +778,61 @@ class MediaAdapter(
                 diff.dispatchUpdatesTo(this)
                 if (refreshScroll.pending != null) refreshScroll.restore(recyclerView,
                     media.map { (it as? Medium)?.path }, true, isCurrent = {
-                        generation == diffGeneration && recyclerView.adapter === this && isCurrent() &&
+                        pending.generation == diffGeneration && recyclerView.adapter === this && pending.current() &&
                             recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE
                     })
-                onCommitted()
+                pending.committed()
+                submitPendingUpdate()
             }
         }
     }
 
+    private fun applyDurationOverrides(items: List<ThumbnailItem>) {
+        items.filterIsInstance<Medium>().forEach { item ->
+            durationOverrides[item.path]?.takeIf { it.modified == item.modified && it.size == item.size }
+                ?.let { item.videoDuration = it.videoDuration }
+        }
+    }
+
+    fun updateVideoDurations(details: List<Medium>) {
+        details.forEach { durationOverrides[it.path] = it.copy() }
+        if (recyclerView.isComputingLayout) {
+            recyclerView.post { if (recyclerView.adapter === this) updateVideoDurations(details) }
+            return
+        }
+        media.forEachIndexed { index, item ->
+            if (item is Medium) {
+                val detail = durationOverrides[item.path]
+                if (detail != null && detail.modified == item.modified && detail.size == item.size &&
+                    detail.videoDuration != item.videoDuration) {
+                    item.videoDuration = detail.videoDuration
+                    notifyItemChanged(index, durationPayload)
+                }
+            }
+        }
+    }
+
+    override fun onBindViewHolder(holder: ViewHolder, position: Int, payloads: MutableList<Any>) {
+        val medium = media.getOrNull(position) as? Medium
+        if (medium != null && payloads.isNotEmpty() && payloads.all { it === durationPayload }) {
+            bindItem(holder.itemView, medium).videoDuration?.apply {
+                text = medium.videoDuration.getFormattedDuration()
+                beVisibleIf(medium.isVideo() && config.showThumbnailVideoDuration)
+            }
+        } else onBindViewHolder(holder, position)
+    }
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        recyclerView.addOnScrollListener(scrollUpdates)
+    }
+
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
         ++diffGeneration
+        pendingUpdate = null
+        recyclerView.removeCallbacks(drainUpdates)
+        recyclerView.removeOnScrollListener(scrollUpdates)
+        durationOverrides.clear()
         refreshScroll.clear()
         super.onDetachedFromRecyclerView(recyclerView)
     }
@@ -832,31 +932,37 @@ class MediaAdapter(
                 else -> ROUNDED_CORNERS_NONE
             }
 
-            OxygenThumbnailPlaceholder.apply(activity, mediumThumbnail, roundedCorners)
-            // The PNG fallback uses Picasso and is not cancelled by Glide.clear().
-            Picasso.get().cancelRequest(mediumThumbnail)
-            mediumThumbnail.scaleType = if (cropThumbnails) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
-            if (mediumThumbnail.tag != path) {
+            val signature = medium.getKey()
+            val requestKey = listOf(path, signature, medium.type, cropThumbnails, roundedCorners, animateGifs,
+                scrollHorizontally, rotatedImagePaths.contains(path))
+            if (mediumThumbnail.getTag(R.id.thumbnail_request_key) != requestKey) {
+                // Change the token before cancellation so an obsolete failure cannot start a fallback.
+                mediumThumbnail.setTag(R.id.thumbnail_request_key, requestKey)
+                Picasso.get().cancelRequest(mediumThumbnail)
                 Glide.with(activity).clear(mediumThumbnail)
                 mediumThumbnail.setImageDrawable(null)
                 mediumThumbnail.tag = path
+                OxygenThumbnailPlaceholder.apply(activity, mediumThumbnail, roundedCorners)
+                mediumThumbnail.scaleType = if (cropThumbnails) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
+                activity.loadImage(
+                    type = medium.type,
+                    path = path,
+                    target = mediumThumbnail,
+                    horizontalScroll = scrollHorizontally,
+                    animateGifs = animateGifs,
+                    cropThumbnails = cropThumbnails,
+                    roundCorners = roundedCorners,
+                    signature = signature,
+                    skipMemoryCacheAtPaths = rotatedImagePaths,
+                    crossFadeDuration = 0,
+                    onError = {
+                        if (mediumThumbnail.getTag(R.id.thumbnail_request_key) == requestKey) {
+                            mediumThumbnail.scaleType = ImageView.ScaleType.CENTER
+                            mediumThumbnail.setImageDrawable(AppCompatResources.getDrawable(activity, R.drawable.ic_vector_warning_colored))
+                        }
+                    }
+                )
             }
-
-            activity.loadImage(
-                type = medium.type,
-                path = path,
-                target = mediumThumbnail,
-                horizontalScroll = scrollHorizontally,
-                animateGifs = animateGifs,
-                cropThumbnails = cropThumbnails,
-                roundCorners = roundedCorners,
-                signature = medium.getKey(),
-                skipMemoryCacheAtPaths = rotatedImagePaths,
-                onError = {
-                    mediumThumbnail.scaleType = ImageView.ScaleType.CENTER
-                    mediumThumbnail.setImageDrawable(AppCompatResources.getDrawable(activity, R.drawable.ic_vector_warning_colored))
-                }
-            )
 
             if (isListViewType) {
                 mediumName.setTextColor(textColor)

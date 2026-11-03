@@ -389,7 +389,7 @@ class PhotoProfileMediaLoadingTest {
         } finally { root.toFile().deleteRecursively() }
     }
 
-    @Test fun viewerFirstFrameRechecksNoMediaWithoutAGlobalQuery() {
+    @Test fun viewerFirstFrameAllowsExplicitNoMediaSourceWithoutAGlobalQuery() {
         val root = Files.createTempDirectory("photo-first-nomedia")
         try {
             val folder = Files.createDirectory(root.resolve("camera"))
@@ -398,13 +398,13 @@ class PhotoProfileMediaLoadingTest {
             val item = Medium(null, "a.jpg", path, folder.toString(), 1, 1, 1, TYPE_IMAGES, 0, false, 0, 0)
             assertNotNull(background { PhotoViewerSnapshotStore.firstFrame(context, id, null, item) })
             Files.write(root.resolve(".nomedia"), byteArrayOf())
-            assertNull(background { PhotoViewerSnapshotStore.firstFrame(context, id, null, item) })
+            assertNotNull(background { PhotoViewerSnapshotStore.firstFrame(context, id, null, item) })
             assertEquals(2, provider.queries.size)
             assertTrue(provider.queries.none { it!!.contains("LIKE") })
         } finally { root.toFile().deleteRecursively() }
     }
 
-    @Test fun neighborAndCompleteValidationRejectTheSameNoMediaAncestor() {
+    @Test fun neighborAndCompleteValidationAllowExplicitNoMediaAncestor() {
         val root = Files.createTempDirectory("photo-neighbor-nomedia-parity")
         try {
             val folder = Files.createDirectory(root.resolve("camera"))
@@ -415,8 +415,49 @@ class PhotoProfileMediaLoadingTest {
             assertNotNull(background { PhotoViewerSnapshotStore.validate(context, id, listOf(item), path) })
 
             Files.write(root.resolve(".nomedia"), byteArrayOf())
-            assertNull(background { PhotoViewerSnapshotStore.validateNeighborWindow(context, id, null, listOf(item), path) })
-            assertNull(background { PhotoViewerSnapshotStore.validate(context, id, listOf(item), path) })
+            assertNotNull(background { PhotoViewerSnapshotStore.validateNeighborWindow(context, id, null, listOf(item), path) })
+            assertNotNull(background { PhotoViewerSnapshotStore.validate(context, id, listOf(item), path) })
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun explicitNoMediaSourceLoadsUnindexedFilesAndRefreshDiscoversAdditions() {
+        val root = Files.createTempDirectory("profile-nomedia-refresh")
+        try {
+            Files.write(root.resolve(".nomedia"), byteArrayOf())
+            val folder = Files.createDirectory(root.resolve("selected"))
+            val first = Files.write(folder.resolve("first.jpg"), byteArrayOf(1)).toString()
+            val id = profile(folder.toString())
+            val initial = background { PhotoProfileMediaLoader(context).loadStaged(id, false) }
+            assertEquals(setOf(first), initial.media.map { it.path }.toSet())
+            assertEquals(PhotoSourceStatus.READY, background {
+                PhotoSourceStatusResolver.inspect(context, listOf(PhotoSource(PhotoSourceType.FOLDER, folder.toString())))
+            }.values.single())
+            val second = Files.write(folder.resolve("second.jpg"), byteArrayOf(2)).toString()
+            val child = Files.createDirectory(folder.resolve("child"))
+            Files.write(child.resolve("nested.jpg"), byteArrayOf(3))
+            val refreshed = background { PhotoProfileMediaLoader(context).loadStaged(id, false, forceScan = true) }
+            assertEquals(setOf(first, second), refreshed.media.map { it.path }.toSet())
+            assertNotNull(background { PhotoViewerSnapshotStore.validate(context, id, refreshed.media, second) })
+            context.config.excludedFolders = hashSetOf(folder.toString())
+            assertTrue(background { PhotoProfileMediaLoader(context).loadStaged(id, false, forceScan = true) }.media.isEmpty())
+            assertNull(background { PhotoViewerSnapshotStore.firstFrame(context, id, null, initial.media.single()) })
+        } finally {
+            context.config.excludedFolders = hashSetOf()
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun favoritesOnlyDoNotInheritExplicitFolderNoMediaException() {
+        val root = Files.createTempDirectory("profile-favorite-nomedia")
+        try {
+            val path = Files.write(root.resolve("favorite.jpg"), byteArrayOf(1)).toString()
+            Files.write(root.resolve(".nomedia"), byteArrayOf())
+            val id = java.util.UUID.randomUUID().toString()
+            PhotoProfileRepository.of(context).save(PhotoProfile(id, "Favorites", listOf(PhotoSource(PhotoSourceType.FAVORITES))))
+            background { context.favoritesDB.insert(Favorite(null, path, "favorite.jpg", root.toString())) }
+            val item = Medium(null, "favorite.jpg", path, root.toString(), 1, 1, 1, TYPE_IMAGES, 0, true, 0, 0)
+            assertNull(background { PhotoViewerSnapshotStore.firstFrame(context, id, null, item) })
+            assertTrue(background { PhotoProfileMediaLoader(context).loadStaged(id, false) }.media.isEmpty())
         } finally { root.toFile().deleteRecursively() }
     }
 

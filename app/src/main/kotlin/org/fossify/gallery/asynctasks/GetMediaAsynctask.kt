@@ -33,6 +33,7 @@ internal class GetMediaAsynctask(
     private val folderSessionId: String? = null,
     private val requestId: Long = 0,
     private val onFolderPreview: ((FolderMediaReadResult, ArrayList<ThumbnailItem>) -> Unit)? = null,
+    private val onFolderDetails: ((List<Medium>) -> Unit)? = null,
     val callback: (media: ArrayList<ThumbnailItem>) -> Unit
 ) :
     AsyncTask<Void, PhotoLoadResult, ArrayList<ThumbnailItem>>() {
@@ -66,7 +67,8 @@ internal class GetMediaAsynctask(
         } else null
         if (mPath == PhotoProfileMediaLoader.PATH || photoProfileId != null) {
             val loader = PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId) { isCancelled }
-            val final = loader.loadStaged(photoProfileId, photoAllowPreview && onPhotoResult != null, photoAnchorPath) {
+            val final = loader.loadStaged(photoProfileId, photoAllowPreview && onPhotoResult != null, photoAnchorPath,
+                forceScan = manualRefresh) {
                 if (!isCancelled) publishProgress(it)
             }
             profileResult = final
@@ -164,7 +166,7 @@ internal class GetMediaAsynctask(
                             MediaStoreFolderKey.of(java.io.File(parent).parent.orEmpty()) == folderKey)
                 }
                 mediaFetcher.onFolderProgress = { progress ->
-                    if (!isCancelled && onFolderPreview != null) {
+                    if (!isCancelled && onFolderPreview != null && folderCache.isEmpty()) {
                         val merged = progress.presentation(folderCache.filter {
                             it.type and context.config.filterMedia != 0 &&
                                 (context.config.shouldShowHidden || !it.name.startsWith('.')) &&
@@ -273,8 +275,9 @@ internal class GetMediaAsynctask(
                         }
                     }, publish = { enriched ->
                         val safe = enriched.filter { folderAllowed(it.path) }.toCollection(ArrayList())
-                        val grouped = mediaFetcher.groupMedia(safe, mPath)
-                        delivery.post { if (!isCancelled && read.accessCurrent()) callback(grouped) }
+                        // Optional details must not re-enter the scan-complete callback,
+                        // regroup the catalog, or repeat cache pruning/viewer preparation.
+                        delivery.post { if (!isCancelled && read.accessCurrent()) onFolderDetails?.invoke(safe) }
                     })
             }
         }
