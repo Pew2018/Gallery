@@ -148,6 +148,21 @@ class PhotoSessionViewerCatalogStoreTest {
         assertEquals(PhotoViewerCatalogCoordinator.Boundary.UNKNOWN, catalog.after)
     }
 
+    @Test fun indexAndFilesystemStageMergeKeepsTheCanonicalSortedOrder() {
+        val all = media(8)
+        val request = ready(all)
+        val expected = ArrayList(all)
+        MediaFetcher(app).sortMedia(expected, request.context.scope.sorting)
+        worker { PhotoSessionViewerCatalogStore.offerPartial(app,
+            request.copy(stage = PhotoLoadStage.INDEXED,
+                media = listOf(expected[0], expected[2], expected[4], expected[6]))) }
+        worker { PhotoSessionViewerCatalogStore.offerPartial(app,
+            request.copy(stage = PhotoLoadStage.FILESYSTEM,
+                media = listOf(expected[1], expected[3], expected[5], expected[7]))) }
+        val latest = worker { PhotoSessionViewerCatalogStore.latest(app, profile.id, null, expected[3].path) }!!
+        assertEquals(expected.map { it.path }, latest.media.map { it.path })
+    }
+
     @Test fun sourceChangesAndMediaRevisionInvalidateOldCompleteOrder() {
         val items = media(100)
         val first = worker { PhotoSessionViewerCatalogStore.prepare(app, ready(items)) }!!

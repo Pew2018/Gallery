@@ -2360,6 +2360,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         ensureBackgroundThread {
             // Keep the existing constant-size return checkpoint before launching,
             // but never copy or validate the whole media list on the click path.
+            // Handoff the committed visible grid order without conferring media access.
+            val gridOrderId = if (!showAll && (source == FAVORITES || source.startsWith('/'))) {
+                org.fossify.gallery.helpers.ViewerGridOrderStore.offer(source, path, displayedOrder)
+            } else null
             val checkpoint = if (completePublicFolder) FolderReturnCheckpoint.capture(app, source) else null
             val catalogId = if (completePublicFolder) {
                 org.fossify.gallery.helpers.FolderViewerSnapshotStore.handoffId(app, source)
@@ -2392,6 +2396,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         org.fossify.gallery.helpers.ViewerSearchPolicy.EXTRA_QUERY, mCommittedSearchText
                     )
                     neighborId?.let { putExtra(org.fossify.gallery.helpers.ViewerNeighborHandoffStore.EXTRA_ID, it) }
+                    gridOrderId?.let { putExtra(org.fossify.gallery.helpers.ViewerGridOrderStore.EXTRA_ID, it) }
                     catalogId?.let { putExtra(org.fossify.gallery.helpers.FolderViewerSnapshotStore.EXTRA_ID, it) }
                     favoriteCatalogId?.let { putExtra(org.fossify.gallery.helpers.FavoriteViewerCatalogStore.EXTRA_ID, it) }
                 })

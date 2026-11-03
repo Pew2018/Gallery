@@ -221,6 +221,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var mIsFullScreen = false
     private var mPos = -1
     private var mShowAll = false
+    /** The tapped grid's ordering evidence; never an authorization capability. */
+    private var viewerGridOrder: List<String>? = null
     private var initialPublicFolderSnapshot = false
     private var initialPublicFolderCheckpoint: org.fossify.gallery.helpers.FolderReturnCheckpoint? = null
     private var stagedInternalViewer = false
@@ -922,8 +924,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_catalog_upgrade", visible.size)
                         photoPageAccess.approve(listOf(selectedPath), candidate.revision)
                         if (candidate.isComplete || changed) {
-                            val ordered = stabilizeRandomViewerOrder(visible)
-                            gotMedia(ArrayList<ThumbnailItem>(ordered), refetchViewPagerPosition = true,
+                            // The producer already sorted this catalog in the grid's
+                            // canonical order; don't prepend the initial five-page window.
+                            gotMedia(ArrayList<ThumbnailItem>(visible), refetchViewPagerPosition = true,
                                 fullCatalog = candidate.isComplete)
                         }
                         if (!candidate.isComplete) requestPhotoPartialExpand(mPos.coerceAtLeast(0))
@@ -1170,6 +1173,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val selectedStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
         viewerLoadTask?.stopFetching()
         val path = mPath
+        viewerGridOrder = org.fossify.gallery.helpers.ViewerGridOrderStore.take(
+            intent.getStringExtra(org.fossify.gallery.helpers.ViewerGridOrderStore.EXTRA_ID), FAVORITES, path)
         val selected = selectedViewerMedium(path)
         val token = favoriteSessionId
         val neighborWindow = takeNeighborWindow(
@@ -1232,7 +1237,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                             mediaPublicationTask = mediaPublicationExecutor.submit {
                                 val sorted = searchedViewerMedia(batch.items).toCollection(ArrayList())
                                 if (!completeSource) MediaFetcher(app).sortMedia(sorted, config.getFolderSorting(FAVORITES))
-                                val searched = stabilizeRandomViewerOrder(sorted, previousOrder)
+                                val searched = org.fossify.gallery.helpers.ViewerGridOrderPolicy.reconcile(
+                                    viewerGridOrder, previousOrder, sorted,
+                                    config.getFolderSorting(FAVORITES) and SORT_BY_RANDOM != 0
+                                ) { it.path }
                                 runOnUiThread {
                                     if (stage != viewerStageGeneration || publication != mediaPublicationGeneration || request != viewerAccessGeneration ||
                                         load != viewerLoadGeneration || isFinishing || isDestroyed ||
@@ -1333,6 +1341,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val selectedStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
         viewerLoadTask?.stopFetching()
         val path = mPath
+        if (viewerGridOrder == null) {
+            viewerGridOrder = org.fossify.gallery.helpers.ViewerGridOrderStore.take(
+                intent.getStringExtra(org.fossify.gallery.helpers.ViewerGridOrderStore.EXTRA_ID),
+                path.getParentPath(), path)
+        }
         // The folder catalog was freshness-checked and consumed on the auth worker.
         // Keep its list reference while initializing the selected page; don't copy
         // or scan it on the UI thread.
@@ -1486,8 +1499,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             val safe = directItems.filter { it.path in authorized && runCatching { File(it.path).isFile }.getOrDefault(false) }.toCollection(ArrayList())
             if (!completeSource) MediaFetcher(app).sortMedia(safe, config.getFolderSorting(folder))
             val random = config.getFolderSorting(folder) and SORT_BY_RANDOM != 0
-            val ordered = org.fossify.gallery.helpers.FolderViewerMediaPolicy.reconcile(
-                publishedOrder, safe, random
+            val ordered = org.fossify.gallery.helpers.ViewerGridOrderPolicy.reconcile(
+                viewerGridOrder, publishedOrder, safe, random
             ) { it.path }
             val freshnessCurrent = freshnessCheckpoint == null || runCatching {
                 org.fossify.gallery.helpers.FolderReturnCheckpoint.isCurrent(app, folder, freshnessCheckpoint)

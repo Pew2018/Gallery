@@ -97,6 +97,8 @@ class PhotoProfileMediaLoader(
         // that created it. Capture this before index queries and file supplements.
         val scanCheckpointStarted = PhotoProfileCatalogCheckpoint.capture(context, scope)
 
+        // Keep already validated indexed/cache rows in later filesystem stages.
+        val stagedCandidates = LinkedHashMap<String, Medium>()
         var preview = emptyList<Medium>()
         if (allowPreview) {
             val started = GalleryPerfTrace.begin()
@@ -110,6 +112,7 @@ class PhotoProfileMediaLoader(
             if (preview.isNotEmpty()) {
                 val validated = result(PhotoLoadStage.CACHE_PREVIEW, preview)
                 preview = validated.media
+                preview.forEach { stagedCandidates[it.path] = it }
                 if (preview.isNotEmpty()) {
                     PhotoSessionViewerCatalogStore.offerPartial(context, validated)
                     onStage(validated)
@@ -134,14 +137,14 @@ class PhotoProfileMediaLoader(
             indexedCandidates.forEach { merged[it.path] = it }
             val stage = result(PhotoLoadStage.INDEXED, ArrayList(merged.values))
             if (stage.media.isNotEmpty()) {
+                stage.media.forEach { stagedCandidates[it.path] = it }
                 PhotoSessionViewerCatalogStore.offerPartial(context, stage)
                 onStage(stage)
             }
         }
         checkCurrent(request)
         val scanning = GalleryPerfTrace.begin()
-        val supplements = LinkedHashMap<String, Medium>()
-        preview.forEach { supplements[it.path] = it }
+        val supplements = LinkedHashMap<String, Medium>(stagedCandidates)
         val media = fetcher.scanProfileFileSupplements(folders, favoriteFiles, ArrayList(request.favorites), indexed,
             preferredPath = { PhotoSessionViewerCatalogStore.focusPath(request) ?: anchorPath }) { batch ->
             checkCurrent(request)

@@ -34,7 +34,8 @@ internal object PhotoSessionViewerCatalogStore {
         val id: String,
         val request: PhotoProfileLoadContext,
         val createdAt: Long,
-        val catalog: Catalog
+        val catalog: Catalog,
+        val stage: PhotoLoadStage = PhotoLoadStage.COMPLETE
     )
     private data class IndexedCandidates(
         val request: PhotoProfileLoadContext,
@@ -127,16 +128,22 @@ internal object PhotoSessionViewerCatalogStore {
             if ((loading != null && loading !== result.context) || !result.context.isCurrent(context)) return
             val old = partial?.takeIf { it.request.scope == result.context.scope &&
                 it.request.revision == result.context.revision }
+            // Never let an older cache/index callback displace a newer stage.
+            if (old != null && result.stage.ordinal < old.stage.ordinal) return
             val combined = LinkedHashMap<String, Medium>()
             result.media.forEach { combined[it.path] = it }
             old?.catalog?.media?.forEach { combined.putIfAbsent(it.path, it) }
             val anchor = focusPath(result.context)
-            val all = combined.values.toList()
+            // Stage-wise sorted lists cannot be concatenated without re-sorting.
+            val all = ArrayList(combined.values)
+            if (result.context.scope.sorting and org.fossify.commons.helpers.SORT_BY_RANDOM == 0) {
+                MediaFetcher(context).sortMedia(all, result.context.scope.sorting)
+            }
             val pos = all.indexOfFirst { it.path == anchor }.coerceAtLeast(0)
             val start = (pos - MAX_ITEMS / 2).coerceIn(0, (all.size - MAX_ITEMS).coerceAtLeast(0))
             val next = catalog(all.drop(start).take(MAX_ITEMS), result.context.revision, false) ?: return
             partial = Entry(old?.id ?: UUID.randomUUID().toString(), result.context,
-                SystemClock.elapsedRealtime(), next)
+                SystemClock.elapsedRealtime(), next, result.stage)
         }
         registerMemoryCallback(context)
         notifyChanged()
@@ -274,12 +281,27 @@ internal object PhotoSessionViewerCatalogStore {
         if (access.needsUnlock || cancelled() || !source.request.isCurrent(context)) return false
         val collected = LinkedHashMap<String, Medium>()
         old.catalog.media.forEach { collected[it.path] = it }
-        safe.forEach { collected[it.path] = it }
-        // Sort only the bounded published set, never reread every disk segment on a swipe.
-        val positions = if (source.segments == null) source.order.mapIndexed { index, medium -> medium.path to index }.toMap() else null
-        val combined = collected.values.sortedBy { medium ->
-            val index = source.segments?.knownIndexOf(medium.path) ?: positions?.get(medium.path) ?: -1
-            if (index < 0) Int.MAX_VALUE else index
+        // Indexed rows without taken dates use the same modified-date fallback
+        // as the visible Photos grid before any partial sort.
+        val normalized = safe.map { medium ->
+            if (medium.taken <= 0L) medium.copy().apply { taken = medium.modified } else medium
+        }
+        normalized.forEach { collected[it.path] = it }
+        val sorting = source.request.scope.sorting
+        val combined = when {
+            // The completed segmented source knows the true full-grid ordinal,
+            // including files that MediaStore did not index.
+            source.complete -> collected.values.sortedBy { medium ->
+                source.segments?.knownIndexOf(medium.path)
+                    ?: source.order.indexOfFirst { it.path == medium.path }
+            }
+            // Before completion, index positions cannot rank .nomedia supplements.
+            sorting and org.fossify.commons.helpers.SORT_BY_RANDOM == 0 ->
+                ArrayList(collected.values).also { MediaFetcher(context).sortMedia(it, sorting) }
+            // Random partial stages keep the already displayed neighborhood stable;
+            // a backward batch is traversed in reverse and must be prepended reversed.
+            forward -> old.catalog.media + normalized
+            else -> normalized.asReversed() + old.catalog.media
         }
         val center = combined.indexOfFirst { it.path == anchor }.coerceAtLeast(0)
         val first = (center - MAX_ITEMS / 2).coerceIn(0, (combined.size - MAX_ITEMS).coerceAtLeast(0))
