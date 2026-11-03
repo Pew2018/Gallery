@@ -715,7 +715,7 @@ fun Context.loadImageBase(
         .apply(options)
         .set(WebpDownsampler.USE_SYSTEM_DECODER, false) // CVE-2023-4863
         .apply {
-            if (crossFadeDuration > 0) transition(getOptionalCrossFadeTransition(crossFadeDuration)) else dontTransition()
+            if (crossFadeDuration > 0) transition(getOptionalCrossFadeTransition(crossFadeDuration)) else transition(com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions().dontTransition())
         }
 
     builder = builder.listener(object : RequestListener<Drawable> {
@@ -769,7 +769,7 @@ fun Context.loadSVG(
         .load(path)
         .apply(options)
         .apply {
-            if (crossFadeDuration > 0) transition(getOptionalCrossFadeTransition(crossFadeDuration)) else dontTransition()
+            if (crossFadeDuration > 0) transition(getOptionalCrossFadeTransition(crossFadeDuration)) else transition(com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions().dontTransition())
         }
 
     if (roundCorners != ROUNDED_CORNERS_NONE) {
