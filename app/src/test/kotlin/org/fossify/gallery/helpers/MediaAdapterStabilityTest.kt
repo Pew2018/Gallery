@@ -13,6 +13,10 @@ import org.fossify.gallery.models.Medium
 import org.fossify.gallery.models.ThumbnailItem
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Before
+import org.junit.After
+import com.squareup.picasso.Picasso
+import org.robolectric.RuntimeEnvironment
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -32,6 +36,22 @@ class MediaAdapterStabilityTest {
         companion object {
             @JvmStatic @Implementation fun __staticInitializer__() = Unit
         }
+    }
+
+    private var testPicasso: Picasso? = null
+    private var previousPicasso: Any? = null
+    private val picassoSingleton get() = Picasso::class.java.getDeclaredField("singleton").apply { isAccessible = true }
+
+    @Before fun installHostImages() {
+        // Plain Application deliberately has no Picasso startup ContentProvider.
+        previousPicasso = picassoSingleton.get(null)
+        testPicasso = Picasso.Builder(RuntimeEnvironment.getApplication()).build()
+        picassoSingleton.set(null, testPicasso)
+    }
+
+    @After fun releaseHostImages() {
+        picassoSingleton.set(null, previousPicasso)
+        testPicasso?.shutdown()
     }
 
     private fun item(name: String) = Medium(null, name, "/photos/$name", "/photos", 10, 10, 100,
