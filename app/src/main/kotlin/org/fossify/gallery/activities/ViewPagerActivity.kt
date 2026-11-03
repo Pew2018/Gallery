@@ -309,11 +309,20 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     @Volatile
     private var viewerAccessGeneration = 0L
     private var viewerAccessTask: Future<*>? = null
+    private var photoCatalogMode = false
+    private var photoCatalogRevision = -1L
+    @Volatile private var photoPageAuthorized: Set<String> = emptySet()
+    private var photoPageAccessTask: Future<*>? = null
+    private var photoPageAccessGeneration = 0L
     private var activeFolderUnlockSessionId: String? = null
     private var ownedFolderUnlockSessionId: String? = null
     @Volatile private var authorizedViewerPaths: Set<String> = emptySet()
 
     private fun closeUnauthorizedFavorites() {
+        photoPageAccessGeneration++
+        ViewerAccessCoordinator.cancel(photoPageAccessTask)
+        photoCatalogMode = false
+        photoPageAuthorized = emptySet()
         stopSlideshow()
         viewerLoadGeneration++
         viewerLoadTask?.stopFetching()
@@ -328,6 +337,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     override fun mayLoadFavoritePath(path: String): Boolean {
         if (!checkFavoriteAccess(path)) return false
+        if (isPhotoProfile && photoCatalogMode) {
+            if (photoCatalogRevision != org.fossify.gallery.helpers.PhotoContentRevision.current()) return false
+            // A complete list does not itself authorize decoding. Pages are admitted
+            // only after bounded worker-side raw/canonical protection checks.
+            if (path !in photoPageAuthorized) return false
+        }
         val token = activeFolderUnlockSessionId ?: return true
         if (!FolderUnlockSessionManager.isActive(token)) {
             authorizedViewerPaths = emptySet()
@@ -477,6 +492,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         org.fossify.gallery.helpers.ViewerNeighborHandoffStore.clear(neighborHandoffId)
         viewerAccessGeneration++
         ViewerAccessCoordinator.cancel(viewerAccessTask)
+        photoPageAccessGeneration++
+        ViewerAccessCoordinator.cancel(photoPageAccessTask)
+        photoPageAuthorized = emptySet()
         FolderUnlockSessionManager.revokeSession(ownedFolderUnlockSessionId)
         viewerLoadGeneration++
         viewerLoadTask?.stopFetching()
@@ -701,12 +719,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun completePhotoViewerLoad(
         request: Long, cached: ArrayList<Medium>?, firstContext: org.fossify.gallery.helpers.PhotoProfileLoadContext?,
         initialized: Boolean,
-        neighborWindow: org.fossify.gallery.helpers.ViewerNeighborWindow?
+        neighborWindow: org.fossify.gallery.helpers.ViewerNeighborWindow?,
+        preparedCatalog: org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.Catalog?
     ) {
         val profile = photoProfileId
         val session = photoSessionId
         val clicked = mPath
-        fun publish(items: List<Medium>) {
+        fun publish(items: List<Medium>, preserveCatalogOrder: Boolean = false) {
             if (request != viewerLoadGeneration || isFinishing || isDestroyed) return
             if (firstContext != null && !firstContext.isCurrent(applicationContext)) { finish(); return }
             if (!checkFavoriteAccess() || items.isEmpty()) { finish(); return }
@@ -715,7 +734,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             mediaPublicationExecutor.queue.clear()
             val previousOrder = mMediaFiles
             mediaPublicationTask = mediaPublicationExecutor.submit {
-                val scopedItems = stabilizeRandomViewerOrder(searchedViewerMedia(items), previousOrder)
+                // The catalog is already sorted in the grid's committed order.
+                // Never reshuffle a complete random Photos snapshot on viewer entry.
+                val scopedItems = if (preserveCatalogOrder) searchedViewerMedia(items)
+                    else stabilizeRandomViewerOrder(searchedViewerMedia(items), previousOrder)
                 runOnUiThread {
                     if (publication != mediaPublicationGeneration || request != viewerLoadGeneration ||
                         isFinishing || isDestroyed || !checkFavoriteAccess()) return@runOnUiThread
@@ -729,6 +751,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 }
             }
         }
+        if (preparedCatalog != null && initialized && firstContext != null &&
+            preparedCatalog.revision == org.fossify.gallery.helpers.PhotoContentRevision.current()) {
+            photoCatalogMode = true
+            photoCatalogRevision = preparedCatalog.revision
+            // The selected file was freshly authorized by firstFrame on the worker.
+            photoPageAuthorized = setOf(clicked)
+            org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_catalog_hit", preparedCatalog.media.size)
+            publish(preparedCatalog.media, preserveCatalogOrder = true)
+            return
+        }
+        org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_catalog_fallback")
         fun loadFullCollection() {
             val fullStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
             if (cached != null && firstContext != null) {
@@ -1184,7 +1217,19 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             val neighborWindow = takeNeighborWindow(
                 org.fossify.gallery.helpers.ViewerSourceType.PHOTO_PROFILE, profile.orEmpty()
             )
-            val selected = cached?.firstOrNull { it.path == clicked } ?: Medium(
+            val catalogStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+            val preparedCatalog = if (!isExternalIntent() && intent.getBooleanExtra(IS_FROM_GALLERY, false)) {
+                org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.take(
+                    applicationContext,
+                    intent.getStringExtra(org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.EXTRA_ID),
+                    profile, session, clicked
+                )
+            } else null
+            org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                if (preparedCatalog == null) "viewer_catalog_miss" else "viewer_catalog_lookup",
+                catalogStarted, preparedCatalog?.media?.size ?: 0)
+            val selected = preparedCatalog?.pathIndex?.get(clicked)?.let { preparedCatalog.media[it] }
+                ?: cached?.firstOrNull { it.path == clicked } ?: Medium(
                 null, clicked.getFilenameFromPath(), clicked, clicked.getParentPath(),
                 0, 0, 0, getTypeFromPath(clicked), 0, false, 0L, 0L
             )
@@ -1204,7 +1249,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         viewerSelectedImageStarted = started
                         logPagerReady("viewer_selected_pager_ready", started, 1, clicked)
                     }
-                    completePhotoViewerLoad(request, cached, first?.context, first != null, neighborWindow)
+                    completePhotoViewerLoad(request, cached, first?.context, first != null, neighborWindow,
+                        preparedCatalog.takeIf { first != null })
                 }
             } } catch (_: java.util.concurrent.RejectedExecutionException) { finish(); null }
             return
@@ -2425,6 +2471,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 if (!ignorePlayingVideos && isPlaying && !isExternalIntent()) return@runOnUiThread
                 val publishStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
                 refreshUI(media, refetchViewPagerPosition, positionIndex, pathIndex, authorizedPaths)
+                if (fullCatalog && photoCatalogMode && pendingPagerPublication == null) {
+                    validatePhotoPageWindow(mPos)
+                }
                 org.fossify.gallery.helpers.GalleryPerfTrace.end("viewer_main_thread_publish", publishStarted, media.size)
                 if (fullCatalog && pendingPagerPublication == null) {
                     org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_full_list_ready", media.size)
@@ -2673,10 +2722,57 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun getCurrentPath() = getCurrentMedium()?.path ?: ""
 
+    /** Always authorize at most five adjacent paths on a worker, never 10,000 on a tap. */
+    private fun validatePhotoPageWindow(position: Int) {
+        if (!photoCatalogMode || position !in mMediaFiles.indices || isFinishing || isDestroyed) return
+        val start = (position - org.fossify.gallery.helpers.ViewerNeighborWindow.NEIGHBOR_RADIUS).coerceAtLeast(0)
+        val end = (position + org.fossify.gallery.helpers.ViewerNeighborWindow.NEIGHBOR_RADIUS + 1)
+            .coerceAtMost(mMediaFiles.size)
+        val items = mMediaFiles.subList(start, end).toList()
+        val selected = mMediaFiles[position].path
+        val request = ++photoPageAccessGeneration
+        ViewerAccessCoordinator.cancel(photoPageAccessTask)
+        val profile = photoProfileId
+        val session = photoSessionId
+        val revision = photoCatalogRevision
+        val app = applicationContext
+        photoPageAccessTask = try {
+            ViewerAccessCoordinator.submit {
+                val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+                val safe = runCatching {
+                    org.fossify.gallery.helpers.PhotoViewerSnapshotStore.validateNeighborWindow(
+                        app, profile, session, items, selected
+                    ) { Thread.currentThread().isInterrupted }
+                }.getOrNull()
+                runOnUiThread {
+                    if (request != photoPageAccessGeneration || !photoCatalogMode ||
+                        isFinishing || isDestroyed) return@runOnUiThread
+                    if (safe == null || !safe.context.isCurrent(app) ||
+                        selected !in safe.media.map { it.path } ||
+                        revision != org.fossify.gallery.helpers.PhotoContentRevision.current()) {
+                        org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.invalidate(profile)
+                        closeUnauthorizedFavorites()
+                        return@runOnUiThread
+                    }
+                    // Keep the already authorized current page while the next window
+                    // arrives; invalidated session/source changes close the viewer.
+                    photoPageAuthorized = photoPageAuthorized + safe.media.map { it.path }
+                    activePagerAdapter?.onAccessWindowUpdated()
+                    org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                        "viewer_page_window_validation", started, safe.media.size)
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            closeUnauthorizedFavorites()
+            null
+        }
+    }
+
     override fun onPageScrolled(position: Int, positionOffset: Float, positionOffsetPixels: Int) {}
 
     override fun onPageSelected(position: Int) {
         if (!checkFavoriteAccess(getCurrentMedia().getOrNull(position)?.path)) return
+        if (photoCatalogMode) validatePhotoPageWindow(position)
         if (mPos != position) {
             mPos = position
             updateActionbarTitle()

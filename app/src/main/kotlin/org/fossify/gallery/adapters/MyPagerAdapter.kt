@@ -186,6 +186,14 @@ internal class MyPagerAdapter(
         return true
     }
 
+    /** Recreate deferred placeholders after the viewer authorizes a nearby page. */
+    fun onAccessWindowUpdated() {
+        if (hasDeferredPages) {
+            hasDeferredPages = false
+            notifyDataSetChanged()
+        }
+    }
+
     fun getCurrentFragment(position: Int) = items.getOrNull(position)?.let { fragments[ViewerMediaUpdatePolicy.identity(it)] }
 
     fun toggleFullscreen(isFullscreen: Boolean) {

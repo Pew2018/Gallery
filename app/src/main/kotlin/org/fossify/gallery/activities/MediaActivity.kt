@@ -236,6 +236,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
             org.fossify.gallery.helpers.PhotoProfileMediaCache.invalidate()
+            org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.invalidate()
             clearPhotoDisplayState()
             photoHasContent = false
             if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) getMedia()
@@ -297,6 +298,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         // A viewer opened during refresh must not consume the previous final snapshot.
         displayedMediaIsFinal = false
         org.fossify.gallery.helpers.PhotoViewerSnapshotStore.clear()
+        org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.invalidate()
         mLoadedInitialPhotos = true
         updateMenuColors()
         if (profile == null) {
@@ -524,6 +526,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             (key == PhotoProfileRepository.KEY && photoLoadedKey != photoDisplayKey()) || key == "photo_source_bindings"
         if (isPhotoProfiles && sourceProtectionChanged) {
             org.fossify.gallery.helpers.PhotoProfileMediaCache.invalidate()
+            org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.invalidate()
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
             clearPhotoDisplayState()
@@ -532,6 +535,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
         if (isPhotoProfiles && visibilityChanged) {
             org.fossify.gallery.helpers.PhotoProfileMediaCache.invalidate()
+            org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.invalidate()
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
             clearPhotoDisplayState()
@@ -811,10 +815,21 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             mMedia.filterIsInstance<Medium>().all { it.mediaStoreId > 0L }
         val isRandomSorting = config.getFolderSorting(mPath) and SORT_BY_RANDOM != 0
         if (isPhotoProfiles) {
-            // Process-local revisions cannot prove that another app left the files unchanged.
-            // Keep a same-scope grid visible, but reconcile its sources in the background.
+            // An internal viewer return is not a new Photos navigation. Preserve the
+            // already committed grid and worker while its scope/capability is unchanged.
+            val sameAuthorizedGrid = returningFromViewer && !photoNeedsUnlock &&
+                photoProfileId == PhotoProfileRepository.of(this).state().current?.id &&
+                photoLoadedKey == photoDisplayKey() &&
+                photoLoadedRevision == org.fossify.gallery.helpers.PhotoContentRevision.current() &&
+                binding.mediaGrid.adapter != null && displayedMediaIsFinal
+            val catalogWorkerActive = returningFromViewer && photoViewerTransition &&
+                mCurrAsyncTask?.status == android.os.AsyncTask.Status.RUNNING
             photoViewerTransition = false
-            tryLoadGallery()
+            if (!sameAuthorizedGrid && !catalogWorkerActive) tryLoadGallery()
+            else if (sameAuthorizedGrid) {
+                setMediaLoading(false)
+                binding.mediaRefreshLayout.isRefreshing = false
+            }
         } else if (mPath == FAVORITES) {
             tryLoadGallery()
         } else if (mMedia.isEmpty() || !isRandomSorting ||
@@ -883,7 +898,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         super.onPause()
         mIsGettingMedia = false
         setMediaLoading(false)
-        mediaLoadRequests.invalidate()
+        if (!isPhotoProfiles || !photoViewerTransition) mediaLoadRequests.invalidate()
         mediaScanGeneration++
         if (folderStatsRequestVersion != 0L && mPath.startsWith('/')) {
             org.fossify.gallery.helpers.DirectoryMetadataRepository.defer(mPath, folderStatsRequestVersion)
@@ -891,19 +906,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         binding.mediaRefreshLayout.isRefreshing = false
         storeStateVariables()
         mLastMediaHandler.removeCallbacksAndMessages(null)
-        mCurrAsyncTask?.stopFetching()
+        if (!isPhotoProfiles || !photoViewerTransition) mCurrAsyncTask?.stopFetching()
     }
 
     override fun onStop() {
         mediaRefreshWatchdog.stop()
         super.onStop()
-        if (isPhotoProfiles && (!photoViewerTransition || photoToken() != null)) {
+        if (isPhotoProfiles && !photoViewerTransition) {
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
-            // Discard stopped rendering, retaining only the bounded public metadata cache.
-            // Re-entry validates cached candidates before constructing a new adapter.
-            if (photoViewerTransition) rememberPhotoScrollAnchor()
-            clearPhotoDisplayState(keepAnchor = photoViewerTransition)
+            // Genuine departure from Photos still clears UI; internal viewer
+            // transitions retain the grid and separate authorized catalog.
+            clearPhotoDisplayState()
         }
 
         if (mPath == FAVORITES && !isFinishing && !isChangingConfigurations && !resolvingFavoriteAccess) {
@@ -2377,6 +2391,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val requestedPhotoId = photoProfileId
         val requestedPhotoKey = if (isPhotoProfiles) photoDisplayKey() else null
         val requestedPhotoToken = if (isPhotoProfiles) photoToken() else null
+        val completedPhotoGrid = displayedMediaIsFinal && !mIsGettingMedia
         val neighborId = if (isPhotoProfiles) {
             val displayedOrder = getMediaAdapter()?.media ?: mMedia
             org.fossify.gallery.helpers.ViewerNeighborWindow.captureAround(displayedOrder, path)?.let { neighbors ->
@@ -2392,6 +2407,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             val folderAuthorized = runCatching {
                 FolderUnlockSessionManager.isMediaAuthorized(folderToken, path, app.config::isFolderProtected)
             }.getOrDefault(false)
+            val catalogStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+            val fullCatalogId = if (completedPhotoGrid) {
+                org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.handoffId(
+                    app, requestedPhotoId, requestedPhotoToken)
+            } else null
+            org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                if (fullCatalogId == null) "viewer_catalog_miss" else "viewer_catalog_hit",
+                catalogStarted)
             runOnUiThread {
                 if (isFinishing || isDestroyed) {
                     org.fossify.gallery.helpers.ViewerNeighborHandoffStore.clear(neighborId)
@@ -2411,6 +2434,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     if (isPhotoProfiles) {
                         putExtra(PhotoProfileMediaLoader.EXTRA_ID, requestedPhotoId)
                         putExtra(PhotoProfileAccessSessionManager.EXTRA_SESSION, requestedPhotoToken)
+                        fullCatalogId?.let {
+                            putExtra(org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.EXTRA_ID, it)
+                        }
                     }
                     putExtra(SHOW_ALL, mShowAll)
                     putExtra(SHOW_FAVORITES, mPath == FAVORITES)

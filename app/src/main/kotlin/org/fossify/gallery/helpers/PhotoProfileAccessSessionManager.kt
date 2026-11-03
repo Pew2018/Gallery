@@ -34,6 +34,7 @@ internal object PhotoProfileAccessSessionManager {
         android.util.Log.d("PhotoProfileAuth", "revoke=$reason")
         capability.revoke()
         token = null
+        PhotoSessionViewerCatalogStore.invalidate()
         publish(PhotoAccessEvent.REVOKED)
     }
     private fun publish(event: PhotoAccessEvent) {

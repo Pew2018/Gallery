@@ -146,6 +146,9 @@ class PhotoProfileMediaLoader(
             }.onFailure { if (it is PhotoLoadInvalidatedException) throw it }
         }
         checkCurrent(request)
+        // Build the full authorized catalog while the existing load worker owns
+        // the validated result, not when the user taps a grid thumbnail.
+        PhotoSessionViewerCatalogStore.prepare(context, complete)
         return complete
     }
 
