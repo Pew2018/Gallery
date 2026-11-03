@@ -681,18 +681,13 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             it.isClickable = !mIsFullscreen
         }
 
-        if (isFullscreen) {
-            mTimeHolder.fadeOut(DEFAULT_ANIMATION_DURATION)
-            binding.bottomActionsDummy.fadeOut(DEFAULT_ANIMATION_DURATION)
-        } else {
-            binding.bottomActionsDummy.beVisible()
-            mTimeHolder.fadeIn(DEFAULT_ANIMATION_DURATION)
-        }
+        org.fossify.gallery.helpers.ViewerChromeMotion.show(mTimeHolder, !isFullscreen)
+        org.fossify.gallery.helpers.ViewerChromeMotion.show(binding.bottomActionsDummy, !isFullscreen)
 
         binding.videoDetails.apply {
-            if (mStoredShowExtendedDetails && isVisible() && context != null && resources != null) {
+            if (mStoredShowExtendedDetails && context != null && resources != null) {
                 if (mStoredHideExtendedDetails) {
-                    animate().alpha(if (isFullscreen) 0f else 1f).start()
+                    let { org.fossify.gallery.helpers.ViewerChromeMotion.show(it, !isFullscreen) }
                 }
             }
         }

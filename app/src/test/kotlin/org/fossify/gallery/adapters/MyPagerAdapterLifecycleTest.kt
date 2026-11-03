@@ -70,6 +70,22 @@ class MyPagerAdapterLifecycleTest {
         }
     }
 
+    @Test fun largeCatalogUpgradeRetainsCurrentFragmentWithUnknownMetadata() {
+        val controller = Robolectric.buildActivity(Host::class.java).setup()
+        try {
+            val host = controller.get()
+            val container = FrameLayout(host).apply { id = View.generateViewId() }
+            host.setContentView(container)
+            val all = (0 until 13001).map { medium(0L, "$it.jpg").copy(size = 0L, mediaStoreId = 0L) }
+            val adapter = MyPagerAdapter(host, host.supportFragmentManager, all.subList(498, 503), fragmentFactory = { ProbeFragment() })
+            val selected = adapter.instantiateItem(container, 2) as ProbeFragment
+            adapter.updateMedia(all)
+            assertEquals(500, adapter.getItemPosition(selected))
+            assertSame(selected, adapter.instantiateItem(container, 500))
+            assertTrue(selected.isAdded)
+        } finally { controller.pause().stop().destroy() }
+    }
+
     @Test fun knownContentChangeInvalidatesAndReplacesTheOldFragment() {
         val controller = Robolectric.buildActivity(Host::class.java).setup()
         try {

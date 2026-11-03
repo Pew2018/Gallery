@@ -30,13 +30,18 @@ class PhotoViewerProgressivePagerTest {
         override fun fullscreenToggled(isFullscreen: Boolean) = Unit
     }
 
-    @Test fun fiveThenOneHundredTwentyThenFiveThousandContinuesPendingSwipeInBothDirections() {
+    @Test fun folderFiveThenPartialThenCompleteContinuesBothDirections() = exerciseProgressiveSource(ViewerSourceType.FOLDER)
+    @Test fun favoritesBeyondCacheCapacityContinueBothDirections() = exerciseProgressiveSource(ViewerSourceType.FAVORITES)
+    @Test fun photoProfileRetainsProgressiveNavigation() = exerciseProgressiveSource(ViewerSourceType.PHOTO_PROFILE)
+
+    private fun exerciseProgressiveSource(source: ViewerSourceType) {
         val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
         val activity = controller.get()
         try {
             val pager = ProgressivePhotoViewPager(activity, Robolectric.buildAttributeSet().build()).apply { id = View.generateViewId() }
             activity.setContentView(pager)
-            val all = (0 until 5000).map { Medium(null, "$it.jpg", "/Gallery/$it.jpg", "/Gallery",
+            val count = if (source == ViewerSourceType.FAVORITES) 13001 else 5000
+            val all = (0 until count).map { Medium(null, "$it.jpg", "/Gallery/$it.jpg", "/Gallery",
                 it.toLong(), it.toLong(), 1L, TYPE_IMAGES, 0, false, 0L, 0L) }
             var published = all.subList(2498, 2503)
             var livePath = all[2502].path
@@ -95,7 +100,7 @@ class PhotoViewerProgressivePagerTest {
             val beforeComplete = livePath
             publish(all, true)
             assertEquals(beforeComplete, livePath)
-            assertEquals(5000, adapter.count)
+            assertEquals(count, adapter.count)
             repeat(20) { pager.setCurrentItem(pager.currentItem - 1, false) }
             assertEquals(all[2503].path, published[pager.currentItem].path)
             assertFalse(navigation.request(all.last().path, true))

@@ -52,9 +52,7 @@ internal object ViewerMediaUpdatePolicy {
         fresh: ViewerContentSignature
     ): Boolean = old.invalidationVersion != fresh.invalidationVersion ||
         knownConflict(old.size, fresh.size) || knownConflict(old.modified, fresh.modified) ||
-        knownConflict(old.mediaStoreId, fresh.mediaStoreId) ||
-        (old.size == 0L && old.modified == 0L && old.mediaStoreId == 0L &&
-            fresh.size == 0L && fresh.modified == 0L && fresh.mediaStoreId == 0L)
+        knownConflict(old.mediaStoreId, fresh.mediaStoreId)
 
     fun mergeSignature(old: ViewerContentSignature, fresh: ViewerContentSignature) = ViewerContentSignature(
         knownValue(old.size, fresh.size),

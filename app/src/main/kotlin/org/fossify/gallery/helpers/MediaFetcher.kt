@@ -107,7 +107,8 @@ class MediaFetcher(
         curPath: String, isPickImage: Boolean, isPickVideo: Boolean, getProperDateTaken: Boolean, getProperLastModified: Boolean,
         getProperFileSize: Boolean, favoritePaths: ArrayList<String>, getVideoDurations: Boolean,
         lastModifieds: HashMap<String, Long>, dateTakens: HashMap<String, Long>, android11Files: HashMap<String, ArrayList<Medium>>?,
-        sortResult: Boolean = true
+        sortResult: Boolean = true,
+        onCandidateBatch: ((List<Medium>) -> Unit)? = null
     ): ArrayList<Medium> {
         val filterMedia = filterOverride ?: context.config.filterMedia
         if (filterMedia == 0) {
@@ -147,7 +148,7 @@ class MediaFetcher(
                 val newMedia = getMediaInFolder(
                     curPath, isPickImage, isPickVideo, filterMedia, getProperDateTaken, getProperLastModified, getProperFileSize,
                     favoritePaths, getVideoDurations, lastModifieds, dateTakens,
-                    indexedMetadata = indexed
+                    indexedMetadata = indexed, onCandidateBatch = onCandidateBatch
                 )
 
                 if (curPath == FAVORITES && isRPlus() && !isExternalStorageManager()) {

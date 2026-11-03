@@ -983,26 +983,22 @@ class PhotoFragment : ViewPagerFragment() {
         this.mIsFullscreen = isFullscreen
         binding.apply {
             photoDetails.apply {
-                if (mStoredShowExtendedDetails && isVisible() && context != null && resources != null) {
+                if (mStoredShowExtendedDetails && context != null && resources != null) {
                     if (mStoredHideExtendedDetails) {
-                        animate().alpha(if (isFullscreen) 0f else 1f).start()
+                        let { org.fossify.gallery.helpers.ViewerChromeMotion.show(it, !isFullscreen) }
                     }
                 }
             }
 
-            if (isFullscreen) {
-                bottomActionsDummy.fadeOut(DEFAULT_ANIMATION_DURATION)
-            } else {
-                bottomActionsDummy.beVisible()
-            }
+            org.fossify.gallery.helpers.ViewerChromeMotion.show(bottomActionsDummy, !isFullscreen)
 
             if (mIsPanorama) {
-                panoramaOutline.animate().alpha(if (isFullscreen) 0f else 1f).start()
+                panoramaOutline.let { org.fossify.gallery.helpers.ViewerChromeMotion.show(it, !isFullscreen) }
                 panoramaOutline.isClickable = !isFullscreen
             }
 
             if (mWasInit && mMedium.isPortrait()) {
-                photoPortraitStripeWrapper.animate().alpha(if (isFullscreen) 0f else 1f).start()
+                photoPortraitStripeWrapper.let { org.fossify.gallery.helpers.ViewerChromeMotion.show(it, !isFullscreen) }
             }
         }
     }

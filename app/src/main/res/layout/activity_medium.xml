@@ -10,23 +10,19 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <LinearLayout
+    <com.google.android.material.progressindicator.LinearProgressIndicator
         android:id="@+id/photo_boundary_loading"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_centerInParent="true"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:padding="16dp"
-        android:background="#CC212121"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:layout_below="@id/medium_viewer_appbar"
+        android:indeterminate="true"
+        android:contentDescription="@string/photo_viewer_loading_more"
         android:visibility="gone"
         android:clickable="false"
-        android:importantForAccessibility="yes">
-        <ProgressBar android:layout_width="32dp" android:layout_height="32dp" />
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:layout_marginTop="8dp" android:textColor="#FFFFFF"
-            android:text="@string/photo_viewer_loading_more" />
-    </LinearLayout>
+        app:trackThickness="3dp"
+        app:trackCornerRadius="0dp"
+        app:showAnimationBehavior="none"
+        app:hideAnimationBehavior="none" />
 
     <include
         android:id="@+id/bottom_actions"

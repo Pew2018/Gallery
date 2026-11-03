@@ -34,6 +34,7 @@ internal class GetMediaAsynctask(
     private val folderSessionId: String? = null,
     private val requestId: Long = 0,
     private val onFolderPreview: ((FolderMediaReadResult, ArrayList<ThumbnailItem>) -> Unit)? = null,
+    private val onFavoritePreview: ((List<Medium>, Set<String>) -> Unit)? = null,
     private val onFolderDetails: ((List<Medium>) -> Unit)? = null,
     val callback: (media: ArrayList<ThumbnailItem>) -> Unit
 ) :
@@ -213,10 +214,27 @@ internal class GetMediaAsynctask(
                 val presented = read.presentation(fallback, ::allowed)
                 mediaFetcher.sortMedia(presented, folderSorting)
                 presented
-            } else mediaFetcher.getFilesFrom(
-                mPath, isPickImage, isPickVideo, getProperDateTaken, getProperLastModified, getProperFileSize, favoritePaths,
-                getVideoDurations, lastModifieds, dateTakens, indexedFolder
-            )
+            } else {
+                val staged = ArrayList<Medium>()
+                var lastPreview = 0L
+                mediaFetcher.getFilesFrom(
+                    mPath, isPickImage, isPickVideo, getProperDateTaken, getProperLastModified, getProperFileSize, favoritePaths,
+                    getVideoDurations, lastModifieds, dateTakens, indexedFolder,
+                    onCandidateBatch = if (mPath == FAVORITES && onFavoritePreview != null) { batch ->
+                        staged.addAll(batch)
+                        val now = android.os.SystemClock.uptimeMillis()
+                        if (now - lastPreview >= 500L && !isCancelled) {
+                            lastPreview = now
+                            val preview = ArrayList(staged)
+                            mediaFetcher.sortMedia(preview, folderSorting)
+                            val relationship = savedFavorites.toSet()
+                            delivery.post {
+                                if (!isCancelled) onFavoritePreview.invoke(preview, relationship)
+                            }
+                        }
+                    } else null
+                )
+            }
         }
         folderFailures = folderFailures + mediaFetcher.readFailures
         val discovery = mediaFetcher.folderDiscovery

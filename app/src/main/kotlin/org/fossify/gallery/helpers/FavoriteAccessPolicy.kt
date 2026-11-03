@@ -44,6 +44,25 @@ internal object FavoriteAccessPolicy {
             AuthorizedBatch(ArrayList(safe), validation) else null
     }
 
+    /** Progressive scan: check each member with the same selected-file boundary.
+     * The final stage still reconciles the complete capability using validateViewerItems.
+     */
+    fun <T> validateViewerPreview(
+        token: String?, items: Collection<T>, pathOf: (T) -> String?, requiredPath: String
+    ): AuthorizedBatch<T>? {
+        val selected = FavoriteAccessSessionManager.validateSelectedPath(token, requiredPath) ?: return null
+        val safe = ArrayList<T>()
+        for (item in items) {
+            if (Thread.currentThread().isInterrupted) return null
+            val path = pathOf(item) ?: continue
+            val validation = if (path == requiredPath) selected else
+                FavoriteAccessSessionManager.validateSelectedPath(token, path) ?: continue
+            if (!FavoriteAccessSessionManager.isPublicationCurrent(validation)) return null
+            safe.add(item)
+        }
+        return if (FavoriteAccessSessionManager.isPublicationCurrent(selected)) AuthorizedBatch(safe, selected) else null
+    }
+
     fun <T> validateItems(
         token: String?,
         items: Collection<T>,

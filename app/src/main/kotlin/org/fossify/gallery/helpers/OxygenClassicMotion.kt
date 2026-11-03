@@ -9,6 +9,12 @@ import android.view.animation.PathInterpolator
  * other motion is brief, unscaled, and observes the global animator switch.
  */
 object OxygenClassicMotion {
+    // Viewer timings are application choices, not measured ROM resource values.
+    const val VIEWER_CHROME_MS = 170L
+    const val VIEWER_LOADING_DELAY_MS = 120L
+    const val VIEWER_LOADING_MIN_VISIBLE_MS = 180L
+    const val VIEWER_LOADING_FADE_MS = 140L
+
     const val CHECKBOX_MS = 140L
     const val TAB_MS = 150L
     const val SWITCH_MS = 180L

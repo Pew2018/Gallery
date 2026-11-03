@@ -107,11 +107,12 @@ class ViewerMediaUpdatePolicyTest {
         assertFalse(ViewerMediaUpdatePolicy.contentChanged(old, ViewerMediaUpdatePolicy.contentSignature(enriched)))
     }
 
-    @Test fun entirelyUnknownContentFactsFailConservatively() {
+    @Test fun unknownFactsRetainPageUntilExplicitContentInvalidation() {
         val unknown = Medium(null, "a.jpg", "/gallery/a.jpg", "/gallery", 0L, 0L, 0L, 1, 0, false, 0L, 0L)
 
-        assertTrue(ViewerMediaUpdatePolicy.contentChanged(
-            ViewerMediaUpdatePolicy.contentSignature(unknown), ViewerMediaUpdatePolicy.contentSignature(unknown)
-        ))
+        val old = ViewerMediaUpdatePolicy.contentSignature(unknown)
+        assertFalse(ViewerMediaUpdatePolicy.contentChanged(old, ViewerMediaUpdatePolicy.contentSignature(unknown)))
+        ViewerContentInvalidationRegistry.invalidate(unknown.path)
+        assertTrue(ViewerMediaUpdatePolicy.contentChanged(old, ViewerMediaUpdatePolicy.contentSignature(unknown)))
     }
 }
