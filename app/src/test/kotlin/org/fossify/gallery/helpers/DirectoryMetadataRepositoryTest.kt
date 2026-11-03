@@ -16,12 +16,18 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], application = Application::class)
 class DirectoryMetadataRepositoryTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private lateinit var root: File
+    private val readExecutor = Executors.newSingleThreadExecutor()
+    private fun dbCount(): Int? = readExecutor.submit<Int?> {
+        context.directoryDB.getByPath(root.path)?.mediaCnt
+    }.get(5, TimeUnit.SECONDS)
     private val scope get() = DirectoryScanScope(context.config.filterMedia, context.config.shouldShowHidden)
     @Before fun setup() {
         GalleryDatabase.destroyInstance()
@@ -30,7 +36,7 @@ class DirectoryMetadataRepositoryTest {
         root = Files.createTempDirectory("directory-metadata").toFile()
         File(root, ".nomedia").createNewFile()
     }
-    @After fun cleanup() { root.deleteRecursively(); GalleryDatabase.destroyInstance() }
+    @After fun cleanup() { readExecutor.shutdownNow(); root.deleteRecursively(); GalleryDatabase.destroyInstance() }
     private fun medium(name: String): Medium {
         val file = File(root, name).apply { writeBytes(byteArrayOf(1, 2, 3)) }
         return Medium().apply {
@@ -49,11 +55,11 @@ class DirectoryMetadataRepositoryTest {
         val a = medium("a.jpg")
         val b = medium("b.jpg")
         assertTrue(DirectoryMetadataRepository.commit(context, snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a, b))))
-        assertEquals(2, context.directoryDB.getByPath(root.path)?.mediaCnt)
+        assertEquals(2, dbCount())
         assertTrue(DirectoryMetadataRepository.commit(context, snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a))))
-        assertEquals(1, context.directoryDB.getByPath(root.path)?.mediaCnt)
+        assertEquals(1, dbCount())
         assertTrue(DirectoryMetadataRepository.commit(context, snapshot(DirectoryMetadataRepository.begin(root.path), emptyList())))
-        assertEquals(0, context.directoryDB.getByPath(root.path)?.mediaCnt)
+        assertEquals(0, dbCount())
         assertTrue(root.isDirectory)
     }
     @Test fun partialAndMismatchedScopeCannotPoisonACompleteCount() {
@@ -62,12 +68,12 @@ class DirectoryMetadataRepositoryTest {
         assertFalse(DirectoryMetadataRepository.commit(context, snapshot(
             DirectoryMetadataRepository.begin(root.path), emptyList(), FolderReadStatus.PARTIAL
         )))
-        assertEquals(1, context.directoryDB.getByPath(root.path)?.mediaCnt)
+        assertEquals(1, dbCount())
         assertFalse(DirectoryMetadataRepository.commit(context, snapshot(
             DirectoryMetadataRepository.begin(root.path), emptyList(),
             scanScope = scope.copy(showDotFiles = !scope.showDotFiles)
         )))
-        assertEquals(1, context.directoryDB.getByPath(root.path)?.mediaCnt)
+        assertEquals(1, dbCount())
     }
     @Test fun lateOldScanCannotReplaceNewerCommittedResult() {
         val a = medium("a.jpg")
@@ -76,7 +82,7 @@ class DirectoryMetadataRepositoryTest {
         val latest = DirectoryMetadataRepository.begin(root.path)
         assertTrue(DirectoryMetadataRepository.commit(context, snapshot(latest, listOf(a, b))))
         assertFalse(DirectoryMetadataRepository.commit(context, snapshot(stale, listOf(a))))
-        assertEquals(2, context.directoryDB.getByPath(root.path)?.mediaCnt)
+        assertEquals(2, dbCount())
     }
     @Test fun invalidatedScanIsDeferredRatherThanPublished() {
         val a = medium("a.jpg")
@@ -84,6 +90,6 @@ class DirectoryMetadataRepositoryTest {
         assertFalse(DirectoryMetadataRepository.commit(context,
             snapshot(ticket, listOf(a)).copy(isCurrent = { false })))
         assertTrue(root.path in DirectoryMetadataRepository.pendingPaths())
-        assertNull(context.directoryDB.getByPath(root.path))
+        assertNull(dbCount())
     }
 }

@@ -10,6 +10,9 @@ import org.fossify.commons.extensions.getSharedPrefs
 import org.fossify.commons.views.MyRecyclerView
 import org.fossify.gallery.R
 import org.fossify.gallery.activities.MediaActivity
+import org.fossify.gallery.activities.MainActivity
+import org.fossify.gallery.adapters.DirectoryAdapter
+import org.fossify.gallery.extensions.directoryDB
 import org.fossify.gallery.adapters.MediaAdapter
 import org.fossify.gallery.databases.GalleryDatabase
 import org.fossify.gallery.extensions.config
@@ -37,6 +40,10 @@ class FolderRefreshActivityTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private lateinit var root: File
     private lateinit var provider: PhotoProfileMediaLoadingTest.IndexedMediaProvider
+    private val dbExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private fun databaseCount(): Int? = dbExecutor.submit<Int?> {
+        context.directoryDB.getByPath(root.path)?.mediaCnt
+    }.get(5, TimeUnit.SECONDS)
     @Before fun setup() {
         GalleryDatabase.destroyInstance()
         context.getSharedPrefs().edit().clear().commit()
@@ -47,7 +54,7 @@ class FolderRefreshActivityTest {
         provider = Robolectric.buildContentProvider(PhotoProfileMediaLoadingTest.IndexedMediaProvider::class.java).create().get()
         ShadowContentResolver.registerProviderInternal("media", provider)
     }
-    @After fun cleanup() { root.deleteRecursively(); provider.db.close(); GalleryDatabase.destroyInstance() }
+    @After fun cleanup() { dbExecutor.shutdownNow(); root.deleteRecursively(); provider.db.close(); GalleryDatabase.destroyInstance() }
     private fun photo(name: String) = File(root, name).apply { writeBytes(byteArrayOf(1, 2)) }
     private fun field(activity: MediaActivity, name: String) = MediaActivity::class.java.getDeclaredField(name).apply { isAccessible = true }
     private fun paths(activity: MediaActivity) = (activity.findViewById<MyRecyclerView>(R.id.media_grid).adapter as? MediaAdapter)
@@ -80,25 +87,34 @@ class FolderRefreshActivityTest {
 
     @Test fun pullRefreshAddsCopiedNoMediaImageToTheActualAdapterAndHomeCard() {
         val old = photo("old.jpg")
-        withActivity { activity ->
-            refresh(activity)
-            await { old.path in paths(activity) }
-            val fresh = photo("NEW.JPG")
-            refresh(activity)
-            await { paths(activity) == setOf(old.path, fresh.path) }
-            assertFalse(activity.isFinishing)
-            // The Adapter can complete before the Room commit; verify the actual
-            // persisted data source used by MainActivity when navigating back.
-            await { context.directoryDB.getByPath(root.path)?.mediaCnt == 2 }
-            val pool = java.util.concurrent.Executors.newSingleThreadExecutor()
-            try {
-                val result = pool.submit<CategorizedFolderScanner.Result> {
-                    CategorizedFolderScanner.scan(context, listOf(org.fossify.gallery.models.Directory().apply {
-                        path = root.path; mediaCnt = 1
-                    }), booleanArrayOf(false, false, true, true), { false })
-                }.get(10, TimeUnit.SECONDS)
-                assertEquals(2, result.directories.single { it.path == root.path }.mediaCnt)
-            } finally { pool.shutdownNow() }
+        context.config.includedFolders = mutableSetOf(root.path)
+        context.config.showAll = false
+        context.config.groupDirectSubfolders = false
+        val intent = Intent(context, MainActivity::class.java)
+            .putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true)
+        val home = Robolectric.buildActivity(MainActivity::class.java, intent)
+            .create(Bundle()).start().resume()
+        try {
+            home.pause()
+            withActivity { activity ->
+                refresh(activity)
+                await { old.path in paths(activity) }
+                val fresh = photo("NEW.JPG")
+                refresh(activity)
+                await { paths(activity) == setOf(old.path, fresh.path) }
+                assertFalse(activity.isFinishing)
+                // The adapter can be ahead of the Room transaction.
+                await { databaseCount() == 2 }
+            }
+            home.resume()
+            val main = home.get()
+            await {
+                (main.findViewById<MyRecyclerView>(R.id.directories_grid).adapter as? DirectoryAdapter)
+                    ?.dirs?.any { it.path == root.path && it.mediaCnt == 2 } == true
+            }
+            assertEquals(2, databaseCount())
+        } finally {
+            home.pause().stop().destroy()
         }
     }
     @Test fun emptyFilteredRefreshKeepsFolderAndDoesNotFinish() {
