@@ -19,8 +19,12 @@ internal object ViewerGridOrderStore {
 
     @Synchronized fun offer(source: String, selected: String, items: List<ThumbnailItem>): String? {
         if (source.isBlank() || selected.isBlank()) return null
-        val paths = items.asSequence().filterIsInstance<Medium>()
-            .map { it.path }.distinct().take(MAX_ITEMS + 1).toList()
+        // A concurrent adapter commit may replace its backing list while the
+        // handoff worker reads it; missing a snapshot must never prevent opening.
+        val paths = runCatching {
+            items.asSequence().filterIsInstance<Medium>()
+                .map { it.path }.distinct().take(MAX_ITEMS + 1).toList()
+        }.getOrNull() ?: return null
         if (paths.isEmpty() || paths.size > MAX_ITEMS || selected !in paths) return null
         val id = UUID.randomUUID().toString()
         pending = Entry(id, source, selected, SystemClock.elapsedRealtime(), paths)

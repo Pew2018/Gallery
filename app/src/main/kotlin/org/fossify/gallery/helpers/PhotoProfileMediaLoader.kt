@@ -127,6 +127,9 @@ class PhotoProfileMediaLoader(
             // Keep freshly validated preview-only files until filesystem reconciliation completes.
             // Full-access mode also needs a cheap existence check before showing stale indexed rows.
             val sortedIndex = ArrayList(indexed.mediaByPath.values)
+            // Use the same missing-capture-time fallback as the authorized
+            // grid stage BEFORE indexing the provisional navigation order.
+            sortedIndex.forEach { if (it.taken <= 0L) it.taken = it.modified }
             sort(sortedIndex)
             PhotoSessionViewerCatalogStore.offerIndexedCandidates(context, request, sortedIndex)
             val indexedCandidates = PhotoProfileMediaCache.preview(sortedIndex, anchorPath).filter {
