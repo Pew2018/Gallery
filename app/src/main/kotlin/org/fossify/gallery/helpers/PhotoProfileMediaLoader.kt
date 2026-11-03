@@ -43,12 +43,32 @@ class PhotoProfileMediaLoader(
         try {
         PhotoProfileMediaCache.initialize(context.applicationContext)
         val fetcher = MediaFetcher(context, scope.filter and MEDIA_TYPES, ::stopped, reportReadFailures = true)
-        val folders = scope.sources.filter { it.type == PhotoSourceType.FOLDER }.mapNotNull { it.path }
+        val requestedFolders = scope.sources.filter { it.type == PhotoSourceType.FOLDER }.mapNotNull { it.path }
             .filter { !it.contains("/.") && !FavoriteFolderRules.isExcluded(it, scope.excluded) }.toSet()
-        val favoriteFiles = if (scope.sources.any { it.type == PhotoSourceType.FAVORITES } &&
-            PhotoProfileAccessSessionManager.favoritesAuthorized(context, sessionId)) request.favorites.filter {
-            it.substringBeforeLast('/') !in folders
+        // Never enumerate or query protected source roots before their capability
+        // has been granted. This also covers canonical ancestors of each root.
+        val scanPlan = PhotoProfileSourceScanPolicy.select(
+            requestedFolders,
+            scope.sources.any { it.type == PhotoSourceType.FAVORITES },
+            folderPermitted = { PhotoProfileAccessSessionManager.folderAuthorized(context, it, scope.sessionId) },
+            favoritesPermitted = { PhotoProfileAccessSessionManager.favoritesAuthorized(context, scope.sessionId) },
+            cancelled = ::stopped
+        )
+        checkCurrent(request)
+        val folders = scanPlan.permittedFolders
+        val favoriteFiles = if (scanPlan.favoritesPermitted) request.favorites.filter {
+            it.substringBeforeLast('/') !in folders && it.substringBeforeLast('/') !in scanPlan.blockedFolders
         }.toSet() else emptySet()
+        // A locked mixed profile may display one validated public preview, but
+        // must not repeatedly replace its grid for every filesystem batch.
+        val stableLockedPreview = scanPlan.hasBlockedSources
+        var lockedPreviewPublished = false
+        fun publishValidatedStage(stage: PhotoLoadResult) {
+            if (stage.media.isEmpty() || (stableLockedPreview && lockedPreviewPublished)) return
+            PhotoSessionViewerCatalogStore.offerPartial(context, stage)
+            onStage(stage)
+            if (stableLockedPreview) lockedPreviewPublished = true
+        }
 
         val randomRanks = HashMap<String, Int>()
         fun sort(media: ArrayList<Medium>) {
@@ -100,7 +120,7 @@ class PhotoProfileMediaLoader(
         // Keep already validated indexed/cache rows in later filesystem stages.
         val stagedCandidates = LinkedHashMap<String, Medium>()
         var preview = emptyList<Medium>()
-        if (allowPreview) {
+        if (allowPreview && !stableLockedPreview) {
             val started = GalleryPerfTrace.begin()
             val cached = PhotoProfileMediaCache.read(request) ?: runCatching {
                 readDatabaseCache(folders, favoriteFiles)
@@ -113,10 +133,7 @@ class PhotoProfileMediaLoader(
                 val validated = result(PhotoLoadStage.CACHE_PREVIEW, preview)
                 preview = validated.media
                 preview.forEach { stagedCandidates[it.path] = it }
-                if (preview.isNotEmpty()) {
-                    PhotoSessionViewerCatalogStore.offerPartial(context, validated)
-                    onStage(validated)
-                }
+                if (preview.isNotEmpty()) publishValidatedStage(validated)
             }
         }
         checkCurrent(request)
@@ -133,7 +150,14 @@ class PhotoProfileMediaLoader(
             sort(sortedIndex)
             PhotoSessionViewerCatalogStore.offerIndexedCandidates(context, request, sortedIndex)
             val indexedCandidates = PhotoProfileMediaCache.preview(sortedIndex, anchorPath).filter {
-                (!scope.allFiles && android.os.Build.VERSION.SDK_INT >= 30) || java.io.File(it.path).isFile
+                // A locked configuration must not publish unverified stale index rows.
+                // Scoped storage cannot cheaply prove File.isFile(), so its locked
+                // preview waits for the filesystem stage instead.
+                if (stableLockedPreview) {
+                    (android.os.Build.VERSION.SDK_INT < 30 || scope.allFiles) && java.io.File(it.path).isFile
+                } else {
+                    (!scope.allFiles && android.os.Build.VERSION.SDK_INT >= 30) || java.io.File(it.path).isFile
+                }
             }
             val merged = LinkedHashMap<String, Medium>()
             preview.forEach { merged[it.path] = it }
@@ -141,8 +165,7 @@ class PhotoProfileMediaLoader(
             val stage = result(PhotoLoadStage.INDEXED, ArrayList(merged.values))
             if (stage.media.isNotEmpty()) {
                 stage.media.forEach { stagedCandidates[it.path] = it }
-                PhotoSessionViewerCatalogStore.offerPartial(context, stage)
-                onStage(stage)
+                publishValidatedStage(stage)
             }
         }
         checkCurrent(request)
@@ -151,15 +174,22 @@ class PhotoProfileMediaLoader(
         val media = fetcher.scanProfileFileSupplements(folders, favoriteFiles, ArrayList(request.favorites), indexed,
             preferredPath = { PhotoSessionViewerCatalogStore.focusPath(request) ?: anchorPath }) { batch ->
             checkCurrent(request)
-            // Filesystem rows are candidates, exactly like MediaStore rows. Validate
-            // only this batch, then merge into an already validated provisional set.
-            val stage = result(PhotoLoadStage.FILESYSTEM, batch)
-            stage.media.forEach { supplements[it.path] = it }
-            val ordered = ArrayList(supplements.values)
-            sort(ordered)
-            val progressive = stage.copy(media = ordered)
-            PhotoSessionViewerCatalogStore.offerPartial(context, progressive)
-            onStage(progressive)
+            if (stableLockedPreview) {
+                // Once one authorized public preview is visible, subsequent batches
+                // remain worker-local until COMPLETE. No repeated full sort/adapter
+                // replacement while a protected source is still locked.
+                if (!lockedPreviewPublished) {
+                    val stage = result(PhotoLoadStage.FILESYSTEM, batch)
+                    publishValidatedStage(stage)
+                }
+            } else {
+                // Keep normal public-profile progressive loading unchanged.
+                val stage = result(PhotoLoadStage.FILESYSTEM, batch)
+                stage.media.forEach { supplements[it.path] = it }
+                val ordered = ArrayList(supplements.values)
+                sort(ordered)
+                publishValidatedStage(stage.copy(media = ordered))
+            }
         }
         GalleryPerfTrace.end("photo_supplement_scan", scanning, media.size)
         val complete = result(PhotoLoadStage.COMPLETE, media)

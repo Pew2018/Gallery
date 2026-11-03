@@ -60,6 +60,11 @@ internal class PhotoAccessValidationBatch(
                     .toList()
             }.distinct()
             queryNoMediaMarkers(ancestors)
+        } else if (!includesFavorites) {
+            // Every candidate belongs to an explicitly chosen folder, where
+            // .nomedia is intentionally bypassed. No library-wide marker query
+            // is needed for each validated scan batch.
+            emptyList()
         } else context.getNoMediaFoldersSync()
         val active = PhotoProfileAccessSessionManager.isActive(context, scope.sessionId)
         val decisions = HashMap<Map<String, FavoriteAccessSessionManager.Protection>, Boolean>()
