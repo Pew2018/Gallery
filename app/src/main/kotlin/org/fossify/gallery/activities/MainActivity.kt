@@ -256,6 +256,22 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
     private var mDirs = ArrayList<Directory>()
     private var mDirsIgnoringSearch = ArrayList<Directory>()
+    private var displayedDirectoryMetadataRevision = 0L
+    private val directoryMetadataListener: (String) -> Unit = {
+        runOnUiThread {
+            if (!isFinishing && !isDestroyed &&
+                lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) &&
+                !config.showAll && !isSpecialFolderFilterActive()) {
+                val repository = org.fossify.gallery.helpers.DirectoryMetadataRepository
+                if (repository.changedSince(displayedDirectoryMetadataRevision).isNotEmpty()) {
+                    displayedDirectoryMetadataRevision = repository.currentRevision()
+                    // Normal album catalog is a Room read. Rebuild parents through
+                    // setupAdapter/getDirsToShow and keep the existing DiffUtil/scroll anchor.
+                    getDirectories(forceFavoriteReload = true, forceRefresh = true)
+                }
+            }
+        }
+    }
 
     private var mStoredAnimateGifs = true
     private var mStoredCropThumbnails = true
@@ -500,6 +516,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         binding.directoriesSwitchSearching.underlineText()
         binding.directoriesEmptyPlaceholder2.bringToFront()
 
+        org.fossify.gallery.helpers.DirectoryMetadataRepository.observe(directoryMetadataListener)
+        directoryMetadataListener("")
+        if (!isSpecialFolderFilterActive()) {
+            org.fossify.gallery.helpers.DirectoryMetadataRepository.refreshPendingPaths(applicationContext)
+        }
         // A canceled category request must resume even while inline search is open.
         resumeCategorizedLoadIfNeeded()
         if (!binding.mainMenu.isSearchOpen) {
@@ -516,6 +537,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     override fun onPause() {
+        org.fossify.gallery.helpers.DirectoryMetadataRepository.removeObserver(directoryMetadataListener)
         super.onPause()
         // Authentication Activities can temporarily pause us. Favorite requests are
         // retired at onStop, not here, so their successful results are not lost.
@@ -1280,6 +1302,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                         fetcher.traceRequest = requestVersion
                         org.fossify.gallery.helpers.FolderRefreshTrace.event(requestVersion, "album_worker_started")
                         runOnUiThread { if (current()) mLastMediaFetcher = fetcher else fetcher.shouldStop = true }
+                    }, onMetadata = { snapshot ->
+                        org.fossify.gallery.helpers.DirectoryMetadataRepository.commit(applicationContext, snapshot)
                     }, onProgress = { partial ->
                         runOnUiThread {
                             if (current()) {

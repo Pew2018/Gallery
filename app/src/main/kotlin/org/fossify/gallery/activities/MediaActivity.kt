@@ -847,6 +847,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         setMediaLoading(false)
         mediaLoadRequests.invalidate()
         mediaScanGeneration++
+        if (folderStatsRequestVersion != 0L && mPath.startsWith('/')) {
+            org.fossify.gallery.helpers.DirectoryMetadataRepository.defer(mPath, folderStatsRequestVersion)
+        }
         binding.mediaRefreshLayout.isRefreshing = false
         storeStateVariables()
         mLastMediaHandler.removeCallbacksAndMessages(null)
@@ -1648,6 +1651,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private var folderReadRequest = -1L
     private var folderReadResult: org.fossify.gallery.helpers.FolderMediaReadResult? = null
+    private var folderStatsRequestVersion = 0L
 
     private val folderPublicationVersion = java.util.concurrent.atomic.AtomicLong()
     private fun folderPublicationAllowed(path: String, token: String? = folderUnlockSessionId): Boolean {
@@ -1663,6 +1667,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val scanGeneration = ++mediaScanGeneration
         mCurrAsyncTask?.stopFetching()
         val requestedFolder = mPath
+        val metadataScope = org.fossify.gallery.helpers.DirectoryScanScope(
+            config.filterMedia, config.shouldShowHidden,
+            mIsGetImageIntent && !mIsGetVideoIntent,
+            mIsGetVideoIntent && !mIsGetImageIntent
+        )
+        val metadataVersion = if (!mShowAll && !isPhotoProfiles && requestedFolder.startsWith('/') &&
+            requestedFolder != RECYCLE_BIN && metadataScope.matches(applicationContext))
+            org.fossify.gallery.helpers.DirectoryMetadataRepository.begin(requestedFolder) else 0L
+        folderStatsRequestVersion = metadataVersion
+        val metadataSession = folderUnlockSessionId
         var scanTask: GetMediaAsynctask? = null
         scanTask = GetMediaAsynctask(
             context = applicationContext,
@@ -1749,6 +1763,26 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     org.fossify.gallery.helpers.FolderRefreshTrace.event(request, "publication_candidate",
                         scannedMedia.filterIsInstance<Medium>().map { it.path }, "status=${folderReadResult?.status}")
                     gotMedia(scannedMedia, false, request)
+                    if (metadataVersion != 0L) {
+                        val read = scanTask?.folderReadResult
+                        if (read != null) {
+                            org.fossify.gallery.helpers.DirectoryMetadataRepository.commit(
+                                applicationContext,
+                                org.fossify.gallery.helpers.DirectoryScanSnapshot(
+                                    requestedFolder, metadataVersion, metadataScope, read,
+                                    scanTask?.folderStatsMediaSnapshot.orEmpty(),
+                                    metadataSession,
+                                    isCurrent = {
+                                        scanGeneration == mediaScanGeneration &&
+                                            mediaLoadRequests.isCurrent(request) &&
+                                            requestedFolder == mPath && !isFinishing && !isDestroyed
+                                    }
+                                )
+                            )
+                        } else {
+                            org.fossify.gallery.helpers.DirectoryMetadataRepository.defer(requestedFolder, metadataVersion)
+                        }
+                    }
                     val folderCheckpoint = scanTask?.folderCatalogCheckpoint
                     if (folderCheckpoint != null && !mShowAll && requestedFolder.isNotEmpty() &&
                         requestedFolder != FAVORITES && requestedFolder != RECYCLE_BIN) {

@@ -87,6 +87,9 @@ class FolderRefreshActivityTest {
             refresh(activity)
             await { paths(activity) == setOf(old.path, fresh.path) }
             assertFalse(activity.isFinishing)
+            // The Adapter can complete before the Room commit; verify the actual
+            // persisted data source used by MainActivity when navigating back.
+            await { context.directoryDB.getByPath(root.path)?.mediaCnt == 2 }
             val pool = java.util.concurrent.Executors.newSingleThreadExecutor()
             try {
                 val result = pool.submit<CategorizedFolderScanner.Result> {

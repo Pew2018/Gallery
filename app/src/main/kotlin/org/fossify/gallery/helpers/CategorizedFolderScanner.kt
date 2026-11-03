@@ -17,7 +17,8 @@ internal object CategorizedFolderScanner {
     fun scan(context: Context, cached: List<Directory>, flags: BooleanArray,
         cancelled: () -> Boolean, onFetcher: (MediaFetcher) -> Unit = {},
         onProgress: (Result) -> Unit = {},
-        discover: (Collection<String>, (String) -> Boolean, () -> Boolean) -> Set<String> = FolderDiskDiscovery::find): Result {
+        discover: (Collection<String>, (String) -> Boolean, () -> Boolean) -> Set<String> = FolderDiskDiscovery::find,
+        onMetadata: (DirectoryScanSnapshot) -> Unit = {}): Result {
         if (cancelled()) throw java.util.concurrent.CancellationException()
         val cfg = context.config
         val policy = FolderCategoryPolicy(flags[0], flags[1], flags[2], flags[3],
@@ -53,6 +54,9 @@ internal object CategorizedFolderScanner {
             val old = byPath[path]
             val isProtected = locked(path)
             val hasMarker = markers.contains(path)
+            val metadataScope = DirectoryScanScope(cfg.filterMedia, policy.dots)
+            val metadataVersion = if (!isProtected && metadataScope.matches(context))
+                DirectoryMetadataRepository.begin(path) else 0L
             val item = if (isProtected) {
                 // Metadata rows never authorize a read of a protected folder or descendants.
                 if (old == null && !File(path).isDirectory) return
@@ -64,6 +68,16 @@ internal object CategorizedFolderScanner {
                     cfg.directorySorting and SORT_BY_SIZE != 0, favorites, false,
                     hashMapOf(), fetcher.getSelectedFolderDateOverrides(listOf(path)), null)
                 if (locked(path) || !read.accessCurrent()) throw SecurityException("Directory authorization changed")
+                if (metadataVersion != 0L) {
+                    if (read.status == FolderReadStatus.COMPLETE) {
+                        onMetadata(DirectoryScanSnapshot(
+                            path, metadataVersion, metadataScope, read, read.media.map { it.copy() },
+                            isCurrent = { !cancelled() && !locked(path) }
+                        ))
+                    } else {
+                        DirectoryMetadataRepository.defer(path, metadataVersion)
+                    }
+                }
                 if (read.status != FolderReadStatus.COMPLETE) {
                     failures[path] = read.error ?: java.io.IOException("Directory refresh is incomplete")
                 }
@@ -87,6 +101,7 @@ internal object CategorizedFolderScanner {
                 }
                 }
             } catch (error: Exception) {
+                if (metadataVersion != 0L) DirectoryMetadataRepository.defer(path, metadataVersion)
                 if (cancelled()) throw java.util.concurrent.CancellationException()
                 failures[path] = error
                 if (old == null) return

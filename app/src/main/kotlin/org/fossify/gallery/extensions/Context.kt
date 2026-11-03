@@ -1103,7 +1103,8 @@ fun Context.updateDBDirectory(directory: Directory) {
             mediaTypes = directory.types,
             sortValue = directory.sortValue
         )
-    } catch (ignored: Exception) {
+    } catch (error: Exception) {
+        android.util.Log.w("GalleryDirs", "Cannot update directory statistics", error)
     }
 }
 

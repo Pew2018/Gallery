@@ -40,6 +40,9 @@ internal class GetMediaAsynctask(
     private val mediaFetcher = MediaFetcher(context, reportReadFailures = true, discoverUnindexedFolders = manualRefresh).also { it.traceRequest = requestId }
     internal var folderReadResult: FolderMediaReadResult? = null
         private set
+    /** Captured before cache fallback/group headers; never use an Adapter for directory counts. */
+    internal var folderStatsMediaSnapshot: List<Medium> = emptyList()
+        private set
     private var scanFailure: Exception? = null
     private var folderFailures: Map<String, Exception> = emptyMap()
     private var profileResult: PhotoLoadResult? = null
@@ -183,6 +186,7 @@ internal class GetMediaAsynctask(
                     mPath, isPickImage, isPickVideo, getProperDateTaken, getProperLastModified, getProperFileSize, favoritePaths,
                     getVideoDurations, lastModifieds, dateTakens, indexedFolder)
                 folderReadResult = read
+                folderStatsMediaSnapshot = read.media.map { it.copy() }
                 when (read.status) {
                     FolderReadStatus.FAILED, FolderReadStatus.ACCESS_REQUIRED -> throw (read.error ?: SecurityException("Directory access required"))
                     FolderReadStatus.PARTIAL -> folderFailures = mapOf(mPath to (read.error ?: java.io.IOException("Incomplete folder refresh")))
