@@ -41,15 +41,31 @@ internal class DirectoryMetadataRebindGate {
 
 /** A failed refresh keeps external changes pending, but never retries itself. */
 internal class MediaChangeRetryGate {
-    private var pending = false
-    fun mediaChangedDuringScan() { pending = true }
-    fun scanStarted() { pending = false }
-    fun scanFinished(success: Boolean): Boolean {
-        if (!success || !pending) return false
-        pending = false
-        return true
+    // Earlier failures remain unresolved until a later scan *succeeds*.
+    private var deferredBeforeScan = false
+    private var changedDuringScan = false
+
+    fun mediaChangedDuringScan() { changedDuringScan = true }
+
+    fun scanStarted() {
+        deferredBeforeScan = deferredBeforeScan || changedDuringScan
+        changedDuringScan = false
     }
-    fun hasPending() = pending
+
+    fun scanFinished(success: Boolean): Boolean {
+        if (!success) {
+            deferredBeforeScan = deferredBeforeScan || changedDuringScan
+            changedDuringScan = false
+            return false
+        }
+        // Only new changes observed during this successful scan require catch-up.
+        val needsCatchUp = changedDuringScan
+        deferredBeforeScan = false
+        changedDuringScan = false
+        return needsCatchUp
+    }
+
+    fun hasPending() = deferredBeforeScan || changedDuringScan
 }
 
 /** Do not reintroduce hidden/removed virtual album rows from an old adapter. */

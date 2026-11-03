@@ -12,10 +12,16 @@ class GalleryRefreshRecoveryTest {
         gate.mediaChangedDuringScan()
         assertFalse(gate.scanFinished(success = false))
         assertTrue(gate.hasPending())
-        gate.scanStarted() // explicit retry covers previously deferred changes
+        gate.scanStarted() // a new attempt can reconcile the prior change
+        assertTrue(gate.hasPending())
+        assertFalse(gate.scanFinished(success = false)) // second failure retains it
+        assertTrue(gate.hasPending())
+        gate.scanStarted()
+        assertFalse("A successful retry covers earlier changes", gate.scanFinished(success = true))
         assertFalse(gate.hasPending())
+        gate.scanStarted()
         gate.mediaChangedDuringScan()
-        assertTrue(gate.scanFinished(success = true))
+        assertTrue("A change during a successful scan warrants one catch-up", gate.scanFinished(success = true))
         assertFalse(gate.scanFinished(success = true))
     }
 
