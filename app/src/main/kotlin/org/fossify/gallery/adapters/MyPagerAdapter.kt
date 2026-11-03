@@ -163,6 +163,7 @@ internal class MyPagerAdapter(
 
     override fun setPrimaryItem(container: ViewGroup, position: Int, item: Any) {
         val next = item as? ViewPagerFragment
+        val previousPrimary = currentPrimary
         if (next !== currentPrimary) {
             if (!fm.isStateSaved) {
                 val transaction = fm.beginTransaction()
@@ -172,7 +173,11 @@ internal class MyPagerAdapter(
             }
             currentPrimary = next
         }
-        fragments.values.forEach { it.setMenuVisibility(it === next) }
+        // setPrimaryItem can be called during ViewPager populate/layout. Avoid
+        // reconfiguring all fragments when the primary page has not changed.
+        if (next !== previousPrimary) {
+            fragments.values.forEach { it.setMenuVisibility(it === next) }
+        }
         super.setPrimaryItem(container, position, item)
     }
 

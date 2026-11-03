@@ -237,6 +237,25 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val scope: String
     )
     private var pendingPagerPublication: PendingPagerPublication? = null
+
+    /** A catalog upgrade may finish on any animation frame; never rebuild pages mid-swipe. */
+    private data class SwipeMediaPublication(
+        val media: ArrayList<Medium>,
+        val positionIndex: Map<org.fossify.gallery.helpers.ViewerMediumIdentity, Int>,
+        val pathIndex: Map<String, Int>,
+        val authorizedPaths: Set<String>,
+        val refetchPosition: Boolean,
+        val fullCatalog: Boolean,
+        val generation: Long,
+        val folderRevision: Long,
+        val photoRevision: Long
+    )
+    private val swipePublicationGate =
+        org.fossify.gallery.helpers.ViewerSwipePublicationGate<SwipeMediaPublication>()
+    private var swipePageOrigin = -1
+    private var swipePrefetchTarget = -1
+    private var pendingPageAccessRefresh = false
+    private var pendingSwipeMenuRefresh = false
     private var publishedFolderRevision: Long? = null
     private var publishedPhotoRevision: Long? = null
     private var mediaPublicationGeneration = 0L
@@ -356,6 +375,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         photoPageInFlight = emptySet()
         photoPageQueuedCenter = null
         photoNavigation.invalidate()
+        swipePublicationGate.clear()
+        pendingPageAccessRefresh = false
+        pendingSwipeMenuRefresh = false
         photoExpandGeneration++
         viewerLoading.setLoading(false)
         photoCatalogMode = false
@@ -536,6 +558,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         retryViewerScan = null
         finishViewerBoundaryTrace()
         viewerLoading.dispose()
+        swipePublicationGate.clear()
+        pendingPageAccessRefresh = false
         org.fossify.gallery.helpers.ViewerChromeMotion.cancel(binding.root)
         authorizedViewerPaths = emptySet()
         supportFragmentManager.unregisterFragmentLifecycleCallbacks(slideshowFragments)
@@ -1007,16 +1031,25 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun updatePhotoBoundaryWait() {
+        // No pending edge means no list allocation/linear scan on this frame.
+        if (photoNavigation.pending == null) {
+            viewerLoading.setLoading(false)
+            finishViewerBoundaryTrace()
+            return
+        }
         val media = getCurrentMedia()
-        if (activePagerAdapter?.media !== media &&
-            activePagerAdapter?.media?.map { it.path } != media.map { it.path }) return
-        val destination = photoNavigation.destination(media.map { it.path }, getCurrentPath())
+        val displayed = activePagerAdapter?.media ?: return
+        if (displayed !== media && (displayed.size != media.size ||
+            displayed.indices.any { displayed[it].path != media[it].path })) return
+        val paths = media.map { it.path }
+        val destination = photoNavigation.destination(paths, getCurrentPath())
         if (!isPhotoProfile && viewerScanNeedsRetry && destination == null) photoNavigation.cancel()
         viewerLoading.setLoading(photoNavigation.pending != null && !photoFailureVisible)
         if (photoNavigation.pending == null) finishViewerBoundaryTrace()
         if (destination != null) {
             // Do not consume a queued direction until the real adapter publication has caught up.
-            if (activePagerAdapter?.media === media || activePagerAdapter?.media?.map { it.path } == media.map { it.path }) {
+            if (activePagerAdapter?.media === media || activePagerAdapter?.media === displayed ||
+                (displayed.size == media.size && displayed.indices.all { displayed[it].path == media[it].path })) {
                 binding.viewPager.setCurrentItem(destination,
                     kotlin.math.abs(destination - binding.viewPager.currentItem) == 1 &&
                         org.fossify.gallery.helpers.OxygenClassicMotion.enabled(this))
@@ -2924,16 +2957,46 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 val isPlaying = (getCurrentFragment() as? VideoFragment)?.mIsPlaying == true
                 // Internal catalog expansion preserves the current fragment and player.
                 if (!ignorePlayingVideos && isPlaying && !isExternalIntent() && !progressiveInternalViewer) return@runOnUiThread
-                val publishStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
-                refreshUI(media, refetchViewPagerPosition, positionIndex, pathIndex, authorizedPaths)
-                if (fullCatalog && photoCatalogMode && pendingPagerPublication == null) {
-                    validatePhotoPageWindow(mPos)
+                val publication = SwipeMediaPublication(
+                    media, positionIndex, pathIndex, authorizedPaths, refetchViewPagerPosition,
+                    fullCatalog, request, FolderContentRevision.current(),
+                    org.fossify.gallery.helpers.PhotoContentRevision.current()
+                )
+                if (!isExternalIntent() && !mIsSlideshowActive &&
+                    swipePublicationGate.deferIfMoving(publication)) {
+                    org.fossify.gallery.helpers.GalleryPerfTrace.event(
+                        "viewer_catalog_deferred_during_swipe", media.size)
+                    return@runOnUiThread
                 }
-                org.fossify.gallery.helpers.GalleryPerfTrace.end("viewer_main_thread_publish", publishStarted, media.size)
-                if (fullCatalog && pendingPagerPublication == null) {
-                    org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_full_list_ready", media.size)
-                }
+                applySwipeMediaPublication(publication)
             }
+        }
+    }
+
+    /** Only apply an authorized, current result at an animation-safe point. */
+    private fun applySwipeMediaPublication(publication: SwipeMediaPublication) {
+        if (publication.generation != mediaPublicationGeneration || isFinishing || isDestroyed ||
+            !checkFavoriteAccess()) return
+        if (publication.folderRevision != FolderContentRevision.current() ||
+            publication.photoRevision != org.fossify.gallery.helpers.PhotoContentRevision.current()) {
+            // Never apply a stale ordering/authorization snapshot after mutations.
+            if (isPhotoProfile) consumePhotoCatalogAdvance()
+            else refreshViewPager(true)
+            return
+        }
+        val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+        refreshUI(
+            publication.media, publication.refetchPosition, publication.positionIndex,
+            publication.pathIndex, publication.authorizedPaths
+        )
+        if (publication.fullCatalog && photoCatalogMode && pendingPagerPublication == null) {
+            validatePhotoPageWindow(mPos)
+        }
+        org.fossify.gallery.helpers.GalleryPerfTrace.end(
+            "viewer_main_thread_publish", started, publication.media.size)
+        if (publication.fullCatalog && pendingPagerPublication == null) {
+            org.fossify.gallery.helpers.GalleryPerfTrace.event(
+                "viewer_full_list_ready", publication.media.size)
         }
     }
 
@@ -3254,7 +3317,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         return@runOnUiThread
                     }
                     photoPageAccess.approve(approved, revision)
-                    activePagerAdapter?.onAccessWindowUpdated()
+                    // Permission evidence is recorded immediately; placeholders
+                    // are replaced only after the interactive swipe settles.
+                    if (swipePublicationGate.isMoving) pendingPageAccessRefresh = true
+                    else activePagerAdapter?.onAccessWindowUpdated()
                     org.fossify.gallery.helpers.GalleryPerfTrace.end(
                         "viewer_page_window_validation", started, approved.size)
                     if (next != null) validatePhotoPageWindow(next)
@@ -3293,11 +3359,16 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun onPageScrolled(position: Int, positionOffset: Float, positionOffsetPixels: Int) {
-        if (isPhotoProfile && positionOffset > 0.12f &&
-            position + 1 < getCurrentMedia().size) {
-            validatePhotoPageWindow(fullCatalogPosition(position + 1))
-            requestPhotoPartialExpand(fullCatalogPosition(position + 1))
-        }
+        if (!isPhotoProfile || positionOffset <= 0.12f || swipePageOrigin < 0) return
+        // A touch swipe always has a stable origin. Prefetch the page toward
+        // which the finger is moving, once per target, rather than doing work
+        // on every pixel callback (including the wrong direction on backswipes).
+        val target = if (position < swipePageOrigin) position else position + 1
+        if (target == swipePrefetchTarget || target !in getCurrentMedia().indices) return
+        swipePrefetchTarget = target
+        val fullPosition = fullCatalogPosition(target)
+        validatePhotoPageWindow(fullPosition)
+        requestPhotoPartialExpand(fullPosition)
     }
 
     override fun onPageSelected(position: Int) {
@@ -3319,13 +3390,34 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (mPos != position) {
             mPos = position
             updateActionbarTitle()
-            refreshMenuItems()
-            scheduleSwipe()
+            if (swipePublicationGate.isMoving) pendingSwipeMenuRefresh = true
+            else refreshMenuItems()
+            if (mIsSlideshowActive) scheduleSwipe()
         }
     }
 
     override fun onPageScrollStateChanged(state: Int) {
-        if (state == ViewPager.SCROLL_STATE_IDLE && getCurrentMedium() != null) {
+        if (state == ViewPager.SCROLL_STATE_DRAGGING) {
+            swipePageOrigin = binding.viewPager.currentItem
+            swipePrefetchTarget = -1
+        }
+        val wasMoving = swipePublicationGate.isMoving
+        val ready = swipePublicationGate.onScrollMoving(state != ViewPager.SCROLL_STATE_IDLE)
+        if (state != ViewPager.SCROLL_STATE_IDLE) return
+        swipePageOrigin = -1
+        swipePrefetchTarget = -1
+        // Last-wins catalog reconciliation occurs after the natural ViewPager
+        // slide, so its non-animated position correction is no longer visible.
+        ready?.let(::applySwipeMediaPublication)
+        if (pendingPageAccessRefresh) {
+            pendingPageAccessRefresh = false
+            activePagerAdapter?.onAccessWindowUpdated()
+        }
+        if (pendingSwipeMenuRefresh || wasMoving) {
+            pendingSwipeMenuRefresh = false
+            refreshMenuItems()
+        }
+        if (getCurrentMedium() != null) {
             if (isPhotoProfile) {
                 if (photoCatalogMode) validatePhotoPageWindow(fullCatalogPosition(mPos))
                 requestPhotoPartialExpand(fullCatalogPosition(mPos))
