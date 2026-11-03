@@ -384,6 +384,27 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     private var directoryTraceRequest = 0L
+
+    /** Preserve cached album cards; an empty, failed scan needs a retry action. */
+    private fun presentDirectoryLoadFailure(messageRes: Int) {
+        if (isDestroyed || isFinishing) return
+        val hasVisibleAlbums = getRecyclerAdapter()?.dirs?.isNotEmpty() == true
+        if (hasVisibleAlbums) {
+            toast(messageRes)
+            return
+        }
+        binding.directoriesEmptyPlaceholder.setText(messageRes)
+        binding.directoriesEmptyPlaceholder.beVisible()
+        binding.directoriesEmptyPlaceholder2.setText(R.string.media_load_retry)
+        binding.directoriesEmptyPlaceholder2.beVisible()
+        binding.directoriesEmptyPlaceholder2.setOnClickListener {
+            if (!isFinishing && !isDestroyed && !mIsGettingDirs) {
+                getDirectories(forceFavoriteReload = true, forceRefresh = true)
+            }
+        }
+        binding.directoriesFastscroller.beGone()
+    }
+
     private val directoryRefreshWatchdog = org.fossify.gallery.helpers.RefreshWatchdog()
     private fun setDirectoryLoading(loading: Boolean) {
         val update = {
@@ -393,7 +414,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 retireDirectoryScan()
                 binding.directoriesRefreshLayout.isRefreshing = false
                 onNormalDirectoryScanFinished(success = false)
-                toast(R.string.folder_refresh_timeout)
+                presentDirectoryLoadFailure(R.string.folder_refresh_timeout)
             } else directoryRefreshWatchdog.stop()
             if (!isDestroyed && !isFinishing) directoryHeaderProgress?.apply {
                 OxygenProgressStyle.apply(this@MainActivity, config, this)
@@ -1056,7 +1077,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     setDirectoryLoading(false)
                     binding.directoriesRefreshLayout.isRefreshing = false
                     onNormalDirectoryScanFinished(success = false)
-                    toast(R.string.folder_load_failed)
+                    presentDirectoryLoadFailure(R.string.folder_load_failed)
                 }
             } },
             isCurrent = { isCurrentDirectoryScan(scanRequest) }
@@ -1070,7 +1091,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     android.util.Log.e("GalleryDirs", "Directory scan failed", error)
                     runOnUiThread {
                         if (isCurrentDirectoryScan(scanRequest)) {
-                            toast(R.string.folder_load_failed)
+                            presentDirectoryLoadFailure(R.string.folder_load_failed)
                         }
                     }
                 } finally {

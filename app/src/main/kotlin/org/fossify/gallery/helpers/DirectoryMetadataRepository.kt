@@ -176,7 +176,7 @@ internal object DirectoryMetadataRepository {
     fun refreshPendingPaths(context: Context) {
         if (!retryRunning.compareAndSet(false, true)) return
         try {
-            GalleryAlbumScanExecutor.execute {
+            GalleryDirectoryMetadataExecutor.execute {
                 try {
                     val targets = pendingPaths().take(24)
                     for (path in targets) {

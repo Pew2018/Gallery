@@ -49,6 +49,34 @@ class RefreshReliabilityTest {
             assertTrue("foreground folder refresh waited for album discovery", fresh.await(2, TimeUnit.SECONDS))
         } finally { release.countDown(); assertTrue(done.await(5, TimeUnit.SECONDS)) }
     }
+    @Test fun pendingMetadataRetriesNeverOccupyFullAlbumWorkers() {
+        val occupied = CountDownLatch(2)
+        val release = CountDownLatch(1)
+        val completed = CountDownLatch(2)
+        val metadataDone = CountDownLatch(1)
+        try {
+            repeat(2) {
+                GalleryAlbumScanExecutor.execute {
+                    occupied.countDown()
+                    release.await(5, TimeUnit.SECONDS)
+                    completed.countDown()
+                }
+            }
+            assertTrue(occupied.await(2, TimeUnit.SECONDS))
+            GalleryDirectoryMetadataExecutor.execute { metadataDone.countDown() }
+            assertTrue("metadata retries were waiting behind full-album scans",
+                metadataDone.await(2, TimeUnit.SECONDS))
+        } finally {
+            release.countDown()
+            assertTrue(completed.await(5, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test fun aTimedOutScanOffersTheExistingRetryMessage() {
+        assertEquals(org.fossify.gallery.R.string.folder_refresh_timeout,
+            MediaLoadFailure.message(java.util.concurrent.TimeoutException("scan deadline")))
+    }
+
     @Test fun canceledQueuedTaskIsPurgedBeforeAdmittingANewerTask() {
         val executor = BoundedScanExecutor("purge-test", 1, 1)
         val entered = CountDownLatch(1); val release = CountDownLatch(1); val fresh = CountDownLatch(1)

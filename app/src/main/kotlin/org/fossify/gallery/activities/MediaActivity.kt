@@ -463,7 +463,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             mediaChangeGate.scanFinished(success = false)
             setMediaLoading(false)
             binding.mediaRefreshLayout.isRefreshing = false
-            toast(R.string.folder_refresh_timeout)
+            if (mPath == FAVORITES) {
+                favoritesReturnCover?.showError(::retryFavoritesReturn)
+                toast(R.string.folder_refresh_timeout)
+            } else {
+                val hasContent = getMediaAdapter()?.media?.any { it is Medium } == true
+                org.fossify.gallery.helpers.MediaLoadFailure.present(
+                    this, binding.mediaEmptyTextPlaceholder, binding.mediaEmptyDescription,
+                    binding.mediaEmptyTextPlaceholder2, hasContent,
+                    java.util.concurrent.TimeoutException("Media scan deadline exceeded")
+                ) { getMedia() }
+                if (!hasContent) binding.mediaFastscroller.beGone()
+            }
         }
     }
 
@@ -1876,7 +1887,17 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             mediaChangeGate.scanFinished(success = false)
             setMediaLoading(false)
             binding.mediaRefreshLayout.isRefreshing = false
-            toast(R.string.folder_refresh_busy)
+            if (mPath == FAVORITES) {
+                favoritesReturnCover?.showError(::retryFavoritesReturn)
+                toast(R.string.folder_refresh_busy)
+            } else {
+                val hasContent = getMediaAdapter()?.media?.any { it is Medium } == true
+                org.fossify.gallery.helpers.MediaLoadFailure.present(
+                    this, binding.mediaEmptyTextPlaceholder, binding.mediaEmptyDescription,
+                    binding.mediaEmptyTextPlaceholder2, hasContent, error
+                ) { getMedia() }
+                if (!hasContent) binding.mediaFastscroller.beGone()
+            }
         }
     }
 

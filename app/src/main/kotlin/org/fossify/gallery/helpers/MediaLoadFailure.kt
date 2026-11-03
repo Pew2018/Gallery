@@ -10,6 +10,7 @@ import java.io.IOException
 /** A failed scan never means that the previously displayed media was deleted. */
 internal object MediaLoadFailure {
     fun message(error: Exception): Int = when {
+        generateSequence<Throwable>(error) { it.cause }.any { it is java.util.concurrent.TimeoutException } -> R.string.folder_refresh_timeout
         generateSequence<Throwable>(error) { it.cause }.any { it is SecurityException } -> R.string.media_load_permission_error
         generateSequence<Throwable>(error) { it.cause }.any { it is IOException } -> R.string.media_load_storage_error
         else -> R.string.failed_to_load_media

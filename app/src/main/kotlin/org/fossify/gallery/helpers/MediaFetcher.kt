@@ -363,6 +363,7 @@ class MediaFetcher(
         cursor.use {
             if (cursor.moveToFirst()) {
                 do {
+                    if (shouldStop) throw java.util.concurrent.CancellationException("MediaStore folder listing retired")
                     val path = cursor.getStringValue(Images.Media.DATA)
                     val parentPath = File(path).parent ?: continue
                     if (!includedFolders.contains(parentPath) && !foldersToIgnore.contains(parentPath)) {
@@ -372,21 +373,24 @@ class MediaFetcher(
             }
         }
 
-        includedFolders.forEach {
-            addFolder(foldersToScan, it)
+        // Preserve explicitly chosen roots even if temporarily unmounted: an
+        // unmounted directory must not be treated as proof its cached media is gone.
+        // Walk existing descendants iteratively with cancellation and symlink
+        // protection instead of recursing through arbitrary user-selected trees.
+        foldersToScan.addAll(includedFolders)
+        if (includedFolders.isNotEmpty() && !shouldStop) {
+            val excluded = if (config.temporarilyShowExcluded) emptySet<String>() else config.excludedFolders
+            val statuses = HashMap<String, Boolean>()
+            foldersToScan.addAll(FolderDiskDiscovery.find(includedFolders, allowed = { path ->
+                !shouldStop &&
+                    FolderUnlockSessionManager.findProtectedAncestor(path, config::isFolderProtected) == null &&
+                    path.shouldFolderBeVisible(excluded, includedFolders, config.shouldShowHidden, statuses) { key, present ->
+                        statuses[key] = present
+                    }
+            }, cancelled = { shouldStop }))
         }
-
+        if (shouldStop) throw java.util.concurrent.CancellationException("Folder enumeration retired")
         return foldersToScan.toMutableSet() as LinkedHashSet<String>
-    }
-
-    private fun addFolder(curFolders: HashSet<String>, folder: String) {
-        curFolders.add(folder)
-        val files = File(folder).listFiles() ?: return
-        for (file in files) {
-            if (file.isDirectory) {
-                addFolder(curFolders, file.absolutePath)
-            }
-        }
     }
 
     data class ProfileIndexedMedia(val mediaByPath: Map<String, Medium>, val customDatesByPath: HashMap<String, Long>)

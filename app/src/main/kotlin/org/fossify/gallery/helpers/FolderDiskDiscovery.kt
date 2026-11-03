@@ -19,7 +19,11 @@ internal object FolderDiskDiscovery {
                 if (canonical != boundary && !canonical.startsWith("$boundary/")) continue
                 if (!allowed(folder.absolutePath) || !visited.add(canonical)) continue
                 result.add(folder.absolutePath)
-                folder.listFiles()?.forEach { if (!cancelled() && it.isDirectory) queue.add(it) }
+                // An inaccessible child is a partial discovery, not a global crash.
+                // Never recurse into a symlink escaping the canonical root.
+                runCatching { folder.listFiles() }.getOrNull()?.forEach {
+                    if (!cancelled() && it.isDirectory) queue.add(it)
+                }
             }
         }
         return result

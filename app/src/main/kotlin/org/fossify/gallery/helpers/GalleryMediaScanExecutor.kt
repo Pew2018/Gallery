@@ -22,3 +22,13 @@ internal object GalleryAlbumScanExecutor : Executor {
     private val workers = BoundedScanExecutor("gallery-album-scan")
     override fun execute(command: Runnable) = workers.execute(command)
 }
+
+/**
+ * Deferred single-folder metadata retries must not occupy the two full-album
+ * workers. A single bounded worker prevents many pending paths from flooding CI
+ * or normal UI scanning; retryRunning coalesces concurrent requests.
+ */
+internal object GalleryDirectoryMetadataExecutor : Executor {
+    private val worker = BoundedScanExecutor("gallery-metadata-retry", workers = 1, queued = 1)
+    override fun execute(command: Runnable) = worker.execute(command)
+}
