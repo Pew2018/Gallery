@@ -256,6 +256,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var swipePrefetchTarget = -1
     private var pendingPageAccessRefresh = false
     private var pendingSwipeMenuRefresh = false
+    /** An outward swipe at a provisional edge waits for the newest catalog. */
+    private var deferredBoundaryDirection: Boolean? = null
     private var publishedFolderRevision: Long? = null
     private var publishedPhotoRevision: Long? = null
     private var mediaPublicationGeneration = 0L
@@ -378,6 +380,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         swipePublicationGate.clear()
         pendingPageAccessRefresh = false
         pendingSwipeMenuRefresh = false
+        deferredBoundaryDirection = null
         photoExpandGeneration++
         viewerLoading.setLoading(false)
         photoCatalogMode = false
@@ -560,6 +563,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         viewerLoading.dispose()
         swipePublicationGate.clear()
         pendingPageAccessRefresh = false
+        deferredBoundaryDirection = null
         org.fossify.gallery.helpers.ViewerChromeMotion.cancel(binding.root)
         authorizedViewerPaths = emptySet()
         supportFragmentManager.unregisterFragmentLifecycleCallbacks(slideshowFragments)
@@ -1001,7 +1005,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     /** Real media indices remain the only indices used by edit/delete/share/slideshow. */
     private fun requestViewerBoundary(forward: Boolean): Boolean {
-        if (!progressiveInternalViewer || !checkFavoriteAccess() || (isPhotoProfile && photoCatalogComplete) || photoNavigation.state == org.fossify.gallery.helpers.PhotoViewerCatalogCoordinator.State.COMPLETE) return false
+        if (!progressiveInternalViewer || !checkFavoriteAccess()) return false
+        // The complete catalog may be ready before it has been applied to the
+        // pager. Do not misreport a temporary five-page edge as actual EOF.
+        if (isPhotoProfile && swipePublicationGate.isMoving && swipePublicationGate.hasPending) {
+            deferredBoundaryDirection = forward
+            return true
+        }
+        if ((isPhotoProfile && photoCatalogComplete) ||
+            photoNavigation.state == org.fossify.gallery.helpers.PhotoViewerCatalogCoordinator.State.COMPLETE) return false
         val path = getCurrentPath()
         if (photoFailureVisible) {
             photoFailureVisible = false
@@ -3416,6 +3428,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (pendingSwipeMenuRefresh || wasMoving) {
             pendingSwipeMenuRefresh = false
             refreshMenuItems()
+        }
+        val requestedDirection = deferredBoundaryDirection
+        deferredBoundaryDirection = null
+        if (requestedDirection != null) {
+            val target = binding.viewPager.currentItem + if (requestedDirection) 1 else -1
+            if (target in 0 until (binding.viewPager.adapter?.count ?: 0)) {
+                binding.viewPager.setCurrentItem(
+                    target, org.fossify.gallery.helpers.OxygenClassicMotion.enabled(this))
+                return
+            }
+            requestViewerBoundary(requestedDirection)
         }
         if (getCurrentMedium() != null) {
             if (isPhotoProfile) {

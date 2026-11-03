@@ -9,7 +9,9 @@ class ViewerSwipePublicationGateTest {
         assertNull(gate.onScrollMoving(true))
         assertTrue(gate.deferIfMoving("partial"))
         assertTrue(gate.deferIfMoving("complete"))
+        assertTrue(gate.hasPending)
         assertEquals("complete", gate.onScrollMoving(false))
+        assertFalse(gate.hasPending)
         assertNull(gate.onScrollMoving(false))
         assertFalse(gate.deferIfMoving("idle"))
     }
