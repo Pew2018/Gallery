@@ -1,6 +1,6 @@
 # Gallery Media Engine V2 — 代码调研资料索引
 
-> 状态：**资料采集完成（静态源码审计），尚未实施重构**  
+> 状态：**静态源码调研已完成；当前实施方案已收敛为小规模 Scan–Sort–Display 重构；代码实施尚未开始（0%）**  
 > 日期：2026-11-04  
 > 目标仓库：Pew2018/Gallery  
 > 唯一目标分支：fix/photo-viewer-five-item-boundary  
@@ -14,7 +14,9 @@
 1. [01-current-dataflow.md](01-current-dataflow.md)：页面入口、媒体扫描、索引与缓存、目录元数据、刷新任务、适配器提交和全屏交接的现状数据流。
 2. [02-evidence-and-risk-register.md](02-evidence-and-risk-register.md)：带固定 SHA 和代码行范围的证据编号、当前已有的防护、结构性风险、未证实问题。
 3. [03-compatibility-contracts.md](03-compatibility-contracts.md)：不得损坏的顶栏、底栏、照片配置、收藏、保护授权、导入导出和旧版升级行为。
-4. [04-validation-and-migration-readiness.md](04-validation-and-migration-readiness.md)：现有测试清单、真机采样方案、量化口径、阶段划分与重构前置条件。
+4. [04-validation-and-migration-readiness.md](04-validation-and-migration-readiness.md)：原始全面重构调研的测试清单及候选迁移方案（**归档为参考，不代表当前执行范围**）。
+5. **[05-minimal-scan-sort-display-refactor.md](05-minimal-scan-sort-display-refactor.md)：当前生效的小规模重构目标、范围、非目标、验收条件和执行阶段。**
+6. **[06-progress-and-change-log.md](06-progress-and-change-log.md)：当前进度 0%、任务状态、每轮必填的目标/证据/修改/测试/遗留事项。**
 
 ## 审计口径与重要限制
 
@@ -39,4 +41,4 @@
 
 ## 本轮交付边界
 
-**只收集数据并存放于既有 fix 分支 docs/media-engine-v2/**。后续启动重构前，要先确认真实设备基线、测试矩阵以及旧行为兼容策略；不能把本轮风险登记表等同于缺陷修复报告。
+**历史调研（01–04）只负责收集证据，不构成重构指令。** 当前实施口径统一以 05 为准，执行进度与后续工作日志以 06 为准。下一步代码修改尚未开始；需基于最新远程 fix HEAD 和实际观察进行定点验证，严禁将风险假设当成已证实缺陷。
