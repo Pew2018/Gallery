@@ -13,6 +13,7 @@ internal object PhotoContentRevision {
         PhotoProfileMediaCache.invalidate()
         PhotoViewerSnapshotStore.clear()
         PhotoSessionViewerCatalogStore.invalidate()
+        PhotoProfileReturnProbe.clear()
         return value.incrementAndGet()
     }
 }

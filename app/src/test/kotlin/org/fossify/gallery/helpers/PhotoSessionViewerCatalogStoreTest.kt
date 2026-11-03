@@ -83,6 +83,29 @@ class PhotoSessionViewerCatalogStoreTest {
         assertNull(worker { PhotoSessionViewerCatalogStore.take(app, id, profile.id, null, items[0].path) })
     }
 
+    @Test fun indexedPreviewCanHandoffAndGrowIntoFullCatalogWithSameIdentity() {
+        val all = media(5_000)
+        val finalResult = ready(all)
+        val preview = finalResult.copy(stage = PhotoLoadStage.INDEXED,
+            media = all.subList(2_498, 2_503))
+        worker { PhotoSessionViewerCatalogStore.offerPartial(app, preview) }
+        val id = worker { PhotoSessionViewerCatalogStore.handoffId(app, profile.id, null) }
+        assertNotNull(id)
+        val staged = worker { PhotoSessionViewerCatalogStore.take(app, id, profile.id, null, all[2_500].path) }
+        assertNotNull(staged)
+        assertFalse(staged!!.isComplete)
+        assertEquals(5, staged.media.size)
+        assertEquals(2, staged.pathIndex[all[2_500].path])
+        worker { PhotoSessionViewerCatalogStore.prepare(app, finalResult) }
+        val complete = worker { PhotoSessionViewerCatalogStore.take(app, id, profile.id, null, all[2_500].path) }
+        assertNotNull(complete)
+        assertTrue(complete!!.isComplete)
+        assertEquals(5_000, complete.media.size)
+        assertEquals(2_500, complete.pathIndex[all[2_500].path])
+        assertEquals(20, (2_500 until 2_520).count { complete.media[it].path == all[it].path })
+        assertEquals(20, (2_480 until 2_500).count { complete.media[it].path == all[it].path })
+    }
+
     @Test fun sourceChangesAndMediaRevisionInvalidateOldCompleteOrder() {
         val items = media(100)
         val first = worker { PhotoSessionViewerCatalogStore.prepare(app, ready(items)) }!!

@@ -35,6 +35,7 @@ internal object PhotoProfileAccessSessionManager {
         capability.revoke()
         token = null
         PhotoSessionViewerCatalogStore.invalidate()
+        PhotoProfileReturnProbe.clear()
         publish(PhotoAccessEvent.REVOKED)
     }
     private fun publish(event: PhotoAccessEvent) {

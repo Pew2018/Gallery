@@ -169,6 +169,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var photoHasContent = false
     private var photoNeedsUnlock = false
     private var photoViewerTransition = false
+    private var photoReturnProbeGeneration = 0L
     private var viewerHandoffGeneration = 0L
     private var photoLoadCompleted = false
     private var photoLoadedKey: String? = null
@@ -829,6 +830,25 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             else if (sameAuthorizedGrid) {
                 setMediaLoading(false)
                 binding.mediaRefreshLayout.isRefreshing = false
+                // Reuse the committed grid immediately, but verify real directory
+                // entries on a worker; MediaStore misses unindexed .nomedia children.
+                val generation = ++photoReturnProbeGeneration
+                val scope = org.fossify.gallery.helpers.PhotoProfileScope.capture(
+                    applicationContext, photoProfileId, photoToken())
+                val app = applicationContext
+                if (scope != null) ensureBackgroundThread {
+                    val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+                    val changed = org.fossify.gallery.helpers.PhotoProfileReturnProbe.needsReconcile(app, scope)
+                    org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                        "photo_return_source_check", started, if (changed) 1 else 0)
+                    runOnUiThread {
+                        if (generation != photoReturnProbeGeneration || isDestroyed || isFinishing ||
+                            mPath != PhotoProfileMediaLoader.PATH || photoViewerTransition ||
+                            scope != org.fossify.gallery.helpers.PhotoProfileScope.capture(
+                                applicationContext, photoProfileId, photoToken())) return@runOnUiThread
+                        if (changed) getPhotoProfileMedia(org.fossify.gallery.helpers.PhotoLoadReason.REFRESH)
+                    }
+                }
             }
         } else if (mPath == FAVORITES) {
             tryLoadGallery()
@@ -913,6 +933,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mediaRefreshWatchdog.stop()
         super.onStop()
         if (isPhotoProfiles && !photoViewerTransition) {
+            photoReturnProbeGeneration++
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
             // Genuine departure from Photos still clears UI; internal viewer
@@ -2391,7 +2412,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val requestedPhotoId = photoProfileId
         val requestedPhotoKey = if (isPhotoProfiles) photoDisplayKey() else null
         val requestedPhotoToken = if (isPhotoProfiles) photoToken() else null
-        val completedPhotoGrid = displayedMediaIsFinal && !mIsGettingMedia
         val neighborId = if (isPhotoProfiles) {
             val displayedOrder = getMediaAdapter()?.media ?: mMedia
             org.fossify.gallery.helpers.ViewerNeighborWindow.captureAround(displayedOrder, path)?.let { neighbors ->
@@ -2408,10 +2428,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 FolderUnlockSessionManager.isMediaAuthorized(folderToken, path, app.config::isFolderProtected)
             }.getOrDefault(false)
             val catalogStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
-            val fullCatalogId = if (completedPhotoGrid) {
-                org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.handoffId(
-                    app, requestedPhotoId, requestedPhotoToken)
-            } else null
+            // Both COMPLETE and already-validated INDEXED stage metadata are
+            // eligible for handoff; a partial catalog is never marked COMPLETE.
+            val fullCatalogId = org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.handoffId(
+                app, requestedPhotoId, requestedPhotoToken)
             org.fossify.gallery.helpers.GalleryPerfTrace.end(
                 if (fullCatalogId == null) "viewer_catalog_miss" else "viewer_catalog_hit",
                 catalogStarted)

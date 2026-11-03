@@ -38,6 +38,8 @@ class PhotoProfileMediaLoader(
     ): PhotoLoadResult {
         val request = PhotoProfileLoadContext.capture(context, profileId, sessionId) ?: throw PhotoLoadInvalidatedException()
         val scope = request.scope
+        PhotoSessionViewerCatalogStore.beginLoading(request)
+        try {
         PhotoProfileMediaCache.initialize(context.applicationContext)
         val fetcher = MediaFetcher(context, scope.filter and MEDIA_TYPES, ::stopped, reportReadFailures = true)
         val folders = scope.sources.filter { it.type == PhotoSourceType.FOLDER }.mapNotNull { it.path }
@@ -82,6 +84,8 @@ class PhotoProfileMediaLoader(
             if (validated.media.size == reusable.size) {
                 if (PhotoProfileMediaCache.isReusableCurrent(request, context, reusable)) {
                     GalleryPerfTrace.end("viewer_catalog_hit", cacheLookup, validated.media.size)
+                    PhotoSessionViewerCatalogStore.prepare(context, validated)
+                    PhotoProfileReturnProbe.record(context, validated)
                     return validated
                 }
             }
@@ -105,7 +109,10 @@ class PhotoProfileMediaLoader(
             if (preview.isNotEmpty()) {
                 val validated = result(PhotoLoadStage.CACHE_PREVIEW, preview)
                 preview = validated.media
-                if (preview.isNotEmpty()) onStage(validated)
+                if (preview.isNotEmpty()) {
+                    PhotoSessionViewerCatalogStore.offerPartial(context, validated)
+                    onStage(validated)
+                }
             }
         }
         checkCurrent(request)
@@ -117,6 +124,7 @@ class PhotoProfileMediaLoader(
             // Full-access mode also needs a cheap existence check before showing stale indexed rows.
             val sortedIndex = ArrayList(indexed.mediaByPath.values)
             sort(sortedIndex)
+            PhotoSessionViewerCatalogStore.offerIndexedCandidates(context, request, sortedIndex)
             val indexedCandidates = PhotoProfileMediaCache.preview(sortedIndex, anchorPath).filter {
                 (!scope.allFiles && android.os.Build.VERSION.SDK_INT >= 30) || java.io.File(it.path).isFile
             }
@@ -124,7 +132,10 @@ class PhotoProfileMediaLoader(
             preview.forEach { merged[it.path] = it }
             indexedCandidates.forEach { merged[it.path] = it }
             val stage = result(PhotoLoadStage.INDEXED, ArrayList(merged.values))
-            if (stage.media.isNotEmpty()) onStage(stage)
+            if (stage.media.isNotEmpty()) {
+                PhotoSessionViewerCatalogStore.offerPartial(context, stage)
+                onStage(stage)
+            }
         }
         checkCurrent(request)
         val scanning = GalleryPerfTrace.begin()
@@ -149,7 +160,11 @@ class PhotoProfileMediaLoader(
         // Build the full authorized catalog while the existing load worker owns
         // the validated result, not when the user taps a grid thumbnail.
         PhotoSessionViewerCatalogStore.prepare(context, complete)
+        PhotoProfileReturnProbe.record(context, complete)
         return complete
+        } finally {
+            PhotoSessionViewerCatalogStore.finishLoading(request)
+        }
     }
 
     private fun readDatabaseCache(folders: Set<String>, files: Set<String>): List<Medium> {
