@@ -32,6 +32,7 @@ internal class DeviceFolderFileAccess(private val context: Context) : FolderFile
         if (!limited && direct != null) return FolderEnumeration(direct, current = {
             !shared || !isRPlus() || isExternalStorageManager()
         })
+        try {
         val grants = context.contentResolver.persistedUriPermissions.filter { it.isReadPermission }
         for (grant in grants) {
             val uri = grant.uri
@@ -66,6 +67,11 @@ internal class DeviceFolderFileAccess(private val context: Context) : FolderFile
             }
             if (!current()) throw SecurityException("Directory grant revoked")
             return FolderEnumeration(files, "persisted-tree", current = ::current)
+        }
+        } catch (error: Exception) {
+            if (error is java.util.concurrent.CancellationException || Thread.currentThread().isInterrupted) throw error
+            if (direct != null) return FolderEnumeration(direct, "direct-after-tree-failure", limited = true)
+            throw error
         }
         val files = direct ?: if (limited) throw SecurityException("Full directory access is required")
             else throw IOException("Directory cannot be enumerated")

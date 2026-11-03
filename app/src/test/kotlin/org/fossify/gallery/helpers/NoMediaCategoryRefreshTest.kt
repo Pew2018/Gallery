@@ -170,4 +170,26 @@ class NoMediaCategoryRefreshTest {
             fail("canceled category scan returned success")
         } catch (_: java.util.concurrent.CancellationException) { }
     }
+    @Test fun refreshedKnownAlbumIsPublishedBeforeSlowRecursiveDiscovery() {
+        val root = Files.createTempDirectory("nomedia-staged").toFile()
+        val pool = Executors.newSingleThreadExecutor()
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val seen = java.util.concurrent.atomic.AtomicReference<CategorizedFolderScanner.Result>()
+        try {
+            File(root, ".nomedia").createNewFile()
+            photo(root, "old.jpg"); photo(root, "new.jpg")
+            val work = pool.submit<CategorizedFolderScanner.Result> {
+                CategorizedFolderScanner.scan(context, listOf(old(root.path)), booleanArrayOf(false, false, true, true), { false },
+                    onProgress = { result -> if (result.directories.any { it.path == root.path && it.mediaCnt == 2 }) seen.set(result) },
+                    discover = { _, _, _ -> entered.countDown(); release.await(5, TimeUnit.SECONDS); emptySet() })
+            }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            assertNotNull("new media card waited for recursive discovery", seen.get())
+            assertFalse(work.isDone)
+            release.countDown()
+            assertEquals(2, work.get(10, TimeUnit.SECONDS).directories.single { it.path == root.path }.mediaCnt)
+        } finally { release.countDown(); pool.shutdownNow(); root.deleteRecursively() }
+    }
+
 }

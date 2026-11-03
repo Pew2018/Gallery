@@ -1,0 +1,10 @@
+<resources>
+    <string name="folder_refresh_timeout">刷新超过45秒仍未完成，已保留可用内容。可再次下拉重试。</string>
+    <string name="folder_refresh_busy">媒体读取任务繁忙，已保留可用内容。请稍后下拉重试。</string>
+    <string name="folder_diagnostics">刷新诊断</string>
+    <string name="folder_diagnostics_description">在本机记录匿名刷新阶段和耗时。启用后复现问题，再返回此处复制诊断。不记录文件名和完整路径；可选的目标路径仅保存摘要。</string>
+    <string name="folder_diagnostics_target">可选：新增文件的完整路径</string>
+    <string name="folder_diagnostics_enable">启用</string>
+    <string name="folder_diagnostics_disable">停用</string>
+    <string name="folder_diagnostics_copy">复制诊断</string>
+</resources>

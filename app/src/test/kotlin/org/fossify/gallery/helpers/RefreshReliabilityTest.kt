@@ -1,0 +1,117 @@
+package org.fossify.gallery.helpers
+
+import android.app.Application
+import android.os.Looper
+import org.fossify.commons.extensions.getSharedPrefs
+import org.fossify.gallery.models.Medium
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
+import org.robolectric.annotation.Config
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.FutureTask
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28], application = Application::class)
+class RefreshReliabilityTest {
+    @Test fun watchdogExpiresExactlyOnceAndANewRequestGetsItsOwnDeadline() {
+        val watchdog = RefreshWatchdog()
+        val expired = AtomicInteger()
+        watchdog.arm(100) { expired.incrementAndGet() }
+        watchdog.arm(100) { fail("preview restarted the deadline") }
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS)
+        assertEquals(1, expired.get())
+        watchdog.stop()
+        watchdog.arm(100) { expired.incrementAndGet() }
+        watchdog.stop()
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
+        assertEquals(1, expired.get())
+    }
+    @Test fun completedRefreshCannotTimeOutLater() {
+        val watchdog = RefreshWatchdog()
+        watchdog.arm(100) { fail("completed load timed out") }
+        watchdog.stop()
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
+    }
+    @Test fun twoBusyAlbumWorkersCannotBlockTheForegroundLane() {
+        val entered = CountDownLatch(2); val release = CountDownLatch(1); val done = CountDownLatch(2)
+        val fresh = CountDownLatch(1)
+        try {
+            repeat(2) { GalleryAlbumScanExecutor.execute { entered.countDown(); release.await(5, TimeUnit.SECONDS); done.countDown() } }
+            assertTrue(entered.await(2, TimeUnit.SECONDS))
+            GalleryMediaScanExecutor.execute { fresh.countDown() }
+            assertTrue("foreground folder refresh waited for album discovery", fresh.await(2, TimeUnit.SECONDS))
+        } finally { release.countDown(); assertTrue(done.await(5, TimeUnit.SECONDS)) }
+    }
+    @Test fun canceledQueuedTaskIsPurgedBeforeAdmittingANewerTask() {
+        val executor = BoundedScanExecutor("purge-test", 1, 1)
+        val entered = CountDownLatch(1); val release = CountDownLatch(1); val fresh = CountDownLatch(1)
+        try {
+            executor.execute { entered.countDown(); release.await(5, TimeUnit.SECONDS) }
+            assertTrue(entered.await(2, TimeUnit.SECONDS))
+            val obsolete = FutureTask<Unit> { fail("obsolete queued scan executed") }
+            executor.execute(obsolete)
+            obsolete.cancel(true)
+            executor.execute { fresh.countDown() }
+            release.countDown()
+            assertTrue(fresh.await(2, TimeUnit.SECONDS))
+        } finally { release.countDown(); executor.shutdown() }
+    }
+    @Test fun aBlockedVideoCannotPreventEarlierDetailsOrBaseMediaFromBeingAvailable() {
+        val executor = Executors.newSingleThreadExecutor()
+        val blocked = CountDownLatch(1); val release = CountDownLatch(1); val first = CountDownLatch(1)
+        val base = listOf(Medium().apply { path = "/album/first.mp4"; type = TYPE_VIDEOS },
+            Medium().apply { path = "/album/slow.mp4"; type = TYPE_VIDEOS },
+            Medium().apply { path = "/album/new.jpg"; type = TYPE_IMAGES })
+        try {
+            VideoDurationEnricher.enrich(base, { true }, { path ->
+                if (path.endsWith("slow.mp4")) { blocked.countDown(); release.await(5, TimeUnit.SECONDS) }
+                16
+            }, { result ->
+                assertEquals(base.map { it.path }, result.map { it.path })
+                assertEquals(16, result.first().videoDuration)
+                first.countDown()
+            }, executor)
+            assertTrue(first.await(2, TimeUnit.SECONDS))
+            assertTrue(blocked.await(2, TimeUnit.SECONDS))
+            assertEquals(0, base.first().videoDuration) // immutable base catalog
+        } finally { release.countDown(); executor.shutdownNow() }
+    }
+    @Test fun revokedDurationRequestCannotPublishAfterSlowMetadataReturns() {
+        val executor = Executors.newSingleThreadExecutor()
+        val entered = CountDownLatch(1); val release = CountDownLatch(1); val done = CountDownLatch(1)
+        val current = java.util.concurrent.atomic.AtomicBoolean(true)
+        val published = AtomicInteger()
+        try {
+            VideoDurationEnricher.enrich(listOf(Medium().apply { path = "/album/slow.mp4"; type = TYPE_VIDEOS }), current::get,
+                { entered.countDown(); release.await(5, TimeUnit.SECONDS); 16 }, { published.incrementAndGet() }, executor)
+            assertTrue(entered.await(2, TimeUnit.SECONDS))
+            current.set(false); release.countDown()
+            executor.execute { done.countDown() }
+            assertTrue(done.await(2, TimeUnit.SECONDS))
+            assertEquals(0, published.get())
+        } finally { release.countDown(); executor.shutdownNow() }
+    }
+    @Test fun enabledDiagnosticsHaveAnonymousIdentityAndDoNotWritePrivatePaths() {
+        val context = RuntimeEnvironment.getApplication()
+        val path = "/storage/emulated/0/private/new.jpg"
+        context.getSharedPrefs().edit().putBoolean(FolderRefreshTrace.ENABLED_KEY, true)
+            .putString(FolderRefreshTrace.TARGET_KEY, FolderRefreshTrace.pathId(path)).commit()
+        try {
+            FolderRefreshTrace.configure(context); FolderRefreshTrace.clear()
+            FolderRefreshTrace.measure(42, "read") { FolderRefreshTrace.event(42, "enumerated", listOf(path)) }
+            val log = FolderRefreshTrace.dump()
+            assertTrue(log.contains("request=42")); assertTrue(log.contains("target=true"))
+            assertTrue(log.contains("elapsedMs=")); assertFalse(log.contains(path)); assertFalse(log.contains("new.jpg"))
+        } finally {
+            context.getSharedPrefs().edit().remove(FolderRefreshTrace.ENABLED_KEY).remove(FolderRefreshTrace.TARGET_KEY).commit()
+            FolderRefreshTrace.configure(context); FolderRefreshTrace.clear()
+        }
+    }
+}

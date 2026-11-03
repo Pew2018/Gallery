@@ -859,7 +859,7 @@ fun Context.getCachedDirectories(
             val includedPaths = config.includedFolders
 
             val folderNoMediaStatuses = HashMap<String, Boolean>()
-            val noMediaFolders = getNoMediaFoldersSync()
+            val noMediaFolders = if (forceShowHidden) emptyList() else getNoMediaFoldersSync()
             noMediaFolders.forEach { folder ->
                 folderNoMediaStatuses["$folder/$NOMEDIA"] = true
             }
@@ -928,7 +928,10 @@ fun Context.getCachedDirectories(
         runCatching { removeInvalidDBDirectories(result) }
             .onFailure { android.util.Log.w("GalleryDirs", "Cache cleanup failed", it) }
     }
-    if (executor != null) executor.execute(load) else ensureBackgroundThread { load.run() }
+    if (executor != null) try { executor.execute(load) }
+    catch (error: java.util.concurrent.RejectedExecutionException) {
+        if (isCurrent()) onFailure?.invoke(error)
+    } else ensureBackgroundThread { load.run() }
 
 }
 

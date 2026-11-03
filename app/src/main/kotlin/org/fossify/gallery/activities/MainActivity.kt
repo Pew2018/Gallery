@@ -280,8 +280,17 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 
+    private var directoryTraceRequest = 0L
+    private val directoryRefreshWatchdog = org.fossify.gallery.helpers.RefreshWatchdog()
     private fun setDirectoryLoading(loading: Boolean) {
         val update = {
+            if (loading) org.fossify.gallery.helpers.FolderRefreshTrace.configure(applicationContext)
+            if (loading) directoryRefreshWatchdog.arm {
+                org.fossify.gallery.helpers.FolderRefreshTrace.event(directoryTraceRequest, "album_timeout")
+                retireDirectoryScan()
+                binding.directoriesRefreshLayout.isRefreshing = false
+                toast(R.string.folder_refresh_timeout)
+            } else directoryRefreshWatchdog.stop()
             if (!isDestroyed && !isFinishing) directoryHeaderProgress?.apply {
                 OxygenProgressStyle.apply(this@MainActivity, config, this)
                 OxygenProgressStyle.setLoading(this, loading)
@@ -557,6 +566,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     override fun onDestroy() {
+        directoryRefreshWatchdog.stop()
         GalleryBottomBar.dispose(this)
         directoryHeaderProgress?.let(OxygenProgressStyle::dispose)
         folderOpenGeneration++
@@ -909,13 +919,23 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         mLastMediaFetcher?.shouldStop = true
         val scanRequest = directoryScanEpoch.begin()
+        directoryTraceRequest = scanRequest
+        org.fossify.gallery.helpers.FolderRefreshTrace.event(scanRequest, "album_queued")
         mShouldStopFetching = false
         mIsGettingDirs = true
         setDirectoryLoading(true)
         val getImages = mIsPickImageIntent || mIsGetImageContentIntent
         val getVideos = mIsPickVideoIntent || mIsGetVideoContentIntent
         getCachedDirectories(getVideos && !getImages, getImages && !getVideos,
-            executor = org.fossify.gallery.helpers.GalleryMediaScanExecutor,
+            executor = org.fossify.gallery.helpers.GalleryAlbumScanExecutor,
+            onFailure = { error -> runOnUiThread {
+                if (isCurrentDirectoryScan(scanRequest)) {
+                    mIsGettingDirs = false
+                    setDirectoryLoading(false)
+                    binding.directoriesRefreshLayout.isRefreshing = false
+                    toast(R.string.folder_load_failed)
+                }
+            } },
             isCurrent = { isCurrentDirectoryScan(scanRequest) }
         ) {
             if (isCurrentDirectoryScan(scanRequest)) {
@@ -1232,6 +1252,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         mIsGettingDirs = true
         setDirectoryLoading(true)
         val requestVersion = ++categorizedLoadVersion
+        directoryTraceRequest = requestVersion
+        org.fossify.gallery.helpers.FolderRefreshTrace.event(requestVersion, "album_queued")
         categorizedLoadActive = true
         categorizedReloadPending = false
         val requestedVisibility = mFolderVisibility.copyOf()
@@ -1251,11 +1273,22 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         fun current() = !isFinishing && !isDestroyed && requestVersion == categorizedLoadVersion &&
             requestedVisibility.contentEquals(mFolderVisibility)
         getCachedDirectories(forceShowHidden = true, forceShowExcluded = true, onFailure = failed,
-            executor = org.fossify.gallery.helpers.GalleryMediaScanExecutor, isCurrent = { current() }) { cached ->
+            executor = org.fossify.gallery.helpers.GalleryAlbumScanExecutor, isCurrent = { current() }) { cached ->
             try {
                 val scanned = org.fossify.gallery.helpers.CategorizedFolderScanner.scan(
                     applicationContext, cached, requestedVisibility, cancelled = { !current() }, onFetcher = { fetcher ->
+                        fetcher.traceRequest = requestVersion
+                        org.fossify.gallery.helpers.FolderRefreshTrace.event(requestVersion, "album_worker_started")
                         runOnUiThread { if (current()) mLastMediaFetcher = fetcher else fetcher.shouldStop = true }
+                    }, onProgress = { partial ->
+                        runOnUiThread {
+                            if (current()) {
+                                mDirs = partial.directories
+                                mDirsIgnoringSearch = ArrayList(partial.directories)
+                                setupAdapter(partial.directories, presentationIsCurrent = { current() })
+                                checkPlaceholderVisibility(partial.directories)
+                            }
+                        }
                     })
                 val visible = scanned.directories
                 runOnUiThread {
@@ -1875,6 +1908,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val scanFetcher = MediaFetcher(applicationContext, cancelled = {
             !isCurrentDirectoryScan(scanRequest)
         }, reportReadFailures = true, discoverUnindexedFolders = discoverUnindexed)
+        scanFetcher.traceRequest = scanRequest
         mLastMediaFetcher = scanFetcher
         val getImages = mIsPickImageIntent || mIsGetImageContentIntent
         val getVideos = mIsPickVideoIntent || mIsGetVideoContentIntent

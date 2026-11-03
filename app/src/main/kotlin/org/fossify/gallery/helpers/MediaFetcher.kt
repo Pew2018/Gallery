@@ -30,9 +30,11 @@ class MediaFetcher(
     private val discoverUnindexedFolders: Boolean = false,
     private val showDotFiles: Boolean? = null
 ) {
+    init { FolderRefreshTrace.configure(context) }
     internal var noMediaSnapshot = NoMediaSnapshot()
     internal var folderFileAccess: FolderFileAccess = DeviceFolderFileAccess(context)
     internal var traceRequest = 0L
+    internal var onFolderProgress: ((FolderMediaReadResult) -> Unit)? = null
     private val folderObservations = hashMapOf<String, FolderReadObservation>()
 
     internal fun readFolder(
@@ -465,7 +467,7 @@ class MediaFetcher(
             FAVORITES -> favoritePaths.filter { showHidden || !it.contains("/.") }.map { File(it) }
             RECYCLE_BIN -> deletedMedia.map { File(it.path) }
             else -> try {
-                val enumeration = folderFileAccess.enumerate(folder)
+                val enumeration = FolderRefreshTrace.measure(traceRequest, "directory_enumeration") { folderFileAccess.enumerate(folder) }
                 observation?.apply {
                     method = enumeration.method
                     enumerated = enumeration.files.size
@@ -484,6 +486,16 @@ class MediaFetcher(
             }
         }
 
+        var lastProgress = -150L
+        fun publishScanProgress() {
+            if (!physical || onFolderProgress == null || shouldStop) return
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastProgress < 150) return
+            lastProgress = now
+            onFolderProgress?.invoke(FolderMediaReadResult(ArrayList(media), FolderReadStatus.PARTIAL,
+                observation!!.method, observation.enumerated, observation.reasons.toMap() + ("scan_in_progress" to 1),
+                accessCurrent = observation.accessCurrent))
+        }
         for (curFile in files) {
             var file = curFile
             if (shouldStop) throw java.util.concurrent.CancellationException()
@@ -513,18 +525,18 @@ class MediaFetcher(
                 }
             }
 
-            if (isVideo && (isPickImage || filterMedia and TYPE_VIDEOS == 0)) { observation?.count("filtered"); continue }
+            if (isVideo && (isPickImage || filterMedia and TYPE_VIDEOS == 0)) { observation?.count("type_filtered"); continue }
 
-            if (isImage && (isPickVideo || filterMedia and TYPE_IMAGES == 0)) { observation?.count("filtered"); continue }
+            if (isImage && (isPickVideo || filterMedia and TYPE_IMAGES == 0)) { observation?.count("type_filtered"); continue }
 
-            if (isGif && filterMedia and TYPE_GIFS == 0) { observation?.count("filtered"); continue }
+            if (isGif && filterMedia and TYPE_GIFS == 0) { observation?.count("type_filtered"); continue }
 
-            if (isRaw && filterMedia and TYPE_RAWS == 0) { observation?.count("filtered"); continue }
+            if (isRaw && filterMedia and TYPE_RAWS == 0) { observation?.count("type_filtered"); continue }
 
-            if (isSvg && filterMedia and TYPE_SVGS == 0) { observation?.count("filtered"); continue }
+            if (isSvg && filterMedia and TYPE_SVGS == 0) { observation?.count("type_filtered"); continue }
 
             val filename = file.name
-            if (!showHidden && filename.startsWith('.')) { observation?.count("filtered"); continue }
+            if (!showHidden && filename.startsWith('.')) { observation?.count("dot_filtered"); continue }
 
             // Profile queries already supplied complete metadata. Enumerate directories
             // only to discover unindexed files; do not re-query dates/sizes per folder.
@@ -537,7 +549,7 @@ class MediaFetcher(
 
             FolderRefreshTrace.event(traceRequest, "type_passed", listOf(path))
             val metadata = if (physical) try {
-                folderFileAccess.metadata(file).also {
+                FolderRefreshTrace.measure(traceRequest, "file_metadata") { folderFileAccess.metadata(file) }.also {
                     if (!it.readable || !it.regular) {
                         if (!it.regular) observation?.count("not_file") else observation?.partial("unreadable")
                     }
@@ -560,6 +572,7 @@ class MediaFetcher(
             FolderRefreshTrace.event(traceRequest, "metadata_passed", listOf(path))
             if (indexed != null && !isPortrait) {
                 media.add(indexed.copy(isFavorite = path in favoritePathSet))
+                publishScanProgress()
                 continue
             }
 
@@ -606,6 +619,7 @@ class MediaFetcher(
                 val isFavorite = path in favoritePathSet
                 val medium = Medium(null, filename, path, file.parent, lastModified, dateTaken, size, type, videoDuration, isFavorite, 0L, 0L)
                 media.add(medium)
+                publishScanProgress()
             }
         }
 
@@ -1050,6 +1064,7 @@ class MediaFetcher(
     }
 
     fun sortMedia(media: ArrayList<Medium>, sorting: Int) {
+        FolderRefreshTrace.measure(traceRequest, "sorting") {
         if (sorting and SORT_BY_RANDOM != 0) {
             media.shuffle()
             return
@@ -1084,6 +1099,7 @@ class MediaFetcher(
                 result *= -1
             }
             result
+        }
         }
     }
 

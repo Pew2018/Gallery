@@ -15,7 +15,9 @@ import java.io.File
 internal object CategorizedFolderScanner {
     data class Result(val directories: ArrayList<Directory>, val failures: Map<String, Exception>)
     fun scan(context: Context, cached: List<Directory>, flags: BooleanArray,
-        cancelled: () -> Boolean, onFetcher: (MediaFetcher) -> Unit = {}): Result {
+        cancelled: () -> Boolean, onFetcher: (MediaFetcher) -> Unit = {},
+        onProgress: (Result) -> Unit = {},
+        discover: (Collection<String>, (String) -> Boolean, () -> Boolean) -> Set<String> = FolderDiskDiscovery::find): Result {
         if (cancelled()) throw java.util.concurrent.CancellationException()
         val cfg = context.config
         val policy = FolderCategoryPolicy(flags[0], flags[1], flags[2], flags[3],
@@ -26,35 +28,34 @@ internal object CategorizedFolderScanner {
         val failures = linkedMapOf<String, Exception>()
         val fetcher = MediaFetcher(context, cancelled = cancelled, reportReadFailures = true, showDotFiles = policy.dots).also { it.noMediaSnapshot = markers; it.traceRequest = System.nanoTime() }
         onFetcher(fetcher)
-        val seeds = linkedSetOf<String>().apply {
-            addAll(cached.map { it.path }); addAll(cfg.everShownFolders)
-            addAll(policy.includedRoots); addAll(policy.excludedRoots)
-            val markerHints = context.getNoMediaFoldersSync(this, fetcher.cancellationSignal)
-            markers.seedMarkerFolders(markerHints)
-            addAll(markerHints)
-            try { addAll(fetcher.getFoldersToScan()) }
-            catch (error: Exception) { if (cancelled()) throw java.util.concurrent.CancellationException(); failures["index"] = error }
-            listOf(Environment.DIRECTORY_DCIM, Environment.DIRECTORY_PICTURES,
-                Environment.DIRECTORY_DOWNLOADS, Environment.DIRECTORY_MOVIES).forEach {
-                add(Environment.getExternalStoragePublicDirectory(it).toString())
-            }
-        }.filter { it.startsWith('/') }.toCollection(linkedSetOf())
-        val discovered = FolderDiskDiscovery.find(seeds, allowed = { allowed(it) && !locked(it) }, cancelled = cancelled)
         val byPath = cached.associateBy { it.path }
-        val candidates = (cached.map { it.path } + discovered + seeds)
-            .filter { it.startsWith('/') }.distinctBy(FavoriteFolderRules::normalizedPath)
-        val result = arrayListOf<Directory>()
+        val result = linkedMapOf<String, Directory>()
+        // Keep unvisited cached cards while publishing already-refreshed siblings.
+        cached.filter { allowed(it.path) }.forEach { directory ->
+            result[directory.path] = directory.copy().apply {
+                if (locked(path)) { tmb = ""; mediaCnt = 0; subfoldersMediaCount = 0; size = 0L }
+            }
+        }
+        val visited = hashSetOf<String>()
+        fun snapshot() = Result(ArrayList(result.values.filter { allowed(it.path) }.map { it.copy() }), failures.toMap())
+        var lastPublish = 0L
+        fun publish(force: Boolean = false) {
+            if (cancelled()) throw java.util.concurrent.CancellationException()
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (force || now - lastPublish >= 150) { lastPublish = now; onProgress(snapshot()) }
+        }
         val favorites = context.getFavoritePaths()
         val covers = cfg.parseAlbumCovers()
-        for (path in candidates) {
+        fun scanPath(path: String) {
+            if (!path.startsWith('/') || !visited.add(FavoriteFolderRules.normalizedPath(path))) return
             if (cancelled()) throw java.util.concurrent.CancellationException()
-            if (!allowed(path)) continue
+            if (!allowed(path)) return
             val old = byPath[path]
             val isProtected = locked(path)
             val hasMarker = markers.contains(path)
             val item = if (isProtected) {
                 // Metadata rows never authorize a read of a protected folder or descendants.
-                if (old == null && !File(path).isDirectory) continue
+                if (old == null && !File(path).isDirectory) return
                 (old?.copy() ?: Directory().apply { this.path = path; name = File(path).name }).apply {
                     tmb = ""; mediaCnt = 0; subfoldersMediaCount = 0; size = 0L
                 }
@@ -67,10 +68,10 @@ internal object CategorizedFolderScanner {
                     failures[path] = read.error ?: java.io.IOException("Directory refresh is incomplete")
                 }
                 if (read.status == FolderReadStatus.FAILED || read.status == FolderReadStatus.ACCESS_REQUIRED) {
-                    if (old == null) continue
+                    if (old == null) return
                     old.copy()
                 } else if (read.media.isEmpty()) {
-                    if (read.status == FolderReadStatus.COMPLETE || old == null) continue
+                    if (read.status == FolderReadStatus.COMPLETE || old == null) { result.remove(path); return }
                     old.copy()
                 } else {
                     val media = read.media
@@ -88,7 +89,7 @@ internal object CategorizedFolderScanner {
             } catch (error: Exception) {
                 if (cancelled()) throw java.util.concurrent.CancellationException()
                 failures[path] = error
-                if (old == null) continue
+                if (old == null) return
                 old.copy().apply { if (locked(path)) { tmb = ""; mediaCnt = 0; subfoldersMediaCount = 0; size = 0L } }
             }
             fetcher.readFailures[path]?.let { failures[path] = it }
@@ -99,10 +100,35 @@ internal object CategorizedFolderScanner {
                 context.getString(R.string.folder_status_protected).takeIf { isProtected },
                 context.getString(R.string.folder_unavailable_suffix).takeIf { path in failures }
             ).joinToString(" · ")
-            result.add(item)
+            result[path] = item
+        }
+        // Refresh known albums before provider lookups and recursive discovery.
+        val seeds = linkedSetOf<String>().apply {
+            addAll(cached.map { it.path }); addAll(cfg.everShownFolders)
+            addAll(policy.includedRoots); addAll(policy.excludedRoots)
+        }
+        FolderRefreshTrace.measure(fetcher.traceRequest, "known_albums") {
+            seeds.forEach { scanPath(it); publish() }
+            publish(force = true)
+        }
+        FolderRefreshTrace.measure(fetcher.traceRequest, "album_discovery") {
+            val hints = context.getNoMediaFoldersSync(seeds, fetcher.cancellationSignal)
+            markers.seedMarkerFolders(hints)
+            seeds.addAll(hints)
+            try { seeds.addAll(fetcher.getFoldersToScan()) }
+            catch (error: Exception) {
+                if (cancelled()) throw java.util.concurrent.CancellationException()
+                failures["index"] = error
+            }
+            listOf(Environment.DIRECTORY_DCIM, Environment.DIRECTORY_PICTURES,
+                Environment.DIRECTORY_DOWNLOADS, Environment.DIRECTORY_MOVIES).forEach {
+                seeds.add(Environment.getExternalStoragePublicDirectory(it).toString())
+            }
+            val discovered = discover(seeds, { allowed(it) && !locked(it) }, cancelled)
+            (seeds + discovered).forEach { scanPath(it); publish() }
         }
         failures.putAll(fetcher.readFailures)
         if (cancelled()) throw java.util.concurrent.CancellationException()
-        return Result(result, failures)
+        return snapshot()
     }
 }

@@ -103,7 +103,7 @@ class SettingsActivity : SimpleActivity() {
             SettingsCategory("advanced", R.string.classic_settings_advanced, R.string.settings_hub_advanced_summary, org.fossify.commons.R.drawable.ic_settings_cog_vector, setOf(
                 R.id.settings_section_advanced_language, R.id.settings_use_english_holder, R.id.settings_language_holder,
                 R.id.settings_change_date_time_format_holder, R.id.settings_section_advanced_performance, R.id.settings_file_loading_priority_holder,
-                R.id.settings_clear_cache_holder, R.id.settings_section_advanced_backup, R.id.settings_export_favorites_holder,
+                R.id.settings_refresh_diagnostics_holder, R.id.settings_clear_cache_holder, R.id.settings_section_advanced_backup, R.id.settings_export_favorites_holder,
                 R.id.settings_import_favorites_holder, R.id.settings_export_favorite_folders_holder, R.id.settings_import_favorite_folders_holder,
                 R.id.settings_export_holder, R.id.settings_import_holder, R.id.settings_export_photo_profiles_holder, R.id.settings_import_photo_profiles_holder, R.id.settings_export_full_backup_holder, R.id.settings_restore_full_backup_holder, R.id.settings_purchase_thank_you_holder
             ))
@@ -127,7 +127,7 @@ class SettingsActivity : SimpleActivity() {
         R.id.settings_section_security_app to setOf(R.id.settings_app_password_protection_holder, R.id.settings_file_deletion_password_protection_holder),
         R.id.settings_section_security_media to setOf(R.id.settings_hidden_item_password_protection_holder, R.id.settings_excluded_item_password_protection_holder, R.id.settings_favorite_password_holder, R.id.settings_photo_password_holder),
         R.id.settings_section_advanced_language to setOf(R.id.settings_use_english_holder, R.id.settings_language_holder, R.id.settings_change_date_time_format_holder),
-        R.id.settings_section_advanced_performance to setOf(R.id.settings_file_loading_priority_holder, R.id.settings_clear_cache_holder),
+        R.id.settings_section_advanced_performance to setOf(R.id.settings_file_loading_priority_holder, R.id.settings_refresh_diagnostics_holder, R.id.settings_clear_cache_holder),
         R.id.settings_section_advanced_backup to setOf(R.id.settings_export_favorites_holder, R.id.settings_import_favorites_holder, R.id.settings_export_favorite_folders_holder, R.id.settings_import_favorite_folders_holder, R.id.settings_export_holder, R.id.settings_import_holder, R.id.settings_export_photo_profiles_holder, R.id.settings_import_photo_profiles_holder, R.id.settings_export_full_backup_holder, R.id.settings_restore_full_backup_holder)
     )
 
@@ -326,6 +326,7 @@ class SettingsActivity : SimpleActivity() {
         setupLanguage()
         setupChangeDateTimeFormat()
         setupFileLoadingPriority()
+        setupRefreshDiagnostics()
         setupManageIncludedFolders()
         setupManageExcludedFolders()
         setupManageHiddenFolders()
@@ -501,6 +502,35 @@ class SettingsActivity : SimpleActivity() {
     private fun setupChangeDateTimeFormat() {
         binding.settingsChangeDateTimeFormatHolder.setOnClickListener {
             ChangeDateTimeFormatDialog(this) {}
+        }
+    }
+
+    private fun setupRefreshDiagnostics() {
+        binding.settingsRefreshDiagnosticsHolder.setOnClickListener {
+            val target = android.widget.EditText(this).apply {
+                hint = getString(R.string.folder_diagnostics_target)
+                inputType = android.text.InputType.TYPE_CLASS_TEXT
+                isSingleLine = true
+            }
+            val builder = OxygenClassicDialog.builder(this, getString(R.string.folder_diagnostics))
+                .setMessage(R.string.folder_diagnostics_description)
+                .setView(target)
+                .setPositiveButton(R.string.folder_diagnostics_enable) { _, _ ->
+                    val value = target.text.toString().trim()
+                    getSharedPrefs().edit().putBoolean(FolderRefreshTrace.ENABLED_KEY, true)
+                        .putString(FolderRefreshTrace.TARGET_KEY, if (value.isEmpty()) "" else FolderRefreshTrace.pathId(value)).apply()
+                    FolderRefreshTrace.configure(this)
+                    FolderRefreshTrace.clear()
+                }
+                .setNegativeButton(R.string.folder_diagnostics_disable) { _, _ ->
+                    getSharedPrefs().edit().putBoolean(FolderRefreshTrace.ENABLED_KEY, false).apply()
+                    FolderRefreshTrace.configure(this)
+                }
+                .setNeutralButton(R.string.folder_diagnostics_copy) { _, _ ->
+                    val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText(getString(R.string.folder_diagnostics), FolderRefreshTrace.dump()))
+                }
+            OxygenClassicDialog.show(this, builder, target)
         }
     }
 

@@ -2,6 +2,7 @@ package org.fossify.gallery.asynctasks
 
 import android.content.Context
 import android.os.AsyncTask
+import org.fossify.commons.extensions.getDuration
 import org.fossify.commons.extensions.isExternalStorageManager
 import org.fossify.commons.extensions.isPathOnOTG
 import org.fossify.commons.helpers.isRPlus
@@ -16,7 +17,7 @@ import org.fossify.gallery.helpers.*
 import org.fossify.gallery.models.Medium
 import org.fossify.gallery.models.ThumbnailItem
 
-class GetMediaAsynctask(
+internal class GetMediaAsynctask(
     val context: Context, val mPath: String, val isPickImage: Boolean = false, val isPickVideo: Boolean = false,
     val showAll: Boolean, val onFailure: (Exception) -> Unit = {},
     private val cachedMediaFallback: List<Medium> = emptyList(),
@@ -31,6 +32,7 @@ class GetMediaAsynctask(
     private val manualRefresh: Boolean = false,
     private val folderSessionId: String? = null,
     private val requestId: Long = 0,
+    private val onFolderPreview: ((FolderMediaReadResult, ArrayList<ThumbnailItem>) -> Unit)? = null,
     val callback: (media: ArrayList<ThumbnailItem>) -> Unit
 ) :
     AsyncTask<Void, PhotoLoadResult, ArrayList<ThumbnailItem>>() {
@@ -46,7 +48,15 @@ class GetMediaAsynctask(
     @Volatile var favoriteRelationshipSnapshot: Set<String>? = null
         private set
 
+    internal var durationReader: (String) -> Int = { context.getDuration(it) ?: 0 }
+    private val delivery = android.os.Handler(android.os.Looper.getMainLooper())
+    private fun folderAllowed(path: String): Boolean {
+        val parent = java.io.File(path).parent ?: return false
+        return FolderUnlockSessionManager.findProtectedAncestor(parent, context.config::isFolderProtected) == null ||
+            FolderUnlockSessionManager.isMediaAuthorized(folderSessionId, path, context.config::isFolderProtected)
+    }
     override fun doInBackground(vararg params: Void): ArrayList<ThumbnailItem> {
+        FolderRefreshTrace.event(requestId, "worker_started")
         return try {
         val noMediaFolder = !showAll && mPath.startsWith('/') && photoProfileId == null &&
             mPath != PhotoProfileMediaLoader.PATH && mediaFetcher.noMediaSnapshot.contains(mPath)
@@ -74,7 +84,7 @@ class GetMediaAsynctask(
             folderGrouping and GROUP_BY_LAST_MODIFIED_MONTHLY != 0
 
         val getProperFileSize = folderSorting and SORT_BY_SIZE != 0
-        val savedFavorites = context.getFavoritePaths()
+        val savedFavorites = FolderRefreshTrace.measure(requestId, "favorite_relationships") { context.getFavoritePaths() }
         if (mPath == FAVORITES) favoriteRelationshipSnapshot = savedFavorites.toSet()
         val favoritePaths = if (mPath == FAVORITES) {
             val allowed = if (favoriteSessionId != null) {
@@ -88,7 +98,9 @@ class GetMediaAsynctask(
             }
             (favoritePathsOverride ?: savedFavorites).filter { it in allowed }.toCollection(ArrayList())
         } else favoritePathsOverride ?: savedFavorites
-        val getVideoDurations = context.config.showThumbnailVideoDuration
+        val ordinaryFolder = onFolderPreview != null && !showAll && mPath.startsWith('/') && mPath != RECYCLE_BIN && mPath != FAVORITES
+        // Publish the basic folder catalog before optional video metadata extraction.
+        val getVideoDurations = context.config.showThumbnailVideoDuration && !ordinaryFolder
         val scopedAvailable = isRPlus() && !isExternalStorageManager()
         val scopedFolder = MediaQueryScope.shouldUseFolderQuery(
             showAll = showAll,
@@ -144,6 +156,20 @@ class GetMediaAsynctask(
                         FolderUnlockSessionManager.isMediaAuthorized(folderSessionId, path, context.config::isFolderProtected)
                 }
                 if (!allowed(java.io.File(mPath, "access-probe").path)) throw SecurityException("Folder authorization required")
+                mediaFetcher.onFolderProgress = { progress ->
+                    if (!isCancelled && onFolderPreview != null) {
+                        val merged = progress.presentation(cachedMediaFallback.filter {
+                            it.type and context.config.filterMedia != 0 &&
+                                (context.config.shouldShowHidden || !it.name.startsWith('.')) &&
+                                (!isPickImage || it.type != TYPE_VIDEOS) && (!isPickVideo || it.type != TYPE_IMAGES)
+                        }, ::folderAllowed)
+                        mediaFetcher.sortMedia(merged, folderSorting)
+                        val grouped = mediaFetcher.groupMedia(merged, pathToUse)
+                        delivery.post {
+                            if (!isCancelled && progress.accessCurrent()) onFolderPreview.invoke(progress, grouped)
+                        }
+                    }
+                }
                 val read = mediaFetcher.readFolder(
                     mPath, isPickImage, isPickVideo, getProperDateTaken, getProperLastModified, getProperFileSize, favoritePaths,
                     getVideoDurations, lastModifieds, dateTakens, indexedFolder)
@@ -169,7 +195,13 @@ class GetMediaAsynctask(
         folderFailures = folderFailures + mediaFetcher.readFailures
         GalleryPerfTrace.end("media_async_scan", scanStarted, media.size)
 
-        val result = mediaFetcher.groupMedia(media, pathToUse)
+        if (ordinaryFolder) {
+            val cached = cachedMediaFallback.associateBy { it.path }
+            media.forEach { item -> cached[item.path]?.let { old ->
+                if (old.modified == item.modified && old.size == item.size) item.videoDuration = old.videoDuration
+            } }
+        }
+        val result = FolderRefreshTrace.measure(requestId, "grouping") { mediaFetcher.groupMedia(media, pathToUse) }
         val safeResult = if (mPath == FAVORITES && favoriteSessionId != null) {
             // Revalidate the complete captured snapshot once after scanning,
             // then use the returned capability set for a pure in-memory filter.
@@ -218,12 +250,33 @@ class GetMediaAsynctask(
         } else {
             if (folderFailures.isNotEmpty()) onPartialFailure(folderFailures)
             callback(media)
+            val read = folderReadResult
+            if (read != null && onFolderPreview != null && context.config.showThumbnailVideoDuration && !isCancelled) {
+                val old = cachedMediaFallback.associateBy { it.path }
+                val base = media.filterIsInstance<Medium>().map { item ->
+                    val cached = old[item.path]
+                    if (cached != null && cached.modified == item.modified && cached.size == item.size)
+                        item.copy(videoDuration = cached.videoDuration) else item
+                }
+                VideoDurationEnricher.enrich(base,
+                    current = { !isCancelled && !mediaFetcher.shouldStop && read.accessCurrent() },
+                    read = { path ->
+                        if (!folderAllowed(path)) 0 else FolderRefreshTrace.measure(requestId, "video_duration") {
+                            durationReader(path)
+                        }
+                    }, publish = { enriched ->
+                        val safe = enriched.filter { folderAllowed(it.path) }.toCollection(ArrayList())
+                        val grouped = mediaFetcher.groupMedia(safe, mPath)
+                        delivery.post { if (!isCancelled && read.accessCurrent()) callback(grouped) }
+                    })
+            }
         }
     }
 
     fun stopFetching() {
         mediaFetcher.shouldStop = true
         cancel(true)
+        delivery.removeCallbacksAndMessages(null)
     }
 }
 

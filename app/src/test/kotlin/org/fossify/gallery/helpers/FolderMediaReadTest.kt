@@ -116,7 +116,8 @@ class FolderMediaReadTest {
     @Test fun dotAndDisabledMediaTypesStayFiltered() {
         val result = read(fake(listOf(photo(".secret.jpg"), photo("movie.mp4"), photo("new.jpg"), photo("note.txt"))))
         assertEquals(listOf("new.jpg"), result.media.map { it.name })
-        assertEquals(2, result.reasons["filtered"])
+        assertEquals(1, result.reasons["type_filtered"])
+        assertEquals(1, result.reasons["dot_filtered"])
         assertEquals(1, result.reasons["unsupported"])
     }
     @Test fun revokedGrantCannotPublishEvenACachedMerge() {

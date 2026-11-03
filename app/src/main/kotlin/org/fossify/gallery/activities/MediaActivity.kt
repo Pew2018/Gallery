@@ -444,7 +444,19 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
     }
 
+    private var mediaRefreshRequest = -1L
+    private val mediaRefreshWatchdog = org.fossify.gallery.helpers.RefreshWatchdog()
     private fun setMediaLoading(loading: Boolean) {
+        if (loading && !isPhotoProfiles && !mShowAll && mPath.startsWith('/') && mPath != RECYCLE_BIN) mediaRefreshWatchdog.arm {
+            org.fossify.gallery.helpers.FolderRefreshTrace.event(mediaRefreshRequest, "folder_timeout")
+            mediaLoadRequests.invalidate()
+            mediaScanGeneration++
+            mCurrAsyncTask?.stopFetching()
+            mIsGettingMedia = false
+            setMediaLoading(false)
+            binding.mediaRefreshLayout.isRefreshing = false
+            toast(R.string.folder_refresh_timeout)
+        } else mediaRefreshWatchdog.stop()
         if (isDestroyed || isFinishing) return
         // Root navigation uses the header strip. The central indicator is reserved
         // for the initial non-root folder/picker load; never show both together.
@@ -841,6 +853,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     override fun onStop() {
+        mediaRefreshWatchdog.stop()
         super.onStop()
         if (isPhotoProfiles && (!photoViewerTransition || photoToken() != null)) {
             mediaLoadRequests.invalidate()
@@ -969,6 +982,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     override fun onDestroy() {
+        mediaRefreshWatchdog.stop()
         GalleryBottomBar.dispose(this)
         mediaHeaderProgress?.let(OxygenProgressStyle::dispose)
         OxygenProgressStyle.dispose(binding.loadingIndicator)
@@ -1389,13 +1403,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             val request = displayedMediaRequest
             val read = folderReadResult.takeIf { folderReadRequest == request }
             val searchGeneration = mediaSearchGeneration
+            val folderToken = folderUnlockSessionId
             (currAdapter as MediaAdapter).updateMedia(mMedia, isCurrent = {
                 mediaLoadRequests.isCurrent(request) && searchGeneration == mediaSearchGeneration &&
                     !isFinishing && !isDestroyed &&
                     (mPath != FAVORITES || FavoriteAccessSessionManager.isActive(favoriteSessionId)) &&
                     read?.accessCurrent?.invoke() != false &&
-                    (isPhotoProfiles || mShowAll || !mPath.startsWith('/') || mPath == RECYCLE_BIN ||
-                        mMedia.filterIsInstance<Medium>().all { folderPublicationAllowed(it.path) })
+                    folderToken == folderUnlockSessionId &&
+                    (folderToken == null || FolderUnlockSessionManager.isActive(folderToken))
             }, onCommitted = {
                 handleGridSpacing(currAdapter.media)
                 onCommitted()
@@ -1574,7 +1589,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
         // Every refresh has a separate request identity, including the cache step.
         // A late cache response must never launch an older scan or replace new UI.
+        mediaRefreshWatchdog.stop()
         val request = mediaLoadRequests.begin()
+        mediaRefreshRequest = request
         if (mPath == FAVORITES && favoritesReturnCover?.covering == true) {
             val token = favoriteSessionId
             favoritesReturnCover?.pause()
@@ -1631,10 +1648,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var folderReadRequest = -1L
     private var folderReadResult: org.fossify.gallery.helpers.FolderMediaReadResult? = null
 
-    private fun folderPublicationAllowed(path: String): Boolean {
+    private val folderPublicationVersion = java.util.concurrent.atomic.AtomicLong()
+    private fun folderPublicationAllowed(path: String, token: String? = folderUnlockSessionId): Boolean {
         val parent = File(path).parent ?: return false
         return FolderUnlockSessionManager.findProtectedAncestor(parent, config::isFolderProtected) == null ||
-            FolderUnlockSessionManager.isMediaAuthorized(folderUnlockSessionId, path, config::isFolderProtected)
+            FolderUnlockSessionManager.isMediaAuthorized(token, path, config::isFolderProtected)
     }
 
     private fun startAsyncTask(request: Long, manualRefresh: Boolean = false) {
@@ -1654,6 +1672,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             cachedMediaFallback = mMedia.filterIsInstance<Medium>().map { it.copy() },
             folderSessionId = folderUnlockSessionId,
             requestId = request,
+            onFolderPreview = { read, partial ->
+                if (scanGeneration == mediaScanGeneration && mediaLoadRequests.isCurrent(request) &&
+                    requestedFolder == mPath && !isFinishing && !isDestroyed) {
+                    folderReadRequest = request
+                    folderReadResult = read
+                    gotMedia(partial, true, request)
+                }
+            },
             onPartialFailure = {
                 if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed) toast(R.string.media_load_partial_error)
             },
@@ -1756,7 +1782,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
         val task = scanTask ?: return
         mCurrAsyncTask = task
-        task.executeOnExecutor(org.fossify.gallery.helpers.GalleryMediaScanExecutor)
+        try {
+            org.fossify.gallery.helpers.FolderRefreshTrace.event(request, "folder_queued")
+            task.executeOnExecutor(org.fossify.gallery.helpers.GalleryMediaScanExecutor)
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            task.stopFetching()
+            mIsGettingMedia = false
+            setMediaLoading(false)
+            binding.mediaRefreshLayout.isRefreshing = false
+            toast(R.string.folder_refresh_busy)
+        }
     }
 
     /** Resolve the whole virtual album before publishing cache, adapter or scan data. */
@@ -2311,6 +2346,26 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
             return
         }
+        if (!isPhotoProfiles && !mShowAll && mPath.startsWith('/') && mPath != RECYCLE_BIN) {
+            val version = folderPublicationVersion.incrementAndGet()
+            val token = folderUnlockSessionId
+            val folder = mPath
+            val candidate = ArrayList(media)
+            ensureBackgroundThread {
+                if (!mediaLoadRequests.isCurrent(request)) return@ensureBackgroundThread
+                val safe = ArrayList(candidate.filter { item ->
+                    (item as? Medium)?.let { folderPublicationAllowed(it.path, token) } != false
+                })
+                runOnUiThread {
+                    if (version == folderPublicationVersion.get() && folder == mPath && token == folderUnlockSessionId &&
+                        mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed &&
+                        (token == null || FolderUnlockSessionManager.isActive(token))) {
+                        publishMedia(safe, isFromCache, request)
+                    }
+                }
+            }
+            return
+        }
         publishMedia(media, isFromCache, request)
     }
 
@@ -2331,7 +2386,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     toast(R.string.media_load_permission_error)
                     return@runOnUiThread
                 }
-                media.removeAll { item -> (item as? Medium)?.let { !folderPublicationAllowed(it.path) } == true }
             }
             if (isFromCache && media.isNotEmpty()) setMediaLoading(true)
             if (!isFromCache) {
@@ -2390,7 +2444,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         folderReadResult?.status == org.fossify.gallery.helpers.FolderReadStatus.PARTIAL)
                     org.fossify.gallery.helpers.FolderRefreshTrace.event(request, "adapter_committed",
                         getMediaAdapter()?.media.orEmpty().filterIsInstance<Medium>().map { it.path }, "final=$displayedMediaIsFinal")
-                    if (isFromCache && media.isNotEmpty()) setMediaLoading(true)
+                    if (isFromCache && media.isNotEmpty() && completedMediaRequest != request) setMediaLoading(true)
                     GalleryBottomBar.markRootContentReady(this)
                     if (mPath == FAVORITES && !isFromCache && media.isNotEmpty()) {
                         val committedItems = media

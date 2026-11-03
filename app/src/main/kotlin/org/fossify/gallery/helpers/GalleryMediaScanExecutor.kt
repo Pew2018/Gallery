@@ -1,12 +1,24 @@
 package org.fossify.gallery.helpers
 
-import java.util.concurrent.Executors
 import java.util.concurrent.Executor
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
-/** Bounded media workers, separate from AsyncTask's process-global serial queue. */
+/** Canceled AsyncTask FutureTasks are removed before the next request is admitted. */
+internal class BoundedScanExecutor(name: String, workers: Int = 2, queued: Int = 4) : Executor {
+    private val pool = ThreadPoolExecutor(workers, workers, 0L, TimeUnit.MILLISECONDS,
+        LinkedBlockingQueue<Runnable>(queued), { task -> Thread(task, name).apply { isDaemon = true } })
+    override fun execute(command: Runnable) { pool.purge(); pool.execute(command) }
+    internal fun shutdown() = pool.shutdownNow()
+}
+
+/** Album discovery cannot consume foreground folder workers. Both lanes remain strictly bounded. */
 internal object GalleryMediaScanExecutor : Executor {
-    private val workers = Executors.newFixedThreadPool(2) { task ->
-        Thread(task, "gallery-media-scan").apply { isDaemon = true }
-    }
+    private val workers = BoundedScanExecutor("gallery-media-scan")
+    override fun execute(command: Runnable) = workers.execute(command)
+}
+internal object GalleryAlbumScanExecutor : Executor {
+    private val workers = BoundedScanExecutor("gallery-album-scan")
     override fun execute(command: Runnable) = workers.execute(command)
 }

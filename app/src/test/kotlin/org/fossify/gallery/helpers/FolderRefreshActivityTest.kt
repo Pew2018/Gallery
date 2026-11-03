@@ -140,4 +140,56 @@ class FolderRefreshActivityTest {
             assertEquals(setOf(fresh.path), paths(activity))
         }
     }
+    @Test fun slowFilePublishesNewImageBeforeTimeoutAndLateScanCannotOverwriteAdapter() {
+        val fresh = photo("new.jpg")
+        val late = photo("late.jpg")
+        val occupied = java.util.concurrent.CountDownLatch(2)
+        val start = java.util.concurrent.CountDownLatch(1)
+        val workersReleased = java.util.concurrent.CountDownLatch(2)
+        val blocked = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val returned = java.util.concurrent.CountDownLatch(1)
+        try {
+            repeat(2) { GalleryMediaScanExecutor.execute {
+                occupied.countDown(); start.await(5, TimeUnit.SECONDS); workersReleased.countDown()
+            } }
+            assertTrue(occupied.await(2, TimeUnit.SECONDS))
+            withActivity { activity ->
+                refresh(activity)
+                val task = field(activity, "mCurrAsyncTask").get(activity) as org.fossify.gallery.asynctasks.GetMediaAsynctask
+                val fetcher = task.javaClass.getDeclaredField("mediaFetcher").apply { isAccessible = true }.get(task) as MediaFetcher
+                fetcher.folderFileAccess = object : FolderFileAccess {
+                    override fun enumerate(folder: String) = FolderEnumeration(listOf(fresh, late))
+                    override fun metadata(file: File): FolderFileMetadata {
+                        if (file == late) {
+                            blocked.countDown()
+                            // Model a native read that ignores interruption, but release it deterministically in the test.
+                            while (release.count > 0) try { release.await(1, TimeUnit.SECONDS) } catch (_: InterruptedException) { }
+                            returned.countDown()
+                        }
+                        return FolderFileMetadata(2, 1, true, true)
+                    }
+                }
+                start.countDown()
+                assertTrue(blocked.await(5, TimeUnit.SECONDS))
+                await { fresh.path in paths(activity) }
+                assertTrue("preview incorrectly marked the full scan complete", field(activity, "mIsGettingMedia").getBoolean(activity))
+                Shadows.shadowOf(Looper.getMainLooper()).idleFor(46, TimeUnit.SECONDS)
+                assertFalse(field(activity, "mIsGettingMedia").getBoolean(activity))
+                assertFalse(activity.isFinishing)
+                assertEquals(setOf(fresh.path), paths(activity))
+                val indicator = field(activity, "mediaHeaderProgress").get(activity) as android.view.View
+                assertEquals(android.view.View.GONE, indicator.visibility)
+                release.countDown()
+                assertTrue(returned.await(2, TimeUnit.SECONDS))
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                assertEquals(setOf(fresh.path), paths(activity))
+                assertTrue(root.isDirectory)
+            }
+        } finally {
+            start.countDown(); release.countDown()
+            assertTrue(workersReleased.await(5, TimeUnit.SECONDS))
+        }
+    }
+
 }
