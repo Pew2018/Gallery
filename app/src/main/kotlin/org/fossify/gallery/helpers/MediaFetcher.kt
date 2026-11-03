@@ -381,7 +381,7 @@ class MediaFetcher(
         // The full unindexed discovery below already traverses these same roots.
         // Do not walk them a second time during an explicit disk refresh.
         if (!discoverUnindexedFolders && includedFolders.isNotEmpty() && !shouldStop) {
-            val excluded = if (config.temporarilyShowExcluded) emptySet<String>() else config.excludedFolders
+            val excluded = if (config.temporarilyShowExcluded) HashSet<String>() else config.excludedFolders
             val statuses = HashMap<String, Boolean>()
             foldersToScan.addAll(FolderDiskDiscovery.find(includedFolders, allowed = { path ->
                 !shouldStop &&
