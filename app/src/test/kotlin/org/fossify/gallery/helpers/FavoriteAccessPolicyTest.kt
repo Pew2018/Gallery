@@ -133,5 +133,25 @@ class FavoriteAccessPolicyTest {
         assertFalse(FavoriteAccessSessionManager.isActive(token))
     }
 
+    @Test fun progressivePreviewChecksEveryMemberWithoutGrantingForeignPaths() {
+        val token = session(locks::get)
+        val batch = FavoriteAccessPolicy.validateViewerPreview(token,
+            listOf("/allowed/a.jpg", "/allowed/v.mp4", "/other/secret.jpg"), { it }, "/allowed/a.jpg")!!
+        assertEquals(listOf("/allowed/a.jpg", "/allowed/v.mp4"), batch.items)
+        assertTrue(FavoriteAccessSessionManager.isPublicationCurrent(batch.validation))
+        FavoriteAccessSessionManager.revokeSession(token)
+        assertFalse(FavoriteAccessSessionManager.isPublicationCurrent(batch.validation))
+        assertNull(FavoriteAccessPolicy.validateViewerPreview(token, batch.items, { it }, "/allowed/a.jpg"))
+    }
+
+    @Test fun progressivePreviewRejectsChangedProtectionAndMissingSelectedCapability() {
+        val token = session(locks::get)
+        assertNull(FavoriteAccessPolicy.validateViewerPreview(token,
+            listOf("/allowed/a.jpg"), { it }, "/outside/secret.jpg"))
+        locks["/allowed"] = pinA
+        assertNull(FavoriteAccessPolicy.validateViewerPreview(token,
+            listOf("/allowed/a.jpg", "/allowed/v.mp4"), { it }, "/allowed/a.jpg"))
+    }
+
 }
 

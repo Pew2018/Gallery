@@ -1,14 +1,19 @@
 package org.fossify.gallery.helpers
 
 import android.app.Application
+import android.app.Activity
+import android.widget.FrameLayout
 import android.os.Looper
 import android.provider.Settings
 import android.view.View
 import org.junit.Assert.*
 import org.junit.Before
+import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Robolectric
+import org.robolectric.android.controller.ActivityController
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
@@ -20,9 +25,20 @@ import java.time.Duration
 @LooperMode(LooperMode.Mode.PAUSED)
 class ViewerMotionTest {
     private val app get() = RuntimeEnvironment.getApplication()
-    @Before fun animationsOn() { Settings.Global.putFloat(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) }
+    private lateinit var controller: ActivityController<Activity>
+    private lateinit var content: FrameLayout
+    @Before fun animationsOn() {
+        Settings.Global.putFloat(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        controller = Robolectric.buildActivity(Activity::class.java).setup()
+        content = FrameLayout(controller.get())
+        controller.get().setContentView(content)
+    }
+    @After fun destroyHost() { controller.pause().stop().destroy() }
     private fun advance(ms: Long) { shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms)) }
-    private fun indicator() = View(app).apply { visibility = View.GONE }
+    private fun indicator() = View(controller.get()).apply {
+        visibility = View.GONE
+        content.addView(this, FrameLayout.LayoutParams(300, 3))
+    }
 
     @Test fun fastCompletionNeverShowsLoading() {
         val view = indicator()
@@ -82,11 +98,11 @@ class ViewerMotionTest {
         assertEquals(View.INVISIBLE, view.visibility)
         ViewerChromeMotion.show(view, true)
         assertEquals(View.VISIBLE, view.visibility)
-        assertEquals(1f, view.alpha)
+        assertEquals(1f, view.alpha, 0.001f)
     }
 
     @Test fun rapidChromeTogglesCannotFinishWithAnOldHiddenState() {
-        val view = View(app)
+        val view = indicator().apply { visibility = View.VISIBLE }
         ViewerChromeMotion.show(view, false)
         advance(70)
         ViewerChromeMotion.show(view, true)
@@ -96,6 +112,6 @@ class ViewerMotionTest {
         ViewerChromeMotion.show(view, true)
         advance(500)
         assertEquals(View.VISIBLE, view.visibility)
-        assertEquals(1f, view.alpha)
+        assertEquals(1f, view.alpha, 0.001f)
     }
 }

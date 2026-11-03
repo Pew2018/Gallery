@@ -309,6 +309,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     @Volatile
     private var viewerAccessGeneration = 0L
     private var viewerAccessTask: Future<*>? = null
+    private var viewerStageGeneration = 0L
+    private var viewerAccessSubmission = 0L
     private val viewerLoading by lazy { org.fossify.gallery.helpers.ViewerLoadingMotion(binding.photoBoundaryLoading) }
     private val viewerSourceType get() = when {
         isPhotoProfile -> org.fossify.gallery.helpers.ViewerSourceType.PHOTO_PROFILE
@@ -526,6 +528,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     override fun onDestroy() {
         viewerLoading.dispose()
+        org.fossify.gallery.helpers.ViewerChromeMotion.cancel(binding.root)
         authorizedViewerPaths = emptySet()
         supportFragmentManager.unregisterFragmentLifecycleCallbacks(slideshowFragments)
         mSlideshowHandler.removeCallbacksAndMessages(null)
@@ -1167,6 +1170,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     catalogStarted: Long? = null,
                     completeSource: Boolean = true
                 ) {
+                    val stage = ++viewerStageGeneration
                     val validationStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
                     val app = applicationContext
                     val previous = mMediaFiles
@@ -1186,7 +1190,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                             "viewer_catalog_validation", validationStarted, batch?.items?.size ?: 0
                         )
                         runOnUiThread {
-                            if (request != viewerAccessGeneration || load != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                            if (stage != viewerStageGeneration || request != viewerAccessGeneration || load != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
                             if (!relationCurrent && expectedFavoritePaths != null) {
                                 // The database relationship changed since this list was prepared.
                                 // Re-enter the original scan path so it can reconcile/revoke the
@@ -1207,7 +1211,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                                 if (!completeSource) MediaFetcher(app).sortMedia(sorted, config.getFolderSorting(FAVORITES))
                                 val searched = stabilizeRandomViewerOrder(sorted, previousOrder)
                                 runOnUiThread {
-                                    if (publication != mediaPublicationGeneration || request != viewerAccessGeneration ||
+                                    if (stage != viewerStageGeneration || publication != mediaPublicationGeneration || request != viewerAccessGeneration ||
                                         load != viewerLoadGeneration || isFinishing || isDestroyed ||
                                         !FavoriteAccessSessionManager.isPublicationCurrent(batch.validation)) return@runOnUiThread
                                     gotMedia(ArrayList<ThumbnailItem>(searched), refetchViewPagerPosition = true, fullCatalog = completeSource)
@@ -1429,6 +1433,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         completeSource: Boolean = true,
         onPublished: (() -> Unit)? = null
     ) {
+        val stage = ++viewerStageGeneration
         val app = applicationContext
         val folder = selectedPath.getParentPath()
         val publishedOrder = mMediaFiles
@@ -1455,7 +1460,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             }.getOrDefault(false)
             val directPaths = directItems.mapTo(HashSet(directItems.size)) { it.path }
             runOnUiThread {
-                if (request != viewerAccessGeneration || load != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                if (stage != viewerStageGeneration || request != viewerAccessGeneration || load != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
                 if (!freshnessCurrent) {
                     onStale?.invoke()
                     return@runOnUiThread
@@ -1695,14 +1700,22 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun submitViewerAccess(request: Long, work: () -> Unit) {
         ViewerAccessCoordinator.cancel(viewerAccessTask)
-        viewerAccessTask = try {
-            ViewerAccessCoordinator.submit {
-                if (request == viewerAccessGeneration && !Thread.currentThread().isInterrupted) work()
+        val submission = ++viewerAccessSubmission
+        fun attempt() {
+            if (submission != viewerAccessSubmission || request != viewerAccessGeneration || isFinishing || isDestroyed) return
+            viewerAccessTask = try {
+                ViewerAccessCoordinator.submit {
+                    if (request == viewerAccessGeneration && !Thread.currentThread().isInterrupted) work()
+                }
+            } catch (_: java.util.concurrent.RejectedExecutionException) {
+                org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_access_executor_busy")
+                // Coalesce retries to the latest submission; congestion is not a
+                // denied credential and must not permanently strand five pages.
+                binding.viewPager.postDelayed({ attempt() }, 120L)
+                null
             }
-        } catch (_: java.util.concurrent.RejectedExecutionException) {
-            org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_access_executor_busy")
-            null
         }
+        attempt()
     }
 
     private fun initContinue() {
@@ -3032,13 +3045,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     override fun goToPrevItem() {
         if (binding.viewPager.currentItem == 0 && requestViewerBoundary(false)) return
-        binding.viewPager.setCurrentItem(binding.viewPager.currentItem - 1, false)
+        binding.viewPager.setCurrentItem(binding.viewPager.currentItem - 1, org.fossify.gallery.helpers.OxygenClassicMotion.enabled(this))
         checkOrientation()
     }
 
     override fun goToNextItem() {
         if (binding.viewPager.currentItem == mMediaFiles.lastIndex && requestViewerBoundary(true)) return
-        binding.viewPager.setCurrentItem(binding.viewPager.currentItem + 1, false)
+        binding.viewPager.setCurrentItem(binding.viewPager.currentItem + 1, org.fossify.gallery.helpers.OxygenClassicMotion.enabled(this))
         checkOrientation()
     }
 

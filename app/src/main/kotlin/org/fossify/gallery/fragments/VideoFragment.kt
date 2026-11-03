@@ -412,6 +412,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     }
 
     override fun onDestroyView() {
+        org.fossify.gallery.helpers.ViewerChromeMotion.cancel(binding.root)
         detailsGeneration++
         // Fragment views are discarded on rotation too. Never keep their player,
         // timer or video Surface alive across view destruction.

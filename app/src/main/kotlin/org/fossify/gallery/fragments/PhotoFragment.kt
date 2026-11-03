@@ -327,6 +327,7 @@ class PhotoFragment : ViewPagerFragment() {
     }
 
     override fun onDestroyView() {
+        org.fossify.gallery.helpers.ViewerChromeMotion.cancel(binding.root)
         detailsGeneration++
         super.onDestroyView()
         if (activity?.isDestroyed == false) {

@@ -81,6 +81,7 @@ class PhotoViewerProgressivePagerTest {
             assertNull(navigation.destination(published.map { it.path }, livePath))
 
             fun publish(items: List<Medium>, complete: Boolean) {
+                val started = System.nanoTime()
                 val anchor = livePath
                 published = items
                 navigation.publish(complete)
@@ -91,6 +92,7 @@ class PhotoViewerProgressivePagerTest {
                 livePath = anchor
                 val target = navigation.destination(items.map { it.path }, livePath)
                 if (target != null) { pager.setCurrentItem(target, false); livePath = items[target].path }
+                println("Viewer simulated publication source=$source count=${items.size} ms=${(System.nanoTime() - started) / 1_000_000.0}")
             }
             publish(all.subList(2440, 2560), false)
             assertEquals(all[2503].path, livePath)

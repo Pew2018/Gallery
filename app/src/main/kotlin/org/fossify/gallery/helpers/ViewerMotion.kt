@@ -2,9 +2,15 @@ package org.fossify.gallery.helpers
 
 import android.os.SystemClock
 import android.view.View
+import android.view.ViewGroup
 
 /** One interruptible alpha transition for Activity chrome and photo/video overlays. */
 internal object ViewerChromeMotion {
+    fun cancel(view: View) {
+        view.animate().withEndAction(null).cancel()
+        if (view is ViewGroup) for (index in 0 until view.childCount) cancel(view.getChildAt(index))
+    }
+
     fun show(view: View, visible: Boolean, duration: Long = OxygenClassicMotion.VIEWER_CHROME_MS) {
         view.animate().withEndAction(null).cancel()
         val alpha = if (visible) 1f else 0f
