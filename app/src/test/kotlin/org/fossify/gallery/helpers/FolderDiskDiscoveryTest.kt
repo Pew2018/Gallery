@@ -100,7 +100,8 @@ class FolderDiskDiscoveryTest {
             val result = FolderDiskDiscovery.find(listOf(root.toString()),
                 { !it.startsWith(root.resolve("secret").toString()) }, { false })
             assertTrue(result.complete) // policy skips are intentional
-            assertFalse(result.folders.any { it.contains("alias") || it == secret.toString() })
+            val alias = root.resolve("alias").toString()
+            assertFalse(result.folders.any { it == alias || it.startsWith("$alias/") || it == secret.toString() })
         } finally {
             Files.deleteIfExists(root.resolve("alias"))
             root.toFile().deleteRecursively()

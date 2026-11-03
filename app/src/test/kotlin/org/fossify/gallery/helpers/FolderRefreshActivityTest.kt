@@ -316,4 +316,36 @@ class FolderRefreshActivityTest {
             assertEquals(setOf(old.path), paths(activity))
         }
     }
+
+    @Test fun periodicHomeDiscoveryUsesCanonicalBoundariesAndTheCurrentEpoch() {
+        photo("new.jpg")
+        context.config.includedFolders = mutableSetOf(root.path)
+        val link = File(root, "cycle")
+        Files.createSymbolicLink(link.toPath(), root.toPath())
+        val home = Robolectric.buildActivity(MainActivity::class.java,
+            Intent(context, MainActivity::class.java).putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true))
+            .create(Bundle()).start()
+        try {
+            val main = home.get()
+            val epoch = MainActivity::class.java.getDeclaredField("directoryScanEpoch").apply { isAccessible = true }
+                .get(main) as DirectoryScanEpoch
+            val request = epoch.begin()
+            MainActivity::class.java.getDeclaredField("mShouldStopFetching").apply { isAccessible = true }.setBoolean(main, false)
+            val method = MainActivity::class.java.getDeclaredMethod("getFoldersWithMedia", String::class.java,
+                Long::class.javaPrimitiveType).apply { isAccessible = true }
+            val result = method.invoke(main, root.path, request) as FolderDiscoveryResult
+            assertTrue(result.complete)
+            assertEquals(setOf(root.path), result.folders)
+            epoch.retire()
+            try {
+                method.invoke(main, root.path, request)
+                fail("retired periodic discovery continued")
+            } catch (error: java.lang.reflect.InvocationTargetException) {
+                assertTrue(error.cause is java.util.concurrent.CancellationException)
+            }
+        } finally {
+            Files.deleteIfExists(link.toPath())
+            home.stop().destroy()
+        }
+    }
 }

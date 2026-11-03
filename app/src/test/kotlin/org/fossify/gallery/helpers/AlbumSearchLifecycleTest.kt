@@ -45,7 +45,7 @@ class AlbumSearchLifecycleTest {
                         isCurrent: () -> Boolean = { true }) {
         val method = MainActivity::class.java.declaredMethods.single { it.name == "setupAdapter" }
         method.isAccessible = true
-        method.invoke(activity, directories, query, false, true, null, false, isCurrent)
+        method.invoke(activity, directories, query, false, true, null, false, isCurrent, {}, {})
     }
 
     @Test fun newlyDiscoveredAlbumIsSearchableAndClearingSearchKeepsTheLatestCatalog() = withActivity { activity ->

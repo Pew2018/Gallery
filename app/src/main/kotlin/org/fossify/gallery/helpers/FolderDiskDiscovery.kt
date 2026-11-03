@@ -38,7 +38,10 @@ internal object FolderDiskDiscovery {
                 if (canonical != boundary && !canonical.startsWith("${boundary.trimEnd('/')}/")) continue
                 // Check both names: a symlink must not bypass a protected canonical path.
                 if (!allowed(folder.absolutePath) || !allowed(canonical) || !visited.add(canonical)) continue
-                if (result.size >= maxFolders) return FolderDiscoveryResult(result, unreadable, truncated = true)
+                if (result.size >= maxFolders) {
+                    checkCancellation()
+                    return FolderDiscoveryResult(result, unreadable, truncated = true)
+                }
                 result.add(folder.absolutePath)
                 val children = try { listFiles(folder) } catch (error: Exception) {
                     if (error is CancellationException) throw error
@@ -49,12 +52,16 @@ internal object FolderDiskDiscovery {
                     checkCancellation()
                     if (allowed(child.absolutePath) && child.isDirectory) {
                         // Bound the frontier as well as visited directories.
-                        if (queue.size + result.size >= maxFolders) return FolderDiscoveryResult(result, unreadable, truncated = true)
+                        if (queue.size + result.size >= maxFolders) {
+                            checkCancellation()
+                            return FolderDiscoveryResult(result, unreadable, truncated = true)
+                        }
                         queue.add(child)
                     }
                 }
             }
         }
+        checkCancellation()
         return FolderDiscoveryResult(result, unreadable)
     }
 }

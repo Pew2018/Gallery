@@ -109,6 +109,7 @@ import org.fossify.gallery.extensions.createDirectoryFromMedia
 import org.fossify.gallery.extensions.directoryDB
 import org.fossify.gallery.extensions.favoriteFoldersDB
 import org.fossify.gallery.extensions.favoritesDB
+import org.fossify.gallery.extensions.shouldFolderBeVisible
 import org.fossify.gallery.extensions.getCachedDirectories
 import org.fossify.gallery.extensions.getCachedMedia
 import org.fossify.gallery.extensions.getDirectorySortingValue
@@ -2344,7 +2345,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
 
         if (!isCurrentDirectoryScan(scanRequest)) return GalleryScanResult(GalleryScanState.CANCELLED)
-        val foldersToScan = scanFetcher.getFoldersToScan()
+        val periodicDiscovery = if (!discoverUnindexed && (config.appRunCount == 1 || config.appRunCount % 30 == 0))
+            getFoldersWithMedia(config.internalStoragePath, scanRequest)
+        else org.fossify.gallery.helpers.FolderDiscoveryResult(emptySet(), emptySet())
+        val foldersToScan = (scanFetcher.getFoldersToScan() + periodicDiscovery.folders).distinct().toCollection(ArrayList())
         if (!isCurrentDirectoryScan(scanRequest)) return GalleryScanResult(GalleryScanState.CANCELLED)
         foldersToScan.remove(FAVORITES)
         foldersToScan.add(0, FAVORITES)
@@ -2487,10 +2491,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         commitBatch()
         // Prune before the only final reorder, under the same scan identity.
         folderFailures.putAll(scanFetcher.readFailures)
-        scanFetcher.folderDiscovery.unreadablePaths.forEach {
+        (scanFetcher.folderDiscovery.unreadablePaths + periodicDiscovery.unreadablePaths).forEach {
             folderFailures[it] = java.io.IOException("Incomplete directory discovery")
         }
-        val outcome = GalleryScanResult.sources(successfulSources, folderFailures, scanFetcher.folderDiscovery.complete)
+        val outcome = GalleryScanResult.sources(successfulSources, folderFailures,
+            scanFetcher.folderDiscovery.complete && periodicDiscovery.complete)
         if (outcome.complete) checkInvalidDirectories(dirs, scanRequest, folderFailures.keys)
         if (!isCurrentDirectoryScan(scanRequest)) return GalleryScanResult(GalleryScanState.CANCELLED)
         if (outcome.state != GalleryScanState.FAILED)
@@ -2513,10 +2518,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }.mapTo(everShownFolders) { it.path }
 
         try {
-            // scan the internal storage from time to time for new folders
-            if (config.appRunCount == 1 || config.appRunCount % 30 == 0) {
-                everShownFolders.addAll(getFoldersWithMedia(config.internalStoragePath))
-            }
+            // Reuse this request's bounded discovery; no second recursive walk after publication.
+            everShownFolders.addAll(periodicDiscovery.folders)
 
             // catch some extreme exceptions like too many everShownFolders for storing, shouldnt really happen
             config.everShownFolders = everShownFolders
@@ -2879,25 +2882,24 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 
-    private fun getFoldersWithMedia(path: String): HashSet<String> {
-        val folders = HashSet<String>()
-        try {
-            val files = File(path).listFiles()
-            if (files != null) {
-                files.sortBy { !it.isDirectory }
-                for (file in files) {
-                    if (file.isDirectory && !file.startsWith("${config.internalStoragePath}/Android")) {
-                        folders.addAll(getFoldersWithMedia(file.absolutePath))
-                    } else if (file.isFile && file.isMediaFile()) {
-                        folders.add(file.parent ?: "")
-                        break
-                    }
+    private fun getFoldersWithMedia(path: String, request: Long): org.fossify.gallery.helpers.FolderDiscoveryResult {
+        val mediaFolders = linkedSetOf<String>()
+        val statuses = hashMapOf<String, Boolean>()
+        val cfg = config
+        val excluded = if (cfg.temporarilyShowExcluded) hashSetOf<String>() else cfg.excludedFolders
+        val androidRoot = "${cfg.internalStoragePath.trimEnd('/')}/Android"
+        val discovery = org.fossify.gallery.helpers.FolderDiskDiscovery.find(listOf(path), allowed = { folder ->
+            folder != androidRoot && !folder.startsWith("$androidRoot/") &&
+                FolderUnlockSessionManager.findProtectedAncestor(folder, cfg::isFolderProtected) == null &&
+                folder.shouldFolderBeVisible(excluded, cfg.includedFolders, cfg.shouldShowHidden, statuses) { key, value ->
+                    statuses[key] = value
                 }
+        }, cancelled = { !isCurrentDirectoryScan(request) }, listFiles = { folder ->
+            folder.listFiles()?.also { children ->
+                if (children.any { it.isFile && it.isMediaFile() }) mediaFolders.add(folder.path)
             }
-        } catch (ignored: Exception) {
-        }
-
-        return folders
+        })
+        return discovery.copy(folders = mediaFolders.intersect(discovery.folders))
     }
 
     override fun refreshItems() {
