@@ -262,17 +262,77 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mDirs = ArrayList<Directory>()
     private var mDirsIgnoringSearch = ArrayList<Directory>()
     private var displayedDirectoryMetadataRevision = 0L
+    private val pendingDirectoryMetadataPaths = linkedSetOf<String>()
+    private val directoryMetadataHandler = Handler(android.os.Looper.getMainLooper())
+    private var directoryMetadataRebindScheduled = false
+    private var directoryMetadataRebindInFlight = false
+    private val directoryMetadataRebindRunnable = Runnable {
+        directoryMetadataRebindScheduled = false
+        publishPendingDirectoryMetadata()
+    }
+
+    private fun canPublishDirectoryMetadata(): Boolean =
+        !isFinishing && !isDestroyed && !mShowingFolderFavorites && !config.showAll &&
+            !isSpecialFolderFilterActive() &&
+            lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+
+    private fun scheduleDirectoryMetadataRebind() {
+        if (pendingDirectoryMetadataPaths.isEmpty() || directoryMetadataRebindScheduled ||
+            directoryMetadataRebindInFlight || mIsGettingDirs || !canPublishDirectoryMetadata()) return
+        directoryMetadataRebindScheduled = true
+        directoryMetadataHandler.postDelayed(directoryMetadataRebindRunnable, 250L)
+    }
+
+    private fun publishPendingDirectoryMetadata() {
+        if (directoryMetadataRebindInFlight || mIsGettingDirs ||
+            pendingDirectoryMetadataPaths.isEmpty() || !canPublishDirectoryMetadata()) return
+        val paths = pendingDirectoryMetadataPaths.toSet()
+        pendingDirectoryMetadataPaths.clear()
+        directoryMetadataRebindInFlight = true
+        val presentationEpoch = directoryScanEpoch.currentVersion()
+        val getImages = mIsPickImageIntent || mIsGetImageContentIntent
+        val getVideos = mIsPickVideoIntent || mIsGetVideoContentIntent
+        getCachedDirectories(getVideos && !getImages, getImages && !getVideos,
+            executor = org.fossify.gallery.helpers.GalleryAlbumScanExecutor,
+            onFailure = { error ->
+                android.util.Log.w("GalleryDirs", "Metadata-only catalog read failed", error)
+                runOnUiThread {
+                    directoryMetadataRebindInFlight = false
+                    // Keep paths until the next change/retry, without a busy loop.
+                    pendingDirectoryMetadataPaths.addAll(paths)
+                }
+            }
+        ) { cached ->
+            runOnUiThread {
+                directoryMetadataRebindInFlight = false
+                val stillCurrent = {
+                    canPublishDirectoryMetadata() && !mIsGettingDirs &&
+                        directoryScanEpoch.currentVersion() == presentationEpoch
+                }
+                if (stillCurrent()) {
+                    val catalog = addTempFolderIfNeeded(cached)
+                    // Favorites and recycle-bin rows come from separate data sources.
+                    mDirs.filter { it.path == FAVORITES || it.path == RECYCLE_BIN }.forEach { virtual ->
+                        if (catalog.none { it.path == virtual.path }) catalog.add(virtual.copy())
+                    }
+                    setupAdapter(catalog, presentationIsCurrent = stillCurrent)
+                } else {
+                    pendingDirectoryMetadataPaths.addAll(paths)
+                }
+                scheduleDirectoryMetadataRebind()
+            }
+        }
+    }
+
     private val directoryMetadataListener: (String) -> Unit = {
         runOnUiThread {
-            if (!isFinishing && !isDestroyed &&
-                lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) &&
-                !config.showAll && !isSpecialFolderFilterActive()) {
+            if (canPublishDirectoryMetadata()) {
                 val repository = org.fossify.gallery.helpers.DirectoryMetadataRepository
-                if (repository.changedSince(displayedDirectoryMetadataRevision).isNotEmpty()) {
-                    displayedDirectoryMetadataRevision = repository.currentRevision()
-                    // Normal album catalog is a Room read. Rebuild parents through
-                    // setupAdapter/getDirsToShow and keep the existing DiffUtil/scroll anchor.
-                    getDirectories(forceFavoriteReload = true, forceRefresh = true)
+                val changed = repository.changedSince(displayedDirectoryMetadataRevision)
+                displayedDirectoryMetadataRevision = repository.currentRevision()
+                if (changed.isNotEmpty()) {
+                    pendingDirectoryMetadataPaths.addAll(changed)
+                    scheduleDirectoryMetadataRebind()
                 }
             }
         }
@@ -310,6 +370,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 org.fossify.gallery.helpers.FolderRefreshTrace.event(directoryTraceRequest, "album_timeout")
                 retireDirectoryScan()
                 binding.directoriesRefreshLayout.isRefreshing = false
+                onNormalDirectoryScanFinished()
                 toast(R.string.folder_refresh_timeout)
             } else directoryRefreshWatchdog.stop()
             if (!isDestroyed && !isFinishing) directoryHeaderProgress?.apply {
@@ -523,6 +584,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         org.fossify.gallery.helpers.DirectoryMetadataRepository.observe(directoryMetadataListener)
         directoryMetadataListener("")
+        scheduleDirectoryMetadataRebind()
         if (!isSpecialFolderFilterActive()) {
             org.fossify.gallery.helpers.DirectoryMetadataRepository.refreshPendingPaths(applicationContext)
         }
@@ -543,6 +605,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     override fun onPause() {
         org.fossify.gallery.helpers.DirectoryMetadataRepository.removeObserver(directoryMetadataListener)
+        directoryMetadataHandler.removeCallbacks(directoryMetadataRebindRunnable)
+        directoryMetadataRebindScheduled = false
+        mediaPollGeneration++
+        mediaPollScheduled = false
+        mediaPollInFlight = false
         super.onPause()
         // Authentication Activities can temporarily pause us. Favorite requests are
         // retired at onStop, not here, so their successful results are not lost.
@@ -593,6 +660,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     override fun onDestroy() {
+        directoryMetadataHandler.removeCallbacks(directoryMetadataRebindRunnable)
         directoryRefreshWatchdog.stop()
         GalleryBottomBar.dispose(this)
         directoryHeaderProgress?.let(OxygenProgressStyle::dispose)
@@ -960,6 +1028,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     mIsGettingDirs = false
                     setDirectoryLoading(false)
                     binding.directoriesRefreshLayout.isRefreshing = false
+                    onNormalDirectoryScanFinished()
                     toast(R.string.folder_load_failed)
                 }
             } },
@@ -982,6 +1051,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                             mIsGettingDirs = false
                             setDirectoryLoading(false)
                             binding.directoriesRefreshLayout.isRefreshing = false
+                            onNormalDirectoryScanFinished()
                         }
                     }
                 }
@@ -2618,23 +2688,45 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 
+    private var mediaPollScheduled = false
+    private var mediaPollInFlight = false
+    private var mediaPollGeneration = 0L
+    private var mediaChangePending = false
+
+    private fun onNormalDirectoryScanFinished() {
+        scheduleDirectoryMetadataRebind()
+        if (mediaChangePending && !mIsGettingDirs && canPublishDirectoryMetadata()) {
+            mediaChangePending = false
+            getDirectories()
+        }
+    }
+
     private fun checkLastMediaChanged() {
-        if (isDestroyed) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            runOnUiThread { checkLastMediaChanged() }
             return
         }
-
+        if (!canPublishDirectoryMetadata() || mediaPollScheduled || mediaPollInFlight) return
+        mediaPollScheduled = true
+        val generation = mediaPollGeneration
         mLastMediaHandler.postDelayed({
+            mediaPollScheduled = false
+            if (generation != mediaPollGeneration || !canPublishDirectoryMetadata()) return@postDelayed
+            mediaPollInFlight = true
             ensureBackgroundThread {
-                val mediaId = getLatestMediaId()
-                val mediaDateId = getLatestMediaByDateId()
-                if (mLatestMediaId != mediaId || mLatestMediaDateId != mediaDateId) {
-                    mLatestMediaId = mediaId
-                    mLatestMediaDateId = mediaDateId
-                    runOnUiThread {
-                        getDirectories()
+                val latest = runCatching { getLatestMediaId() to getLatestMediaByDateId() }
+                    .onFailure { android.util.Log.w("GalleryDirs", "MediaStore poll failed", it) }.getOrNull()
+                runOnUiThread {
+                    if (generation != mediaPollGeneration) return@runOnUiThread
+                    mediaPollInFlight = false
+                    if (!canPublishDirectoryMetadata()) return@runOnUiThread
+                    if (latest != null && (mLatestMediaId != latest.first ||
+                            mLatestMediaDateId != latest.second)) {
+                        mLatestMediaId = latest.first
+                        mLatestMediaDateId = latest.second
+                        if (mIsGettingDirs) mediaChangePending = true
+                        else getDirectories()
                     }
-                } else {
-                    mLastMediaHandler.removeCallbacksAndMessages(null)
                     checkLastMediaChanged()
                 }
             }

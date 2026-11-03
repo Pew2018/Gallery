@@ -955,7 +955,11 @@ fun Context.getCachedMedia(
         // Display cached media without first doing an expensive MediaStore folder
         // enumeration or one Room SELECT per folder. The normal background
         // media refresh will reconcile newly added or removed files afterward.
-        getCachedDirectories(getVideosOnly, getImagesOnly) { directories ->
+        getCachedDirectories(getVideosOnly, getImagesOnly, onFailure = { error ->
+            // Failed cache reads must still start an authoritative source scan.
+            android.util.Log.w("GalleryMedia", "Root cache unavailable; scanning sources", error)
+            callback(arrayListOf())
+        }) { directories ->
             ensureBackgroundThread {
                 val allowed = directories.asSequence().map { it.path.lowercase(Locale.ROOT) }.toHashSet()
                 val fetcher = MediaFetcher(this)

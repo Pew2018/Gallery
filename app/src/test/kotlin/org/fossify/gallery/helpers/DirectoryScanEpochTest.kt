@@ -9,10 +9,12 @@ class DirectoryScanEpochTest {
         val epoch = DirectoryScanEpoch()
         val first = epoch.begin()
         assertTrue(epoch.isCurrent(first))
+        assertTrue(epoch.currentVersion() == first)
         val second = epoch.begin()
         assertFalse(epoch.isCurrent(first))
         assertTrue(epoch.isCurrent(second))
         epoch.retire()
         assertFalse(epoch.isCurrent(second))
+        assertTrue(epoch.currentVersion() > second)
     }
 }

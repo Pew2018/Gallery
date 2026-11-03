@@ -8,4 +8,6 @@ internal class DirectoryScanEpoch {
     fun begin(): Long = generation.incrementAndGet()
     fun retire(): Long = generation.incrementAndGet()
     fun isCurrent(request: Long): Boolean = generation.get() == request
+    /** Fences delayed album-card writes against newer full scans. */
+    fun currentVersion(): Long = generation.get()
 }

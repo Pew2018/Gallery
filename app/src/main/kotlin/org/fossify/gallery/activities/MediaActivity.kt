@@ -447,9 +447,15 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private var mediaRefreshRequest = -1L
     private val mediaRefreshWatchdog = org.fossify.gallery.helpers.RefreshWatchdog()
-    private fun setMediaLoading(loading: Boolean) {
-        if (loading && !isPhotoProfiles && !mShowAll && mPath.startsWith('/') && mPath != RECYCLE_BIN) mediaRefreshWatchdog.arm {
-            org.fossify.gallery.helpers.FolderRefreshTrace.event(mediaRefreshRequest, "folder_timeout")
+    /** A deadline spans cache lookup, queue wait and scan, including ALL files. */
+    private fun armMediaRefreshDeadline(request: Long) {
+        if (isPhotoProfiles) return
+        mediaRefreshWatchdog.stop()
+        mediaRefreshWatchdog.arm {
+            if (isDestroyed || isFinishing || !mediaLoadRequests.isCurrent(request)) return@arm
+            org.fossify.gallery.helpers.FolderRefreshTrace.event(
+                request, if (mShowAll) "all_files_timeout" else "folder_timeout"
+            )
             mediaLoadRequests.invalidate()
             mediaScanGeneration++
             mCurrAsyncTask?.stopFetching()
@@ -457,7 +463,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             setMediaLoading(false)
             binding.mediaRefreshLayout.isRefreshing = false
             toast(R.string.folder_refresh_timeout)
-        } else mediaRefreshWatchdog.stop()
+        }
+    }
+
+    private fun setMediaLoading(loading: Boolean) {
+        // A cached preview is not a new request and cannot restart a deadline.
+        if (!loading) mediaRefreshWatchdog.stop()
         if (isDestroyed || isFinishing) return
         // Root navigation uses the header strip. The central indicator is reserved
         // for the initial non-root folder/picker load; never show both together.
@@ -842,6 +853,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         favoritesScroll.cancelLayout()
         favoritesReturnCover?.pause()
         mediaSearchGeneration++
+        mediaPollGeneration++
+        mediaPollScheduled = false
+        mediaPollInFlight = false
         super.onPause()
         mIsGettingMedia = false
         setMediaLoading(false)
@@ -1439,23 +1453,41 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             if (mGallerySection == null) 0 else resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height))
     }
 
+    private var mediaPollScheduled = false
+    private var mediaPollInFlight = false
+    private var mediaPollGeneration = 0L
+    private var mediaChangePending = false
+
+    private fun pollAllowed(): Boolean = !isPhotoProfiles && !isDestroyed && !isFinishing &&
+        config.getFolderSorting(mPath) and SORT_BY_RANDOM == 0 &&
+        lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+
     private fun checkLastMediaChanged() {
-        if (isPhotoProfiles || isDestroyed || config.getFolderSorting(mPath) and SORT_BY_RANDOM != 0) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            runOnUiThread { checkLastMediaChanged() }
             return
         }
-
-        mLastMediaHandler.removeCallbacksAndMessages(null)
+        if (!pollAllowed() || mediaPollScheduled || mediaPollInFlight) return
+        mediaPollScheduled = true
+        val generation = mediaPollGeneration
         mLastMediaHandler.postDelayed({
+            mediaPollScheduled = false
+            if (generation != mediaPollGeneration || !pollAllowed()) return@postDelayed
+            mediaPollInFlight = true
             ensureBackgroundThread {
-                val mediaId = getLatestMediaId()
-                val mediaDateId = getLatestMediaByDateId()
-                if (mLatestMediaId != mediaId || mLatestMediaDateId != mediaDateId) {
-                    mLatestMediaId = mediaId
-                    mLatestMediaDateId = mediaDateId
-                    runOnUiThread {
-                        getMedia()
+                val latest = runCatching { getLatestMediaId() to getLatestMediaByDateId() }
+                    .onFailure { android.util.Log.w("GalleryMedia", "MediaStore poll failed", it) }.getOrNull()
+                runOnUiThread {
+                    if (generation != mediaPollGeneration) return@runOnUiThread
+                    mediaPollInFlight = false
+                    if (!pollAllowed()) return@runOnUiThread
+                    if (latest != null && (mLatestMediaId != latest.first ||
+                            mLatestMediaDateId != latest.second)) {
+                        mLatestMediaId = latest.first
+                        mLatestMediaDateId = latest.second
+                        if (mIsGettingMedia) mediaChangePending = true
+                        else getMedia()
                     }
-                } else {
                     checkLastMediaChanged()
                 }
             }
@@ -1604,6 +1636,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mCurrAsyncTask?.stopFetching()
         mIsGettingMedia = true
         setMediaLoading(true)
+        armMediaRefreshDeadline(request)
         binding.mediaEmptyTextPlaceholder.beGone()
         binding.mediaEmptyDescription.beGone()
         binding.mediaEmptyTextPlaceholder2.beGone()
@@ -1626,23 +1659,21 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 mIsGetImageIntent && !mIsGetVideoIntent,
                 allowedFavoritePaths = favoriteAccessPaths
             ) { cached ->
-                if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return@getCachedMedia
-
-                if (cached.isEmpty()) {
-                    runOnUiThread {
-                        if (mediaLoadRequests.isCurrent(request)) binding.mediaRefreshLayout.isRefreshing = true
+                // Cache callbacks run on workers; AsyncTask and preview UI start on main.
+                runOnUiThread {
+                    if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return@runOnUiThread
+                    if (cached.isEmpty()) {
+                        binding.mediaRefreshLayout.isRefreshing = true
+                    } else {
+                        val cachedHasUnknownSize = cached.asSequence()
+                            .filterIsInstance<Medium>()
+                            .any { it.size <= 0L }
+                        if (!sortingBySize || !cachedHasUnknownSize) {
+                            gotMedia(cached, true, request)
+                        }
                     }
-                } else {
-                    val cachedHasUnknownSize = cached.asSequence()
-                        .filterIsInstance<Medium>()
-                        .any { it.size <= 0L }
-                    // Cached metadata is allowed for fast display only when it can
-                    // preserve both size ordering and the fast-scroller size label.
-                    if (!sortingBySize || !cachedHasUnknownSize) {
-                        gotMedia(cached, true, request)
-                    }
+                    startAsyncTask(request, manualRefresh, cached.filterIsInstance<Medium>())
                 }
-                startAsyncTask(request, manualRefresh, cached.filterIsInstance<Medium>())
             }
         }
 
@@ -1833,8 +1864,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         try {
             org.fossify.gallery.helpers.FolderRefreshTrace.event(request, "folder_queued")
             task.executeOnExecutor(org.fossify.gallery.helpers.GalleryMediaScanExecutor)
-        } catch (_: java.util.concurrent.RejectedExecutionException) {
+        } catch (error: java.util.concurrent.RejectedExecutionException) {
             task.stopFetching()
+            mediaLoadRequests.invalidate()
+            mediaScanGeneration++
+            android.util.Log.w("GalleryMedia", "Media scan executor rejected request", error)
             mIsGettingMedia = false
             setMediaLoading(false)
             binding.mediaRefreshLayout.isRefreshing = false
@@ -2442,6 +2476,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 completedMediaRequest = request
             }
             checkLastMediaChanged()
+            if (!isFromCache && mediaChangePending && pollAllowed()) {
+                mediaChangePending = false
+                binding.mediaGrid.post {
+                    if (mediaLoadRequests.isCurrent(request) && !mIsGettingMedia && pollAllowed()) getMedia()
+                }
+            }
             // A search over an earlier preview must not overwrite a newer stage of this request.
             if (isPhotoProfiles) mediaSearchGeneration++
             if (isPhotoProfiles && !isFromCache && getMediaAdapter() != null) rememberPhotoScrollAnchor()
