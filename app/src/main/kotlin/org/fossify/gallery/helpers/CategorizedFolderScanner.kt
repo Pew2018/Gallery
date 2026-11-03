@@ -17,7 +17,8 @@ internal object CategorizedFolderScanner {
     fun scan(context: Context, cached: List<Directory>, flags: BooleanArray,
         cancelled: () -> Boolean, onFetcher: (MediaFetcher) -> Unit = {},
         onProgress: (Result) -> Unit = {},
-        discover: (Collection<String>, (String) -> Boolean, () -> Boolean) -> Set<String> = FolderDiskDiscovery::find,
+        discover: (Collection<String>, (String) -> Boolean, () -> Boolean) -> FolderDiscoveryResult =
+            { roots, allowed, stopped -> FolderDiskDiscovery.find(roots, allowed, stopped) },
         onMetadata: (DirectoryScanSnapshot) -> Unit = {}): Result {
         if (cancelled()) throw java.util.concurrent.CancellationException()
         val cfg = context.config
@@ -140,7 +141,11 @@ internal object CategorizedFolderScanner {
                 seeds.add(Environment.getExternalStoragePublicDirectory(it).toString())
             }
             val discovered = discover(seeds, { allowed(it) && !locked(it) }, cancelled)
-            (seeds + discovered).forEach { scanPath(it); publish() }
+            discovered.unreadablePaths.forEach { failures[it] = java.io.IOException("Directory discovery incomplete") }
+            if (discovered.truncated) failures["discovery"] = java.io.IOException("Directory discovery budget reached")
+            fetcher.folderDiscovery.unreadablePaths.forEach { failures[it] = java.io.IOException("Directory discovery incomplete") }
+            if (fetcher.folderDiscovery.truncated) failures["discovery"] = java.io.IOException("Directory discovery budget reached")
+            (seeds + discovered.folders).forEach { scanPath(it); publish() }
         }
         failures.putAll(fetcher.readFailures)
         if (cancelled()) throw java.util.concurrent.CancellationException()

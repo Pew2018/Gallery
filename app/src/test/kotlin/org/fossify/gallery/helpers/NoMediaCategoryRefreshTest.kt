@@ -182,7 +182,7 @@ class NoMediaCategoryRefreshTest {
             val work = pool.submit<CategorizedFolderScanner.Result> {
                 CategorizedFolderScanner.scan(context, listOf(old(root.path)), booleanArrayOf(false, false, true, true), { false },
                     onProgress = { result -> if (result.directories.any { it.path == root.path && it.mediaCnt == 2 }) seen.set(result) },
-                    discover = { _, _, _ -> entered.countDown(); release.await(5, TimeUnit.SECONDS); emptySet() })
+                    discover = { _, _, _ -> entered.countDown(); release.await(5, TimeUnit.SECONDS); FolderDiscoveryResult(emptySet(), emptySet()) })
             }
             assertTrue(entered.await(5, TimeUnit.SECONDS))
             assertNotNull("new media card waited for recursive discovery", seen.get())
@@ -192,4 +192,22 @@ class NoMediaCategoryRefreshTest {
         } finally { release.countDown(); pool.shutdownNow(); root.deleteRecursively() }
     }
 
+
+    @Test fun incompleteDiscoveryIsReportedWithoutDroppingReadableCachedAlbums() {
+        val root = Files.createTempDirectory("category-partial-discovery").toFile()
+        try {
+            File(root, ".nomedia").createNewFile()
+            photo(root, "old.jpg")
+            context.config.includedFolders = mutableSetOf(root.path)
+            val result = background {
+                CategorizedFolderScanner.scan(context, listOf(old(root.path)), booleanArrayOf(false, false, true, true),
+                    { false }, discover = { _, _, _ ->
+                        FolderDiscoveryResult(setOf(root.path), setOf("/unreadable"), truncated = true)
+                    })
+            }
+            assertTrue("/unreadable" in result.failures)
+            assertTrue("discovery" in result.failures)
+            assertTrue(result.directories.any { it.path == root.path && it.mediaCnt == 1 })
+        } finally { root.deleteRecursively() }
+    }
 }
