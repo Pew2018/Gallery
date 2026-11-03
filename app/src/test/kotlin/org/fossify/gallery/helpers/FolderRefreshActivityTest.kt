@@ -154,6 +154,9 @@ class FolderRefreshActivityTest {
                 occupied.countDown(); start.await(5, TimeUnit.SECONDS); workersReleased.countDown()
             } }
             assertTrue(occupied.await(2, TimeUnit.SECONDS))
+            MediaActivity.mMedia = arrayListOf<org.fossify.gallery.models.ThumbnailItem>(Medium().apply {
+                path = "/unrelated-album/old.jpg"; parentPath = "/unrelated-album"; name = "old.jpg"; type = TYPE_IMAGES
+            })
             withActivity { activity ->
                 refresh(activity)
                 val task = field(activity, "mCurrAsyncTask").get(activity) as org.fossify.gallery.asynctasks.GetMediaAsynctask

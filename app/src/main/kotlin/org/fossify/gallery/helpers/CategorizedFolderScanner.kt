@@ -32,12 +32,12 @@ internal object CategorizedFolderScanner {
         val result = linkedMapOf<String, Directory>()
         // Keep unvisited cached cards while publishing already-refreshed siblings.
         cached.filter { allowed(it.path) }.forEach { directory ->
-            result[directory.path] = directory.copy().apply {
+            result[directory.path] = directory.snapshot().apply {
                 if (locked(path)) { tmb = ""; mediaCnt = 0; subfoldersMediaCount = 0; size = 0L }
             }
         }
         val visited = hashSetOf<String>()
-        fun snapshot() = Result(ArrayList(result.values.filter { allowed(it.path) }.map { it.copy() }), failures.toMap())
+        fun snapshot() = Result(ArrayList(result.values.filter { allowed(it.path) }.map { it.snapshot() }), failures.toMap())
         var lastPublish = 0L
         fun publish(force: Boolean = false) {
             if (cancelled()) throw java.util.concurrent.CancellationException()
@@ -56,7 +56,7 @@ internal object CategorizedFolderScanner {
             val item = if (isProtected) {
                 // Metadata rows never authorize a read of a protected folder or descendants.
                 if (old == null && !File(path).isDirectory) return
-                (old?.copy() ?: Directory().apply { this.path = path; name = File(path).name }).apply {
+                (old?.snapshot() ?: Directory().apply { this.path = path; name = File(path).name }).apply {
                     tmb = ""; mediaCnt = 0; subfoldersMediaCount = 0; size = 0L
                 }
             } else try {
@@ -69,10 +69,10 @@ internal object CategorizedFolderScanner {
                 }
                 if (read.status == FolderReadStatus.FAILED || read.status == FolderReadStatus.ACCESS_REQUIRED) {
                     if (old == null) return
-                    old.copy()
+                    old.snapshot()
                 } else if (read.media.isEmpty()) {
                     if (read.status == FolderReadStatus.COMPLETE || old == null) { result.remove(path); return }
-                    old.copy()
+                    old.snapshot()
                 } else {
                     val media = read.media
                     context.createDirectoryFromMedia(path, media, covers, context.getString(R.string.hidden),
@@ -90,7 +90,7 @@ internal object CategorizedFolderScanner {
                 if (cancelled()) throw java.util.concurrent.CancellationException()
                 failures[path] = error
                 if (old == null) return
-                old.copy().apply { if (locked(path)) { tmb = ""; mediaCnt = 0; subfoldersMediaCount = 0; size = 0L } }
+                old.snapshot().apply { if (locked(path)) { tmb = ""; mediaCnt = 0; subfoldersMediaCount = 0; size = 0L } }
             }
             fetcher.readFailures[path]?.let { failures[path] = it }
             item.folderStatuses = listOfNotNull(

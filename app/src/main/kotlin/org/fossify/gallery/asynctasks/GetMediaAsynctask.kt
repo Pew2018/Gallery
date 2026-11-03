@@ -156,9 +156,16 @@ internal class GetMediaAsynctask(
                         FolderUnlockSessionManager.isMediaAuthorized(folderSessionId, path, context.config::isFolderProtected)
                 }
                 if (!allowed(java.io.File(mPath, "access-probe").path)) throw SecurityException("Folder authorization required")
+                val folderKey = MediaStoreFolderKey.of(mPath)
+                val folderCache = cachedMediaFallback.filter { item ->
+                    val parent = java.io.File(item.path).parent.orEmpty()
+                    MediaStoreFolderKey.of(parent) == folderKey ||
+                        (item.type == TYPE_PORTRAITS &&
+                            MediaStoreFolderKey.of(java.io.File(parent).parent.orEmpty()) == folderKey)
+                }
                 mediaFetcher.onFolderProgress = { progress ->
                     if (!isCancelled && onFolderPreview != null) {
-                        val merged = progress.presentation(cachedMediaFallback.filter {
+                        val merged = progress.presentation(folderCache.filter {
                             it.type and context.config.filterMedia != 0 &&
                                 (context.config.shouldShowHidden || !it.name.startsWith('.')) &&
                                 (!isPickImage || it.type != TYPE_VIDEOS) && (!isPickVideo || it.type != TYPE_IMAGES)
@@ -179,7 +186,7 @@ internal class GetMediaAsynctask(
                     FolderReadStatus.PARTIAL -> folderFailures = mapOf(mPath to (read.error ?: java.io.IOException("Incomplete folder refresh")))
                     else -> Unit
                 }
-                val fallback = cachedMediaFallback.filter {
+                val fallback = folderCache.filter {
                     it.type and context.config.filterMedia != 0 &&
                         (context.config.shouldShowHidden || !it.name.startsWith('.')) &&
                         (!isPickImage || it.type != TYPE_VIDEOS) && (!isPickVideo || it.type != TYPE_IMAGES)
