@@ -18,11 +18,22 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implements
+import org.robolectric.annotation.Implementation
 import java.util.concurrent.Executor
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28], application = Application::class)
+@Config(sdk = [28], application = Application::class, shadows = [MediaAdapterStabilityTest.HostWebpFactory::class])
 class MediaAdapterStabilityTest {
+    // These are request/binding tests with nonexistent local paths, not decoder tests.
+    // Android's bundled ARM WebP library cannot be loaded in the host JVM.
+    @Implements(className = "com.bumptech.glide.integration.webp.WebpBitmapFactory", isInAndroidSdk = false)
+    class HostWebpFactory {
+        companion object {
+            @JvmStatic @Implementation fun __staticInitializer__() = Unit
+        }
+    }
+
     private fun item(name: String) = Medium(null, name, "/photos/$name", "/photos", 10, 10, 100,
         TYPE_IMAGES, 0, false, 0, 1)
 
