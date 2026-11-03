@@ -30,7 +30,49 @@ class MediaFetcher(
     private val discoverUnindexedFolders: Boolean = false,
     private val showDotFiles: Boolean? = null
 ) {
-    private val noMediaSnapshot = NoMediaSnapshot()
+    internal var noMediaSnapshot = NoMediaSnapshot()
+    internal var folderFileAccess: FolderFileAccess = DeviceFolderFileAccess(context)
+    internal var traceRequest = 0L
+    private val folderObservations = hashMapOf<String, FolderReadObservation>()
+
+    internal fun readFolder(
+        path: String, isPickImage: Boolean, isPickVideo: Boolean, date: Boolean, modified: Boolean, size: Boolean,
+        favorites: ArrayList<String>, durations: Boolean, modifieds: HashMap<String, Long>,
+        dates: HashMap<String, Long>, indexed: HashMap<String, ArrayList<Medium>>?
+    ): FolderMediaReadResult {
+        folderObservations.remove(path)
+        directoryReadFailures.remove(path)
+        var error: Exception? = null
+        val media = try {
+            getFilesFrom(path, isPickImage, isPickVideo, date, modified, size, favorites, durations, modifieds, dates, indexed)
+        } catch (failure: Exception) {
+            if (shouldStop || failure is java.util.concurrent.CancellationException || failure is android.os.OperationCanceledException)
+                throw java.util.concurrent.CancellationException()
+            error = failure
+            // Index rows are a fallback only. They cannot prove a .nomedia directory complete.
+            try {
+                val indexedFallback = getAndroid11FolderMedia(isPickImage, isPickVideo, favorites, false, date, dates,
+                    allowedFolders = setOf(path))
+                ArrayList(indexedFallback[MediaStoreFolderKey.of(path)].orEmpty())
+            } catch (indexedError: Exception) {
+                if (shouldStop || indexedError is android.os.OperationCanceledException || indexedError is java.util.concurrent.CancellationException)
+                    throw java.util.concurrent.CancellationException()
+                arrayListOf()
+            }
+        }
+        if (shouldStop) throw java.util.concurrent.CancellationException()
+        val observation = folderObservations[path] ?: FolderReadObservation()
+        error = error ?: directoryReadFailures[path]
+        val status = if (error != null) {
+            if (media.isNotEmpty()) FolderReadStatus.PARTIAL
+            else if (error is SecurityException) FolderReadStatus.ACCESS_REQUIRED else FolderReadStatus.FAILED
+        } else if (observation.status == FolderReadStatus.PARTIAL && media.isEmpty() &&
+            "limited_visibility" in observation.reasons) FolderReadStatus.ACCESS_REQUIRED else observation.status
+        FolderRefreshTrace.event(traceRequest, "read_result", media.map { it.path },
+            "method=${observation.method} nomedia=${noMediaSnapshot.contains(path)} status=$status enumerated=${observation.enumerated} reasons=${observation.reasons}")
+        return FolderMediaReadResult(media, status, observation.method, observation.enumerated,
+            observation.reasons.toMap(), error, observation.accessCurrent)
+    }
     private val directoryReadFailures = linkedMapOf<String, Exception>()
     internal val readFailures: Map<String, Exception> get() = directoryReadFailures.toMap()
     private val queryCancellation = android.os.CancellationSignal()
@@ -415,13 +457,24 @@ class MediaFetcher(
         val showHidden = showDotFiles ?: config.shouldShowHidden
         val favoritePathSet = favoritePaths.toHashSet()
         val showPortraits = filterMedia and TYPE_PORTRAITS != 0
-        val fileSizes = if (!noMediaSnapshot.contains(folder) && indexedMetadata == null && (checkProperFileSize || checkFileExistence)) getFolderSizes(folder) else HashMap()
+        val fileSizes = if (!folder.startsWith('/') && !noMediaSnapshot.contains(folder) && indexedMetadata == null && (checkProperFileSize || checkFileExistence)) getFolderSizes(folder) else HashMap()
 
+        val physical = folder.startsWith('/') && !isRecycleBin && explicitFiles == null
+        val observation = if (physical) FolderReadObservation().also { folderObservations[folder] = it } else null
         val files = explicitFiles ?: when (folder) {
-            FAVORITES -> favoritePaths.filter { showHidden || !it.contains("/.") }.map { File(it) }.toMutableList() as ArrayList<File>
-            RECYCLE_BIN -> deletedMedia.map { File(it.path) }.toMutableList() as ArrayList<File>
-            else -> File(folder).listFiles()?.toMutableList() ?: run {
-                val error = java.io.IOException("Media folder cannot be enumerated")
+            FAVORITES -> favoritePaths.filter { showHidden || !it.contains("/.") }.map { File(it) }
+            RECYCLE_BIN -> deletedMedia.map { File(it.path) }
+            else -> try {
+                val enumeration = folderFileAccess.enumerate(folder)
+                observation?.apply {
+                    method = enumeration.method
+                    enumerated = enumeration.files.size
+                    accessCurrent = enumeration.current
+                    if (enumeration.limited) partial("limited_visibility")
+                }
+                enumeration.files
+            } catch (error: Exception) {
+                if (shouldStop || error is java.util.concurrent.CancellationException) throw java.util.concurrent.CancellationException()
                 directoryReadFailures[folder] = error
                 val hasIndexedRows = indexedMetadata?.values?.any {
                     MediaStoreFolderKey.of(it.parentPath) == MediaStoreFolderKey.of(folder)
@@ -433,10 +486,8 @@ class MediaFetcher(
 
         for (curFile in files) {
             var file = curFile
-            if (shouldStop) {
-                break
-            }
-
+            if (shouldStop) throw java.util.concurrent.CancellationException()
+            FolderRefreshTrace.event(traceRequest, "enumerated", listOf(file.path))
             var path = file.absolutePath
             var isPortrait = false
             val isImage = path.isImageFast()
@@ -457,52 +508,58 @@ class MediaFetcher(
                         continue
                     }
                 } else {
+                    observation?.count("unsupported")
                     continue
                 }
             }
 
-            if (isVideo && (isPickImage || filterMedia and TYPE_VIDEOS == 0))
-                continue
+            if (isVideo && (isPickImage || filterMedia and TYPE_VIDEOS == 0)) { observation?.count("filtered"); continue }
 
-            if (isImage && (isPickVideo || filterMedia and TYPE_IMAGES == 0))
-                continue
+            if (isImage && (isPickVideo || filterMedia and TYPE_IMAGES == 0)) { observation?.count("filtered"); continue }
 
-            if (isGif && filterMedia and TYPE_GIFS == 0)
-                continue
+            if (isGif && filterMedia and TYPE_GIFS == 0) { observation?.count("filtered"); continue }
 
-            if (isRaw && filterMedia and TYPE_RAWS == 0)
-                continue
+            if (isRaw && filterMedia and TYPE_RAWS == 0) { observation?.count("filtered"); continue }
 
-            if (isSvg && filterMedia and TYPE_SVGS == 0)
-                continue
+            if (isSvg && filterMedia and TYPE_SVGS == 0) { observation?.count("filtered"); continue }
 
             val filename = file.name
-            if (!showHidden && filename.startsWith('.'))
-                continue
+            if (!showHidden && filename.startsWith('.')) { observation?.count("filtered"); continue }
 
             // Profile queries already supplied complete metadata. Enumerate directories
             // only to discover unindexed files; do not re-query dates/sizes per folder.
             val indexed = indexedMetadata?.get(path)
-            if (indexed != null && !isPortrait) {
+            if (indexed != null && !isPortrait && !physical) {
                 if (checkFileExistence && (!file.exists() || !file.isFile)) continue
                 media.add(if (indexed.isFavorite == (path in favoritePathSet)) indexed else indexed.copy(isFavorite = path in favoritePathSet))
                 continue
             }
 
-            var size = 0L
-            if (checkProperFileSize || checkFileExistence) {
-                var newSize = fileSizes.remove(path)
-                if (newSize == null) {
-                    newSize = file.length()
+            FolderRefreshTrace.event(traceRequest, "type_passed", listOf(path))
+            val metadata = if (physical) try {
+                folderFileAccess.metadata(file).also {
+                    if (!it.readable || !it.regular) {
+                        if (!it.regular) observation?.count("not_file") else observation?.partial("unreadable")
+                    }
                 }
-                size = newSize
+            } catch (error: Exception) {
+                if (shouldStop || error is java.util.concurrent.CancellationException) throw java.util.concurrent.CancellationException()
+                observation?.partial("metadata_failed")
+                null
+            } else null
+            if (physical && (metadata == null || !metadata.readable || !metadata.regular)) continue
+            var size = metadata?.size ?: 0L
+            if (physical) {
+                if (metadata!!.size == 0L) { observation?.count("zero_bytes"); continue }
+                if (metadata.size == null) observation?.count("unknown_size_readable")
+            } else {
+                if (checkProperFileSize || checkFileExistence) size = fileSizes.remove(path) ?: file.length()
+                if ((checkProperFileSize || checkFileExistence) && size <= 0L) continue
+                if (checkFileExistence && (!file.exists() || !file.isFile)) continue
             }
-
-            if ((checkProperFileSize || checkFileExistence) && size <= 0L) {
-                continue
-            }
-
-            if (checkFileExistence && (!file.exists() || !file.isFile)) {
+            FolderRefreshTrace.event(traceRequest, "metadata_passed", listOf(path))
+            if (indexed != null && !isPortrait) {
+                media.add(indexed.copy(isFavorite = path in favoritePathSet))
                 continue
             }
 
@@ -515,7 +572,7 @@ class MediaFetcher(
                 var newLastModified = lastModifieds[path]
                 if (newLastModified == null) {
                     newLastModified = if (getProperLastModified) {
-                        file.lastModified()
+                        (metadata?.modified ?: file.lastModified())
                     } else {
                         0L
                     }
@@ -531,7 +588,7 @@ class MediaFetcher(
                         newDateTaken = if (getProperLastModified) {
                             lastModified
                         } else {
-                            file.lastModified()
+                            (metadata?.modified ?: file.lastModified())
                         }
                     }
                     dateTaken = newDateTaken
@@ -552,6 +609,9 @@ class MediaFetcher(
             }
         }
 
+        if (shouldStop) throw java.util.concurrent.CancellationException()
+        FolderRefreshTrace.event(traceRequest, "scan_output", media.map { it.path },
+            "method=${observation?.method} status=${observation?.status} enumerated=${observation?.enumerated} reasons=${observation?.reasons}")
         return media
     }
 

@@ -24,7 +24,7 @@ internal object CategorizedFolderScanner {
         fun locked(path: String) = FolderUnlockSessionManager.findProtectedAncestor(path, cfg::isFolderProtected) != null
         fun allowed(path: String) = policy.allows(path, markers.contains(path), locked(path))
         val failures = linkedMapOf<String, Exception>()
-        val fetcher = MediaFetcher(context, cancelled = cancelled, reportReadFailures = true, showDotFiles = policy.dots)
+        val fetcher = MediaFetcher(context, cancelled = cancelled, reportReadFailures = true, showDotFiles = policy.dots).also { it.noMediaSnapshot = markers; it.traceRequest = System.nanoTime() }
         onFetcher(fetcher)
         val seeds = linkedSetOf<String>().apply {
             addAll(cached.map { it.path }); addAll(cfg.everShownFolders)
@@ -59,18 +59,37 @@ internal object CategorizedFolderScanner {
                     tmb = ""; mediaCnt = 0; subfoldersMediaCount = 0; size = 0L
                 }
             } else try {
-                val media = fetcher.getFilesFrom(path, false, false, true, true,
+                val read = fetcher.readFolder(path, false, false, true, true,
                     cfg.directorySorting and SORT_BY_SIZE != 0, favorites, false,
                     hashMapOf(), fetcher.getSelectedFolderDateOverrides(listOf(path)), null)
-                if (media.isEmpty()) continue // A confirmed empty album has no media card.
-                context.createDirectoryFromMedia(path, media, covers, context.getString(R.string.hidden),
+                if (locked(path) || !read.accessCurrent()) throw SecurityException("Directory authorization changed")
+                if (read.status != FolderReadStatus.COMPLETE) {
+                    failures[path] = read.error ?: java.io.IOException("Directory refresh is incomplete")
+                }
+                if (read.status == FolderReadStatus.FAILED || read.status == FolderReadStatus.ACCESS_REQUIRED) {
+                    if (old == null) continue
+                    old.copy()
+                } else if (read.media.isEmpty()) {
+                    if (read.status == FolderReadStatus.COMPLETE || old == null) continue
+                    old.copy()
+                } else {
+                    val media = read.media
+                    context.createDirectoryFromMedia(path, media, covers, context.getString(R.string.hidden),
                     cfg.includedFolders, cfg.directorySorting and SORT_BY_SIZE != 0,
-                    ArrayList(markers.markerFolders(path)))
+                    ArrayList(markers.markerFolders(path))).apply {
+                    if (read.status == FolderReadStatus.PARTIAL && old != null) {
+                        // A card has no cached member list. Retain a conservative lower bound,
+                        // not old+new (which would count overlapping members twice).
+                        mediaCnt = maxOf(mediaCnt, old.mediaCnt)
+                        size = maxOf(size, old.size)
+                    }
+                }
+                }
             } catch (error: Exception) {
                 if (cancelled()) throw java.util.concurrent.CancellationException()
                 failures[path] = error
                 if (old == null) continue
-                old.copy()
+                old.copy().apply { if (locked(path)) { tmb = ""; mediaCnt = 0; subfoldersMediaCount = 0; size = 0L } }
             }
             fetcher.readFailures[path]?.let { failures[path] = it }
             item.folderStatuses = listOfNotNull(

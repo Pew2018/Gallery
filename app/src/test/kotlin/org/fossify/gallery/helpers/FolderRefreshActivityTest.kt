@@ -1,0 +1,143 @@
+package org.fossify.gallery.helpers
+
+import android.Manifest
+import android.app.Application
+import android.content.Intent
+import android.os.Bundle
+import android.os.Looper
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import org.fossify.commons.extensions.getSharedPrefs
+import org.fossify.commons.views.MyRecyclerView
+import org.fossify.gallery.R
+import org.fossify.gallery.activities.MediaActivity
+import org.fossify.gallery.adapters.MediaAdapter
+import org.fossify.gallery.databases.GalleryDatabase
+import org.fossify.gallery.extensions.config
+import org.fossify.gallery.models.Medium
+import org.junit.After
+import org.junit.Before
+import org.junit.Test
+import org.junit.Assert.*
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
+import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowContentResolver
+import java.io.File
+import java.nio.file.Files
+import java.util.concurrent.TimeUnit
+
+/** Real Activity refresh listener -> AsyncTask -> publication -> MediaAdapter.
+ * Host filesystem only: these tests make no Android storage permission completeness claim. */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28], application = Application::class)
+class FolderRefreshActivityTest {
+    private val context get() = RuntimeEnvironment.getApplication()
+    private lateinit var root: File
+    private lateinit var provider: PhotoProfileMediaLoadingTest.IndexedMediaProvider
+    @Before fun setup() {
+        GalleryDatabase.destroyInstance()
+        context.getSharedPrefs().edit().clear().commit()
+        Shadows.shadowOf(context).grantPermissions(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        context.config.filterMedia = TYPE_IMAGES
+        root = Files.createTempDirectory("activity-nomedia").toFile()
+        File(root, ".nomedia").createNewFile()
+        provider = Robolectric.buildContentProvider(PhotoProfileMediaLoadingTest.IndexedMediaProvider::class.java).create().get()
+        ShadowContentResolver.registerProviderInternal("media", provider)
+    }
+    @After fun cleanup() { root.deleteRecursively(); provider.db.close(); GalleryDatabase.destroyInstance() }
+    private fun photo(name: String) = File(root, name).apply { writeBytes(byteArrayOf(1, 2)) }
+    private fun field(activity: MediaActivity, name: String) = MediaActivity::class.java.getDeclaredField(name).apply { isAccessible = true }
+    private fun paths(activity: MediaActivity) = (activity.findViewById<MyRecyclerView>(R.id.media_grid).adapter as? MediaAdapter)
+        ?.media.orEmpty().filterIsInstance<Medium>().map { it.path }.toSet()
+    private fun await(condition: () -> Boolean) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+        while (!condition() && System.nanoTime() < deadline) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(10)
+        }
+        assertTrue("Activity/Adapter did not reach the expected state", condition())
+    }
+    private fun refresh(activity: MediaActivity) {
+        val swipe = activity.findViewById<SwipeRefreshLayout>(R.id.media_refresh_layout)
+        val listener = SwipeRefreshLayout::class.java.getDeclaredField("mListener").apply { isAccessible = true }
+            .get(swipe) as SwipeRefreshLayout.OnRefreshListener
+        listener.onRefresh()
+    }
+    private fun withActivity(block: (MediaActivity) -> Unit) {
+        val intent = Intent(context, MediaActivity::class.java).putExtra(DIRECTORY, root.path)
+        val controller = Robolectric.buildActivity(MediaActivity::class.java, intent).create(Bundle()).start()
+        try {
+            val activity = controller.get()
+            // Skip the unrelated startup Room preview; the refresh itself runs its real background scanner.
+            field(activity, "mLoadedInitialPhotos").setBoolean(activity, true)
+            block(activity)
+            (field(activity, "mCurrAsyncTask").get(activity) as? org.fossify.gallery.asynctasks.GetMediaAsynctask)?.stopFetching()
+        } finally { controller.stop().destroy() }
+    }
+
+    @Test fun pullRefreshAddsCopiedNoMediaImageToTheActualAdapterAndHomeCard() {
+        val old = photo("old.jpg")
+        withActivity { activity ->
+            refresh(activity)
+            await { old.path in paths(activity) }
+            val fresh = photo("NEW.JPG")
+            refresh(activity)
+            await { paths(activity) == setOf(old.path, fresh.path) }
+            assertFalse(activity.isFinishing)
+            val pool = java.util.concurrent.Executors.newSingleThreadExecutor()
+            try {
+                val result = pool.submit<CategorizedFolderScanner.Result> {
+                    CategorizedFolderScanner.scan(context, listOf(org.fossify.gallery.models.Directory().apply {
+                        path = root.path; mediaCnt = 1
+                    }), booleanArrayOf(false, false, true, true), { false })
+                }.get(10, TimeUnit.SECONDS)
+                assertEquals(2, result.directories.single { it.path == root.path }.mediaCnt)
+            } finally { pool.shutdownNow() }
+        }
+    }
+    @Test fun emptyFilteredRefreshKeepsFolderAndDoesNotFinish() {
+        photo("movie.mp4")
+        context.config.deleteEmptyFolders = true
+        withActivity { activity ->
+            refresh(activity)
+            await { !field(activity, "mIsGettingMedia").getBoolean(activity) }
+            assertTrue(root.isDirectory)
+            assertTrue(File(root, "movie.mp4").isFile)
+            assertFalse(activity.isFinishing)
+            assertTrue(paths(activity).isEmpty())
+        }
+    }
+    @Test fun unavailableDirectoryKeepsOldAdapterAndDoesNotFinish() {
+        val old = photo("old.jpg")
+        withActivity { activity ->
+            refresh(activity)
+            await { old.path in paths(activity) }
+            val parked = File(root.parentFile, root.name + "-parked")
+            assertTrue(root.renameTo(parked))
+            try {
+                refresh(activity)
+                await { !field(activity, "mIsGettingMedia").getBoolean(activity) }
+                assertEquals(setOf(old.path), paths(activity))
+                assertFalse(activity.isFinishing)
+            } finally { parked.renameTo(root) }
+        }
+    }
+    @Test fun lateOlderPublicationCannotReplaceLatestAdapter() {
+        val fresh = photo("fresh.jpg")
+        withActivity { activity ->
+            refresh(activity)
+            await { fresh.path in paths(activity) }
+            val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
+            val stale = requests.begin()
+            requests.begin()
+            MediaActivity::class.java.getDeclaredMethod("publishMedia", ArrayList::class.java,
+                Boolean::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
+                .invoke(activity, arrayListOf<org.fossify.gallery.models.ThumbnailItem>(Medium().apply { path = "${root.path}/stale.jpg" }), false, stale)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(setOf(fresh.path), paths(activity))
+        }
+    }
+}

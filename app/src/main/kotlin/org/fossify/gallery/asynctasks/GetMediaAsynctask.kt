@@ -29,10 +29,14 @@ class GetMediaAsynctask(
     private val photoAnchorPath: String? = null,
     private val onPhotoResult: ((PhotoLoadResult) -> Unit)? = null,
     private val manualRefresh: Boolean = false,
+    private val folderSessionId: String? = null,
+    private val requestId: Long = 0,
     val callback: (media: ArrayList<ThumbnailItem>) -> Unit
 ) :
     AsyncTask<Void, PhotoLoadResult, ArrayList<ThumbnailItem>>() {
-    private val mediaFetcher = MediaFetcher(context, reportReadFailures = true, discoverUnindexedFolders = manualRefresh)
+    private val mediaFetcher = MediaFetcher(context, reportReadFailures = true, discoverUnindexedFolders = manualRefresh).also { it.traceRequest = requestId }
+    internal var folderReadResult: FolderMediaReadResult? = null
+        private set
     private var scanFailure: Exception? = null
     private var folderFailures: Map<String, Exception> = emptyMap()
     private var profileResult: PhotoLoadResult? = null
@@ -45,7 +49,7 @@ class GetMediaAsynctask(
     override fun doInBackground(vararg params: Void): ArrayList<ThumbnailItem> {
         return try {
         val noMediaFolder = !showAll && mPath.startsWith('/') && photoProfileId == null &&
-            mPath != PhotoProfileMediaLoader.PATH && NoMediaSnapshot().contains(mPath)
+            mPath != PhotoProfileMediaLoader.PATH && mediaFetcher.noMediaSnapshot.contains(mPath)
         val folderCheckpointStarted = if (!noMediaFolder && !showAll && mPath.startsWith('/') && mPath != FAVORITES &&
             mPath != RECYCLE_BIN && photoProfileId == null) {
             runCatching { FolderReturnCheckpoint.capture(context, mPath) }.getOrNull()
@@ -133,7 +137,31 @@ class GetMediaAsynctask(
                     HashMap(dateTakens), allowedFolders = setOf(mPath)
                 )
             } else null
-            mediaFetcher.getFilesFrom(
+            if (mPath.startsWith('/') && mPath != RECYCLE_BIN) {
+                fun allowed(path: String): Boolean {
+                    val parent = java.io.File(path).parent ?: return false
+                    return FolderUnlockSessionManager.findProtectedAncestor(parent, context.config::isFolderProtected) == null ||
+                        FolderUnlockSessionManager.isMediaAuthorized(folderSessionId, path, context.config::isFolderProtected)
+                }
+                if (!allowed(java.io.File(mPath, "access-probe").path)) throw SecurityException("Folder authorization required")
+                val read = mediaFetcher.readFolder(
+                    mPath, isPickImage, isPickVideo, getProperDateTaken, getProperLastModified, getProperFileSize, favoritePaths,
+                    getVideoDurations, lastModifieds, dateTakens, indexedFolder)
+                folderReadResult = read
+                when (read.status) {
+                    FolderReadStatus.FAILED, FolderReadStatus.ACCESS_REQUIRED -> throw (read.error ?: SecurityException("Directory access required"))
+                    FolderReadStatus.PARTIAL -> folderFailures = mapOf(mPath to (read.error ?: java.io.IOException("Incomplete folder refresh")))
+                    else -> Unit
+                }
+                val fallback = cachedMediaFallback.filter {
+                    it.type and context.config.filterMedia != 0 &&
+                        (context.config.shouldShowHidden || !it.name.startsWith('.')) &&
+                        (!isPickImage || it.type != TYPE_VIDEOS) && (!isPickVideo || it.type != TYPE_IMAGES)
+                }
+                val presented = read.presentation(fallback, ::allowed)
+                mediaFetcher.sortMedia(presented, folderSorting)
+                presented
+            } else mediaFetcher.getFilesFrom(
                 mPath, isPickImage, isPickVideo, getProperDateTaken, getProperLastModified, getProperFileSize, favoritePaths,
                 getVideoDurations, lastModifieds, dateTakens, indexedFolder
             )
@@ -165,6 +193,8 @@ class GetMediaAsynctask(
         }
         safeResult
         } catch (error: Exception) {
+            if (isCancelled || error is java.util.concurrent.CancellationException || error is android.os.OperationCanceledException)
+                throw java.util.concurrent.CancellationException()
             scanFailure = error
             ArrayList()
         }

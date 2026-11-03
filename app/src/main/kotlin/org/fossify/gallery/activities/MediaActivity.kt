@@ -1387,11 +1387,15 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             else onCommitted()
         } else if (mLastSearchedText.isEmpty()) {
             val request = displayedMediaRequest
+            val read = folderReadResult.takeIf { folderReadRequest == request }
             val searchGeneration = mediaSearchGeneration
             (currAdapter as MediaAdapter).updateMedia(mMedia, isCurrent = {
                 mediaLoadRequests.isCurrent(request) && searchGeneration == mediaSearchGeneration &&
                     !isFinishing && !isDestroyed &&
-                    (mPath != FAVORITES || FavoriteAccessSessionManager.isActive(favoriteSessionId))
+                    (mPath != FAVORITES || FavoriteAccessSessionManager.isActive(favoriteSessionId)) &&
+                    read?.accessCurrent?.invoke() != false &&
+                    (isPhotoProfiles || mShowAll || !mPath.startsWith('/') || mPath == RECYCLE_BIN ||
+                        mMedia.filterIsInstance<Medium>().all { folderPublicationAllowed(it.path) })
             }, onCommitted = {
                 handleGridSpacing(currAdapter.media)
                 onCommitted()
@@ -1624,6 +1628,15 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mLoadedInitialPhotos = true
     }
 
+    private var folderReadRequest = -1L
+    private var folderReadResult: org.fossify.gallery.helpers.FolderMediaReadResult? = null
+
+    private fun folderPublicationAllowed(path: String): Boolean {
+        val parent = File(path).parent ?: return false
+        return FolderUnlockSessionManager.findProtectedAncestor(parent, config::isFolderProtected) == null ||
+            FolderUnlockSessionManager.isMediaAuthorized(folderUnlockSessionId, path, config::isFolderProtected)
+    }
+
     private fun startAsyncTask(request: Long, manualRefresh: Boolean = false) {
         if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return
         // A canceled or superseded scan must not change the visible list or cached data.
@@ -1638,7 +1651,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             isPickImage = mIsGetImageIntent && !mIsGetVideoIntent,
             isPickVideo = mIsGetVideoIntent && !mIsGetImageIntent,
             showAll = mShowAll,
-            cachedMediaFallback = if (mShowAll) mMedia.filterIsInstance<Medium>().map { it.copy() } else emptyList(),
+            cachedMediaFallback = mMedia.filterIsInstance<Medium>().map { it.copy() },
+            folderSessionId = folderUnlockSessionId,
+            requestId = request,
             onPartialFailure = {
                 if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed) toast(R.string.media_load_partial_error)
             },
@@ -1648,7 +1663,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             onFailure = { error ->
                 android.util.Log.e("GalleryMedia", "Media scan failed", error)
                 runOnUiThread {
-                    if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed) {
+                    if (mediaLoadRequests.isCurrent(request) && scanGeneration == mediaScanGeneration &&
+                        requestedFolder == mPath && !isFinishing && !isDestroyed) {
+                        if (error is SecurityException && !mShowAll && mPath.startsWith('/')) {
+                            mMedia.clear()
+                            binding.mediaGrid.adapter = null
+                        }
                         mIsGettingMedia = false
                         setMediaLoading(false)
                         OxygenProgressStyle.setLoading(binding.loadingIndicator, false)
@@ -1683,6 +1703,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     if (requestedFolder == FAVORITES) {
                         favoriteCatalogRelationshipPaths = scanTask?.favoriteRelationshipSnapshot
                     }
+                    if (requestedFolder != mPath) return@ensureBackgroundThread
+                    folderReadRequest = request
+                    folderReadResult = scanTask?.folderReadResult
+                    org.fossify.gallery.helpers.FolderRefreshTrace.event(request, "publication_candidate",
+                        scannedMedia.filterIsInstance<Medium>().map { it.path }, "status=${folderReadResult?.status}")
                     gotMedia(scannedMedia, false, request)
                     val folderCheckpoint = scanTask?.folderCatalogCheckpoint
                     if (folderCheckpoint != null && !mShowAll && requestedFolder.isNotEmpty() &&
@@ -1704,6 +1729,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     // old file was deleted. Never clear a favorite relationship here.
                     // Only prune cached metadata for files confirmed absent from an
                     // accessible parent directory.
+                    if (scanTask?.folderReadResult?.status?.let { it != org.fossify.gallery.helpers.FolderReadStatus.COMPLETE } == true)
+                        return@ensureBackgroundThread
                     oldMedia.forEach { old ->
                         if (scanGeneration != mediaScanGeneration || !mediaLoadRequests.isCurrent(request)) return@ensureBackgroundThread
                         val file = File(old.path)
@@ -1840,20 +1867,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun isDirEmpty(): Boolean {
         if (isPhotoProfiles) return mMedia.isEmpty()
         return if (mMedia.isEmpty() && config.filterMedia > 0) {
-            if (mPath != FAVORITES && mPath != RECYCLE_BIN) {
-                deleteDirectoryIfEmpty()
-                deleteDBDirectory()
-            }
-
-            // A favorite album can scan empty when its storage is temporarily
-            // unavailable. Keep the virtual folder and saved relationships.
-            if (mPath == RECYCLE_BIN || mPath == FAVORITES) {
-                binding.mediaEmptyTextPlaceholder.setText(org.fossify.commons.R.string.no_items_found)
-                binding.mediaEmptyTextPlaceholder.beVisible()
-                binding.mediaEmptyTextPlaceholder2.beGone()
-            } else {
-                finish()
-            }
+            if (mPath != FAVORITES && mPath != RECYCLE_BIN) return false
+            binding.mediaEmptyTextPlaceholder.setText(org.fossify.commons.R.string.no_items_found)
+            binding.mediaEmptyTextPlaceholder.beVisible()
+            binding.mediaEmptyTextPlaceholder2.beGone()
 
             true
         } else {
@@ -2302,6 +2319,20 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed ||
                 (isFromCache && completedMediaRequest == request)) return@runOnUiThread
 
+            val physicalFolder = !isPhotoProfiles && !mShowAll && mPath.startsWith('/') && mPath != RECYCLE_BIN
+            if (physicalFolder) {
+                val read = folderReadResult.takeIf { folderReadRequest == request && !isFromCache }
+                if (read != null && !read.accessCurrent()) {
+                    mMedia.clear()
+                    binding.mediaGrid.adapter = null
+                    mIsGettingMedia = false
+                    setMediaLoading(false)
+                    binding.mediaRefreshLayout.isRefreshing = false
+                    toast(R.string.media_load_permission_error)
+                    return@runOnUiThread
+                }
+                media.removeAll { item -> (item as? Medium)?.let { !folderPublicationAllowed(it.path) } == true }
+            }
             if (isFromCache && media.isNotEmpty()) setMediaLoading(true)
             if (!isFromCache) {
                 mIsGettingMedia = false
@@ -2355,7 +2386,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             } else {
                 setupAdapter {
                     if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return@setupAdapter
-                    displayedMediaIsFinal = !isFromCache
+                    displayedMediaIsFinal = !isFromCache && !(folderReadRequest == request &&
+                        folderReadResult?.status == org.fossify.gallery.helpers.FolderReadStatus.PARTIAL)
+                    org.fossify.gallery.helpers.FolderRefreshTrace.event(request, "adapter_committed",
+                        getMediaAdapter()?.media.orEmpty().filterIsInstance<Medium>().map { it.path }, "final=$displayedMediaIsFinal")
                     if (isFromCache && media.isNotEmpty()) setMediaLoading(true)
                     GalleryBottomBar.markRootContentReady(this)
                     if (mPath == FAVORITES && !isFromCache && media.isNotEmpty()) {
@@ -2407,10 +2441,15 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             if (!isFromCache && !isPhotoProfiles) {
                 // Never let a previous request persist stale favorites after a new refresh.
                 val publishedMedia = mMedia
+                val read = folderReadResult.takeIf { folderReadRequest == request }
+                val confirmed = read?.confirmedPaths
                 ensureBackgroundThread {
-                    if (mediaLoadRequests.isCurrent(request)) {
+                    if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed && read?.accessCurrent?.invoke() != false) {
                         try {
-                            mediaDB.insertAll(publishedMedia.filterIsInstance<Medium>().filter { it.deletedTS == 0L })
+                            mediaDB.insertAll(publishedMedia.filterIsInstance<Medium>().filter {
+                                it.deletedTS == 0L && (confirmed == null || it.path in confirmed) &&
+                                    (!physicalFolder || folderPublicationAllowed(it.path))
+                            })
                         } catch (error: Exception) {
                             android.util.Log.e("GalleryMedia", "Cannot cache scanned media", error)
                         }
