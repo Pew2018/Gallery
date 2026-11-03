@@ -43,9 +43,7 @@ class PhotoViewerContinuousSwipeTest {
             override fun isFullScreen() = false
         }
         val adapter = MyPagerAdapter(host, activity.supportFragmentManager, photos,
-            fragmentFactory = { object : ViewPagerFragment() {
-                override fun fullscreenToggled(isFullscreen: Boolean) = Unit
-            } })
+            fragmentFactory = { PhotoViewerTestFragment() })
         assertEquals(5_000, adapter.count)
 
         // Each page is released as the viewport advances. No full-list requery
@@ -62,4 +60,9 @@ class PhotoViewerContinuousSwipeTest {
         }
         activity.finish()
     }
+}
+
+/** FragmentManager can recreate this public top-level test page. */
+class PhotoViewerTestFragment : ViewPagerFragment() {
+    override fun fullscreenToggled(isFullscreen: Boolean) = Unit
 }
