@@ -378,7 +378,9 @@ class MediaFetcher(
         // Walk existing descendants iteratively with cancellation and symlink
         // protection instead of recursing through arbitrary user-selected trees.
         foldersToScan.addAll(includedFolders)
-        if (includedFolders.isNotEmpty() && !shouldStop) {
+        // The full unindexed discovery below already traverses these same roots.
+        // Do not walk them a second time during an explicit disk refresh.
+        if (!discoverUnindexedFolders && includedFolders.isNotEmpty() && !shouldStop) {
             val excluded = if (config.temporarilyShowExcluded) emptySet<String>() else config.excludedFolders
             val statuses = HashMap<String, Boolean>()
             foldersToScan.addAll(FolderDiskDiscovery.find(includedFolders, allowed = { path ->
