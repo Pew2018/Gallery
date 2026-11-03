@@ -31,7 +31,7 @@ class DirectoryMetadataRepositoryTest {
     }.get(5, TimeUnit.SECONDS)
     private fun commit(snapshot: DirectoryScanSnapshot): Boolean =
         readExecutor.submit<Boolean> {
-            commit( snapshot)
+            DirectoryMetadataRepository.commit(context, snapshot)
         }.get(5, TimeUnit.SECONDS)
     private val scope get() = DirectoryScanScope(context.config.filterMedia, context.config.shouldShowHidden)
     @Before fun setup() {
@@ -59,22 +59,22 @@ class DirectoryMetadataRepositoryTest {
     @Test fun missingRowIsInsertedAndFullScanSupportsDecreasesAndZero() {
         val a = medium("a.jpg")
         val b = medium("b.jpg")
-        assertTrue(commit( snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a, b))))
+        assertTrue(commit(snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a, b))))
         assertEquals(2, dbCount())
-        assertTrue(commit( snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a))))
+        assertTrue(commit(snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a))))
         assertEquals(1, dbCount())
-        assertTrue(commit( snapshot(DirectoryMetadataRepository.begin(root.path), emptyList())))
+        assertTrue(commit(snapshot(DirectoryMetadataRepository.begin(root.path), emptyList())))
         assertEquals(0, dbCount())
         assertTrue(root.isDirectory)
     }
     @Test fun partialAndMismatchedScopeCannotPoisonACompleteCount() {
         val a = medium("a.jpg")
-        assertTrue(commit( snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a))))
-        assertFalse(commit( snapshot(
+        assertTrue(commit(snapshot(DirectoryMetadataRepository.begin(root.path), listOf(a))))
+        assertFalse(commit(snapshot(
             DirectoryMetadataRepository.begin(root.path), emptyList(), FolderReadStatus.PARTIAL
         )))
         assertEquals(1, dbCount())
-        assertFalse(commit( snapshot(
+        assertFalse(commit(snapshot(
             DirectoryMetadataRepository.begin(root.path), emptyList(),
             scanScope = scope.copy(showDotFiles = !scope.showDotFiles)
         )))
@@ -85,8 +85,8 @@ class DirectoryMetadataRepositoryTest {
         val b = medium("b.jpg")
         val stale = DirectoryMetadataRepository.begin(root.path)
         val latest = DirectoryMetadataRepository.begin(root.path)
-        assertTrue(commit( snapshot(latest, listOf(a, b))))
-        assertFalse(commit( snapshot(stale, listOf(a))))
+        assertTrue(commit(snapshot(latest, listOf(a, b))))
+        assertFalse(commit(snapshot(stale, listOf(a))))
         assertEquals(2, dbCount())
     }
     @Test fun protectedDirectoryRequiresTheExactLiveFolderSession() {
