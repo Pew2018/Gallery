@@ -1,9 +1,7 @@
 package org.fossify.gallery.extensions
 
 import android.os.Environment
-import org.fossify.commons.extensions.isExternalStorageManager
 import org.fossify.commons.helpers.NOMEDIA
-import org.fossify.commons.helpers.isRPlus
 import java.io.File
 import java.io.IOException
 import java.util.Locale
@@ -43,7 +41,8 @@ fun String.shouldFolderBeVisible(
     val containsNoMedia = if (showHidden) {
         false
     } else {
-        folderNoMediaStatuses.getOrElse("$this/$NOMEDIA") { false } || ((!isRPlus() || isExternalStorageManager()) && File(this, NOMEDIA).exists())
+        val marker = "$this/$NOMEDIA"
+        folderNoMediaStatuses[marker] ?: File(this, NOMEDIA).isFile.also { callback(marker, it) }
     }
 
     return if (!showHidden && containsNoMedia) {
@@ -67,7 +66,7 @@ fun String.shouldFolderBeVisible(
                         break
                     }
                 } else {
-                    val noMediaExists = folderNoMediaStatuses.getOrElse(pathToCheck, { false }) || File(pathToCheck).exists()
+                    val noMediaExists = folderNoMediaStatuses.getOrElse(pathToCheck, { false }) || File(pathToCheck).isFile
                     callback(pathToCheck, noMediaExists)
                     if (noMediaExists) {
                         containsNoMediaOrDot = true

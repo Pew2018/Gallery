@@ -37,7 +37,8 @@ class UiFollowupTest {
     }
 
     @Suppress("RestrictedApi")
-    @Test fun bothFavoriteMenuChecksKeepTheirGeometryWithoutAChildPressBackground() {
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    @Test fun bothFavoriteMenuChecksUseTrailingTicksWithoutAChildPressBackground() {
         val activity = host()
         val themed = androidx.appcompat.view.ContextThemeWrapper(activity, OxygenClassicMenus.theme(activity))
         val menu = MenuBuilder(themed)
@@ -52,7 +53,16 @@ class UiFollowupTest {
                 assertFalse(check.isClickable)
                 assertFalse(check.isFocusable)
                 assertEquals(state, check.isChecked)
-                assertEquals(60, check.buttonDrawable!!.intrinsicWidth)
+                assertEquals(24, check.buttonDrawable!!.intrinsicWidth)
+                assertFalse(check.isDuplicateParentStateEnabled)
+                assertEquals(state, check.buttonDrawable!!.state.contains(android.R.attr.state_checked))
+                assertEquals(16, (check.layoutParams as android.widget.LinearLayout.LayoutParams).marginStart)
+                val bitmap = android.graphics.Bitmap.createBitmap(24, 24, android.graphics.Bitmap.Config.ARGB_8888)
+                check.buttonDrawable!!.setBounds(0, 0, 24, 24)
+                check.buttonDrawable!!.draw(android.graphics.Canvas(bitmap))
+                val visiblePixels = (0 until 24).sumOf { y -> (0 until 24).count { x -> android.graphics.Color.alpha(bitmap.getPixel(x, y)) > 0 } }
+                assertEquals(state, visiblePixels > 0)
+                assertEquals("no enclosing checkbox border", 0, android.graphics.Color.alpha(bitmap.getPixel(2, 5)))
                 row.isPressed = true
                 assertNull(check.background)
                 row.isPressed = false

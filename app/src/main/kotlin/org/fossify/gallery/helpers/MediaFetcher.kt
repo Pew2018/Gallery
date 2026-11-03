@@ -27,8 +27,12 @@ class MediaFetcher(
     private val filterOverride: Int? = null,
     private val cancelled: () -> Boolean = { false },
     private val reportReadFailures: Boolean = false,
-    private val discoverUnindexedFolders: Boolean = false
+    private val discoverUnindexedFolders: Boolean = false,
+    private val showDotFiles: Boolean? = null
 ) {
+    private val noMediaSnapshot = NoMediaSnapshot()
+    private val directoryReadFailures = linkedMapOf<String, Exception>()
+    internal val readFailures: Map<String, Exception> get() = directoryReadFailures.toMap()
     private val queryCancellation = android.os.CancellationSignal()
     @Volatile var shouldStop = false
         get() = field || cancelled()
@@ -37,6 +41,7 @@ class MediaFetcher(
             if (value) queryCancellation.cancel()
         }
 
+    internal val cancellationSignal: android.os.CancellationSignal get() = querySignal()
     private fun querySignal(): android.os.CancellationSignal {
         if (shouldStop) queryCancellation.cancel()
         queryCancellation.throwIfCanceled()
@@ -63,7 +68,8 @@ class MediaFetcher(
                 curMedia.addAll(newMedia)
             }
         } else {
-            if (curPath != FAVORITES && curPath != RECYCLE_BIN && isRPlus() && !isExternalStorageManager()) {
+            val noMediaFolder = curPath.startsWith('/') && noMediaSnapshot.contains(curPath)
+            if (!noMediaFolder && curPath != FAVORITES && curPath != RECYCLE_BIN && isRPlus() && !isExternalStorageManager()) {
                 val folderKey = MediaStoreFolderKey.of(curPath)
                 if (android11Files?.containsKey(folderKey) == true) {
                     curMedia.addAll(android11Files[folderKey]!!)
@@ -174,7 +180,7 @@ class MediaFetcher(
                 }
             }
 
-            val noMediaFolders = context.getNoMediaFoldersSync()
+            val noMediaFolders = context.getNoMediaFoldersSync(cancellationSignal = querySignal())
             noMediaFolders.forEach { folder ->
                 folderNoMediaStatuses["$folder/$NOMEDIA"] = true
             }
@@ -406,21 +412,21 @@ class MediaFetcher(
         val config = context.config
         val checkProperFileSize = getProperFileSize || config.fileLoadingPriority == PRIORITY_COMPROMISE
         val checkFileExistence = config.fileLoadingPriority == PRIORITY_VALIDITY
-        val showHidden = config.shouldShowHidden
+        val showHidden = showDotFiles ?: config.shouldShowHidden
         val favoritePathSet = favoritePaths.toHashSet()
         val showPortraits = filterMedia and TYPE_PORTRAITS != 0
-        val fileSizes = if (indexedMetadata == null && (checkProperFileSize || checkFileExistence)) getFolderSizes(folder) else HashMap()
+        val fileSizes = if (!noMediaSnapshot.contains(folder) && indexedMetadata == null && (checkProperFileSize || checkFileExistence)) getFolderSizes(folder) else HashMap()
 
         val files = explicitFiles ?: when (folder) {
             FAVORITES -> favoritePaths.filter { showHidden || !it.contains("/.") }.map { File(it) }.toMutableList() as ArrayList<File>
             RECYCLE_BIN -> deletedMedia.map { File(it.path) }.toMutableList() as ArrayList<File>
             else -> File(folder).listFiles()?.toMutableList() ?: run {
-                val storageAvailable = if (isRPlus()) runCatching {
-                    Environment.getExternalStorageState(File(folder)) in setOf(Environment.MEDIA_MOUNTED, Environment.MEDIA_MOUNTED_READ_ONLY)
-                }.getOrDefault(false) else true
-                if (reportReadFailures && (!isRPlus() || Environment.isExternalStorageManager() || !storageAvailable)) {
-                    throw java.io.IOException("Media folder is unavailable")
-                }
+                val error = java.io.IOException("Media folder cannot be enumerated")
+                directoryReadFailures[folder] = error
+                val hasIndexedRows = indexedMetadata?.values?.any {
+                    MediaStoreFolderKey.of(it.parentPath) == MediaStoreFolderKey.of(folder)
+                } == true
+                if (noMediaSnapshot.contains(folder) || (reportReadFailures && !hasIndexedRows)) throw error
                 return media
             }
         }
@@ -602,7 +608,7 @@ class MediaFetcher(
         querySignal() // Cancellation is not a successful empty library.
         val media = HashMap<String, ArrayList<Medium>>()
         val filterMedia = filterOverride ?: context.config.filterMedia
-        val showHidden = context.config.shouldShowHidden
+        val showHidden = showDotFiles ?: context.config.shouldShowHidden
         val favoritePathSet = favoritePaths.toHashSet()
         val folderScope = allowedFolders?.mapTo(HashSet()) { MediaStoreFolderKey.of(it) }
         if (folderScope != null && folderScope.isEmpty() && allowedPaths.isEmpty()) return media
@@ -741,7 +747,7 @@ class MediaFetcher(
             return media
         }
         val checkFileExistence = context.config.fileLoadingPriority == PRIORITY_VALIDITY
-        val showHidden = context.config.shouldShowHidden
+        val showHidden = showDotFiles ?: context.config.shouldShowHidden
         val OTGPath = context.config.OTGPath
 
         for (file in files) {

@@ -44,7 +44,9 @@ class GetMediaAsynctask(
 
     override fun doInBackground(vararg params: Void): ArrayList<ThumbnailItem> {
         return try {
-        val folderCheckpointStarted = if (!showAll && mPath.startsWith('/') && mPath != FAVORITES &&
+        val noMediaFolder = !showAll && mPath.startsWith('/') && photoProfileId == null &&
+            mPath != PhotoProfileMediaLoader.PATH && NoMediaSnapshot().contains(mPath)
+        val folderCheckpointStarted = if (!noMediaFolder && !showAll && mPath.startsWith('/') && mPath != FAVORITES &&
             mPath != RECYCLE_BIN && photoProfileId == null) {
             runCatching { FolderReturnCheckpoint.capture(context, mPath) }.getOrNull()
         } else null
@@ -93,12 +95,12 @@ class GetMediaAsynctask(
         // The scoped cursor already returns DATE_MODIFIED and DATE_TAKEN.
         // Only user-edited dates need a separate Room lookup.
         val indexedMetadata = scopedAvailable && (showAll || scopedFolder)
-        val lastModifieds = if (getProperLastModified && !indexedMetadata) {
+        val lastModifieds = if (getProperLastModified && !indexedMetadata && !noMediaFolder) {
             if (!showAll && mPath.startsWith('/')) mediaFetcher.getFolderLastModifieds(mPath) else mediaFetcher.getLastModifieds()
         } else HashMap()
         val dateTakens = when {
             !getProperDateTaken -> HashMap<String, Long>()
-            scopedFolder -> mediaFetcher.getSelectedFolderDateOverrides(listOf(mPath))
+            noMediaFolder || scopedFolder -> mediaFetcher.getSelectedFolderDateOverrides(listOf(mPath))
             scopedAvailable && showAll -> mediaFetcher.getCustomDateTakenOverrides()
             !showAll && mPath.startsWith('/') -> mediaFetcher.getFolderDateTakens(mPath)
             else -> mediaFetcher.getDateTakens()
@@ -125,7 +127,7 @@ class GetMediaAsynctask(
             mediaFetcher.sortMedia(media, context.config.getFolderSorting(SHOW_ALL))
             media
         } else {
-            val indexedFolder = if (scopedFolder) {
+            val indexedFolder = if (noMediaFolder) hashMapOf() else if (scopedFolder) {
                 mediaFetcher.getAndroid11FolderMedia(
                     isPickImage, isPickVideo, favoritePaths, false, getProperDateTaken,
                     HashMap(dateTakens), allowedFolders = setOf(mPath)
@@ -136,6 +138,7 @@ class GetMediaAsynctask(
                 getVideoDurations, lastModifieds, dateTakens, indexedFolder
             )
         }
+        folderFailures = folderFailures + mediaFetcher.readFailures
         GalleryPerfTrace.end("media_async_scan", scanStarted, media.size)
 
         val result = mediaFetcher.groupMedia(media, pathToUse)

@@ -463,7 +463,8 @@ fun Context.getNoMediaFolders(callback: (folders: ArrayList<String>) -> Unit) {
     }
 }
 
-fun Context.getNoMediaFoldersSync(): ArrayList<String> {
+fun Context.getNoMediaFoldersSync(knownFolders: Collection<String> = emptyList(),
+    cancellationSignal: android.os.CancellationSignal? = null): ArrayList<String> {
     val folders = ArrayList<String>()
 
     val uri = Files.getContentUri("external")
@@ -475,25 +476,33 @@ fun Context.getNoMediaFoldersSync(): ArrayList<String> {
 
     var cursor: Cursor? = null
     try {
-        cursor = contentResolver.query(uri, projection, selection, selectionArgs, sortOrder)
+        cursor = contentResolver.query(uri, projection, selection, selectionArgs, sortOrder, cancellationSignal)
         if (cursor?.moveToFirst() == true) {
             do {
+                cancellationSignal?.throwIfCanceled()
                 val path = cursor.getStringValue(Files.FileColumns.DATA) ?: continue
                 val noMediaFile = File(path)
                 if (
                     getDoesFilePathExist(noMediaFile.absolutePath, OTGPath)
-                    && noMediaFile.name == NOMEDIA
+                    && noMediaFile.name == NOMEDIA && !noMediaFile.isDirectory
                 ) {
                     folders.add(noMediaFile.parent)
                 }
             } while (cursor.moveToNext())
         }
+    } catch (error: android.os.OperationCanceledException) {
+        throw error
     } catch (ignored: Exception) {
     } finally {
         cursor?.close()
     }
 
-    return folders
+    val snapshot = org.fossify.gallery.helpers.NoMediaSnapshot()
+    (knownFolders + config.everShownFolders + config.includedFolders).forEach { path ->
+        cancellationSignal?.throwIfCanceled()
+        if (path.startsWith('/')) folders.addAll(snapshot.markerFolders(path))
+    }
+    return folders.distinct().toCollection(ArrayList())
 }
 
 fun Context.rescanFolderMedia(path: String) {

@@ -513,6 +513,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         categorizedLoadVersion++
         if (!mShowingFolderFavorites && isSpecialFolderFilterActive()) categorizedReloadPending = true
         if (categorizedLoadActive) {
+            mLastMediaFetcher?.shouldStop = true
             categorizedLoadActive = false
             mIsGettingDirs = false
             setDirectoryLoading(false)
@@ -1215,7 +1216,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                         apply()
                     }
                 }
-                if (checked[0] && !mFolderVisibility[0]) {
+                if ((checked[0] || checked[2]) && !(mFolderVisibility[0] || mFolderVisibility[2])) {
                     handleHiddenFolderPasswordProtection { verifyExcluded() }
                 } else {
                     verifyExcluded()
@@ -1247,57 +1248,31 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 }
             }
         }
-        getCachedDirectories(forceShowHidden = true, forceShowExcluded = true, onFailure = failed) { cached ->
+        fun current() = !isFinishing && !isDestroyed && requestVersion == categorizedLoadVersion &&
+            requestedVisibility.contentEquals(mFolderVisibility)
+        getCachedDirectories(forceShowHidden = true, forceShowExcluded = true, onFailure = failed,
+            executor = org.fossify.gallery.helpers.GalleryMediaScanExecutor, isCurrent = { current() }) { cached ->
             try {
-                val excluded = config.excludedFolders
-                val noMedia = getNoMediaFoldersSync().toSet()
-                val supplementary = (excluded + noMedia + config.includedFolders)
-                    .filter { it.isNotBlank() && File(it).isDirectory }
-                    .map { path ->
-                        Directory().apply {
-                            this.path = path
-                            name = File(path).name
-                            location = LOCATION_INTERNAL
-                        }
-                    }
-                // Android paths are case-sensitive. Never collapse Photo and photo.
-                val catalog = (cached + supplementary).distinctBy {
-                    FavoriteFolderRules.normalizedPath(it.path)
-                }
-                val visible = catalog.filter { folder ->
-                    val path = folder.path
-                    val hidden = FavoriteFolderRules.isDotHidden(path)
-                    val isExcluded = FavoriteFolderRules.isExcluded(path, excluded)
-                    val isNoMedia = FavoriteFolderRules.isExcluded(path, noMedia)
-                    val isProtected = config.isFolderProtected(path)
-                    folder.folderStatuses = listOfNotNull(
-                        getString(R.string.folder_status_hidden).takeIf { hidden },
-                        getString(R.string.folder_status_excluded).takeIf { isExcluded },
-                        getString(R.string.folder_status_nomedia).takeIf { isNoMedia },
-                        getString(R.string.folder_status_protected).takeIf { isProtected }
-                    ).joinToString(" · ")
-                    (!hidden || requestedVisibility[0]) &&
-                        (!isExcluded || requestedVisibility[1]) &&
-                        (!isNoMedia || requestedVisibility[2]) &&
-                        (!isProtected || requestedVisibility[3])
-                }.toCollection(ArrayList())
+                val scanned = org.fossify.gallery.helpers.CategorizedFolderScanner.scan(
+                    applicationContext, cached, requestedVisibility, cancelled = { !current() }, onFetcher = { fetcher ->
+                        runOnUiThread { if (current()) mLastMediaFetcher = fetcher else fetcher.shouldStop = true }
+                    })
+                val visible = scanned.directories
                 runOnUiThread {
-                    if (isFinishing || isDestroyed || requestVersion != categorizedLoadVersion ||
-                        !requestedVisibility.contentEquals(mFolderVisibility)) return@runOnUiThread
+                    if (!current()) return@runOnUiThread
                     categorizedLoadActive = false
                     mDirs = visible
                     mDirsIgnoringSearch = ArrayList(visible)
                     mLoadedInitialPhotos = true
                     mIsGettingDirs = false
                     setDirectoryLoading(false)
-                    setupAdapter(visible, presentationIsCurrent = {
-                        requestVersion == categorizedLoadVersion && requestedVisibility.contentEquals(mFolderVisibility)
-                    })
+                    setupAdapter(visible, presentationIsCurrent = { current() })
                     checkPlaceholderVisibility(visible)
                     binding.directoriesRefreshLayout.isRefreshing = false
+                    if (scanned.failures.isNotEmpty()) toast(R.string.media_load_partial_error)
                 }
             } catch (error: Exception) {
-                failed(error)
+                if (current()) failed(error)
             }
         }
     }
