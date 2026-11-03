@@ -162,11 +162,13 @@ class PhotoProfileMediaLoadingTest {
             val first = background {
                 PhotoProfileMediaLoader(context).loadStaged(id, true) { stage ->
                     stages.add(stage.stage)
-                    assertEquals(listOf(path), stage.media.map { it.path })
+                    if (stage.stage == PhotoLoadStage.INDEXED) assertEquals(listOf(path), stage.media.map { it.path })
                     if (stage.stage == PhotoLoadStage.INDEXED) Files.write(added, byteArrayOf(2))
                 }
             }
-            assertEquals(listOf(PhotoLoadStage.INDEXED), stages)
+            assertEquals(PhotoLoadStage.INDEXED, stages.first())
+            assertTrue(stages.drop(1).all { it == PhotoLoadStage.FILESYSTEM })
+            assertTrue(stages.contains(PhotoLoadStage.FILESYSTEM))
             assertEquals(PhotoLoadStage.COMPLETE, first.stage)
             assertEquals(setOf(path, added.toString()), first.media.map { it.path }.toSet())
             assertTrue(first.access.publicOnly)
@@ -174,6 +176,31 @@ class PhotoProfileMediaLoadingTest {
             background { PhotoProfileMediaLoader(context).loadStaged(id, true) { restored.add(it.stage) } }
             assertEquals(PhotoLoadStage.CACHE_PREVIEW, restored.first())
         } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun unindexedNoMediaFolderPublishesValidatedBatchesBeforeComplete() {
+        val root = Files.createTempDirectory("photo-filesystem-progress")
+        try {
+            Files.write(root.resolve(".nomedia"), byteArrayOf())
+            val paths = (0 until 260).map { Files.write(root.resolve("photo-$it.jpg"), byteArrayOf(1)).toString() }
+            val id = profile(root.toString())
+            val stages = ArrayList<PhotoLoadResult>()
+            val final = background {
+                PhotoSessionViewerCatalogStore.focus(id, null, paths.first())
+                PhotoProfileMediaLoader(context).loadStaged(id, true, paths.first()) { stage ->
+                    stages.add(stage)
+                    assertTrue(stage.context.isCurrent(context))
+                    assertFalse(stage.access.needsUnlock)
+                    assertTrue(stage.media.all { it.path in paths })
+                    assertEquals(stage.media.size, stage.media.map { it.path }.distinct().size)
+                }
+            }
+            val partials = stages.filter { it.stage == PhotoLoadStage.FILESYSTEM }
+            assertTrue(partials.isNotEmpty())
+            assertTrue(partials.first().media.size < paths.size)
+            assertEquals(paths.toSet(), final.media.map { it.path }.toSet())
+            assertEquals(paths.size, background { PhotoSessionViewerCatalogStore.latest(context, id, null, paths.first()) }!!.media.size)
+        } finally { root.toFile().deleteRecursively(); PhotoSessionViewerCatalogStore.invalidate() }
     }
 
     @Test fun unrelatedPreferencesAndRenameDoNotInvalidateButSourceChangeDoes() {

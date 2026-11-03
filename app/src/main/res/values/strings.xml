@@ -390,5 +390,7 @@
     <string name="photo_source_folder_excluded">This folder is excluded from browsing.</string>
     <string name="photo_source_folder_unsupported">This storage location is not supported by the current file access.</string>
     <string name="export_filename_extension_error">Use a filename without an extension, or with %1$s. Remove any other extension.</string>
+    <string name="photo_viewer_loading_more">Loading more photos…</string>
+    <string name="photo_viewer_load_retry">Could not load more photos. Swipe again to retry.</string>
 </resources>
 

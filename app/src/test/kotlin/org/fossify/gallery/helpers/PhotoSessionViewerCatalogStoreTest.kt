@@ -106,6 +106,48 @@ class PhotoSessionViewerCatalogStoreTest {
         assertEquals(20, (2_480 until 2_500).count { complete.media[it].path == all[it].path })
     }
 
+    @Test fun overTwentyThousandUsesSegmentWindowsAndCanRecenterWithoutRescanning() {
+        val all = media(20_501)
+        val result = ready(all)
+        worker { PhotoSessionViewerCatalogStore.focus(profile.id, null, all[10_000].path) }
+        val id = worker { PhotoSessionViewerCatalogStore.prepare(app, result) }!!
+        val middle = worker { PhotoSessionViewerCatalogStore.take(app, id, profile.id, null, all[10_000].path) }!!
+        assertFalse(middle.isComplete)
+        assertTrue(middle.media.size <= 241)
+        assertEquals(PhotoViewerCatalogCoordinator.Boundary.HAS_MORE, middle.before)
+        assertTrue(worker { PhotoSessionViewerCatalogStore.requestExpand(app, profile.id, null, middle.media.last().path, true) })
+        val grown = worker { PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[10_000].path) }!!
+        assertTrue(grown.media.size > middle.media.size)
+        val end = worker { PhotoSessionViewerCatalogStore.take(app, id, profile.id, null, all.last().path) }!!
+        assertEquals(PhotoViewerCatalogCoordinator.Boundary.END, end.after)
+        assertTrue(end.media.size <= 241)
+        PhotoProfileAccessSessionManager.revokeAll("segment_test")
+        assertNull(worker { PhotoSessionViewerCatalogStore.take(app, id, profile.id, null, all.last().path) })
+    }
+
+    @Test fun viewerCanAtomicallyReuseAnActiveGridProducerAndStaleFinishCannotClearNewOne() {
+        val first = ready(media(5)).context
+        assertTrue(worker { PhotoSessionViewerCatalogStore.beginLoading(first, app) })
+        val sameScope = first.copy()
+        assertFalse(worker { PhotoSessionViewerCatalogStore.beginLoading(sameScope, app, reuseActive = true) })
+        assertTrue(worker { PhotoSessionViewerCatalogStore.isLoading(app, profile.id, null) })
+        worker { PhotoSessionViewerCatalogStore.finishLoading(sameScope) }
+        assertTrue(worker { PhotoSessionViewerCatalogStore.isLoading(app, profile.id, null) })
+        worker { PhotoSessionViewerCatalogStore.finishLoading(first) }
+        assertFalse(worker { PhotoSessionViewerCatalogStore.isLoading(app, profile.id, null) })
+    }
+
+    @Test fun laterSmallerPreviewCannotDiscardExpandedOrFilesystemMedia() {
+        val all = media(120)
+        val result = ready(all)
+        worker { PhotoSessionViewerCatalogStore.offerPartial(app, result.copy(stage = PhotoLoadStage.FILESYSTEM)) }
+        worker { PhotoSessionViewerCatalogStore.offerPartial(app, result.copy(stage = PhotoLoadStage.CACHE_PREVIEW, media = all.take(5))) }
+        val catalog = worker { PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all.last().path) }!!
+        assertEquals(120, catalog.media.size)
+        assertFalse(catalog.isComplete)
+        assertEquals(PhotoViewerCatalogCoordinator.Boundary.UNKNOWN, catalog.after)
+    }
+
     @Test fun sourceChangesAndMediaRevisionInvalidateOldCompleteOrder() {
         val items = media(100)
         val first = worker { PhotoSessionViewerCatalogStore.prepare(app, ready(items)) }!!

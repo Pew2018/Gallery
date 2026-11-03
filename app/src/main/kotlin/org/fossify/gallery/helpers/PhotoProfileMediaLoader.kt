@@ -34,11 +34,12 @@ class PhotoProfileMediaLoader(
         allowPreview: Boolean,
         anchorPath: String? = null,
         forceScan: Boolean = false,
+        reuseActiveProducer: Boolean = false,
         onStage: (PhotoLoadResult) -> Unit = {}
     ): PhotoLoadResult {
         val request = PhotoProfileLoadContext.capture(context, profileId, sessionId) ?: throw PhotoLoadInvalidatedException()
         val scope = request.scope
-        PhotoSessionViewerCatalogStore.beginLoading(request)
+        if (!PhotoSessionViewerCatalogStore.beginLoading(request, context, reuseActiveProducer)) throw PhotoLoadSharedException()
         try {
         PhotoProfileMediaCache.initialize(context.applicationContext)
         val fetcher = MediaFetcher(context, scope.filter and MEDIA_TYPES, ::stopped, reportReadFailures = true)
@@ -139,7 +140,21 @@ class PhotoProfileMediaLoader(
         }
         checkCurrent(request)
         val scanning = GalleryPerfTrace.begin()
-        val media = fetcher.scanProfileFileSupplements(folders, favoriteFiles, ArrayList(request.favorites), indexed)
+        val supplements = LinkedHashMap<String, Medium>()
+        preview.forEach { supplements[it.path] = it }
+        val media = fetcher.scanProfileFileSupplements(folders, favoriteFiles, ArrayList(request.favorites), indexed,
+            preferredPath = { PhotoSessionViewerCatalogStore.focusPath(request) ?: anchorPath }) { batch ->
+            checkCurrent(request)
+            // Filesystem rows are candidates, exactly like MediaStore rows. Validate
+            // only this batch, then merge into an already validated provisional set.
+            val stage = result(PhotoLoadStage.FILESYSTEM, batch)
+            stage.media.forEach { supplements[it.path] = it }
+            val ordered = ArrayList(supplements.values)
+            sort(ordered)
+            val progressive = stage.copy(media = ordered)
+            PhotoSessionViewerCatalogStore.offerPartial(context, progressive)
+            onStage(progressive)
+        }
         GalleryPerfTrace.end("photo_supplement_scan", scanning, media.size)
         val complete = result(PhotoLoadStage.COMPLETE, media)
         checkCurrent(request)

@@ -354,5 +354,7 @@
     <string name="photo_source_folder_excluded">该文件夹已从浏览中排除。</string>
     <string name="photo_source_folder_unsupported">当前文件访问方式不支持此存储位置。</string>
     <string name="export_filename_extension_error">请输入不含扩展名的文件名，或使用 %1$s；请移除其他扩展名。</string>
+    <string name="photo_viewer_loading_more">正在加载更多照片…</string>
+    <string name="photo_viewer_load_retry">未能加载更多照片，请再次滑动重试。</string>
 </resources>
 

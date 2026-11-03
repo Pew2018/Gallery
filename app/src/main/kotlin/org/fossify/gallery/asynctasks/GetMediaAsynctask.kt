@@ -28,6 +28,7 @@ internal class GetMediaAsynctask(
     private val photoSessionId: String? = null,
     private val photoAllowPreview: Boolean = true,
     private val photoAnchorPath: String? = null,
+    private val photoReuseProducer: Boolean = false,
     private val onPhotoResult: ((PhotoLoadResult) -> Unit)? = null,
     private val manualRefresh: Boolean = false,
     private val folderSessionId: String? = null,
@@ -74,7 +75,7 @@ internal class GetMediaAsynctask(
         if (mPath == PhotoProfileMediaLoader.PATH || photoProfileId != null) {
             val loader = PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId) { isCancelled }
             val final = loader.loadStaged(photoProfileId, photoAllowPreview && onPhotoResult != null, photoAnchorPath,
-                forceScan = manualRefresh) {
+                forceScan = manualRefresh, reuseActiveProducer = photoReuseProducer) {
                 if (!isCancelled) publishProgress(it)
             }
             scanResult = GalleryScanResult(if (final.stage == PhotoLoadStage.COMPLETE)

@@ -309,6 +309,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     @Volatile
     private var viewerAccessGeneration = 0L
     private var viewerAccessTask: Future<*>? = null
+    private val photoNavigation = org.fossify.gallery.helpers.PhotoViewerCatalogCoordinator()
+    private var photoCatalogAdvanceQueued = false
+    private var photoExpandGeneration = 0L
+    private var photoLastExpandKey: String? = null
+    private var photoLastDirection = true
+    private var photoFailureVisible = false
     private var photoCatalogMode = false
     private var photoCatalogRevision = -1L
     private val photoPageAccess = org.fossify.gallery.helpers.PhotoViewerPageAccessState()
@@ -333,6 +339,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         photoPageAccessTask = null
         photoPageInFlight = emptySet()
         photoPageQueuedCenter = null
+        photoNavigation.invalidate()
+        photoExpandGeneration++
+        binding.photoBoundaryLoading.visibility = View.GONE
         photoCatalogMode = false
         photoCatalogUpdating = false
         photoCatalogComplete = false
@@ -412,6 +421,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         super.onCreate(null)
         supportFragmentManager.registerFragmentLifecycleCallbacks(slideshowFragments, false)
         setContentView(binding.root)
+        binding.viewPager.onUnknownBoundary = { forward -> requestPhotoBoundary(forward) }
         PhotoProfileAccessSessionManager.addListener(favoriteListenerId) { event ->
             if (event == PhotoAccessEvent.REVOKED && isPhotoProfile && photoSessionId != null) runOnUiThread {
                 if (!isDestroyed && !isFinishing && isPhotoProfile && photoSessionId != null) closeUnauthorizedFavorites()
@@ -511,6 +521,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         mSlideshowHandler.removeCallbacksAndMessages(null)
         PhotoProfileAccessSessionManager.removeListener(favoriteListenerId)
         org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.removeListener(favoriteListenerId)
+        photoExpandGeneration++
+        photoNavigation.invalidate()
+        binding.viewPager.onUnknownBoundary = null
         photoCatalogUpdateGeneration++
         ViewerAccessCoordinator.cancel(photoCatalogUpdateTask)
         ViewerAccessCoordinator.cancel(photoPartialExpandTask)
@@ -781,11 +794,16 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 }
             }
         }
+        org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_initial_catalog", preparedCatalog?.media?.size ?: 0)
+        org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_handoff_result", if (preparedCatalog == null) 0 else 1)
+        org.fossify.gallery.helpers.GalleryPerfTrace.event(
+            if (preparedCatalog == null) "viewer_handoff_result_missing" else "viewer_handoff_result_ready")
         if (preparedCatalog != null && initialized && firstContext != null &&
             preparedCatalog.revision == org.fossify.gallery.helpers.PhotoContentRevision.current()) {
             photoCatalogMode = true
             photoCatalogUpdating = false
             photoCatalogComplete = preparedCatalog.isComplete
+            photoNavigation.publish(preparedCatalog.isComplete, preparedCatalog.before, preparedCatalog.after)
             photoCatalogRevision = preparedCatalog.revision
             // The selected file was freshly authorized by firstFrame on the worker.
             photoPageAccess.reset(preparedCatalog.revision)
@@ -807,43 +825,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 consumePhotoCatalogAdvance()
                 return
             }
-            photoFallbackStarted = true
-            val fullStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
-            if (cached != null && firstContext != null) {
-                viewerAccessTask = try { ViewerAccessCoordinator.submit {
-                    val safe = runCatching {
-                        org.fossify.gallery.helpers.PhotoViewerSnapshotStore.validate(
-                            applicationContext, profile, cached, clicked, requireClickedPath = false
-                        ) {
-                            Thread.currentThread().isInterrupted
-                        }
-                    }.getOrNull()
-                    runOnUiThread {
-                        if (request != viewerLoadGeneration || isFinishing || isDestroyed) return@runOnUiThread
-                        if (safe == null || !safe.context.isCurrent(applicationContext)) {
-                            if (firstContext != null && firstContext.isCurrent(applicationContext) && mMediaFiles.isNotEmpty()) {
-                                showErrorToast(Exception("Could not refresh the full photo list"))
-                            } else finish()
-                            return@runOnUiThread
-                        }
-                        publish(safe.media)
-                        logPagerReady("viewer_full_list_prepared", fullStarted, safe.media.size)
-                    }
-                } } catch (_: java.util.concurrent.RejectedExecutionException) { finish(); null }
-            } else {
-                viewerLoadTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
-                    showAll = false, photoProfileId = profile, photoSessionId = session,
-                    onFailure = {
-                        if (request == viewerLoadGeneration && !isFinishing && !isDestroyed) {
-                            if (firstContext == null || !firstContext.isCurrent(applicationContext)) finish()
-                            else showErrorToast(it)
-                        }
-                    }
-                ) { items ->
-                    publish(items.filterIsInstance<Medium>())
-                    logPagerReady("viewer_full_list_prepared", fullStarted, items.size)
-                }.also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
-            }
+            startPhotoProgressiveFallback()
         }
         val window = neighborWindow
         if (!initialized || firstContext == null || window == null) { loadFullCollection(); return }
@@ -877,6 +859,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (!isPhotoProfile || isExternalIntent() || photoCatalogUpdating ||
             mDirectory != PhotoProfileMediaLoader.PATH || mMediaFiles.isEmpty() ||
             isFinishing || isDestroyed) return
+        if (photoCatalogUpdateTask != null) { photoCatalogAdvanceQueued = true; return }
         val selectedPath = getCurrentPath().ifEmpty { mPath }
         val previouslyPublished = mMediaFiles.toList()
         val request = ++photoCatalogUpdateGeneration
@@ -915,64 +898,156 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         photoCatalogMode = true
                         photoCatalogRevision = candidate.revision
                         photoCatalogComplete = candidate.isComplete
+                        photoNavigation.publish(candidate.isComplete, candidate.before, candidate.after)
+                        photoFailureVisible = false
+                        org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_catalog_upgrade", visible.size)
                         photoPageAccess.approve(listOf(selectedPath), candidate.revision)
                         if (candidate.isComplete || changed) {
-                            viewerLoadTask?.stopFetching()
-                            val current = ArrayList<ThumbnailItem>(visible)
-                            gotMedia(current, refetchViewPagerPosition = true,
+                            val ordered = stabilizeRandomViewerOrder(visible)
+                            gotMedia(ArrayList<ThumbnailItem>(ordered), refetchViewPagerPosition = true,
                                 fullCatalog = candidate.isComplete)
                         }
                         if (!candidate.isComplete) requestPhotoPartialExpand(mPos.coerceAtLeast(0))
                     } else if (!producerActive && !photoFallbackStarted &&
                         !photoCatalogComplete && !isFinishing) {
-                        photoFallbackStarted = true
-                        // No live grid producer and no valid completed snapshot.
-                        // Fall back once to the original authorized full loader.
-                        refreshViewPager(true)
+                        startPhotoProgressiveFallback()
+                    }
+                    if (photoCatalogAdvanceQueued) {
+                        photoCatalogAdvanceQueued = false
+                        consumePhotoCatalogAdvance()
                     }
                 }
             }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
+            binding.viewPager.postDelayed({ if (!isDestroyed && !isFinishing) consumePhotoCatalogAdvance() }, 150)
             // Transient bounded-pool pressure is not a failed authorization.
             org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_page_access_wait")
             null
         }
     }
 
-    /** Indexed rows are only candidates; requestExpand validates every added row. */
-    private fun requestPhotoPartialExpand(position: Int) {
-        if (!isPhotoProfile || !photoCatalogMode || photoCatalogComplete ||
-            photoCatalogUpdating || photoPartialExpandTask != null ||
-            position !in mMediaFiles.indices) return
-        val forward = position >= mMediaFiles.lastIndex - 3
-        val backward = position <= 3
-        if (!forward && !backward) return
+    /** One owner for a fallback scan. Its staged results use the same store/listener as the grid. */
+    private fun startPhotoProgressiveFallback() {
+        if (photoFallbackStarted || !isPhotoProfile || isExternalIntent() || isFinishing || isDestroyed) return
+        photoFallbackStarted = true
+        val generation = viewerLoadGeneration
+        org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_fallback_reason_no_producer")
+        viewerLoadTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
+            showAll = false, photoProfileId = photoProfileId, photoSessionId = photoSessionId,
+            photoAnchorPath = getCurrentPath().ifEmpty { mPath }, photoReuseProducer = true, onPhotoResult = {
+                if (generation == viewerLoadGeneration && !isFinishing && !isDestroyed) consumePhotoCatalogAdvance()
+            }, onFailure = {
+                if (generation == viewerLoadGeneration && !isFinishing && !isDestroyed) {
+                    if (it is org.fossify.gallery.helpers.PhotoLoadSharedException) {
+                        photoFallbackStarted = false
+                        consumePhotoCatalogAdvance()
+                        return@GetMediaAsynctask
+                    }
+                    photoFailureVisible = true
+                    photoNavigation.cancel()
+                    binding.photoBoundaryLoading.visibility = View.GONE
+                    showErrorToast(it)
+                }
+            }) {
+                if (generation == viewerLoadGeneration && !isFinishing && !isDestroyed) consumePhotoCatalogAdvance()
+            }.also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
+    }
+
+    /** Real media indices remain the only indices used by edit/delete/share/slideshow. */
+    private fun requestPhotoBoundary(forward: Boolean): Boolean {
+        if (!isPhotoProfile || isExternalIntent() || !checkFavoriteAccess() || photoCatalogComplete) return false
+        val path = getCurrentPath()
+        if (photoFailureVisible) {
+            photoFailureVisible = false
+            photoFallbackStarted = false
+        }
+        if (path.isEmpty() || !photoNavigation.request(path, forward)) return false
+        photoLastDirection = forward
+        photoLastExpandKey = null
+        org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_boundary_requested", activePagerAdapter?.count)
+        org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.focus(photoProfileId, photoSessionId, path)
+        binding.photoBoundaryLoading.visibility = View.VISIBLE
+        org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_boundary_wait", activePagerAdapter?.count)
+        requestPhotoPartialExpand(mPos, forward)
+        consumePhotoCatalogAdvance()
+        return true
+    }
+
+    private fun updatePhotoBoundaryWait() {
+        if (activePagerAdapter?.media !== mMediaFiles &&
+            activePagerAdapter?.media?.map { it.path } != mMediaFiles.map { it.path }) return
+        val destination = photoNavigation.destination(mMediaFiles.map { it.path }, getCurrentPath())
+        binding.photoBoundaryLoading.visibility = if (photoNavigation.pending != null && !photoFailureVisible) View.VISIBLE else View.GONE
+        if (destination != null) {
+            // Do not consume a queued direction until the real adapter publication has caught up.
+            if (activePagerAdapter?.media === mMediaFiles || activePagerAdapter?.media?.map { it.path } == mMediaFiles.map { it.path }) {
+                binding.viewPager.setCurrentItem(destination, false)
+                validatePhotoPageWindow(destination)
+            }
+        }
+    }
+
+    /** Works before the first catalog handoff, with UNKNOWN edges owned by the producer. */
+    private fun requestPhotoPartialExpand(position: Int, direction: Boolean? = null) {
+        if (!isPhotoProfile || isExternalIntent() || photoCatalogComplete ||
+            photoCatalogUpdating || photoPartialExpandTask != null || position !in mMediaFiles.indices) return
+        val forward = direction ?: when {
+            position <= 3 && position >= mMediaFiles.lastIndex - 3 -> photoLastDirection
+            position >= mMediaFiles.lastIndex - 4 -> true
+            position <= 4 -> false
+            else -> return
+        }
+        val boundary = if (forward) photoNavigation.after else photoNavigation.before
+        if (boundary == org.fossify.gallery.helpers.PhotoViewerCatalogCoordinator.Boundary.END) return
         val anchor = if (forward) mMediaFiles.last().path else mMediaFiles.first().path
+        val key = "$anchor:$forward:${mMediaFiles.size}:${photoCatalogRevision}:$boundary"
+        if (photoLastExpandKey == key) return
+        photoLastExpandKey = key
         val profile = photoProfileId
         val session = photoSessionId
-        val revision = photoCatalogRevision
+        val generation = ++photoExpandGeneration
+        val revision = org.fossify.gallery.helpers.PhotoContentRevision.current()
         val app = applicationContext
         photoPartialExpandTask = try {
             ViewerAccessCoordinator.submit {
                 val store = org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore
-                val expanded = runCatching {
-                    store.requestExpand(app, profile, session, anchor, forward) {
-                        Thread.currentThread().isInterrupted
-                    }
-                }.getOrDefault(false)
+                val expanded = try {
+                    store.requestExpand(app, profile, session, anchor, forward, viewerSearchQuery) { Thread.currentThread().isInterrupted }
+                } catch (cancel: java.util.concurrent.CancellationException) { throw cancel
+                } catch (_: Exception) {
+                    org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_fallback_reason_segment_read")
+                    false
+                }
                 val producerActive = store.isLoading(app, profile, session)
                 runOnUiThread {
+                    if (generation != photoExpandGeneration || isFinishing || isDestroyed) return@runOnUiThread
                     photoPartialExpandTask = null
-                    if (isFinishing || isDestroyed || !photoCatalogMode ||
-                        revision != photoCatalogRevision) return@runOnUiThread
-                    if (!expanded && !producerActive && !photoFallbackStarted && !photoCatalogComplete) {
-                        photoFallbackStarted = true
-                        refreshViewPager(true)
+                    if (revision != org.fossify.gallery.helpers.PhotoContentRevision.current()) { photoLastExpandKey = null; return@runOnUiThread }
+                    if (!expanded && !producerActive && !photoCatalogComplete) {
+                        if (!photoFallbackStarted) startPhotoProgressiveFallback()
+                        else if (photoNavigation.pending != null && !photoFailureVisible) {
+                            // A completed/failed producer without a usable successor is
+                            // a recoverable load failure, never a successful END.
+                            photoFailureVisible = true
+                            photoNavigation.cancel()
+                            binding.photoBoundaryLoading.visibility = View.GONE
+                            toast(R.string.photo_viewer_load_retry)
+                        }
                     }
+                    if (expanded) consumePhotoCatalogAdvance()
+                    else if (photoNavigation.pending != null && photoFailureVisible) {
+                        photoNavigation.cancel()
+                        binding.photoBoundaryLoading.visibility = View.GONE
+                    }
+                    // A direction change during the worker is coalesced here.
+                    val pending = photoNavigation.pending
+                    if (pending != null && pending.forward != forward) requestPhotoPartialExpand(mPos, pending.forward)
                 }
             }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
-            org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_page_access_wait")
+            photoLastExpandKey = null
+            org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_access_window_wait")
+            binding.viewPager.postDelayed({ if (!isFinishing && !isDestroyed) requestPhotoPartialExpand(mPos, direction) }, 150)
             null
         }
     }
@@ -1022,7 +1097,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun publishAdjacent(media: List<Medium>) {
         if (media.size < 2 || media.none { it.path == mPath } || isFinishing || isDestroyed) return
-        gotMedia(ArrayList<ThumbnailItem>(media), refetchViewPagerPosition = true)
+        if (isPhotoProfile && (photoCatalogMode || mMediaFiles.size > media.size)) return
+        gotMedia(ArrayList<ThumbnailItem>(media), refetchViewPagerPosition = true, fullCatalog = false)
         logPagerReady("viewer_adjacent_pager_ready", adjacentReadyStarted, media.size, mPath, requireMultiplePages = true)
     }
 
@@ -1353,6 +1429,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun authenticateViewerRequest() {
         showSystemUI()
         if (isPhotoProfile) {
+            if (isExternalIntent()) { finish(); return }
             if (photoSessionId != null) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
             mShowAll = false
             // Internal, short-lived metadata handoff: no second MediaStore scan
@@ -1381,6 +1458,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     store.take(applicationContext, catalogId, profile, session, clicked)
                         ?: store.latest(applicationContext, profile, session, clicked)
                 } else null
+                store.focus(profile, session, clicked)
                 val gridProducerActive = store.isLoading(applicationContext, profile, session)
                 org.fossify.gallery.helpers.GalleryPerfTrace.end(
                     if (preparedCatalog == null) "viewer_catalog_miss" else "viewer_catalog_lookup",
@@ -1712,6 +1790,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 val target = mPos.coerceIn(0, (pagerAdapter.count - 1).coerceAtLeast(0))
                 if (currentItem != target) setCurrentItem(target, false)
             }
+            org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_pager_count", pagerAdapter.count)
+            if (isPhotoProfile) {
+                updatePhotoBoundaryWait()
+                if (photoCatalogMode) validatePhotoPageWindow(mPos)
+                requestPhotoPartialExpand(mPos)
+            }
         }
     }
 
@@ -1782,6 +1866,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val newPosition = if (forward) oldPosition + 1 else oldPosition - 1
         val count = binding.viewPager.adapter?.count ?: return
         if (newPosition !in 0 until count) {
+            if (requestPhotoBoundary(forward)) return
             slideshowEnded(forward)
         } else {
             binding.viewPager.setCurrentItem(newPosition, false)
@@ -2515,10 +2600,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     }
                     photoCatalogRevision = revision
                     photoCatalogUpdating = false
+                    photoNavigation.publish(false)
                     photoPageAccess.reset(revision)
                     photoPageAccess.approve(safe.media.map { it.path }, revision)
                     refreshUI(updated, true, positions, pathIndex)
                     validatePhotoPageWindow(mPos)
+                    consumePhotoCatalogAdvance()
                     org.fossify.gallery.helpers.GalleryPerfTrace.end(
                         "viewer_catalog_mutation", started, updated.size)
                 }
@@ -2657,6 +2744,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 favoriteSessionId = if (isFavoriteRequest) favoriteSessionId else null,
                 photoProfileId = photoProfileId,
                 photoSessionId = photoSessionId,
+                photoAnchorPath = getCurrentPath(),
+                onPhotoResult = { if (isPhotoProfile && request == viewerLoadGeneration) {
+                    photoCatalogUpdating = false
+                    consumePhotoCatalogAdvance()
+                } },
                 onFailure = { if (isPhotoProfile) {
                     // Keep the currently displayed selection when a recoverable
                     // rescan fails, but leave protected catalog pages fail-closed.
@@ -2667,9 +2759,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     if (isPhotoProfile) {
                         // The loader's COMPLETE path has freshly checked the whole
                         // catalog. Old per-page approvals must never survive it.
-                        photoCatalogMode = false
                         photoCatalogUpdating = false
-                        photoPageAccess.reset(-1L)
+                        consumePhotoCatalogAdvance()
+                        return@GetMediaAsynctask
                     }
                     gotMedia(it, refetchViewPagerPosition = refetchPosition, fullCatalog = viewerLoadTask?.scanResult?.complete == true)
                 }
@@ -2709,6 +2801,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 if (request != mediaPublicationGeneration || isFinishing || isDestroyed || !checkFavoriteAccess()) return@runOnUiThread
                 if (isDirEmpty(media)) return@runOnUiThread
                 if (unchanged) {
+                    if (isPhotoProfile && pendingPagerPublication == null) updatePhotoBoundaryWait()
                     if (pendingPagerPublication != null) {
                         pendingPagerPublication = pendingPagerPublication?.copy(
                             media = media, positions = positionIndex, generation = request,
@@ -2889,11 +2982,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun goToPrevItem() {
+        if (binding.viewPager.currentItem == 0 && requestPhotoBoundary(false)) return
         binding.viewPager.setCurrentItem(binding.viewPager.currentItem - 1, false)
         checkOrientation()
     }
 
     override fun goToNextItem() {
+        if (binding.viewPager.currentItem == mMediaFiles.lastIndex && requestPhotoBoundary(true)) return
         binding.viewPager.setCurrentItem(binding.viewPager.currentItem + 1, false)
         checkOrientation()
     }
@@ -3070,6 +3165,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun invalidatePhotoCatalogForRequery() {
+        photoNavigation.invalidate()
+        binding.photoBoundaryLoading.visibility = View.GONE
+        photoCatalogComplete = false
+        photoFallbackStarted = false
+        photoLastExpandKey = null
+        photoExpandGeneration++
+        ViewerAccessCoordinator.cancel(photoPartialExpandTask)
+        photoPartialExpandTask = null
+        photoCatalogUpdateGeneration++
+        ViewerAccessCoordinator.cancel(photoCatalogUpdateTask)
+        photoCatalogUpdateTask = null
+        photoCatalogAdvanceQueued = false
         photoPageAccessGeneration++
         ViewerAccessCoordinator.cancel(photoPageAccessTask)
         photoPageAccessTask = null
@@ -3080,7 +3187,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun onPageScrolled(position: Int, positionOffset: Float, positionOffsetPixels: Int) {
-        if (photoCatalogMode && positionOffset > 0.12f &&
+        if (isPhotoProfile && positionOffset > 0.12f &&
             position + 1 < mMediaFiles.size) {
             validatePhotoPageWindow(position + 1)
             requestPhotoPartialExpand(position + 1)
@@ -3089,8 +3196,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     override fun onPageSelected(position: Int) {
         if (!checkFavoriteAccess(getCurrentMedia().getOrNull(position)?.path)) return
-        if (photoCatalogMode) {
-            validatePhotoPageWindow(position)
+        if (isPhotoProfile) {
+            photoLastDirection = position >= mPos
+            org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.focus(photoProfileId, photoSessionId,
+                mMediaFiles.getOrNull(position)?.path.orEmpty())
+            if (photoNavigation.pending?.anchor != mMediaFiles.getOrNull(position)?.path) photoNavigation.cancel()
+            binding.photoBoundaryLoading.visibility = if (photoNavigation.pending == null) View.GONE else View.VISIBLE
+            if (photoCatalogMode) validatePhotoPageWindow(position)
             requestPhotoPartialExpand(position)
         }
         if (mPos != position) {
@@ -3103,8 +3215,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     override fun onPageScrollStateChanged(state: Int) {
         if (state == ViewPager.SCROLL_STATE_IDLE && getCurrentMedium() != null) {
-            if (photoCatalogMode) {
-                validatePhotoPageWindow(mPos)
+            if (isPhotoProfile) {
+                if (photoCatalogMode) validatePhotoPageWindow(mPos)
                 requestPhotoPartialExpand(mPos)
             }
             checkOrientation()

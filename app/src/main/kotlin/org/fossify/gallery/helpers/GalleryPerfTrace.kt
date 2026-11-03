@@ -5,18 +5,18 @@ import android.util.Log
 import org.fossify.gallery.BuildConfig
 
 /**
- * Debug-only, path-free loading measurements. Production builds do not log
- * directory names, media paths or protected content.
+ * Path-free loading measurements. Release builds retain only viewer counters
+ * and durations so device boundary reports can be diagnosed without media paths.
  */
 internal object GalleryPerfTrace {
-    fun begin(): Long = if (BuildConfig.DEBUG) SystemClock.elapsedRealtimeNanos() else 0L
+    fun begin(): Long = SystemClock.elapsedRealtimeNanos()
 
     fun event(name: String, count: Int? = null) {
-        if (BuildConfig.DEBUG) Log.d("GalleryPerf", "event=$name count=${count ?: -1}")
+        if (BuildConfig.DEBUG || name.startsWith("viewer_")) Log.d("GalleryPerf", "event=$name count=${count ?: -1}")
     }
 
     fun end(stage: String, startedNanos: Long, count: Int? = null) {
-        if (startedNanos == 0L) return
+        if (startedNanos == 0L || (!BuildConfig.DEBUG && !stage.startsWith("viewer_"))) return
         val millis = (SystemClock.elapsedRealtimeNanos() - startedNanos) / 1_000_000.0
         Log.d("GalleryPerf", "stage=$stage ms=${"%.2f".format(java.util.Locale.US, millis)} count=${count ?: -1}")
     }

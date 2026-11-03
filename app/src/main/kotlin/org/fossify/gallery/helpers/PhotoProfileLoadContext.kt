@@ -101,7 +101,7 @@ data class PhotoProfileLoadContext(
     }
 }
 
-enum class PhotoLoadStage { CACHE_PREVIEW, INDEXED, COMPLETE }
+enum class PhotoLoadStage { CACHE_PREVIEW, INDEXED, FILESYSTEM, COMPLETE }
 enum class PhotoLoadReason { ENTER, REFRESH, SCOPE_CHANGED }
 data class PhotoAccessSummary(val needsUnlock: Boolean, val publicOnly: Boolean)
 data class PhotoLoadResult(
@@ -113,3 +113,6 @@ data class PhotoLoadResult(
 
 /** Stale requests are discarded, not reported as successful empty albums. */
 class PhotoLoadInvalidatedException : java.util.concurrent.CancellationException("Photo scope changed")
+
+/** Another live producer owns this exact scope; the viewer listens to its store instead. */
+class PhotoLoadSharedException : Exception("Photo catalog producer already active")

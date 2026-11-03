@@ -425,7 +425,8 @@ class MediaFetcher(
 
     /** Supplements run after indexed publication. Indexed rows need no second Medium construction. */
     fun scanProfileFileSupplements(
-        folders: Set<String>, favoriteFiles: Set<String>, favorites: ArrayList<String>, indexed: ProfileIndexedMedia
+        folders: Set<String>, favoriteFiles: Set<String>, favorites: ArrayList<String>, indexed: ProfileIndexedMedia,
+        preferredPath: () -> String? = { null }, onBatch: (List<Medium>) -> Unit = {}
     ): ArrayList<Medium> {
         val metadata = indexed.mediaByPath
         val dateOverrides = indexed.customDatesByPath
@@ -434,16 +435,21 @@ class MediaFetcher(
         // Scoped storage can expose indexed media whose File API is inaccessible.
         if (scoped) result.putAll(metadata)
         val filter = filterOverride ?: context.config.filterMedia
-        for (folder in folders) {
-            if (shouldStop) return arrayListOf()
+        val remaining = folders.toMutableSet()
+        while (remaining.isNotEmpty()) {
+            if (shouldStop) throw java.util.concurrent.CancellationException()
+            val preferred = preferredPath()?.substringBeforeLast('/')
+            val folder = preferred?.takeIf { it in remaining } ?: remaining.first()
+            remaining.remove(folder)
             val scanned = getMediaInFolder(folder, false, false, filter, true, true, true, favorites,
-                context.config.showThumbnailVideoDuration, HashMap(), dateOverrides, metadata)
+                context.config.showThumbnailVideoDuration, HashMap(), dateOverrides, metadata,
+                onCandidateBatch = onBatch, preferredPath = preferredPath())
             scanned.forEach { result[it.path] = it }
         }
         if (favoriteFiles.isNotEmpty() && !shouldStop) {
             val scanned = getMediaInFolder(FAVORITES, false, false, filter, true, true, true, favorites,
                 context.config.showThumbnailVideoDuration, HashMap(), dateOverrides, metadata,
-                explicitFiles = favoriteFiles.map { File(it) })
+                explicitFiles = favoriteFiles.map { File(it) }, onCandidateBatch = onBatch)
             scanned.forEach { result[it.path] = it }
         }
         return ArrayList(result.values)
@@ -459,7 +465,8 @@ class MediaFetcher(
         folder: String, isPickImage: Boolean, isPickVideo: Boolean, filterMedia: Int, getProperDateTaken: Boolean,
         getProperLastModified: Boolean, getProperFileSize: Boolean, favoritePaths: ArrayList<String>,
         getVideoDurations: Boolean, lastModifieds: HashMap<String, Long>, dateTakens: HashMap<String, Long>,
-        indexedMetadata: Map<String, Medium>? = null, explicitFiles: List<File>? = null
+        indexedMetadata: Map<String, Medium>? = null, explicitFiles: List<File>? = null,
+        onCandidateBatch: ((List<Medium>) -> Unit)? = null, preferredPath: String? = null
     ): ArrayList<Medium> {
         val media = ArrayList<Medium>()
         val isRecycleBin = folder == RECYCLE_BIN
@@ -502,8 +509,19 @@ class MediaFetcher(
             }
         }
 
+        var batchStart = 0
+        var batchTime = android.os.SystemClock.elapsedRealtime()
+        fun publishCandidates(force: Boolean = false) {
+            if (onCandidateBatch == null || shouldStop || batchStart == media.size) return
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (!force && media.size - batchStart < 120 && now - batchTime < 200) return
+            onCandidateBatch.invoke(ArrayList(media.subList(batchStart, media.size)))
+            batchStart = media.size
+            batchTime = now
+        }
         var lastProgress = -500L
         fun publishScanProgress() {
+            publishCandidates()
             if (!physical || onFolderProgress == null || shouldStop) return
             val now = android.os.SystemClock.elapsedRealtime()
             if (now - lastProgress < 500) return
@@ -512,7 +530,12 @@ class MediaFetcher(
                 observation!!.method, observation.enumerated, observation.reasons.toMap() + ("scan_in_progress" to 1),
                 accessCurrent = observation.accessCurrent))
         }
-        for (curFile in files) {
+        // Prioritize the live anchor without re-enumerating or changing final sorting.
+        val orderedFiles = preferredPath?.let { anchor ->
+            val selected = files.indexOfFirst { it.absolutePath == anchor }
+            if (selected >= 0) files.subList(selected, files.size) + files.subList(0, selected) else files
+        } ?: files
+        for (curFile in orderedFiles) {
             var file = curFile
             if (shouldStop) throw java.util.concurrent.CancellationException()
             FolderRefreshTrace.event(traceRequest, "enumerated", listOf(file.path))
@@ -560,6 +583,7 @@ class MediaFetcher(
             if (indexed != null && !isPortrait && !physical) {
                 if (checkFileExistence && (!file.exists() || !file.isFile)) continue
                 media.add(if (indexed.isFavorite == (path in favoritePathSet)) indexed else indexed.copy(isFavorite = path in favoritePathSet))
+                publishCandidates()
                 continue
             }
 
@@ -640,6 +664,7 @@ class MediaFetcher(
         }
 
         if (shouldStop) throw java.util.concurrent.CancellationException()
+        publishCandidates(force = true)
         FolderRefreshTrace.event(traceRequest, "scan_output", media.map { it.path },
             "method=${observation?.method} status=${observation?.status} enumerated=${observation?.enumerated} reasons=${observation?.reasons}")
         return media
