@@ -6,13 +6,22 @@ import android.view.ViewGroup
 
 /** One interruptible alpha transition for Activity chrome and photo/video overlays. */
 internal object ViewerChromeMotion {
-    fun cancel(view: View) {
+    private val generations = java.util.WeakHashMap<View, Long>()
+
+    private fun supersede(view: View): Long {
+        val generation = (generations[view] ?: 0L) + 1L
+        generations[view] = generation
         view.animate().withEndAction(null).cancel()
+        return generation
+    }
+
+    fun cancel(view: View) {
+        supersede(view)
         if (view is ViewGroup) for (index in 0 until view.childCount) cancel(view.getChildAt(index))
     }
 
     fun show(view: View, visible: Boolean, duration: Long = OxygenClassicMotion.VIEWER_CHROME_MS) {
-        view.animate().withEndAction(null).cancel()
+        val generation = supersede(view)
         val alpha = if (visible) 1f else 0f
         if (!OxygenClassicMotion.enabled(view.context)) {
             view.alpha = alpha
@@ -21,7 +30,9 @@ internal object ViewerChromeMotion {
         }
         if (visible) view.visibility = View.VISIBLE
         view.animate().alpha(alpha).setDuration(duration).setInterpolator(OxygenClassicMotion.easing())
-            .withEndAction { view.visibility = if (visible) View.VISIBLE else View.INVISIBLE }.start()
+            .withEndAction {
+                if (generations[view] == generation) view.visibility = if (visible) View.VISIBLE else View.INVISIBLE
+            }.start()
     }
 }
 
@@ -31,9 +42,11 @@ internal class ViewerLoadingMotion(private val view: View) {
     private var shownAt = 0L
     private var pending: Runnable? = null
     private var disposed = false
+    private var generation = 0L
 
     fun setLoading(loading: Boolean) {
         if (disposed || wanted == loading) return
+        val request = ++generation
         wanted = loading
         pending?.let(view::removeCallbacks)
         pending = null
@@ -54,7 +67,7 @@ internal class ViewerLoadingMotion(private val view: View) {
             else 0L
         val task = Runnable {
             pending = null
-            if (disposed || wanted != loading) return@Runnable
+            if (disposed || request != generation || wanted != loading) return@Runnable
             if (loading) {
                 shownAt = SystemClock.uptimeMillis()
                 view.alpha = 0f
@@ -64,7 +77,10 @@ internal class ViewerLoadingMotion(private val view: View) {
             view.animate().alpha(if (loading) 1f else 0f)
                 .setDuration(OxygenClassicMotion.VIEWER_LOADING_FADE_MS)
                 .setInterpolator(OxygenClassicMotion.easing()).withEndAction {
-                    if (!wanted) { view.visibility = View.GONE; GalleryPerfTrace.event("viewer_loading_hidden") }
+                    if (!loading && !wanted && request == generation && !disposed) {
+                        view.visibility = View.GONE
+                        GalleryPerfTrace.event("viewer_loading_hidden")
+                    }
                 }.start()
         }
         pending = task
@@ -72,6 +88,7 @@ internal class ViewerLoadingMotion(private val view: View) {
     }
 
     fun dispose() {
+        generation++
         disposed = true
         pending?.let(view::removeCallbacks)
         pending = null

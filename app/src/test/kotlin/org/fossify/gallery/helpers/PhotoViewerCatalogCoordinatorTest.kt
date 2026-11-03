@@ -50,4 +50,25 @@ class PhotoViewerCatalogCoordinatorTest {
         assertFalse(state.request("4", true))
         assertTrue(state.request("0", false))
     }
+    @Test fun slideshowContinuationResolvesAgainstFilteredAdapterOrder() {
+        val state = PhotoViewerCatalogCoordinator()
+        state.publish(false)
+        assertTrue(state.request("image-4", true))
+        val filtered = listOf("image-0", "image-2", "image-4", "image-8")
+        state.publish(true)
+        assertEquals(3, state.destination(filtered, "image-4"))
+        assertNull(state.pending)
+    }
+
+    @Test fun canceledFailedProducerCanAcceptANewGestureWithoutProvingEnd() {
+        val state = PhotoViewerCatalogCoordinator()
+        state.publish(false)
+        assertTrue(state.request("4", true))
+        state.cancel()
+        state.publish(false)
+        assertTrue(state.request("4", true))
+        state.publish(true)
+        assertEquals(5, state.destination((0..100).map { "$it" }, "4"))
+    }
+
 }
