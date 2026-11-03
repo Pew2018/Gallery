@@ -31,6 +31,10 @@ class FolderDiskDiscoveryTest {
             assertEquals(2, found.size)
             assertFalse(found.any { it.contains("outside") })
         } finally {
+            // File.deleteRecursively can follow directory symlinks on some JDKs.
+            // Remove links before walking the test fixture's real directories.
+            Files.deleteIfExists(root.resolve("a/outside"))
+            Files.deleteIfExists(root.resolve("a/parent"))
             root.toFile().deleteRecursively()
             outside.toFile().deleteRecursively()
         }
