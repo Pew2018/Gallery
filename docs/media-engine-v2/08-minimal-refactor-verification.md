@@ -4,11 +4,11 @@
 仓库：Pew2018/Gallery  
 唯一目标分支：`fix/photo-viewer-five-item-boundary`  
 起始 HEAD：`27b488a88de9ed105c3ed6fdbe3931249dabbdb9`  
-提交 SHA、Actions Run ID/URL、测试统计、APK artifact：完成提交并读取 GitHub Actions 后填写；未获取到的值必须标记未获取。
+最终源代码 SHA：`5a9d4377038d6d27b3175f2569293ec205005d3f`。Actions Run `41684331467` 已成功，测试 786 项，失败/错误/跳过均为 0。
 
 ## 1. 验证范围
 
-本轮代码变化是照片配置公开来源文件系统批次的一次冗余排序精简，测试扩展现有 `PhotoProfileMediaLoadingTest`，并检查 `.nomedia` 直接文件读取的渐进阶段和最终顺序。
+本轮代码变化是照片配置 cache preview 与公开文件系统候选批次的兩处冗余排序精简；扩展现有 `PhotoProfileMediaLoadingTest` 检查 cache preview 顺序及 `.nomedia` 渐进阶段/最终顺序。
 
 以下结果均不能代替真机行为：构建成功不能证明 Android 8/11/14/16 文件权限矩阵、刷新动画/滚动锚点或全屏手势已通过。无设备 Trace 时，性能栏不填写时长和百分比。
 
@@ -26,15 +26,15 @@
 
 | 项目 | 实际值 |
 |---|---|
-| 提交 SHA | 待记录 |
-| Actions Run ID | 待记录 |
-| Run URL | 待记录 |
-| 测试 job 状态 | 待记录 |
-| 测试用例总数 / 失败 / 错误 / 跳过 | 待从 JUnit summary 或报告中读取 |
-| ARM64 Release job 状态 | 待记录 |
-| APK Artifact 名称 | 预期 `gallery-foss-arm64-v8a-release`，待实际确认 |
-| APK 下载入口 | 待实际确认 artifact 存在后填写 |
-| APK 对应 SHA / ABI split | 待实际确认 |
+| 最终源码提交 SHA | `5a9d4377038d6d27b3175f2569293ec205005d3f` |
+| Actions Run ID | `41684331467`（Run #461） |
+| Run URL | https://github.com/Pew2018/Gallery/actions/runs/41684331467 |
+| 测试 job 状态 | 成功；完整 FOSS Release 单元测试步骤与 JUnit 汇总验证均成功 |
+| 测试用例总数 / 失败 / 错误 / 跳过 | 786 / 0 / 0 / 0（来自工作流日志的 `Verified JUnit totals`） |
+| ARM64 Release job 状态 | 成功；APK 校验步骤成功 |
+| APK Artifact 名称 | `gallery-foss-arm64-v8a-release`（实际存在） |
+| APK 下载入口 | [GitHub Actions Run 461](https://github.com/Pew2018/Gallery/actions/runs/41684331467) 的 Artifacts；artifact ID `13253618722`，[下载 ZIP](https://api.github.com/repos/Pew2018/Gallery/actions/artifacts/13253618722/zip) |
+| APK 对应 SHA / ABI split | `5a9d4377038d6d27b3175f2569293ec205005d3f`；工作流 ARM64-only assemble/校验步骤成功 |
 
 若构建失败，应追加失败 step/log 的定位与修复提交；本表只填最终有证据的 Run。仍在执行中的 run 必须标为进行中，不得表述为成功。
 
@@ -55,13 +55,13 @@
 | ID | 当前结论 | 证据/未完成项 |
 |---|---|---|
 | A01 扫描正确 | 待设备验收 | 现有代码保留 `.nomedia` 磁盘读取和 COMPLETE 元数据提交；本次测试覆盖配置来源，未验证主页卡片数量设备同步。 |
-| A02 刷新生命周期 | 部分静态审计，整体待验证 | 有 epoch/request、terminal、取消与 watchdog；高频刷新/切页/队列拒绝的本次测试结果待 Actions。 |
+| A02 刷新生命周期 | 自动化测试通过，设备竞态待测 | 完整 FOSS 单测 786/0/0/0；保留 request/terminal/cancel/watchdog；具体真机高频序列未测。 |
 | A03 显示稳定 | 未验证 | 没有 Adapter observer、真机滚动锚点、动画录屏或 Perfetto。此次不改 UI 提交频率。 |
-| A04 排序与身份 | 有限测试待 Actions | 新增配置 `.nomedia` 多阶段顺序断言；跨目录去重、收藏变化、随机 order 与 Viewer 完整一致仍待完整测试/设备。 |
-| A05 全屏浏览 | 未验证 | 未运行测试前不得记通过；普通/收藏/配置各方向 20 张和快速换向需 Actions 与真机。 |
-| A06 授权失效 | 未验证 | 保留现有校验路径；撤权即时停止展示/预取需要权限矩阵及设备测。 |
-| A07 配置/备份兼容 | 未验证 | 本次未改格式/数据层；FOSS 全量测试及旧安装/导入导出抽测待实际结果。 |
-| A08 性能对照 | 代码级差异确认，性能未量化 | 每个公开 profile 文件系统批次减少一次临时排序；无时长、帧数、Adapter 事件的前后采样。 |
+| A04 排序与身份 | 自动化回归通过，设备行为待验 | 新增 cache preview 与 `.nomedia` 多阶段顺序断言；完整套件 786/0/0/0。随机跨刷新和设备 Viewer 同序仍待实际场景测。 |
+| A05 全屏浏览 | 既有自动化套件通过；真机未验 | Actions 的 786 项测试全部通过；普通/收藏/配置各方向 20 张、快速换向仍待真机。 |
+| A06 授权失效 | 既有自动化套件通过；真机未验 | Actions 的 786 项测试全部通过；Android 权限撤销后的展示/预取需设备矩阵。 |
+| A07 配置/备份兼容 | 自动化套件通过；实际升级/恢复未测 | FOSS 全量测试 786/0/0/0；本次未改数据格式，但旧安装升级及真实导入导出需设备/文件抽测。 |
+| A08 性能对照 | 代码级差异确认，性能未量化 | 每次 cache preview 少一次子集排序，每个公开 profile filesystem batch 少一次临时排序；无耗时、帧数、Adapter 事件前后采样。 |
 
 ## 6. Android 设备矩阵
 
@@ -69,4 +69,4 @@
 
 ## 7. 最终结果记录
 
-在 Actions 完成后补录：状态、完整 SHA、测试统计、artifact 真实性和下载链接、失败修复（如有）、最终分支 HEAD、工作区是否干净、未完成验收项。没有采样的数据继续标记未知，不按预期结果填写。
+最终结果：Run #461 完成且成功；测试 786 项、失败 0、错误 0、跳过 0；ARM64 Release APK artifact 存在并完成工作流校验；无构建修复提交。验证时分支 HEAD 为 `5a9d4377038d6d27b3175f2569293ec205005d3f`，本地跟踪工作区干净；后续仅验证记录的文档补录如生成新 SHA，以该提交记录为准。真机与性能指标仍为未测。

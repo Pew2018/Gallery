@@ -2,7 +2,7 @@
 
 > 建立日期：2026-11-04  
 > 唯一分支：`fix/photo-viewer-five-item-boundary`  
-> **实施状态：小范围修改已提交待验证；最终状态以最新日志和 08 为准。**
+> **实施状态：局部修改已提交，完整单测和 ARM64 Actions 构建通过；真机验收未完成。**
 > 当前开发范围：[05-minimal-scan-sort-display-refactor.md](05-minimal-scan-sort-display-refactor.md)  
 > 本文为**实时工作台账**，每次处理该 fix 分支的任务必须补录；不以口头汇报替代仓库文档。
 
@@ -14,12 +14,12 @@
 | 精简重构目标及范围记录（05） | 本次建档 | 目标已确定 | 仅记录方案；没有 Kotlin 变更 |
 | 实机基线与重现（P0 的剩余部分） | 未开始 | 0% | 缺当前 fix APK、ADB/录屏/Trace |
 | P1 扫描调度与完整性 | 未开始 | 0% | A01/A02 |
-| P2 排序与显示提交 | 局部实施、待验证 | 代码已有一处精简 | 已减少公开照片配置每个文件系统 batch 的一次临时排序；A03/A04/A08 未全部验收 |
-| P3 全屏/权限/备份回归 | 未开始 | 0% | A05/A06/A07 |
-| 单元测试 / 编译 / Actions（重构相关） | 待验证 | 本地受阻 | Gradle distribution 因环境网络不可达无法下载；指定分支 Actions 结果待获取 |
+| P2 排序与显示提交 | 局部修改已由 Actions 验证 | 两处重复排序已移除 | 786 项单测 0 失败/错误；真实动画、滚动与性能对照待设备测量 |
+| P3 全屏/权限/备份回归 | 自动化测试通过，真机未验收 | 代码未改 Viewer/授权/备份 | Actions 完整单测通过；设备权限矩阵、手势与真实升级/恢复未测 |
+| 单元测试 / 编译 / Actions（重构相关） | 已通过 | Run 461 成功 | SHA `5a9d437…`；786 tests，0 failures/errors/skipped；ARM64 artifact 已生成 |
 | 主分支合并 | 未计划 | 不适用 | 禁止自行合并 `main` |
 
-**整体状态：局部实施、验收未完成。** 不将文档编辑、既有 fix 改动或以前的 Actions 产物折算为本次验收进度。
+**整体状态：代码级精简、完整自动化测试与 ARM64 CI 构建已完成；真实设备验收和性能对照未完成。** 不将文档编辑、既有 fix 改动或以前的 Actions 产物折算为本次验收进度。
 
 ## 2. 日志规范（每轮均必须填写）
 
@@ -82,7 +82,7 @@
 ### 2026-11-04｜R01 — 照片配置渐进扫描重复排序精简
 
 - **目标/验收编号**：按 05 的 O2、D2 和 A04/A08，减少照片配置 cache preview 与文件系统批次进入界面前的冗余排序，同时保持候选验证、逐批可见、累计展示顺序、完整结果和 Viewer 交接语义。
-- **分支、起始 SHA、结束 SHA**：仅 `fix/photo-viewer-five-item-boundary`；本轮起始远程 HEAD `27b488a88de9ed105c3ed6fdbe3931249dabbdb9`。结束 SHA 待集中提交后补入 08。
+- **分支、起始 SHA、结束 SHA**：仅 `fix/photo-viewer-five-item-boundary`；本轮起始远程 HEAD `27b488a88de9ed105c3ed6fdbe3931249dabbdb9`。最终源代码 SHA `5a9d4377038d6d27b3175f2569293ec205005d3f`（两笔提交，均仅在指定分支）。
 - **用户反馈/复现步骤**：用户报告刷新、排序和显示管线复杂及过度动画；本轮未连接设备，不能确认历史视觉症状当前仍复现。
 - **事实 F**：`PhotoProfileMediaLoader.loadStaged()` 先排序 cache 全集，再对 preview 子集校验并排序；`preview()` 截取有序子列表且 `PhotoAccessValidationBatch.validate()` 仅过滤、不重排。公开配置的每个 filesystem batch 被 `result(FILESYSTEM, batch)` 排序，随后并入 `supplements` 后累计再排一次（当前文件约行 129–139、185–199）。`MediaFetcher.getMediaInFolder()` 每 120 项或 200ms 产生批次（当前行 513–521）。受保护混合配置有独立的授权预览策略（loader 行 177–184）。
 - **推断 I**：cache preview 和公开配置的每批首次排序都不会影响最终可见排序，只增加排序工作。此次保留最终累计排序和发布频率，不推断其能解决大面积动画。
@@ -90,6 +90,6 @@
 - **修改文件与逻辑**：`PhotoProfileMediaLoader.kt` 的 cache preview 与普通公开 filesystem batch 校验均保留输入顺序；普通批次累计合并后仍按既定排序设置排序一次再发布，受保护混合配置保持原处理。扩展 `PhotoProfileMediaLoadingTest`，新增缓存 preview 顺序测试，并为 260 项 `.nomedia` 来源检查每个渐进阶段和最终结果。
 - **影响及兼容范围**：不改读取来源、文件枚举顺序契约、去重、授权、缓存、分阶段发布、随机排序策略、用户配置、DB/备份或 Viewer。无数据库/格式/UI/权限改动。
 - **测试与数据**：本地定向命令 `./gradlew :app:testFossReleaseUnitTest --tests org.fossify.gallery.helpers.PhotoProfileMediaLoadingTest --stacktrace` 未能启动；Gradle Wrapper 下载 `gradle-9.5.1-bin.zip` 因环境网络不可达失败，未执行测试。Actions 与完整测试状态见 08。
-- **GitHub Actions / APK / 真机验证**：本条创建时待推送/待触发。不得视为已构建或设备通过；后续由 08 追加实际 Run ID、SHA、artifact 和真机状态。
+- **GitHub Actions / APK / 真机验证**：Run `41684331467` 成功，Run URL 见 08；786 tests、0 failures/errors/skipped；ARM64 APK artifact 已生成。无真机/模拟器，真机结论待验。
 - **遗留问题、风险与下一步**：滚动时闪烁/跳跃、`.nomedia` 主页计数同步、扫描实际重复次数及五张以上 Viewer 双向浏览需完整自动化/设备验证。本轮结论只覆盖重复排序的代码路径。
-- **提交记录及关联链接**：待集中提交后补入。
+- **提交记录及关联链接**：`315c164a1d563d166c74b8e0389eb1d1cfe17730` 与最终代码/验证文档提交 `5a9d4377038d6d27b3175f2569293ec205005d3f`；最终提交及 Actions 见 08。

@@ -72,13 +72,14 @@
 |---|---|---|---|
 | `app/src/main/kotlin/org/fossify/gallery/helpers/PhotoProfileMediaLoader.kt` / `loadStaged()` cache preview 分支 | cache 排序、preview 截取/过滤后再排序 | preview 校验时保留已有顺序 | 不改变锚点窗口或授权过滤后的序列。 |
 | 同文件 / `loadStaged()` 文件系统 batch 分支 | 每批先排序 batch，合并后对累计列表再排序 | 普通公开配置 batch 校验后保留输入次序；累计去重后仍按既定设置排序再发布。受保护混合配置分支未改 | 保留每阶段访问校验、排序语义与渐进 UI；路径/随机排序均仍在累计快照处生效。 |
-| `app/src/test/kotlin/org/fossify/gallery/helpers/PhotoProfileMediaLoadingTest.kt` / `unindexedNoMediaFolderPublishesValidatedBatchesBeforeComplete()` | 缓存/渐进扫描测试未锁定这两个顺序契约 | 对 profile 显式设置名称排序，并断言每个渐进批次与最终结果均为该排序 | 确认省略冗余排序后输出顺序不变，并保留 `.nomedia` 回归覆盖。 |
+| `app/src/test/kotlin/org/fossify/gallery/helpers/PhotoProfileMediaLoadingTest.kt` / `validatedCachePreviewRetainsItsSortedOrder()` | 缓存 preview 顺序未单独断言 | 新增缓存 fixture 并断言名称排序保持 | 覆盖 cache preview 跳过冗余排序后的顺序契约。 |
+| 同文件 / `unindexedNoMediaFolderPublishesValidatedBatchesBeforeComplete()` | 渐进批次顺序未锁定 | 对 profile 显式设置名称排序，并断言每个渐进批次与最终结果均为该排序 | 验证输出顺序且保留 `.nomedia` 多批次覆盖。 |
 
 未加新基础设施；未修改数据库 schema、备份格式、Android 最低 SDK、权限判断和 UI/Viewer。
 
 ## 5. 本轮自动化覆盖和状态
 
-扩展已有 Robolectric `PhotoProfileMediaLoadingTest`，未另造测试类。目标分支完整 FOSS Release 单元测试、ARM64 FOSS Release 构建，以及 Actions/APK 对应关系见 [08](08-minimal-refactor-verification.md)。本地 wrapper 因无法下载 Gradle 9.5.1 失败，故本轮没有本地 Kotlin 编译或设备测试。
+扩展已有 Robolectric `PhotoProfileMediaLoadingTest`，未另造测试类。目标分支完整 FOSS Release 单元测试、ARM64 FOSS Release 构建，以及 Actions/APK 对应关系见 [08](08-minimal-refactor-verification.md)：786 项测试、0 failures/errors/skipped，构建与 APK 校验成功。本地 wrapper 因无法下载 Gradle 9.5.1 失败，故本轮没有本地 Kotlin 编译或设备测试。
 
 ## 6. 剩余事项
 
