@@ -37,7 +37,10 @@ internal object ViewerChromeMotion {
 }
 
 /** Main-thread controller; delayed feedback never delays the media publication itself. */
-internal class ViewerLoadingMotion(private val view: View) {
+internal class ViewerLoadingMotion(
+    private val view: View,
+    private val now: () -> Long = { SystemClock.uptimeMillis() }
+) {
     private var wanted = false
     private var shownAt = 0L
     private var pending: Runnable? = null
@@ -54,7 +57,7 @@ internal class ViewerLoadingMotion(private val view: View) {
         if (!OxygenClassicMotion.enabled(view.context)) {
             view.alpha = if (loading) 1f else 0f
             view.visibility = if (loading) View.VISIBLE else View.GONE
-            shownAt = if (loading) SystemClock.uptimeMillis() else 0L
+            shownAt = if (loading) now() else 0L
             return
         }
         if (loading && view.visibility == View.VISIBLE) {
@@ -63,13 +66,13 @@ internal class ViewerLoadingMotion(private val view: View) {
         }
         val delay = if (loading) OxygenClassicMotion.VIEWER_LOADING_DELAY_MS else
             if (view.visibility == View.VISIBLE)
-                (OxygenClassicMotion.VIEWER_LOADING_MIN_VISIBLE_MS - (SystemClock.uptimeMillis() - shownAt)).coerceAtLeast(0L)
+                (OxygenClassicMotion.VIEWER_LOADING_MIN_VISIBLE_MS - (now() - shownAt)).coerceAtLeast(0L)
             else 0L
         val task = Runnable {
             pending = null
             if (disposed || request != generation || wanted != loading) return@Runnable
             if (loading) {
-                shownAt = SystemClock.uptimeMillis()
+                shownAt = now()
                 view.alpha = 0f
                 view.visibility = View.VISIBLE
                 GalleryPerfTrace.event("viewer_loading_shown")

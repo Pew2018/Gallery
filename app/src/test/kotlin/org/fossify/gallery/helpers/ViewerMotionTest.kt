@@ -70,9 +70,14 @@ class ViewerMotionTest {
 
     @Test fun shownLoadingHasMinimumVisibleTimeAndDisposeCancelsPendingShow() {
         val view = indicator()
-        val motion = ViewerLoadingMotion(view)
+        // Keep the visibility policy clock independent of Choreographer's
+        // frame clock. The actual View callbacks and cancellation still run.
+        var clock = 1_000L
+        val motion = ViewerLoadingMotion(view) { clock }
         motion.setLoading(true)
-        advance(130)
+        advance(200)
+        assertEquals(View.VISIBLE, view.visibility)
+        clock += 10L
         motion.setLoading(false)
         advance(100)
         assertEquals(View.VISIBLE, view.visibility)
