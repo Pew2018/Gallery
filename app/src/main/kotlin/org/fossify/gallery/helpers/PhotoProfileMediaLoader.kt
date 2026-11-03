@@ -184,7 +184,11 @@ class PhotoProfileMediaLoader(
                 }
             } else {
                 // Keep normal public-profile progressive loading unchanged.
-                val stage = result(PhotoLoadStage.FILESYSTEM, batch)
+                // This batch is merged into the previously validated candidates
+                // and the cumulative list is sorted below before publication.
+                // Sorting the batch here as well only repeats work and does not
+                // affect the order of the published snapshot.
+                val stage = result(PhotoLoadStage.FILESYSTEM, batch, preserveInputOrder = true)
                 stage.media.forEach { supplements[it.path] = it }
                 val ordered = ArrayList(supplements.values)
                 sort(ordered)

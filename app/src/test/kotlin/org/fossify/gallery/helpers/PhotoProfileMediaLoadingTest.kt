@@ -17,6 +17,7 @@ import org.fossify.gallery.models.Favorite
 import org.fossify.gallery.extensions.favoritesDB
 import org.fossify.gallery.extensions.dateTakensDB
 import org.fossify.gallery.models.DateTaken
+import org.fossify.commons.helpers.SORT_BY_NAME
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -183,6 +184,7 @@ class PhotoProfileMediaLoadingTest {
         try {
             Files.write(root.resolve(".nomedia"), byteArrayOf())
             val paths = (0 until 260).map { Files.write(root.resolve("photo-$it.jpg"), byteArrayOf(1)).toString() }
+            context.config.saveCustomSorting(PhotoProfileMediaLoader.PATH, SORT_BY_NAME)
             val id = profile(root.toString())
             val stages = ArrayList<PhotoLoadResult>()
             val final = background {
@@ -198,7 +200,13 @@ class PhotoProfileMediaLoadingTest {
             val partials = stages.filter { it.stage == PhotoLoadStage.FILESYSTEM }
             assertTrue(partials.isNotEmpty())
             assertTrue(partials.first().media.size < paths.size)
+            partials.forEach { stage ->
+                val names = stage.media.map { it.name }
+                assertEquals(names.sortedBy { it.lowercase(java.util.Locale.getDefault()) }, names)
+            }
             assertEquals(paths.toSet(), final.media.map { it.path }.toSet())
+            val finalNames = final.media.map { it.name }
+            assertEquals(finalNames.sortedBy { it.lowercase(java.util.Locale.getDefault()) }, finalNames)
             assertEquals(paths.size, background { PhotoSessionViewerCatalogStore.latest(context, id, null, paths.first()) }!!.media.size)
         } finally { root.toFile().deleteRecursively(); PhotoSessionViewerCatalogStore.invalidate() }
     }

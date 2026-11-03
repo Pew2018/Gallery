@@ -1,13 +1,13 @@
 # Gallery Media Engine V2 — 代码调研资料索引
 
-> 状态：**静态源码调研已完成；当前实施方案已收敛为小规模 Scan–Sort–Display 重构；代码实施尚未开始（0%）**  
+> 状态：**静态源码调研已完成；最小排序精简已实施，等待指定 fix 分支 Actions 验证；真机体验尚未验证**
 > 日期：2026-11-04  
 > 目标仓库：Pew2018/Gallery  
 > 唯一目标分支：fix/photo-viewer-five-item-boundary  
-> 固定审计基线：c5cc5b6852291491a999934d12f26314455959c6  
+> 本轮起始 HEAD：27b488a88de9ed105c3ed6fdbe3931249dabbdb9
 > 对照 main 基线：44b31846fcb8b817d27ff5fef05829601260b3f5  
-> 分支关系：审计时 fix 领先 main 16 个提交，落后 0 个。  
-> 资料属性：只读调研；本次只增添 docs，不修改 Kotlin、资源、数据库 schema、配置、CI 或测试。
+> 分支关系：本轮开始时 fix 相对 main 的差异见 Git；起始 HEAD 与 task marker 一致。
+> 本轮交付：最小 Kotlin 排序精简 + 既有测试扩展 + 文档记录；无 schema、配置格式、CI 或发布安全改动。
 
 ## 文件导航
 
@@ -16,7 +16,9 @@
 3. [03-compatibility-contracts.md](03-compatibility-contracts.md)：不得损坏的顶栏、底栏、照片配置、收藏、保护授权、导入导出和旧版升级行为。
 4. [04-validation-and-migration-readiness.md](04-validation-and-migration-readiness.md)：原始全面重构调研的测试清单及候选迁移方案（**归档为参考，不代表当前执行范围**）。
 5. **[05-minimal-scan-sort-display-refactor.md](05-minimal-scan-sort-display-refactor.md)：当前生效的小规模重构目标、范围、非目标、验收条件和执行阶段。**
-6. **[06-progress-and-change-log.md](06-progress-and-change-log.md)：当前进度 0%、任务状态、每轮必填的目标/证据/修改/测试/遗留事项。**
+6. **[06-progress-and-change-log.md](06-progress-and-change-log.md)：实时任务状态和每轮目标/证据/修改/测试/遗留事项。**
+7. [07-minimal-refactor-implementation.md](07-minimal-refactor-implementation.md)：当前分支审计、证据分类、实施取舍与实际代码修改。
+8. [08-minimal-refactor-verification.md](08-minimal-refactor-verification.md)：自动化验证、Actions、APK、性能基线与未完成验收项。
 
 ## 审计口径与重要限制
 
@@ -39,6 +41,6 @@
 - **I**：当前可能最值得收敛的是“谁拥有媒体目录版本、谁能发布状态、局部扫描如何影响相册数量、谁能宣称 END/COMPLETE”，而不是从头重写 UI。
 - **U**：目前尚无当前 SHA 的真实扫描时长、列表跳动次数、丢帧率、设备内存峰值、媒体规模分布和全屏首帧/边界响应基准。
 
-## 本轮交付边界
+## 当前交付边界
 
-**历史调研（01–04）只负责收集证据，不构成重构指令。** 当前实施口径统一以 05 为准，执行进度与后续工作日志以 06 为准。下一步代码修改尚未开始；需基于最新远程 fix HEAD 和实际观察进行定点验证，严禁将风险假设当成已证实缺陷。
+**历史调研（01–04）只负责收集证据，不构成重构指令。** 当前实施口径统一以 05 为准；实施和验证记录分别见 07、08，持续进度以 06 为准。本轮仅精简照片配置公开文件系统批次的一次重复排序，没有声称修复用户报告的真机闪烁、索引持续或权限场景；它们仍需设备验证。未经测量不报告性能百分比。
