@@ -33,4 +33,24 @@ class ViewerSwipePublicationGateTest {
         gate.onScrollMoving(true)
         assertNull(gate.onScrollMoving(false))
     }
+
+    @Test fun gridDeferralCoalescesBeforeExpensiveSnapshotAndMenuPreparation() {
+        val gate = ViewerSwipePublicationGate<() -> Unit>()
+        gate.onScrollMoving(true)
+        var preparations = 0
+        var last = -1
+        repeat(100) { stage ->
+            assertTrue(gate.deferIfMoving { preparations++; last = stage })
+        }
+        assertEquals(0, preparations)
+        gate.onScrollMoving(false)?.invoke()
+        assertEquals(1, preparations)
+        assertEquals(99, last)
+        gate.onScrollMoving(true)
+        gate.deferIfMoving { preparations++ }
+        gate.clear() // scope/revision/access invalidation must discard work immediately
+        gate.onScrollMoving(false)?.invoke()
+        assertEquals(1, preparations)
+    }
+
 }

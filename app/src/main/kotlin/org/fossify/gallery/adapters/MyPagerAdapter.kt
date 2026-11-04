@@ -92,7 +92,16 @@ internal class MyPagerAdapter(
         val medium = items[position]
         if (!activity.mayLoadFavoritePath(medium.path)) return addDeferredPage(container)
         val identity = ViewerMediaUpdatePolicy.identity(medium)
-        val existing = fragments[identity]
+        val registered = fragments[identity]
+        val existing = registered?.takeUnless { fragment ->
+            val signature = fragment.arguments?.getSignature()
+            signature != null && ViewerMediaUpdatePolicy.contentChanged(signature,
+                ViewerMediaUpdatePolicy.contentSignature(medium))
+        }
+        if (registered != null && existing == null) {
+            registered.view?.visibility = View.GONE
+            if (fm.isStateSaved) pendingRemovals += registered else removeFragment(registered)
+        }
         if (fm.isStateSaved) {
             if (existing?.isAdded == true && existing !in pendingRemovals) {
                 existing.listener = activity
@@ -183,7 +192,17 @@ internal class MyPagerAdapter(
 
     /** Catalog and indexes are prepared off the UI thread by ViewPagerActivity. */
     fun updateMedia(fresh: List<Medium>, preparedPositions: Map<ViewerMediumIdentity, Int>? = null): Boolean {
-        if (items === fresh || ViewerMediaUpdatePolicy.sameCatalog(items, fresh)) return false
+        if (items === fresh || ViewerMediaUpdatePolicy.sameCatalog(items, fresh)) {
+            // Check only instantiated pages, not another full-library signature
+            // snapshot on the main thread. Later pages are checked at instantiate.
+            val invalidatedPage = fragments.values.any { fragment ->
+                val medium = fragment.arguments?.getSerializable(MEDIUM) as? Medium
+                val signature = fragment.arguments?.getSignature()
+                medium != null && signature != null && ViewerMediaUpdatePolicy.contentChanged(
+                    signature, ViewerMediaUpdatePolicy.contentSignature(medium))
+            }
+            if (!invalidatedPage) return false
+        }
         items = fresh
         positionByIdentity = preparedPositions ?: ViewerMediaUpdatePolicy.positionIndex(fresh)
         GalleryPerfTrace.event("viewer_adapter_publish", fresh.size)

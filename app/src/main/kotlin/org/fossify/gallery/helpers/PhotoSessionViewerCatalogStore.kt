@@ -26,6 +26,8 @@ internal object PhotoSessionViewerCatalogStore {
         val pathIndex: Map<String, Int>,
         val revision: Long,
         val isComplete: Boolean = true,
+        // Bounded to the visible window; independent of the segment LRU.
+        val ordinals: Map<String, Int> = emptyMap(),
         val before: PhotoViewerCatalogCoordinator.Boundary = if (isComplete) PhotoViewerCatalogCoordinator.Boundary.END else PhotoViewerCatalogCoordinator.Boundary.UNKNOWN,
         val after: PhotoViewerCatalogCoordinator.Boundary = if (isComplete) PhotoViewerCatalogCoordinator.Boundary.END else PhotoViewerCatalogCoordinator.Boundary.UNKNOWN
     )
@@ -170,6 +172,7 @@ internal object PhotoSessionViewerCatalogStore {
         val end = if (segments == null) result.media.size else (pos + EXPAND_BATCH + 1).coerceAtMost(result.media.size)
         val initial = segments?.range(start, end - 1) ?: result.media.subList(start, end)
         val next = catalog(initial, result.context.revision, segments == null)?.copy(
+            ordinals = if (segments == null) emptyMap() else initial.mapIndexed { offset, item -> item.path to start + offset }.toMap(),
             before = if (start == 0) PhotoViewerCatalogCoordinator.Boundary.END else PhotoViewerCatalogCoordinator.Boundary.HAS_MORE,
             after = if (end == result.media.size) PhotoViewerCatalogCoordinator.Boundary.END else PhotoViewerCatalogCoordinator.Boundary.HAS_MORE
         ) ?: return null
@@ -245,6 +248,7 @@ internal object PhotoSessionViewerCatalogStore {
         val end = (pos + EXPAND_BATCH).coerceAtMost(segments.size - 1)
         val items = segments.range(start, end)
         val next = catalog(items, entry.request.revision, false)?.copy(
+            ordinals = items.mapIndexed { offset, item -> item.path to start + offset }.toMap(),
             before = if (start == 0) PhotoViewerCatalogCoordinator.Boundary.END else PhotoViewerCatalogCoordinator.Boundary.HAS_MORE,
             after = if (end == segments.size - 1) PhotoViewerCatalogCoordinator.Boundary.END else PhotoViewerCatalogCoordinator.Boundary.HAS_MORE
         ) ?: return null
@@ -274,11 +278,15 @@ internal object PhotoSessionViewerCatalogStore {
         if (pos < 0) return false
         val existing = old.catalog.pathIndex
         val batch = ArrayList<Medium>()
+        val ordinals = HashMap(old.catalog.ordinals)
         var cursor = pos + if (forward) 1 else -1
         while (cursor in 0 until size && batch.size < EXPAND_BATCH) {
             if (cancelled()) return false
             val candidate = item(cursor)
-            if (candidate.path !in existing && (query.isNullOrBlank() || candidate.name.contains(query, ignoreCase = true))) batch += candidate
+            if (candidate.path !in existing && (query.isNullOrBlank() || candidate.name.contains(query, ignoreCase = true))) {
+                batch += candidate
+                ordinals[candidate.path] = cursor
+            }
             cursor += if (forward) 1 else -1
         }
         val exhausted = cursor !in 0 until size
@@ -300,9 +308,11 @@ internal object PhotoSessionViewerCatalogStore {
         val combined = when {
             // The completed segmented source knows the true full-grid ordinal,
             // including files that MediaStore did not index.
-            source.complete -> collected.values.sortedBy { medium ->
-                source.segments?.knownIndexOf(medium.path)
-                    ?: source.order.indexOfFirst { it.path == medium.path }
+            source.complete -> {
+                // Every retained row carries the ordinal recorded when read.
+                // Never rank an LRU miss as -1, nor scan the full disk per row.
+                if (collected.keys.any { it !in ordinals }) return false
+                collected.values.sortedBy { ordinals.getValue(it.path) }
             }
             // Before completion, index positions cannot rank .nomedia supplements.
             sorting and org.fossify.commons.helpers.SORT_BY_RANDOM == 0 ->
@@ -316,8 +326,9 @@ internal object PhotoSessionViewerCatalogStore {
         val first = (center - MAX_ITEMS / 2).coerceIn(0, (combined.size - MAX_ITEMS).coerceAtLeast(0))
         val window = combined.drop(first).take(MAX_ITEMS)
         val next = catalog(window, source.request.revision, false)?.copy(
-            before = if (source.complete && ((!forward && exhausted) || (first == 0 && old.catalog.before == PhotoViewerCatalogCoordinator.Boundary.END))) PhotoViewerCatalogCoordinator.Boundary.END else if (source.complete) PhotoViewerCatalogCoordinator.Boundary.HAS_MORE else PhotoViewerCatalogCoordinator.Boundary.UNKNOWN,
-            after = if (source.complete && ((forward && exhausted) || (first + window.size == combined.size && old.catalog.after == PhotoViewerCatalogCoordinator.Boundary.END))) PhotoViewerCatalogCoordinator.Boundary.END else if (source.complete) PhotoViewerCatalogCoordinator.Boundary.HAS_MORE else PhotoViewerCatalogCoordinator.Boundary.UNKNOWN
+            ordinals = if (source.complete) window.associate { it.path to ordinals.getValue(it.path) } else emptyMap(),
+            before = if (source.complete && ((!forward && exhausted && first == 0) || (first == 0 && old.catalog.before == PhotoViewerCatalogCoordinator.Boundary.END))) PhotoViewerCatalogCoordinator.Boundary.END else if (source.complete) PhotoViewerCatalogCoordinator.Boundary.HAS_MORE else PhotoViewerCatalogCoordinator.Boundary.UNKNOWN,
+            after = if (source.complete && ((forward && exhausted && first + window.size == combined.size) || (first + window.size == combined.size && old.catalog.after == PhotoViewerCatalogCoordinator.Boundary.END))) PhotoViewerCatalogCoordinator.Boundary.END else if (source.complete) PhotoViewerCatalogCoordinator.Boundary.HAS_MORE else PhotoViewerCatalogCoordinator.Boundary.UNKNOWN
         ) ?: return false
         if (ViewerMediaUpdatePolicy.sameCatalog(old.catalog.media, next.media) &&
             old.catalog.before == next.before && old.catalog.after == next.after) return false

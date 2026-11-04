@@ -20,4 +20,11 @@ class ViewerPositionPolicyTest {
     @Test fun initialSelectionUsesExistingPositionLookupFallback() {
         assertEquals(-1, ViewerPositionPolicy.resolve(listOf(medium("other.jpg")), "/gallery/clicked.jpg", -1))
     }
+
+    @Test fun caseDistinctPathsResolveToExactIdentityInBothLookupVariants() {
+        val items = listOf(medium("A.jpg"), medium("a.jpg"))
+        assertEquals(1, ViewerPositionPolicy.resolve(items, "/gallery/a.jpg", 0))
+        assertEquals(1, ViewerPositionPolicy.resolve(ViewerMediaUpdatePolicy.pathIndex(items), "/gallery/a.jpg", 0, 2))
+    }
+
 }

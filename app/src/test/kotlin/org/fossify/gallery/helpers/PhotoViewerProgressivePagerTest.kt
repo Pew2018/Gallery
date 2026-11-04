@@ -160,6 +160,8 @@ class PhotoViewerProgressivePagerTest {
                 pager.setCurrentItem(position, false)
                 assertEquals(position, pager.currentItem)
                 assertNotNull(adapter.getCurrentFragment(position))
+                assertEquals(all[position].path, (adapter.getCurrentFragment(position)!!.arguments!!
+                    .getSerializable(MEDIUM) as Medium).path)
             }
             now += 60L
             assertFalse(host.mayLoadFavoritePath(all[18].path))

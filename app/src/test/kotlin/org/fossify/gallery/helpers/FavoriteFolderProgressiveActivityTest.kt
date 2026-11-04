@@ -87,6 +87,18 @@ class FavoriteFolderProgressiveActivityTest {
             .get(activity) as FavoriteFolderLoadCoordinator
         try {
             await { coordinator.hasVisibleManifest && adapter()?.dirs?.size == 2 }
+            val menuBinding = MainActivity::class.java.getDeclaredMethod("getBinding").apply { isAccessible = true }
+                .invoke(activity) as org.fossify.gallery.databinding.ActivityMainBinding
+            val favoritesField = MainActivity::class.java.getDeclaredField("mShowingFolderFavorites").apply { isAccessible = true }
+            val refreshMenu = MainActivity::class.java.getDeclaredMethod("refreshMenuItems").apply { isAccessible = true }
+            repeat(3) {
+                favoritesField.setBoolean(activity, false)
+                refreshMenu.invoke(activity)
+                assertTrue(menuBinding.mainMenu.requireToolbar().menu.findItem(R.id.show_all).isVisible)
+                favoritesField.setBoolean(activity, true)
+                refreshMenu.invoke(activity)
+                assertFalse(menuBinding.mainMenu.requireToolbar().menu.findItem(R.id.show_all).isVisible)
+            }
             val first = adapter()!!
             assertTrue(first.dirs.any { it.path == folder.path })
             assertFalse(first.dirs.any { it.path == hidden.path })

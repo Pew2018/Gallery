@@ -177,6 +177,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var photoPublishedStage = -1
     private var photoRequestStarted = 0L
     private val photoScroll = FavoritesScrollRestorer()
+    private val photoGridPublication = org.fossify.gallery.helpers.ViewerSwipePublicationGate<() -> Unit>()
     private var photoScrollProfileId: String? = null
 
     private fun photoDisplayKey(): String = org.fossify.gallery.helpers.PhotoProfileScope.capture(
@@ -191,6 +192,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun clearPhotoDisplayState(keepAnchor: Boolean = false) {
+        photoGridPublication.clear()
         photoLoadCompleted = false
         photoLoadedKey = null
         photoLoadedRevision = -1L
@@ -284,6 +286,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             !photoNeedsUnlock && photoLoadedKey == requestedKey &&
             photoLoadedRevision == org.fossify.gallery.helpers.PhotoContentRevision.current() &&
             getMediaAdapter() != null && mMedia.isNotEmpty()
+        photoGridPublication.clear()
         photoPublishedStage = -1
         photoRequestStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
         if (retainGrid) {
@@ -335,39 +338,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 // to the viewer. A stopped grid needs only the final snapshot.
                 if (photoViewerTransition && result.stage != org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE)
                     return@photoResult
-                if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed &&
-                    result.context.isCurrent(applicationContext) && photoDisplayKey() == requestedKey &&
-                    result.stage.ordinal >= photoPublishedStage) {
-                    photoPublishedStage = result.stage.ordinal
-                    photoNeedsUnlock = result.access.needsUnlock
-                    val complete = result.stage == org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE
-                    val adapter = getMediaAdapter()
-                    if (adapter != null && photoScroll.capture(binding.mediaGrid,
-                            adapter.media.map { (it as? Medium)?.path }) != null) {
-                        // Keep the pending anchor if this provisional adapter has not laid out yet.
-                        photoScroll.clear()
-                        rememberPhotoScrollAnchor()
-                    }
-                    publishMedia(ArrayList<ThumbnailItem>(result.media), !complete, request)
-                    if (!complete) {
-                        photoLoadedKey = requestedKey
-                        photoHasContent = result.media.isNotEmpty()
-                        mIsGettingMedia = true
-                        setMediaLoading(true)
-                    }
-                    refreshMenuItems()
-                    if (binding.mediaEmptyTextPlaceholder.isVisible()) updatePhotoEmptyState()
-                    if (result.media.isNotEmpty() && photoRequestStarted != 0L) {
-                        val started = photoRequestStarted
-                        photoRequestStarted = 0L
-                        binding.mediaGrid.postOnAnimation {
-                            if (mediaLoadRequests.isCurrent(request)) org.fossify.gallery.helpers.GalleryPerfTrace.end(
-                                "photo_first_frame", started, result.media.size)
-                        }
-                    }
-                }
+                submitPhotoGridResult(result, request, requestedKey)
             },
             onFailure = { error ->
+                if (mediaLoadRequests.isCurrent(request)) photoGridPublication.clear()
                 if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed) {
                     if (error is org.fossify.gallery.helpers.PhotoLoadInvalidatedException) {
                         getPhotoProfileMedia(org.fossify.gallery.helpers.PhotoLoadReason.ENTER)
@@ -385,6 +359,54 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 }
             }) { /* Photos publish through the stage-aware callback above. */ }
             .also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
+    }
+
+    internal fun submitPhotoGridResult(result: org.fossify.gallery.helpers.PhotoLoadResult, request: Long, requestedKey: String) {
+        if (!mediaLoadRequests.isCurrent(request) || !result.context.isCurrent(applicationContext) ||
+            photoDisplayKey() != requestedKey || result.stage.ordinal < photoPublishedStage) return
+        photoPublishedStage = result.stage.ordinal
+        val apply = { applyPhotoGridResult(result, request, requestedKey) }
+        // Defer before full-list copies/comparisons, anchors and menus.
+        // First content and access failures must never wait for scroll idle.
+        if (!result.access.needsUnlock && getMediaAdapter() != null && mMedia.isNotEmpty() &&
+            binding.mediaGrid.scrollState != RecyclerView.SCROLL_STATE_IDLE) {
+            photoGridPublication.onScrollMoving(true)
+            val replaced = photoGridPublication.hasPending
+            photoGridPublication.deferIfMoving(apply)
+            org.fossify.gallery.helpers.GalleryPerfTrace.event(
+                if (replaced) "photo_grid_publication_replaced" else "photo_grid_publication_deferred")
+        } else {
+            photoGridPublication.clear()
+            apply()
+        }
+    }
+
+    private fun applyPhotoGridResult(result: org.fossify.gallery.helpers.PhotoLoadResult, request: Long, requestedKey: String) {
+        val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+        if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed &&
+            result.context.isCurrent(applicationContext) && photoDisplayKey() == requestedKey &&
+            result.stage.ordinal >= photoPublishedStage) {
+            photoPublishedStage = result.stage.ordinal
+            photoNeedsUnlock = result.access.needsUnlock
+            val complete = result.stage == org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE
+            publishMedia(ArrayList<ThumbnailItem>(result.media), !complete, request)
+            if (!complete) {
+                photoLoadedKey = requestedKey
+                photoHasContent = result.media.isNotEmpty()
+                mIsGettingMedia = true
+                setMediaLoading(true)
+            }
+            if (binding.mediaEmptyTextPlaceholder.isVisible()) updatePhotoEmptyState()
+            if (result.media.isNotEmpty() && photoRequestStarted != 0L) {
+                val started = photoRequestStarted
+                photoRequestStarted = 0L
+                binding.mediaGrid.postOnAnimation {
+                    if (mediaLoadRequests.isCurrent(request)) org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                        "photo_first_frame", started, result.media.size)
+                }
+            }
+        }
+        org.fossify.gallery.helpers.GalleryPerfTrace.end("photo_grid_main_publish", started, result.media.size)
     }
     private var mIsGetImageIntent = false
     private var mIsGetVideoIntent = false
@@ -625,6 +647,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
         binding.mediaGrid.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                if (isPhotoProfiles) {
+                    photoGridPublication.onScrollMoving(newState != RecyclerView.SCROLL_STATE_IDLE)?.invoke()
+                }
                 if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
                     favoritesScroll.clear()
                     photoScroll.clear()
@@ -2421,6 +2446,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val requestedPhotoId = photoProfileId
         val requestedPhotoKey = if (isPhotoProfiles) photoDisplayKey() else null
         val requestedPhotoToken = if (isPhotoProfiles) photoToken() else null
+        val gridOrderId = org.fossify.gallery.helpers.ViewerGridOrderStore.offer(
+            PhotoProfileMediaLoader.PATH + requestedPhotoId.orEmpty() + requestedPhotoToken.orEmpty(),
+            path, getMediaAdapter()?.media ?: mMedia)
         val neighborId = if (isPhotoProfiles) {
             val displayedOrder = getMediaAdapter()?.media ?: mMedia
             org.fossify.gallery.helpers.ViewerNeighborWindow.captureAround(displayedOrder, path)?.let { neighbors ->
@@ -2475,6 +2503,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         org.fossify.gallery.helpers.ViewerSearchPolicy.EXTRA_QUERY, mCommittedSearchText
                     )
                     neighborId?.let { putExtra(org.fossify.gallery.helpers.ViewerNeighborHandoffStore.EXTRA_ID, it) }
+                    gridOrderId?.let { putExtra(org.fossify.gallery.helpers.ViewerGridOrderStore.EXTRA_ID, it) }
                     pendingFolderReturn = null
                     if (isPhotoProfiles) {
                         binding.mediaGrid.stopScroll()

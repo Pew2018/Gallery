@@ -701,5 +701,42 @@ class PhotoProfileMediaLoadingTest {
         } finally { root.toFile().deleteRecursively() }
     }
 
+
+    @Test fun multiSourceSameNameAndFavoriteOverlapHandoffKeepsCommittedGridOrderAcrossStages() {
+        val root = Files.createTempDirectory("photo-grid-multisource")
+        try {
+            val folders = listOf("one", "two").map { Files.createDirectory(root.resolve(it)) }
+            val paths = folders.flatMap { folder -> (0 until 16).map { index ->
+                Files.write(folder.resolve("photo-$index.jpg"), byteArrayOf(1)).toString().also { provider.add(it) }
+            } }
+            val id = profile(folders[0].toString())
+            val repository = PhotoProfileRepository.of(context)
+            repository.updateExisting(repository.state().current!!.copy(sources = folders.map {
+                PhotoSource(PhotoSourceType.FOLDER, it.toString())
+            } + PhotoSource(PhotoSourceType.FAVORITES)))
+            val stages = ArrayList<PhotoLoadResult>()
+            val complete = background {
+                context.favoritesDB.insert(Favorite(paths[4]))
+                PhotoProfileMediaLoader(context, MediaFetcher(context, TYPE_IMAGES))
+                    .loadStaged(id, allowPreview = true, forceScan = true, onStage = { stages += it })
+            }
+            assertEquals(32, complete.media.size)
+            assertEquals(paths.toSet(), complete.media.map { it.path }.toSet())
+            val grid = stages.first { it.media.size >= 20 }.media
+            val clicked = grid[grid.size / 2].path
+            val token = ViewerGridOrderStore.offer(PhotoProfileMediaLoader.PATH + id, clicked, grid)!!
+            val gridOrder = ViewerGridOrderStore.take(token, PhotoProfileMediaLoader.PATH + id, clicked)!!
+            var previous = grid
+            (stages + complete).filter { it.stage.ordinal >= PhotoLoadStage.INDEXED.ordinal }.forEach { stage ->
+                val fresh = ViewerGridOrderPolicy.reconcile(gridOrder, previous, stage.media, false) { it.path }
+                assertEquals(gridOrder.filter { key -> stage.media.any { it.path == key } },
+                    fresh.map { it.path }.filter { it in gridOrder })
+                assertEquals(fresh.size, fresh.map { it.path }.distinct().size)
+                assertEquals(clicked, fresh[ViewerPositionPolicy.resolve(fresh, clicked, grid.size / 2)].path)
+                previous = fresh
+            }
+        } finally { root.toFile().deleteRecursively(); PhotoSessionViewerCatalogStore.invalidate() }
+    }
+
 }
 

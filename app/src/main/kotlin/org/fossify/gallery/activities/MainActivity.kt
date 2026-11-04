@@ -806,6 +806,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun refreshMenuItems() {
         if (!mIsThirdPartyIntent) {
             binding.mainMenu.requireToolbar().menu.apply {
+                findItem(R.id.show_all).isVisible = !mShowingFolderFavorites
                 findItem(R.id.show_all).title = if (mShowingFolderFavorites)
                     getString(R.string.gallery_file_view) else getString(R.string.show_all)
                 findItem(R.id.manage_unavailable_folder_favorites).isVisible = mShowingFolderFavorites
@@ -2657,6 +2658,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
             val query = textToSearch ?: binding.mainMenu.getCurrentQuery()
             val sortingAtPublication = config.directorySorting
+            val preparationStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
             val distinctDirs = snapshot.filter { !mShowingFolderFavorites || mFavoriteFolderPaths.contains(it.path) }
                 .distinctBy {
                     if (mShowingFolderFavorites) FavoriteFolderRules.normalizedPath(it.path)
@@ -2673,6 +2675,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             if (query.isNotEmpty()) visible = visible.filter { it.name.contains(query, true) }
                 .sortedBy { !it.name.startsWith(query, true) }.toCollection(ArrayList())
 
+            org.fossify.gallery.helpers.GalleryPerfTrace.end("album_presentation_prepare", preparationStarted, snapshot.size)
             val committed = {
                 if (presentationIsCurrent() && (scanRequest == null || isCurrentDirectoryScan(scanRequest))) {
                     // Only an in-progress scan can publish an unconfirmed empty cache.

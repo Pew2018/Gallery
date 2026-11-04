@@ -129,4 +129,44 @@ class MyPagerAdapterLifecycleTest {
             controller.pause().stop().destroy()
         }
     }
+
+    @Test fun explicitSamePathInvalidationCannotBeSwallowedByIdenticalCatalogFastPath() {
+        val controller = Robolectric.buildActivity(Host::class.java).setup()
+        try {
+            val host = controller.get()
+            val container = FrameLayout(host).apply { id = View.generateViewId() }
+            host.setContentView(container)
+            val items = listOf(medium(10L))
+            val adapter = MyPagerAdapter(host, host.supportFragmentManager, items, fragmentFactory = { ProbeFragment() })
+            val old = adapter.instantiateItem(container, 0) as ProbeFragment
+            org.fossify.gallery.helpers.ViewerContentInvalidationRegistry.invalidate(items[0].path)
+            assertTrue(adapter.updateMedia(items))
+            assertEquals(androidx.viewpager.widget.PagerAdapter.POSITION_NONE, adapter.getItemPosition(old))
+            // Even direct instantiation cannot return the obsolete same-path fragment.
+            val fresh = adapter.instantiateItem(container, 0)
+            assertNotSame(old, fresh)
+            assertEquals(items[0].path, ((fresh as ProbeFragment).arguments!!.getSerializable(MEDIUM) as Medium).path)
+        } finally { controller.pause().stop().destroy() }
+    }
+
+    @Test fun deletingCurrentPathRebindsReplacementByIdentityRatherThanReusingItsPosition() {
+        val controller = Robolectric.buildActivity(Host::class.java).setup()
+        try {
+            val host = controller.get()
+            val container = FrameLayout(host).apply { id = View.generateViewId() }
+            host.setContentView(container)
+            val items = (0 until 30).map { medium(10, "$it.jpg") }
+            val adapter = MyPagerAdapter(host, host.supportFragmentManager, items, fragmentFactory = { ProbeFragment() })
+            val old = adapter.instantiateItem(container, 15) as ProbeFragment
+            val fresh = items.filterNot { it.path == items[15].path }
+            adapter.updateMedia(fresh)
+            assertEquals(androidx.viewpager.widget.PagerAdapter.POSITION_NONE, adapter.getItemPosition(old))
+            val target = org.fossify.gallery.helpers.ViewerPositionPolicy.resolve(fresh, items[15].path, 15)
+            assertEquals(15, target)
+            val replacement = adapter.instantiateItem(container, target) as ProbeFragment
+            assertNotSame(old, replacement)
+            assertEquals(items[16].path, (replacement.arguments!!.getSerializable(MEDIUM) as Medium).path)
+        } finally { controller.pause().stop().destroy() }
+    }
+
 }

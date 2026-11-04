@@ -13,6 +13,7 @@ import org.fossify.gallery.adapters.MediaAdapter
 import org.fossify.gallery.dialogs.ResizeMultipleImagesDialog
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.getSortedDirectories
+import org.fossify.gallery.extensions.getDirsToShow
 import org.fossify.gallery.models.Directory
 import org.fossify.gallery.models.Medium
 import org.fossify.gallery.models.ThumbnailItem
@@ -223,4 +224,58 @@ class GalleryRefreshRegressionTest {
             assertEquals(listOf("1", "3", "20"), activity.getSortedDirectories(source).map { it.name })
         } finally { controller.pause().stop().destroy() }
     }
+
+    @Test fun equalPrimaryKeysHaveDeterministicPathTiesInBothDirectionsAndAllModes() {
+        val controller = activity()
+        val activity = controller.get()
+        try {
+            val modes = listOf(org.fossify.commons.helpers.SORT_BY_NAME, org.fossify.commons.helpers.SORT_BY_PATH,
+                org.fossify.commons.helpers.SORT_BY_COUNT, org.fossify.commons.helpers.SORT_BY_SIZE,
+                org.fossify.commons.helpers.SORT_BY_DATE_MODIFIED, org.fossify.commons.helpers.SORT_BY_DATE_TAKEN)
+            val dirs = listOf("/Pictures/z", "/Pictures/A", "/Pictures/a", "/Pictures/b").map {
+                directory("same").copy(path = it, size = 10, mediaCnt = 3, modified = 100, taken = 100)
+            }
+            modes.forEach { mode ->
+                for (direction in listOf(0, org.fossify.commons.helpers.SORT_DESCENDING)) {
+                    activity.config.directorySorting = mode or direction
+                    val expected = activity.getSortedDirectories(ArrayList(dirs)).map { it.path }
+                    repeat(8) { seed ->
+                        assertEquals(expected, activity.getSortedDirectories(ArrayList(dirs.shuffled(java.util.Random(seed.toLong())))).map { it.path })
+                    }
+                    if (mode != org.fossify.commons.helpers.SORT_BY_PATH) {
+                        assertEquals(listOf("/Pictures/A", "/Pictures/a", "/Pictures/b", "/Pictures/z"), expected)
+                    }
+                }
+            }
+            activity.config.directorySorting = org.fossify.commons.helpers.SORT_BY_COUNT or org.fossify.commons.helpers.SORT_DESCENDING
+            val changed = dirs.map { if (it.path.endsWith("z")) it.copy(mediaCnt = 4) else it }
+            assertEquals("/Pictures/z", activity.getSortedDirectories(ArrayList(changed)).first().path)
+        } finally { controller.pause().stop().destroy() }
+    }
+
+    @Test fun groupedParentsAggregateCurrentMetadataAndIgnoreObsoleteSortValue() {
+        val controller = activity()
+        val activity = controller.get()
+        try {
+            activity.config.groupDirectSubfolders = true
+            activity.config.directorySorting = org.fossify.commons.helpers.SORT_BY_COUNT
+            val children = arrayListOf(
+                directory("a").copy(path = "/Pictures/one/a", mediaCnt = 2, size = 10, modified = 20, taken = 30, sortValue = "999"),
+                directory("b").copy(path = "/Pictures/one/b", mediaCnt = 3, size = 20, modified = 40, taken = 50, sortValue = "0"),
+                directory("a").copy(path = "/Pictures/two/a", mediaCnt = 1),
+                directory("b").copy(path = "/Pictures/two/b", mediaCnt = 1))
+            val parents = activity.getDirsToShowForTest(children)
+            assertEquals(listOf("/Pictures/two", "/Pictures/one"), parents.map { it.path })
+            assertEquals(5, parents.last().mediaCnt)
+            assertEquals(30L, parents.last().size)
+            assertEquals(20L, parents.last().modified)
+            assertEquals(30L, parents.last().taken)
+            activity.config.directorySorting = org.fossify.commons.helpers.SORT_BY_SIZE or org.fossify.commons.helpers.SORT_DESCENDING
+            assertEquals("/Pictures/one", activity.getDirsToShowForTest(ArrayList(children.reversed())).first().path)
+        } finally { activity.config.groupDirectSubfolders = false; controller.pause().stop().destroy() }
+    }
+
+    private fun SimpleActivity.getDirsToShowForTest(dirs: ArrayList<Directory>) =
+        getDirsToShow(dirs, dirs, "/Pictures")
+
 }

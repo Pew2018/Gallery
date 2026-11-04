@@ -985,6 +985,7 @@ class DirectoryAdapter(
         }
         pendingDirectoryUpdate = null
         if (DirectoryPresentation.sameContents(directories, dirs)) {
+            org.fossify.gallery.helpers.GalleryPerfTrace.event("album_identical_skip", directories.size)
             dirs = directories
             latestDirectoryUpdate = null
             if (forceDirectoryRebind) {
@@ -997,6 +998,7 @@ class DirectoryAdapter(
         val old = dirs.mapTo(ArrayList()) { it.snapshot() }
         diffExecutor.execute {
             if (generation != diffGeneration) return@execute
+            val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
             val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
                 override fun getOldListSize() = old.size
                 override fun getNewListSize() = directories.size
@@ -1024,6 +1026,7 @@ class DirectoryAdapter(
                 latestDirectoryUpdate = null
                 fillLockedFolders()
                 diff.dispatchUpdatesTo(this)
+                org.fossify.gallery.helpers.GalleryPerfTrace.end("album_diff_commit", started, directories.size)
                 if (forceDirectoryRebind) {
                     forceDirectoryRebind = false
                     notifyItemRangeChanged(0, itemCount)

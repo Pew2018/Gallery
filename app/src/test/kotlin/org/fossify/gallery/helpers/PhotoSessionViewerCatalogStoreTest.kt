@@ -213,4 +213,57 @@ class PhotoSessionViewerCatalogStoreTest {
         assertEquals(PhotoViewerCatalogCoordinator.Boundary.END, beginning.before)
         assertEquals(PhotoViewerCatalogCoordinator.Boundary.HAS_MORE, beginning.after)
     }
+
+    @Test fun segmentedExpansionKeepsEveryPathInTrueOrdinalOrderAfterPositionCacheEviction() {
+        // Larger than both 20k window and 20,512-entry ordinal LRU.
+        val all = media(30_001)
+        val result = ready(all)
+        worker {
+            PhotoSessionViewerCatalogStore.focus(profile.id, null, all[15_000].path)
+            PhotoSessionViewerCatalogStore.prepare(app, result)
+            val source = PhotoSessionViewerCatalogStore::class.java.getDeclaredField("indexed")
+                .apply { isAccessible = true }.get(PhotoSessionViewerCatalogStore)!!
+            val segments = source.javaClass.getDeclaredField("segments").apply { isAccessible = true }
+                .get(source) as SegmentedPhotoCatalog
+            // Simulate other segment reads evicting positions used by the live window.
+            for (index in all.indices) segments[index]
+            assertNull(segments.knownIndexOf(all[14_880].path))
+            var current = PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[15_000].path)!!
+            fun assertOrder(catalog: PhotoSessionViewerCatalogStore.Catalog) {
+                val first = catalog.ordinals.getValue(catalog.media.first().path)
+                val last = catalog.ordinals.getValue(catalog.media.last().path)
+                assertEquals(all.subList(first, last + 1).map { it.path }, catalog.media.map { it.path })
+                catalog.media.forEachIndexed { offset, item ->
+                    assertEquals(first + offset, catalog.ordinals[item.path])
+                    assertEquals(offset, catalog.pathIndex[item.path])
+                }
+            }
+            repeat(8) {
+                assertTrue(PhotoSessionViewerCatalogStore.requestExpand(app, profile.id, null, current.media.last().path, true))
+                current = PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[15_000].path)!!
+                assertOrder(current)
+            }
+            repeat(8) {
+                assertTrue(PhotoSessionViewerCatalogStore.requestExpand(app, profile.id, null, current.media.first().path, false))
+                current = PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[15_000].path)!!
+                assertOrder(current)
+            }
+            val first = PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all.first().path)!!
+            assertOrder(first)
+            assertEquals(PhotoViewerCatalogCoordinator.Boundary.END, first.before)
+            val last = PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all.last().path)!!
+            assertOrder(last)
+            assertEquals(PhotoViewerCatalogCoordinator.Boundary.END, last.after)
+            // Rebuild after deletion/insertion; old ordinals never leak across revisions.
+            PhotoContentRevision.changed()
+            assertNull(PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[15_000].path))
+            val revised = all.filterNot { it.path == all[15_001].path } + media(1).single().copy(path = "/Gallery/new.jpg")
+            PhotoSessionViewerCatalogStore.invalidate()
+            PhotoSessionViewerCatalogStore.prepare(app, ready(revised))
+            val updated = PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[15_000].path)!!
+            val begin = updated.ordinals.getValue(updated.media.first().path)
+            assertEquals(revised.subList(begin, begin + updated.media.size).map { it.path }, updated.media.map { it.path })
+        }
+    }
+
 }

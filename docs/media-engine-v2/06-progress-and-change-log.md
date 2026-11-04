@@ -135,3 +135,10 @@
 
 - R04 最终验证：源码 `8bc6c617e2756cd5dd3c1e51ae4a1b9a3e9e2826`；Run [41760914157](https://github.com/Pew2018/Gallery/actions/runs/41760914157) 全部成功。803 tests / 0 failures / 0 errors / 0 skipped；ARM64 Release assemble、包名/签名/ABI 检查通过，APK artifact `gallery-foss-arm64-v8a-release` ID `13290472340`，测试报告 ID `13289949744`。APK SHA-256 `a020cc1a128133b3060a7793e87c2d1d0d8da9d7732d36f90d06eb0d7248d579`。临时 CI 签名，非覆盖安装兼容证明。所有测试断言保留。
 - R04 交付状态：收藏首屏和排序已修复且自动化验证通过；Viewer 目录交接与无效更新代码完成、自动化通过，真机手势/缩放/视频播放和性能仍待验。详细逐项结论与完整产物链接见 11。本次闭环仅补验证文档，不触发额外 APK，不改变已验证业务源码。
+
+### 2026-11-04｜R05 — Photos 会话顺序、滚动发布与目录确定性
+
+- 唯一目标改为用户指定的 `feature/photo-session-seamless-viewer`；起始远程 HEAD `ee6597a16e4a329343e24463dcbb0352f39e9d37`。原 fix 和 main 均不修改、不推送。
+- 完整证据、九处业务修改、既有测试扩展与 A01–A11 验收见 [12](12-seamless-viewer-order-scroll-sorting.md)。保留扫描器、初始化 generation、拖动发布gate、邻近五项授权、DiffUtil和渐进首屏；没有新线程池/框架。
+- 确认问题：Photos点击缺已提交grid顺序；COMPLETE segmented排序依赖可淘汰ordinal并用-1；Adapter同值短路吞显式内容失效；普通目录同值比较无稳定tie；收藏show_all始终显示；Photos滚动延期发生在上游全量处理之后。
+- 本地定向/完整测试尝试均因Gradle distribution网络不可达未启动；diff检查通过。本轮完整Actions待提交后验证；缺少设备帧率数据，不报告FPS/百分比。

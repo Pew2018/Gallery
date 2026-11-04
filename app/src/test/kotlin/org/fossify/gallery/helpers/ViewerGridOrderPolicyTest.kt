@@ -30,4 +30,20 @@ class ViewerGridOrderPolicyTest {
             ViewerGridOrderPolicy.reconcile(null, listOf("b", "a"),
                 listOf("a", "b", "c"), random = true) { it })
     }
+
+    @Test fun clickedGridOrderWinsAcrossIndexedFilesystemAndCompleteWithoutRevivingRemovedPaths() {
+        val grid = (0 until 30).map { "/source/${29 - it}.jpg" }
+        var published = grid.subList(13, 18)
+        listOf(grid.shuffled(java.util.Random(1)), grid.reversed() + "/other/15.jpg",
+            grid.reversed().filterNot { it == grid[2] } + "/other/15.jpg").forEach { stage ->
+            published = ViewerGridOrderPolicy.reconcile(grid, published, stage, false) { it }
+            assertEquals(grid.filter { it in stage } + stage.filter { it !in grid }, published)
+            val selected = published.indexOf(grid[15])
+            (-8..8).forEach { offset ->
+                assertEquals(grid.filter { it in stage }[selected + offset], published[selected + offset])
+            }
+            assertEquals(published.size, published.distinct().size)
+        }
+    }
+
 }

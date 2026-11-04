@@ -16,7 +16,7 @@ internal object ViewerPositionPolicy {
     fun resolve(media: List<Medium>, currentPath: String, previousPosition: Int): Int {
         var current = -1
         media.forEachIndexed { index, item ->
-            if (current < 0 && currentPath.isNotEmpty() && item.path.equals(currentPath, true)) current = index
+            if (current < 0 && currentPath.isNotEmpty() && item.path == currentPath) current = index
         }
         return when {
             current >= 0 -> current

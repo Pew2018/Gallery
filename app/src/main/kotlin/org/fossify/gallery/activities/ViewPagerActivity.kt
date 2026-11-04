@@ -836,8 +836,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             mediaPublicationTask = mediaPublicationExecutor.submit {
                 // The catalog is already sorted in the grid's committed order.
                 // Never reshuffle a complete random Photos snapshot on viewer entry.
-                val scopedItems = if (preserveCatalogOrder) searchedViewerMedia(items)
-                    else stabilizeRandomViewerOrder(searchedViewerMedia(items), previousOrder)
+                val scopedItems = org.fossify.gallery.helpers.ViewerGridOrderPolicy.reconcile(
+                    viewerGridOrder, previousOrder,
+                    if (preserveCatalogOrder) searchedViewerMedia(items)
+                    else stabilizeRandomViewerOrder(searchedViewerMedia(items), previousOrder), false) { it.path }
                 runOnUiThread {
                     if (publication != mediaPublicationGeneration || request != viewerLoadGeneration ||
                         isFinishing || isDestroyed || !checkFavoriteAccess()) return@runOnUiThread
@@ -941,8 +943,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     ) { Thread.currentThread().isInterrupted }
                 }
                 val visible = if (candidate != null && selectedCheck != null) {
-                    org.fossify.gallery.helpers.ViewerSearchPolicy.filter(
-                        candidate.media, viewerSearchQuery.orEmpty())
+                    org.fossify.gallery.helpers.ViewerGridOrderPolicy.reconcile(
+                        viewerGridOrder, previouslyPublished,
+                        org.fossify.gallery.helpers.ViewerSearchPolicy.filter(
+                            candidate.media, viewerSearchQuery.orEmpty()), false) { it.path }
                 } else emptyList()
                 val changed = !org.fossify.gallery.helpers.ViewerMediaUpdatePolicy.sameCatalog(
                     previouslyPublished, visible)
@@ -1404,7 +1408,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         viewerLoadTask?.stopFetching()
         val path = mPath
         if (viewerGridOrder == null) {
-            viewerGridOrder = org.fossify.gallery.helpers.ViewerGridOrderStore.take(
+            if (viewerGridOrder == null) viewerGridOrder = org.fossify.gallery.helpers.ViewerGridOrderStore.take(
                 intent.getStringExtra(org.fossify.gallery.helpers.ViewerGridOrderStore.EXTRA_ID),
                 path.getParentPath(), path)
         }
@@ -1606,6 +1610,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             val profile = photoProfileId
             val session = photoSessionId
             val clicked = mPath
+            viewerGridOrder = org.fossify.gallery.helpers.ViewerGridOrderStore.take(
+                intent.getStringExtra(org.fossify.gallery.helpers.ViewerGridOrderStore.EXTRA_ID),
+                PhotoProfileMediaLoader.PATH + profile.orEmpty() + session.orEmpty(), clicked)
+            org.fossify.gallery.helpers.GalleryPerfTrace.event(
+                if (viewerGridOrder == null) "viewer_grid_order_authoritative_fallback" else "viewer_grid_order_handoff",
+                viewerGridOrder?.size)
             val neighborWindow = takeNeighborWindow(
                 org.fossify.gallery.helpers.ViewerSourceType.PHOTO_PROFILE, profile.orEmpty()
             )
@@ -2968,6 +2978,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 it is Medium && it.path !in ignored &&
                     (!favoriteRequest || FavoriteAccessSessionManager.isCapturedPath(favoriteToken, it.path))
             }.map { it as Medium }.toCollection(ArrayList())
+            if (isPhotoProfile && !isExternalIntent() && viewerGridOrder != null) {
+                val ordered = org.fossify.gallery.helpers.ViewerGridOrderPolicy.reconcile(
+                    viewerGridOrder, previous, media, false) { it.path }
+                media.clear()
+                media.addAll(ordered)
+            }
             val positionIndex = org.fossify.gallery.helpers.ViewerMediaUpdatePolicy.positionIndex(media)
             val pathIndex = org.fossify.gallery.helpers.ViewerMediaUpdatePolicy.pathIndex(media)
             val authorizedPaths = media.mapTo(HashSet(media.size)) { it.path }
@@ -3060,7 +3076,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (refetchViewPagerPosition || mPos == -1) {
             mPos = pathIndex?.let {
                 org.fossify.gallery.helpers.ViewerPositionPolicy.resolve(it, currentPathBeforeUpdate, previousPosition, media.size)
-            } ?: previousPosition.coerceIn(0, media.lastIndex.coerceAtLeast(0))
+            } ?: org.fossify.gallery.helpers.ViewerPositionPolicy.resolve(media, currentPathBeforeUpdate, previousPosition)
         }
 
         updateActionbarTitle()

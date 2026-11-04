@@ -208,6 +208,8 @@ fun Context.getSortedDirectories(
     } else directory.name.normalizeString().lowercase(locale)
     // sortValue belongs to the previous scan's sorting mode. It is never an
     // authority for a newly selected mode (including grouped synthetic parents).
+    val stablePaths = dirs.associate { it.path to org.fossify.gallery.helpers.FavoriteFolderRules
+        .normalizedPath(it.path).lowercase(Locale.ROOT) }
     dirs.sortWith { first, second ->
         val result = when {
             sorting and SORT_BY_NAME != 0 || sorting and SORT_BY_PATH != 0 -> {
@@ -219,7 +221,14 @@ fun Context.getSortedDirectories(
             sorting and SORT_BY_DATE_MODIFIED != 0 -> first.modified.compareTo(second.modified)
             else -> first.taken.compareTo(second.taken)
         }
-        if (sorting and SORT_DESCENDING != 0) -result else result
+        if (result != 0) {
+            if (sorting and SORT_DESCENDING != 0) -result else result
+        } else {
+            // Scan/cache input order is not a tie breaker. Keep ties ascending
+            // in both modes, with a case-sensitive final comparison for distinct paths.
+            val pathOrder = stablePaths.getValue(first.path).compareTo(stablePaths.getValue(second.path))
+            if (pathOrder != 0) pathOrder else first.path.compareTo(second.path)
+        }
     }
     return movePinnedDirectoriesToFront(dirs)
 }
