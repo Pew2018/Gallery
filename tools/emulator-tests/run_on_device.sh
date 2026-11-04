@@ -6,6 +6,7 @@ APP="org.fossify.gallery.debug"
 capture() {
   adb logcat -d -v threadtime > "$OUT/logcat.txt" 2>&1 || true
   adb shell dumpsys meminfo "$APP" > "$OUT/meminfo.txt" 2>&1 || true
+  adb pull "/sdcard/Android/data/$APP/files/gallery-ci-evidence" "$OUT/viewer-evidence" >/dev/null 2>&1 || true
   adb shell screencap -p /sdcard/gallery-ci-final.png >/dev/null 2>&1 || true
   adb pull /sdcard/gallery-ci-final.png "$OUT/final.png" >/dev/null 2>&1 || true
 }
