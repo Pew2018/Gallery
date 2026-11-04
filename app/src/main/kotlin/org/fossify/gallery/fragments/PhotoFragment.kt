@@ -486,6 +486,7 @@ class PhotoFragment : ViewPagerFragment() {
             Glide.with(requireContext())
                 .`as`(PictureDrawable::class.java)
                 .listener(SvgSoftwareLayerSetter())
+                .signature(mMedium.getKey())
                 .load(mMedium.path)
                 .into(binding.gesturesView)
         }

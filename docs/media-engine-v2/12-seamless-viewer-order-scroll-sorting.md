@@ -79,3 +79,6 @@ Run [41766932465](https://github.com/Pew2018/Gallery/actions/runs/41766932465)�
 第二轮 Run [41767514582](https://github.com/Pew2018/Gallery/actions/runs/41767514582)（`b92052f…`）：814项运行、2项失败，均为新增夹具错误：MainActivity收藏标志是计算属性，应设置mGallerySection；网格测试在onCreate前inflate需安装AppCompat ViewFactory。按真实初始化条件修正，不移除断言。大目录顺序、Fragment失效和多来源交接等其余用例已运行，但本轮未生成APK，不能作为最终通过证据。
 
 线程所有权复核：首个MediaAdapter的clone是浅拷贝，网格还会修改Medium.gridPosition。为避免UI与继续扫描的stage共享可变Medium，GetMediaAsynctask在既有worker上对阶段与最终PhotoLoadResult执行snapshotForUi（复制媒体行），UI排队只持独立结果。无新线程池；新增测试双向修改扫描/网格元数据，证明互不污染，scope/revision/access仍为原请求。
+
+
+解码缓存交接复核确认的遗漏：Medium.getSignature原只含path/mtime/size，显式ViewerContentInvalidationRegistry版本不参与；因此重建Fragment本身不能证明Glide/Picasso不复用旧位图。将既有进程内失效版本接入getSignature（0版本保持原键），PhotoFragment SVG和VideoFragment预览也使用既有getKey；普通图片/Picasso/zoom decoder自动复用同一签名。没有改解码器、永久配置或DB。测试覆盖同路径size/mtime/显式version各自改变缓存键、不影响其他路径；只能证明缓存键与绑定逻辑，实际Bitmap/视频解码仍真机待验，进程内registry原4096容量和生命周期保持。

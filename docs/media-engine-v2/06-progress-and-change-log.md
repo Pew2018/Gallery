@@ -148,3 +148,5 @@
 - R05 最终复核：COMPLETE窗口锚点用已有ordinal避免淘汰后的全目录定位；将Photos部分/最终更新的必要锚点统一留在publishMedia，一次实际变化只捕获一次；补自定义/置顶顺序显式用例。等待最终源码完整CI，不以较早Run代替。
 
 - R05 第二轮 Run `41767514582`：814项、2失败，新增测试的计算属性反射及缺AppCompat inflater factory，已按生产状态修正。补齐worker→UI媒体行所有权快照（初始Adapter原为浅clone），保留所有断言；等待下一次完整CI和APK，不引用失败Run作成功证据。
+
+- R05 解码缓存交接发现明确遗漏：Fragment失效版本未进入Medium图片缓存键，SVG/视频预览未用媒体签名。以既有失效registry/getKey最小接入，并补键一致性测试；不修改解码器。最终自动化必须对应包含此补修的源码。

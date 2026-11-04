@@ -115,4 +115,19 @@ class ViewerMediaUpdatePolicyTest {
         ViewerContentInvalidationRegistry.invalidate(unknown.path)
         assertTrue(ViewerMediaUpdatePolicy.contentChanged(old, ViewerMediaUpdatePolicy.contentSignature(unknown)))
     }
+
+    @Test fun decoderCacheSignatureTracksSizeTimeAndExplicitInvalidationAtTheSamePath() {
+        val item = medium("cache-version.jpg")
+        val original = item.getSignature()
+        assertFalse(original == item.copy(size = item.size + 1).getSignature())
+        assertFalse(original == item.copy(modified = item.modified + 1).getSignature())
+        val unrelated = medium("unrelated.jpg").getSignature()
+        ViewerContentInvalidationRegistry.invalidate(item.path)
+        assertFalse(original == item.getSignature())
+        assertEquals(unrelated, medium("unrelated.jpg").getSignature())
+        val invalidated = item.getSignature()
+        ViewerContentInvalidationRegistry.invalidate(item.path)
+        assertFalse(invalidated == item.getSignature())
+    }
+
 }

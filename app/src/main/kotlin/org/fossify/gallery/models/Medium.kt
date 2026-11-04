@@ -113,7 +113,9 @@ data class Medium(
             File(path).lastModified()
         }
 
-        return "$path-$lastModified-$size"
+        val version = org.fossify.gallery.helpers.ViewerContentInvalidationRegistry.current(path)
+        val key = "$path-$lastModified-$size"
+        return if (version == 0L) key else "$key-$version"
     }
 
     fun getKey() = ObjectKey(getSignature())

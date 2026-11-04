@@ -301,7 +301,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
 
         storeStateVariables()
-        Glide.with(context).load(mMedium.path).into(binding.videoPreview)
+        Glide.with(context).load(mMedium.path).signature(mMedium.getKey()).into(binding.videoPreview)
 
         // setMenuVisibility is not called at VideoActivity (third party intent)
         if (!mIsFragmentVisible && activity is VideoActivity) {
@@ -325,7 +325,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                 videoPlayOutline.beGone()
                 mVolumeSideScroll.beGone()
                 mBrightnessSideScroll.beGone()
-                Glide.with(context).load(mMedium.path).into(videoPreview)
+                Glide.with(context).load(mMedium.path).signature(mMedium.getKey()).into(videoPreview)
             }
         }
 
