@@ -159,4 +159,4 @@
 - 在 `fix/photo-viewer-five-item-boundary` 增加设置→高级→性能→诊断与日志，默认关闭，开启最长 24 小时；支持复制最近 250 KiB、ACTION_CREATE_DOCUMENT 导出 TXT、确认清空及只读状态。
 - 新增 app-private 单线程有界日志写入，约 5 MiB 循环文件、字段/堆栈路径隐私过滤、session-salted 媒体关联 ID、未捕获异常委托记录和 Android 11+ 退出原因摘要。保留既有 FolderRefreshTrace/ GalleryPerfTrace Logcat 行为；详细设计和限制见 [诊断功能说明](../diagnostics/app-diagnostics.md)。
 - 已接入扫描/刷新关键边界、GalleryPerfTrace 已有事件、Viewer 打开/页绑定/关闭和网格/全屏删除请求结果。未记录媒体路径、URI、文件名、照片内容或逐帧事件。
-- 本地测试尝试因 Gradle 9.5.1 distribution 网络不可达未启动；Actions 与 APK 结果待当前提交验证。没有真机验证，不能确认设备级崩溃覆盖或实际性能。
+- 完整验证：源码 `82c4b4ffe26b80cdb6c6b6303ce2a9488998dad4`；Run [41858925567](https://github.com/Pew2018/Gallery/actions/runs/41858925567) 成功，848 tests / 0 failures / 0 errors / 0 skipped；ARM64 Release 编译、v2 签名、包名及 arm64-only ABI 检查通过。APK artifact `gallery-foss-arm64-v8a-release` ID `13338484426`，SHA-256 `57a3cceb80e1960587d9c4c0b516a5002808644cf4340f7219ca9c7b11daf1d0`。使用临时 CI 签名，不代表与已安装 APK 可覆盖升级。没有真机验证，不能确认设备级崩溃覆盖、实际性能、系统文档提供器兼容性或界面效果；诊断模块专项新增测试只覆盖到期、脱敏和原异常处理器委托。

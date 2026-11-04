@@ -34,7 +34,16 @@ Copy keeps at most 250 KiB of the newest text and adds a truncation note. Export
 - `GalleryPerfTrace.kt`, `FolderMediaReadResult.kt`, `MediaActivity.kt`, `ViewPagerActivity.kt`: focused event bridges.
 - `DiagnosticPrivacyTest.kt`: expiry behavior, privacy redaction and preservation of the original uncaught-exception delegate.
 
-The unit test suite and Release APK build are run in `.github/workflows/arm64-foss-release.yml` after the code commit. On-device visual behavior, real provider export compatibility, crash persistence under abrupt power loss, and performance impact still require a physical-device check. Native crashes, ANRs whose process is killed before managed code runs, and system force-stops cannot be guaranteed to produce a stack trace.
+## Automated verification
+
+- Final source commit: `82c4b4ffe26b80cdb6c6b6303ce2a9488998dad4` on `fix/photo-viewer-five-item-boundary`.
+- GitHub Actions Run [41858925567](https://github.com/Pew2018/Gallery/actions/runs/41858925567) completed successfully on that exact commit.
+- Full FOSS Release unit suite: 848 tests, 0 failures, 0 errors, 0 skipped.
+- ARM64 Release APK assembled and passed package name, v2 signature and arm64-only ABI checks. Artifact: `gallery-foss-arm64-v8a-release` (ID `13338484426`). APK SHA-256: `57a3cceb80e1960587d9c4c0b516a5002808644cf4340f7219ca9c7b11daf1d0`.
+- CI used a temporary signing key (`temporary-CI-not-upgrade-compatible`); the APK cannot be assumed compatible as an in-place upgrade over a differently signed installation.
+- The added diagnostic-specific test class covers expiry, redaction and uncaught-handler delegation. The other store concurrency, export-provider, UI interaction and device lifecycle cases listed in the feature request do not each have dedicated new tests; the project-wide suite passing is not evidence for all those scenarios.
+
+On-device visual behavior, real provider export compatibility, crash persistence under abrupt power loss, and performance impact still require a physical-device check. Native crashes, ANRs whose process is killed before managed code runs, and system force-stops cannot be guaranteed to produce a stack trace.
 
 ## Device acceptance steps
 
