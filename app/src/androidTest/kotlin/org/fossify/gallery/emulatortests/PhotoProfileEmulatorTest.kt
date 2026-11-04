@@ -4,7 +4,6 @@ import android.app.Instrumentation
 import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
-import android.view.MotionEvent
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager.widget.ViewPager
 import org.fossify.gallery.R
@@ -16,6 +15,9 @@ import org.fossify.gallery.helpers.DIRECTORY
 import org.fossify.gallery.helpers.MEDIUM
 import java.io.FileOutputStream
 import android.graphics.Bitmap
+import android.widget.ImageView
+import androidx.lifecycle.Lifecycle
+import androidx.test.uiautomator.UiDevice
 import android.graphics.Color
 import android.os.Build
 import android.os.Environment
@@ -277,12 +279,50 @@ class PhotoProfileEmulatorTest {
                 }
                 return paths
             }
-            fun expect(path: String, stage: String) {
-                awaitCondition(stage, 15000) {
-                    val identity = currentIdentity()
-                    identity.first == path && identity.second == path
+            fun capturePagerState(): String {
+                var output = ""
+                inst.runOnMainSync {
+                    val pager = viewer.findViewById<ViewPager>(R.id.view_pager)
+                    val adapter = pager.adapter as? MyPagerAdapter
+                    val index = pager.currentItem
+                    val selected = adapter?.media?.getOrNull(index)?.path
+                    val currentFragment = adapter?.getCurrentFragment(index)
+                    val fragmentPath = (currentFragment?.arguments?.getSerializable(MEDIUM) as? Medium)?.path
+                    val drawableReady = (currentFragment?.view?.findViewById<ImageView>(R.id.gestures_view))?.drawable != null
+                    output = "item=" + index + " count=" + (adapter?.count ?: -1) +
+                        " selected=" + selected + " fragment=" + fragmentPath +
+                        " drawableReady=" + drawableReady + " focus=" + viewer.hasWindowFocus() +
+                        " resumed=" + viewer.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
                 }
-                Log.i("GalleryEmulatorSwipe", stage + " expected=" + path)
+                return output
+            }
+            fun pageRendered(path: String): Boolean {
+                var ready = false
+                inst.runOnMainSync {
+                    val pager = viewer.findViewById<ViewPager>(R.id.view_pager)
+                    val adapter = pager.adapter as? MyPagerAdapter
+                    val index = pager.currentItem
+                    val fragment = adapter?.getCurrentFragment(index)
+                    val fragmentPath = (fragment?.arguments?.getSerializable(MEDIUM) as? Medium)?.path
+                    val image = fragment?.view?.findViewById<ImageView>(R.id.gestures_view)
+                    ready = viewer.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
+                        viewer.hasWindowFocus() && adapter?.count == committed.size &&
+                        adapter.media.getOrNull(index)?.path == path && fragmentPath == path &&
+                        image?.drawable != null
+                }
+                return ready
+            }
+            fun expect(path: String, stage: String) {
+                try {
+                    awaitCondition(stage + " pager & rendered bitmap", 20000) { pageRendered(path) }
+                } catch (failure: AssertionError) {
+                    Log.e("GalleryEmulatorSwipe", stage + " expected=" + path +
+                        " observed=" + capturePagerState(), failure)
+                    throw AssertionError(stage + " expected=" + path +
+                        " observed=" + capturePagerState(), failure)
+                }
+                Log.i("GalleryEmulatorSwipe", stage + " expected=" + path +
+                    " observed=" + capturePagerState())
                 val bitmap = inst.uiAutomation.takeScreenshot()
                 if (bitmap != null) {
                     val folder = File(context.getExternalFilesDir(null), "gallery-ci-evidence")
@@ -296,26 +336,23 @@ class PhotoProfileEmulatorTest {
             fun drag(forward: Boolean) {
                 val pager = viewer.findViewById<ViewPager>(R.id.view_pager)
                 val position = IntArray(2)
-                var left = 0f
-                var right = 0f
-                var y = 0f
+                var left = 0
+                var right = 0
+                var y = 0
                 inst.runOnMainSync {
                     pager.getLocationOnScreen(position)
-                    left = position[0] + pager.width * 0.22f
-                    right = position[0] + pager.width * 0.78f
-                    y = position[1] + pager.height * 0.5f
+                    left = position[0] + (pager.width * 0.15f).toInt()
+                    right = position[0] + (pager.width * 0.85f).toInt()
+                    y = position[1] + pager.height / 2
                 }
                 val from = if (forward) right else left
                 val to = if (forward) left else right
-                val down = SystemClock.uptimeMillis()
-                inst.sendPointerSync(MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, from, y, 0))
-                for (step in 1..16) {
-                    SystemClock.sleep(14)
-                    val now = SystemClock.uptimeMillis()
-                    val x = from + (to - from) * step / 16f
-                    inst.sendPointerSync(MotionEvent.obtain(down, now, MotionEvent.ACTION_MOVE, x, y, 0))
-                }
-                inst.sendPointerSync(MotionEvent.obtain(down, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, to, y, 0))
+                Log.i("GalleryEmulatorSwipe", "swipe forward=" + forward +
+                    " from=" + from + " to=" + to + " y=" + y +
+                    " before=" + capturePagerState())
+                assertTrue("UiAutomator could not perform swipe", UiDevice.getInstance(inst).swipe(from, y, to, y, 60))
+                inst.waitForIdleSync()
+                Log.i("GalleryEmulatorSwipe", "afterSwipe=" + capturePagerState())
             }
             expect(anchor, "initial")
             drag(true); expect(committed[clickedIndex + 1], "forward1")

@@ -27,3 +27,15 @@ A real Favorites Room relation is exercised as a virtual source, including overl
 with A/N folders, explicit .nomedia visibility, and dynamic removal. This is not
 PIN testing; P remains an unprotected control. Viewer swipe/render and video/RAW
 remain unimplemented, and are not reported as passing.
+
+## Real swipe CI regression diagnostic — 2026-11-04
+
+The first real UI gesture run 41787305283 failed forward1 after the selected
+fragment appeared. Logcat shows the initial identity assertion passed before
+the first decoded bitmap was reported ready, while the viewer catalog was still
+publishing stages. This is not sufficient to classify a production viewer bug.
+The follow-up waits for a rendered bitmap, focused RESUMED activity and a
+complete pager, sends a UiAutomator swipe, and records pager/fragment identity,
+currentItem, count, drawable state and gesture coordinates before and after.
+A red failure is preserved as evidence. This changes androidTest only; no
+production navigation, ordering, or authorization paths are altered.
