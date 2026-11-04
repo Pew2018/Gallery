@@ -1,5 +1,7 @@
 # 08 — 最小精简重构验证记录
 
+> 本文件先保留阶段一验证记录；第二阶段最终验证结果见文末，二者的测试数和提交 SHA 分别列出，不混算。
+
 日期：2026-11-04（Asia/Taipei）  
 仓库：Pew2018/Gallery  
 唯一目标分支：`fix/photo-viewer-five-item-boundary`  
@@ -70,3 +72,36 @@
 ## 7. 最终结果记录
 
 最终结果：Run #461 完成且成功；测试 786 项、失败 0、错误 0、跳过 0；ARM64 Release APK artifact 存在并完成工作流校验；无构建修复提交。验证时分支 HEAD 为 `5a9d4377038d6d27b3175f2569293ec205005d3f`，本地跟踪工作区干净；后续仅验证记录的文档补录如生成新 SHA，以该提交记录为准。真机与性能指标仍为未测。
+
+## 8. 第二阶段：扫描生命周期与渐进发布验证
+
+日期：2026-11-04（UTC）。本阶段开始时重新核对的远程 fix HEAD 为 `a80f191987f0c2de978cf43ed289598092d529aa`；完成验证的代码 SHA 为 `0b70939655c738a2c8b6ed2c5de869cb735638c8`。
+
+### Actions 与 APK
+
+| 项目 | 实际结果 |
+|---|---|
+| Run | [#463 / 41751856059](https://github.com/Pew2018/Gallery/actions/runs/41751856059)，成功，提交 SHA `0b70939655c738a2c8b6ed2c5de869cb735638c8` |
+| 完整单测 | `./gradlew :app:testFossReleaseUnitTest --stacktrace --info` 成功；789 tests、0 failures、0 errors、0 skipped |
+| ARM64 assemble | `./gradlew :app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a --stacktrace` 成功；APK 包名、签名和 ABI 校验成功 |
+| APK Artifact | `gallery-foss-arm64-v8a-release`，artifact ID `13286112363`，[下载 ZIP](https://api.github.com/repos/Pew2018/Gallery/actions/artifacts/13286112363/zip)；10,391,493 bytes |
+| APK SHA-256 | `61e537cbe9276def67b0d574ebad3274f3a41d22f2bc7a848c93d778280579af`；构建日志打印源码 SHA `0b709396…`，native ABI 仅 `arm64-v8a` |
+| 测试报告 Artifact | `backup-ui-test-reports`，ID `13286061937`，[下载 ZIP](https://api.github.com/repos/Pew2018/Gallery/actions/artifacts/13286061937/zip) |
+
+### 首次 CI 失败与修正
+
+Run #462 (`41750986403`, SHA `b84c11eb3f4fd773f0e4e7bce0c3db4541178ea9`) 在 `:app:compileFossReleaseKotlin` 阶段失败，测试未启动、未产生 APK。日志中的 `MainActivity.kt` 顶层语法错误由首次代码上传时大型源码文件被错误编码/截断造成，并非应用逻辑或测试断言失败。恢复完整 UTF-8 源码后，先比较本地 `git hash-object` 和 GitHub blob SHA（均为 `c722d612dd93ad6eb6778ed7af9f01a0d11ebe5c`），再以快进提交 `0b709396…` 修正并触发 Run #463；本阶段的最终成功结果以 #463 为准。该传输事故和失败 run 保留在记录中，不删除历史提交。
+
+本地定向 Gradle 测试因 wrapper 下载 Gradle 9.5.1 时 `java.net.SocketException: Network is unreachable` 未能启动；上述完整 Actions 测试提供了本阶段有效自动化验证。
+
+### 第二阶段验收更新
+
+| ID | 第二阶段结论 | 证据与未完成项 |
+|---|---|---|
+| A01 扫描正确 | 自动化回归通过；设备数量同步待验 | 分类缓存失败后继续扫描的 `.nomedia` Activity 测试通过；主页卡片计数与真实设备媒体列表一致仍需真机验收。 |
+| A02 刷新生命周期 | 代码审计和完整单测通过；竞态设备验收待测 | 789/0/0/0；保留 epoch、terminal gate、generation、取消、拒绝与 Watchdog 原机制；极端页面切换时序无真机 trace。 |
+| A03 显示稳定 | 重复可见发布的代码路径已收敛；实际视觉效果待测 | 分类同内容快照和照片配置同可见 stage 不再进入 Activity/Viewer 发布入口；没有录屏、Adapter rebind 统计、Frame Timeline 或锚点像素数据，不宣称扑克牌动画已彻底修复。 |
+| A04 排序与身份 | 自动化回归通过；设备网格/Viewer 同序待验 | Stage 2 只比较当前 Adapter 内容契约、scope 与权限摘要，未更改排序、去重、随机 rank 或 Viewer 交接；其 Stage 1 两处排序精简另由 Run #461 验证。 |
+| A08 性能对照 | 仅确认代码级无效发布减少，未量化运行时性能 | 未测扫描次数、查询/文件枚举次数、Adapter commit/rebind、滚动位移或耗时；不报告性能百分比。 |
+
+Android 8、11、14、16 真机/模拟器、SAF/分区存储权限撤销、快速滚动视觉稳定性、真实 `.nomedia` 新增文件计数和全屏手势仍待设备验收。

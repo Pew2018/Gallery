@@ -1,10 +1,10 @@
 # 09 — 第二阶段：刷新生命周期与渐进发布稳定性
 
-日期：2026-11-04（执行环境 UTC）  
-仓库：Pew2018/Gallery  
-唯一目标分支：fix/photo-viewer-five-item-boundary  
-开始时重新读取的远程 HEAD：a80f191987f0c2de978cf43ed289598092d529aa  
-开始时 main：44b31846fcb8b817d27ff5fef05829601260b3f5  
+日期：2026-11-04（执行环境 UTC）
+仓库：Pew2018/Gallery
+唯一目标分支：fix/photo-viewer-five-item-boundary
+开始时重新读取的远程 HEAD：a80f191987f0c2de978cf43ed289598092d529aa
+开始时 main：44b31846fcb8b817d27ff5fef05829601260b3f5
 审计和修改范围：扫描终态/缓存边界、分类目录渐进快照、照片配置渐进发布；不重做阶段一排序优化，不重写 Viewer、Adapter 或媒体读取器。
 
 ## 1. 用户目标与本轮结论
@@ -72,7 +72,7 @@
 
     ./gradlew :app:testFossReleaseUnitTest --tests org.fossify.gallery.helpers.NoMediaCategoryRefreshTest --tests org.fossify.gallery.helpers.FolderRefreshActivityTest --tests org.fossify.gallery.helpers.PhotoProfileMediaLoadingTest --stacktrace
 
-实际状态：Gradle 尚未启动，测试尚未执行。Wrapper 尝试获取仓库固定的 Gradle 9.5.1 distribution，执行环境连接 services.gradle.org 时返回 java.net.SocketException: Network is unreachable。本环境不存在已安装的 Gradle 9.5.1 或 Gradle cache。该结果是环境阻塞，不是 Kotlin 编译或测试断言失败。本轮完整 FOSS Release 测试、APK 和 Actions 状态在代码提交后补录本文件及 08。
+实际状态：本地 Gradle 尚未启动，定向测试未在本地执行。Wrapper 尝试获取仓库固定的 Gradle 9.5.1 distribution，执行环境连接 services.gradle.org 时返回 `java.net.SocketException: Network is unreachable`。本地验证由下述 GitHub Actions 完整测试和构建覆盖。
 
 ## 5. 兼容性和未修改项
 
@@ -85,14 +85,27 @@
 
 | 验收 | 本轮结论 | 证据 / 尚缺 |
 |---|---|---|
-| A01 普通与 .nomedia 数量及来源一致 | 待本轮 CI + 真机 | 增加分类 cache failure 的 .nomedia Activity 回归用例；普通主页/分类数与目录内列表三方一致仍需完整测试与设备数据。 |
-| A02 刷新生命周期 / 旧请求不覆盖 / loading 结束 | 代码防护审计已完成；本轮 CI 待验证；真机待验 | 原有 epoch/terminal/request/watchdog/cancel/拒绝路径保留；新测试锁定分类缓存失败结束/继续读取。高频返回/切换页面真机序列无 trace。 |
+| A01 普通与 .nomedia 数量及来源一致 | 自动化回归通过；主页卡片设备同步待验 | `FolderRefreshActivityTest` 覆盖分类缓存查询失败后仍扫描 `.nomedia` 来源；普通主页/分类数与目录内列表三方同步仍需设备数据。 |
+| A02 刷新生命周期 / 旧请求不覆盖 / loading 结束 | 代码防护审计与完整单测通过；设备竞态待验 | 789 项 FOSS 单测 0 失败/错误/跳过；原有 epoch/terminal/request/watchdog/cancel/拒绝路径保留。高频返回/切换页面真机序列无 trace。 |
 | A03 刷新稳定 / 滚动 / 闪烁 | 代码级重复发布减少；最终视觉结果未验证 | 分类和配置重复可见快照不会再发；Adapter diff/pending/锚点保持原样。没有设备录屏、像素偏移、重绑计数，不称“扑克牌动画已修复”。 |
-| A04 排序、身份、随机顺序、Viewer 顺序 | 阶段一 Actions 已通过；本轮阶段测试待 Actions | 仅按 Adapter 同一内容比较去重；stage 顺序/随机 rank/全屏交接代码未改。Android 实机网格与 Viewer 一致性待验。 |
+| A04 排序、身份、随机顺序、Viewer 顺序 | 阶段一与阶段二自动化验证通过；设备同序待验 | 仅按 Adapter 同一内容比较去重；stage 顺序/随机 rank/全屏交接代码未改。Android 实机网格与 Viewer 一致性待验。 |
 | A08 性能对照 | 运行时指标未测 | 确定减少的是重复分类快照跨 Activity 发布以及同内容配置 stage 的 Viewer/UI 交接；无性能百分比、p50/p95、磁盘/查询或 frame data。 |
 
 ## 7. Actions / APK 与剩余工作
 
-代码提交 SHA、Run ID、Run URL、FOSS Release 测试汇总、ARM64 artifact 名称/入口、构建对应 SHA 将在 Actions 完成后补记。此前 Stage 1 Run 41684331467 的 786 项通过和 ARM64 artifact 只验证 5a9d437… 旧代码，不作为本轮验证结果。
+阶段二验证结果：
 
-剩余最小建议：先由本轮 CI 验证三个新回归；若通过，下一轮可做纯显示层设备采样（AdapterDataObserver + top item path/offset + 录屏/Frame Timeline）后再决定是否调整 Adapter/动画。未经采样不扩大 UI 修改。
+| 项目 | 实际结果 |
+|---|---|
+| 验证源码 SHA | `0b70939655c738a2c8b6ed2c5de869cb735638c8` |
+| Actions Run | [#463 / 41751856059](https://github.com/Pew2018/Gallery/actions/runs/41751856059)，成功 |
+| FOSS Release 单测 | `:app:testFossReleaseUnitTest --stacktrace --info` 成功；789 tests、0 failures、0 errors、0 skipped（日志 `Verified JUnit totals`） |
+| ARM64 Release assemble | `:app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a --stacktrace` 成功 |
+| APK 校验 / SHA-256 | 包名/签名/ABI 校验成功；APK SHA-256 `61e537cbe9276def67b0d574ebad3274f3a41d22f2bc7a848c93d778280579af`；工作流日志确认源 SHA 为上述 `0b709396…`，native ABI 仅 `arm64-v8a` |
+| APK Artifact | `gallery-foss-arm64-v8a-release`，artifact ID `13286112363`，[下载 ZIP](https://api.github.com/repos/Pew2018/Gallery/actions/artifacts/13286112363/zip)，大小 10,391,493 bytes |
+| 测试报告 Artifact | `backup-ui-test-reports`，artifact ID `13286061937`，[下载 ZIP](https://api.github.com/repos/Pew2018/Gallery/actions/artifacts/13286061937/zip) |
+| 先前失败 Run | [#462 / 41750986403](https://github.com/Pew2018/Gallery/actions/runs/41750986403)，`b84c11e` 的 `MainActivity.kt` 在上传时被错误编码/截断，Kotlin 解析失败；测试未启动，APK 未构建。完整源码恢复后用本地与远端 Git blob SHA 校验一致，修复提交 `0b709396…` 的 Run #463 成功。 |
+
+Run #461 (`41684331467`) 的 786 项通过和 ARM64 artifact 只验证 Stage 1 SHA `5a9d437…`，未计入 Stage 2 的 789 项结果。
+
+剩余最小建议：下一轮可做纯显示层设备采样（AdapterDataObserver + top item path/offset + 录屏/Frame Timeline）后再决定是否调整 Adapter/动画。未经采样不扩大 UI 修改。没有 Android 8/11/14/16 真机或模拟器数据；扑克牌式动画是否仍复现、真实媒体计数/权限矩阵、Adapter 重绑与滚动像素偏移均待真机验收。

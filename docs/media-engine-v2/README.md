@@ -1,13 +1,13 @@
 # Gallery Media Engine V2 — 代码调研资料索引
 
-> 状态：**阶段一排序精简已通过完整 FOSS Release 单测与 ARM64 APK Actions；阶段二扫描/渐进发布修复已实施，等待本轮 Actions 验证；真机体验尚未验证**
+> 状态：**阶段一排序精简与阶段二扫描/渐进发布修复均已通过完整 FOSS Release 单测及 ARM64 APK Actions；真机体验尚未验证**
 > 日期：2026-11-04  
 > 目标仓库：Pew2018/Gallery  
 > 唯一目标分支：fix/photo-viewer-five-item-boundary  
 > 本轮起始 HEAD：27b488a88de9ed105c3ed6fdbe3931249dabbdb9
 > 对照 main 基线：44b31846fcb8b817d27ff5fef05829601260b3f5  
 > 分支关系：本轮开始时 fix 相对 main 的差异见 Git；起始 HEAD 与 task marker 一致。
-> 本轮交付：最小 Kotlin 排序精简 + 既有测试扩展 + 文档记录；最终源码 SHA `5a9d4377038d6d27b3175f2569293ec205005d3f`，完整 FOSS Release 单测与 ARM64 artifact 已由 Actions 验证；无 schema、配置格式、CI 或发布安全改动。
+> 阶段一源代码 SHA：`5a9d4377038d6d27b3175f2569293ec205005d3f`；阶段二已验证源代码 SHA：`0b70939655c738a2c8b6ed2c5de869cb735638c8`，Run #463 通过 789 项单测并生成 ARM64 APK。无 schema、配置格式、CI 或发布安全改动。
 
 ## 文件导航
 

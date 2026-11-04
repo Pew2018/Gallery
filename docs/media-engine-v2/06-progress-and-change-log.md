@@ -2,7 +2,7 @@
 
 > 建立日期：2026-11-04  
 > 唯一分支：`fix/photo-viewer-five-item-boundary`  
-> **实施状态：阶段一局部排序修改已通过完整单测与 ARM64 Actions；阶段二代码与回归测试已完成，等待本轮 Actions；真机验收未完成。**
+> **实施状态：阶段一排序精简及阶段二扫描/渐进发布修改均已通过完整 FOSS Release 单测与 ARM64 Actions；真机验收未完成。**
 > 当前开发范围：[05-minimal-scan-sort-display-refactor.md](05-minimal-scan-sort-display-refactor.md)  
 > 本文为**实时工作台账**，每次处理该 fix 分支的任务必须补录；不以口头汇报替代仓库文档。
 
@@ -13,14 +13,14 @@
 | 历史源码数据收集（01–04） | 已完成**静态审计与远程文档提交** | 文档 100% | `0cfbb9bc41a011ca16101a6c9186f18eca14b82d`；没有真机测量 |
 | 精简重构目标及范围记录（05） | 本次建档 | 目标已确定 | 仅记录方案；没有 Kotlin 变更 |
 | 实机基线与重现（P0 的剩余部分） | 未开始 | 0% | 缺当前 fix APK、ADB/录屏/Trace |
-| P1 扫描调度与完整性 | 未开始 | 0% | A01/A02 |
-| P2 排序与显示提交 | 局部修改已由 Actions 验证 | 两处重复排序已移除 | 786 项单测 0 失败/错误；真实动画、滚动与性能对照待设备测量 |
+| P1 扫描调度与完整性 | 已完成定点审计和分类缓存失败回退修复 | 普通扫描既有 epoch/terminal/request/cancel 路径保留；分类缓存异常不再短路正式扫描 | A01/A02；Run #463 789 项 0 失败/错误/跳过；快速页面竞态仍待设备 trace |
+| P2 排序与显示提交 | 阶段一排序精简、阶段二重复可见发布精简已由 Actions 验证 | 两处重复排序已移除；分类/照片配置同内容快照不再重复跨层发布 | 阶段一 Run #461 786 项、阶段二 Run #463 789 项均 0 失败/错误/跳过；真实动画、滚动与性能对照待设备测量 |
 | P3 全屏/权限/备份回归 | 自动化测试通过，真机未验收 | 代码未改 Viewer/授权/备份 | Actions 完整单测通过；设备权限矩阵、手势与真实升级/恢复未测 |
-| 单元测试 / 编译 / Actions（重构相关） | 已通过 | Run 461 成功 | SHA `5a9d437…`；786 tests，0 failures/errors/skipped；ARM64 artifact 已生成 |
+| 单元测试 / 编译 / Actions（重构相关） | 阶段一、二均已通过 | Run 461、463 成功 | 阶段一 SHA `5a9d437…`：786 项；阶段二 SHA `0b709396…`：789 项；均 0 failures/errors/skipped，ARM64 artifact 已生成 |
 | 主分支合并 | 未计划 | 不适用 | 禁止自行合并 `main` |
-| P1 扫描生命周期与渐进发布（第二阶段） | 代码/测试已实施，CI 待验证 | 分类缓存失败继续扫描；分类快照及照片配置可见快照去重 | 详见 [09](09-refresh-publication-stability.md)；本地 Gradle 无法下载 9.5.1，测试未启动 |
+| P1 扫描生命周期与渐进发布（第二阶段） | 已验证完成；真机待验 | 分类缓存失败继续扫描；分类快照及照片配置可见快照去重 | Run #463：789 项、0 失败/错误/跳过；ARM64 APK 已生成；详见 [09](09-refresh-publication-stability.md) |
 
-**整体状态：代码级精简、完整自动化测试与 ARM64 CI 构建已完成；真实设备验收和性能对照未完成。** 不将文档编辑、既有 fix 改动或以前的 Actions 产物折算为本次验收进度。
+**整体状态：阶段一和阶段二代码修改、完整自动化测试与 ARM64 CI 构建均已完成；真实设备验收和运行时性能对照未完成。** 两阶段结果分别记录，不把阶段一测试/产物折算为阶段二结果。
 
 ## 2. 日志规范（每轮均必须填写）
 
@@ -83,16 +83,17 @@
 ### 2026-11-04｜R02 — 扫描生命周期与渐进显示稳定性精简
 
 - **目标/验收编号**：阶段二；对应 05 S1/S3、S2/D2 及 A01/A02/A03/A04/A08。保留既有读取器、请求身份、适配器差分和 viewer 交接；减少确认无效的重复提交，并确保分类缓存异常不会阻止正式扫描。
-- **分支、起始 SHA、结束 SHA**：仅 `fix/photo-viewer-five-item-boundary`；开始时远程 HEAD `a80f191987f0c2de978cf43ed289598092d529aa`。结束 SHA 待本轮集中提交后补录。
+- **分支、起始 SHA、结束 SHA**：仅 `fix/photo-viewer-five-item-boundary`；开始时远程 HEAD `a80f191987f0c2de978cf43ed289598092d529aa`；Actions 验证代码 SHA `0b70939655c738a2c8b6ed2c5de869cb735638c8`。本轮验证后文档闭环提交以 Git 历史中的最终 HEAD 为准。
 - **源码证据 F**：`MainActivity.loadCategorizedFolders()` 在分类缓存读取错误时原先直接结束加载，未运行 `CategorizedFolderScanner`（起始 SHA 的 `MainActivity.kt` L1424–1497）；扫描器对已知目录先普通 `publish()`、随后无条件 `publish(force = true)`，且发现遍历中每个 seed 都会请求进度发布（`CategorizedFolderScanner.kt` L41–53、L127–148）。`DirectoryAdapter.updateDirs()` 已对相同列表短路，但 Activity 每次仍先复制、过滤和排序（`MainActivity.kt` L2603–2638；`DirectoryAdapter.kt` L968–995）。照片配置公开 filesystem batch 经授权校验、累计去重/排序后每批仍提交 `offerPartial` 与 UI stage；权限过滤可能使可见累计媒体未变（起始 SHA `PhotoProfileMediaLoader.kt` L181–198）。`MediaAdapter.updateMedia()` 已按当前内容契约短路相同列表、只保留一个在途 diff 和最新 pending 列表（`MediaAdapter.kt` L710–779）。
 - **推断 I / 已排除项**：分类相同快照会重复进入 Activity 复制/排序/适配器调用路径，但 Adapter 层通常已短路；这是无效上游工作，不是已证实的大面积动画根因。照片配置累计快照每批均发布是代码事实；被权限过滤后的批次可造成相同可见快照重复进入 viewer/grid 交接，可通过内容等价策略排除。未发现需替换 epoch、终态门、请求 generation、取消、watchdog 或 Adapter DiffUtil 的缺口；没有真机帧/trace 证明扑克牌式动画仍存在。
 - **未知 U**：目标设备上的实际扫描重复次数、Adapter commit/rebind、像素锚点漂移、动画帧、MediaStore/磁盘次数、时延均未采样；权限收窄时现有页面清理和实际系统媒体权限行为尚待真机复核。
 - **修改文件与逻辑**：`MainActivity.loadCategorizedFolders()` 捕获当前目录快照，目录缓存读取异常时以该快照为候选并继续分类文件系统/MediaStore 扫描；执行器拒绝仍走原失败终结路径。`CategorizedFolderScanner.scan()` 在 150ms 节流后以 `DirectoryPresentation.sameContents()` 去重，只向 UI 发首个或实际变化结果；Activity 的最终扫描结果提交不变。`PhotoProfileMediaLoader.loadStaged()` 在向 Viewer partial store 与 Activity 回调前，依据 scope/revision、访问摘要、媒体顺序/身份和 `MediaUpdatePolicy.sameContent()` 消除重复可见 stage；首次有效预览和最终 COMPLETE 仍保留。
 - **测试**：扩展 `FolderRefreshActivityTest`（分类缓存 Room 读取注入失败仍可发现 `.nomedia` 目录媒体）、`NoMediaCategoryRefreshTest`（分类扫描不重复发相同快照）、`PhotoProfileMediaLoadingTest`（stage 比较沿用 Adapter 可见内容契约，且真实多批 `.nomedia` 阶段不重复可见快照）。本地定向 Gradle 命令因 wrapper 下载 Gradle 9.5.1 时 `Network is unreachable`，未启动测试；等待本轮 Actions。
 - **未修改范围**：无 Adapter / Viewer / DB / 用户设置 / 备份格式 / 扫描调度器重写；不关闭动画。权限、`.nomedia`、受保护来源及随机顺序校验维持原调用路径。
-- **Actions / APK / 真机**：代码提交后待运行并记录；无真机/模拟器。
-- **遗留与下一步**：CI 若失败按日志修复；需要设备录屏/AdapterDataObserver 或 Perfetto 验证列表闪动和锚点体验。未采样前不宣称视觉/性能已改善。
-- **文档与提交**：本记录与代码同一主要提交；详细证据和验收见 [09](09-refresh-publication-stability.md)，Actions 验证完成后补录 [08](08-minimal-refactor-verification.md)。
+- **Actions / APK / 真机**：Run #463 (`41751856059`) 成功，完整测试 789/0/0/0，ARM64 APK artifact 已生成并对应 SHA `0b70939655c738a2c8b6ed2c5de869cb735638c8`；无真机/模拟器。
+- **CI 修正记录**：首个 Run #462 (`41750986403`) 在 Kotlin 解析前失败，未运行测试，根因是首次提交传输时大型 `MainActivity.kt` 被错误编码/截断；已从正确源码恢复，并用本地 Git blob SHA 与 GitHub blob SHA 一致校验后，以快进修复提交 `0b709396…` 重跑。该失败属于交付传输错误，不是测试断言或应用根因；最终验证以 Run #463 为准。
+- **遗留与下一步**：需要设备录屏/AdapterDataObserver 或 Perfetto 验证列表闪动和锚点体验。未采样前不宣称视觉/性能已改善。
+- **文档与提交**：代码/测试/阶段记录先提交，校验后补录 08、09、README 和本日志；详细证据与验收见 [09](09-refresh-publication-stability.md)。
 
 ### 2026-11-04｜R01 — 照片配置渐进扫描重复排序精简
 
