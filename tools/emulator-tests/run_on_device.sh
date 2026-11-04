@@ -29,10 +29,12 @@ python3 tools/emulator-tests/generate_media.py \
   --scale "$CI_MEDIA_SCALE" \
   --output "$RUNNER_TEMP/gallery-ci-media.tar" \
   --manifest "$OUT/media-manifest.json"
-adb shell mkdir -p /sdcard/Pictures /sdcard/Download
-adb push "$RUNNER_TEMP/gallery-ci-media.tar" /sdcard/Download/gallery-ci-media.tar
-adb shell tar -xf /sdcard/Download/gallery-ci-media.tar -C /sdcard/Pictures
-adb shell rm /sdcard/Download/gallery-ci-media.tar
+# Android 14+ blocks shell writes under Download on some emulator images.
+# ADB's /data/local/tmp is shell-owned and supports push safely without root.
+adb shell mkdir -p /sdcard/Pictures
+adb push "$RUNNER_TEMP/gallery-ci-media.tar" /data/local/tmp/gallery-ci-media.tar
+adb shell tar -xf /data/local/tmp/gallery-ci-media.tar -C /sdcard/Pictures
+adb shell rm /data/local/tmp/gallery-ci-media.tar
 adb shell "find /sdcard/Pictures/GalleryCI -type f | wc -l" > "$OUT/fixture-file-count.txt"
 apk=$(find app/build/outputs/apk/foss/debug -maxdepth 1 -name '*.apk' -type f | head -n 1)
 test -n "$apk"
