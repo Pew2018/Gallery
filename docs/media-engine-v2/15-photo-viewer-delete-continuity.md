@@ -59,7 +59,9 @@
 
 ## 验证与交付状态
 
+- 后续调整（2026-11-04）：用户要求移除 Actions 中的模拟器测试代码。其 workflow、instrumentation 用例及夹具脚本已从活动构建路径移除，原文归档在 `docs/emulator-testing/ARCHIVED-harness-source.md`。下文的模拟器测试条目描述的是归档前的测试设计，不表示当前分支仍会运行它。
+
 - 初次本地定向 Gradle 测试尝试未启动：Wrapper 下载 Gradle 9.5.1 时返回 `Network is unreachable`。这是环境阻断，不是测试通过。
 - `git diff --check`：通过。
-- GitHub Actions、完整单测/模拟器矩阵、ARM64 APK 和最终 SHA：待本轮推送后填写。
+- 本页原记录中的 GitHub Actions、完整单测/模拟器矩阵和 APK 状态属于删除模拟器 harness 前的执行任务；删除提交之后不再触发模拟器矩阵。常规单测与 ARM64 APK workflow 保持独立。
 - 真机剩余验证：在用户实际设备上，使用 Photos 配置、渐进扫描中删除当前图，观察是否停留 B、能继续到 D、无黑屏帧及受保护目录/SAF 删除行为。

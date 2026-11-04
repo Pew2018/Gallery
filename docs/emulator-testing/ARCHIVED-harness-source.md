@@ -1,3 +1,226 @@
+# 模拟器测试代码归档（当前未启用）
+
+归档时间：2026-11-04（Asia/Taipei）  
+仓库：`Pew2018/Gallery`  
+分支：`fix/photo-viewer-five-item-boundary`  
+归档基线：`c794c63634f0870bff4747be07c7eec5cfaab0d5`
+
+> 本文保存先前 Android Emulator Actions 的 workflow、instrumentation 测试和夹具脚本原文，供以后人工恢复与复用。它们目前是 Markdown 代码归档，不参与 Gradle、GitHub Actions 或 APK 构建。归档内容来自上述基线；后续若恢复，须按当时源码重新核对 API 和文件路径。
+
+## 变更范围
+
+- 移除 `.github/workflows/gallery-emulator-tests.yml`，停止此分支的 push 自动模拟器任务及手动 `workflow_dispatch` 入口。
+- 移除 `app/src/androidTest` 下两项专用 instrumentation 测试。
+- 移除 `tools/emulator-tests` 下设备端 runner 与 host fixture 生成器。
+- 从 `app/build.gradle.kts` 移除 instrumentation runner、`testBuildType` 和三项 `androidTestImplementation` 依赖。常规 JVM 单测配置、Release 单测、签名与 ARM64 APK workflow 保留。
+- 没有改动生产 Kotlin、普通 `app/src/test` 单元测试、`arm64-foss-release.yml` 或应用运行时功能。
+
+## 文件清单与用途
+
+| 归档内容 | 作用 |
+|---|---|
+| `.github/workflows/gallery-emulator-tests.yml` | smoke、sort_ui、deep、boundary、PIN 三类模拟器 job 及 artifact 上传 |
+| `PhotoProfileEmulatorTest.kt` | Photo Profile 列表/加载、排序、深列表、Viewer 滑动/图像身份和删除连续性 instrumentation |
+| `PhotoProfilePinEmulatorTest.kt` | 使用真实 PIN UI 和会话授权状态的模拟器覆盖 |
+| `run_on_device.sh` | 生成/安装测试媒体、授权调试应用、执行 Gradle connected instrumentation task |
+| `generate_media.py` | 在 CI host 生成测试图片及归档夹具 |
+
+## Gradle 中已移除的构建专用片段
+
+以下配置不再位于活动 `app/build.gradle.kts` 中；其余 `testOptions.unitTests` 与 `testImplementation` 设置保持原样。
+
+```kotlin
+testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+testBuildType = providers.gradleProperty("EMULATOR_TEST_BUILD_TYPE").getOrElse("release")
+androidTestImplementation("androidx.test:runner:1.6.2")
+androidTestImplementation("androidx.test.ext:junit:1.2.1")
+androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
+```
+
+## 恢复原则
+
+以后要重启模拟器回归时，可从下方代码块恢复对应文件，并将 Gradle 片段重新加入 `app/build.gradle.kts`。恢复后应先验证当前 AGP/Gradle 版本、权限对话框行为和 fixture 写入路径，再手动触发单一 smoke job；确认后再扩展矩阵。不可直接复制旧的 Actions 运行结果作为新代码的验证结论。
+
+## 归档源代码
+
+### `.github/workflows/gallery-emulator-tests.yml`
+
+````yaml
+name: Gallery Android Emulator
+on:
+  workflow_dispatch:
+  push:
+    branches: [fix/photo-viewer-five-item-boundary]
+    paths:
+      - ".github/workflows/gallery-emulator-tests.yml"
+      - "app/build.gradle.kts"
+      - "app/src/main/kotlin/**/*.kt"
+      - "app/src/androidTest/**"
+      - "tools/emulator-tests/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gallery-emulator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      CI_MEDIA_SCALE: smoke
+      CI_SUITE: smoke
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Compile FOSS debug and Android instrumentation APKs
+        run: ./gradlew :app:assembleFossDebug :app:assembleFossDebugAndroidTest -PEMULATOR_TEST_BUILD_TYPE=debug --stacktrace
+      - name: Enable host KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run synthetic-media tests inside genuine Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          ram-size: 4096M
+          disk-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash tools/emulator-tests/run_on_device.sh
+      - name: Upload JUnit, screenshots, appops, window state and logcat even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gallery-emulator-smoke-${{ github.run_id }}
+          path: |
+            tools/emulator-tests/output/**
+            app/build/outputs/androidTest-results/**
+            app/build/reports/androidTests/**
+          retention-days: 14
+          if-no-files-found: warn
+
+  extended:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[emulator-extended]')
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - suite: sort_ui
+            scale: smoke
+            api: 34
+          - suite: deep
+            scale: large
+            api: 34
+          - suite: boundary
+            scale: segment
+            api: 34
+          - suite: boundary
+            scale: ceiling
+            api: 34
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      CI_MEDIA_SCALE: ${{ matrix.scale }}
+      CI_SUITE: ${{ matrix.suite }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Compile FOSS debug and Android instrumentation APKs
+        run: ./gradlew :app:assembleFossDebug :app:assembleFossDebugAndroidTest -PEMULATOR_TEST_BUILD_TYPE=debug --stacktrace
+      - name: Enable host KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run synthetic-media tests inside genuine Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          ram-size: 4096M
+          disk-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash tools/emulator-tests/run_on_device.sh
+      - name: Upload JUnit, screenshots, appops, window state and logcat even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gallery-emulator-${{ matrix.suite }}-${{ matrix.scale }}-${{ github.run_id }}
+          path: |
+            tools/emulator-tests/output/**
+            app/build/outputs/androidTest-results/**
+            app/build/reports/androidTests/**
+          retention-days: 14
+          if-no-files-found: warn
+
+  pin-auth:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[emulator-pin]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CI_MEDIA_SCALE: smoke
+      CI_SUITE: pin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build PIN UI instrumentation APK
+        run: ./gradlew :app:assembleFossDebug :app:assembleFossDebugAndroidTest -PEMULATOR_TEST_BUILD_TYPE=debug --stacktrace
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Real PIN UI setup verification and source-revocation check
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          ram-size: 4096M
+          disk-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash tools/emulator-tests/run_on_device.sh
+      - name: Archive PIN assertions and security logs, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gallery-emulator-pin-${{ github.run_id }}
+          path: |
+            tools/emulator-tests/output/**
+            app/build/outputs/androidTest-results/**
+            app/build/reports/androidTests/**
+          retention-days: 14
+          if-no-files-found: warn
+````
+
+### `app/src/androidTest/kotlin/org/fossify/gallery/emulatortests/PhotoProfileEmulatorTest.kt`
+
+````kotlin
 package org.fossify.gallery.emulatortests
 
 import android.app.Instrumentation
@@ -722,3 +945,329 @@ class PhotoProfileEmulatorTest {
         throw AssertionError("Timed out waiting for " + name)
     }
 }
+````
+
+### `app/src/androidTest/kotlin/org/fossify/gallery/emulatortests/PhotoProfilePinEmulatorTest.kt`
+
+````kotlin
+package org.fossify.gallery.emulatortests
+
+import android.app.Instrumentation
+import android.content.Intent
+import android.os.Environment
+import android.os.SystemClock
+import android.util.Log
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
+import org.fossify.commons.helpers.PROTECTION_PIN
+import org.fossify.gallery.activities.MediaActivity
+import org.fossify.gallery.extensions.authenticatePhotoPassword
+import org.fossify.gallery.extensions.config
+import org.fossify.gallery.extensions.configurePhotoPassword
+import org.fossify.gallery.extensions.unlockPhotoProfile
+import org.fossify.gallery.helpers.DIRECTORY
+import org.fossify.gallery.helpers.PhotoProfile
+import org.fossify.gallery.helpers.PhotoProfileAccessSessionManager
+import org.fossify.gallery.helpers.PhotoProfileMediaLoader
+import org.fossify.gallery.helpers.PhotoProfileRepository
+import org.fossify.gallery.helpers.PhotoSource
+import org.fossify.gallery.helpers.PhotoSourceType
+import org.fossify.gallery.models.Medium
+import org.junit.Assert.*
+import org.junit.Assume
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.io.File
+import java.security.MessageDigest
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * PIN-only UI authentication (no biometrics), with two truly protected source
+ * folders. The folder LOCK records are seeded from fixture-specific PIN
+ * hashes; the live capability is obtained EXCLUSIVELY via the real UI flow.
+ * No code here writes source bindings, grants capabilities or mocks credentials.
+ */
+@RunWith(AndroidJUnit4::class)
+class PhotoProfilePinEmulatorTest {
+    private val inst get() = InstrumentationRegistry.getInstrumentation()
+    private val context get() = inst.targetContext
+    private val device get() = UiDevice.getInstance(inst)
+
+    private fun waitFor(label: String, deadline: Long = 20000L, ready: () -> Boolean) {
+        val until = SystemClock.elapsedRealtime() + deadline
+        while (SystemClock.elapsedRealtime() < until) {
+            if (ready()) return
+            SystemClock.sleep(100)
+        }
+        throw AssertionError("PIN UI timeout waiting for " + label)
+    }
+
+    private fun button(id: String): androidx.test.uiautomator.UiObject2 =
+        device.wait(Until.findObject(By.res(context.packageName, id)), 15000L)
+            ?: throw AssertionError("Missing genuine PIN UI control " + id)
+
+    private fun enterPin(value: String) {
+        for (digit in value) button("pin_" + digit).click()
+        button("pin_ok").click()
+        Log.i("GalleryEmulatorPIN", "PIN challenge submitted (" + value.length + " digits); no PIN value logged")
+    }
+
+    private fun fixtureHash(value: String): String {
+        val bytes = MessageDigest.getInstance("SHA-1").digest(value.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { byte -> "%02x".format(byte.toInt() and 255) }
+    }
+
+    private fun cancelDialog() {
+        val label = context.getString(org.fossify.commons.R.string.cancel)
+        val control = device.wait(Until.findObject(By.text(label)), 12000)
+            ?: throw AssertionError("Could not find cancellation in security dialog")
+        control.click()
+    }
+
+    @Test fun realPinSetupWrongCancelMultiLockBindingAndRevocation() {
+        Assume.assumeTrue("PIN suite only",
+            InstrumentationRegistry.getArguments().getString("suite") == "pin" &&
+                InstrumentationRegistry.getArguments().getString("scale") == "smoke")
+        PhotoProfileEmulatorTest.buildMediaFixtures()
+        val root = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "GalleryCI")
+        val protectedP = File(root, "P").canonicalPath
+        val protectedP2 = File(root, "P2").canonicalPath
+        val secondFolder = File(protectedP2)
+        assertTrue(secondFolder.mkdirs() || secondFolder.isDirectory)
+        File(root, "P/IMG_0.png").copyTo(File(secondFolder, "SECOND.png"), overwrite = true)
+
+        val repo = PhotoProfileRepository.of(context)
+        val profile = PhotoProfile(UUID.randomUUID().toString(), "PIN regression",
+            listOf("A", "P", "P2").map { PhotoSource(PhotoSourceType.FOLDER, File(root, it).canonicalPath) })
+        val config = context.config
+        val priorCredential = config.photoCredentialSnapshot()
+        Assume.assumeFalse("Do not touch a preconfigured credential", priorCredential.enabled)
+        val originalP = config.isFolderProtected(protectedP)
+        val originalP2 = config.isFolderProtected(protectedP2)
+        Assume.assumeFalse("Fixture source already locked", originalP || originalP2)
+        var host: MediaActivity? = null
+        try {
+            val intent = Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, PhotoProfileMediaLoader.PATH)
+            }
+            host = inst.startActivitySync(intent) as MediaActivity
+            val activity = host
+            val setupComplete = AtomicBoolean(false)
+            inst.runOnMainSync {
+                activity.configurePhotoPassword { credential ->
+                    setupComplete.set(credential != null)
+                }
+            }
+            val pinLabel = context.getString(org.fossify.commons.R.string.pin)
+            val choosePin = device.wait(Until.findObject(By.text(pinLabel)), 12000L)
+                ?: throw AssertionError("Actual PIN-vs-pattern choice not shown")
+            choosePin.click()
+            enterPin("1357")
+            enterPin("1357")
+            waitFor("photo PIN credential configured") { setupComplete.get() }
+            val credential = config.photoCredentialSnapshot()
+            assertTrue("Configured credential is not current", config.isPhotoCredentialCurrent(credential))
+            assertEquals(PROTECTION_PIN, credential.type)
+            assertEquals("Fixture PIN hash differs from SecurityDialog hash", fixtureHash("1357"), credential.hash)
+
+            // Synthetic source setup, not access grant: creates two real locks
+            // and forces the app to verify distinct PIN secrets.
+            config.addFolderProtection(protectedP, credential.hash, PROTECTION_PIN)
+            config.addFolderProtection(protectedP2, fixtureHash("2468"), PROTECTION_PIN)
+            repo.save(profile)
+            PhotoProfileAccessSessionManager.revokeAll("pin_ci_preflight")
+            val blocked = PhotoProfileMediaLoader(context).load(profile.id)
+                .filterIsInstance<Medium>().map { it.path }
+            assertTrue("Public A media unexpectedly absent", blocked.any { it.contains("/A/") })
+            assertFalse("P leaked before unlocking", blocked.any { it.contains("/P/") })
+            assertFalse("P2 leaked before unlocking", blocked.any { it.contains("/P2/") })
+
+            // Incorrect first PIN followed by cancel must never create a token.
+            val badComplete = AtomicBoolean(false)
+            inst.runOnMainSync { activity.unlockPhotoProfile(profile.id) { badComplete.set(true) } }
+            enterPin("0000")
+            cancelDialog()
+            waitFor("cancel callback") { badComplete.get() }
+            assertNull("Wrong PIN + cancel yielded a token",
+                PhotoProfileAccessSessionManager.currentToken(context))
+
+            val goodComplete = AtomicBoolean(false)
+            inst.runOnMainSync { activity.unlockPhotoProfile(profile.id) { goodComplete.set(true) } }
+            enterPin("1357")
+            // The same PIN covers P. P2 has a separate credential; the
+            // original app should request separate consent and a second PIN.
+            val okLabel = context.getString(org.fossify.commons.R.string.ok)
+            val bindPrompt = device.wait(Until.findObject(By.text(okLabel)), 20000)
+                ?: throw AssertionError("Missing second-source PIN challenge consent")
+            bindPrompt.click()
+            enterPin("2468")
+            waitFor("two-source authorization") { goodComplete.get() }
+            val token = PhotoProfileAccessSessionManager.currentToken(context)
+            assertNotNull("Valid PINs were not granted a photo capability", token)
+            val unlocked = PhotoProfileMediaLoader(context, sessionId = token).load(profile.id)
+                .filterIsInstance<Medium>().map { it.path }
+            assertTrue("P absent after real PIN verification", unlocked.any { it.contains("/P/") })
+            assertTrue("P2 absent after separate PIN verification", unlocked.any { it.contains("/P2/") })
+            Log.i("GalleryEmulatorPIN", "AUTHORIZED sources=A,P,P2 count=" + unlocked.size)
+
+            PhotoProfileAccessSessionManager.revokeAll("pin_ci_verify_revoke")
+            val revoked = PhotoProfileMediaLoader(context).load(profile.id)
+                .filterIsInstance<Medium>().map { it.path }
+            assertFalse("Revoked P content leaked", revoked.any { it.contains("/P/") })
+            assertFalse("Revoked P2 content leaked", revoked.any { it.contains("/P2/") })
+            Log.i("GalleryEmulatorPIN", "REVOKED sources=P,P2 count=" + revoked.size)
+        } finally {
+            host?.runOnUiThread { host?.finish() }
+            inst.waitForIdleSync()
+            PhotoProfileAccessSessionManager.revokeAll("pin_ci_cleanup")
+            repo.delete(profile.id)
+            config.removeFolderProtection(protectedP)
+            config.removeFolderProtection(protectedP2)
+            config.clearPhotoCredential()
+            secondFolder.deleteRecursively()
+        }
+    }
+}
+````
+
+### `tools/emulator-tests/run_on_device.sh`
+
+````bash
+#!/usr/bin/env bash
+set -euo pipefail
+OUT="$PWD/tools/emulator-tests/output"
+mkdir -p "$OUT"
+APP="org.fossify.gallery.debug"
+capture() {
+  adb logcat -d -v threadtime > "$OUT/logcat.txt" 2>&1 || true
+  adb shell dumpsys meminfo "$APP" > "$OUT/meminfo.txt" 2>&1 || true
+  adb shell dumpsys window windows > "$OUT/window.txt" 2>&1 || true
+  adb shell dumpsys activity activities > "$OUT/activities.txt" 2>&1 || true
+  adb shell df -h /sdcard > "$OUT/storage.txt" 2>&1 || true
+  # Android 14 may block shell from Android/data; the app is a debug build,
+  # so run-as can still export synthetic test screenshots without relaxing security.
+  mkdir -p "$OUT/viewer-evidence"
+  adb shell run-as "$APP" ls -la files/gallery-ci-evidence > "$OUT/viewer-evidence-list.txt" 2>&1 || true
+  adb exec-out run-as "$APP" tar -cf - -C files gallery-ci-evidence \
+    > "$OUT/viewer-evidence.tar" 2> "$OUT/viewer-export-error.txt" || true
+  if [[ -s "$OUT/viewer-evidence.tar" ]]; then
+    tar -xf "$OUT/viewer-evidence.tar" -C "$OUT/viewer-evidence" 2>> "$OUT/viewer-export-error.txt" || true
+  fi
+  adb shell screencap -p /sdcard/gallery-ci-final.png >/dev/null 2>&1 || true
+  adb pull /sdcard/gallery-ci-final.png "$OUT/final.png" >/dev/null 2>&1 || true
+}
+trap capture EXIT
+printf "suite=%s\nscale=%s\nsha=%s\n" "${CI_SUITE:-smoke}" "${CI_MEDIA_SCALE:-smoke}" "${GITHUB_SHA:-unknown}" > "$OUT/inputs.txt"
+# Host-side media generation creates 50k truly distinct PNG pixels in seconds
+# and retains source timestamps; this is faster than emulator PNG recompression.
+python3 tools/emulator-tests/generate_media.py \
+  --scale "$CI_MEDIA_SCALE" \
+  --output "$RUNNER_TEMP/gallery-ci-media.tar" \
+  --manifest "$OUT/media-manifest.json"
+
+apk=$(find app/build/outputs/apk/foss/debug -maxdepth 1 -name '*.apk' -type f | head -n 1)
+test -n "$apk"
+adb install -r "$apk"
+adb shell appops set "$APP" MANAGE_EXTERNAL_STORAGE allow
+adb shell pm grant "$APP" android.permission.READ_MEDIA_IMAGES || true
+adb shell pm grant "$APP" android.permission.READ_MEDIA_VIDEO || true
+adb shell pm grant "$APP" android.permission.READ_EXTERNAL_STORAGE || true
+adb shell appops get "$APP" MANAGE_EXTERNAL_STORAGE > "$OUT/appops.txt"
+
+# Stage the archive in shell-owned /data/local/tmp, then extract as the app uid.
+adb shell mkdir -p /sdcard/Pictures
+adb push "$RUNNER_TEMP/gallery-ci-media.tar" /data/local/tmp/gallery-ci-media.tar
+# The app uid can extract into its private files directory. Instrumentation then
+# copies the fixture into shared Pictures through the app's all-files permission.
+STAGING="/data/user/0/$APP/files/gallery-ci-import"
+adb shell run-as "$APP" mkdir -p "$STAGING"
+adb shell run-as "$APP" tar -xof /data/local/tmp/gallery-ci-media.tar -C "$STAGING"
+adb shell rm /data/local/tmp/gallery-ci-media.tar
+adb shell run-as "$APP" sh -c "find '$STAGING/GalleryCI' -type f | wc -l" > "$OUT/fixture-file-count.txt"
+./gradlew :app:connectedFossDebugAndroidTest -PEMULATOR_TEST_BUILD_TYPE=debug "-Pandroid.testInstrumentationRunnerArguments.scale=$CI_MEDIA_SCALE" \
+  "-Pandroid.testInstrumentationRunnerArguments.suite=${CI_SUITE:-smoke}" --stacktrace
+````
+
+### `tools/emulator-tests/generate_media.py`
+
+````python
+#!/usr/bin/env python3
+"""Make unique-pixel PNG files on the host, not with 50k slow emulator Bitmap.compress calls.
+
+Every image carries a source-qualified 32-bit identity in a stable 8x8
+grid of 4x4-pixel blocks. These exact RGBA values are used by the
+instrumentation drawable-vs-file pixel comparison. Standard-library-only.
+"""
+import argparse
+import io
+import json
+import pathlib
+import struct
+import tarfile
+import time
+import zlib
+
+ROOT = "GalleryCI"
+ON = bytes((228, 42, 86, 255))
+OFF = bytes((26, 72, 184, 255))
+PNG_HEADER = b"\x89PNG\r\n\x1a\n"
+
+def chunk(kind: bytes, data: bytes) -> bytes:
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+def png(source: str, index: int) -> bytes:
+    key = (ord(source) << 20) | (index + 1)
+    pixels = bytearray()
+    for y in range(32):
+        pixels.append(0)  # PNG RGBA scanline filter None
+        for x in range(32):
+            pixels.extend(ON if (key >> ((y // 4) * 8 + x // 4)) & 1 else OFF)
+    return (PNG_HEADER +
+            chunk(b"IHDR", struct.pack(">IIBBBBB", 32, 32, 8, 6, 0, 0, 0)) +
+            chunk(b"tEXt", b"GalleryCI\x00" + f"{source}:{index}".encode()) +
+            chunk(b"IDAT", zlib.compress(bytes(pixels), level=1)) +
+            chunk(b"IEND", b""))
+
+def add(archive, path, payload, modified):
+    item = tarfile.TarInfo(path)
+    item.mode = 0o644
+    item.size = len(payload)
+    item.mtime = modified
+    archive.addfile(item, io.BytesIO(payload))
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--scale", choices=("smoke", "large", "segment", "ceiling"), required=True)
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--manifest", required=True)
+    args = parser.parse_args()
+    sizes = {
+        "smoke": {"A": 64, "N": 64, "P": 64},
+        "large": {"A": 12011, "N": 12013, "P": 12017},
+        "segment": {"A": 20501, "N": 96, "P": 96},
+        "ceiling": {"A": 50009, "N": 96, "P": 96},
+    }[args.scale]
+    start = time.monotonic()
+    pathlib.Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(args.output, "w") as archive:
+        add(archive, ROOT + "/N/.nomedia", b"", 1700000000)
+        for source, size in sizes.items():
+            for index in range(size):
+                filename = f"IMG_{index}.png" if index % 4 == 0 else f"IMG_{index:06d}.png"
+                modified = 1578000000 + ((index * 7919 + ord(source)) % 180000) * 60
+                add(archive, f"{ROOT}/{source}/{filename}", png(source, index), modified)
+        add(archive, ROOT + "/.ci_import_ready", args.scale.encode(), 1700000000)
+    manifest = {"scale": args.scale, "pngPerSource": sizes, "totalPng": sum(sizes.values()),
+                "pixel": "unique 32-bit source-qualified 8x8 marker, 32x32 RGBA",
+                "durationSeconds": round(time.monotonic() - start, 3)}
+    pathlib.Path(args.manifest).write_text(json.dumps(manifest, indent=2))
+    print(json.dumps(manifest), flush=True)
+
+if __name__ == "__main__":
+    main()
+````
