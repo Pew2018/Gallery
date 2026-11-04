@@ -18,6 +18,7 @@ Persisted event sources currently include:
 - Existing `GalleryPerfTrace` grid, album, photo-loader and viewer stage/count events, without changing its release Logcat behavior.
 - Full-screen Viewer open, page-bound and close events, with the current index, visible count, content revision, collection type and a session-keyed media identifier.
 - Grid and full-screen delete request/result boundaries, including requested/completed counts and whether the operation was permanent or used the recycle bin.
+- Photo-profile full-screen delete recovery stages, path-identity candidate selection, validation failures, and the pager's applied item/index. Recovery events reuse the delete operation ID and use session-keyed anonymous media IDs; no media paths are recorded.
 - Java/Kotlin uncaught exception summaries, written synchronously as a bounded best-effort crash file before delegating to the previous process handler.
 - Android 11+ historical process exit reason numbers when enabled at app start. This is supplementary system metadata, not full ANR or native-crash capture.
 
