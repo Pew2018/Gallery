@@ -78,8 +78,8 @@ class PhotoProfilePinEmulatorTest {
 
     @Test fun realPinSetupWrongCancelMultiLockBindingAndRevocation() {
         Assume.assumeTrue("PIN suite only",
-            inst.arguments.getString("suite") == "pin" &&
-                inst.arguments.getString("scale") == "smoke")
+            InstrumentationRegistry.getArguments().getString("suite") == "pin" &&
+                InstrumentationRegistry.getArguments().getString("scale") == "smoke")
         PhotoProfileEmulatorTest.buildMediaFixtures()
         val root = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "GalleryCI")
         val protectedP = File(root, "P").canonicalPath
