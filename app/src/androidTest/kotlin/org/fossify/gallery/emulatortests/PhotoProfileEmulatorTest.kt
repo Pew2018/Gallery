@@ -61,6 +61,34 @@ class PhotoProfileEmulatorTest {
             }
             countA = sizes.getValue("A")
             root = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "GalleryCI")
+
+            // GitHub Actions may bulk-extract host-created, valid, uniquely
+            // encoded PNG fixtures. Avoid 50k individual PNG compressions on
+            // the emulator; still assert exact counts and add JPEG/SVG media.
+            val imported = File(root, ".ci_import_ready")
+            if (imported.isFile) {
+                assertEquals("Wrong imported test scale", scale, imported.readText().trim())
+                for ((source, count) in sizes) {
+                    val folder = File(root, source)
+                    assertTrue("Missing imported folder " + source, folder.isDirectory)
+                    assertEquals("Partial imported PNG fixture " + source, count,
+                        folder.listFiles().orEmpty().count { it.extension.equals("png", true) })
+                    val jpegBitmap = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888)
+                    jpegBitmap.eraseColor(Color.rgb(source[0].code % 256, 91, 173))
+                    val bytes = ByteArrayOutputStream()
+                    check(jpegBitmap.compress(Bitmap.CompressFormat.JPEG, 85, bytes))
+                    jpegBitmap.recycle()
+                    File(folder, "CI_sample.jpg").writeBytes(bytes.toByteArray())
+                    File(folder, "CI_sample.svg").writeText(
+                        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\">" +
+                            "<rect width=\"24\" height=\"24\" fill=\"#336699\"/></svg>"
+                    )
+                }
+                assertTrue("Imported .nomedia absent", File(root, "N/.nomedia").isFile)
+                Log.i("GalleryEmulatorFixture", "IMPORTED scale=" + scale + " roots=" + sizes)
+                return
+            }
+
             // Reversible source-qualified 32-bit identity, unique at 50,009 items.
             // Encode into the actual image pixels so filename/path correctness
             // cannot disguise stale or incorrectly bound drawable contents.

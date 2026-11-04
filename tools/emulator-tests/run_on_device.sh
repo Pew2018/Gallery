@@ -12,13 +12,28 @@ capture() {
   # Android 14 may block shell from Android/data; the app is a debug build,
   # so run-as can still export synthetic test screenshots without relaxing security.
   mkdir -p "$OUT/viewer-evidence"
-  adb exec-out run-as "$APP" tar -cf - -C files gallery-ci-evidence 2>/dev/null |
-    tar -xf - -C "$OUT/viewer-evidence" 2>/dev/null || true
+  adb shell run-as "$APP" ls -la files/gallery-ci-evidence > "$OUT/viewer-evidence-list.txt" 2>&1 || true
+  adb exec-out run-as "$APP" tar -cf - -C files gallery-ci-evidence \
+    > "$OUT/viewer-evidence.tar" 2> "$OUT/viewer-export-error.txt" || true
+  if [[ -s "$OUT/viewer-evidence.tar" ]]; then
+    tar -xf "$OUT/viewer-evidence.tar" -C "$OUT/viewer-evidence" 2>> "$OUT/viewer-export-error.txt" || true
+  fi
   adb shell screencap -p /sdcard/gallery-ci-final.png >/dev/null 2>&1 || true
   adb pull /sdcard/gallery-ci-final.png "$OUT/final.png" >/dev/null 2>&1 || true
 }
 trap capture EXIT
 printf "suite=%s\nscale=%s\nsha=%s\n" "${CI_SUITE:-smoke}" "${CI_MEDIA_SCALE:-smoke}" "${GITHUB_SHA:-unknown}" > "$OUT/inputs.txt"
+# Host-side media generation creates 50k truly distinct PNG pixels in seconds
+# and retains source timestamps; this is faster than emulator PNG recompression.
+python3 tools/emulator-tests/generate_media.py \
+  --scale "$CI_MEDIA_SCALE" \
+  --output "$RUNNER_TEMP/gallery-ci-media.tar" \
+  --manifest "$OUT/media-manifest.json"
+adb shell mkdir -p /sdcard/Pictures /sdcard/Download
+adb push "$RUNNER_TEMP/gallery-ci-media.tar" /sdcard/Download/gallery-ci-media.tar
+adb shell tar -xf /sdcard/Download/gallery-ci-media.tar -C /sdcard/Pictures
+adb shell rm /sdcard/Download/gallery-ci-media.tar
+adb shell "find /sdcard/Pictures/GalleryCI -type f | wc -l" > "$OUT/fixture-file-count.txt"
 apk=$(find app/build/outputs/apk/foss/debug -maxdepth 1 -name '*.apk' -type f | head -n 1)
 test -n "$apk"
 adb install -r "$apk"
