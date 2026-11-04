@@ -131,3 +131,4 @@
 - 完整审计记录、六个业务文件修改、自动化覆盖、权限边界、性能与真机待验项见 [11-favorites-viewer-sorting-fixes.md](11-favorites-viewer-sorting-fixes.md)。
 - F：收藏扫描在首次发布之前；首次布局单项提交可取消先到完整目录；相同 COMPLETE 重复提交；渐进目录绕过排序。已定点修复，保留原 scanner/store/coordinator/Adapter，没有新增通用框架。
 - 本地 diff 检查通过；Gradle distribution 网络不可达，测试未启动。完整单测与 ARM64 Actions 待提交后验证；无设备帧数据，不宣称流畅度或用户真机故障已经完全验收。
+- R04 首次 CI：Run `41760580210` 已完成业务 Kotlin 编译，但新增 `PhotoViewerInitializationTest` 漏导入 `RobolectricTestRunner`，在测试源码编译失败，单测未运行、无 APK。追加最小测试导入修复；不删除断言，随后重跑完整 CI。
