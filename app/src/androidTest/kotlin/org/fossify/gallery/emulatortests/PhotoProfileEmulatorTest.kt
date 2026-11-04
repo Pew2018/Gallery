@@ -275,6 +275,132 @@ class PhotoProfileEmulatorTest {
         assertTrue("Deleted paths must not be restored from cache", after.none { it.path in removed })
     }
 
+    /**
+     * Exercises the production post-delete callback with a deliberately reduced
+     * one-item progressive window. The filesystem removal is real; invoking the
+     * callback directly avoids making the system MediaStore confirmation dialog
+     * part of this deterministic navigation regression.
+     */
+    @Test fun deletingOnlyLoadedPhotoKeepsViewerOpenAndRecoversPreviousGridNeighbor() {
+        org.junit.Assume.assumeTrue("smoke real-viewer recovery", suite == "smoke" && scale == "smoke")
+        val inst = InstrumentationRegistry.getInstrumentation()
+        val folder = File(root, "DeleteContinuity").apply { mkdirs() }
+        val fixture = File(root, "A/IMG_0.png")
+        val paths = listOf("A", "B", "C", "D").map { name ->
+            File(folder, "delete-$name.png").also { fixture.copyTo(it, overwrite = true) }.canonicalPath
+        }
+        val profile = PhotoProfile(UUID.randomUUID().toString(), "Delete continuity",
+            listOf(PhotoSource(PhotoSourceType.FOLDER, folder.canonicalPath)))
+        PhotoProfileRepository.of(context).save(profile)
+        profileIds.add(profile.id)
+        val oldSorting = context.config.getFolderSorting(PhotoProfileMediaLoader.PATH)
+        context.config.saveCustomSorting(PhotoProfileMediaLoader.PATH, SORT_BY_NAME)
+        val monitor = Instrumentation.ActivityMonitor(ViewPagerActivity::class.java.name, null, false)
+        inst.addMonitor(monitor)
+        var mediaActivity: MediaActivity? = null
+        var viewerActivity: ViewPagerActivity? = null
+        var initialPagerAdapter: MyPagerAdapter? = null
+        try {
+            mediaActivity = inst.startActivitySync(Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, PhotoProfileMediaLoader.PATH)
+            }) as MediaActivity
+            val grid = mediaActivity.findViewById<RecyclerView>(R.id.media_grid)
+            var selectedRow = -1
+            awaitCondition("four committed delete fixtures", 30000) {
+                inst.runOnMainSync {
+                    val adapter = grid.adapter as? MediaAdapter
+                    selectedRow = adapter?.media?.indexOfFirst { it is Medium && it.path == paths[2] } ?: -1
+                }
+                selectedRow >= 0
+            }
+            inst.runOnMainSync { grid.scrollToPosition(selectedRow) }
+            inst.waitForIdleSync()
+            var clicked = false
+            inst.runOnMainSync {
+                clicked = grid.findViewHolderForAdapterPosition(selectedRow)?.itemView?.performClick() == true
+            }
+            assertTrue("MediaAdapter did not open selected fixture", clicked)
+            viewerActivity = inst.waitForMonitorWithTimeout(monitor, 20000) as? ViewPagerActivity
+            val viewer = viewerActivity ?: throw AssertionError("Grid did not open delete-continuity Viewer")
+            awaitCondition("selected C page", 20000) {
+                var selected = false
+                inst.runOnMainSync {
+                    val pager = viewer.findViewById<ViewPager>(R.id.view_pager)
+                    val adapter = pager.adapter as? MyPagerAdapter
+                    initialPagerAdapter = adapter
+                    selected = adapter?.media?.getOrNull(pager.currentItem)?.path == paths[2]
+                }
+                selected
+            }
+
+            // Model the adverse timing from the report: the UI knows only the
+            // clicked photo while the profile loader still owns the full scope.
+            inst.runOnMainSync {
+                val field = ViewPagerActivity::class.java.getDeclaredField("mMediaFiles").apply { isAccessible = true }
+                val adapter = viewer.findViewById<ViewPager>(R.id.view_pager).adapter as MyPagerAdapter
+                val selected = adapter.media.first { it.path == paths[2] }
+                field.set(viewer, arrayListOf(selected))
+                ViewPagerActivity::class.java.getDeclaredField("mPos").apply { isAccessible = true }.setInt(viewer, 0)
+                ViewPagerActivity::class.java.getDeclaredField("photoCatalogMode").apply { isAccessible = true }.setBoolean(viewer, false)
+                ViewPagerActivity::class.java.getDeclaredField("photoCatalogComplete").apply { isAccessible = true }.setBoolean(viewer, false)
+                assertTrue("Physical delete failed", File(paths[2]).delete())
+                val callback = ViewPagerActivity::class.java.declaredMethods.first { it.name == "hideDeletedMedium" }
+                    .apply { isAccessible = true }
+                callback.invoke(viewer, paths[2], null, false)
+            }
+
+            val expected = paths[1]
+            awaitCondition("Viewer recovery to previous B photo", 45000) {
+                var ready = false
+                inst.runOnMainSync {
+                    val pager = viewer.findViewById<ViewPager>(R.id.view_pager)
+                    val adapter = pager.adapter as? MyPagerAdapter
+                    val fragment = adapter?.getCurrentFragment(pager.currentItem)
+                    val fragmentPath = (fragment?.arguments?.getSerializable(MEDIUM) as? Medium)?.path
+                    val image = fragment?.view?.findViewById<ImageView>(R.id.gestures_view)
+                    ready = !viewer.isFinishing && viewer.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
+                        adapter != null && adapter === initialPagerAdapter && adapter.media.none { it.path == paths[2] } &&
+                        adapter.media.getOrNull(pager.currentItem)?.path == expected && fragmentPath == expected &&
+                        image?.drawable != null
+                }
+                ready
+            }
+            assertTrue("Deleted C returned from profile scan", File(paths[2]).exists().not())
+
+            // Continue one page in the original sorted order; the deleted item
+            // must not return and the Activity must remain the same instance.
+            val pager = viewer.findViewById<ViewPager>(R.id.view_pager)
+            val swipe = IntArray(4)
+            inst.runOnMainSync {
+                val location = IntArray(2)
+                pager.getLocationOnScreen(location)
+                swipe[0] = location[0] + pager.width * 85 / 100
+                swipe[1] = location[1] + pager.height / 2
+                swipe[2] = location[0] + pager.width * 15 / 100
+                swipe[3] = location[1] + pager.height / 2
+            }
+            assertTrue(UiDevice.getInstance(inst).swipe(
+                swipe[0], swipe[1], swipe[2], swipe[3], 60))
+            awaitCondition("next surviving photo D", 20000) {
+                var next = false
+                inst.runOnMainSync {
+                    val adapter = pager.adapter as? MyPagerAdapter
+                    next = adapter?.media?.getOrNull(pager.currentItem)?.path == paths[3] &&
+                        adapter.media.none { it.path == paths[2] } && !viewer.isFinishing
+                }
+                next
+            }
+        } finally {
+            viewerActivity?.runOnUiThread { viewerActivity?.finish() }
+            mediaActivity?.runOnUiThread { mediaActivity?.finish() }
+            inst.removeMonitor(monitor)
+            inst.waitForIdleSync()
+            context.config.saveCustomSorting(PhotoProfileMediaLoader.PATH, oldSorting)
+            folder.deleteRecursively()
+        }
+    }
+
     /** Actual MediaActivity grid click -> ViewPagerActivity -> on-device pointer swipes.
      * Verifies the selected and adjacent Fragment identities against committed grid rows.
      * Screenshot evidence is stored on device and extracted by the workflow.

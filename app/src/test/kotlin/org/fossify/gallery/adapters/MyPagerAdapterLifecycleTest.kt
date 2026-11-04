@@ -22,7 +22,8 @@ import org.robolectric.annotation.Config
 @Config(sdk = [28], application = Application::class)
 class MyPagerAdapterLifecycleTest {
     private class Host : FragmentActivity(), ViewerPagerHost {
-        override fun mayLoadFavoritePath(path: String) = true
+        var allowedPaths: Set<String>? = null
+        override fun mayLoadFavoritePath(path: String) = allowedPaths?.contains(path) ?: true
         override fun fragmentClicked() {}
         override fun videoEnded() = true
         override fun goToPrevItem() {}
@@ -130,6 +131,28 @@ class MyPagerAdapterLifecycleTest {
         }
     }
 
+    @Test fun accessWindowUpdateReplacesDeferredPageOnlyAfterPathIsApproved() {
+        val controller = Robolectric.buildActivity(Host::class.java).setup()
+        try {
+            val host = controller.get().apply { allowedPaths = emptySet() }
+            val container = FrameLayout(host).apply { id = View.generateViewId() }
+            host.setContentView(container)
+            val medium = medium(10L)
+            val adapter = MyPagerAdapter(host, host.supportFragmentManager, listOf(medium),
+                fragmentFactory = { ProbeFragment() })
+            val placeholder = adapter.instantiateItem(container, 0)
+            assertTrue(placeholder is View)
+
+            host.allowedPaths = setOf(medium.path)
+            adapter.onAccessWindowUpdated()
+            adapter.destroyItem(container, 0, placeholder)
+            val page = adapter.instantiateItem(container, 0)
+            assertTrue(page is ProbeFragment)
+            assertEquals(medium.path,
+                (((page as ProbeFragment).arguments?.getSerializable(MEDIUM)) as Medium).path)
+        } finally { controller.pause().stop().destroy() }
+    }
+
     @Test fun explicitSamePathInvalidationCannotBeSwallowedByIdenticalCatalogFastPath() {
         val controller = Robolectric.buildActivity(Host::class.java).setup()
         try {
@@ -166,6 +189,35 @@ class MyPagerAdapterLifecycleTest {
             val replacement = adapter.instantiateItem(container, target) as ProbeFragment
             assertNotSame(old, replacement)
             assertEquals(items[16].path, (replacement.arguments!!.getSerializable(MEDIUM) as Medium).path)
+        } finally { controller.pause().stop().destroy() }
+    }
+
+    @Test fun deletionSpecificPolicyPublishesPreviousNeighborFragmentWithoutRebuildingAdapter() {
+        val controller = Robolectric.buildActivity(Host::class.java).setup()
+        try {
+            val host = controller.get()
+            val container = FrameLayout(host).apply { id = View.generateViewId() }
+            host.setContentView(container)
+            val oldMedia = (0 until 4).map { medium(10, "${'A' + it}.jpg") }
+            val adapter = MyPagerAdapter(host, host.supportFragmentManager, oldMedia,
+                fragmentFactory = { ProbeFragment() })
+            val deleted = oldMedia[2]
+            val oldFragment = adapter.instantiateItem(container, 2) as ProbeFragment
+            val fresh = oldMedia.filterNot { it.path == deleted.path }
+            val target = ViewerDeletionNavigationPolicy.resolve(
+                oldMedia, fresh, deleted.path, deleted.path, null, 2,
+                oldMedia.map { it.path }
+            )!!
+
+            assertEquals(1, target)
+            assertTrue(adapter.updateMedia(fresh))
+            assertEquals(androidx.viewpager.widget.PagerAdapter.POSITION_NONE, adapter.getItemPosition(oldFragment))
+            val replacement = adapter.instantiateItem(container, target) as ProbeFragment
+
+            assertNotSame(oldFragment, replacement)
+            assertEquals(oldMedia[1].path,
+                (replacement.arguments!!.getSerializable(MEDIUM) as Medium).path)
+            assertEquals(3, adapter.count)
         } finally { controller.pause().stop().destroy() }
     }
 

@@ -80,6 +80,68 @@ class PhotoViewerProgressivePagerTest {
         } finally { controller.pause().stop().destroy() }
     }
 
+    @Test fun deleteDuringSingleItemProgressiveWindowWaitsForFreshAuthorizedNeighbor() {
+        val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
+        val activity = controller.get()
+        try {
+            val pager = ProgressivePhotoViewPager(activity, Robolectric.buildAttributeSet().build()).apply {
+                id = View.generateViewId()
+            }
+            activity.setContentView(pager)
+            val ordered = listOf("A", "B", "C", "D").map { path ->
+                Medium(null, "$path.jpg", "/Gallery/$path.jpg", "/Gallery", 1L, 1L, 1L,
+                    TYPE_IMAGES, 0, false, 0L, 0L)
+            }
+            val clicked = ordered[2]
+            val allowed = linkedSetOf(clicked.path)
+            val host = object : ViewerPagerHost {
+                override fun mayLoadFavoritePath(path: String) = path in allowed
+                override fun fragmentClicked() = Unit
+                override fun videoEnded() = true
+                override fun goToPrevItem() = Unit
+                override fun goToNextItem() = Unit
+                override fun launchViewVideoIntent(path: String) = Unit
+                override fun isSlideShowActive() = false
+                override fun isFullScreen() = false
+            }
+            val adapter = MyPagerAdapter(host, activity.supportFragmentManager, listOf(clicked),
+                fragmentFactory = { Page() })
+            pager.adapter = adapter
+            pager.measure(View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY))
+            pager.layout(0, 0, 1080, 1920)
+            val oldFragment = adapter.getCurrentFragment(0) ?: throw AssertionError("Clicked fragment missing")
+            assertEquals(clicked.path, (oldFragment.arguments?.getSerializable(MEDIUM) as Medium).path)
+
+            // An empty one-item window is not proof that the full profile is empty.
+            val noLocalReplacement = ViewerDeletionNavigationPolicy.resolve(
+                listOf(clicked), emptyList(), clicked.path, clicked.path, null, 0,
+                ordered.map { it.path }
+            )
+            assertNull(noLocalReplacement)
+            assertFalse(ViewerDeletionNavigationPolicy.shouldFinish(false, emptyList()))
+            assertSame("Do not replace the current container with an empty pager", adapter, pager.adapter)
+            assertSame("Keep the already attached Fragment until replacement is validated",
+                oldFragment, adapter.getCurrentFragment(0))
+
+            val surviving = ordered.filterNot { it.path == clicked.path }
+            val targetIndex = ViewerDeletionNavigationPolicy.resolve(
+                listOf(clicked), surviving, clicked.path, clicked.path, null, 0,
+                ordered.map { it.path }, allowFirstFreshFallback = true
+            )!!
+            assertEquals(ordered[1].path, surviving[targetIndex].path)
+            allowed.clear()
+            allowed.addAll(surviving.map { it.path }) // the target's fresh access window is now approved
+            assertTrue(adapter.updateMedia(surviving))
+            pager.setCurrentItem(targetIndex, false)
+
+            assertSame("Recovery reuses the existing PagerAdapter", adapter, pager.adapter)
+            assertEquals(surviving[targetIndex].path,
+                (adapter.getCurrentFragment(targetIndex)?.arguments?.getSerializable(MEDIUM) as Medium).path)
+            assertFalse(adapter.media.any { it.path == clicked.path })
+        } finally { controller.pause().stop().destroy() }
+    }
+
     private fun exerciseProgressiveSource(source: ViewerSourceType) {
         val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
         val activity = controller.get()

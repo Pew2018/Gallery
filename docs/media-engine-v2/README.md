@@ -50,3 +50,6 @@
 **历史调研（01–04）只负责收集证据，不构成重构指令。** 当前实施口径统一以 05 为准；阶段一排序和阶段二扫描/渐进发布修改分别见 07、09，持续进度以 06 为准。代码级去重不等于用户报告的真机闪烁、索引持续或权限矩阵问题已全部解决；仍需设备验证。未经测量不报告性能百分比。
 
 12. [12-seamless-viewer-order-scroll-sorting.md](12-seamless-viewer-order-scroll-sorting.md)：新目标 `feature/photo-session-seamless-viewer` 的四项集中修复；历史 fix 记录保持归档，当前结果以本页及实际 Actions 为准。
+13. [13-final-viewer-partial-boundaries.md](13-final-viewer-partial-boundaries.md)：部分 Catalog 缺失邻项时保留未知边界、校验 live path，并说明自动化与设备验证边界。
+14. [14-progressive-loading-batch-delete-crash.md](14-progressive-loading-batch-delete-crash.md)：渐进加载时批量删除稳定性、path 身份、确认成功后更新和既有 CI 记录。
+15. [15-photo-viewer-delete-continuity.md](15-photo-viewer-delete-continuity.md)：全屏删除后的渐进窗口恢复、删除专用导航、页面授权发布顺序与本轮验证。

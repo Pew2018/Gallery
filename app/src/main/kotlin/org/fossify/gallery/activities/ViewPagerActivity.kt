@@ -221,6 +221,20 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var mIsFullScreen = false
     private var mPos = -1
     private var mShowAll = false
+    private var lastVisitedPath: String? = null
+    private var photoDeleteGeneration = 0L
+    private data class PhotoDeleteRecovery(
+        val deletedPath: String,
+        val previousMedia: List<Medium>,
+        val lastVisitedPath: String?,
+        val previousPosition: Int,
+        val orderedPaths: List<String>?,
+        val profileId: String?,
+        val sessionId: String?,
+        val generation: Long,
+        val revision: Long
+    )
+    private var photoDeleteRecovery: PhotoDeleteRecovery? = null
     /** The tapped grid's ordering evidence; never an authorization capability. */
     private var viewerGridOrder: List<String>? = null
     private var initialPublicFolderSnapshot = false
@@ -566,6 +580,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun onDestroy() {
+        photoDeleteGeneration++
+        photoDeleteRecovery = null
         retryViewerScan = null
         finishViewerBoundaryTrace()
         viewerLoading.dispose()
@@ -827,8 +843,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val clicked = mPath
         fun publish(items: List<Medium>, preserveCatalogOrder: Boolean = false, complete: Boolean = true) {
             if (request != viewerLoadGeneration || isFinishing || isDestroyed) return
-            if (firstContext != null && !firstContext.isCurrent(applicationContext)) { finish(); return }
-            if (!checkFavoriteAccess() || items.isEmpty()) { finish(); return }
+            if (firstContext != null && !firstContext.isCurrent(applicationContext)) {
+                if (photoDeleteRecovery == null) finish()
+                return
+            }
+            if (!checkFavoriteAccess()) { finish(); return }
+            if (items.isEmpty()) {
+                if (complete) finish()
+                return
+            }
             val publication = ++mediaPublicationGeneration
             mediaPublicationTask?.cancel(true)
             mediaPublicationExecutor.queue.clear()
@@ -862,7 +885,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         // Keep that page and let the next stage classify its path.
                         return@runOnUiThread
                     }
-                    if (continuousItems.isEmpty()) { finish(); return@runOnUiThread }
+                    if (continuousItems.isEmpty()) {
+                        if (complete) finish()
+                        return@runOnUiThread
+                    }
                     if (!inheritedOrder) {
                         viewerGridOrder = null
                         org.fossify.gallery.helpers.GalleryPerfTrace.event(
@@ -2750,6 +2776,20 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             return
         }
 
+        // Bind the deletion to the page and ordering that the user confirmed.
+        // A later SAF / Manage Media prompt may outlive the current pager page.
+        val deleteSnapshot = if (isPhotoProfile) PhotoDeleteRecovery(
+            deletedPath = path,
+            previousMedia = mMediaFiles.toList(),
+            lastVisitedPath = lastVisitedPath,
+            previousPosition = mPos,
+            orderedPaths = viewerGridOrder?.toList(),
+            profileId = photoProfileId,
+            sessionId = photoSessionId,
+            generation = ++photoDeleteGeneration,
+            revision = org.fossify.gallery.helpers.PhotoContentRevision.current()
+        ) else null
+
         val fileDirItem = currentMedium.toFileDirItem()
         if (config.useRecycleBin && !skipRecycleBin && !getCurrentMedium()!!.getIsInRecycleBin()) {
             checkManageMediaOrHandleSAFDialogSdk30(fileDirItem.path) {
@@ -2762,9 +2802,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         tryDeleteFileDirItem(fileDirItem, false, false) { deleted ->
                             if (deleted) {
                                 FolderContentRevision.changed()
-                                if (isPhotoProfile && !photoCatalogMode)
-                                    org.fossify.gallery.helpers.PhotoContentRevision.changed()
-                                hideDeletedMedium(fileDirItem.path)
+                                hideDeletedMedium(fileDirItem.path, deleteSnapshot, photoRevisionAlreadyChanged = true)
                             } else {
                                 refreshViewPager(true)
                             }
@@ -2776,11 +2814,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 }
             }
         } else {
-            handleDeletion(fileDirItem)
+            handleDeletion(fileDirItem, deleteSnapshot)
         }
     }
 
-    private fun handleDeletion(fileDirItem: FileDirItem) {
+    private fun handleDeletion(fileDirItem: FileDirItem, deleteSnapshot: PhotoDeleteRecovery?) {
         checkManageMediaOrHandleSAFDialogSdk30(fileDirItem.path) {
             if (!it) {
                 return@checkManageMediaOrHandleSAFDialogSdk30
@@ -2789,9 +2827,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             tryDeleteFileDirItem(fileDirItem, false, true) { deleted ->
                 if (deleted) {
                     FolderContentRevision.changed()
-                    if (isPhotoProfile && !photoCatalogMode)
-                        org.fossify.gallery.helpers.PhotoContentRevision.changed()
-                    hideDeletedMedium(fileDirItem.path)
+                    hideDeletedMedium(fileDirItem.path, deleteSnapshot)
                 } else {
                     refreshViewPager(true)
                 }
@@ -2863,13 +2899,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
     }
 
-    private fun hideDeletedMedium(path: String) {
+    private fun hideDeletedMedium(
+        path: String,
+        deleteSnapshot: PhotoDeleteRecovery? = null,
+        photoRevisionAlreadyChanged: Boolean = false
+    ) {
         org.fossify.gallery.helpers.ViewerContentInvalidationRegistry.invalidate(path)
         if (path !in mIgnoredPaths) mIgnoredPaths.add(path)
-        if (isPhotoProfile && photoCatalogMode) {
-            // Removal only: preserve the validated old ordering minus one item.
-            // The local revision is published after fresh neighbor authorization.
-            commitPhotoCatalogMutation(mMediaFiles.filter { it.path != path })
+        if (isPhotoProfile) {
+            recoverAfterPhotoDeletion(path, deleteSnapshot, photoRevisionAlreadyChanged)
             return
         }
         val source = mMediaFiles
@@ -2894,11 +2932,43 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
     }
 
-    private fun isDirEmpty(media: ArrayList<Medium>): Boolean {
+    private fun recoverAfterPhotoDeletion(
+        deletedPath: String,
+        snapshot: PhotoDeleteRecovery?,
+        photoRevisionAlreadyChanged: Boolean
+    ) {
+        val base = snapshot?.takeIf {
+            it.deletedPath == deletedPath && it.profileId == photoProfileId &&
+                it.sessionId == photoSessionId && it.generation == photoDeleteGeneration
+        } ?: PhotoDeleteRecovery(
+            deletedPath, mMediaFiles.toList(), lastVisitedPath, mPos,
+            viewerGridOrder?.toList(), photoProfileId, photoSessionId,
+            ++photoDeleteGeneration, org.fossify.gallery.helpers.PhotoContentRevision.current()
+        )
+        // Block catalog listeners before the content-revision invalidation can
+        // queue an ordinary publication against the soon-to-be stale page.
+        photoCatalogUpdating = true
+        val revision = if (photoRevisionAlreadyChanged) {
+            org.fossify.gallery.helpers.PhotoContentRevision.current()
+        } else {
+            org.fossify.gallery.helpers.PhotoContentRevision.changed()
+        }
+        invalidatePhotoCatalogForRequery()
+        photoDeleteRecovery = base.copy(revision = revision)
+        viewerLoading.setLoading(true)
+        // Keep the existing Fragment attached and let the existing staged loader
+        // produce the replacement. No empty/local-only list is published first.
+        refreshViewPager(true, photoRevisionAlreadyChanged = true, catalogAlreadyInvalidated = true,
+            invalidateDisplayedContent = false)
+    }
+
+    private fun isDirEmpty(media: ArrayList<Medium>, fullCatalog: Boolean): Boolean {
         return if (media.isEmpty()) {
-            deleteDirectoryIfEmpty()
-            finish()
-            true
+            if (fullCatalog || !isPhotoProfile) {
+                deleteDirectoryIfEmpty()
+                finish()
+                true
+            } else false
         } else {
             false
         }
@@ -2968,15 +3038,22 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
     }
 
-    private fun refreshViewPager(refetchPosition: Boolean = false) {
+    private fun refreshViewPager(
+        refetchPosition: Boolean = false,
+        photoRevisionAlreadyChanged: Boolean = false,
+        catalogAlreadyInvalidated: Boolean = false,
+        invalidateDisplayedContent: Boolean = true
+    ) {
         if (!checkFavoriteAccess()) return
-        org.fossify.gallery.helpers.ViewerContentInvalidationRegistry.invalidate(getCurrentPath())
+        if (invalidateDisplayedContent) {
+            org.fossify.gallery.helpers.ViewerContentInvalidationRegistry.invalidate(getCurrentPath())
+        }
         // A viewer requery may follow edits in external editors or providers.
         // Invalidating a return checkpoint is cheaper than showing stale media.
         FolderContentRevision.changed()
         if (isPhotoProfile) {
-            invalidatePhotoCatalogForRequery()
-            org.fossify.gallery.helpers.PhotoContentRevision.changed()
+            if (!catalogAlreadyInvalidated) invalidatePhotoCatalogForRequery()
+            if (!photoRevisionAlreadyChanged) org.fossify.gallery.helpers.PhotoContentRevision.changed()
         }
         val isRandomSorting = config.getFolderSorting(mDirectory) and SORT_BY_RANDOM != 0
         if (isPhotoProfile || !isRandomSorting || isExternalIntent()) {
@@ -2993,13 +3070,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 photoProfileId = photoProfileId,
                 photoSessionId = photoSessionId,
                 photoAnchorPath = getCurrentPath(),
-                onPhotoResult = { if (isPhotoProfile && request == viewerLoadGeneration) {
-                    photoCatalogUpdating = false
-                    consumePhotoCatalogAdvance()
+                onPhotoResult = { result -> if (isPhotoProfile && request == viewerLoadGeneration) {
+                    if (photoDeleteRecovery != null) recoverPhotoDeletionFromLoadResult(result)
+                    else {
+                        photoCatalogUpdating = false
+                        consumePhotoCatalogAdvance()
+                    }
                 } },
                 onFailure = { if (isPhotoProfile) {
                     // Keep the currently displayed selection when a recoverable
                     // rescan fails, but leave protected catalog pages fail-closed.
+                    if (photoDeleteRecovery != null) viewerLoading.setLoading(false)
                     showErrorToast(it)
                 } }
             ) {
@@ -3007,6 +3088,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     if (isPhotoProfile) {
                         // The loader's COMPLETE path has freshly checked the whole
                         // catalog. Old per-page approvals must never survive it.
+                        if (photoDeleteRecovery != null) return@GetMediaAsynctask
                         photoCatalogUpdating = false
                         consumePhotoCatalogAdvance()
                         return@GetMediaAsynctask
@@ -3015,6 +3097,145 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 }
             }.also { it.execute() }
         }
+    }
+
+    /** Resolve a deleted page against the fresh scoped result before publishing any replacement. */
+    private fun recoverPhotoDeletionFromLoadResult(
+        result: org.fossify.gallery.helpers.PhotoLoadResult,
+        preferredCurrentPath: String? = null
+    ) {
+        val recovery = photoDeleteRecovery ?: return
+        if (recovery.profileId != photoProfileId || recovery.sessionId != photoSessionId ||
+            recovery.generation != photoDeleteGeneration || recovery.revision != result.context.revision) return
+        if (!result.context.isCurrent(applicationContext)) return
+        if (org.fossify.gallery.helpers.ViewerDeletionNavigationPolicy.shouldFinish(
+                result.stage == org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE,
+                result.media, result.access.needsUnlock
+            )) {
+            photoDeleteRecovery = null
+            photoCatalogUpdating = false
+            viewerLoading.setLoading(false)
+            finish()
+            return
+        }
+        if (result.access.needsUnlock) {
+            viewerLoading.setLoading(false)
+            showErrorToast(SecurityException("Photo source authorization is required"))
+            return
+        }
+
+        val app = applicationContext
+        val livePathAtStart = preferredCurrentPath ?: getCurrentPath()
+        val query = viewerSearchQuery.orEmpty()
+        val pathOrder = recovery.orderedPaths ?: viewerGridOrder
+        val candidate = result.media
+        val ignoredPaths = mIgnoredPaths.toHashSet()
+        val publicationRequest = ++photoCatalogUpdateGeneration
+        ViewerAccessCoordinator.cancel(photoCatalogUpdateTask)
+        val work = try {
+            ViewerAccessCoordinator.submit {
+                val scopedCandidate = candidate.filter { it.path != recovery.deletedPath && it.path !in ignoredPaths }
+                val candidatePaths = scopedCandidate.mapTo(HashSet(scopedCandidate.size)) { it.path }
+                val searchable = org.fossify.gallery.helpers.ViewerSearchPolicy.filter(scopedCandidate, query)
+                val allowFallback = result.stage == org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE
+                val targetIndex = org.fossify.gallery.helpers.ViewerDeletionNavigationPolicy.resolve(
+                    recovery.previousMedia, searchable, recovery.deletedPath, livePathAtStart,
+                    lastVisitedPath ?: recovery.lastVisitedPath, recovery.previousPosition,
+                    pathOrder, allowFallback
+                )
+                if (targetIndex == null) {
+                    if (result.stage == org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE && searchable.isEmpty()) {
+                        runOnUiThread {
+                            if (photoDeleteRecovery?.generation == recovery.generation && !isFinishing && !isDestroyed) {
+                                photoDeleteRecovery = null
+                                photoCatalogUpdating = false
+                                viewerLoading.setLoading(false)
+                                finish()
+                            }
+                        }
+                    }
+                    return@submit
+                }
+                val targetPath = searchable[targetIndex].path
+                val catalog = org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.latest(
+                    app, recovery.profileId, recovery.sessionId, targetPath
+                )
+                val rawWindow = catalog?.media?.filter { it.path != recovery.deletedPath && it.path !in mIgnoredPaths }
+                    ?: run {
+                        val start = (targetIndex - org.fossify.gallery.helpers.ViewerNeighborWindow.NEIGHBOR_RADIUS).coerceAtLeast(0)
+                        val end = (targetIndex + org.fossify.gallery.helpers.ViewerNeighborWindow.NEIGHBOR_RADIUS + 1)
+                            .coerceAtMost(searchable.size)
+                        searchable.subList(start, end)
+                    }
+                val freshWindow = org.fossify.gallery.helpers.ViewerSearchPolicy.filter(rawWindow, query)
+                val (orderedWindow, inheritedOrder) = org.fossify.gallery.helpers.ViewerGridOrderPolicy.reconcilePhotoCatalog(
+                    pathOrder, recovery.previousMedia, freshWindow,
+                    catalog?.ordinals?.isNotEmpty() == true
+                ) { it.path }
+                val selectedIndex = org.fossify.gallery.helpers.ViewerDeletionNavigationPolicy.resolve(
+                    recovery.previousMedia, orderedWindow, recovery.deletedPath, livePathAtStart,
+                    lastVisitedPath ?: recovery.lastVisitedPath, recovery.previousPosition,
+                    pathOrder, allowFallback
+                ) ?: orderedWindow.indexOfFirst { it.path == targetPath }.takeIf { it >= 0 }
+                if (selectedIndex == null || orderedWindow.isEmpty()) return@submit
+                val selectedPath = orderedWindow[selectedIndex].path
+                val radius = org.fossify.gallery.helpers.ViewerNeighborWindow.NEIGHBOR_RADIUS
+                val accessStart = (selectedIndex - radius).coerceAtLeast(0)
+                val accessEnd = (selectedIndex + radius + 1).coerceAtMost(orderedWindow.size)
+                val accessCandidates = orderedWindow.subList(accessStart, accessEnd).toList()
+                val safe = runCatching {
+                    org.fossify.gallery.helpers.PhotoViewerSnapshotStore.validateNeighborWindow(
+                        app, recovery.profileId, recovery.sessionId, accessCandidates, selectedPath
+                    ) { Thread.currentThread().isInterrupted }
+                }.getOrNull() ?: return@submit
+                val positions = org.fossify.gallery.helpers.ViewerMediaUpdatePolicy.positionIndex(orderedWindow)
+                val paths = org.fossify.gallery.helpers.ViewerMediaUpdatePolicy.pathIndex(orderedWindow)
+                runOnUiThread {
+                    val currentRecovery = photoDeleteRecovery
+                    if (currentRecovery?.generation != recovery.generation || publicationRequest != photoCatalogUpdateGeneration ||
+                        isFinishing || isDestroyed ||
+                        !safe.context.isCurrent(app) || recovery.revision != org.fossify.gallery.helpers.PhotoContentRevision.current()) return@runOnUiThread
+                    if (recovery.sessionId != null &&
+                        !org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.isActive(app, recovery.sessionId)) {
+                        closeUnauthorizedFavorites()
+                        return@runOnUiThread
+                    }
+                    val livePath = getCurrentPath()
+                    if (livePath != recovery.deletedPath && livePath != selectedPath &&
+                        livePath in candidatePaths && safe.media.none { it.path == livePath }) {
+                        // The user moved while validation was running. Validate that
+                        // live page rather than pulling them back to an older target.
+                        recoverPhotoDeletionFromLoadResult(result, livePath)
+                        return@runOnUiThread
+                    }
+                    val chosenPath = livePath.takeIf { path -> safe.media.any { it.path == path } } ?: selectedPath
+                    if (safe.media.none { it.path == chosenPath }) return@runOnUiThread
+                    photoCatalogMode = true
+                    photoCatalogRevision = recovery.revision
+                    photoCatalogUpdating = false
+                    photoCatalogComplete = catalog?.isComplete == true
+                    photoNavigation.publish(photoCatalogComplete, catalog?.before ?: org.fossify.gallery.helpers.PhotoViewerCatalogCoordinator.Boundary.UNKNOWN,
+                        catalog?.after ?: org.fossify.gallery.helpers.PhotoViewerCatalogCoordinator.Boundary.UNKNOWN)
+                    photoPageAccess.reset(recovery.revision)
+                    photoPageAccess.approve(safe.media.map { it.path }, recovery.revision)
+                    if (!inheritedOrder && pathOrder != null) {
+                        viewerGridOrder = null
+                        org.fossify.gallery.helpers.GalleryPerfTrace.event(
+                            "viewer_grid_order_authoritative_fallback", orderedWindow.size, recovery.revision)
+                    }
+                    photoDeleteRecovery = null
+                    viewerLoading.setLoading(false)
+                    refreshUI(ArrayList(orderedWindow), true, positions, paths, preferredPath = chosenPath)
+                    validatePhotoPageWindow(mPos)
+                    consumePhotoCatalogAdvance()
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            viewerLoading.setLoading(false)
+            showErrorToast(java.io.IOException("Photo viewer recovery is waiting for available worker capacity"))
+            null
+        }
+        photoCatalogUpdateTask = work
     }
 
     private fun gotMedia(
@@ -3053,7 +3274,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             val unchanged = revisionsUnchanged && org.fossify.gallery.helpers.ViewerMediaUpdatePolicy.sameCatalog(previous, media)
             runOnUiThread {
                 if (request != mediaPublicationGeneration || isFinishing || isDestroyed || !checkFavoriteAccess()) return@runOnUiThread
-                if (isDirEmpty(media)) return@runOnUiThread
+                if (isDirEmpty(media, fullCatalog)) return@runOnUiThread
                 if (!isPhotoProfile && progressiveInternalViewer) photoNavigation.publish(fullCatalog)
                 if (unchanged) {
                     if (progressiveInternalViewer && pendingPagerPublication == null) updatePhotoBoundaryWait()
@@ -3119,12 +3340,16 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         refetchViewPagerPosition: Boolean,
         positionIndex: Map<org.fossify.gallery.helpers.ViewerMediumIdentity, Int>? = null,
         pathIndex: Map<String, Int>? = null,
-        authorizedPaths: Set<String>? = null
+        authorizedPaths: Set<String>? = null,
+        preferredPath: String? = null
     ) {
         // Capture the currently displayed path before replacing the backing list.
         // The original click path is only a fallback; background stages must not
         // pull the user back after they have already swiped to another medium.
-        val currentPathBeforeUpdate = getCurrentPath().ifEmpty { mPath }
+        val currentPathBeforeUpdate = preferredPath?.takeIf { path ->
+            pathIndex?.containsKey(path) ?: media.any { it.path == path }
+        }
+            ?: getCurrentPath().ifEmpty { mPath }
         val previousPosition = mPos
         mMediaFiles = media
         viewerMediaPathIndex = pathIndex ?: emptyMap()
@@ -3502,6 +3727,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             requestPhotoPartialExpand(fullCatalogPosition(position))
         }
         if (mPos != position) {
+            val previousPath = getCurrentMedia().getOrNull(mPos)?.path
+            val selectedPath = getCurrentMedia().getOrNull(position)?.path
+            if (isPhotoProfile && previousPath != null && previousPath != selectedPath) {
+                lastVisitedPath = previousPath
+            }
             mPos = position
             updateActionbarTitle()
             if (swipePublicationGate.isMoving) pendingSwipeMenuRefresh = true
