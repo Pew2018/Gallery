@@ -851,6 +851,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 runOnUiThread {
                     if (publication != mediaPublicationGeneration || request != viewerLoadGeneration ||
                         isFinishing || isDestroyed || !checkFavoriteAccess()) return@runOnUiThread
+                    if (!complete && !hasSegmentOrdinals && continuousItems.isEmpty()) {
+                        // No committed grid ordinal (or no known contiguous run)
+                        // means this partial snapshot cannot replace the live pager.
+                        return@runOnUiThread
+                    }
+                    val currentPath = getCurrentPath().ifEmpty { clicked }
+                    if (!complete && !hasSegmentOrdinals && continuousItems.none { it.path == currentPath }) {
+                        // The user may have swiped while this stage was prepared.
+                        // Keep that page and let the next stage classify its path.
+                        return@runOnUiThread
+                    }
                     if (continuousItems.isEmpty()) { finish(); return@runOnUiThread }
                     if (!inheritedOrder) {
                         viewerGridOrder = null
@@ -1293,6 +1304,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     val validationStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
                     val app = applicationContext
                     val previous = mMediaFiles
+                    val liveAnchor = getCurrentPath().ifEmpty { path }
                     submitViewerAccess(request) {
                         val candidates = if (completeSource) items else (items + previous).distinctBy { it.path }
                         val relationCurrent = expectedFavoritePaths == null || runCatching {
@@ -1332,11 +1344,21 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                                     viewerGridOrder, previousOrder, sorted,
                                     config.getFolderSorting(FAVORITES) and SORT_BY_RANDOM != 0
                                 ) { it.path }
+                                val safePartial = if (completeSource) searched else
+                                    org.fossify.gallery.helpers.ViewerGridOrderPolicy.contiguousPartial(
+                                        viewerGridOrder, searched, liveAnchor
+                                    ) { it.path }
                                 runOnUiThread {
                                     if (stage != viewerStageGeneration || publication != mediaPublicationGeneration || request != viewerAccessGeneration ||
                                         load != viewerLoadGeneration || isFinishing || isDestroyed ||
                                         !FavoriteAccessSessionManager.isPublicationCurrent(batch.validation)) return@runOnUiThread
-                                    gotMedia(ArrayList<ThumbnailItem>(searched), refetchViewPagerPosition = true, fullCatalog = completeSource)
+                                    if (!completeSource && (safePartial.isEmpty() ||
+                                            safePartial.none { it.path == getCurrentPath().ifEmpty { path } })) {
+                                        // A missing path in a preview is UNKNOWN, and the live
+                                        // page may have changed since this stage was prepared.
+                                        return@runOnUiThread
+                                    }
+                                    gotMedia(ArrayList<ThumbnailItem>(safePartial), refetchViewPagerPosition = true, fullCatalog = completeSource)
                                     if (catalogStarted != null) {
                                         org.fossify.gallery.helpers.GalleryPerfTrace.end("viewer_catalog_hit", catalogStarted, searched.size)
                                     }
@@ -1611,9 +1633,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 }
                 val currentPath = getCurrentPath().ifEmpty { selectedPath }
                 val currentDenied = currentPath in directPaths && currentPath !in authorized
-                if (!FolderUnlockSessionManager.isActive(token) || selectedPath !in authorized || currentDenied || continuous.isEmpty()) {
+                if (!FolderUnlockSessionManager.isActive(token) || selectedPath !in authorized || currentDenied) {
                     finish(); return@runOnUiThread
                 }
+                if (!completeSource && (continuous.isEmpty() || continuous.none { it.path == currentPath })) {
+                    // Do not let an older scan anchor turn a newly selected page
+                    // into the item at the same integer position.
+                    return@runOnUiThread
+                }
+                if (continuous.isEmpty()) { finish(); return@runOnUiThread }
                 // A late scan must retain the photo the user has already swiped to.
                 mPath = currentPath
                 gotMedia(ArrayList<ThumbnailItem>(continuous), refetchViewPagerPosition = true, fullCatalog = completeSource)

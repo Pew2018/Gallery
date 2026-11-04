@@ -42,6 +42,26 @@ class ViewerGridOrderPolicyTest {
             ViewerGridOrderPolicy.contiguousPartial(grid, loaded, "c") { it })
     }
 
+    @Test fun partialCatalogCannotInventAdjacencyWithoutGridOrderOrItsAnchor() {
+        val grid = listOf("a", "b", "c", "d", "e", "f")
+        val fresh = listOf("a", "b", "c", "e", "f")
+        assertTrue(ViewerGridOrderPolicy.contiguousPartial(grid, fresh, "d") { it }.isEmpty())
+        assertTrue(ViewerGridOrderPolicy.contiguousPartial(grid, fresh, "missing") { it }.isEmpty())
+        assertTrue(ViewerGridOrderPolicy.contiguousPartial(null, fresh, "c") { it }.isEmpty())
+    }
+
+    @Test fun stalePartialAnchorCannotPublishAListMissingTheSwipedToPath() {
+        val grid = listOf("a", "b", "c", "d", "e")
+        // The worker began around C; the user moved to D before it completed.
+        val partial = ViewerGridOrderPolicy.contiguousPartial(grid,
+            listOf("a", "b", "c", "e"), "c") { it }
+        assertEquals(listOf("a", "b", "c"), partial)
+        assertFalse(partial.contains("d"))
+        // Publication callers retain their existing authorized pager window
+        // whenever the live path is absent from this partial result.
+        assertFalse(partial.any { it == "d" })
+    }
+
     @Test fun missedSnapshotStillKeepsProgressiveRandomWindow() {
         assertEquals(listOf("b", "a", "c"),
             ViewerGridOrderPolicy.reconcile(null, listOf("b", "a"),

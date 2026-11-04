@@ -51,11 +51,14 @@ internal object ViewerGridOrderPolicy {
     fun <T> contiguousPartial(
         gridOrder: List<String>?, fresh: List<T>, anchor: String, path: (T) -> String
     ): List<T> {
-        if (gridOrder == null || fresh.isEmpty()) return fresh
+        // Without the committed grid order, or without evidence for the live
+        // page, a partial source cannot prove adjacency. An empty result tells
+        // callers to keep the already validated pager window until COMPLETE.
+        if (gridOrder == null || fresh.isEmpty()) return emptyList()
         val byPath = LinkedHashMap<String, T>(fresh.size)
         fresh.forEach { byPath.putIfAbsent(path(it), it) }
         val anchorIndex = gridOrder.indexOf(anchor)
-        if (anchorIndex < 0 || anchor !in byPath) return reconcile(gridOrder, emptyList(), fresh, false, path)
+        if (anchorIndex < 0 || anchor !in byPath) return emptyList()
         var first = anchorIndex
         var last = anchorIndex
         while (first > 0 && gridOrder[first - 1] in byPath) first--

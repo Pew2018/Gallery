@@ -34,6 +34,52 @@ class PhotoViewerProgressivePagerTest {
     @Test fun favoritesBeyondCacheCapacityContinueBothDirections() = exerciseProgressiveSource(ViewerSourceType.FAVORITES)
     @Test fun photoProfileRetainsProgressiveNavigation() = exerciseProgressiveSource(ViewerSourceType.PHOTO_PROFILE)
 
+    @Test fun partialStageWithStaleAnchorCannotReplaceTheLiveFragmentByIndex() {
+        val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
+        val activity = controller.get()
+        try {
+            val pager = ProgressivePhotoViewPager(activity, Robolectric.buildAttributeSet().build()).apply { id = View.generateViewId() }
+            activity.setContentView(pager)
+            val grid = listOf("a", "b", "c", "d", "e").map { path ->
+                Medium(null, path, "/Gallery/$path", "/Gallery", 1L, 1L, 1L, TYPE_IMAGES, 0, false, 0L, 0L)
+            }
+            var published = grid.subList(1, 4)
+            val host = object : ViewerPagerHost {
+                override fun mayLoadFavoritePath(path: String) = true
+                override fun fragmentClicked() = Unit
+                override fun videoEnded() = true
+                override fun goToPrevItem() = Unit
+                override fun goToNextItem() = Unit
+                override fun launchViewVideoIntent(path: String) = Unit
+                override fun isSlideShowActive() = false
+                override fun isFullScreen() = false
+            }
+            val adapter = MyPagerAdapter(host, activity.supportFragmentManager, published, fragmentFactory = { Page() })
+            pager.adapter = adapter
+            pager.setCurrentItem(1, false) // C
+            pager.measure(View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY))
+            pager.layout(0, 0, 1080, 1920)
+            pager.setCurrentItem(2, false) // user has moved to D
+            val live = adapter.getCurrentFragment(2) ?: throw AssertionError("D fragment should be instantiated")
+            assertEquals("/Gallery/d", (live.arguments?.getSerializable(MEDIUM) as Medium).path)
+            val livePath = (live.arguments?.getSerializable(MEDIUM) as Medium).path
+
+            // The async stage captured C and no longer contains D. Production
+            // publication guards keep the old adapter until a safe stage arrives.
+            val partial = ViewerGridOrderPolicy.contiguousPartial(
+                listOf("/Gallery/a", "/Gallery/b", "/Gallery/c", "/Gallery/d", "/Gallery/e"),
+                listOf("/Gallery/a", "/Gallery/b", "/Gallery/c", "/Gallery/e"),
+                "/Gallery/c") { it }
+            if (partial.isNotEmpty() && partial.any { it == livePath }) {
+                published = partial.map { path -> grid.first { it.path == path } }
+                adapter.updateMedia(published)
+            }
+
+            assertEquals("/Gallery/d", (adapter.getCurrentFragment(2)?.arguments?.getSerializable(MEDIUM) as Medium).path)
+            assertEquals(listOf("/Gallery/b", "/Gallery/c", "/Gallery/d"), adapter.media.map { it.path })
+        } finally { controller.pause().stop().destroy() }
+    }
+
     private fun exerciseProgressiveSource(source: ViewerSourceType) {
         val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
         val activity = controller.get()
