@@ -29,15 +29,7 @@ python3 tools/emulator-tests/generate_media.py \
   --scale "$CI_MEDIA_SCALE" \
   --output "$RUNNER_TEMP/gallery-ci-media.tar" \
   --manifest "$OUT/media-manifest.json"
-# Android 14+ blocks shell writes under Download on some emulator images.
-# ADB's /data/local/tmp is shell-owned and supports push safely without root.
-adb shell mkdir -p /sdcard/Pictures
-adb push "$RUNNER_TEMP/gallery-ci-media.tar" /data/local/tmp/gallery-ci-media.tar
-# Host-created tar entries carry uid/gid 0. Android's shell cannot chown shared
-# storage files, so toybox tar must leave extracted files owned by the caller.
-adb shell tar -xof /data/local/tmp/gallery-ci-media.tar -C /sdcard/Pictures
-adb shell rm /data/local/tmp/gallery-ci-media.tar
-adb shell "find /sdcard/Pictures/GalleryCI -type f | wc -l" > "$OUT/fixture-file-count.txt"
+
 apk=$(find app/build/outputs/apk/foss/debug -maxdepth 1 -name '*.apk' -type f | head -n 1)
 test -n "$apk"
 adb install -r "$apk"
@@ -46,5 +38,14 @@ adb shell pm grant "$APP" android.permission.READ_MEDIA_IMAGES || true
 adb shell pm grant "$APP" android.permission.READ_MEDIA_VIDEO || true
 adb shell pm grant "$APP" android.permission.READ_EXTERNAL_STORAGE || true
 adb shell appops get "$APP" MANAGE_EXTERNAL_STORAGE > "$OUT/appops.txt"
+
+# Stage the archive in shell-owned /data/local/tmp, then extract as the app uid.
+adb shell mkdir -p /sdcard/Pictures
+adb push "$RUNNER_TEMP/gallery-ci-media.tar" /data/local/tmp/gallery-ci-media.tar
+# Extract as the app uid: the emulator's shell cannot write into shared media
+# storage, while the debug app has MANAGE_EXTERNAL_STORAGE for these fixtures.
+adb shell run-as "$APP" tar -xof /data/local/tmp/gallery-ci-media.tar -C /sdcard/Pictures
+adb shell rm /data/local/tmp/gallery-ci-media.tar
+adb shell "find /sdcard/Pictures/GalleryCI -type f | wc -l" > "$OUT/fixture-file-count.txt"
 ./gradlew :app:connectedFossDebugAndroidTest -PEMULATOR_TEST_BUILD_TYPE=debug "-Pandroid.testInstrumentationRunnerArguments.scale=$CI_MEDIA_SCALE" \
   "-Pandroid.testInstrumentationRunnerArguments.suite=${CI_SUITE:-smoke}" --stacktrace
