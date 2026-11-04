@@ -63,12 +63,16 @@ class PhotoSessionViewerCatalogStoreTest {
         assertEquals("photo_2499.jpg", first.media[2_499].name)
     }
 
-    @Test fun incompleteOrLockedResultsNeverBecomeCompleteHandoffs() {
+    @Test fun partialStagesCannotClaimCompletenessButValidatedAccessibleSubsetCanHandoff() {
         val items = media(100)
         assertNull(worker { PhotoSessionViewerCatalogStore.prepare(app,
             ready(items).copy(stage = PhotoLoadStage.INDEXED)) })
-        assertNull(worker { PhotoSessionViewerCatalogStore.prepare(app, ready(items, needsUnlock = true)) })
         assertNull(worker { PhotoSessionViewerCatalogStore.handoffId(app, profile.id, null) })
+        // This store receives only already-validated media; needsUnlock describes
+        // OTHER sources not included in this result, never an authorization grant.
+        val id = worker { PhotoSessionViewerCatalogStore.prepare(app, ready(items, needsUnlock = true)) }
+        assertNotNull(id)
+        assertTrue(worker { PhotoSessionViewerCatalogStore.take(app, id, profile.id, null, items[50].path) }!!.isComplete)
     }
 
     @Test fun wrongProfileSessionIdAndOldHandoffCannotAccessCatalog() {

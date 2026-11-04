@@ -122,9 +122,11 @@ internal object PhotoSessionViewerCatalogStore {
         }
     }
 
-    /** Worker-only stage publication. Never call this with unvalidated indexed rows. */
+    /** Worker-only stage publication. Rows have already passed PhotoAccessValidationBatch.
+     * A blocked source requires unlocking but does not invalidate other authorized media.
+     */
     fun offerPartial(context: Context, result: PhotoLoadResult) {
-        if (result.stage == PhotoLoadStage.COMPLETE || result.access.needsUnlock ||
+        if (result.stage == PhotoLoadStage.COMPLETE ||
             (loading != null && loading !== result.context) || !result.context.isCurrent(context)) return
         synchronized(this) {
             if ((loading != null && loading !== result.context) || !result.context.isCurrent(context)) return
@@ -160,9 +162,11 @@ internal object PhotoSessionViewerCatalogStore {
         notifyChanged()
     }
 
-    /** Worker only. COMPLETE data is authoritative; never infer it from a partial stage. */
+    /** Worker only. COMPLETE means all currently authorized sources were scanned.
+     * The loader excluded locked sources before scanning; this is not a public cache grant.
+     */
     fun prepare(context: Context, result: PhotoLoadResult): String? {
-        if (result.stage != PhotoLoadStage.COMPLETE || result.access.needsUnlock ||
+        if (result.stage != PhotoLoadStage.COMPLETE ||
             (loading != null && loading !== result.context) || !result.context.isCurrent(context)) return null
         val started = GalleryPerfTrace.begin()
         val segments = if (result.media.size > MAX_ITEMS) SegmentedPhotoCatalog.write(context.cacheDir, result.media) else null
@@ -294,9 +298,10 @@ internal object PhotoSessionViewerCatalogStore {
         if (cancelled()) return false
         val started = GalleryPerfTrace.begin()
         GalleryPerfTrace.event("viewer_expand_started", batch.size)
-        val (safe, access) = PhotoAccessValidationBatch(context, source.request, cancelled,
+        val (safe, _) = PhotoAccessValidationBatch(context, source.request, cancelled,
             directVisibilityOnly = true).validate(batch)
-        if (access.needsUnlock || cancelled() || !source.request.isCurrent(context)) return false
+        // Denied source roots do not block expansion with independently validated public files.
+        if (cancelled() || !source.request.isCurrent(context)) return false
         val collected = LinkedHashMap<String, Medium>()
         old.catalog.media.forEach { collected[it.path] = it }
         // Indexed rows without taken dates use the same modified-date fallback

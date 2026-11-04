@@ -297,9 +297,72 @@ class PhotoProfileMediaLoadingTest {
                 assertTrue(stage.media.all { it.path in expected })
                 assertEquals(stage.media.size, stage.media.map { it.path }.distinct().size)
             }
-            assertNull("Restricted profiles must not supply a reusable complete public catalog",
-                PhotoSessionViewerCatalogStore.handoffId(context, id, null))
+            val handoff = background { PhotoSessionViewerCatalogStore.handoffId(context, id, null) }
+            assertNotNull("Validated public photos must remain navigable while other sources are locked", handoff)
+            val catalog = background {
+                PhotoSessionViewerCatalogStore.take(context, handoff, id, null, noMediaPaths[75])
+            }!!
+            assertTrue(catalog.isComplete)
+            assertEquals(expected, catalog.media.map { it.path }.toSet())
+            assertFalse(catalog.pathIndex.containsKey(protectedPath))
+            assertNull(background {
+                PhotoSessionViewerCatalogStore.take(context, handoff, id, null, protectedPath)
+            })
         } finally { root.toFile().deleteRecursively(); PhotoSessionViewerCatalogStore.invalidate() }
+    }
+
+    @Test fun lockedSourceCannotBlockPublicPartialCatalogExpansion() {
+        val root = Files.createTempDirectory("photo-locked-expansion")
+        try {
+            val public = Files.createDirectory(root.resolve("public"))
+            val locked = Files.createDirectory(root.resolve("locked"))
+            val publicPaths = (0 until 12).map { index ->
+                Files.write(public.resolve("public-%02d.jpg".format(index)), byteArrayOf(1)).toString()
+            }
+            val lockedPath = Files.write(locked.resolve("private.jpg"), byteArrayOf(1)).toString()
+            context.config.addFolderProtection(locked.toString(), "expansion-secret",
+                org.fossify.commons.helpers.PROTECTION_PIN)
+            val id = java.util.UUID.randomUUID().toString()
+            PhotoProfileRepository.of(context).save(PhotoProfile(id, "Mixed expansion", listOf(
+                PhotoSource(PhotoSourceType.FOLDER, public.toString()),
+                PhotoSource(PhotoSourceType.FOLDER, locked.toString())
+            )))
+            val publicMedia = publicPaths.mapIndexed { index, path ->
+                Medium(null, java.io.File(path).name, path, public.toString(),
+                    index.toLong() + 1, index.toLong() + 1, 1L, TYPE_IMAGES, 0, false, 0L, 0L)
+            }
+            val lockedMedia = Medium(null, "private.jpg", lockedPath, locked.toString(),
+                1L, 1L, 1L, TYPE_IMAGES, 0, false, 0L, 0L)
+            background {
+                val request = PhotoProfileLoadContext.capture(context, id, null)!!
+                val (safePreview, previewAccess) = PhotoAccessValidationBatch(context, request, { false })
+                    .validate(publicMedia.subList(5, 7))
+                assertEquals(2, safePreview.size)
+                assertTrue("The other selected root still needs unlocking", previewAccess.needsUnlock)
+                val store = PhotoSessionViewerCatalogStore
+                assertTrue(store.beginLoading(request, context))
+                try {
+                    store.focus(id, null, publicMedia[5].path)
+                    // Indexed candidates are private metadata: the pager only sees revalidated rows.
+                    store.offerIndexedCandidates(context, request, publicMedia + lockedMedia)
+                    store.offerPartial(context, PhotoLoadResult(
+                        request, PhotoLoadStage.INDEXED, safePreview, previewAccess))
+                    val handoff = store.handoffId(context, id, null)
+                    assertNotNull("Public preview must be available before COMPLETE", handoff)
+                    assertFalse(store.take(context, handoff, id, null, publicMedia[5].path)!!.isComplete)
+                    assertTrue(store.requestExpand(context, id, null, publicMedia[6].path, true))
+                    assertTrue(store.requestExpand(context, id, null, publicMedia[5].path, false))
+                    val expanded = store.latest(context, id, null, publicMedia[5].path)!!
+                    assertEquals(publicPaths.toSet(), expanded.media.map { it.path }.toSet())
+                    assertFalse(expanded.pathIndex.containsKey(lockedPath))
+                } finally {
+                    store.finishLoading(request)
+                }
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+            PhotoSessionViewerCatalogStore.invalidate()
+        }
     }
 
     @Test fun unrelatedPreferencesAndRenameDoNotInvalidateButSourceChangeDoes() {
