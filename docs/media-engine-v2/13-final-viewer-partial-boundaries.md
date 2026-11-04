@@ -28,5 +28,6 @@
 
 - `git diff --check`：通过。
 - 本地定向 Gradle 测试：未启动。Wrapper 下载 Gradle 9.5.1 时网络返回 `Network is unreachable`。
-- GitHub Actions 完整单测和 ARM64 Release：提交后验证，结果补录在此文档。
+- GitHub Actions [Run 41777792302](https://github.com/Pew2018/Gallery/actions/runs/41777792302)，源码 SHA `edba4896048d50d1fa224d9599cf657673d72c17`：成功。完整 FOSS Release 单测 823 项，0 failures、0 errors、0 skipped；ARM64 Release 构建和 APK 校验、上传均成功。
+- APK：artifact [gallery-foss-arm64-v8a-release](https://github.com/Pew2018/Gallery/actions/runs/41777792302/artifacts/13297533124)，ID `13297533124`；APK SHA-256 `1937708ac74b727c78ff677e7f428f4a661e463d9a0bba05cb75b3197cb9cbb6`。包名 `org.fossify.gallery`，versionName `1.14.1` / versionCode `32`，APK Signature Scheme v2 验证通过，native ABI 仅 `arm64-v8a`。工作流使用临时 CI 签名，不证明可覆盖现有安装。
 - 真机目录权限、收藏关系变动、搜索、快速滑动、文件增删移动和真实图像/视频解码仍需设备确认；Robolectric 不代表设备验收。
