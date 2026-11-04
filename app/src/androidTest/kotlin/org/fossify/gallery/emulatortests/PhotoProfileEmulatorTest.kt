@@ -1,5 +1,20 @@
 package org.fossify.gallery.emulatortests
 
+import android.app.Instrumentation
+import android.content.Intent
+import android.os.SystemClock
+import android.util.Log
+import android.view.MotionEvent
+import androidx.recyclerview.widget.RecyclerView
+import androidx.viewpager.widget.ViewPager
+import org.fossify.gallery.R
+import org.fossify.gallery.activities.MediaActivity
+import org.fossify.gallery.activities.ViewPagerActivity
+import org.fossify.gallery.adapters.MediaAdapter
+import org.fossify.gallery.adapters.MyPagerAdapter
+import org.fossify.gallery.helpers.DIRECTORY
+import org.fossify.gallery.helpers.MEDIUM
+import java.io.FileOutputStream
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Build
@@ -189,5 +204,138 @@ class PhotoProfileEmulatorTest {
         } finally {
             testPaths.filter { it !in originals }.forEach { context.updateFavorite(it, false) }
         }
+    }
+
+    /** Actual MediaActivity grid click -> ViewPagerActivity -> on-device pointer swipes.
+     * Verifies the selected and adjacent Fragment identities against committed grid rows.
+     * Screenshot evidence is stored on device and extracted by the workflow.
+     * PIN and full rendered-pixel assertions remain separate unimplemented coverage.
+     */
+    @Test fun realGridClickViewerSwipeFollowsCommittedThumbOrder() {
+        org.junit.Assume.assumeTrue("UI smoke only; high-cardinality gesture runs need own task", scale == "smoke")
+        val inst = InstrumentationRegistry.getInstrumentation()
+        val profile = PhotoProfile(UUID.randomUUID().toString(), "UI swipe A",
+            listOf(PhotoSource(PhotoSourceType.FOLDER, File(root, "A").canonicalPath)))
+        PhotoProfileRepository.of(context).save(profile)
+        profileIds.add(profile.id)
+        context.config.saveCustomSorting(PhotoProfileMediaLoader.PATH, SORT_BY_NAME)
+        val monitor = Instrumentation.ActivityMonitor(ViewPagerActivity::class.java.name, null, false)
+        inst.addMonitor(monitor)
+        var mediaActivity: MediaActivity? = null
+        var viewerActivity: ViewPagerActivity? = null
+        try {
+            val intent = Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, PhotoProfileMediaLoader.PATH)
+            }
+            mediaActivity = inst.startActivitySync(intent) as MediaActivity
+            val grid = mediaActivity.findViewById<RecyclerView>(R.id.media_grid)
+            var committed = emptyList<String>()
+            var selectedRow = -1
+            val expectedPng = File(root, "A").listFiles().orEmpty().count { it.extension.equals("png", true) }
+            val expectedCount = expectedPng + 2 // valid JPEG and SVG fixture
+            fun captureGrid(): Boolean {
+                inst.runOnMainSync {
+                    val adapter = grid.adapter as? MediaAdapter
+                    val media = adapter?.media?.filterIsInstance<Medium>().orEmpty()
+                    if (media.size >= expectedCount) {
+                        committed = media.map { it.path }
+                        val selected = media.getOrNull(6)?.takeIf { it.path.endsWith(".png") }
+                            ?: media.firstOrNull { it.path.endsWith(".png") }
+                        selectedRow = adapter?.media?.indexOfFirst { it is Medium && it.path == selected?.path } ?: -1
+                    }
+                }
+                return committed.size >= expectedCount && selectedRow >= 0
+            }
+            awaitCondition("complete MediaActivity adapter", 30000, ::captureGrid)
+            val anchor = committed.firstOrNull { it == (
+                (grid.adapter as? MediaAdapter)?.media?.getOrNull(selectedRow) as? Medium
+            )?.path } ?: throw AssertionError("Clicked media not in committed grid")
+            val clickedIndex = committed.indexOf(anchor)
+            assertTrue("Need both neighbors around click", clickedIndex >= 2 && clickedIndex <= committed.lastIndex - 2)
+            inst.runOnMainSync { grid.scrollToPosition(selectedRow) }
+            inst.waitForIdleSync()
+            var holder: RecyclerView.ViewHolder? = null
+            awaitCondition("visible thumbnail to click", 7000) {
+                inst.runOnMainSync { holder = grid.findViewHolderForAdapterPosition(selectedRow) }
+                holder != null
+            }
+            var clicked = false
+            inst.runOnMainSync { clicked = holder?.itemView?.performClick() == true }
+            assertTrue("MediaAdapter click was not handled", clicked)
+            viewerActivity = inst.waitForMonitorWithTimeout(monitor, 20000) as? ViewPagerActivity
+            val viewer = viewerActivity ?: throw AssertionError("Grid tap did not launch ViewPagerActivity")
+            fun currentIdentity(): Pair<String?, String?> {
+                var paths: Pair<String?, String?> = null to null
+                inst.runOnMainSync {
+                    val pager = viewer.findViewById<ViewPager>(R.id.view_pager)
+                    val adapter = pager.adapter as? MyPagerAdapter
+                    val index = pager.currentItem
+                    val catalog = adapter?.media?.getOrNull(index)?.path
+                    val fragment = (adapter?.getCurrentFragment(index)?.arguments?.getSerializable(MEDIUM) as? Medium)?.path
+                    paths = catalog to fragment
+                }
+                return paths
+            }
+            fun expect(path: String, stage: String) {
+                awaitCondition(stage, 15000) {
+                    val identity = currentIdentity()
+                    identity.first == path && identity.second == path
+                }
+                Log.i("GalleryEmulatorSwipe", stage + " expected=" + path)
+                val bitmap = inst.uiAutomation.takeScreenshot()
+                if (bitmap != null) {
+                    val folder = File(context.getExternalFilesDir(null), "gallery-ci-evidence")
+                    folder.mkdirs()
+                    FileOutputStream(File(folder, stage + ".png")).use {
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+                    }
+                    bitmap.recycle()
+                }
+            }
+            fun drag(forward: Boolean) {
+                val pager = viewer.findViewById<ViewPager>(R.id.view_pager)
+                val position = IntArray(2)
+                var left = 0f
+                var right = 0f
+                var y = 0f
+                inst.runOnMainSync {
+                    pager.getLocationOnScreen(position)
+                    left = position[0] + pager.width * 0.22f
+                    right = position[0] + pager.width * 0.78f
+                    y = position[1] + pager.height * 0.5f
+                }
+                val from = if (forward) right else left
+                val to = if (forward) left else right
+                val down = SystemClock.uptimeMillis()
+                inst.sendPointerSync(MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, from, y, 0))
+                for (step in 1..16) {
+                    SystemClock.sleep(14)
+                    val now = SystemClock.uptimeMillis()
+                    val x = from + (to - from) * step / 16f
+                    inst.sendPointerSync(MotionEvent.obtain(down, now, MotionEvent.ACTION_MOVE, x, y, 0))
+                }
+                inst.sendPointerSync(MotionEvent.obtain(down, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, to, y, 0))
+            }
+            expect(anchor, "initial")
+            drag(true); expect(committed[clickedIndex + 1], "forward1")
+            drag(true); expect(committed[clickedIndex + 2], "forward2")
+            drag(false); expect(committed[clickedIndex + 1], "backward1")
+            drag(false); expect(anchor, "backward2")
+        } finally {
+            viewerActivity?.runOnUiThread { viewerActivity?.finish() }
+            mediaActivity?.runOnUiThread { mediaActivity?.finish() }
+            inst.removeMonitor(monitor)
+            inst.waitForIdleSync()
+        }
+    }
+
+    private fun awaitCondition(name: String, timeoutMs: Long, condition: () -> Boolean) {
+        val until = SystemClock.elapsedRealtime() + timeoutMs
+        while (SystemClock.elapsedRealtime() < until) {
+            if (condition()) return
+            SystemClock.sleep(100)
+        }
+        throw AssertionError("Timed out waiting for " + name)
     }
 }
