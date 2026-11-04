@@ -836,14 +836,21 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             mediaPublicationTask = mediaPublicationExecutor.submit {
                 // The catalog is already sorted in the grid's committed order.
                 // Never reshuffle a complete random Photos snapshot on viewer entry.
-                val scopedItems = org.fossify.gallery.helpers.ViewerGridOrderPolicy.reconcile(
+                val (scopedItems, inheritedOrder) = org.fossify.gallery.helpers.ViewerGridOrderPolicy.reconcilePhotoCatalog(
                     viewerGridOrder, previousOrder,
                     if (preserveCatalogOrder) searchedViewerMedia(items)
-                    else stabilizeRandomViewerOrder(searchedViewerMedia(items), previousOrder), false) { it.path }
+                    else stabilizeRandomViewerOrder(searchedViewerMedia(items), previousOrder),
+                    preparedCatalog?.ordinals?.isNotEmpty() == true) { it.path }
                 runOnUiThread {
                     if (publication != mediaPublicationGeneration || request != viewerLoadGeneration ||
                         isFinishing || isDestroyed || !checkFavoriteAccess()) return@runOnUiThread
                     if (scopedItems.isEmpty()) { finish(); return@runOnUiThread }
+                    if (!inheritedOrder) {
+                        viewerGridOrder = null
+                        org.fossify.gallery.helpers.GalleryPerfTrace.event(
+                            "viewer_grid_order_authoritative_fallback", scopedItems.size,
+                            preparedCatalog?.revision ?: org.fossify.gallery.helpers.PhotoContentRevision.current())
+                    }
                     if (initialized) {
                         gotMedia(ArrayList<ThumbnailItem>(scopedItems), refetchViewPagerPosition = true, fullCatalog = complete)
                     } else {
@@ -942,12 +949,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         app, profile, session, it
                     ) { Thread.currentThread().isInterrupted }
                 }
-                val visible = if (candidate != null && selectedCheck != null) {
-                    org.fossify.gallery.helpers.ViewerGridOrderPolicy.reconcile(
+                val (visible, inheritedOrder) = if (candidate != null && selectedCheck != null) {
+                    org.fossify.gallery.helpers.ViewerGridOrderPolicy.reconcilePhotoCatalog(
                         viewerGridOrder, previouslyPublished,
                         org.fossify.gallery.helpers.ViewerSearchPolicy.filter(
-                            candidate.media, viewerSearchQuery.orEmpty()), false) { it.path }
-                } else emptyList()
+                            candidate.media, viewerSearchQuery.orEmpty()), candidate.ordinals.isNotEmpty()) { it.path }
+                } else emptyList<Medium>() to false
                 val changed = !org.fossify.gallery.helpers.ViewerMediaUpdatePolicy.sameCatalog(
                     previouslyPublished, visible)
                 runOnUiThread {
@@ -958,6 +965,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         selectedCheck.context.isCurrent(app) &&
                         candidate.revision == org.fossify.gallery.helpers.PhotoContentRevision.current() &&
                         visible.any { it.path == selectedPath }) {
+                        if (!inheritedOrder && viewerGridOrder != null) {
+                            viewerGridOrder = null
+                            org.fossify.gallery.helpers.GalleryPerfTrace.event(
+                                "viewer_grid_order_authoritative_fallback", visible.size, candidate.revision)
+                        }
                         if (!photoCatalogMode || photoCatalogRevision != candidate.revision) {
                             photoPageAccess.reset(candidate.revision)
                         }

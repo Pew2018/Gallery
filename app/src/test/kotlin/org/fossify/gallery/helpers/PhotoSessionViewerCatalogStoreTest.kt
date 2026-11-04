@@ -229,7 +229,12 @@ class PhotoSessionViewerCatalogStoreTest {
             for (index in all.indices) segments[index]
             assertNull(segments.knownIndexOf(all[2_880].path))
             var current = PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[3_000].path)!!
+            val reverseGrid = all.asReversed().map { it.path }
             fun assertOrder(catalog: PhotoSessionViewerCatalogStore.Catalog) {
+                val (viewerRows, inherited) = ViewerGridOrderPolicy.reconcilePhotoCatalog(
+                    reverseGrid, emptyList(), catalog.media, catalog.ordinals.isNotEmpty()) { it.path }
+                assertFalse(inherited)
+                assertEquals(catalog.media.map { it.path }, viewerRows.map { it.path })
                 val first = catalog.ordinals.getValue(catalog.media.first().path)
                 val last = catalog.ordinals.getValue(catalog.media.last().path)
                 assertEquals(all.subList(first, last + 1).map { it.path }, catalog.media.map { it.path })

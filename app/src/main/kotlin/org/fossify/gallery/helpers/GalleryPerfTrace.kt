@@ -13,8 +13,9 @@ internal object GalleryPerfTrace {
 
     fun begin(): Long = System.nanoTime()
 
-    fun event(name: String, count: Int? = null) {
-        if (enabled(name)) Log.d("GalleryPerf", "event=$name count=${count ?: -1}")
+    fun event(name: String, count: Int? = null, revision: Long? = null) {
+        val version = revision?.let { " revision=$it" }.orEmpty()
+        if (enabled(name)) Log.d("GalleryPerf", "event=$name count=${count ?: -1}$version")
     }
 
     fun end(stage: String, startedNanos: Long, count: Int? = null) {

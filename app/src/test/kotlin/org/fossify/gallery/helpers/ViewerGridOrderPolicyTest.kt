@@ -1,6 +1,8 @@
 package org.fossify.gallery.helpers
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ViewerGridOrderPolicyTest {
@@ -54,6 +56,30 @@ class ViewerGridOrderPolicyTest {
             listOf("c", "a", "renamed"), false) { it })
         assertEquals(listOf("a", "c"), ViewerGridOrderPolicy.reconcile(order, emptyList(),
             listOf("a", "c"), false) { it })
+    }
+
+
+    @Test fun segmentedDirectionNeverInheritsAReversedGridOrAnInterleavedNewPath() {
+        val all = (0 until 20_501).map { "/Gallery/$it.jpg" }
+        val window = all.subList(9_880, 10_121)
+        val reversedGrid = all.reversed()
+        val (authority, inherited) = ViewerGridOrderPolicy.reconcilePhotoCatalog(
+            reversedGrid, emptyList(), window, true) { it }
+        assertFalse(inherited)
+        assertEquals(window, authority)
+        assertEquals(all[10_001], authority[authority.indexOf(all[10_000]) + 1])
+        assertEquals(all[9_999], authority[authority.indexOf(all[10_000]) - 1])
+        val matching = ViewerGridOrderPolicy.reconcilePhotoCatalog(all, emptyList(), window, true) { it }
+        assertTrue(matching.second)
+        assertEquals(window, matching.first)
+        val added = listOf("/Gallery/new.jpg") + window
+        val changed = ViewerGridOrderPolicy.reconcilePhotoCatalog(all, emptyList(), added, true) { it }
+        assertFalse(changed.second)
+        assertEquals(added, changed.first)
+        // A fully resident catalog has no independent segment direction contract.
+        val resident = ViewerGridOrderPolicy.reconcilePhotoCatalog(reversedGrid, emptyList(), window, false) { it }
+        assertTrue(resident.second)
+        assertEquals(window.reversed(), resident.first)
     }
 
 }

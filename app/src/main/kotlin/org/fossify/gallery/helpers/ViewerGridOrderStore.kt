@@ -47,6 +47,19 @@ internal object ViewerGridOrderPolicy {
     fun renamed(order: List<String>?, oldPath: String, newPath: String): List<String>? =
         order?.map { if (it == oldPath) newPath else it }?.distinct()
 
+    /** Segment expansion directions belong to its authoritative ordinal order.
+     * A conflicting old grid cannot reorder just the resident window safely. */
+    fun <T> reconcilePhotoCatalog(
+        gridOrder: List<String>?, previous: List<T>, fresh: List<T>,
+        segmented: Boolean, path: (T) -> String
+    ): Pair<List<T>, Boolean> {
+        val ordered = reconcile(gridOrder, previous, fresh, false, path)
+        if (segmented && gridOrder != null && fresh.indices.any { path(fresh[it]) != path(ordered[it]) }) {
+            return fresh to false
+        }
+        return ordered to (gridOrder != null)
+    }
+
     fun <T> reconcile(
         gridOrder: List<String>?, previous: List<T>, fresh: List<T>,
         random: Boolean, path: (T) -> String

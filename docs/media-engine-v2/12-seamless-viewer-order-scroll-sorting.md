@@ -82,3 +82,12 @@ Run [41766932465](https://github.com/Pew2018/Gallery/actions/runs/41766932465)�
 
 
 解码缓存交接复核确认的遗漏：Medium.getSignature原只含path/mtime/size，显式ViewerContentInvalidationRegistry版本不参与；因此重建Fragment本身不能证明Glide/Picasso不复用旧位图。将既有进程内失效版本接入getSignature（0版本保持原键），PhotoFragment SVG和VideoFragment预览也使用既有getKey；普通图片/Picasso/zoom decoder自动复用同一签名。没有改解码器、永久配置或DB。测试覆盖同路径size/mtime/显式version各自改变缓存键、不影响其他路径；只能证明缓存键与绑定逻辑，实际Bitmap/视频解码仍真机待验，进程内registry原4096容量和生命周期保持。
+
+
+## 分段扩展方向与网格顺序的最终契约
+
+Run [41768645616](https://github.com/Pew2018/Gallery/actions/runs/41768645616) 验证 `6aa62e3…`：817 tests/0 failures/errors/skipped；ARM64与签名/包名/ABI/上传成功。此结果不代替下一补修源码的验证。
+
+最终交接复核发现确定反例：若旧网格逆序、新COMPLETE分段目录正序，单独将当前驻留窗口按旧网格逆序，Viewer向后滑动却仍要求store按正序向前扩展，可能扩展不到实际下一张。不能仅靠分段store内部ordinal正确就宣称联合通路正确。已复用ViewerGridOrderPolicy增加窗口方向一致性检查：小目录继续点击网格优先；分段窗口若协调后路径序列与权威序列一致，继续继承；若相反或新增项目交错导致不一致，放弃旧顺序凭据，采用已验证权威序列。初次与catalog advance均使用同一判断，在UI有效generation/revision检查后清旧凭据，当前照片仍按path保留。fallback事件含revision，不增加第二套完整目录缓存，不改变授权。
+
+新增20,501项逆序/同序、插入交错与resident对照测试；30,001真实分段/LRU淘汰的每个首中末及双向窗口也验证同一handoff决定和完整路径序列。超过50k/过期/丢失的旧store上限回退继续保留。最后一轮完整CI须覆盖本契约后才最终交付。
