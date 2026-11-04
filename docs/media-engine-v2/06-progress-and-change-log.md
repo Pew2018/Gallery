@@ -124,3 +124,10 @@
 - **Actions / APK**：Run [#464 / 41755685039](https://github.com/Pew2018/Gallery/actions/runs/41755685039) 成功；完整 FOSS Release 测试 796/0/0/0；ARM64 Release assemble、签名、包名、ABI 检查成功。Artifact `gallery-foss-arm64-v8a-release`，ID `13287977148`，SHA-256 `e928b193eef55c32bed59b599477c3190f322c66635c50573bd6bec4ba3b2d34`；工作流使用临时 CI 签名，因此不能用作覆盖安装的签名兼容性证明。测试报告 Artifact ID `13287643559`。13 个改动文件 GitHub blob SHA 均与本地 `git hash-object` 完全相同，最终远程树 SHA 与本地源码树一致。
 - **真机**：当前无真机、模拟器、Adapter 运行时 trace 或 Perfetto；动画、实际重绑数量、锚点像素偏移、fast scroller 同步仍待设备验证。
 - **后续建议**：优先在目标设备按 [10](10-display-scroll-stability.md) 采集刷新、拖动、惯性滑动和全屏返回数据。没有新增证据前不建议继续改写 Adapter 或媒体引擎。
+
+### 2026-11-04｜R04 — 收藏首屏、Photos 完整目录交接与排序集中修复
+
+- 起始远程 HEAD：`c6da3c5cfd7c30e3635f625bc644a837badb8018`；仅现有 fix 分支；集中一次主要提交，不建 PR、不合并 main。
+- 完整审计记录、六个业务文件修改、自动化覆盖、权限边界、性能与真机待验项见 [11-favorites-viewer-sorting-fixes.md](11-favorites-viewer-sorting-fixes.md)。
+- F：收藏扫描在首次发布之前；首次布局单项提交可取消先到完整目录；相同 COMPLETE 重复提交；渐进目录绕过排序。已定点修复，保留原 scanner/store/coordinator/Adapter，没有新增通用框架。
+- 本地 diff 检查通过；Gradle distribution 网络不可达，测试未启动。完整单测与 ARM64 Actions 待提交后验证；无设备帧数据，不宣称流畅度或用户真机故障已经完全验收。

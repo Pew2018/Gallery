@@ -330,7 +330,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             manualRefresh = reason == org.fossify.gallery.helpers.PhotoLoadReason.REFRESH,
             photoAllowPreview = !retainGrid,
             photoAnchorPath = photoScroll.pending?.path,
-            onPhotoResult = { result ->
+            onPhotoResult = photoResult@{ result ->
+                // The shared worker/store still publishes every validated stage
+                // to the viewer. A stopped grid needs only the final snapshot.
+                if (photoViewerTransition && result.stage != org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE)
+                    return@photoResult
                 if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed &&
                     result.context.isCurrent(applicationContext) && photoDisplayKey() == requestedKey &&
                     result.stage.ordinal >= photoPublishedStage) {

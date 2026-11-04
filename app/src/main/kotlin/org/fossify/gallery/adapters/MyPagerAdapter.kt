@@ -183,7 +183,7 @@ internal class MyPagerAdapter(
 
     /** Catalog and indexes are prepared off the UI thread by ViewPagerActivity. */
     fun updateMedia(fresh: List<Medium>, preparedPositions: Map<ViewerMediumIdentity, Int>? = null): Boolean {
-        if (items === fresh) return false
+        if (items === fresh || ViewerMediaUpdatePolicy.sameCatalog(items, fresh)) return false
         items = fresh
         positionByIdentity = preparedPositions ?: ViewerMediaUpdatePolicy.positionIndex(fresh)
         GalleryPerfTrace.event("viewer_adapter_publish", fresh.size)

@@ -916,6 +916,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (!isPhotoProfile || isExternalIntent() || photoCatalogUpdating ||
             mDirectory != PhotoProfileMediaLoader.PATH || mMediaFiles.isEmpty() ||
             isFinishing || isDestroyed) return
+        // Coalesce the lookup/validation work too, not just the final adapter update.
+        if (swipePublicationGate.isMoving) {
+            photoCatalogAdvanceQueued = true
+            return
+        }
         if (photoCatalogUpdateTask != null) { photoCatalogAdvanceQueued = true; return }
         val selectedPath = getCurrentPath().ifEmpty { mPath }
         val previouslyPublished = mMediaFiles.toList()
@@ -959,11 +964,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         photoFailureVisible = false
                         org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_catalog_upgrade", visible.size)
                         photoPageAccess.approve(listOf(selectedPath), candidate.revision)
-                        if (candidate.isComplete || changed) {
+                        if (changed) {
                             // The producer already sorted this catalog in the grid's
                             // canonical order; don't prepend the initial five-page window.
                             gotMedia(ArrayList<ThumbnailItem>(visible), refetchViewPagerPosition = true,
                                 fullCatalog = candidate.isComplete)
+                        } else {
+                            // COMPLETE is a state transition even when the visible order is identical.
+                            updatePhotoBoundaryWait()
+                            validatePhotoPageWindow(fullCatalogPosition(mPos))
                         }
                         if (!candidate.isComplete) requestPhotoPartialExpand(mPos.coerceAtLeast(0))
                     } else if (!producerActive && !photoFallbackStarted &&
@@ -1839,14 +1848,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
         binding.mediumViewerToolbar.title = mPath.getFilenameFromPath()
 
-        binding.viewPager.onGlobalLayout {
-            if (!isDestroyed) {
-                if (mMediaFiles.isNotEmpty()) {
-                    gotMedia(mMediaFiles as ArrayList<ThumbnailItem>, refetchViewPagerPosition = true)
-                    checkSlideshowOnEnter()
-                }
-            }
-        }
+        scheduleInitialViewerPublication()
 
         // show the selected image asap, while loading the rest in the background to allow swiping between them. Might be needed at third party intents
         if (mMediaFiles.isEmpty() && mPath.isNotEmpty() && mDirectory != FAVORITES) {
@@ -1888,6 +1890,20 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     val ts = System.currentTimeMillis()
                     val medium = Medium(null, filename, mPath, parent, ts, ts, File(mPath).length(), type, duration, isFavorite, 0, 0L)
                     mediaDB.insert(medium)
+                }
+            }
+        }
+    }
+
+    internal fun scheduleInitialViewerPublication() {
+        val initialPublication = mediaPublicationGeneration
+        binding.viewPager.onGlobalLayout {
+            // A ready catalog can arrive before the first layout. Its publication
+            // owns initialization; a late singleton callback must not cancel it.
+            if (!isDestroyed && initialPublication == mediaPublicationGeneration && activePagerAdapter == null) {
+                if (mMediaFiles.isNotEmpty()) {
+                    gotMedia(mMediaFiles as ArrayList<ThumbnailItem>, refetchViewPagerPosition = true)
+                    checkSlideshowOnEnter()
                 }
             }
         }
@@ -1956,6 +1972,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 if (photoCatalogMode) validatePhotoPageWindow(fullCatalogPosition(mPos))
                 requestPhotoPartialExpand(fullCatalogPosition(mPos))
             }
+            if (pagerAdapter.count > 0) checkSlideshowOnEnter()
         }
     }
 
@@ -3429,6 +3446,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         // Last-wins catalog reconciliation occurs after the natural ViewPager
         // slide, so its non-animated position correction is no longer visible.
         ready?.let(::applySwipeMediaPublication)
+        if (photoCatalogAdvanceQueued) {
+            photoCatalogAdvanceQueued = false
+            consumePhotoCatalogAdvance()
+        }
         if (pendingPageAccessRefresh) {
             pendingPageAccessRefresh = false
             activePagerAdapter?.onAccessWindowUpdated()

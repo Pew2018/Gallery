@@ -1224,7 +1224,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 // The favorite relationship is authoritative. Do not call
                 // getCachedDirectories(): it filters .nomedia and may swallow
                 // Room errors or run unrelated cache cleanup.
-                val paths = favoriteFoldersDB.getPaths().filter { it.isNotBlank() }.distinct()
+                val paths = favoriteFoldersDB.getPaths().filter { it.startsWith('/') }
+                    .distinctBy(FavoriteFolderRules::normalizedPath)
                 val cachedByPath = try {
                     paths.chunked(250).flatMap { directoryDB.getByPaths(it) }
                         .associateBy { FavoriteFolderRules.normalizedPath(it.path) }
@@ -1233,71 +1234,104 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     emptyMap()
                 }
                 val selected = ArrayList<Directory>(paths.size)
-                val fetcher = MediaFetcher(applicationContext, cancelled = { !favoriteLoad.isCurrent(request) })
-                val favorites = getFavoritePaths()
-                val noMedia = getNoMediaFoldersSync()
-                val covers = config.parseAlbumCovers()
+                val accessiblePaths = HashSet<String>()
+                fun protected(path: String) = FolderUnlockSessionManager.findProtectedAncestor(
+                    path, config::isFolderProtected) != null
+                // Classification uses only bounded path/ancestor checks. No child
+                // enumeration, media query or date lookup precedes the manifest.
                 for (path in paths) {
                     if (!favoriteLoad.isCurrent(request)) return@ensureBackgroundThread
                     val file = File(path)
-                    val cached = cachedByPath[FavoriteFolderRules.normalizedPath(path)]
-                    // Only inspect immediate children for uncached favorites.
-                    val children = if (cached == null && file.isDirectory && file.canRead() &&
-                        !config.isFolderProtected(path)) file.listFiles() else null
-                    val accessible = file.isDirectory && file.canRead() &&
-                        (cached != null || children != null)
-
-                    // Unreadable .nomedia ancestors cannot safely be classified as
-                    // public under hidden-folder protection.
+                    val accessible = file.isDirectory && file.canRead()
+                    if (accessible) accessiblePaths.add(path)
                     val hidden = FavoriteFolderRules.isDotHidden(path) ||
-                        FavoriteFolderRules.hasNoMediaAncestor(path) ||
-                        (!accessible && hiddenProtected)
+                        FavoriteFolderRules.hasNoMediaAncestor(path) || (!accessible && hiddenProtected)
                     val excluded = FavoriteFolderRules.isExcluded(path, excludedRoots)
-                    if (!FavoriteFolderRules.shouldShow(hidden, excluded, showHidden, showExcluded))
-                        continue
-
-                    val isProtected = config.isFolderProtected(path)
-                    // Scoped storage may expose a directory only through MediaStore.
-                    val media = if (!isProtected) fetcher.getFilesFrom(
-                        path, false, false, true, true,
-                        config.directorySorting and SORT_BY_SIZE != 0, favorites, false,
-                        HashMap(), fetcher.getSelectedFolderDateOverrides(listOf(path)), null
-                    ) else arrayListOf()
-                    if (!favoriteLoad.isCurrent(request)) return@ensureBackgroundThread
-                    val canAccess = accessible || media.isNotEmpty()
-                    val item = if (!isProtected && media.isNotEmpty()) {
-                        createDirectoryFromMedia(path, media, covers, getString(R.string.hidden),
-                            config.includedFolders, config.directorySorting and SORT_BY_SIZE != 0, noMedia)
-                    } else if (isProtected && cached != null && accessible) {
-                        cached.copy().apply { name = file.name.ifBlank { path } }
-                    } else Directory().apply {
+                    if (!FavoriteFolderRules.shouldShow(hidden, excluded, showHidden, showExcluded)) continue
+                    val cached = cachedByPath[FavoriteFolderRules.normalizedPath(path)]
+                    val item = if (!protected(path) && accessible && cached != null) cached.snapshot()
+                    else Directory().apply {
                         this.path = path
                         name = file.name.ifBlank { path }
                         location = LOCATION_INTERNAL
                     }
-                    if (!canAccess) item.name += getString(R.string.folder_unavailable_suffix)
                     selected.add(item)
                 }
-
-                runOnUiThread {
-                    if (!favoriteViewForeground || isFinishing || isDestroyed ||
-                        !mShowingFolderFavorites ||
-                        !favoriteLoad.complete(request, selected.size, authorizationPending))
-                        return@runOnUiThread
-                    mFavoriteFolderPaths = paths.toSet()
-                    mDirs = selected
-                    mDirsIgnoringSearch = ArrayList(selected)
-                    mLoadedInitialPhotos = true
-                    mIsGettingDirs = false
-                    setDirectoryLoading(false)
-                    setupAdapter(selected)
-                    checkPlaceholderVisibility(selected)
-                    if (selected.isEmpty() && authorizationPending) {
-                        binding.directoriesEmptyPlaceholder.setText(R.string.favorite_folders_auth_required)
-                        binding.directoriesEmptyPlaceholder2.beGone()
+                fun publish(complete: Boolean, failed: Boolean = false) {
+                    val snapshot = selected.mapTo(ArrayList()) { it.snapshot() }
+                    runOnUiThread {
+                        if (!favoriteViewForeground || isFinishing || isDestroyed ||
+                            !mShowingFolderFavorites || !favoriteLoad.isCurrent(request)) return@runOnUiThread
+                        if (complete && !(if (failed) favoriteLoad.fail(request)
+                            else favoriteLoad.complete(request, snapshot.size, authorizationPending))) return@runOnUiThread
+                        if (!complete) favoriteLoad.visible(request)
+                        mFavoriteFolderPaths = paths.toSet()
+                        mLoadedInitialPhotos = true
+                        mIsGettingDirs = !complete
+                        // This indicator means first usable content, not authoritative
+                        // metadata completion (which remains owned by favoriteLoad).
+                        setDirectoryLoading(false)
+                        binding.directoriesRefreshLayout.isRefreshing = false
+                        setupAdapter(snapshot, presentationIsCurrent = {
+                            favoriteViewForeground && mShowingFolderFavorites && favoriteLoad.isCurrent(request)
+                        })
+                        if (snapshot.isEmpty() && authorizationPending) {
+                            binding.directoriesEmptyPlaceholder.setText(R.string.favorite_folders_auth_required)
+                            binding.directoriesEmptyPlaceholder2.beGone()
+                        }
                     }
-                    binding.directoriesRefreshLayout.isRefreshing = false
                 }
+                publish(complete = false)
+                GalleryPerfTrace.event("favorite_manifest_ready", selected.size)
+
+                val fetcher = MediaFetcher(applicationContext, cancelled = { !favoriteLoad.isCurrent(request) },
+                    reportReadFailures = true)
+                val favorites = getFavoritePaths()
+                val noMedia = getNoMediaFoldersSync()
+                val covers = config.parseAlbumCovers()
+                val dates = fetcher.getSelectedFolderDateOverrides(selected.map { it.path }.filterNot(::protected))
+                var lastPublished = android.os.SystemClock.elapsedRealtime()
+                var changedCards = 0
+                var metadataFailed = false
+                for (index in selected.indices) {
+                    if (!favoriteLoad.isCurrent(request)) return@ensureBackgroundThread
+                    val path = selected[index].path
+                    if (protected(path)) continue
+                    try {
+                        val read = fetcher.readFolder(path, false, false, true, true,
+                            true, favorites, false, HashMap(), dates, null)
+                        if (read.status != FolderReadStatus.COMPLETE || !read.accessCurrent())
+                            throw read.error ?: java.io.IOException("Incomplete favorite metadata")
+                        val media = read.media
+                        if (!favoriteLoad.isCurrent(request)) return@ensureBackgroundThread
+                        val fresh = if (media.isNotEmpty()) {
+                            createDirectoryFromMedia(path, media, covers, getString(R.string.hidden),
+                                config.includedFolders, true, noMedia)
+                        } else if (path in accessiblePaths) Directory().apply {
+                            this.path = path
+                            name = File(path).name.ifBlank { path }
+                            location = LOCATION_INTERNAL
+                        } else selected[index].snapshot().apply {
+                            name += getString(R.string.folder_unavailable_suffix)
+                        }
+                        // A lock applied while the worker was reading must never
+                        // leak a late cover/count, even before the next reload.
+                        if (!protected(path)) selected[index] = fresh
+                        changedCards++
+                    } catch (error: Exception) {
+                        metadataFailed = true
+                        // An unreadable source is not an empty or deleted favorite.
+                        android.util.Log.w("GalleryFavorites", "Favorite metadata unavailable", error)
+                    }
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (changedCards >= 8 && now - lastPublished >= 250L) {
+                        publish(complete = false)
+                        changedCards = 0
+                        lastPublished = now
+                    }
+                }
+                publish(complete = true, failed = metadataFailed)
+                GalleryPerfTrace.event(if (metadataFailed) "favorite_metadata_partial" else "favorite_metadata_finished", selected.size)
             } catch (error: Exception) {
                 android.util.Log.e("GalleryFavorites", "Could not load favorite directories", error)
                 runOnUiThread {
@@ -2084,14 +2118,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
 
         if (!isCurrentDirectoryScan(scanRequest)) return GalleryScanResult(GalleryScanState.CANCELLED)
-        val orderedDirs = getSortedDirectories(dirs, directoryRandomOrder)
-        dirs.clear()
-        dirs.addAll(orderedDirs)
+        // Each publication sorts against the current UI setting below; a worker
+        // must not freeze the order selected before a long scan began.
 
         var isPlaceholderVisible = dirs.isEmpty()
 
         // Snapshot on the scanning thread before it starts replacing entries.
-        setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
+        setupAdapter(dirs, sortDirs = true, scanRequest = scanRequest)
 
         // The worker always retains its own fetcher; a newer scan cannot hijack it.
         mLastMediaFetcher?.shouldStop = true
@@ -2168,7 +2201,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 directory.mediaCnt = 0
                 directory.subfoldersMediaCount = 0
                 updateDBDirectory(directory)
-                setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
+                setupAdapter(dirs, sortDirs = true, scanRequest = scanRequest)
                 continue
             }
 
@@ -2254,7 +2287,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     directory.mediaCnt = 0
                     directory.subfoldersMediaCount = 0
                     updateDBDirectory(directory)
-                    setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
+                    setupAdapter(dirs, sortDirs = true, scanRequest = scanRequest)
                     continue
                 }
             }
@@ -2304,7 +2337,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             dirs[index] = revisedDir
             cachedCardUpdates++
             if (cachedCardUpdates >= 8) {
-                setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
+                setupAdapter(dirs, sortDirs = true, scanRequest = scanRequest)
                 cachedCardUpdates = 0
             }
 
@@ -2351,7 +2384,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
 
         if (cachedCardUpdates > 0 && isCurrentDirectoryScan(scanRequest)) {
-            setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
+            setupAdapter(dirs, sortDirs = true, scanRequest = scanRequest)
         }
 
 
@@ -2493,7 +2526,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             foldersSinceUpdate++
             if (foldersSinceUpdate >= 8 || pendingMedia.size >= 1200) {
                 commitBatch()
-                setupAdapter(dirs, sortDirs = false, scanRequest = scanRequest)
+                setupAdapter(dirs, sortDirs = true, scanRequest = scanRequest)
                 foldersSinceUpdate = 0
             }
         }
@@ -2623,6 +2656,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 return@runOnUiThread
             }
             val query = textToSearch ?: binding.mainMenu.getCurrentQuery()
+            val sortingAtPublication = config.directorySorting
             val distinctDirs = snapshot.filter { !mShowingFolderFavorites || mFavoriteFolderPaths.contains(it.path) }
                 .distinctBy {
                     if (mShowingFolderFavorites) FavoriteFolderRules.normalizedPath(it.path)
@@ -2676,6 +2710,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 current.directorySorting = config.directorySorting
                 current.updateDirs(visible, isCurrent = {
                     !isFinishing && !isDestroyed && presentationIsCurrent() && binding.directoriesGrid.adapter === current &&
+                        config.directorySorting == sortingAtPublication &&
                         (scanRequest == null || isCurrentDirectoryScan(scanRequest))
                 }, onCommitted = committed, preserveOrder = !sortDirs, onDiscarded = onDiscarded)
             }

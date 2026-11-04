@@ -173,4 +173,44 @@ class PhotoSessionViewerCatalogStoreTest {
         PhotoContentRevision.changed()
         assertNull(worker { PhotoSessionViewerCatalogStore.take(app, next, profile.id, null, items[0].path) })
     }
+    @Test fun identicalStagesDoNotNotifyOrRebuildButCompleteAlwaysNotifies() {
+        val all = media(120)
+        val result = ready(all)
+        var notifications = 0
+        PhotoSessionViewerCatalogStore.addListener("dedup-test") { notifications++ }
+        try {
+            worker { PhotoSessionViewerCatalogStore.beginLoading(result.context, app) }
+            val stage = result.copy(stage = PhotoLoadStage.INDEXED)
+            worker { PhotoSessionViewerCatalogStore.offerPartial(app, stage) }
+            val first = worker { PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[50].path) }!!
+            val count = notifications
+            repeat(6) { worker { PhotoSessionViewerCatalogStore.offerPartial(app, stage.copy(stage = PhotoLoadStage.FILESYSTEM)) } }
+            assertEquals(count, notifications)
+            assertSame(first, worker { PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[50].path) })
+            worker { PhotoSessionViewerCatalogStore.prepare(app, result) }
+            assertEquals(count + 1, notifications)
+            worker { PhotoSessionViewerCatalogStore.finishLoading(result.context) }
+            val complete = worker { PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[50].path) }!!
+            assertTrue(complete.isComplete)
+            // A late provisional callback cannot displace the complete result.
+            worker { PhotoSessionViewerCatalogStore.offerPartial(app, stage) }
+            assertSame(complete, worker { PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[50].path) })
+        } finally { PhotoSessionViewerCatalogStore.removeListener("dedup-test") }
+    }
+
+    @Test fun completedSegmentWindowKeepsTrueEndsAndRejectsLatePartialReplacement() {
+        val all = media(20_501)
+        val result = ready(all)
+        worker { PhotoSessionViewerCatalogStore.prepare(app, result) }
+        val end = worker { PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all.last().path) }!!
+        assertFalse(end.isComplete)
+        assertEquals(PhotoViewerCatalogCoordinator.Boundary.HAS_MORE, end.before)
+        assertEquals(PhotoViewerCatalogCoordinator.Boundary.END, end.after)
+        worker { PhotoSessionViewerCatalogStore.offerPartial(app, result.copy(stage = PhotoLoadStage.FILESYSTEM, media = all.take(5))) }
+        val retained = worker { PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all.last().path) }!!
+        assertSame(end, retained)
+        val beginning = worker { PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all.first().path) }!!
+        assertEquals(PhotoViewerCatalogCoordinator.Boundary.END, beginning.before)
+        assertEquals(PhotoViewerCatalogCoordinator.Boundary.HAS_MORE, beginning.after)
+    }
 }

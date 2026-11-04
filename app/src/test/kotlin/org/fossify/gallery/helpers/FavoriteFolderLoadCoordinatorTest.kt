@@ -72,4 +72,22 @@ class FavoriteFolderLoadCoordinatorTest {
         assertFalse(coordinator.complete(old, 1, false))
         assertTrue(coordinator.complete(next, 1, false))
     }
+    @Test fun visibleManifestDoesNotClaimMetadataCompletionAndCannotOutliveRequest() {
+        val coordinator = FavoriteFolderLoadCoordinator()
+        val first = coordinator.begin(ordinary)!!
+        assertTrue(coordinator.visible(first))
+        assertTrue(coordinator.hasVisibleManifest)
+        assertEquals(FavoriteFolderLoadStatus.Loading, coordinator.status)
+        assertNull(coordinator.begin(ordinary))
+        val newer = coordinator.begin(hidden, force = true)!!
+        assertFalse(coordinator.hasVisibleManifest)
+        assertFalse(coordinator.visible(first))
+        assertFalse(coordinator.complete(first, 30, false))
+        assertTrue(coordinator.visible(newer))
+        assertTrue(coordinator.fail(newer))
+        assertTrue(coordinator.hasVisibleManifest)
+        assertEquals(FavoriteFolderLoadStatus.Error, coordinator.status)
+        coordinator.invalidate()
+        assertFalse(coordinator.hasVisibleManifest)
+    }
 }

@@ -126,22 +126,31 @@ internal object PhotoSessionViewerCatalogStore {
             (loading != null && loading !== result.context) || !result.context.isCurrent(context)) return
         synchronized(this) {
             if ((loading != null && loading !== result.context) || !result.context.isCurrent(context)) return
+            if (prepared?.request === result.context ||
+                (indexed?.complete == true && indexed?.request === result.context)) return
             val old = partial?.takeIf { it.request.scope == result.context.scope &&
                 it.request.revision == result.context.revision }
             // Never let an older cache/index callback displace a newer stage.
             if (old != null && result.stage.ordinal < old.stage.ordinal) return
+            val incomingPaths = result.media.mapTo(HashSet(result.media.size)) { it.path }
+            val containsPrevious = old == null || old.catalog.media.all { it.path in incomingPaths }
             val combined = LinkedHashMap<String, Medium>()
             result.media.forEach { combined[it.path] = it }
             old?.catalog?.media?.forEach { combined.putIfAbsent(it.path, it) }
             val anchor = focusPath(result.context)
             // Stage-wise sorted lists cannot be concatenated without re-sorting.
             val all = ArrayList(combined.values)
-            if (result.context.scope.sorting and org.fossify.commons.helpers.SORT_BY_RANDOM == 0) {
+            if (!containsPrevious && result.context.scope.sorting and org.fossify.commons.helpers.SORT_BY_RANDOM == 0) {
                 MediaFetcher(context).sortMedia(all, result.context.scope.sorting)
             }
             val pos = all.indexOfFirst { it.path == anchor }.coerceAtLeast(0)
             val start = (pos - MAX_ITEMS / 2).coerceIn(0, (all.size - MAX_ITEMS).coerceAtLeast(0))
-            val next = catalog(all.drop(start).take(MAX_ITEMS), result.context.revision, false) ?: return
+            val window = all.subList(start, (start + MAX_ITEMS).coerceAtMost(all.size))
+            if (old != null && ViewerMediaUpdatePolicy.sameCatalog(old.catalog.media, window)) {
+                partial = old.copy(stage = result.stage)
+                return
+            }
+            val next = catalog(window, result.context.revision, false) ?: return
             partial = Entry(old?.id ?: UUID.randomUUID().toString(), result.context,
                 SystemClock.elapsedRealtime(), next, result.stage)
         }

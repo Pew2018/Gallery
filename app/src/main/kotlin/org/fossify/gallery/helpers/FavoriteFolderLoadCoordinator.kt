@@ -22,6 +22,8 @@ class FavoriteFolderLoadCoordinator {
     private var activeKey: FavoriteFolderLoadKey? = null
     @Volatile var status: FavoriteFolderLoadStatus = FavoriteFolderLoadStatus.Idle
         private set
+    @Volatile var hasVisibleManifest = false
+        private set
 
     /** Returns null only when an identical load is already in flight. */
     fun begin(key: FavoriteFolderLoadKey, force: Boolean = false): Long? {
@@ -29,7 +31,15 @@ class FavoriteFolderLoadCoordinator {
         generation++
         activeKey = key
         status = FavoriteFolderLoadStatus.Loading
+        hasVisibleManifest = false
         return generation
+    }
+
+    /** First usable cards do not certify that media metadata has finished. */
+    fun visible(request: Long): Boolean {
+        if (!isCurrent(request) || status != FavoriteFolderLoadStatus.Loading) return false
+        hasVisibleManifest = true
+        return true
     }
 
     fun isCurrent(request: Long): Boolean = request == generation
@@ -55,5 +65,6 @@ class FavoriteFolderLoadCoordinator {
         generation++
         activeKey = null
         status = FavoriteFolderLoadStatus.Idle
+        hasVisibleManifest = false
     }
 }

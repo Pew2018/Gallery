@@ -182,4 +182,45 @@ class GalleryRefreshRegressionTest {
         assertFalse(gate.isActive())
         controller.pause().stop().destroy()
     }
+    @Test fun everyProgressiveSnapshotUsesCurrentAlbumSortWithoutChangingFolderMediaSort() {
+        val controller = activity()
+        val activity = controller.get()
+        try {
+            activity.config.groupDirectSubfolders = false
+            activity.config.saveCustomSorting("/Pictures/private-order", org.fossify.commons.helpers.SORT_BY_SIZE)
+            val source = arrayListOf(directory("20"), directory("3"), directory("1"))
+            source.forEachIndexed { index, item ->
+                item.size = (index + 1) * 10L
+                item.mediaCnt = index + 1
+                item.modified = (index + 1) * 100L
+                item.taken = (index + 1) * 1000L
+            }
+            val modes = listOf(org.fossify.commons.helpers.SORT_BY_NAME,
+                org.fossify.commons.helpers.SORT_BY_PATH, org.fossify.commons.helpers.SORT_BY_SIZE,
+                org.fossify.commons.helpers.SORT_BY_COUNT, org.fossify.commons.helpers.SORT_BY_DATE_MODIFIED,
+                org.fossify.commons.helpers.SORT_BY_DATE_TAKEN)
+            modes.forEach { mode ->
+                for (descending in listOf(0, org.fossify.commons.helpers.SORT_DESCENDING)) {
+                    activity.config.directorySorting = mode or descending
+                    val home = activity.getSortedDirectories(source)
+                    val favorites = activity.getSortedDirectories(ArrayList(source.reversed()))
+                    assertEquals(home.map { it.path }, favorites.map { it.path })
+                    val values = home.map { when(mode) {
+                        org.fossify.commons.helpers.SORT_BY_SIZE -> it.size
+                        org.fossify.commons.helpers.SORT_BY_COUNT -> it.mediaCnt.toLong()
+                        org.fossify.commons.helpers.SORT_BY_DATE_MODIFIED -> it.modified
+                        org.fossify.commons.helpers.SORT_BY_DATE_TAKEN -> it.taken
+                        else -> 0L
+                    } }
+                    if (values.any { it != 0L }) assertEquals(
+                        if (descending == 0) values.sorted() else values.sortedDescending(), values)
+                    else assertEquals(if (descending == 0) listOf("1", "20", "3") else listOf("3", "20", "1"), home.map { it.name })
+                    assertEquals(org.fossify.commons.helpers.SORT_BY_SIZE,
+                        activity.config.getFolderSorting("/Pictures/private-order"))
+                }
+            }
+            activity.config.directorySorting = org.fossify.commons.helpers.SORT_BY_NAME or org.fossify.commons.helpers.SORT_USE_NUMERIC_VALUE
+            assertEquals(listOf("1", "3", "20"), activity.getSortedDirectories(source).map { it.name })
+        } finally { controller.pause().stop().destroy() }
+    }
 }

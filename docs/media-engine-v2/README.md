@@ -22,6 +22,8 @@
 9. **[09-refresh-publication-stability.md](09-refresh-publication-stability.md)：第二阶段扫描生命周期、分类目录进度和照片配置列表发布的审计、修复与验证记录。**
 10. **[10-display-scroll-stability.md](10-display-scroll-stability.md)：第三阶段显示内容 Diff、Adapter 提交、目录相等性和滚动锚点的审计与验证。****
 
+11. [11-favorites-viewer-sorting-fixes.md](11-favorites-viewer-sorting-fixes.md)：四项集中修复的代码证据、测试与交付边界。
+
 ## 审计口径与重要限制
 
 - **F = 源码事实**：已在目标 fix 分支对应文件和行范围看到代码。仅证明代码存在，不代表真机行为一定正确。

@@ -109,6 +109,71 @@ class PhotoViewerProgressivePagerTest {
         } finally { controller.pause().stop().destroy() }
     }
 
+    @Test fun completeMixedCatalogKeepsCurrentFragmentAndReleasesDelayedNeighborPages() {
+        val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
+        val activity = controller.get()
+        try {
+            val pager = ProgressivePhotoViewPager(activity, Robolectric.buildAttributeSet().build()).apply { id = View.generateViewId() }
+            activity.setContentView(pager)
+            val all = (0 until 60).map { Medium(null, "$it", "/Gallery/$it", "/Gallery",
+                10L, 10L, 1L, if (it % 3 == 0) TYPE_VIDEOS else TYPE_IMAGES, 0, false, 0L, 0L) }
+            var now = 100L
+            val access = PhotoViewerPageAccessState(maxAgeMs = 50L, now = { now })
+            access.reset(1L)
+            access.approve(listOf(all[30].path), 1L)
+            val host = object : ViewerPagerHost {
+                override fun mayLoadFavoritePath(path: String) = access.contains(path, 1L)
+                override fun fragmentClicked() = Unit
+                override fun videoEnded() = true
+                override fun goToPrevItem() = Unit
+                override fun goToNextItem() = Unit
+                override fun launchViewVideoIntent(path: String) = Unit
+                override fun isSlideShowActive() = false
+                override fun isFullScreen() = false
+            }
+            var created = 0
+            val adapter = MyPagerAdapter(host, activity.supportFragmentManager, all,
+                fragmentFactory = { created++; Page() })
+            pager.adapter = adapter
+            pager.setCurrentItem(30, false)
+            pager.measure(View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY))
+            pager.layout(0, 0, 1080, 1920)
+            val current = adapter.getCurrentFragment(30)
+            assertNotNull(current)
+            val before = created
+            var notifications = 0
+            adapter.registerDataSetObserver(object : android.database.DataSetObserver() {
+                override fun onChanged() { notifications++ }
+            })
+            repeat(8) { assertFalse(adapter.updateMedia(all.map { it.copy() })) }
+            assertEquals(0, notifications)
+            assertEquals(before, created)
+            assertSame(current, adapter.getCurrentFragment(30))
+            // Neighbor metadata is present but cannot instantiate before fresh permission.
+            access.approve((28..32).map { all[it].path }, 1L)
+            adapter.onAccessWindowUpdated()
+            assertSame(current, adapter.getCurrentFragment(30))
+            val steps = (31..42).toList() + (41 downTo 18).toList()
+            steps.forEach { position ->
+                access.approve((position - 2..position + 2).filter { it in all.indices }.map { all[it].path }, 1L)
+                adapter.onAccessWindowUpdated()
+                pager.setCurrentItem(position, false)
+                assertEquals(position, pager.currentItem)
+                assertNotNull(adapter.getCurrentFragment(position))
+            }
+            now += 60L
+            assertFalse(host.mayLoadFavoritePath(all[18].path))
+            access.approve((16..20).map { all[it].path }, 1L)
+            adapter.onAccessWindowUpdated()
+            assertTrue(host.mayLoadFavoritePath(all[18].path))
+            access.reset(2L)
+            assertFalse(host.mayLoadFavoritePath(all[18].path))
+            // Revocation is still enforced during a catalog reconciliation.
+            adapter.updateMedia(all.dropLast(1))
+            assertNull(adapter.getCurrentFragment(18))
+        } finally { controller.pause().stop().destroy() }
+    }
+
     // Avoid fake Activity state: the test restores the real path explicitly during publication,
     // just as ViewPagerActivity removes its listener while replacing the backing catalog.
     private fun ViewPager.removeOnPageChangeListenerForTest() { clearOnPageChangeListeners() }
