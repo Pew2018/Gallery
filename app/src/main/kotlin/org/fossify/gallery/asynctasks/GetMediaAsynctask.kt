@@ -77,11 +77,11 @@ internal class GetMediaAsynctask(
             val loader = PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId) { isCancelled }
             val final = loader.loadStaged(photoProfileId, photoAllowPreview && onPhotoResult != null, photoAnchorPath,
                 forceScan = manualRefresh, reuseActiveProducer = photoReuseProducer) {
-                if (!isCancelled) publishProgress(it)
+                if (!isCancelled) publishProgress(it.snapshotForUi())
             }
             scanResult = GalleryScanResult(if (final.stage == PhotoLoadStage.COMPLETE)
                 GalleryScanState.COMPLETE else GalleryScanState.PARTIAL)
-            profileResult = final
+            profileResult = final.snapshotForUi()
             return ArrayList(final.media)
         }
         val pathToUse = if (showAll) SHOW_ALL else mPath

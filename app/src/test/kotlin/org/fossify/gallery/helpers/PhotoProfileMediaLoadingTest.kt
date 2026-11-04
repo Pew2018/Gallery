@@ -738,5 +738,22 @@ class PhotoProfileMediaLoadingTest {
         } finally { root.toFile().deleteRecursively(); PhotoSessionViewerCatalogStore.invalidate() }
     }
 
+
+    @Test fun uiStageOwnershipSeparatesMutableGridRowsFromTheOngoingScan() {
+        val id = profile("/Gallery")
+        val request = background { PhotoProfileLoadContext.capture(context, id, null)!! }
+        val original = Medium().apply { path = "/Gallery/a.jpg"; name = "a.jpg"; type = TYPE_IMAGES }
+        val scanRows = arrayListOf(original)
+        val stage = PhotoLoadResult(request, PhotoLoadStage.FILESYSTEM, scanRows, PhotoAccessSummary(false, true))
+        val ui = background { stage.snapshotForUi() }
+        original.name = "scanner changed metadata"
+        scanRows.clear()
+        assertEquals("a.jpg", ui.media.single().name)
+        ui.media.single().gridPosition = 999
+        assertEquals(0, original.gridPosition)
+        assertSame(request, ui.context)
+        assertEquals(stage.access, ui.access)
+    }
+
 }
 

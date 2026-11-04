@@ -272,7 +272,8 @@ internal object PhotoSessionViewerCatalogStore {
             !source.request.isCurrent(context) || cancelled()) return false
         val size = source.segments?.size ?: source.order.size
         fun item(index: Int) = source.segments?.get(index) ?: source.order[index]
-        val pos = source.segments?.indexOf(anchor) ?: source.order.indexOfFirst { it.path == anchor }
+        val pos = if (source.complete) old.catalog.ordinals[anchor] ?: return false
+            else source.segments?.indexOf(anchor) ?: source.order.indexOfFirst { it.path == anchor }
         // The live anchor can be an unindexed filesystem supplement. Those rows
         // arrive via offerPartial; absence from MediaStore is not an END signal.
         if (pos < 0) return false

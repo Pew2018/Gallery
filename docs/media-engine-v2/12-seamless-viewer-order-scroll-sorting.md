@@ -71,3 +71,11 @@ Run [41766932465](https://github.com/Pew2018/Gallery/actions/runs/41766932465)�
 复核菜单去重时保留权限摘要变化的必要 `refreshMenuItems`，避免只有 needsUnlock 改变而媒体未变化时菜单不更新；普通同内容阶段仍不重复刷新。其余业务逻辑不变，下一Run重新执行完整测试及ARM64构建。
 
 文件操作复核另补一处明确交接遗漏：成功且通过现有授权检查的重命名/隐藏改名，在会话grid path顺序中原位替换oldPath，避免新path被当作新增项追加末尾；复用ViewerGridOrderPolicy，fresh成员过滤仍保留，测试拒绝未在fresh中的新路径。移动出scope仍由原扫描/授权处理。
+
+
+最终源码复核补足：COMPLETE扩展锚点直接使用当前窗口保存的ordinal，避免LRU miss时每次边界操作从目录头部indexOf；普通部分目录仍保留既有查找与UNKNOWN。Photos锚点在publishMedia实际内容变化时统一捕获一次，部分/最终阶段都保留，不再在onPhotoResult重复遍历；新增自定义顺序及置顶优先的显式回归。与前述测试补修统一进入下一次完整验证。
+
+
+第二轮 Run [41767514582](https://github.com/Pew2018/Gallery/actions/runs/41767514582)（`b92052f…`）：814项运行、2项失败，均为新增夹具错误：MainActivity收藏标志是计算属性，应设置mGallerySection；网格测试在onCreate前inflate需安装AppCompat ViewFactory。按真实初始化条件修正，不移除断言。大目录顺序、Fragment失效和多来源交接等其余用例已运行，但本轮未生成APK，不能作为最终通过证据。
+
+线程所有权复核：首个MediaAdapter的clone是浅拷贝，网格还会修改Medium.gridPosition。为避免UI与继续扫描的stage共享可变Medium，GetMediaAsynctask在既有worker上对阶段与最终PhotoLoadResult执行snapshotForUi（复制媒体行），UI排队只持独立结果。无新线程池；新增测试双向修改扫描/网格元数据，证明互不污染，scope/revision/access仍为原请求。

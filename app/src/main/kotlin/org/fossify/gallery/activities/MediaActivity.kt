@@ -2618,7 +2618,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 .sameDisplayedContent(mMedia, media)
             // A search over an earlier preview must not overwrite a newer stage of this request.
             if (isPhotoProfiles && displayedContentChanged) mediaSearchGeneration++
-            if (isPhotoProfiles && !isFromCache && displayedContentChanged && getMediaAdapter() != null) {
+            if (isPhotoProfiles && displayedContentChanged && getMediaAdapter() != null) {
+                // Capture once per actually applied change, including partials.
+                // Photos deliberately opts out of the adapter's generic anchor.
                 rememberPhotoScrollAnchor()
             }
             mMedia = ArrayList(media)

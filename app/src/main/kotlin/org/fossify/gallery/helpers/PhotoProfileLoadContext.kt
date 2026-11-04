@@ -109,7 +109,10 @@ data class PhotoLoadResult(
     val stage: PhotoLoadStage,
     val media: List<org.fossify.gallery.models.Medium>,
     val access: PhotoAccessSummary
-)
+) {
+    /** Worker-to-UI ownership boundary: grid metadata may be edited in place. */
+    fun snapshotForUi(): PhotoLoadResult = copy(media = media.map { it.copy() })
+}
 
 /** Stale requests are discarded, not reported as successful empty albums. */
 class PhotoLoadInvalidatedException : java.util.concurrent.CancellationException("Photo scope changed")

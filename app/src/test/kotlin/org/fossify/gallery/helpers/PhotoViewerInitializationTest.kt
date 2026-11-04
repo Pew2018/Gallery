@@ -38,6 +38,8 @@ class PhotoViewerInitializationTest {
         PhotoProfileRepository.of(app).save(profile)
         val controller = Robolectric.buildActivity(org.fossify.gallery.activities.MediaActivity::class.java)
         val activity = controller.get()
+        activity.setTheme(org.fossify.gallery.R.style.AppTheme)
+        activity.delegate.installViewFactory()
         val type = org.fossify.gallery.activities.MediaActivity::class.java
         fun field(name: String) = type.getDeclaredField(name).apply { isAccessible = true }
         field("mPath").set(activity, PhotoProfileMediaLoader.PATH)

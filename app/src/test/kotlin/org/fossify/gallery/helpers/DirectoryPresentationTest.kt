@@ -94,4 +94,18 @@ class DirectoryPresentationTest {
             folderStatuses = "hidden"
         })))
     }
+
+    @Test fun customOrderAndPinnedPrioritySurviveOrdinarySortTieChanges() {
+        val dirs = arrayListOf(directory("/root/a"), directory("/root/b"), directory("/root/c"))
+        context.config.directorySorting = SORT_BY_CUSTOM
+        context.config.customFoldersOrder = "/root/c|||/root/a|||/root/b"
+        context.config.pinnedFolders = hashSetOf("/root/b")
+        repeat(8) {
+            assertEquals(listOf("/root/b", "/root/c", "/root/a"),
+                context.getSortedDirectories(ArrayList(dirs.shuffled())).map { it.path })
+        }
+        context.config.directorySorting = SORT_BY_COUNT or SORT_DESCENDING
+        assertEquals(listOf("/root/b", "/root/a", "/root/c"), context.getSortedDirectories(dirs).map { it.path })
+    }
+
 }
