@@ -41,6 +41,7 @@ android {
 
     defaultConfig {
         applicationId = project.property("APP_ID").toString()
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = project.libs.versions.app.build.minimumSDK.get().toInt()
         targetSdk = project.libs.versions.app.build.targetSDK.get().toInt()
         versionName = project.property("VERSION_NAME").toString()
@@ -72,7 +73,7 @@ android {
         buildConfig = true
     }
 
-    testBuildType = "release"
+    testBuildType = providers.gradleProperty("EMULATOR_TEST_BUILD_TYPE").getOrElse("release")
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
@@ -199,6 +200,8 @@ detekt {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
     // The offline Picasso test fixture implements Downloader, whose API uses OkHttp types.
     testImplementation(libs.okhttp)
     // Test-only Android View measurement, interaction and native Canvas rendering.
