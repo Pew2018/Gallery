@@ -39,3 +39,14 @@ complete pager, sends a UiAutomator swipe, and records pager/fragment identity,
 currentItem, count, drawable state and gesture coordinates before and after.
 A red failure is preserved as evidence. This changes androidTest only; no
 production navigation, ordering, or authorization paths are altered.
+
+## Window focus diagnostic — 2026-11-04
+
+Run 41807341135 confirmed the selected item, Fragment, entire 66-row catalog
+and decoded image were all correct, but Activity.hasWindowFocus stayed false
+throughout. This does not alone prove a production swiping defect. The next
+run checks UiDevice.currentPackageName == target application and visible decor
+instead of using hasWindowFocus as a strict prerequisite; on failure it records
+topPackage, page identity and a synthetic-media screenshot before Activity teardown.
+Screenshots are extracted through run-as from debug app storage. This does not
+bypass PIN authorization or weaken production APK permissions.

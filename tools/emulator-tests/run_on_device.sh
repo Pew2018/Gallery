@@ -6,7 +6,11 @@ APP="org.fossify.gallery.debug"
 capture() {
   adb logcat -d -v threadtime > "$OUT/logcat.txt" 2>&1 || true
   adb shell dumpsys meminfo "$APP" > "$OUT/meminfo.txt" 2>&1 || true
-  adb pull "/sdcard/Android/data/$APP/files/gallery-ci-evidence" "$OUT/viewer-evidence" >/dev/null 2>&1 || true
+  # Android 14 may block shell from Android/data; the app is a debug build,
+  # so run-as can still export synthetic test screenshots without relaxing security.
+  mkdir -p "$OUT/viewer-evidence"
+  adb exec-out run-as "$APP" tar -cf - -C files gallery-ci-evidence 2>/dev/null |
+    tar -xf - -C "$OUT/viewer-evidence" 2>/dev/null || true
   adb shell screencap -p /sdcard/gallery-ci-final.png >/dev/null 2>&1 || true
   adb pull /sdcard/gallery-ci-final.png "$OUT/final.png" >/dev/null 2>&1 || true
 }

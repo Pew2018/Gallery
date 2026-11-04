@@ -292,6 +292,8 @@ class PhotoProfileEmulatorTest {
                     output = "item=" + index + " count=" + (adapter?.count ?: -1) +
                         " selected=" + selected + " fragment=" + fragmentPath +
                         " drawableReady=" + drawableReady + " focus=" + viewer.hasWindowFocus() +
+                        " topPackage=" + UiDevice.getInstance(inst).currentPackageName +
+                        " shown=" + viewer.window.decorView.isShown +
                         " resumed=" + viewer.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
                 }
                 return output
@@ -306,7 +308,9 @@ class PhotoProfileEmulatorTest {
                     val fragmentPath = (fragment?.arguments?.getSerializable(MEDIUM) as? Medium)?.path
                     val image = fragment?.view?.findViewById<ImageView>(R.id.gestures_view)
                     ready = viewer.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
-                        viewer.hasWindowFocus() && adapter?.count == committed.size &&
+                        viewer.window.decorView.isShown &&
+                        UiDevice.getInstance(inst).currentPackageName == context.packageName &&
+                        adapter?.count == committed.size &&
                         adapter.media.getOrNull(index)?.path == path && fragmentPath == path &&
                         image?.drawable != null
                 }
@@ -318,6 +322,17 @@ class PhotoProfileEmulatorTest {
                 } catch (failure: AssertionError) {
                     Log.e("GalleryEmulatorSwipe", stage + " expected=" + path +
                         " observed=" + capturePagerState(), failure)
+                    runCatching {
+                        val bitmap = inst.uiAutomation.takeScreenshot()
+                        if (bitmap != null) {
+                            val folder = File(context.getExternalFilesDir(null), "gallery-ci-evidence")
+                            folder.mkdirs()
+                            FileOutputStream(File(folder, "failure-" + stage + ".png")).use {
+                                bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+                            }
+                            bitmap.recycle()
+                        }
+                    }.onFailure { Log.e("GalleryEmulatorSwipe", "Could not capture failure screen", it) }
                     throw AssertionError(stage + " expected=" + path +
                         " observed=" + capturePagerState(), failure)
                 }
