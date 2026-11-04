@@ -299,45 +299,63 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
         startAsyncTask()
     }
 
-    override fun tryDeleteFiles(fileDirItems: ArrayList<FileDirItem>, skipRecycleBin: Boolean) {
+    override fun tryDeleteFiles(
+        fileDirItems: ArrayList<FileDirItem>,
+        skipRecycleBin: Boolean,
+        onDeleted: (Set<String>) -> Unit
+    ) {
         val filtered = fileDirItems.filter { File(it.path).isFile && it.path.isMediaFile() } as ArrayList
         if (filtered.isEmpty()) {
+            onDeleted(emptySet())
             return
         }
 
-        if (config.useRecycleBin && !skipRecycleBin && !filtered.first().path.startsWith(recycleBinPath)) {
+        val movingToRecycleBin = config.useRecycleBin && !skipRecycleBin &&
+            !filtered.first().path.startsWith(recycleBinPath)
+        if (movingToRecycleBin) {
             val movingItems = resources.getQuantityString(org.fossify.commons.R.plurals.moving_items_into_bin, filtered.size, filtered.size)
             toast(movingItems)
 
             movePathsInRecycleBin(filtered.map { it.path } as ArrayList<String>) {
                 if (it) {
-                    deleteFilteredFiles(filtered)
+                    deleteFilteredFiles(filtered, permanentDelete = false, onDeleted = onDeleted)
                 } else {
                     toast(org.fossify.commons.R.string.unknown_error_occurred)
+                    onDeleted(emptySet())
+                    runOnUiThread { if (!isFinishing && !isDestroyed) startAsyncTask() }
                 }
             }
         } else {
             val deletingItems = resources.getQuantityString(org.fossify.commons.R.plurals.deleting_items, filtered.size, filtered.size)
             toast(deletingItems)
-            deleteFilteredFiles(filtered)
+            deleteFilteredFiles(filtered, permanentDelete = true, onDeleted = onDeleted)
         }
     }
 
-    private fun deleteFilteredFiles(filtered: ArrayList<FileDirItem>) {
+    private fun deleteFilteredFiles(
+        filtered: ArrayList<FileDirItem>,
+        permanentDelete: Boolean,
+        onDeleted: (Set<String>) -> Unit
+    ) {
         deleteFiles(filtered) {
-            if (!it) {
-                toast(org.fossify.commons.R.string.unknown_error_occurred)
-                return@deleteFiles
-            }
-
-            mAllMedia.removeAll { filtered.map { it.path }.contains((it as? Medium)?.path) }
-
             ensureBackgroundThread {
-                val useRecycleBin = config.useRecycleBin
-                filtered.forEach {
-                    if (it.path.startsWith(recycleBinPath) || !useRecycleBin) {
-                        deleteDBPath(it.path)
+                val deletedPaths = filtered.mapNotNullTo(LinkedHashSet()) { item ->
+                    val sourceGone = !getDoesFilePathExist(item.path)
+                    val recycledCopyExists = !permanentDelete &&
+                        getDoesFilePathExist("$recycleBinPath/${item.path}")
+                    item.path.takeIf { sourceGone && (permanentDelete || recycledCopyExists) }
+                }
+                if (permanentDelete && deletedPaths.isNotEmpty()) {
+                    deletedPaths.forEach { mediaDB.deleteMediumPath(it) }
+                    org.fossify.gallery.helpers.PhotoContentRevision.changed()
+                }
+                runOnUiThread {
+                    onDeleted(deletedPaths)
+                    if (deletedPaths.isNotEmpty()) {
+                        mAllMedia.removeAll { it is Medium && it.path in deletedPaths }
+                        getAllMedia()
                     }
+                    if (deletedPaths.size < filtered.size) toast(org.fossify.commons.R.string.unknown_error_occurred)
                 }
             }
         }

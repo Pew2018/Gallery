@@ -357,6 +357,7 @@ fun BaseSimpleActivity.tryDeleteFileDirItem(
 fun BaseSimpleActivity.movePathsInRecycleBin(paths: ArrayList<String>, callback: ((wasSuccess: Boolean) -> Unit)?) {
     ensureBackgroundThread {
         var pathsCnt = paths.size
+        var contentChanged = false
         val OTGPath = config.OTGPath
 
         for (source in paths) {
@@ -383,8 +384,10 @@ fun BaseSimpleActivity.movePathsInRecycleBin(paths: ArrayList<String>, callback:
                     if (fileDocument.getItemSize(true) == copiedSize && getDoesFilePathExist(destination)) {
                         mediaDB.updateDeleted("$RECYCLE_BIN$source", System.currentTimeMillis(), source)
                         pathsCnt--
+                        contentChanged = true
                     }
                 } catch (e: Exception) {
+                    if (contentChanged) org.fossify.gallery.helpers.PhotoContentRevision.changed()
                     showErrorToast(e)
                     return@ensureBackgroundThread
                 } finally {
@@ -399,17 +402,20 @@ fun BaseSimpleActivity.movePathsInRecycleBin(paths: ArrayList<String>, callback:
                     if (file.copyRecursively(internalFile, true)) {
                         mediaDB.updateDeleted("$RECYCLE_BIN$source", System.currentTimeMillis(), source)
                         pathsCnt--
+                        contentChanged = true
 
                         if (config.keepLastModified && lastModified != 0L) {
                             internalFile.setLastModified(lastModified)
                         }
                     }
                 } catch (e: Exception) {
+                    if (contentChanged) org.fossify.gallery.helpers.PhotoContentRevision.changed()
                     showErrorToast(e)
                     return@ensureBackgroundThread
                 }
             }
         }
+        if (contentChanged) org.fossify.gallery.helpers.PhotoContentRevision.changed()
         callback?.invoke(pathsCnt == 0)
     }
 }

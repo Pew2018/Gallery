@@ -145,6 +145,7 @@ class PhotoProfileEmulatorTest {
         context.config.saveCustomSorting(PhotoProfileMediaLoader.PATH, previousSorting)
         val store = PhotoProfileRepository.of(context)
         profileIds.forEach(store::delete)
+        File(root, "DeleteRace").deleteRecursively()
     }
 
     private fun load(sources: List<String>, sorting: Int, favorites: Boolean = false): List<Medium> {
@@ -248,6 +249,30 @@ class PhotoProfileEmulatorTest {
         } finally {
             testPaths.filter { it !in originals }.forEach { context.updateFavorite(it, false) }
         }
+    }
+
+    @Test fun deletedMediaDoesNotReturnOnProfileReload() {
+        val folder = File(root, "DeleteRace").apply { mkdirs() }
+        val fixture = File(root, "A/IMG_0.png")
+        assertTrue("Missing source fixture", fixture.isFile)
+        val paths = (0..3).map { index ->
+            File(folder, "delete-$index.png").also { fixture.copyTo(it, overwrite = true) }.canonicalPath
+        }
+        val profile = PhotoProfile(UUID.randomUUID().toString(), "Delete race", listOf(
+            PhotoSource(PhotoSourceType.FOLDER, folder.canonicalPath)
+        ))
+        PhotoProfileRepository.of(context).save(profile)
+        profileIds.add(profile.id)
+
+        val before = PhotoProfileMediaLoader(context).load(profile.id).filterIsInstance<Medium>()
+        assertEquals(paths.toSet(), before.map { it.path }.toSet())
+        val removed = paths.take(2).toSet()
+        removed.forEach { path -> assertTrue("Could not remove $path", File(path).delete()) }
+        PhotoContentRevision.changed()
+
+        val after = PhotoProfileMediaLoader(context).load(profile.id).filterIsInstance<Medium>()
+        assertEquals("Surviving files remain visible", paths.drop(2).toSet(), after.map { it.path }.toSet())
+        assertTrue("Deleted paths must not be restored from cache", after.none { it.path in removed })
     }
 
     /** Actual MediaActivity grid click -> ViewPagerActivity -> on-device pointer swipes.

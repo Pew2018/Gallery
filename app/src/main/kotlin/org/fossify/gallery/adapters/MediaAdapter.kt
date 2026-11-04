@@ -584,8 +584,13 @@ class MediaAdapter(
 
     private fun askConfirmDelete() {
         if (deleteDialogShowing || selectedKeys.isEmpty()) return
-        val itemsCnt = selectedKeys.size
         val selectedMedia = getSelectedItems()
+        if (selectedMedia.isEmpty()) {
+            selectedKeys.clear()
+            finishActMode()
+            return
+        }
+        val itemsCnt = selectedMedia.size
         val firstPath = selectedMedia.first().path
         val fileDirItem = selectedMedia.first().toFileDirItem()
         val size = fileDirItem.getProperSize(activity, countHidden = true).formatSize()
@@ -625,37 +630,64 @@ class MediaAdapter(
             return
         }
 
-        val selectedItems = getSelectedItems()
-        val selectedPaths = selectedItems.map { it.path } as ArrayList<String>
-        val SAFPath = selectedPaths.firstOrNull { activity.needsStupidWritePermissions(it) } ?: getFirstSelectedItemPath() ?: return
+        val selectedPaths = getSelectedItems().mapTo(LinkedHashSet()) { it.path }
+        if (selectedPaths.isEmpty()) {
+            selectedKeys.clear()
+            finishActMode()
+            return
+        }
+        val SAFPath = selectedPaths.firstOrNull { activity.needsStupidWritePermissions(it) } ?: selectedPaths.first()
         activity.handleSAFDialog(SAFPath) {
-            if (!it) {
+            if (!it || !isDeleteContextCurrent()) {
                 return@handleSAFDialog
             }
 
-            val sdk30SAFPath = selectedPaths.firstOrNull { activity.isAccessibleWithSAFSdk30(it) } ?: getFirstSelectedItemPath() ?: return@handleSAFDialog
+            val sdk30SAFPath = selectedPaths.firstOrNull { activity.isAccessibleWithSAFSdk30(it) } ?: selectedPaths.first()
             activity.checkManageMediaOrHandleSAFDialogSdk30(sdk30SAFPath) {
-                if (!it) {
+                if (!it || !isDeleteContextCurrent()) {
                     return@checkManageMediaOrHandleSAFDialogSdk30
                 }
 
-                val fileDirItems = ArrayList<FileDirItem>(selectedKeys.size)
-                val removeMedia = ArrayList<Medium>(selectedKeys.size)
-                val positions = getSelectedItemPositions()
-
-                selectedItems.forEach { medium ->
-                    fileDirItems.add(medium.toFileDirItem())
-                    removeMedia.add(medium)
+                // Resolve the original path identities against the current list after
+                // permission UI has returned. Metadata objects and adapter positions
+                // captured before that UI are not stable across progressive updates.
+                val currentItems = media.filterIsInstance<Medium>().filter { it.path in selectedPaths }
+                if (currentItems.isEmpty()) {
+                    finishActMode()
+                    return@checkManageMediaOrHandleSAFDialogSdk30
                 }
-
-                ++diffGeneration
-                media.removeAll(removeMedia)
-                listener?.tryDeleteFiles(fileDirItems, skipRecycleBin)
-                listener?.updateMediaGridDecoration(media)
-                removeSelectedItems(positions)
-                currentMediaHash = media.hashCode()
+                val fileDirItems = ArrayList<FileDirItem>(currentItems.size)
+                currentItems.forEach { medium ->
+                    fileDirItems.add(medium.toFileDirItem())
+                }
+                val operationPaths = currentItems.mapTo(LinkedHashSet()) { it.path }
+                val host = listener
+                if (host == null) return@checkManageMediaOrHandleSAFDialogSdk30
+                host.tryDeleteFiles(fileDirItems, skipRecycleBin) { deletedPaths ->
+                    activity.runOnUiThread {
+                        if (deletedPaths.isNotEmpty() && isDeleteContextCurrent()) {
+                            removeMediaPaths(deletedPaths.intersect(operationPaths))
+                        } else if (isDeleteContextCurrent()) {
+                            finishActMode()
+                        }
+                    }
+                }
             }
         }
+    }
+
+    private fun isDeleteContextCurrent(): Boolean =
+        !activity.isFinishing && !activity.isDestroyed && recyclerView.adapter === this
+
+    /** Apply confirmed deletions by stable path through the normal single-flight diff path. */
+    internal fun removeMediaPaths(paths: Set<String>) {
+        if (paths.isEmpty() || recyclerView.adapter !== this) return
+        ++diffGeneration
+        pendingUpdate = null
+        recyclerView.removeCallbacks(drainUpdates)
+        val remaining = media.filterNot { it is Medium && it.path in paths }
+            .toCollection(ArrayList<ThumbnailItem>())
+        updateMedia(remaining, preserveScroll = false)
     }
 
     private fun getSelectedItems() = selectedKeys.mapNotNull { getItemWithKey(it) } as ArrayList<Medium>

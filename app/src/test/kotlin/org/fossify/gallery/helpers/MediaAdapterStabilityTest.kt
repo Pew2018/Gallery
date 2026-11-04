@@ -6,6 +6,7 @@ import android.os.Looper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.commons.views.MyRecyclerView
+import org.fossify.commons.adapters.MyRecyclerViewAdapter
 import org.fossify.gallery.R
 import org.fossify.gallery.activities.SimpleActivity
 import org.fossify.gallery.adapters.MediaAdapter
@@ -90,6 +91,19 @@ class MediaAdapterStabilityTest {
         assertFalse(MediaUpdatePolicy.durationOnly(before, before.copy(videoDuration = 30, size = 101)))
     }
 
+    @Test fun staleSelectionWithNoCurrentMediaDoesNotOpenDeleteConfirmation() = withAdapter { adapter, _, _ ->
+        val keysField = MyRecyclerViewAdapter::class.java.getDeclaredField("selectedKeys").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val selectedKeys = keysField.get(adapter) as MutableSet<Int>
+        selectedKeys += "stale-path".hashCode()
+
+        val confirm = MediaAdapter::class.java.getDeclaredMethod("askConfirmDelete").apply { isAccessible = true }
+        confirm.invoke(adapter)
+
+        assertTrue(adapter.media.filterIsInstance<Medium>().isNotEmpty())
+        assertTrue("The stale selection exits safely", selectedKeys.isEmpty())
+    }
+
     @Test fun displayedSnapshotComparisonKeepsOrderAndSectionChangesVisible() {
         val first = arrayListOf<ThumbnailItem>(item("a.jpg"), ThumbnailSection("May", "2026-05"))
         val internalRefresh = arrayListOf<ThumbnailItem>(
@@ -144,6 +158,53 @@ class MediaAdapterStabilityTest {
         assertEquals(1, tasks.size)
         drain(tasks)
         assertEquals(listOf("29.jpg"), adapter.media.filterIsInstance<Medium>().map { it.name })
+    }
+
+    @Test fun confirmedDeletionSupersedesAnInFlightProgressiveDiffByPath() = withAdapter { adapter, _, tasks ->
+        val removedNotifications = ArrayList<Pair<Int, Int>>()
+        adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
+            override fun onItemRangeRemoved(positionStart: Int, itemCount: Int) {
+                removedNotifications += positionStart to itemCount
+            }
+        })
+        var scanIsCurrent = true
+        adapter.updateMedia(arrayListOf<ThumbnailItem>(
+            item("a.jpg"), ThumbnailSection("March", "2026-03"), item("b.jpg")
+        ), preserveScroll = false, isCurrent = { scanIsCurrent })
+        assertEquals("The first progressive diff is in flight", 1, tasks.size)
+
+        // A newer deletion succeeds while the previous scan diff is still computing.
+        // The old request expires and the adapter schedules a path-based update.
+        scanIsCurrent = false
+        adapter.removeMediaPaths(setOf("/photos/a.jpg"))
+        drain(tasks)
+
+        assertFalse(adapter.media.filterIsInstance<Medium>().any { it.path in setOf("/photos/a.jpg", "/photos/b.jpg") })
+        assertTrue("An expired scan stage must not restore stale rows", adapter.media.none { it is Medium })
+        assertTrue("No stale positional remove notification is emitted", removedNotifications.isNotEmpty())
+        removedNotifications.forEach { (position, count) ->
+            assertTrue(position >= 0)
+            assertTrue(count > 0)
+        }
+    }
+
+    @Test fun confirmedDeletionKeepsUnselectedRowsAndUsesDiffNotifications() = withAdapter { adapter, _, tasks ->
+        adapter.updateMedia(arrayListOf<ThumbnailItem>(item("a.jpg"), item("b.jpg"), item("c.jpg")),
+            preserveScroll = false)
+        drain(tasks)
+        var changedAll = 0
+        var removedRows = 0
+        adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
+            override fun onChanged() { changedAll++ }
+            override fun onItemRangeRemoved(positionStart: Int, itemCount: Int) { removedRows += itemCount }
+        })
+
+        adapter.removeMediaPaths(setOf("/photos/b.jpg", "/photos/stale.jpg"))
+        drain(tasks)
+
+        assertEquals(listOf("a.jpg", "c.jpg"), adapter.media.filterIsInstance<Medium>().map { it.name })
+        assertEquals(0, changedAll)
+        assertEquals(1, removedRows)
     }
 
     @Test fun scrollingDefersCatalogAndIdleCommitsNewestResult() = withAdapter { adapter, recycler, tasks ->
