@@ -10,6 +10,7 @@ import androidx.fragment.app.FragmentActivity
 import org.fossify.gallery.fragments.ViewPagerFragment
 import org.fossify.gallery.helpers.MEDIUM
 import org.fossify.gallery.helpers.SHOULD_INIT_FRAGMENT
+import org.fossify.gallery.helpers.ViewerDeletionNavigationPolicy
 import org.fossify.gallery.models.Medium
 import org.junit.Assert.*
 import org.junit.Test
