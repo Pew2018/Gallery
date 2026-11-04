@@ -15,6 +15,8 @@ import org.fossify.gallery.helpers.DIRECTORY
 import org.fossify.gallery.helpers.MEDIUM
 import java.io.FileOutputStream
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.core.graphics.drawable.toBitmap
 import android.widget.ImageView
 import androidx.lifecycle.Lifecycle
 import androidx.test.uiautomator.UiDevice
@@ -59,13 +61,22 @@ class PhotoProfileEmulatorTest {
             }
             countA = sizes.getValue("A")
             root = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "GalleryCI")
-            val templates = (0 until 64).map { index ->
-                val bitmap = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888)
-                bitmap.eraseColor(Color.rgb(index * 17 % 255, index * 43 % 255, index * 71 % 255))
-                val stream = ByteArrayOutputStream()
-                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream))
-                bitmap.recycle()
-                stream.toByteArray()
+            // Reversible source-qualified 32-bit identity, unique at 50,009 items.
+            // Encode into the actual image pixels so filename/path correctness
+            // cannot disguise stale or incorrectly bound drawable contents.
+            val markerBitmap = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
+            val pixels = IntArray(32 * 32)
+            fun markedPng(source: String, index: Int): ByteArray {
+                val key = (source[0].code.toLong() shl 20) or (index + 1).toLong()
+                for (y in 0 until 32) for (x in 0 until 32) {
+                    val bit = (key ushr ((y / 4) * 8 + x / 4)) and 1L
+                    pixels[y * 32 + x] = if (bit == 1L) Color.rgb(228, 42, 86)
+                        else Color.rgb(26, 72, 184)
+                }
+                markerBitmap.setPixels(pixels, 0, 32, 0, 0, 32, 32)
+                val bytes = ByteArrayOutputStream(180)
+                check(markerBitmap.compress(Bitmap.CompressFormat.PNG, 100, bytes))
+                return bytes.toByteArray()
             }
             for ((source, count) in sizes) {
                 val folder = File(root, source)
@@ -75,7 +86,7 @@ class PhotoProfileEmulatorTest {
                     val filename = if (index % 4 == 0) "IMG_" + index + ".png" else
                         "IMG_" + index.toString().padStart(6, '0') + ".png"
                     val file = File(folder, filename)
-                    file.writeBytes(templates[index % 64])
+                    file.writeBytes(markedPng(source, index))
                     assertTrue(file.setLastModified(1578000000000L + ((index * 7919L + source[0].code) % 180000L) * 60000L))
                 }
                 assertEquals(count, folder.listFiles().orEmpty().count { it.extension.equals("png", true) })
@@ -92,6 +103,7 @@ class PhotoProfileEmulatorTest {
                 )
 
             }
+            markerBitmap.recycle()
             assertTrue(File(root, "N/.nomedia").isFile)
         }
     }
@@ -367,7 +379,9 @@ class PhotoProfileEmulatorTest {
                     val drawableReady = (currentFragment?.view?.findViewById<ImageView>(R.id.gestures_view))?.drawable != null
                     output = "item=" + index + " count=" + (adapter?.count ?: -1) +
                         " selected=" + selected + " fragment=" + fragmentPath +
-                        " drawableReady=" + drawableReady + " focus=" + viewer.hasWindowFocus() +
+                        " drawableReady=" + drawableReady +
+                        " pixelMatch=" + displayedPixelsMatch(currentFragment?.view?.findViewById<ImageView>(R.id.gestures_view), selected.orEmpty()) +
+                        " focus=" + viewer.hasWindowFocus() +
                         " topPackage=" + UiDevice.getInstance(inst).currentPackageName +
                         " shown=" + viewer.window.decorView.isShown +
                         " resumed=" + viewer.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
@@ -389,7 +403,7 @@ class PhotoProfileEmulatorTest {
                         adapter != null && adapter.count > 0 &&
                         (scale != "segment" && scale != "ceiling" || adapter.count <= committed.size) &&
                         adapter.media.getOrNull(index)?.path == path && fragmentPath == path &&
-                        image?.drawable != null
+                        displayedPixelsMatch(image, path)
                 }
                 return ready
             }
@@ -457,6 +471,41 @@ class PhotoProfileEmulatorTest {
             mediaActivity?.runOnUiThread { mediaActivity?.finish() }
             inst.removeMonitor(monitor)
             inst.waitForIdleSync()
+        }
+    }
+
+    /**
+     * Compare the actual displayed drawable's per-cell pixel identity with
+     * the decoded file, not merely Medium.path or a non-null drawable.
+     */
+    private fun displayedPixelsMatch(image: ImageView?, path: String): Boolean {
+        if (image == null || image.drawable == null) return false
+        if (!path.endsWith(".png", ignoreCase = true)) return true
+        val expected = BitmapFactory.decodeFile(path) ?: return false
+        return try {
+            val rendered = image.drawable.toBitmap(32, 32)
+            var matches = true
+            for (y in 0 until 8) {
+                for (x in 0 until 8) {
+                    val px = x * 4 + 2
+                    val py = y * 4 + 2
+                    val reference = expected.getPixel(px, py)
+                    val actual = rendered.getPixel(px, py)
+                    if (kotlin.math.abs(Color.red(reference) - Color.red(actual)) > 12 ||
+                        kotlin.math.abs(Color.green(reference) - Color.green(actual)) > 12 ||
+                        kotlin.math.abs(Color.blue(reference) - Color.blue(actual)) > 12) {
+                        matches = false
+                        break
+                    }
+                }
+                if (!matches) break
+            }
+            matches
+        } catch (error: Exception) {
+            Log.w("GalleryEmulatorMatrix", "Drawable pixel comparison failed at " + path, error)
+            false
+        } finally {
+            expected.recycle()
         }
     }
 
