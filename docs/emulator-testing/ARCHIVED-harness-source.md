@@ -12,7 +12,7 @@
 - 移除 `.github/workflows/gallery-emulator-tests.yml`，停止此分支的 push 自动模拟器任务及手动 `workflow_dispatch` 入口。
 - 移除 `app/src/androidTest` 下两项专用 instrumentation 测试。
 - 移除 `tools/emulator-tests` 下设备端 runner 与 host fixture 生成器。
-- 从 `app/build.gradle.kts` 移除 instrumentation runner、`testBuildType` 和三项 `androidTestImplementation` 依赖。常规 JVM 单测配置、Release 单测、签名与 ARM64 APK workflow 保留。
+- 从 `app/build.gradle.kts` 移除 `testBuildType` 和三项 `androidTestImplementation` 依赖。保留通用 `testInstrumentationRunner` 声明：首次删除后 Release workflow 未生成 `testFossReleaseUnitTest` 任务，CI 证实这行配置仍为现有单测变体所需。常规 JVM 单测配置、签名与 ARM64 APK workflow 保留。
 - 没有改动生产 Kotlin、普通 `app/src/test` 单元测试、`arm64-foss-release.yml` 或应用运行时功能。
 
 ## 文件清单与用途
@@ -27,10 +27,9 @@
 
 ## Gradle 中已移除的构建专用片段
 
-以下配置不再位于活动 `app/build.gradle.kts` 中；其余 `testOptions.unitTests` 与 `testImplementation` 设置保持原样。
+以下配置不再位于活动 `app/build.gradle.kts` 中；`testInstrumentationRunner`、`testOptions.unitTests` 与 `testImplementation` 设置保持原样。
 
 ```kotlin
-testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 testBuildType = providers.gradleProperty("EMULATOR_TEST_BUILD_TYPE").getOrElse("release")
 androidTestImplementation("androidx.test:runner:1.6.2")
 androidTestImplementation("androidx.test.ext:junit:1.2.1")
