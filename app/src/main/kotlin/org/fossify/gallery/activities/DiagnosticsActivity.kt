@@ -6,8 +6,8 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
-import org.fossify.commons.extensions.config
 import org.fossify.commons.extensions.viewBinding
+import org.fossify.gallery.extensions.config
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.ActivityDiagnosticsBinding
 import org.fossify.gallery.helpers.DiagnosticLevel
