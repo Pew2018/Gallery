@@ -8,6 +8,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.fossify.commons.helpers.*
 import org.fossify.gallery.extensions.config
+import org.fossify.gallery.extensions.getFavoritePaths
+import org.fossify.gallery.extensions.updateFavorite
 import org.fossify.gallery.helpers.*
 import org.fossify.gallery.models.Medium
 import org.junit.*
@@ -58,6 +60,18 @@ class PhotoProfileEmulatorTest {
                     assertTrue(file.setLastModified(1578000000000L + ((index * 7919L + source[0].code) % 180000L) * 60000L))
                 }
                 assertEquals(count, folder.listFiles().orEmpty().count { it.extension.equals("png", true) })
+                // Real decodable JPEG plus a valid SVG in every selected source.
+                val jpgBitmap = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888)
+                jpgBitmap.eraseColor(Color.rgb(source[0].code % 256, 91, 173))
+                val jpegBytes = ByteArrayOutputStream()
+                check(jpgBitmap.compress(Bitmap.CompressFormat.JPEG, 85, jpegBytes))
+                jpgBitmap.recycle()
+                File(folder, "CI_sample.jpg").writeBytes(jpegBytes.toByteArray())
+                File(folder, "CI_sample.svg").writeText(
+                    "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\">" +
+                        "<rect width=\"24\" height=\"24\" fill=\"#336699\"/></svg>"
+                )
+
             }
             assertTrue(File(root, "N/.nomedia").isFile)
         }
@@ -74,10 +88,11 @@ class PhotoProfileEmulatorTest {
         profileIds.forEach(store::delete)
     }
 
-    private fun load(sources: List<String>, sorting: Int): List<Medium> {
+    private fun load(sources: List<String>, sorting: Int, favorites: Boolean = false): List<Medium> {
         context.config.saveCustomSorting(PhotoProfileMediaLoader.PATH, sorting)
         val profile = PhotoProfile(UUID.randomUUID().toString(), "CI",
-            sources.map { PhotoSource(PhotoSourceType.FOLDER, File(root, it).canonicalPath) })
+            sources.map { PhotoSource(PhotoSourceType.FOLDER, File(root, it).canonicalPath) } +
+                (if (favorites) listOf(PhotoSource(PhotoSourceType.FAVORITES)) else emptyList()))
         PhotoProfileRepository.of(context).save(profile)
         profileIds.add(profile.id)
         return PhotoProfileMediaLoader(context).load(profile.id).filterIsInstance<Medium>()
@@ -86,7 +101,8 @@ class PhotoProfileEmulatorTest {
     private fun verify(sources: List<String>, actual: List<Medium>) {
         val roots = sources.map { File(root, it).canonicalPath }.toSet()
         val expected = sources.flatMap { name ->
-            File(root, name).listFiles().orEmpty().filter { it.extension.equals("png", true) }
+            File(root, name).listFiles().orEmpty()
+                .filter { it.extension.lowercase(Locale.ROOT) in setOf("png", "jpg", "svg") }
                 .map { it.canonicalPath }
         }.toSet()
         val paths = actual.map { it.path }
@@ -145,5 +161,32 @@ class PhotoProfileEmulatorTest {
         val media = load(listOf("A"), SORT_BY_NAME)
         verify(listOf("A"), media)
         assertTrue("Expected " + countA + ", found " + media.size, media.size >= countA)
+    }
+
+    @Test fun virtualFavoritesSourceOverlapNomediaVisibilityAndDynamicMembership() {
+        val a = File(root, "A/IMG_0.png").canonicalPath
+        val n = File(root, "N/IMG_1.png").canonicalPath
+        val p = File(root, "P/IMG_2.png").canonicalPath
+        val testPaths = listOf(a, n, p)
+        val originals = context.getFavoritePaths().toSet()
+        try {
+            testPaths.forEach { path ->
+                assertTrue("Could not favorite " + path, context.updateFavorite(path, true))
+            }
+            val favoritesOnly = load(emptyList(), SORT_BY_NAME, favorites = true).map { it.path }.toSet()
+            assertTrue("Public A favorite missing", a in favoritesOnly)
+            assertTrue("Public P favorite missing", p in favoritesOnly)
+            assertFalse("A .nomedia source not explicitly selected must not be exposed via Favorites", n in favoritesOnly)
+            val both = load(listOf("A", "N"), SORT_BY_NAME, favorites = true)
+            val paths = both.map { it.path }
+            assertEquals("Folder+Favorites overlap duplicated", paths.size, paths.distinct().size)
+            assertTrue("N explicitly selected but missing favorite", n in paths)
+            assertTrue("P favorite outside folders missing", p in paths)
+            context.updateFavorite(p, false)
+            val afterRemoval = load(emptyList(), SORT_BY_NAME, favorites = true).map { it.path }.toSet()
+            assertFalse("Unfavorited media reappeared", p in afterRemoval)
+        } finally {
+            testPaths.filter { it !in originals }.forEach { context.updateFavorite(it, false) }
+        }
     }
 }

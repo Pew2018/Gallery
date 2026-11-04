@@ -19,3 +19,11 @@ cannot prove real screen content identity.
 
 Push to the fix branch runs smoke API34; manual workflow_dispatch offers
 30/34/36 and smoke/large/segment/ceiling. No release signing changed.
+
+## Stage 2 added (verify with next CI run)
+
+Real JPEG/SVG fixtures are now generated and included in enumeration expectations.
+A real Favorites Room relation is exercised as a virtual source, including overlap
+with A/N folders, explicit .nomedia visibility, and dynamic removal. This is not
+PIN testing; P remains an unprotected control. Viewer swipe/render and video/RAW
+remain unimplemented, and are not reported as passing.
