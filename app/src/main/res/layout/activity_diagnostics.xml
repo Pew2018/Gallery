@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/diagnostics_coordinator"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <org.fossify.commons.views.MyAppBarLayout
+        android:id="@+id/diagnostics_appbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/diagnostics_toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/oxygen_classic_toolbar_height"
+            android:background="@color/oxygen_classic_toolbar"
+            app:title="@string/diagnostics_title" />
+    </org.fossify.commons.views.MyAppBarLayout>
+
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/diagnostics_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+        <LinearLayout
+            android:id="@+id/diagnostics_holder"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+            <RelativeLayout
+                android:id="@+id/diagnostics_enable_holder"
+                style="@style/OxygenClassicSettingsSwitchRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/diagnostics_enable_label"
+                    style="@style/OxygenClassicSettingsPrimaryText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_toStartOf="@+id/diagnostics_enable_switch"
+                    android:text="@string/diagnostics_enable" />
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/diagnostics_enable_summary"
+                    style="@style/OxygenClassicSettingsSecondaryText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_below="@id/diagnostics_enable_label"
+                    android:layout_toStartOf="@+id/diagnostics_enable_switch"
+                    android:text="@string/diagnostics_enable_summary" />
+                <org.fossify.gallery.views.ClassicSettingsSwitch
+                    android:id="@+id/diagnostics_enable_switch"
+                    style="@style/OxygenClassicSettingsSwitch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:contentDescription="@string/diagnostics_enable" />
+            </RelativeLayout>
+
+            <RelativeLayout android:id="@+id/diagnostics_copy_holder" style="@style/OxygenClassicSettingsSingleRow" android:layout_width="match_parent" android:layout_height="wrap_content">
+                <org.fossify.commons.views.MyTextView android:id="@+id/diagnostics_copy_label" style="@style/OxygenClassicSettingsPrimaryText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/diagnostics_copy" />
+            </RelativeLayout>
+            <RelativeLayout android:id="@+id/diagnostics_export_holder" style="@style/OxygenClassicSettingsSingleRow" android:layout_width="match_parent" android:layout_height="wrap_content">
+                <org.fossify.commons.views.MyTextView android:id="@+id/diagnostics_export_label" style="@style/OxygenClassicSettingsPrimaryText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/diagnostics_export" />
+            </RelativeLayout>
+            <RelativeLayout android:id="@+id/diagnostics_clear_holder" style="@style/OxygenClassicSettingsSingleRow" android:layout_width="match_parent" android:layout_height="wrap_content">
+                <org.fossify.commons.views.MyTextView android:id="@+id/diagnostics_clear_label" style="@style/OxygenClassicSettingsPrimaryText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/diagnostics_clear" />
+            </RelativeLayout>
+
+            <TextView
+                android:id="@+id/diagnostics_status_heading"
+                style="@style/OxygenClassicSettingsSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostics_status_title" />
+            <TextView
+                android:id="@+id/diagnostics_status"
+                style="@style/OxygenClassicSettingsSecondaryText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="16dp" />
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

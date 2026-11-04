@@ -220,6 +220,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var mDirectory = ""
     private var mIsFullScreen = false
     private var mPos = -1
+    private var diagnosticViewerOpened = false
     private var mShowAll = false
     private var lastVisitedPath: String? = null
     private var lastUserNavigationForward: Boolean? = null
@@ -588,6 +589,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun onDestroy() {
+        if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.INFO, "Viewer", "viewer_close",
+            fields = mapOf("index" to mPos, "count" to runCatching { getCurrentMedia().size }.getOrDefault(0))
+        )
         photoDeleteGeneration++
         photoDeleteRecovery = null
         retryViewerScan = null
@@ -778,6 +783,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun initViewPager(savedPath: String) {
+        if (!diagnosticViewerOpened && org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
+            diagnosticViewerOpened = true
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                org.fossify.gallery.helpers.DiagnosticLevel.INFO, "Viewer", "viewer_open",
+                fields = mapOf("mediaId" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(savedPath),
+                    "collection" to if (isPhotoProfile) "photo_profile" else if (mDirectory == SHOW_ALL) "all_media" else "folder")
+            )
+        }
         val uri = intent.data
         if (uri != null && savedPath.isEmpty()) {
             val request = ++viewerAccessGeneration
@@ -2786,6 +2799,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (getIsPathDirectory(path) || !path.isMediaFile()) {
             return
         }
+        val operationId = "delete-${android.os.SystemClock.elapsedRealtime()}"
+        if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                org.fossify.gallery.helpers.DiagnosticLevel.INFO, "MediaOperation", "delete_requested", operationId,
+                mapOf("count" to 1, "index" to mPos, "catalogCount" to getCurrentMedia().size,
+                    "mediaId" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(path),
+                    "progressive" to progressiveInternalViewer, "recycleBin" to config.useRecycleBin)
+            )
+        }
 
         // Bind the deletion to the page and ordering that the user confirmed.
         // A later SAF / Manage Media prompt may outlive the current pager page.
@@ -2814,9 +2836,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     if (it) {
                         tryDeleteFileDirItem(fileDirItem, false, false) { deleted ->
                             if (deleted) {
+                                if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                                    org.fossify.gallery.helpers.DiagnosticLevel.INFO, "MediaOperation", "delete_completed", operationId,
+                                    mapOf("success" to true, "catalogCount" to getCurrentMedia().size)
+                                )
                                 FolderContentRevision.changed()
                                 hideDeletedMedium(fileDirItem.path, deleteSnapshot, photoRevisionAlreadyChanged = true)
                             } else {
+                                if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                                    org.fossify.gallery.helpers.DiagnosticLevel.WARN, "MediaOperation", "delete_failed", operationId,
+                                    mapOf("success" to false)
+                                )
                                 refreshViewPager(true)
                             }
                         }
@@ -2827,11 +2857,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 }
             }
         } else {
-            handleDeletion(fileDirItem, deleteSnapshot)
+            handleDeletion(fileDirItem, deleteSnapshot, operationId)
         }
     }
 
-    private fun handleDeletion(fileDirItem: FileDirItem, deleteSnapshot: PhotoDeleteRecovery?) {
+    private fun handleDeletion(fileDirItem: FileDirItem, deleteSnapshot: PhotoDeleteRecovery?, operationId: String) {
         checkManageMediaOrHandleSAFDialogSdk30(fileDirItem.path) {
             if (!it) {
                 return@checkManageMediaOrHandleSAFDialogSdk30
@@ -2839,9 +2869,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
             tryDeleteFileDirItem(fileDirItem, false, true) { deleted ->
                 if (deleted) {
+                    if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                        org.fossify.gallery.helpers.DiagnosticLevel.INFO, "MediaOperation", "delete_completed", operationId,
+                        mapOf("success" to true, "catalogCount" to getCurrentMedia().size)
+                    )
                     FolderContentRevision.changed()
                     hideDeletedMedium(fileDirItem.path, deleteSnapshot)
                 } else {
+                    if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                        org.fossify.gallery.helpers.DiagnosticLevel.WARN, "MediaOperation", "delete_failed", operationId,
+                        mapOf("catalogCount" to getCurrentMedia().size)
+                    )
                     refreshViewPager(true)
                 }
             }
@@ -3781,6 +3819,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             }
             explicitUserNavigationPending = false
             mPos = position
+            if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
+                val selected = getCurrentMedia().getOrNull(position)
+                org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                    org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "Viewer", "viewer_page_bound",
+                    fields = mapOf(
+                        "index" to position, "count" to getCurrentMedia().size,
+                        "mediaId" to selected?.path?.let(org.fossify.gallery.helpers.GalleryDiagnosticLogger::anonymousId),
+                        "revision" to org.fossify.gallery.helpers.PhotoContentRevision.current(),
+                        "collection" to if (isPhotoProfile) "photo_profile" else if (mDirectory == SHOW_ALL) "all_media" else "folder"
+                    )
+                )
+            }
             updateActionbarTitle()
             if (swipePublicationGate.isMoving) pendingSwipeMenuRefresh = true
             else refreshMenuItems()

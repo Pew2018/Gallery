@@ -54,19 +54,26 @@ internal object FolderRefreshTrace {
     fun pathId(path: String): String = java.security.MessageDigest.getInstance("SHA-256")
         .digest(path.toByteArray()).take(8).joinToString("") { "%02x".format(it) }
     fun event(request: Long, stage: String, paths: Collection<String> = emptyList(), detail: String = "") {
-        if (!enabled) return
+        val persistentDiagnostics = GalleryDiagnosticLogger.isEnabled()
+        val persistentStage = stage !in setOf("enumerated", "type_passed", "metadata_passed")
+        if (!enabled && (!persistentDiagnostics || !persistentStage)) return
         val hash = targetPath?.let(::pathId) ?: targetHash
         val hit = hash.isNotEmpty() && paths.any { pathId(it) == hash }
         // Single-file stages identify the target without printing its private path.
         val id = if (paths.size == 1) pathId(paths.first()) else "-"
         val record = "t=${android.os.SystemClock.elapsedRealtime()} request=$request stage=$stage count=${paths.size} id=$id target=$hit $detail"
-        synchronized(records) { if (records.size >= 1500) records.removeFirst(); records.addLast(record) }
-        android.util.Log.d("GalleryFolderRefresh", record)
+        if (enabled) synchronized(records) { if (records.size >= 1500) records.removeFirst(); records.addLast(record) }
+        if (persistentDiagnostics && persistentStage) GalleryDiagnosticLogger.event(
+            if (stage.contains("fail", true) || stage.contains("error", true)) DiagnosticLevel.ERROR else DiagnosticLevel.INFO,
+            "FolderRefresh", stage, request,
+            mapOf("count" to paths.size, "anonymousId" to paths.singleOrNull()?.let(GalleryDiagnosticLogger::anonymousId), "targetMatch" to hit, "detail" to detail)
+        )
+        if (enabled) android.util.Log.d("GalleryFolderRefresh", record)
     }
     fun dump(): String = synchronized(records) { records.joinToString("\n") }
     fun clear() = synchronized(records) { records.clear() }
     inline fun <T> measure(request: Long, stage: String, block: () -> T): T {
-        if (!enabled) return block()
+        if (!enabled && !GalleryDiagnosticLogger.isEnabled()) return block()
         val start = android.os.SystemClock.elapsedRealtime()
         event(request, stage + "_start")
         return try { block() } finally {

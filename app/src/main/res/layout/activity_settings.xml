@@ -1088,6 +1088,19 @@
             </RelativeLayout>
 
             <RelativeLayout
+                android:id="@+id/settings_diagnostics_logs_holder"
+                style="@style/OxygenClassicSettingsSingleRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+                <org.fossify.commons.views.MyTextView
+                    android:id="@+id/settings_diagnostics_logs"
+                    style="@style/OxygenClassicSettingsPrimaryText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/diagnostics_logs" />
+            </RelativeLayout>
+
+            <RelativeLayout
                 android:id="@+id/settings_clear_cache_holder"
                 style="@style/OxygenClassicSettingsDetailsRow"
                 android:layout_width="match_parent"

@@ -2759,6 +2759,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             onDeleted(emptySet())
             return
         }
+        val diagnosticOperation = "grid-delete-${android.os.SystemClock.elapsedRealtime()}"
+        if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                org.fossify.gallery.helpers.DiagnosticLevel.INFO, "MediaOperation", "delete_requested", diagnosticOperation,
+                mapOf("count" to filtered.size, "catalogCount" to mMedia.count { it is Medium },
+                    "photoProfile" to isPhotoProfiles)
+            )
+        }
 
         val movingToRecycleBin = config.useRecycleBin && !skipRecycleBin &&
             !filtered.first().path.startsWith(recycleBinPath)
@@ -2772,8 +2780,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
             movePathsInRecycleBin(filtered.map { it.path } as ArrayList<String>) {
                 if (it) {
-                    deleteFilteredFiles(filtered, permanentDelete = false, onDeleted = onDeleted)
+                    deleteFilteredFiles(filtered, permanentDelete = false, diagnosticOperation = diagnosticOperation, onDeleted = onDeleted)
                 } else {
+                    if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                        org.fossify.gallery.helpers.DiagnosticLevel.WARN, "MediaOperation", "recycle_bin_move_failed", diagnosticOperation,
+                        mapOf("requested" to filtered.size)
+                    )
                     toast(org.fossify.commons.R.string.unknown_error_occurred)
                     onDeleted(emptySet())
                     runOnUiThread { if (!isFinishing && !isDestroyed) getMedia() }
@@ -2786,7 +2798,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 filtered.size
             )
             toast(deletingItems)
-            deleteFilteredFiles(filtered, permanentDelete = true, onDeleted = onDeleted)
+            deleteFilteredFiles(filtered, permanentDelete = true, diagnosticOperation = diagnosticOperation, onDeleted = onDeleted)
         }
     }
 
@@ -2797,6 +2809,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun deleteFilteredFiles(
         filtered: ArrayList<FileDirItem>,
         permanentDelete: Boolean,
+        diagnosticOperation: String,
         onDeleted: (Set<String>) -> Unit
     ) {
         val requestPath = mPath
@@ -2813,12 +2826,22 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     item.path.takeIf { sourceGone && (permanentDelete || recycledCopyExists) }
                 }
                 if (deletedPaths.isEmpty()) {
+                    if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                        org.fossify.gallery.helpers.DiagnosticLevel.WARN, "MediaOperation", "delete_failed", diagnosticOperation,
+                        mapOf("requested" to filtered.size)
+                    )
                     runOnUiThread {
                         toast(org.fossify.commons.R.string.unknown_error_occurred)
                         onDeleted(emptySet())
                     }
                     return@ensureBackgroundThread
                 }
+
+                if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                    org.fossify.gallery.helpers.DiagnosticLevel.INFO, "MediaOperation", "delete_completed", diagnosticOperation,
+                    mapOf("requested" to filtered.size, "completed" to deletedPaths.size,
+                        "permanent" to permanentDelete, "catalogCount" to mMedia.count { it is Medium })
+                )
 
                 if (permanentDelete) {
                     deletedPaths.forEach { mediaDB.deleteMediumPath(it) }

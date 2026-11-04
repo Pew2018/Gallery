@@ -32,6 +32,7 @@ class App : FossifyApp() {
 
     override fun onCreate() {
         super.onCreate()
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.initialize(this)
         // Resolve a rare interrupted restore on the backup worker, before accepting another restore.
         // Normal startup does not open/scan media or wait for backup I/O.
         org.fossify.gallery.helpers.backup.BackupOperationRunner.execute({

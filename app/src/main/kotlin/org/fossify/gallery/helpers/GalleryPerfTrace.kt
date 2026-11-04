@@ -15,12 +15,14 @@ internal object GalleryPerfTrace {
 
     fun event(name: String, count: Int? = null, revision: Long? = null) {
         val version = revision?.let { " revision=$it" }.orEmpty()
+        if (GalleryDiagnosticLogger.isEnabled()) GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "Performance", name, fields = mapOf("count" to count, "revision" to revision))
         if (enabled(name)) Log.d("GalleryPerf", "event=$name count=${count ?: -1}$version")
     }
 
     fun end(stage: String, startedNanos: Long, count: Int? = null) {
         if (startedNanos == 0L || !enabled(stage)) return
         val millis = (System.nanoTime() - startedNanos) / 1_000_000.0
+        if (GalleryDiagnosticLogger.isEnabled()) GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "Performance", stage, fields = mapOf("durationMs" to millis, "count" to count))
         Log.d("GalleryPerf", "stage=$stage ms=${"%.2f".format(java.util.Locale.US, millis)} count=${count ?: -1}")
     }
 }

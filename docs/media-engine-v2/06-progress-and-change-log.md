@@ -154,3 +154,9 @@
 - R05 `6aa62e3…` 的Run `41768645616`成功817/0/0/0及ARM64。但最终联合审计发现旧grid与新分段ordinal反向时，局部重排会与扩展方向冲突；以最小方向一致性检查在无法继承时回退权威排序并记录revision（用户允许的fallback）。20,501纯顺序及30,001实际分段窗口联合断言补齐；最终CI以随后源码为准。
 
 - R05 最终闭环：业务源码 `fa944261dccbf1e4ece4d012a344925c04240d3a`，Run [41769940653](https://github.com/Pew2018/Gallery/actions/runs/41769940653) completed/success；818/0/0/0，ARM64、apksigner v2、包名和仅arm64 ABI校验成功，APK artifact13294711899，测试报告13294875919。APK SHA-256 `ab7f927c5fa26e9354e2cc4629a5950f31eb9e6bbbbdd98f64c86ef58884a90a`。main及原fix最后核对均保持开始SHA。完整Git/历史Run/性能口径/四项结论/A01–A11矩阵见[12](12-seamless-viewer-order-scroll-sorting.md)末节；后续仅补验证文档。临时CI签名不保证覆盖安装；真机触控、解码、性能与系统权限矩阵仍待验。
+### 2026-11-04｜应用内诊断日志
+
+- 在 `fix/photo-viewer-five-item-boundary` 增加设置→高级→性能→诊断与日志，默认关闭，开启最长 24 小时；支持复制最近 250 KiB、ACTION_CREATE_DOCUMENT 导出 TXT、确认清空及只读状态。
+- 新增 app-private 单线程有界日志写入，约 5 MiB 循环文件、字段/堆栈路径隐私过滤、session-salted 媒体关联 ID、未捕获异常委托记录和 Android 11+ 退出原因摘要。保留既有 FolderRefreshTrace/ GalleryPerfTrace Logcat 行为；详细设计和限制见 [诊断功能说明](../diagnostics/app-diagnostics.md)。
+- 已接入扫描/刷新关键边界、GalleryPerfTrace 已有事件、Viewer 打开/页绑定/关闭和网格/全屏删除请求结果。未记录媒体路径、URI、文件名、照片内容或逐帧事件。
+- 本地测试尝试因 Gradle 9.5.1 distribution 网络不可达未启动；Actions 与 APK 结果待当前提交验证。没有真机验证，不能确认设备级崩溃覆盖或实际性能。

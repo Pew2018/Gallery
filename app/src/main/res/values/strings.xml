@@ -392,5 +392,25 @@
     <string name="export_filename_extension_error">Use a filename without an extension, or with %1$s. Remove any other extension.</string>
     <string name="photo_viewer_loading_more">Loading more photos…</string>
     <string name="photo_viewer_load_retry">Could not load more photos. Swipe again to retry.</string>
+    <string name="diagnostics_logs">Diagnostics &amp; Logs</string>
+    <string name="diagnostics_title">Diagnostics &amp; Logs</string>
+    <string name="diagnostics_enable">Enable debug logging</string>
+    <string name="diagnostics_enable_summary">Record media scanning, refresh, viewing and error events</string>
+    <string name="diagnostics_copy">Copy logs</string>
+    <string name="diagnostics_export">Export logs</string>
+    <string name="diagnostics_clear">Clear logs</string>
+    <string name="diagnostics_status_title">Log status</string>
+    <string name="diagnostics_status_on">Enabled (automatically turns off after 24 hours)</string>
+    <string name="diagnostics_status_off">Disabled</string>
+    <string name="diagnostics_status_details">Saved: %1$s · Last event: %2$s · Limit: 5 MB</string>
+    <string name="diagnostics_empty">There are no saved diagnostic logs.</string>
+    <string name="diagnostics_copied">Recent diagnostic logs copied.</string>
+    <string name="diagnostics_exported">Diagnostic log exported.</string>
+    <string name="diagnostics_export_failed">Could not export the diagnostic log.</string>
+    <string name="diagnostics_clear_confirm_title">Clear diagnostic logs?</string>
+    <string name="diagnostics_clear_confirm_message">This permanently deletes saved diagnostic records and crash summaries. Debug logging remains in its current state.</string>
+    <string name="diagnostics_cleared">Diagnostic logs cleared.</string>
+    <string name="diagnostics_save_name">Gallery-Diagnostics-%1$s.txt</string>
+    <string name="diagnostics_events_heading">--- Events ---</string>
 </resources>
 

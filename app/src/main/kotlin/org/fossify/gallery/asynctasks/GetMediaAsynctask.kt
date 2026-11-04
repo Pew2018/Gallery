@@ -51,6 +51,7 @@ internal class GetMediaAsynctask(
     private var scanFailure: Exception? = null
     private var folderFailures: Map<String, Exception> = emptyMap()
     private var profileResult: PhotoLoadResult? = null
+    private val diagnosticProfileStages = HashSet<String>()
     /** Non-null only when a public single-folder scan was stable at start and completion. */
     internal var folderCatalogCheckpoint: FolderReturnCheckpoint? = null
         private set
@@ -65,6 +66,7 @@ internal class GetMediaAsynctask(
             FolderUnlockSessionManager.isMediaAuthorized(folderSessionId, path, context.config::isFolderProtected)
     }
     override fun doInBackground(vararg params: Void): ArrayList<ThumbnailItem> {
+        FolderRefreshTrace.event(requestId, "scan_started", detail = "source=${if (photoProfileId != null) "photo_profile" else if (showAll) "all_media" else if (mPath == FAVORITES) "favorites" else "folder"}")
         FolderRefreshTrace.event(requestId, "worker_started")
         return try {
         val noMediaFolder = !showAll && mPath.startsWith('/') && photoProfileId == null &&
@@ -282,19 +284,37 @@ internal class GetMediaAsynctask(
 
     override fun onProgressUpdate(vararg values: PhotoLoadResult) {
         if (!isCancelled) values.forEach { result ->
-            if (result.context.isCurrent(context)) onPhotoResult?.invoke(result)
+            if (result.context.isCurrent(context)) {
+                if (GalleryDiagnosticLogger.isEnabled() && diagnosticProfileStages.add(result.stage.name)) GalleryDiagnosticLogger.event(
+                    DiagnosticLevel.INFO, "PhotoProfile", "scan_partial_published", requestId,
+                    mapOf("stage" to result.stage.name, "count" to result.media.size, "requestVersion" to result.context.revision)
+                )
+                onPhotoResult?.invoke(result)
+            }
         }
     }
 
     override fun onPostExecute(media: ArrayList<ThumbnailItem>) {
         super.onPostExecute(media)
-        if (isCancelled) return
+        if (isCancelled) {
+            FolderRefreshTrace.event(requestId, "scan_cancelled")
+            return
+        }
         val error = scanFailure ?: if (scanResult.state == GalleryScanState.FAILED)
             scanResult.cause ?: java.io.IOException("Media scan has no reliable source") else null
-        if (error != null) { onFailure(error); return }
+        if (error != null) {
+            FolderRefreshTrace.event(requestId, "scan_failed", detail = "type=${error.javaClass.simpleName}")
+            onFailure(error)
+            return
+        }
+        FolderRefreshTrace.event(requestId, "scan_completed", detail = "count=${media.size} state=${scanResult.state.name}")
         val result = profileResult
         if (result != null) {
-            if (!result.context.isCurrent(context)) { onFailure(PhotoLoadInvalidatedException()); return }
+            if (!result.context.isCurrent(context)) {
+                FolderRefreshTrace.event(requestId, "scan_failed", detail = "type=PhotoLoadInvalidatedException")
+                onFailure(PhotoLoadInvalidatedException())
+                return
+            }
             if (onPhotoResult != null) onPhotoResult.invoke(result) else callback(media)
         } else {
             if (folderFailures.isNotEmpty()) onPartialFailure(folderFailures)
@@ -325,6 +345,7 @@ internal class GetMediaAsynctask(
 
     fun stopFetching() {
         scanResult = GalleryScanResult(GalleryScanState.CANCELLED)
+        FolderRefreshTrace.event(requestId, "scan_cancelled", detail = "reason=stop_fetching")
         mediaFetcher.shouldStop = true
         cancel(true)
         delivery.removeCallbacksAndMessages(null)
