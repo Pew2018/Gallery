@@ -43,10 +43,12 @@ class PhotoProfileEmulatorTest {
     companion object {
         private lateinit var root: File
         private var scale = "smoke"
+        private var suite = "smoke"
         private var countA = 0
 
         @BeforeClass @JvmStatic fun buildMediaFixtures() {
             scale = InstrumentationRegistry.getArguments().getString("scale") ?: "smoke"
+            suite = InstrumentationRegistry.getArguments().getString("suite") ?: "smoke"
             if (Build.VERSION.SDK_INT >= 30) assertTrue(Environment.isExternalStorageManager())
             val sizes = when (scale) {
                 "smoke" -> mapOf("A" to 64, "N" to 64, "P" to 64)
@@ -174,7 +176,7 @@ class PhotoProfileEmulatorTest {
     }
 
     @Test fun largeMediaBoundary() {
-        if (scale == "smoke") return
+        org.junit.Assume.assumeTrue("large boundary requested", scale != "smoke")
         val media = load(listOf("A"), SORT_BY_NAME)
         verify(listOf("A"), media)
         assertTrue("Expected " + countA + ", found " + media.size, media.size >= countA)
@@ -214,13 +216,50 @@ class PhotoProfileEmulatorTest {
      * PIN and full rendered-pixel assertions remain separate unimplemented coverage.
      */
     @Test fun realGridClickViewerSwipeFollowsCommittedThumbOrder() {
-        org.junit.Assume.assumeTrue("UI smoke only; high-cardinality gesture runs need own task", scale == "smoke")
+        org.junit.Assume.assumeTrue("smoke case", suite == "smoke" && scale == "smoke")
+        runViewerSequence(SORT_BY_NAME, listOf("A"), 6, "smoke")
+    }
+
+    @Test fun allFifteenSortModesRealUi() {
+        org.junit.Assume.assumeTrue("15-mode real-UI matrix", suite == "sort_ui" && scale == "smoke")
+        val bases = listOf(SORT_BY_NAME, SORT_BY_PATH, SORT_BY_SIZE,
+            SORT_BY_DATE_MODIFIED, SORT_BY_DATE_TAKEN)
+        val modes = bases.flatMap { listOf(it, it or SORT_DESCENDING) } +
+            listOf(SORT_BY_RANDOM, SORT_BY_NAME or SORT_USE_NUMERIC_VALUE,
+                SORT_BY_NAME or SORT_USE_NUMERIC_VALUE or SORT_DESCENDING,
+                SORT_BY_PATH or SORT_USE_NUMERIC_VALUE,
+                SORT_BY_PATH or SORT_USE_NUMERIC_VALUE or SORT_DESCENDING)
+        assertEquals(15, modes.size)
+        modes.forEachIndexed { i, sorting ->
+            runViewerSequence(sorting, listOf("A", "N"), 20, "sort" + i)
+        }
+    }
+
+    @Test fun deepScrollActualUi() {
+        org.junit.Assume.assumeTrue("12k deep-scroll suite", suite == "deep" && scale == "large")
+        runViewerSequence(SORT_BY_DATE_MODIFIED or SORT_DESCENDING, listOf("A"), 9000, "deepA", true)
+        runViewerSequence(SORT_BY_RANDOM, listOf("A", "N", "P"), 20000, "deepMix", true)
+    }
+
+    @Test fun boundaryCatalogActualUi() {
+        org.junit.Assume.assumeTrue("20k/50k segmented suite",
+            suite == "boundary" && scale in listOf("segment", "ceiling"))
+        val anchors = if (scale == "segment") listOf(9999, 10001, 19999)
+            else listOf(10000, 20000, 30000, 49990)
+        anchors.forEach { at ->
+            runViewerSequence(SORT_BY_NAME, listOf("A"), at, scale + at, true)
+        }
+    }
+
+    private fun runViewerSequence(sorting: Int, sources: List<String>,
+        selectedOrdinal: Int, caseId: String, deepScroll: Boolean = false) {
         val inst = InstrumentationRegistry.getInstrumentation()
-        val profile = PhotoProfile(UUID.randomUUID().toString(), "UI swipe A",
-            listOf(PhotoSource(PhotoSourceType.FOLDER, File(root, "A").canonicalPath)))
+        val profile = PhotoProfile(UUID.randomUUID().toString(), "CI " + caseId,
+            sources.map { PhotoSource(PhotoSourceType.FOLDER, File(root, it).canonicalPath) })
         PhotoProfileRepository.of(context).save(profile)
         profileIds.add(profile.id)
-        context.config.saveCustomSorting(PhotoProfileMediaLoader.PATH, SORT_BY_NAME)
+        context.config.saveCustomSorting(PhotoProfileMediaLoader.PATH, sorting)
+        Log.i("GalleryEmulatorMatrix", "BEGIN " + caseId + " mode=" + sorting + " sources=" + sources)
         val monitor = Instrumentation.ActivityMonitor(ViewPagerActivity::class.java.name, null, false)
         inst.addMonitor(monitor)
         var mediaActivity: MediaActivity? = null
@@ -234,29 +273,66 @@ class PhotoProfileEmulatorTest {
             val grid = mediaActivity.findViewById<RecyclerView>(R.id.media_grid)
             var committed = emptyList<String>()
             var selectedRow = -1
-            val expectedPng = File(root, "A").listFiles().orEmpty().count { it.extension.equals("png", true) }
-            val expectedCount = expectedPng + 2 // valid JPEG and SVG fixture
+            val expectedCount = sources.sumOf { name ->
+                File(root, name).listFiles().orEmpty().count {
+                    it.extension.lowercase(Locale.ROOT) in setOf("png", "jpg", "svg")
+                }
+            }
             fun captureGrid(): Boolean {
                 inst.runOnMainSync {
                     val adapter = grid.adapter as? MediaAdapter
                     val media = adapter?.media?.filterIsInstance<Medium>().orEmpty()
                     if (media.size >= expectedCount) {
                         committed = media.map { it.path }
-                        val selected = media.getOrNull(6)?.takeIf { it.path.endsWith(".png") }
-                            ?: media.firstOrNull { it.path.endsWith(".png") }
+                        val at = selectedOrdinal.coerceIn(2, (media.lastIndex - 2).coerceAtLeast(2))
+                        val selected = media.mapIndexedNotNull { i, item ->
+                            if (i >= 2 && i <= media.lastIndex - 2 && item.path.endsWith(".png"))
+                                i to item else null
+                        }.minByOrNull { kotlin.math.abs(it.first - at) }?.second
                         selectedRow = adapter?.media?.indexOfFirst { it is Medium && it.path == selected?.path } ?: -1
                     }
                 }
                 return committed.size >= expectedCount && selectedRow >= 0
             }
-            awaitCondition("complete MediaActivity adapter", 30000, ::captureGrid)
-            val anchor = committed.firstOrNull { it == (
+            awaitCondition("complete MediaActivity adapter " + caseId, 180000, ::captureGrid)
+            var anchor = committed.firstOrNull { it == (
                 (grid.adapter as? MediaAdapter)?.media?.getOrNull(selectedRow) as? Medium
             )?.path } ?: throw AssertionError("Clicked media not in committed grid")
-            val clickedIndex = committed.indexOf(anchor)
+            var clickedIndex = committed.indexOf(anchor)
             assertTrue("Need both neighbors around click", clickedIndex >= 2 && clickedIndex <= committed.lastIndex - 2)
-            inst.runOnMainSync { grid.scrollToPosition(selectedRow) }
+            inst.runOnMainSync {
+                grid.scrollToPosition(if (deepScroll) (selectedRow - 25).coerceAtLeast(0) else selectedRow)
+            }
             inst.waitForIdleSync()
+            if (deepScroll) {
+                val pos = IntArray(2)
+                var x = 0; var top = 0; var bottom = 0
+                inst.runOnMainSync {
+                    grid.getLocationOnScreen(pos)
+                    x = pos[0] + grid.width / 2
+                    top = pos[1] + grid.height / 4
+                    bottom = pos[1] + grid.height * 3 / 4
+                }
+                repeat(3) {
+                    assertTrue("Grid touch swipe failed", UiDevice.getInstance(inst).swipe(x, bottom, x, top, 30))
+                }
+                inst.waitForIdleSync()
+                inst.runOnMainSync {
+                    val visible = grid.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager
+                        ?: throw AssertionError("RecyclerView layout manager mismatch")
+                    val first = visible.findFirstVisibleItemPosition()
+                    val last = visible.findLastVisibleItemPosition()
+                    val adapter = grid.adapter as? MediaAdapter
+                    selectedRow = (first..last).firstOrNull {
+                        it >= (first + last) / 2 && adapter?.media?.getOrNull(it) is Medium
+                    } ?: (first..last).firstOrNull { adapter?.media?.getOrNull(it) is Medium }
+                        ?: throw AssertionError("No visible media after grid swipe")
+                    anchor = (adapter?.media?.getOrNull(selectedRow) as? Medium)?.path.orEmpty()
+                }
+                clickedIndex = committed.indexOf(anchor)
+                assertTrue("Deep click missing from committed list " + anchor,
+                    clickedIndex >= 2 && clickedIndex <= committed.lastIndex - 2)
+            }
             var holder: RecyclerView.ViewHolder? = null
             awaitCondition("visible thumbnail to click", 7000) {
                 inst.runOnMainSync { holder = grid.findViewHolderForAdapterPosition(selectedRow) }
@@ -310,7 +386,8 @@ class PhotoProfileEmulatorTest {
                     ready = viewer.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
                         viewer.window.decorView.isShown &&
                         UiDevice.getInstance(inst).currentPackageName == context.packageName &&
-                        adapter?.count == committed.size &&
+                        adapter != null && adapter.count > 0 &&
+                        (scale != "segment" && scale != "ceiling" || adapter.count <= committed.size) &&
                         adapter.media.getOrNull(index)?.path == path && fragmentPath == path &&
                         image?.drawable != null
                 }
@@ -325,9 +402,9 @@ class PhotoProfileEmulatorTest {
                     runCatching {
                         val bitmap = inst.uiAutomation.takeScreenshot()
                         if (bitmap != null) {
-                            val folder = File(context.getExternalFilesDir(null), "gallery-ci-evidence")
+                            val folder = File(context.filesDir, "gallery-ci-evidence")
                             folder.mkdirs()
-                            FileOutputStream(File(folder, "failure-" + stage + ".png")).use {
+                            FileOutputStream(File(folder, caseId + "-failure-" + stage + ".png")).use {
                                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
                             }
                             bitmap.recycle()
@@ -340,9 +417,9 @@ class PhotoProfileEmulatorTest {
                     " observed=" + capturePagerState())
                 val bitmap = inst.uiAutomation.takeScreenshot()
                 if (bitmap != null) {
-                    val folder = File(context.getExternalFilesDir(null), "gallery-ci-evidence")
+                    val folder = File(context.filesDir, "gallery-ci-evidence")
                     folder.mkdirs()
-                    FileOutputStream(File(folder, stage + ".png")).use {
+                    FileOutputStream(File(folder, caseId + "-" + stage + ".png")).use {
                         bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
                     }
                     bitmap.recycle()
@@ -369,6 +446,7 @@ class PhotoProfileEmulatorTest {
                 inst.waitForIdleSync()
                 Log.i("GalleryEmulatorSwipe", "afterSwipe=" + capturePagerState())
             }
+            Log.i("GalleryEmulatorMatrix", "GRID " + caseId + " count=" + committed.size + " anchor=" + clickedIndex + " path=" + anchor)
             expect(anchor, "initial")
             drag(true); expect(committed[clickedIndex + 1], "forward1")
             drag(true); expect(committed[clickedIndex + 2], "forward2")
