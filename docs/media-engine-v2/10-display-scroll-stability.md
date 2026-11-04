@@ -68,8 +68,22 @@
 
 - 计划定向用例：`MediaAdapterStabilityTest`、`DirectoryAdapterRefreshTest`、`FavoritesScrollRestorerTest`、`GalleryRefreshRegressionTest`。
 - 本地 `./gradlew` 未能启动：wrapper 下载 Gradle 9.5.1 时环境返回 `java.net.SocketException: Network is unreachable`；未安装可用全局 Gradle，因此当前没有本地编译或测试结果。
-- GitHub Actions 与 ARM64 APK：代码提交后补录实际 Run、测试数、Artifact 与对应 SHA；未拿到结果前标记为待验证。
+- GitHub Actions Run #464 成功，见下表；完整测试和 ARM64 APK 均对应验证源 SHA `a8c1f45480179b030ccb248ba24ebc2098c98109`。
 - 真机无 ADB、模拟器、录屏或 Perfetto 设备可用，运行时测量待验。
+
+### Run #464 结果
+
+| 项目 | 结果 |
+|---|---|
+| Actions | [#464 / 41755685039](https://github.com/Pew2018/Gallery/actions/runs/41755685039)，成功 |
+| 源码 SHA | `a8c1f45480179b030ccb248ba24ebc2098c98109` |
+| 完整 FOSS Release 测试 | 796 项；失败 0、错误 0、跳过 0 |
+| ARM64 Release | assemble、apksigner、包名和 ABI 检查通过；仅 `arm64-v8a` |
+| APK Artifact | `gallery-foss-arm64-v8a-release`，ID `13287977148`，[下载 ZIP](https://api.github.com/repos/Pew2018/Gallery/actions/artifacts/13287977148/zip)；10,392,208 bytes |
+| APK SHA-256 | `e928b193eef55c32bed59b599477c3190f322c66635c50573bd6bec4ba3b2d34` |
+| 签名 | 使用临时 CI 签名，非仓库发布密钥；不能证明与现有正式安装版本签名兼容 |
+| 测试报告 Artifact | `backup-ui-test-reports`，ID `13287643559`，[下载 ZIP](https://api.github.com/repos/Pew2018/Gallery/actions/artifacts/13287643559/zip) |
+| 传输完整性 | 所有 13 个修改/新增文件 Blob SHA 与本地 Git Blob SHA 一致；提交前后 Git 文件树与本地一致 |
 
 ## 6. 安全与兼容检查
 

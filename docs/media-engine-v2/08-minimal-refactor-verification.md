@@ -109,7 +109,7 @@ Android 8、11、14、16 真机/模拟器、SAF/分区存储权限撤销、快�
 
 ## 9. 第三阶段：显示与锚点稳定性验证
 
-开始 SHA：`c9e2c693ddec0c9d430c7607d67c9f26345bd3c3`，分支 `fix/photo-viewer-five-item-boundary`。实施和测试范围见 [10-display-scroll-stability.md](10-display-scroll-stability.md)。
+开始 SHA：`c9e2c693ddec0c9d430c7607d67c9f26345bd3c3`；验证源码 SHA：`a8c1f45480179b030ccb248ba24ebc2098c98109`；分支 `fix/photo-viewer-five-item-boundary`。实施和测试范围见 [10-display-scroll-stability.md](10-display-scroll-stability.md)。
 
 ### 本地验证
 
@@ -117,9 +117,21 @@ Android 8、11、14、16 真机/模拟器、SAF/分区存储权限撤销、快�
 |---|---|
 | `./gradlew :app:testFossReleaseUnitTest --tests org.fossify.gallery.helpers.MediaAdapterStabilityTest --tests org.fossify.gallery.helpers.DirectoryAdapterRefreshTest --tests org.fossify.gallery.helpers.FavoritesScrollRestorerTest --tests org.fossify.gallery.helpers.GalleryRefreshRegressionTest --stacktrace` | Wrapper 下载 Gradle 9.5.1 时返回 `java.net.SocketException: Network is unreachable`；Gradle 未启动，测试未执行。 |
 | `git diff --check` | 通过。 |
-| UTF-8 与大文件结构核查 | MediaActivity、两个 Adapter 及修改 helper 均可按 UTF-8 读取；行数与括号/大括号配对正常，未发现大块删除。提交前 blob SHA 核验待记录。 |
+| UTF-8 与大文件结构核查 | MediaActivity、两个 Adapter 及修改 helper 均可按 UTF-8 读取；行数与括号/大括号配对正常，未发现大块删除。13 个修改/新增文件的 remote blob SHA 均与本地 `git hash-object` 一致，最终远程树 SHA 与本地源码树一致。 |
 
-### 新增可观测测试
+### GitHub Actions、ARM64 APK 与新增可观测测试
+
+| 项目 | Run #464 实际结果 |
+|---|---|
+| Actions | [41755685039](https://github.com/Pew2018/Gallery/actions/runs/41755685039)，成功；源 SHA `a8c1f45480179b030ccb248ba24ebc2098c98109` |
+| 完整 FOSS Release 测试 | 796 tests、0 failures、0 errors、0 skipped；工作流 `Verified JUnit totals` 汇总通过 |
+| ARM64 Release APK | `gallery-foss-arm64-v8a-release`，artifact ID `13287977148`，[下载 ZIP](https://api.github.com/repos/Pew2018/Gallery/actions/artifacts/13287977148/zip)，10,392,208 bytes |
+| APK 校验 | 签名验证、包名 `org.fossify.gallery`、native ABI `arm64-v8a only` 均通过；APK SHA-256 `e928b193eef55c32bed59b599477c3190f322c66635c50573bd6bec4ba3b2d34` |
+| 测试报告 | Artifact ID `13287643559`，[下载 ZIP](https://api.github.com/repos/Pew2018/Gallery/actions/artifacts/13287643559/zip) |
+| 签名模式 | 工作流未使用仓库发布密钥，使用一次性 CI 临时签名；APK 可用于安装测试，但不能视为与已安装正式签名版本兼容 |
+| 上传完整性 | 13 个修改/新增文件 remote blob SHA 与本地 `git hash-object` 均一致；远程树 SHA 与本地完整源码树均为 `bb7885cc18609f47c63282c0787963199b4aeef6` |
+
+新增可观测测试
 
 - MediaAdapter `ManualExecutor` 队列用于断言技术字段变化不进入 Diff；AdapterDataObserver 记录零行操作；另验证真实修改/顺序变化仍进入 Diff。
 - DirectoryAdapter 检查 id 变化零 Diff/通知、封面或数量变化仍进入 Diff。

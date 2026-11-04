@@ -2,7 +2,7 @@
 
 > 建立日期：2026-11-04  
 > 唯一分支：`fix/photo-viewer-five-item-boundary`  
-> **实施状态：阶段一、二已通过完整 FOSS Release 单测与 ARM64 Actions；第三阶段显示/锚点定点修改及测试已提交，Actions 待验证；真机验收未完成。**
+> **实施状态：阶段一、二、三均已通过完整 FOSS Release 单测与 ARM64 Actions；第三阶段真机验收及运行时指标尚未完成。**
 > 当前开发范围：[05-minimal-scan-sort-display-refactor.md](05-minimal-scan-sort-display-refactor.md)  
 > 本文为**实时工作台账**，每次处理该 fix 分支的任务必须补录；不以口头汇报替代仓库文档。
 
@@ -17,7 +17,7 @@
 | P2 排序与显示提交 | 阶段一排序精简、阶段二重复可见发布精简已由 Actions 验证 | 两处重复排序已移除；分类/照片配置同内容快照不再重复跨层发布 | 阶段一 Run #461 786 项、阶段二 Run #463 789 项均 0 失败/错误/跳过；真实动画、滚动与性能对照待设备测量 |
 | P3 全屏/权限/备份回归 | 自动化测试通过，真机未验收 | 代码未改 Viewer/授权/备份 | Actions 完整单测通过；设备权限矩阵、手势与真实升级/恢复未测 |
 | 单元测试 / 编译 / Actions（重构相关） | 阶段一、二均已通过 | Run 461、463 成功 | 阶段一 SHA `5a9d437…`：786 项；阶段二 SHA `0b709396…`：789 项；均 0 failures/errors/skipped，ARM64 artifact 已生成 |
-| 第三阶段显示/滚动锚点 | 实施完成，CI 待验证 | 媒体/目录技术 ID 无变化快照不排队 Diff；用户拖动取消过期恢复 | 详见 [10](10-display-scroll-stability.md)；本地 Gradle 因无法下载发行包未启动 |
+| 第三阶段显示/滚动锚点 | CI 已验证，真机待验 | 媒体/目录技术 ID 无变化快照不排队 Diff；用户拖动取消过期恢复 | Run #464：796 项测试 0 失败/错误/跳过；ARM64 artifact 已生成；详见 [10](10-display-scroll-stability.md) |
 | 主分支合并 | 未计划 | 不适用 | 禁止自行合并 `main` |
 | P1 扫描生命周期与渐进发布（第二阶段） | 已验证完成；真机待验 | 分类缓存失败继续扫描；分类快照及照片配置可见快照去重 | Run #463：789 项、0 失败/错误/跳过；ARM64 APK 已生成；详见 [09](09-refresh-publication-stability.md) |
 
@@ -115,11 +115,12 @@
 ### 2026-11-04｜R03 — 显示层稳定性与滚动锚点精简
 
 - **目标/验收编号**：第三阶段，A03/A04/A06/A07/A08；无变化快照不产生 Diff/通知，完整终态仍被处理，用户新拖动不得被过期恢复覆盖。
-- **分支与 SHA**：仅 `fix/photo-viewer-five-item-boundary`；审计起始远程 HEAD `c9e2c693ddec0c9d430c7607d67c9f26345bd3c3`。实现提交 SHA 与最终验证提交待 Git 历史回填。
+- **分支与 SHA**：仅 `fix/photo-viewer-five-item-boundary`；审计起始远程 HEAD `c9e2c693ddec0c9d430c7607d67c9f26345bd3c3`；实现及 Actions 验证 SHA `a8c1f45480179b030ccb248ba24ebc2098c98109`。
 - **静态证据**：MediaAdapter 原先仅 `incoming == media` 时避免 Diff，而 Diff 内容判断已排除 `id`、`gridPosition`、`mediaStoreId`，造成语义分叉；DirectoryPresentation/DirectoryAdapter 使用包含 Room `id` 的 data class equality；MediaActivity.publishMedia 对同内容仍增加搜索 generation、捕获滚动锚点和刷新菜单，随后 Adapter 入队；FavoritesScrollRestorer 的 pre-draw 恢复不监听拖动，收藏页恢复 current 条件不检查滚动状态。
 - **排除项/安全边界**：Adapter 构造才安排初始 `scheduleLayoutAnimation()`；现有 MyGridLayoutManager 原位修改；RecyclerView itemAnimator 已为 null。所有 adapter 清空调用为授权失效、来源/视图/排序/分组/搜索条件变化、空结果或访问错误等有语义场景，未作全局删除。照片配置 retain 继续要求 display key 与 PhotoContentRevision 相同；revision 变化仍立即清网格。COMPLETE 状态、媒体缓存写入、Viewer/收藏目录交接未跳过。
 - **修改文件**：`MediaUpdatePolicy.kt` 新增有序媒体/Section 可见内容比较；`MediaAdapter.kt` 同内容只换内部快照并执行 commit callback；`DirectoryPresentation.kt` 忽略不呈现的 Room id；`DirectoryAdapter.kt` 复用一致目录内容比较；`MediaActivity.kt` 仅在照片可见数据变化时增加搜索 generation、保存配置滚动锚点和更新媒体快捷菜单；`FavoritesScrollRestorer.kt` 新拖动清除旧 anchor，滚动中不执行旧恢复。详见 [10](10-display-scroll-stability.md)。
-- **测试**：新增媒体技术字段变化不排队 Diff/不发 Adapter observer、真实 metadata/order 变化仍入队；目录 id 变化无通知但 cover/count 变化会 Diff；滚动恢复排队后拖动撤销、滚动中刷新不保存 anchor。计划完整 Actions 覆盖所有测试。
+- **测试**：新增媒体技术字段变化不排队 Diff/不发 Adapter observer、真实 metadata/order 变化仍入队；目录 id 变化无通知但 cover/count 变化会 Diff；滚动恢复排队后拖动撤销、滚动中刷新不保存 anchor。完整 FOSS Release Actions 已覆盖所有测试并通过。
 - **本地验证**：定向命令尝试 `./gradlew :app:testFossReleaseUnitTest --tests ...`；Wrapper 下载 Gradle 9.5.1 时 `java.net.SocketException: Network is unreachable`，未启动测试。`git diff --check` 通过；修改的大文件 UTF-8、括号/大括号配对和 diff 删除范围已检查。
-- **Actions / APK / 真机**：提交后结果待补录。当前无真机、模拟器、Adapter 运行时 trace 或 Perfetto；动画、实际重绑数量、锚点像素偏移、fast scroller 同步仍待设备验证。
+- **Actions / APK**：Run [#464 / 41755685039](https://github.com/Pew2018/Gallery/actions/runs/41755685039) 成功；完整 FOSS Release 测试 796/0/0/0；ARM64 Release assemble、签名、包名、ABI 检查成功。Artifact `gallery-foss-arm64-v8a-release`，ID `13287977148`，SHA-256 `e928b193eef55c32bed59b599477c3190f322c66635c50573bd6bec4ba3b2d34`；工作流使用临时 CI 签名，因此不能用作覆盖安装的签名兼容性证明。测试报告 Artifact ID `13287643559`。13 个改动文件 GitHub blob SHA 均与本地 `git hash-object` 完全相同，最终远程树 SHA 与本地源码树一致。
+- **真机**：当前无真机、模拟器、Adapter 运行时 trace 或 Perfetto；动画、实际重绑数量、锚点像素偏移、fast scroller 同步仍待设备验证。
 - **后续建议**：优先在目标设备按 [10](10-display-scroll-stability.md) 采集刷新、拖动、惯性滑动和全屏返回数据。没有新增证据前不建议继续改写 Adapter 或媒体引擎。
