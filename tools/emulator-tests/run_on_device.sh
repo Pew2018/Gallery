@@ -6,6 +6,9 @@ APP="org.fossify.gallery.debug"
 capture() {
   adb logcat -d -v threadtime > "$OUT/logcat.txt" 2>&1 || true
   adb shell dumpsys meminfo "$APP" > "$OUT/meminfo.txt" 2>&1 || true
+  adb shell dumpsys window windows > "$OUT/window.txt" 2>&1 || true
+  adb shell dumpsys activity activities > "$OUT/activities.txt" 2>&1 || true
+  adb shell df -h /sdcard > "$OUT/storage.txt" 2>&1 || true
   # Android 14 may block shell from Android/data; the app is a debug build,
   # so run-as can still export synthetic test screenshots without relaxing security.
   mkdir -p "$OUT/viewer-evidence"
@@ -15,6 +18,7 @@ capture() {
   adb pull /sdcard/gallery-ci-final.png "$OUT/final.png" >/dev/null 2>&1 || true
 }
 trap capture EXIT
+printf "suite=%s\nscale=%s\nsha=%s\n" "${CI_SUITE:-smoke}" "${CI_MEDIA_SCALE:-smoke}" "${GITHUB_SHA:-unknown}" > "$OUT/inputs.txt"
 apk=$(find app/build/outputs/apk/foss/debug -maxdepth 1 -name '*.apk' -type f | head -n 1)
 test -n "$apk"
 adb install -r "$apk"
@@ -23,4 +27,5 @@ adb shell pm grant "$APP" android.permission.READ_MEDIA_IMAGES || true
 adb shell pm grant "$APP" android.permission.READ_MEDIA_VIDEO || true
 adb shell pm grant "$APP" android.permission.READ_EXTERNAL_STORAGE || true
 adb shell appops get "$APP" MANAGE_EXTERNAL_STORAGE > "$OUT/appops.txt"
-./gradlew :app:connectedFossDebugAndroidTest -PEMULATOR_TEST_BUILD_TYPE=debug "-Pandroid.testInstrumentationRunnerArguments.scale=$CI_MEDIA_SCALE" --stacktrace
+./gradlew :app:connectedFossDebugAndroidTest -PEMULATOR_TEST_BUILD_TYPE=debug "-Pandroid.testInstrumentationRunnerArguments.scale=$CI_MEDIA_SCALE" \
+  "-Pandroid.testInstrumentationRunnerArguments.suite=${CI_SUITE:-smoke}" --stacktrace
