@@ -3299,7 +3299,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     }.getOrDefault(false)) &&
                     (sourceDirectory != RECYCLE_BIN || medium.path.startsWith(recycleRoot))
             }
-            val candidates = searchedViewerMedia(visible)
+            val candidates = searchedViewerMedia(visible).toCollection(ArrayList())
             val targetIndex = org.fossify.gallery.helpers.ViewerDeletionNavigationPolicy.resolve(
                 recovery.previousMedia, candidates, recovery.deletedPath,
                 preferredUserPath ?: recovery.deletedPath,
