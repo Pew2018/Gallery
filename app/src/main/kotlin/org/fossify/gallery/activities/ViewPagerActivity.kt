@@ -222,6 +222,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var mPos = -1
     private var mShowAll = false
     private var lastVisitedPath: String? = null
+    private var lastUserNavigationForward: Boolean? = null
+    private var confirmedUserPagePath: String? = null
+    private var userNavigationEpoch = 0L
+    private var userSwipeInProgress = false
+    private var explicitUserNavigationPending = false
     private var photoDeleteGeneration = 0L
     private data class PhotoDeleteRecovery(
         val deletedPath: String,
@@ -229,6 +234,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val lastVisitedPath: String?,
         val previousPosition: Int,
         val orderedPaths: List<String>?,
+        val lastMoveForward: Boolean?,
+        val navigationEpoch: Long,
+        val recoveryAnchorPath: String? = null,
         val profileId: String?,
         val sessionId: String?,
         val generation: Long,
@@ -1145,6 +1153,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             // Do not consume a queued direction until the real adapter publication has caught up.
             if (activePagerAdapter?.media === media || activePagerAdapter?.media === displayed ||
                 (displayed.size == media.size && displayed.indices.all { displayed[it].path == media[it].path })) {
+                if (isPhotoProfile && destination != binding.viewPager.currentItem) {
+                    explicitUserNavigationPending = true
+                }
                 binding.viewPager.setCurrentItem(destination,
                     kotlin.math.abs(destination - binding.viewPager.currentItem) == 1 &&
                         org.fossify.gallery.helpers.OxygenClassicMotion.enabled(this))
@@ -2784,6 +2795,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             lastVisitedPath = lastVisitedPath,
             previousPosition = mPos,
             orderedPaths = viewerGridOrder?.toList(),
+            lastMoveForward = lastUserNavigationForward,
+            navigationEpoch = userNavigationEpoch,
             profileId = photoProfileId,
             sessionId = photoSessionId,
             generation = ++photoDeleteGeneration,
@@ -2942,8 +2955,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 it.sessionId == photoSessionId && it.generation == photoDeleteGeneration
         } ?: PhotoDeleteRecovery(
             deletedPath, mMediaFiles.toList(), lastVisitedPath, mPos,
-            viewerGridOrder?.toList(), photoProfileId, photoSessionId,
-            ++photoDeleteGeneration, org.fossify.gallery.helpers.PhotoContentRevision.current()
+            viewerGridOrder?.toList(), lastUserNavigationForward, userNavigationEpoch,
+            profileId = photoProfileId, sessionId = photoSessionId,
+            generation = ++photoDeleteGeneration,
+            revision = org.fossify.gallery.helpers.PhotoContentRevision.current()
         )
         // Block catalog listeners before the content-revision invalidation can
         // queue an ordinary publication against the soon-to-be stale page.
@@ -2954,7 +2969,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             org.fossify.gallery.helpers.PhotoContentRevision.changed()
         }
         invalidatePhotoCatalogForRequery()
-        photoDeleteRecovery = base.copy(revision = revision)
+        val anchor = org.fossify.gallery.helpers.ViewerDeletionNavigationPolicy.recoveryAnchor(
+            base.previousMedia, deletedPath, base.lastVisitedPath, base.previousPosition,
+            base.orderedPaths, base.lastMoveForward
+        )
+        photoDeleteRecovery = base.copy(revision = revision, recoveryAnchorPath = anchor)
+        // The producer's old focus can point at the just-deleted file. Replace it
+        // before the next staged scan reads focusPath() for filesystem batches.
+        org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.focus(
+            photoProfileId, photoSessionId, anchor.orEmpty())
         viewerLoading.setLoading(true)
         // Keep the existing Fragment attached and let the existing staged loader
         // produce the replacement. No empty/local-only list is published first.
@@ -3069,7 +3092,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 favoriteSessionId = if (isFavoriteRequest) favoriteSessionId else null,
                 photoProfileId = photoProfileId,
                 photoSessionId = photoSessionId,
-                photoAnchorPath = getCurrentPath(),
+                photoAnchorPath = if (isPhotoProfile && photoDeleteRecovery != null)
+                    photoDeleteRecovery?.recoveryAnchorPath else getCurrentPath(),
                 onPhotoResult = { result -> if (isPhotoProfile && request == viewerLoadGeneration) {
                     if (photoDeleteRecovery != null) recoverPhotoDeletionFromLoadResult(result)
                     else {
@@ -3118,14 +3142,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             finish()
             return
         }
-        if (result.access.needsUnlock) {
+        if (result.access.needsUnlock && result.media.isEmpty()) {
+            // Mixed profiles can still publish separately validated public pages.
+            // Only an entirely inaccessible result must wait for authorization.
             viewerLoading.setLoading(false)
-            showErrorToast(SecurityException("Photo source authorization is required"))
             return
         }
 
         val app = applicationContext
-        val livePathAtStart = preferredCurrentPath ?: getCurrentPath()
+        val confirmedAfterDelete = org.fossify.gallery.helpers.ViewerDeletionNavigationPolicy.postDeleteUserPath(
+            recovery.deletedPath, recovery.navigationEpoch, userNavigationEpoch, confirmedUserPagePath)
+        val livePathAtStart = preferredCurrentPath ?: confirmedAfterDelete ?: recovery.deletedPath
         val query = viewerSearchQuery.orEmpty()
         val pathOrder = recovery.orderedPaths ?: viewerGridOrder
         val candidate = result.media
@@ -3137,14 +3164,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 val scopedCandidate = candidate.filter { it.path != recovery.deletedPath && it.path !in ignoredPaths }
                 val candidatePaths = scopedCandidate.mapTo(HashSet(scopedCandidate.size)) { it.path }
                 val searchable = org.fossify.gallery.helpers.ViewerSearchPolicy.filter(scopedCandidate, query)
-                val allowFallback = result.stage == org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE
                 val targetIndex = org.fossify.gallery.helpers.ViewerDeletionNavigationPolicy.resolve(
                     recovery.previousMedia, searchable, recovery.deletedPath, livePathAtStart,
-                    lastVisitedPath ?: recovery.lastVisitedPath, recovery.previousPosition,
-                    pathOrder, allowFallback
+                    recovery.lastVisitedPath, recovery.previousPosition,
+                    pathOrder, recovery.lastMoveForward
                 )
                 if (targetIndex == null) {
-                    if (result.stage == org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE && searchable.isEmpty()) {
+                    if (result.stage == org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE &&
+                        !result.access.needsUnlock) {
+                        // A complete catalog with no provably nearby page must
+                        // close safely, never jump to an arbitrary first row.
+                        org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_delete_no_trusted_neighbor",
+                            searchable.size)
                         runOnUiThread {
                             if (photoDeleteRecovery?.generation == recovery.generation && !isFinishing && !isDestroyed) {
                                 photoDeleteRecovery = null
@@ -3160,7 +3191,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 val catalog = org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.latest(
                     app, recovery.profileId, recovery.sessionId, targetPath
                 )
-                val rawWindow = catalog?.media?.filter { it.path != recovery.deletedPath && it.path !in mIgnoredPaths }
+                val rawWindow = catalog?.media
+                    ?.takeIf { window -> window.any { it.path == targetPath } }
+                    ?.filter { it.path != recovery.deletedPath && it.path !in ignoredPaths }
                     ?: run {
                         val start = (targetIndex - org.fossify.gallery.helpers.ViewerNeighborWindow.NEIGHBOR_RADIUS).coerceAtLeast(0)
                         val end = (targetIndex + org.fossify.gallery.helpers.ViewerNeighborWindow.NEIGHBOR_RADIUS + 1)
@@ -3174,8 +3207,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 ) { it.path }
                 val selectedIndex = org.fossify.gallery.helpers.ViewerDeletionNavigationPolicy.resolve(
                     recovery.previousMedia, orderedWindow, recovery.deletedPath, livePathAtStart,
-                    lastVisitedPath ?: recovery.lastVisitedPath, recovery.previousPosition,
-                    pathOrder, allowFallback
+                    recovery.lastVisitedPath, recovery.previousPosition,
+                    pathOrder, recovery.lastMoveForward
                 ) ?: orderedWindow.indexOfFirst { it.path == targetPath }.takeIf { it >= 0 }
                 if (selectedIndex == null || orderedWindow.isEmpty()) return@submit
                 val selectedPath = orderedWindow[selectedIndex].path
@@ -3200,15 +3233,19 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         closeUnauthorizedFavorites()
                         return@runOnUiThread
                     }
-                    val livePath = getCurrentPath()
-                    if (livePath != recovery.deletedPath && livePath != selectedPath &&
-                        livePath in candidatePaths && safe.media.none { it.path == livePath }) {
-                        // The user moved while validation was running. Validate that
-                        // live page rather than pulling them back to an older target.
-                        recoverPhotoDeletionFromLoadResult(result, livePath)
+                    val userPath = org.fossify.gallery.helpers.ViewerDeletionNavigationPolicy.postDeleteUserPath(
+                        recovery.deletedPath, recovery.navigationEpoch, userNavigationEpoch,
+                        confirmedUserPagePath)
+                    if (userPath != null && userPath != selectedPath &&
+                        userPath in candidatePaths && safe.media.none { it.path == userPath }) {
+                        // A real newer gesture wins, but must receive its own
+                        // validated page window before the pager can move there.
+                        recoverPhotoDeletionFromLoadResult(result, userPath)
                         return@runOnUiThread
                     }
-                    val chosenPath = livePath.takeIf { path -> safe.media.any { it.path == path } } ?: selectedPath
+                    val chosenPath = userPath?.takeIf { path ->
+                        safe.media.any { it.path == path }
+                    } ?: selectedPath
                     if (safe.media.none { it.path == chosenPath }) return@runOnUiThread
                     photoCatalogMode = true
                     photoCatalogRevision = recovery.revision
@@ -3495,12 +3532,16 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     override fun goToPrevItem() {
         if (binding.viewPager.currentItem == 0 && requestViewerBoundary(false)) return
+        if (isPhotoProfile && binding.viewPager.currentItem > 0) explicitUserNavigationPending = true
         binding.viewPager.setCurrentItem(binding.viewPager.currentItem - 1, org.fossify.gallery.helpers.OxygenClassicMotion.enabled(this))
         checkOrientation()
     }
 
     override fun goToNextItem() {
         if (binding.viewPager.currentItem == getCurrentMedia().lastIndex && requestViewerBoundary(true)) return
+        if (isPhotoProfile && binding.viewPager.currentItem < getCurrentMedia().lastIndex) {
+            explicitUserNavigationPending = true
+        }
         binding.viewPager.setCurrentItem(binding.viewPager.currentItem + 1, org.fossify.gallery.helpers.OxygenClassicMotion.enabled(this))
         checkOrientation()
     }
@@ -3729,9 +3770,16 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (mPos != position) {
             val previousPath = getCurrentMedia().getOrNull(mPos)?.path
             val selectedPath = getCurrentMedia().getOrNull(position)?.path
-            if (isPhotoProfile && previousPath != null && previousPath != selectedPath) {
+            if (isPhotoProfile && previousPath != null && selectedPath != null &&
+                previousPath != selectedPath && (userSwipeInProgress || explicitUserNavigationPending)) {
+                // Catalog replacement temporarily remaps integer positions. Only
+                // real gestures / explicit navigation may change deletion history.
                 lastVisitedPath = previousPath
+                lastUserNavigationForward = position > mPos
+                confirmedUserPagePath = selectedPath
+                userNavigationEpoch++
             }
+            explicitUserNavigationPending = false
             mPos = position
             updateActionbarTitle()
             if (swipePublicationGate.isMoving) pendingSwipeMenuRefresh = true
@@ -3742,12 +3790,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     override fun onPageScrollStateChanged(state: Int) {
         if (state == ViewPager.SCROLL_STATE_DRAGGING) {
+            userSwipeInProgress = true
             swipePageOrigin = binding.viewPager.currentItem
             swipePrefetchTarget = -1
         }
         val wasMoving = swipePublicationGate.isMoving
         val ready = swipePublicationGate.onScrollMoving(state != ViewPager.SCROLL_STATE_IDLE)
         if (state != ViewPager.SCROLL_STATE_IDLE) return
+        userSwipeInProgress = false
         swipePageOrigin = -1
         swipePrefetchTarget = -1
         // Last-wins catalog reconciliation occurs after the natural ViewPager
@@ -3770,6 +3820,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (requestedDirection != null) {
             val target = binding.viewPager.currentItem + if (requestedDirection) 1 else -1
             if (target in 0 until (binding.viewPager.adapter?.count ?: 0)) {
+                if (isPhotoProfile) explicitUserNavigationPending = true
                 binding.viewPager.setCurrentItem(
                     target, org.fossify.gallery.helpers.OxygenClassicMotion.enabled(this))
                 return

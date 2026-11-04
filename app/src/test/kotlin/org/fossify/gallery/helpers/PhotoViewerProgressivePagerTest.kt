@@ -127,7 +127,7 @@ class PhotoViewerProgressivePagerTest {
             val surviving = ordered.filterNot { it.path == clicked.path }
             val targetIndex = ViewerDeletionNavigationPolicy.resolve(
                 listOf(clicked), surviving, clicked.path, clicked.path, null, 0,
-                ordered.map { it.path }, allowFirstFreshFallback = true
+                ordered.map { it.path }
             )!!
             assertEquals(ordered[1].path, surviving[targetIndex].path)
             allowed.clear()
