@@ -139,3 +139,8 @@ Android 8、11、14、16 真机/模拟器、SAF/分区存储权限撤销、快�
 - 完整 FOSS Release 测试汇总、ARM64 Release 编译、签名/包名/ABI 检查、Artifact 与源 SHA：提交后从 Actions 回填。
 
 真机/模拟器、录屏、Perfetto、实际 Adapter 绑定计数和像素锚点偏移均未采集。Actions 成功只能证明编译与自动化用例，不等于设备视觉验收。
+
+
+## 10. 四项集中修复验证
+
+源码 `8bc6c617e2756cd5dd3c1e51ae4a1b9a3e9e2826`；Run [41760914157](https://github.com/Pew2018/Gallery/actions/runs/41760914157) 成功。完整 `:app:testFossReleaseUnitTest`：803/0/0/0；`:app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a` 成功，签名/包名/ABI 校验和 APK 上传成功。Artifact `gallery-foss-arm64-v8a-release` ID `13290472340`，APK SHA-256 `a020cc1a128133b3060a7793e87c2d1d0d8da9d7732d36f90d06eb0d7248d579`；测试报告 ID `13289949744`。首轮新测试漏导入 runner 的编译失败和最小修正，以及逐项验收/设备边界详见 [11](11-favorites-viewer-sorting-fixes.md)。临时 CI 签名不保证覆盖安装。无 Frame Timeline/FPS 或真实媒体解码/播放性能数据。

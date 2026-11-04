@@ -132,3 +132,6 @@
 - F：收藏扫描在首次发布之前；首次布局单项提交可取消先到完整目录；相同 COMPLETE 重复提交；渐进目录绕过排序。已定点修复，保留原 scanner/store/coordinator/Adapter，没有新增通用框架。
 - 本地 diff 检查通过；Gradle distribution 网络不可达，测试未启动。完整单测与 ARM64 Actions 待提交后验证；无设备帧数据，不宣称流畅度或用户真机故障已经完全验收。
 - R04 首次 CI：Run `41760580210` 已完成业务 Kotlin 编译，但新增 `PhotoViewerInitializationTest` 漏导入 `RobolectricTestRunner`，在测试源码编译失败，单测未运行、无 APK。追加最小测试导入修复；不删除断言，随后重跑完整 CI。
+
+- R04 最终验证：源码 `8bc6c617e2756cd5dd3c1e51ae4a1b9a3e9e2826`；Run [41760914157](https://github.com/Pew2018/Gallery/actions/runs/41760914157) 全部成功。803 tests / 0 failures / 0 errors / 0 skipped；ARM64 Release assemble、包名/签名/ABI 检查通过，APK artifact `gallery-foss-arm64-v8a-release` ID `13290472340`，测试报告 ID `13289949744`。APK SHA-256 `a020cc1a128133b3060a7793e87c2d1d0d8da9d7732d36f90d06eb0d7248d579`。临时 CI 签名，非覆盖安装兼容证明。所有测试断言保留。
+- R04 交付状态：收藏首屏和排序已修复且自动化验证通过；Viewer 目录交接与无效更新代码完成、自动化通过，真机手势/缩放/视频播放和性能仍待验。详细逐项结论与完整产物链接见 11。本次闭环仅补验证文档，不触发额外 APK，不改变已验证业务源码。

@@ -49,4 +49,37 @@
 
 代码路径上，收藏首屏不再等待 N 次目录媒体扫描；首屏前仍需必要数据库和可见性检查。目录重复通知/Fragment 创建次数由自动化观察断言验证，不能换算成设备帧率。GalleryPerfTrace 的 viewer_catalog_upgrade、viewer_adapter_publish、viewer_main_thread_publish、viewer_page_window_validation、viewer_catalog_deferred_during_swipe、viewer_fragment_created/destroyed 保留供设备采样。
 
-四项当前均为“代码完成，CI 待验证，真机待验”。最终交付应附源码 SHA、真实 Run、完整测试数、APK artifact；未取得结果前不改写为完全修复。Android 8/11/14/16、SAF/所有文件、受保护源撤权、真实图片缩放/视频播放、.nomedia 新增文件、删除/移动/重命名返回、搜索/多选、深浅主题仍需要设备矩阵验收。
+四项代码与自动化验证已完成；真实触控、解码、播放与权限矩阵仍待真机验收。Android 8/11/14/16、SAF/所有文件、受保护源撤权、真实图片缩放/视频播放、.nomedia 新增文件、删除/移动/重命名返回、搜索/多选、深浅主题仍需要设备矩阵验收。
+
+
+## 最终 Actions 与提交
+
+| 项目 | 实际结果 |
+|---|---|
+| 起始 HEAD | `c6da3c5cfd7c30e3635f625bc644a837badb8018` |
+| 主要提交 | `0187ef4f6eab070386d7bf953131604d5fd089d1` |
+| 最终验证源码 SHA | `8bc6c617e2756cd5dd3c1e51ae4a1b9a3e9e2826`，仅补测试 runner 导入；本报告闭环提交无业务代码变更 |
+| 分支 | [fix/photo-viewer-five-item-boundary](https://github.com/Pew2018/Gallery/tree/fix/photo-viewer-five-item-boundary) |
+| Actions | [41760914157](https://github.com/Pew2018/Gallery/actions/runs/41760914157)，完整 job 成功 |
+| `:app:testFossReleaseUnitTest` | 803 tests、0 failures、0 errors、0 skipped，工作流 `Verified JUnit totals` 日志确认 |
+| ARM64 Release | `:app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a` 成功 |
+| APK 校验 | 包名 `org.fossify.gallery`，版本 1.14.1/32，v2 签名校验成功，native ABI 仅 arm64-v8a |
+| APK Artifact | [gallery-foss-arm64-v8a-release](https://github.com/Pew2018/Gallery/actions/runs/41760914157/artifacts/13290472340)，ID 13290472340，ZIP 10,393,100 bytes |
+| APK SHA-256 | `a020cc1a128133b3060a7793e87c2d1d0d8da9d7732d36f90d06eb0d7248d579` |
+| 测试报告 | [backup-ui-test-reports](https://github.com/Pew2018/Gallery/actions/runs/41760914157/artifacts/13289949744)，ID 13289949744 |
+| 签名方式 | 原有工作流自动使用 temporary-CI-not-upgrade-compatible；未修改签名配置/密钥，不能保证覆盖现有安装 |
+| 首次失败 | [41760580210](https://github.com/Pew2018/Gallery/actions/runs/41760580210)：业务 Kotlin 编译成功；新测试漏导入 runner，测试源码编译失败。最小补交修复后完整重跑成功；未删除断言。 |
+| 源码完整性 | 主提交 15 个文件 Blob SHA 全部匹配本地；主树 `cedcf87cda671fc43d0f75d3920d3ffeba9bc1c8`；验证源码树 `35b23b65e33ef3fb13094936a05a02d9f6bee860` 与本地一致 |
+
+## 四项最终验收
+
+| 问题 | 自动化证据与行为区别 | 结论与真机边界 |
+|---|---|---|
+| 收藏先显示清单 | 查询阻塞期间真实 MainActivity 已显示安全卡片，后台回填到同一 Adapter；隐藏项过滤，离线关系保留，统计中改排序不被旧结果覆盖 | **已修复且自动化验证通过**；大目录首次可见时延、SAF/外置存储/保护授权仍需真机 |
+| 扫描中 Viewer 减少无效更新 | 相同值目录连续提交 8 次，Adapter 通知 0 次，额外 Fragment 创建 0 次，当前 Fragment 实例保留；相同 partial 连续 6 次不通知/不重建；COMPLETE 仍通知 | **代码修复完成但需要真机验证**；自动化行为断言通过，不能据此宣称果冻感/FPS 改善，未运行 Frame Timeline |
+| COMPLETE 后双向导航 | 首次布局回调不再取消先到完整目录；真实 Pager/Adapter/FragmentManager 混合照片/视频元数据双向超过五项；原 partial→complete、20,501 分段扩展、真边界、授权 TTL/撤销用例全部通过 | **代码修复完成但需要真机验证**；测试页替代真实 PhotoFragment/VideoFragment 解码/播放器，完整生产 Activity 手势链、图片缩放和视频播放仍待设备 |
+| 主页/收藏排序一致 | 名称/路径/日期/大小/数量升降序、数字名称与独立媒体排序测试通过；原随机 rank/自定义/置顶实现保持，真实收藏 Activity 中新排序胜过阻塞旧任务 | **已修复且自动化验证通过**；真实长列表重排锚点与各样式观感待设备 |
+
+本环境没有 Android 设备/模拟器，未取得 viewer_catalog_upgrade、viewer_adapter_publish、viewer_main_thread_publish 等设备端 Trace 时间序列，未测扫描与解码 CPU/IO 占用及实际帧耗时。上述 8 次/6 次是自动化场景的计数，不能视为用户图库运行时基准。原有 .nomedia、多来源/虚拟收藏、普通媒体、授权、备份及显示稳定性回归已包含在 803 项套件中；真实系统权限与文件操作仍按设备矩阵复核。
+
+开发记录还修改了 `docs/media-engine-v2/06-progress-and-change-log.md`、`08-minimal-refactor-verification.md`、`README.md` 和本文；全部只在目标 fix 分支，未新建分支/PR、未合并 main。
