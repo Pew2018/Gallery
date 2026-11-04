@@ -27,6 +27,21 @@ class ViewerGridOrderPolicyTest {
                 random = false) { it })
     }
 
+    @Test fun partialCatalogDoesNotCompressUnknownGapsAroundTheSelectedPhoto() {
+        val grid = listOf("a", "b", "c", "d", "e", "f")
+        val loaded = listOf("a", "b", "c", "f").map { it }
+        assertEquals(listOf("a", "b", "c"),
+            ViewerGridOrderPolicy.contiguousPartial(grid, loaded, "b") { it })
+        assertEquals(listOf("f"), ViewerGridOrderPolicy.contiguousPartial(grid, loaded, "f") { it })
+    }
+
+    @Test fun partialCatalogUsesOnlyFreshMembersAndKeepsTheLiveAnchor() {
+        val grid = listOf("a", "b", "c", "d", "e")
+        val loaded = listOf("d", "b", "c", "e")
+        assertEquals(listOf("b", "c", "d", "e"),
+            ViewerGridOrderPolicy.contiguousPartial(grid, loaded, "c") { it })
+    }
+
     @Test fun missedSnapshotStillKeepsProgressiveRandomWindow() {
         assertEquals(listOf("b", "a", "c"),
             ViewerGridOrderPolicy.reconcile(null, listOf("b", "a"),

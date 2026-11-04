@@ -43,6 +43,26 @@ internal object ViewerGridOrderStore {
 
 /** Reorder freshly validated media only; removed or unauthorized files never reappear. */
 internal object ViewerGridOrderPolicy {
+    /**
+     * A partial scan is not proof that omitted paths were deleted. Publish only
+     * the contiguous known run around the live anchor; the omitted path remains
+     * a navigation boundary until a complete source snapshot can classify it.
+     */
+    fun <T> contiguousPartial(
+        gridOrder: List<String>?, fresh: List<T>, anchor: String, path: (T) -> String
+    ): List<T> {
+        if (gridOrder == null || fresh.isEmpty()) return fresh
+        val byPath = LinkedHashMap<String, T>(fresh.size)
+        fresh.forEach { byPath.putIfAbsent(path(it), it) }
+        val anchorIndex = gridOrder.indexOf(anchor)
+        if (anchorIndex < 0 || anchor !in byPath) return reconcile(gridOrder, emptyList(), fresh, false, path)
+        var first = anchorIndex
+        var last = anchorIndex
+        while (first > 0 && gridOrder[first - 1] in byPath) first--
+        while (last < gridOrder.lastIndex && gridOrder[last + 1] in byPath) last++
+        return gridOrder.subList(first, last + 1).mapNotNull(byPath::get)
+    }
+
     /** Only called after a successful, authorized file rename. Still grants no access. */
     fun renamed(order: List<String>?, oldPath: String, newPath: String): List<String>? =
         order?.map { if (it == oldPath) newPath else it }?.distinct()
