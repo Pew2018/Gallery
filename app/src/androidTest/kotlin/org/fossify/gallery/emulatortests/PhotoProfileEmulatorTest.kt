@@ -62,6 +62,23 @@ class PhotoProfileEmulatorTest {
             countA = sizes.getValue("A")
             root = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "GalleryCI")
 
+            // Shell can stage host-generated files in app-private storage but
+            // cannot write shared media directories on current Android images.
+            // Copy from the app context, which owns the MANAGE_EXTERNAL_STORAGE grant.
+            val staging = File(
+                InstrumentationRegistry.getInstrumentation().targetContext.filesDir,
+                "gallery-ci-import"
+            )
+            val stagedMedia = File(staging, "GalleryCI")
+            if (stagedMedia.isDirectory) {
+                assertTrue("Could not copy staged media into Pictures",
+                    stagedMedia.copyRecursively(root, overwrite = true))
+                stagedMedia.walkTopDown().filter { it.isFile }.forEach { source ->
+                    File(root, source.relativeTo(stagedMedia).path).setLastModified(source.lastModified())
+                }
+                staging.deleteRecursively()
+            }
+
             // GitHub Actions may bulk-extract host-created, valid, uniquely
             // encoded PNG fixtures. Avoid 50k individual PNG compressions on
             // the emulator; still assert exact counts and add JPEG/SVG media.

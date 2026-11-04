@@ -42,10 +42,12 @@ adb shell appops get "$APP" MANAGE_EXTERNAL_STORAGE > "$OUT/appops.txt"
 # Stage the archive in shell-owned /data/local/tmp, then extract as the app uid.
 adb shell mkdir -p /sdcard/Pictures
 adb push "$RUNNER_TEMP/gallery-ci-media.tar" /data/local/tmp/gallery-ci-media.tar
-# Extract as the app uid: the emulator's shell cannot write into shared media
-# storage, while the debug app has MANAGE_EXTERNAL_STORAGE for these fixtures.
-adb shell run-as "$APP" tar -xof /data/local/tmp/gallery-ci-media.tar -C /sdcard/Pictures
+# The app uid can extract into its private files directory. Instrumentation then
+# copies the fixture into shared Pictures through the app's all-files permission.
+STAGING="/data/user/0/$APP/files/gallery-ci-import"
+adb shell run-as "$APP" mkdir -p "$STAGING"
+adb shell run-as "$APP" tar -xof /data/local/tmp/gallery-ci-media.tar -C "$STAGING"
 adb shell rm /data/local/tmp/gallery-ci-media.tar
-adb shell "find /sdcard/Pictures/GalleryCI -type f | wc -l" > "$OUT/fixture-file-count.txt"
+adb shell run-as "$APP" sh -c "find '$STAGING/GalleryCI' -type f | wc -l" > "$OUT/fixture-file-count.txt"
 ./gradlew :app:connectedFossDebugAndroidTest -PEMULATOR_TEST_BUILD_TYPE=debug "-Pandroid.testInstrumentationRunnerArguments.scale=$CI_MEDIA_SCALE" \
   "-Pandroid.testInstrumentationRunnerArguments.suite=${CI_SUITE:-smoke}" --stacktrace
