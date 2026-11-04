@@ -62,3 +62,12 @@
 | A08 | 原增量扫描保留，Adapter同值跳过/滚动延期保留 | 真机锚点像素/实际提交次数 |
 | A09–10 | 原授权、媒体读取与显示/备份回归套件保留 | 系统权限撤销/SAF真实设备 |
 | A11 | 待本轮完整Actions验证 | 实际成功Run及APK |
+
+
+## 首轮 CI 及最小补修
+
+Run [41766932465](https://github.com/Pew2018/Gallery/actions/runs/41766932465)，源码 `dc7fafa7723e2da45a3cb2d4abbd9adff974b82e`：业务 Kotlin 编译通过；新多来源测试 `Favorite` 构造漏传四字段，测试源码编译失败，单测未启动、无 APK。仅修正该构造，并完善同轮遗漏：分段LRU用例改用3,000附近窗口、跨多个segment后再次淘汰再反向扩展；`PhotoViewerInitializationTest` 直接驱动生产 MediaActivity 的发布入口，确认滚动期间mMedia/Adapter未变化、COMPLETE替代pending、晚到INDEXED拒绝、revision变化后pending不可提交。不会删除旧断言。
+
+复核菜单去重时保留权限摘要变化的必要 `refreshMenuItems`，避免只有 needsUnlock 改变而媒体未变化时菜单不更新；普通同内容阶段仍不重复刷新。其余业务逻辑不变，下一Run重新执行完整测试及ARM64构建。
+
+文件操作复核另补一处明确交接遗漏：成功且通过现有授权检查的重命名/隐藏改名，在会话grid path顺序中原位替换oldPath，避免新path被当作新增项追加末尾；复用ViewerGridOrderPolicy，fresh成员过滤仍保留，测试拒绝未在fresh中的新路径。移动出scope仍由原扫描/授权处理。

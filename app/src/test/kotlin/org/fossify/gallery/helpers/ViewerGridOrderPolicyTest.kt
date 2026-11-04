@@ -46,4 +46,14 @@ class ViewerGridOrderPolicyTest {
         }
     }
 
+
+    @Test fun successfulRenameRetainsOrdinalButFreshAuthorizationStillOwnsMembership() {
+        val order = ViewerGridOrderPolicy.renamed(listOf("a", "b", "c"), "b", "renamed")
+        assertEquals(listOf("a", "renamed", "c"), order)
+        assertEquals(order, ViewerGridOrderPolicy.reconcile(order, emptyList(),
+            listOf("c", "a", "renamed"), false) { it })
+        assertEquals(listOf("a", "c"), ViewerGridOrderPolicy.reconcile(order, emptyList(),
+            listOf("a", "c"), false) { it })
+    }
+
 }

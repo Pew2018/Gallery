@@ -716,7 +716,7 @@ class PhotoProfileMediaLoadingTest {
             } + PhotoSource(PhotoSourceType.FAVORITES)))
             val stages = ArrayList<PhotoLoadResult>()
             val complete = background {
-                context.favoritesDB.insert(Favorite(paths[4]))
+                context.favoritesDB.insert(Favorite(null, paths[4], java.io.File(paths[4]).name, folders[0].toString()))
                 PhotoProfileMediaLoader(context, MediaFetcher(context, TYPE_IMAGES))
                     .loadStaged(id, allowPreview = true, forceScan = true, onStage = { stages += it })
             }

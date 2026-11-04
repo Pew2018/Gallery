@@ -43,6 +43,10 @@ internal object ViewerGridOrderStore {
 
 /** Reorder freshly validated media only; removed or unauthorized files never reappear. */
 internal object ViewerGridOrderPolicy {
+    /** Only called after a successful, authorized file rename. Still grants no access. */
+    fun renamed(order: List<String>?, oldPath: String, newPath: String): List<String>? =
+        order?.map { if (it == oldPath) newPath else it }?.distinct()
+
     fun <T> reconcile(
         gridOrder: List<String>?, previous: List<T>, fresh: List<T>,
         random: Boolean, path: (T) -> String

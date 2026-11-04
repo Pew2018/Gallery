@@ -219,7 +219,7 @@ class PhotoSessionViewerCatalogStoreTest {
         val all = media(30_001)
         val result = ready(all)
         worker {
-            PhotoSessionViewerCatalogStore.focus(profile.id, null, all[15_000].path)
+            PhotoSessionViewerCatalogStore.focus(profile.id, null, all[3_000].path)
             PhotoSessionViewerCatalogStore.prepare(app, result)
             val source = PhotoSessionViewerCatalogStore::class.java.getDeclaredField("indexed")
                 .apply { isAccessible = true }.get(PhotoSessionViewerCatalogStore)!!
@@ -227,8 +227,8 @@ class PhotoSessionViewerCatalogStoreTest {
                 .get(source) as SegmentedPhotoCatalog
             // Simulate other segment reads evicting positions used by the live window.
             for (index in all.indices) segments[index]
-            assertNull(segments.knownIndexOf(all[14_880].path))
-            var current = PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[15_000].path)!!
+            assertNull(segments.knownIndexOf(all[2_880].path))
+            var current = PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[3_000].path)!!
             fun assertOrder(catalog: PhotoSessionViewerCatalogStore.Catalog) {
                 val first = catalog.ordinals.getValue(catalog.media.first().path)
                 val last = catalog.ordinals.getValue(catalog.media.last().path)
@@ -240,12 +240,17 @@ class PhotoSessionViewerCatalogStoreTest {
             }
             repeat(8) {
                 assertTrue(PhotoSessionViewerCatalogStore.requestExpand(app, profile.id, null, current.media.last().path, true))
-                current = PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[15_000].path)!!
+                current = PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[3_000].path)!!
                 assertOrder(current)
             }
+            // Evict again after the window spans several segments. Backward
+            // expansion resolves only the leading segment; trailing rows must
+            // still retain their ordinals without depending on the LRU.
+            for (index in all.indices) segments[index]
+            assertNull(segments.knownIndexOf(current.media.last().path))
             repeat(8) {
                 assertTrue(PhotoSessionViewerCatalogStore.requestExpand(app, profile.id, null, current.media.first().path, false))
-                current = PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[15_000].path)!!
+                current = PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[3_000].path)!!
                 assertOrder(current)
             }
             val first = PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all.first().path)!!
@@ -256,11 +261,11 @@ class PhotoSessionViewerCatalogStoreTest {
             assertEquals(PhotoViewerCatalogCoordinator.Boundary.END, last.after)
             // Rebuild after deletion/insertion; old ordinals never leak across revisions.
             PhotoContentRevision.changed()
-            assertNull(PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[15_000].path))
-            val revised = all.filterNot { it.path == all[15_001].path } + media(1).single().copy(path = "/Gallery/new.jpg")
+            assertNull(PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[3_000].path))
+            val revised = all.filterNot { it.path == all[3_001].path } + media(1).single().copy(path = "/Gallery/new.jpg")
             PhotoSessionViewerCatalogStore.invalidate()
             PhotoSessionViewerCatalogStore.prepare(app, ready(revised))
-            val updated = PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[15_000].path)!!
+            val updated = PhotoSessionViewerCatalogStore.latest(app, profile.id, null, all[3_000].path)!!
             val begin = updated.ordinals.getValue(updated.media.first().path)
             assertEquals(revised.subList(begin, begin + updated.media.size).map { it.path }, updated.media.map { it.path })
         }

@@ -142,3 +142,5 @@
 - 完整证据、九处业务修改、既有测试扩展与 A01–A11 验收见 [12](12-seamless-viewer-order-scroll-sorting.md)。保留扫描器、初始化 generation、拖动发布gate、邻近五项授权、DiffUtil和渐进首屏；没有新线程池/框架。
 - 确认问题：Photos点击缺已提交grid顺序；COMPLETE segmented排序依赖可淘汰ordinal并用-1；Adapter同值短路吞显式内容失效；普通目录同值比较无稳定tie；收藏show_all始终显示；Photos滚动延期发生在上游全量处理之后。
 - 本地定向/完整测试尝试均因Gradle distribution网络不可达未启动；diff检查通过。本轮完整Actions待提交后验证；缺少设备帧率数据，不报告FPS/百分比。
+
+- R05 首轮 Run `41766932465`：业务 Kotlin 编译通过，新增多来源测试 Favorite 构造参数错误导致测试编译失败；无单测/APK成功结论。最小补修构造、LRU夹具与遗漏的生产网格延期测试，并保留授权摘要变化时必要菜单刷新；完整重新验证中。

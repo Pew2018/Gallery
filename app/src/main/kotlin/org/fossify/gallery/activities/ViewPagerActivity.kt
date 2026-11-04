@@ -2238,6 +2238,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             }
             if (token != null) authorizedViewerPaths = (authorizedViewerPaths - oldPath) + newPath
             mPath = newPath
+            viewerGridOrder = org.fossify.gallery.helpers.ViewerGridOrderPolicy.renamed(viewerGridOrder, oldPath, newPath)
             if (isPhotoProfile) {
                 commitPhotoCatalogMutation(updated)
                 refreshMenuItems()
@@ -2877,6 +2878,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     return@RenameItemDialog
                 }
                 mPath = newPath
+                viewerGridOrder = org.fossify.gallery.helpers.ViewerGridOrderPolicy.renamed(viewerGridOrder, oldPath, newPath)
                 if (token != null) authorizedViewerPaths = (authorizedViewerPaths - oldPath) + newPath
                 if (mAreSlideShowMediaVisible || mRandomSlideshowStopped) {
                     val slideIndex = mSlideshowMedia.indexOfFirst { it.path == oldPath }

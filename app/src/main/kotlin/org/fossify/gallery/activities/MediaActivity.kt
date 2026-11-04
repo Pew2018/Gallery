@@ -387,9 +387,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             result.context.isCurrent(applicationContext) && photoDisplayKey() == requestedKey &&
             result.stage.ordinal >= photoPublishedStage) {
             photoPublishedStage = result.stage.ordinal
+            val accessChanged = photoNeedsUnlock != result.access.needsUnlock
             photoNeedsUnlock = result.access.needsUnlock
             val complete = result.stage == org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE
             publishMedia(ArrayList<ThumbnailItem>(result.media), !complete, request)
+            if (accessChanged) refreshMenuItems()
             if (!complete) {
                 photoLoadedKey = requestedKey
                 photoHasContent = result.media.isNotEmpty()
