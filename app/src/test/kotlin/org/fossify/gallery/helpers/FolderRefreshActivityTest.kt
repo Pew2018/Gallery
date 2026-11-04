@@ -242,6 +242,30 @@ class FolderRefreshActivityTest {
         } finally { home.pause().stop().destroy() }
     }
 
+    @Test fun categoryCacheQueryFailureFallsBackToFormalFilesystemScan() {
+        val photo = photo("categorized.jpg")
+        context.config.includedFolders = mutableSetOf(root.path)
+        context.config.everShownFolders = setOf(root.path)
+        val home = Robolectric.buildActivity(MainActivity::class.java,
+            Intent(context, MainActivity::class.java).putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true))
+            .create(Bundle()).start()
+        val queries = java.util.concurrent.atomic.AtomicInteger()
+        try {
+            val main = home.get()
+            MainActivity::class.java.getDeclaredField("mFolderVisibility").apply { isAccessible = true }
+                .set(main, booleanArrayOf(false, false, true, true))
+            main.directoryCacheReader = { queries.incrementAndGet(); throw java.io.IOException("injected category cache failure") }
+            MainActivity::class.java.getDeclaredMethod("loadCategorizedFolders").apply { isAccessible = true }.invoke(main)
+            await {
+                (main.findViewById<MyRecyclerView>(R.id.directories_grid).adapter as? DirectoryAdapter)
+                    ?.dirs?.any { it.path == root.path && it.mediaCnt == 1 } == true
+            }
+            await { !MainActivity::class.java.getDeclaredField("mIsGettingDirs").apply { isAccessible = true }.getBoolean(main) }
+            assertEquals(1, queries.get())
+            assertTrue(photo.isFile)
+        } finally { home.pause().stop().destroy() }
+    }
+
     @Test fun allFilesRetainsFailedFolderCacheAndNeverClaimsACompleteViewerCatalog() {
         val fresh = photo("good.jpg")
         val failed = File(root, "failed").apply { mkdirs() }

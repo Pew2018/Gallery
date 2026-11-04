@@ -1,6 +1,6 @@
 # Gallery Media Engine V2 — 代码调研资料索引
 
-> 状态：**最小排序精简已实施；完整 FOSS Release 单测与 ARM64 APK Actions 成功；真机体验尚未验证**
+> 状态：**阶段一排序精简已通过完整 FOSS Release 单测与 ARM64 APK Actions；阶段二扫描/渐进发布修复已实施，等待本轮 Actions 验证；真机体验尚未验证**
 > 日期：2026-11-04  
 > 目标仓库：Pew2018/Gallery  
 > 唯一目标分支：fix/photo-viewer-five-item-boundary  
@@ -19,6 +19,7 @@
 6. **[06-progress-and-change-log.md](06-progress-and-change-log.md)：实时任务状态和每轮目标/证据/修改/测试/遗留事项。**
 7. [07-minimal-refactor-implementation.md](07-minimal-refactor-implementation.md)：当前分支审计、证据分类、实施取舍与实际代码修改。
 8. [08-minimal-refactor-verification.md](08-minimal-refactor-verification.md)：自动化验证、Actions、APK、性能基线与未完成验收项。
+9. **[09-refresh-publication-stability.md](09-refresh-publication-stability.md)：第二阶段扫描生命周期、分类目录进度和照片配置列表发布的审计、修复与验证记录。**
 
 ## 审计口径与重要限制
 
@@ -43,4 +44,4 @@
 
 ## 当前交付边界
 
-**历史调研（01–04）只负责收集证据，不构成重构指令。** 当前实施口径统一以 05 为准；实施和验证记录分别见 07、08，持续进度以 06 为准。本轮仅精简照片配置公开文件系统批次的一次重复排序，没有声称修复用户报告的真机闪烁、索引持续或权限场景；它们仍需设备验证。未经测量不报告性能百分比。
+**历史调研（01–04）只负责收集证据，不构成重构指令。** 当前实施口径统一以 05 为准；阶段一排序和阶段二扫描/渐进发布修改分别见 07、09，持续进度以 06 为准。代码级去重不等于用户报告的真机闪烁、索引持续或权限矩阵问题已全部解决；仍需设备验证。未经测量不报告性能百分比。

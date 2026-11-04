@@ -2,7 +2,7 @@
 
 > 建立日期：2026-11-04  
 > 唯一分支：`fix/photo-viewer-five-item-boundary`  
-> **实施状态：局部修改已提交，完整单测和 ARM64 Actions 构建通过；真机验收未完成。**
+> **实施状态：阶段一局部排序修改已通过完整单测与 ARM64 Actions；阶段二代码与回归测试已完成，等待本轮 Actions；真机验收未完成。**
 > 当前开发范围：[05-minimal-scan-sort-display-refactor.md](05-minimal-scan-sort-display-refactor.md)  
 > 本文为**实时工作台账**，每次处理该 fix 分支的任务必须补录；不以口头汇报替代仓库文档。
 
@@ -18,6 +18,7 @@
 | P3 全屏/权限/备份回归 | 自动化测试通过，真机未验收 | 代码未改 Viewer/授权/备份 | Actions 完整单测通过；设备权限矩阵、手势与真实升级/恢复未测 |
 | 单元测试 / 编译 / Actions（重构相关） | 已通过 | Run 461 成功 | SHA `5a9d437…`；786 tests，0 failures/errors/skipped；ARM64 artifact 已生成 |
 | 主分支合并 | 未计划 | 不适用 | 禁止自行合并 `main` |
+| P1 扫描生命周期与渐进发布（第二阶段） | 代码/测试已实施，CI 待验证 | 分类缓存失败继续扫描；分类快照及照片配置可见快照去重 | 详见 [09](09-refresh-publication-stability.md)；本地 Gradle 无法下载 9.5.1，测试未启动 |
 
 **整体状态：代码级精简、完整自动化测试与 ARM64 CI 构建已完成；真实设备验收和性能对照未完成。** 不将文档编辑、既有 fix 改动或以前的 Actions 产物折算为本次验收进度。
 
@@ -78,6 +79,20 @@
 > 更新注意：每次报告前都核对本文件和真实分支 HEAD；**任何代码修改都必须同步留下完整记录**，且禁止仅凭 CI 成功宣称设备问题解决。
 
 ## 5. 新增开发记录
+
+### 2026-11-04｜R02 — 扫描生命周期与渐进显示稳定性精简
+
+- **目标/验收编号**：阶段二；对应 05 S1/S3、S2/D2 及 A01/A02/A03/A04/A08。保留既有读取器、请求身份、适配器差分和 viewer 交接；减少确认无效的重复提交，并确保分类缓存异常不会阻止正式扫描。
+- **分支、起始 SHA、结束 SHA**：仅 `fix/photo-viewer-five-item-boundary`；开始时远程 HEAD `a80f191987f0c2de978cf43ed289598092d529aa`。结束 SHA 待本轮集中提交后补录。
+- **源码证据 F**：`MainActivity.loadCategorizedFolders()` 在分类缓存读取错误时原先直接结束加载，未运行 `CategorizedFolderScanner`（起始 SHA 的 `MainActivity.kt` L1424–1497）；扫描器对已知目录先普通 `publish()`、随后无条件 `publish(force = true)`，且发现遍历中每个 seed 都会请求进度发布（`CategorizedFolderScanner.kt` L41–53、L127–148）。`DirectoryAdapter.updateDirs()` 已对相同列表短路，但 Activity 每次仍先复制、过滤和排序（`MainActivity.kt` L2603–2638；`DirectoryAdapter.kt` L968–995）。照片配置公开 filesystem batch 经授权校验、累计去重/排序后每批仍提交 `offerPartial` 与 UI stage；权限过滤可能使可见累计媒体未变（起始 SHA `PhotoProfileMediaLoader.kt` L181–198）。`MediaAdapter.updateMedia()` 已按当前内容契约短路相同列表、只保留一个在途 diff 和最新 pending 列表（`MediaAdapter.kt` L710–779）。
+- **推断 I / 已排除项**：分类相同快照会重复进入 Activity 复制/排序/适配器调用路径，但 Adapter 层通常已短路；这是无效上游工作，不是已证实的大面积动画根因。照片配置累计快照每批均发布是代码事实；被权限过滤后的批次可造成相同可见快照重复进入 viewer/grid 交接，可通过内容等价策略排除。未发现需替换 epoch、终态门、请求 generation、取消、watchdog 或 Adapter DiffUtil 的缺口；没有真机帧/trace 证明扑克牌式动画仍存在。
+- **未知 U**：目标设备上的实际扫描重复次数、Adapter commit/rebind、像素锚点漂移、动画帧、MediaStore/磁盘次数、时延均未采样；权限收窄时现有页面清理和实际系统媒体权限行为尚待真机复核。
+- **修改文件与逻辑**：`MainActivity.loadCategorizedFolders()` 捕获当前目录快照，目录缓存读取异常时以该快照为候选并继续分类文件系统/MediaStore 扫描；执行器拒绝仍走原失败终结路径。`CategorizedFolderScanner.scan()` 在 150ms 节流后以 `DirectoryPresentation.sameContents()` 去重，只向 UI 发首个或实际变化结果；Activity 的最终扫描结果提交不变。`PhotoProfileMediaLoader.loadStaged()` 在向 Viewer partial store 与 Activity 回调前，依据 scope/revision、访问摘要、媒体顺序/身份和 `MediaUpdatePolicy.sameContent()` 消除重复可见 stage；首次有效预览和最终 COMPLETE 仍保留。
+- **测试**：扩展 `FolderRefreshActivityTest`（分类缓存 Room 读取注入失败仍可发现 `.nomedia` 目录媒体）、`NoMediaCategoryRefreshTest`（分类扫描不重复发相同快照）、`PhotoProfileMediaLoadingTest`（stage 比较沿用 Adapter 可见内容契约，且真实多批 `.nomedia` 阶段不重复可见快照）。本地定向 Gradle 命令因 wrapper 下载 Gradle 9.5.1 时 `Network is unreachable`，未启动测试；等待本轮 Actions。
+- **未修改范围**：无 Adapter / Viewer / DB / 用户设置 / 备份格式 / 扫描调度器重写；不关闭动画。权限、`.nomedia`、受保护来源及随机顺序校验维持原调用路径。
+- **Actions / APK / 真机**：代码提交后待运行并记录；无真机/模拟器。
+- **遗留与下一步**：CI 若失败按日志修复；需要设备录屏/AdapterDataObserver 或 Perfetto 验证列表闪动和锚点体验。未采样前不宣称视觉/性能已改善。
+- **文档与提交**：本记录与代码同一主要提交；详细证据和验收见 [09](09-refresh-publication-stability.md)，Actions 验证完成后补录 [08](08-minimal-refactor-verification.md)。
 
 ### 2026-11-04｜R01 — 照片配置渐进扫描重复排序精简
 

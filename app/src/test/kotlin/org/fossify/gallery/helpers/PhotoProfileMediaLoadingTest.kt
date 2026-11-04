@@ -201,6 +201,28 @@ class PhotoProfileMediaLoadingTest {
         } finally { root.toFile().deleteRecursively() }
     }
 
+    @Test fun stagedPublicationComparisonMatchesGridVisibleContentAndKeepsScopeAndAccessStrict() {
+        val root = Files.createTempDirectory("photo-publication-policy")
+        try {
+            val path = Files.write(root.resolve("visible.jpg"), byteArrayOf(1)).toString()
+            val id = profile(root.toString())
+            val request = background { PhotoProfileLoadContext.capture(context, id, null) }!!
+            val medium = Medium(null, "visible.jpg", path, root.toString(), 10, 20, 30,
+                TYPE_IMAGES, 0, false, 0, 1)
+            val preview = PhotoLoadResult(request, PhotoLoadStage.CACHE_PREVIEW, listOf(medium),
+                PhotoAccessSummary(false, true))
+            val unchanged = PhotoLoadResult(request, PhotoLoadStage.FILESYSTEM,
+                listOf(medium.copy(id = 42, mediaStoreId = 99, gridPosition = 7)), preview.access)
+            assertTrue(PhotoLoadPublicationPolicy.sameVisibleContent(preview, unchanged))
+            assertFalse(PhotoLoadPublicationPolicy.sameVisibleContent(preview,
+                unchanged.copy(media = listOf(medium.copy(modified = 11)))))
+            assertFalse(PhotoLoadPublicationPolicy.sameVisibleContent(preview,
+                unchanged.copy(access = PhotoAccessSummary(needsUnlock = true, publicOnly = false))))
+            assertFalse(PhotoLoadPublicationPolicy.sameVisibleContent(preview,
+                unchanged.copy(context = request.copy(revision = request.revision + 1))))
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     @Test fun unindexedNoMediaFolderPublishesValidatedBatchesBeforeComplete() {
         val root = Files.createTempDirectory("photo-filesystem-progress")
         try {
@@ -222,6 +244,10 @@ class PhotoProfileMediaLoadingTest {
             val partials = stages.filter { it.stage == PhotoLoadStage.FILESYSTEM }
             assertTrue(partials.isNotEmpty())
             assertTrue(partials.first().media.size < paths.size)
+            stages.filter { it.stage != PhotoLoadStage.COMPLETE }.zipWithNext().forEach { (before, after) ->
+                assertFalse("an identical visible stage must not be republished",
+                    PhotoLoadPublicationPolicy.sameVisibleContent(before, after))
+            }
             partials.forEach { stage ->
                 val names = stage.media.map { it.name }
                 assertEquals(names.sortedBy { it.lowercase(java.util.Locale.getDefault()) }, names)

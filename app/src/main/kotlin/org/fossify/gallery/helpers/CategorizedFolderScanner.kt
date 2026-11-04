@@ -41,10 +41,16 @@ internal object CategorizedFolderScanner {
         val visited = hashSetOf<String>()
         fun snapshot() = Result(ArrayList(result.values.filter { allowed(it.path) }.map { it.snapshot() }), failures.toMap())
         var lastPublish = 0L
+        var lastPublishedDirectories: List<Directory>? = null
         fun publish(force: Boolean = false) {
             if (cancelled()) throw java.util.concurrent.CancellationException()
             val now = android.os.SystemClock.elapsedRealtime()
-            if (force || now - lastPublish >= 150) { lastPublish = now; onProgress(snapshot()) }
+            if (!force && now - lastPublish < 150) return
+            val current = snapshot()
+            if (lastPublishedDirectories?.let { DirectoryPresentation.sameContents(it, current.directories) } == true) return
+            lastPublish = now
+            lastPublishedDirectories = current.directories.map { it.snapshot() }
+            onProgress(current)
         }
         val favorites = context.getFavoritePaths()
         val covers = cfg.parseAlbumCovers()

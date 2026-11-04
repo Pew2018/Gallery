@@ -192,6 +192,27 @@ class NoMediaCategoryRefreshTest {
         } finally { release.countDown(); pool.shutdownNow(); root.deleteRecursively() }
     }
 
+    @Test fun categoryProgressDoesNotRepublishAnIdenticalDirectorySnapshot() {
+        val root = Files.createTempDirectory("category-progress-dedup").toFile()
+        try {
+            File(root, ".nomedia").createNewFile()
+            photo(root, "visible.jpg")
+            context.config.everShownFolders = setOf(root.path)
+            val callbacks = ArrayList<List<Directory>>()
+            background {
+                CategorizedFolderScanner.scan(context, listOf(old(root.path)),
+                    booleanArrayOf(false, false, true, true), { false },
+                    discover = { _, _, _ -> FolderDiscoveryResult(emptySet(), emptySet()) },
+                    onProgress = { callbacks += it.directories.map(Directory::snapshot) })
+            }
+            assertTrue("the first useful directory preview must remain progressive", callbacks.isNotEmpty())
+            callbacks.zipWithNext().forEach { (before, after) ->
+                assertFalse("identical category snapshots must not enter the UI publication path",
+                    DirectoryPresentation.sameContents(before, after))
+            }
+        } finally { root.deleteRecursively() }
+    }
+
 
     @Test fun incompleteDiscoveryIsReportedWithoutDroppingReadableCachedAlbums() {
         val root = Files.createTempDirectory("category-partial-discovery").toFile()

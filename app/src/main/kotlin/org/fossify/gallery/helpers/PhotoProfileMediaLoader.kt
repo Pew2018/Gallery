@@ -63,10 +63,13 @@ class PhotoProfileMediaLoader(
         // must not repeatedly replace its grid for every filesystem batch.
         val stableLockedPreview = scanPlan.hasBlockedSources
         var lockedPreviewPublished = false
+        var lastPublishedStage: PhotoLoadResult? = null
         fun publishValidatedStage(stage: PhotoLoadResult) {
             if (stage.media.isEmpty() || (stableLockedPreview && lockedPreviewPublished)) return
+            if (lastPublishedStage?.let { PhotoLoadPublicationPolicy.sameVisibleContent(it, stage) } == true) return
             PhotoSessionViewerCatalogStore.offerPartial(context, stage)
             onStage(stage)
+            lastPublishedStage = stage
             if (stableLockedPreview) lockedPreviewPublished = true
         }
 
@@ -235,5 +238,19 @@ class PhotoProfileMediaLoader(
             context.mediaDB.getCachedMediaFromFiles(batch).forEach { media[it.path] = it }
         }
         return ArrayList(media.values)
+    }
+}
+
+/** Match the grid's rendered-content comparison before publishing another staged snapshot. */
+internal object PhotoLoadPublicationPolicy {
+    fun sameVisibleContent(first: PhotoLoadResult, second: PhotoLoadResult): Boolean {
+        if (first.context != second.context || first.access != second.access || first.media.size != second.media.size) {
+            return false
+        }
+        return first.media.indices.all { index ->
+            val before = first.media[index]
+            val after = second.media[index]
+            before.path == after.path && MediaUpdatePolicy.sameContent(before, after)
+        }
     }
 }
