@@ -144,3 +144,14 @@ Android 8、11、14、16 真机/模拟器、SAF/分区存储权限撤销、快�
 ## 10. 四项集中修复验证
 
 源码 `8bc6c617e2756cd5dd3c1e51ae4a1b9a3e9e2826`；Run [41760914157](https://github.com/Pew2018/Gallery/actions/runs/41760914157) 成功。完整 `:app:testFossReleaseUnitTest`：803/0/0/0；`:app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a` 成功，签名/包名/ABI 校验和 APK 上传成功。Artifact `gallery-foss-arm64-v8a-release` ID `13290472340`，APK SHA-256 `a020cc1a128133b3060a7793e87c2d1d0d8da9d7732d36f90d06eb0d7248d579`；测试报告 ID `13289949744`。首轮新测试漏导入 runner 的编译失败和最小修正，以及逐项验收/设备边界详见 [11](11-favorites-viewer-sorting-fixes.md)。临时 CI 签名不保证覆盖安装。无 Frame Timeline/FPS 或真实媒体解码/播放性能数据。
+
+
+## 11. feature/photo-session-seamless-viewer 四项集中修复最终验证
+
+起始HEAD `ee6597a16e4a329343e24463dcbb0352f39e9d37`，最终业务源码 `fa944261dccbf1e4ece4d012a344925c04240d3a`，Run [41769940653](https://github.com/Pew2018/Gallery/actions/runs/41769940653)成功。完整FOSS Release **818 tests、0 failures、0 errors、0 skipped**；ARM64 assemble、签名v2、包名org.fossify.gallery（1.14.1/32）、native ABI仅arm64-v8a及上传全部通过。
+
+APK [gallery-foss-arm64-v8a-release](https://github.com/Pew2018/Gallery/actions/runs/41769940653/artifacts/13294711899)，ID13294711899；APK SHA-256 `ab7f927c5fa26e9354e2cc4629a5950f31eb9e6bbbbdd98f64c86ef58884a90a`。测试报告[backup-ui-test-reports](https://github.com/Pew2018/Gallery/actions/runs/41769940653/artifacts/13294875919)，ID13294875919。temporary-CI-not-upgrade-compatible签名不保证覆盖现有安装；未改签名配置/密钥。
+
+本地定向/完整Gradle均在distribution下载阶段Network is unreachable，未执行测试；diff检查及本地/远端完整tree和Blob哈希一致性通过。主线程前后耗时、FPS、Frame Timeline未测；100个滚动pending只执行最后1个、8次同目录0通知/额外Fragment，是自动化场景计数，不能换算设备性能百分比。保留扫描、授权、DiffUtil及渐进首屏。
+
+main仍44b31846fcb8b817d27ff5fef05829601260b3f5；原fix仍ee6597a16e4a329343e24463dcbb0352f39e9d37；仅指定feature更新。此前两个失败Run的测试编译/夹具问题及一个取消Run、中间817成功但非最终版本均分开记录。完整修改、提交清单、逐项结论、A01–A11矩阵和设备待验见[12](12-seamless-viewer-order-scroll-sorting.md)最终交付章节。本次闭环仅补文档，不改变已验证业务源码。

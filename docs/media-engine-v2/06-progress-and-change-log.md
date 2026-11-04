@@ -152,3 +152,5 @@
 - R05 解码缓存交接发现明确遗漏：Fragment失效版本未进入Medium图片缓存键，SVG/视频预览未用媒体签名。以既有失效registry/getKey最小接入，并补键一致性测试；不修改解码器。最终自动化必须对应包含此补修的源码。
 
 - R05 `6aa62e3…` 的Run `41768645616`成功817/0/0/0及ARM64。但最终联合审计发现旧grid与新分段ordinal反向时，局部重排会与扩展方向冲突；以最小方向一致性检查在无法继承时回退权威排序并记录revision（用户允许的fallback）。20,501纯顺序及30,001实际分段窗口联合断言补齐；最终CI以随后源码为准。
+
+- R05 最终闭环：业务源码 `fa944261dccbf1e4ece4d012a344925c04240d3a`，Run [41769940653](https://github.com/Pew2018/Gallery/actions/runs/41769940653) completed/success；818/0/0/0，ARM64、apksigner v2、包名和仅arm64 ABI校验成功，APK artifact13294711899，测试报告13294875919。APK SHA-256 `ab7f927c5fa26e9354e2cc4629a5950f31eb9e6bbbbdd98f64c86ef58884a90a`。main及原fix最后核对均保持开始SHA。完整Git/历史Run/性能口径/四项结论/A01–A11矩阵见[12](12-seamless-viewer-order-scroll-sorting.md)末节；后续仅补验证文档。临时CI签名不保证覆盖安装；真机触控、解码、性能与系统权限矩阵仍待验。
