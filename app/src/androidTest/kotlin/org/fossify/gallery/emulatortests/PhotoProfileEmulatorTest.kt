@@ -249,7 +249,8 @@ class PhotoProfileEmulatorTest {
 
     @Test fun deepScrollActualUi() {
         org.junit.Assume.assumeTrue("12k deep-scroll suite", suite == "deep" && scale == "large")
-        runViewerSequence(SORT_BY_DATE_MODIFIED or SORT_DESCENDING, listOf("A"), 9000, "deepA", true)
+        runViewerSequence(SORT_BY_DATE_MODIFIED or SORT_DESCENDING, listOf("A"), 9000, "ordinary-deep-A", true, normalFolder = true)
+        runViewerSequence(SORT_BY_DATE_MODIFIED or SORT_DESCENDING, listOf("A", "N"), 12000, "profile-nomedia-deep", true)
         runViewerSequence(SORT_BY_RANDOM, listOf("A", "N", "P"), 20000, "deepMix", true)
     }
 
@@ -264,13 +265,18 @@ class PhotoProfileEmulatorTest {
     }
 
     private fun runViewerSequence(sorting: Int, sources: List<String>,
-        selectedOrdinal: Int, caseId: String, deepScroll: Boolean = false) {
+        selectedOrdinal: Int, caseId: String, deepScroll: Boolean = false,
+        normalFolder: Boolean = false) {
         val inst = InstrumentationRegistry.getInstrumentation()
-        val profile = PhotoProfile(UUID.randomUUID().toString(), "CI " + caseId,
-            sources.map { PhotoSource(PhotoSourceType.FOLDER, File(root, it).canonicalPath) })
-        PhotoProfileRepository.of(context).save(profile)
-        profileIds.add(profile.id)
-        context.config.saveCustomSorting(PhotoProfileMediaLoader.PATH, sorting)
+        val sortingPath = if (normalFolder) File(root, "A").canonicalPath else PhotoProfileMediaLoader.PATH
+        if (!normalFolder) {
+            val profile = PhotoProfile(UUID.randomUUID().toString(), "CI " + caseId,
+                sources.map { PhotoSource(PhotoSourceType.FOLDER, File(root, it).canonicalPath) })
+            PhotoProfileRepository.of(context).save(profile)
+            profileIds.add(profile.id)
+        }
+        val previousScenarioSorting = context.config.getFolderSorting(sortingPath)
+        context.config.saveCustomSorting(sortingPath, sorting)
         Log.i("GalleryEmulatorMatrix", "BEGIN " + caseId + " mode=" + sorting + " sources=" + sources)
         val monitor = Instrumentation.ActivityMonitor(ViewPagerActivity::class.java.name, null, false)
         inst.addMonitor(monitor)
@@ -279,7 +285,7 @@ class PhotoProfileEmulatorTest {
         try {
             val intent = Intent(context, MediaActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                putExtra(DIRECTORY, PhotoProfileMediaLoader.PATH)
+                putExtra(DIRECTORY, sortingPath)
             }
             mediaActivity = inst.startActivitySync(intent) as MediaActivity
             val grid = mediaActivity.findViewById<RecyclerView>(R.id.media_grid)
@@ -471,6 +477,8 @@ class PhotoProfileEmulatorTest {
             mediaActivity?.runOnUiThread { mediaActivity?.finish() }
             inst.removeMonitor(monitor)
             inst.waitForIdleSync()
+            context.config.saveCustomSorting(sortingPath, previousScenarioSorting)
+            Log.i("GalleryEmulatorMatrix", "END " + caseId)
         }
     }
 
