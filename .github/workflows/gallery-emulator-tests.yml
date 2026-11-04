@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/gallery-emulator-tests.yml"
       - "app/build.gradle.kts"
+      - "app/src/main/kotlin/**/*.kt"
       - "app/src/androidTest/**"
       - "tools/emulator-tests/**"
 
