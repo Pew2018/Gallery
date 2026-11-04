@@ -160,6 +160,9 @@ internal object GalleryDiagnosticLogger {
         @Suppress("DEPRECATION")
         val versionCode = if (Build.VERSION.SDK_INT >= 28) packageInfo.longVersionCode else packageInfo.versionCode.toLong()
         val content = buildString {
+            val timeSource = snapshot.ifBlank { crash.orEmpty() }
+            val firstEvent = timeSource.lineSequence().firstOrNull()?.take(23)
+            val lastEvent = if (snapshot.isBlank()) firstEvent else snapshot.lineSequence().lastOrNull()?.take(23)
             appendLine("Gallery diagnostics")
             appendLine("App version: ${packageInfo.versionName ?: "unknown"} ($versionCode)")
             appendLine("Build type: ${BuildConfig.BUILD_TYPE}")
@@ -167,7 +170,8 @@ internal object GalleryDiagnosticLogger {
             appendLine("Device: ${DiagnosticPrivacy.value(Build.MANUFACTURER)} ${DiagnosticPrivacy.value(Build.MODEL)}")
             appendLine("Logging enabled: ${isEnabled()}")
             appendLine("Session: $sessionId")
-            appendLine("Log started: ${snapshot.lineSequence().firstOrNull()?.take(23) ?: "no events"}")
+            appendLine("Log started: ${firstEvent ?: "no events"}")
+            appendLine("Log ended: ${lastEvent ?: firstEvent ?: "no events"}")
             appendLine("Exported: ${timestamp(System.currentTimeMillis())}")
             appendLine("\n--- Events ---")
             appendLine(snapshot)
