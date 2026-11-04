@@ -165,9 +165,10 @@ class PhotoProfileEmulatorTest {
 
     @Test fun virtualFavoritesSourceOverlapNomediaVisibilityAndDynamicMembership() {
         val a = File(root, "A/IMG_0.png").canonicalPath
-        val n = File(root, "N/IMG_1.png").canonicalPath
-        val p = File(root, "P/IMG_2.png").canonicalPath
+        val n = File(root, "N/IMG_000001.png").canonicalPath
+        val p = File(root, "P/IMG_000002.png").canonicalPath
         val testPaths = listOf(a, n, p)
+        testPaths.forEach { path -> assertTrue("Missing favorite fixture " + path, File(path).isFile) }
         val originals = context.getFavoritePaths().toSet()
         try {
             testPaths.forEach { path ->
