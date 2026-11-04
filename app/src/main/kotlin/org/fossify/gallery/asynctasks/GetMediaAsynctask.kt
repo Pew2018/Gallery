@@ -274,8 +274,16 @@ internal class GetMediaAsynctask(
         }
         safeResult
         } catch (error: Exception) {
-            if (isCancelled || error is java.util.concurrent.CancellationException || error is android.os.OperationCanceledException)
-                throw java.util.concurrent.CancellationException()
+            if (isCancelled || error is java.util.concurrent.CancellationException ||
+                error is android.os.OperationCanceledException || error is InterruptedException) {
+                // Cancellation is an expected scan outcome. Do not rethrow it from
+                // doInBackground: AsyncTask can wrap a worker-thrown
+                // CancellationException in RuntimeException and crash the process.
+                scanResult = GalleryScanResult(GalleryScanState.CANCELLED)
+                mediaFetcher.shouldStop = true
+                if (error is InterruptedException) Thread.currentThread().interrupt()
+                return ArrayList()
+            }
             scanResult = GalleryScanResult(GalleryScanState.FAILED, folderFailures.keys, error)
             scanFailure = error
             ArrayList()
@@ -296,7 +304,7 @@ internal class GetMediaAsynctask(
 
     override fun onPostExecute(media: ArrayList<ThumbnailItem>) {
         super.onPostExecute(media)
-        if (isCancelled) {
+        if (isCancelled || scanResult.state == GalleryScanState.CANCELLED) {
             FolderRefreshTrace.event(requestId, "scan_cancelled")
             return
         }
