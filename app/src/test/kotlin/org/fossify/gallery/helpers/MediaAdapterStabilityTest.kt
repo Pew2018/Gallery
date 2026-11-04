@@ -11,6 +11,7 @@ import org.fossify.gallery.activities.SimpleActivity
 import org.fossify.gallery.adapters.MediaAdapter
 import org.fossify.gallery.models.Medium
 import org.fossify.gallery.models.ThumbnailItem
+import org.fossify.gallery.models.ThumbnailSection
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.Before
@@ -87,6 +88,51 @@ class MediaAdapterStabilityTest {
         assertFalse(MediaUpdatePolicy.sameContent(before, before.copy(modified = 11)))
         assertTrue(MediaUpdatePolicy.durationOnly(before, before.copy(videoDuration = 30)))
         assertFalse(MediaUpdatePolicy.durationOnly(before, before.copy(videoDuration = 30, size = 101)))
+    }
+
+    @Test fun displayedSnapshotComparisonKeepsOrderAndSectionChangesVisible() {
+        val first = arrayListOf<ThumbnailItem>(item("a.jpg"), ThumbnailSection("May", "2026-05"))
+        val internalRefresh = arrayListOf<ThumbnailItem>(
+            item("a.jpg").copy(id = 42, mediaStoreId = 99, gridPosition = 2),
+            ThumbnailSection("May", "2026-05")
+        )
+        val moved = arrayListOf<ThumbnailItem>(ThumbnailSection("May", "2026-05"), item("a.jpg"))
+        val changedSection = arrayListOf<ThumbnailItem>(item("a.jpg"), ThumbnailSection("June", "2026-06"))
+
+        assertTrue(MediaUpdatePolicy.sameDisplayedContent(first, internalRefresh))
+        assertFalse(MediaUpdatePolicy.sameDisplayedContent(first, moved))
+        assertFalse(MediaUpdatePolicy.sameDisplayedContent(first, changedSection))
+    }
+
+    @Test fun persistenceAndGridPositionChangesDoNotScheduleDiffOrNotifyRows() = withAdapter { adapter, _, tasks ->
+        var notifications = 0
+        adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
+            override fun onChanged() { notifications++ }
+            override fun onItemRangeChanged(positionStart: Int, itemCount: Int, payload: Any?) { notifications++ }
+            override fun onItemRangeInserted(positionStart: Int, itemCount: Int) { notifications++ }
+            override fun onItemRangeRemoved(positionStart: Int, itemCount: Int) { notifications++ }
+            override fun onItemRangeMoved(fromPosition: Int, toPosition: Int, itemCount: Int) { notifications++ }
+        })
+        val refreshed = item("a.jpg").copy(id = 42, mediaStoreId = 99, gridPosition = 17)
+
+        adapter.updateMedia(arrayListOf(refreshed), preserveScroll = false)
+
+        assertTrue("No background DiffUtil work should be queued", tasks.isEmpty())
+        assertEquals("No RecyclerView operation should be dispatched", 0, notifications)
+        assertEquals(42L, (adapter.media.single() as Medium).id)
+        assertEquals(99L, (adapter.media.single() as Medium).mediaStoreId)
+    }
+
+    @Test fun realMetadataAndOrderChangesStillScheduleDiffs() = withAdapter { adapter, _, tasks ->
+        adapter.updateMedia(arrayListOf(item("a.jpg").copy(modified = 11)), preserveScroll = false)
+        assertEquals(1, tasks.size)
+        drain(tasks)
+
+        adapter.updateMedia(arrayListOf(item("b.jpg"), item("a.jpg").copy(modified = 11)), preserveScroll = false)
+        assertEquals(1, tasks.size)
+        drain(tasks)
+
+        assertEquals(listOf("b.jpg", "a.jpg"), adapter.media.filterIsInstance<Medium>().map { it.name })
     }
 
     @Test fun burstKeepsOneDiffAndNewestPendingSnapshot() = withAdapter { adapter, recycler, tasks ->

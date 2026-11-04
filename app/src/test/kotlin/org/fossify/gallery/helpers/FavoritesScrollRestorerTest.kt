@@ -168,6 +168,36 @@ class FavoritesScrollRestorerTest {
         assertNull(restorer.pending)
         assertEquals(0, manager.findFirstVisibleItemPosition())
     }
+
+    @Test fun aNewUserDragCancelsAnAlreadyScheduledAnchorRestore() {
+        remember()
+        replace(paths.toList())
+        restorer.restore(recycler, paths, true) { true }
+        val setState = RecyclerView::class.java.getDeclaredMethod(
+            "setScrollState", Int::class.javaPrimitiveType
+        ).apply { isAccessible = true }
+
+        setState.invoke(recycler, RecyclerView.SCROLL_STATE_DRAGGING)
+        manager.scrollToPositionWithOffset(0, 0)
+        frame()
+
+        assertNull("A pending restore must be retired by a new gesture", restorer.pending)
+        assertEquals(0, manager.findFirstVisibleItemPosition())
+    }
+
+    @Test fun refreshWhileUserIsScrollingDoesNotCaptureOrRestoreAStaleAnchor() {
+        val setState = RecyclerView::class.java.getDeclaredMethod(
+            "setScrollState", Int::class.javaPrimitiveType
+        ).apply { isAccessible = true }
+        setState.invoke(recycler, RecyclerView.SCROLL_STATE_DRAGGING)
+        restorer.remember(recycler, paths)
+
+        assertNull(restorer.pending)
+        restorer.restore(recycler, paths, true) { true }
+        manager.scrollToPositionWithOffset(0, 0)
+        frame()
+        assertEquals(0, manager.findFirstVisibleItemPosition())
+    }
     @Test fun returnReadinessIsReportedOnlyAfterThePositionedLayout() {
         remember()
         replace(paths.toList())

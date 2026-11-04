@@ -105,3 +105,25 @@ Run #462 (`41750986403`, SHA `b84c11eb3f4fd773f0e4e7bce0c3db4541178ea9`) 在 `:a
 | A08 性能对照 | 仅确认代码级无效发布减少，未量化运行时性能 | 未测扫描次数、查询/文件枚举次数、Adapter commit/rebind、滚动位移或耗时；不报告性能百分比。 |
 
 Android 8、11、14、16 真机/模拟器、SAF/分区存储权限撤销、快速滚动视觉稳定性、真实 `.nomedia` 新增文件计数和全屏手势仍待设备验收。
+
+
+## 9. 第三阶段：显示与锚点稳定性验证
+
+开始 SHA：`c9e2c693ddec0c9d430c7607d67c9f26345bd3c3`，分支 `fix/photo-viewer-five-item-boundary`。实施和测试范围见 [10-display-scroll-stability.md](10-display-scroll-stability.md)。
+
+### 本地验证
+
+| 命令 | 结果 |
+|---|---|
+| `./gradlew :app:testFossReleaseUnitTest --tests org.fossify.gallery.helpers.MediaAdapterStabilityTest --tests org.fossify.gallery.helpers.DirectoryAdapterRefreshTest --tests org.fossify.gallery.helpers.FavoritesScrollRestorerTest --tests org.fossify.gallery.helpers.GalleryRefreshRegressionTest --stacktrace` | Wrapper 下载 Gradle 9.5.1 时返回 `java.net.SocketException: Network is unreachable`；Gradle 未启动，测试未执行。 |
+| `git diff --check` | 通过。 |
+| UTF-8 与大文件结构核查 | MediaActivity、两个 Adapter 及修改 helper 均可按 UTF-8 读取；行数与括号/大括号配对正常，未发现大块删除。提交前 blob SHA 核验待记录。 |
+
+### 新增可观测测试
+
+- MediaAdapter `ManualExecutor` 队列用于断言技术字段变化不进入 Diff；AdapterDataObserver 记录零行操作；另验证真实修改/顺序变化仍进入 Diff。
+- DirectoryAdapter 检查 id 变化零 Diff/通知、封面或数量变化仍进入 Diff。
+- FavoritesScrollRestorer 验证滚动恢复被用户拖动打断，以及滚动中刷新不捕获/执行旧 anchor。
+- 完整 FOSS Release 测试汇总、ARM64 Release 编译、签名/包名/ABI 检查、Artifact 与源 SHA：提交后从 Actions 回填。
+
+真机/模拟器、录屏、Perfetto、实际 Adapter 绑定计数和像素锚点偏移均未采集。Actions 成功只能证明编译与自动化用例，不等于设备视觉验收。

@@ -12,8 +12,10 @@ object DirectoryPresentation {
         return ordered
     }
 
+    /** Room row identity is not rendered content; path remains the adapter identity. */
+    fun sameContent(first: Directory, second: Directory) =
+        first.copy(id = null) == second.copy(id = null) && first.folderStatuses == second.folderStatuses
+
     fun sameContents(first: List<Directory>, second: List<Directory>) =
-        first.size == second.size && first.indices.all {
-            first[it] == second[it] && first[it].folderStatuses == second[it].folderStatuses
-        }
+        first.size == second.size && first.indices.all { sameContent(first[it], second[it]) }
 }

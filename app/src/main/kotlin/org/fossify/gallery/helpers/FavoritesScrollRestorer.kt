@@ -17,6 +17,16 @@ internal class FavoritesScrollRestorer {
     var pending: Anchor? = null
         private set
     private var removeLayoutCallback: (() -> Unit)? = null
+    private var watchedRecycler: RecyclerView? = null
+    private val userScrollListener = object : RecyclerView.OnScrollListener() {
+        override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+            if (newState == RecyclerView.SCROLL_STATE_DRAGGING && recyclerView === watchedRecycler) {
+                // A user's new gesture supersedes any saved position. Do not let a
+                // delayed pre-draw callback pull the list back after that gesture.
+                clear()
+            }
+        }
+    }
 
     fun capture(recycler: RecyclerView, paths: List<String?>): Anchor? {
         val manager = recycler.layoutManager as? LinearLayoutManager ?: return null
@@ -35,9 +45,26 @@ internal class FavoritesScrollRestorer {
 
     fun remember(recycler: RecyclerView, paths: List<String?>) {
         cancelLayout()
+        if (recycler.scrollState != RecyclerView.SCROLL_STATE_IDLE) {
+            clear()
+            return
+        }
         // Never overwrite the pre-viewer anchor with an empty or provisional return layout.
         if (pending == null) pending = capture(recycler, paths)
+        watchUserScroll(recycler)
         if (BuildConfig.DEBUG) Log.d("GalleryFavorites", "Scroll anchor present=${pending != null}, rows=${paths.size}")
+    }
+
+    private fun watchUserScroll(recycler: RecyclerView) {
+        if (watchedRecycler === recycler) return
+        watchedRecycler?.removeOnScrollListener(userScrollListener)
+        watchedRecycler = recycler
+        recycler.addOnScrollListener(userScrollListener)
+    }
+
+    private fun stopWatchingUserScroll() {
+        watchedRecycler?.removeOnScrollListener(userScrollListener)
+        watchedRecycler = null
     }
 
     fun cancelLayout() {
@@ -48,6 +75,7 @@ internal class FavoritesScrollRestorer {
     fun clear() {
         cancelLayout()
         pending = null
+        stopWatchingUserScroll()
     }
 
     fun save(out: Bundle) {
@@ -71,11 +99,15 @@ internal class FavoritesScrollRestorer {
     fun restore(recycler: RecyclerView, paths: List<String?>, finalResult: Boolean,
                 onResult: (RestoreResult) -> Unit = {}, isCurrent: () -> Boolean) {
         cancelLayout()
+        if (recycler.scrollState != RecyclerView.SCROLL_STATE_IDLE) {
+            clear()
+            return
+        }
         val anchor = pending
         if (!isCurrent()) return
         val mediaPositions = paths.indices.filter { paths[it] != null }
         if (mediaPositions.isEmpty()) {
-            if (finalResult) { pending = null; onResult(RestoreResult.EMPTY) }
+            if (finalResult) { clear(); onResult(RestoreResult.EMPTY) }
             return
         }
         val position = anchor?.let {
@@ -84,6 +116,7 @@ internal class FavoritesScrollRestorer {
         }
         val manager = recycler.layoutManager as? LinearLayoutManager ?: return
         val adapter = recycler.adapter ?: return
+        if (anchor != null) watchUserScroll(recycler)
         val offset = if (anchor?.orientation == manager.orientation) anchor.offset else 0
         val axis = OrientationHelper.createOrientationHelper(manager, manager.orientation)
         val observer = recycler.viewTreeObserver
@@ -115,7 +148,10 @@ internal class FavoritesScrollRestorer {
                 }
                 if (visible && (aligned || atBoundary)) {
                     cancelLayout()
-                    if (finalResult) pending = null
+                    if (finalResult) {
+                        pending = null
+                        stopWatchingUserScroll()
+                    }
                     onResult(RestoreResult.POSITIONED)
                     if (BuildConfig.DEBUG) Log.d("GalleryFavorites", "Scroll confirmed: final=$finalResult, position=$position")
                     return true

@@ -2576,9 +2576,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     if (mediaLoadRequests.isCurrent(request) && !mIsGettingMedia && pollAllowed()) getMedia()
                 }
             }
+            // Compare against the last published source snapshot, not only the
+            // visible filtered rows. COMPLETE still flows through below even when
+            // the preview already showed the same ordered media.
+            val displayedContentChanged = !org.fossify.gallery.helpers.MediaUpdatePolicy
+                .sameDisplayedContent(mMedia, media)
             // A search over an earlier preview must not overwrite a newer stage of this request.
-            if (isPhotoProfiles) mediaSearchGeneration++
-            if (isPhotoProfiles && !isFromCache && getMediaAdapter() != null) rememberPhotoScrollAnchor()
+            if (isPhotoProfiles && displayedContentChanged) mediaSearchGeneration++
+            if (isPhotoProfiles && !isFromCache && displayedContentChanged && getMediaAdapter() != null) {
+                rememberPhotoScrollAnchor()
+            }
             mMedia = ArrayList(media)
             if (isPhotoProfiles && !isFromCache) {
                 photoHasContent = media.any { it is Medium }
@@ -2588,8 +2595,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
             // The slideshow shortcut is only useful once at least one authorized
             // media item has been published; refresh after cache and final scan.
-            if (isPhotoProfiles || org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW in
-                (if (mPath.isEmpty()) config.toolbarHomeActions else config.toolbarFolderActions)) {
+            if (displayedContentChanged && (isPhotoProfiles || org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW in
+                (if (mPath.isEmpty()) config.toolbarHomeActions else config.toolbarFolderActions))) {
                 refreshMenuItems()
             }
             displayedMediaRequest = request

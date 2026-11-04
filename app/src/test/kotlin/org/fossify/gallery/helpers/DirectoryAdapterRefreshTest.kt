@@ -14,10 +14,16 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import java.util.concurrent.Executor
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], application = Application::class)
 class DirectoryAdapterRefreshTest {
+    private class ManualExecutor : Executor {
+        val tasks = ArrayDeque<Runnable>()
+        override fun execute(command: Runnable) { tasks.addLast(command) }
+    }
+
     private fun directory(path: String) = Directory().apply { this.path = path; name = path }
 
     private fun withAdapter(block: (DirectoryAdapter, MyRecyclerView) -> Unit) {
@@ -98,6 +104,67 @@ class DirectoryAdapterRefreshTest {
         incoming[1].subfoldersMediaCount = 999
         awaitList(adapter, listOf("/c", "/a"))
         assertEquals(0, adapter.dirs[1].subfoldersMediaCount)
+    }
+
+    @Test fun identicalDirectorySnapshotDoesNotQueueDiffOrNotifyRows() {
+        val controller = Robolectric.buildActivity(SimpleActivity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val recycler = MyRecyclerView(activity).apply { layoutManager = LinearLayoutManager(activity) }
+            activity.setContentView(recycler)
+            val executor = ManualExecutor()
+            val adapter = DirectoryAdapter(activity, arrayListOf(directory("/a"), directory("/b")),
+                null, recycler, false, diffExecutor = executor) {}
+            recycler.adapter = adapter
+            var notifications = 0
+            var commits = 0
+            adapter.registerAdapterDataObserver(object : androidx.recyclerview.widget.RecyclerView.AdapterDataObserver() {
+                override fun onChanged() { notifications++ }
+                override fun onItemRangeChanged(positionStart: Int, itemCount: Int, payload: Any?) { notifications++ }
+                override fun onItemRangeInserted(positionStart: Int, itemCount: Int) { notifications++ }
+                override fun onItemRangeRemoved(positionStart: Int, itemCount: Int) { notifications++ }
+                override fun onItemRangeMoved(fromPosition: Int, toPosition: Int, itemCount: Int) { notifications++ }
+            })
+
+            adapter.updateDirs(arrayListOf(
+                directory("/a").apply { id = 90 },
+                directory("/b").apply { id = 91 }
+            ), onCommitted = { commits++ })
+
+            assertTrue(executor.tasks.isEmpty())
+            assertEquals(0, notifications)
+            assertEquals(1, commits)
+            assertEquals(90L, adapter.dirs.first().id)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun directoryCountAndCoverChangesStillQueueVisibleUpdate() {
+        val controller = Robolectric.buildActivity(SimpleActivity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val recycler = MyRecyclerView(activity).apply { layoutManager = LinearLayoutManager(activity) }
+            activity.setContentView(recycler)
+            val executor = ManualExecutor()
+            val adapter = DirectoryAdapter(activity, arrayListOf(directory("/a")), null, recycler, false,
+                diffExecutor = executor) {}
+            recycler.adapter = adapter
+
+            adapter.updateDirs(arrayListOf(directory("/a").apply { mediaCnt = 3; tmb = "/a/cover.jpg" }))
+
+            assertEquals(1, executor.tasks.size)
+            executor.tasks.removeFirst().run()
+            val deadline = System.nanoTime() + 5_000_000_000L
+            while (adapter.dirs.single().mediaCnt != 3 && System.nanoTime() < deadline) {
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                Thread.sleep(5)
+            }
+            assertEquals(3, adapter.dirs.single().mediaCnt)
+            assertEquals("/a/cover.jpg", adapter.dirs.single().tmb)
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
     @Test fun intermediateBatchesKeepOrderAndTheFinalBatchCanSortOnce() = withAdapter { adapter, _ ->
         val incoming = arrayListOf(directory("/b"), directory("/a"), directory("/c"))

@@ -731,7 +731,14 @@ class MediaAdapter(
         pendingUpdate = null
         val incoming = pending.items
         applyDurationOverrides(incoming)
-        if (incoming == media) { pending.committed(); return }
+        if (MediaUpdatePolicy.sameDisplayedContent(media, incoming)) {
+            // Keep the newest database snapshot for later actions without asking
+            // RecyclerView to diff or rebind rows whose visible content is stable.
+            media = incoming
+            currentMediaHash = media.hashCode()
+            pending.committed()
+            return
+        }
         val old = snapshot(media)
         diffRunning = true
         diffExecutor.execute {

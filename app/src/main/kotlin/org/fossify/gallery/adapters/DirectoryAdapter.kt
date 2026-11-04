@@ -985,6 +985,7 @@ class DirectoryAdapter(
         }
         pendingDirectoryUpdate = null
         if (DirectoryPresentation.sameContents(directories, dirs)) {
+            dirs = directories
             latestDirectoryUpdate = null
             if (forceDirectoryRebind) {
                 forceDirectoryRebind = false
@@ -1002,8 +1003,7 @@ class DirectoryAdapter(
                 override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int) =
                     old[oldItemPosition].path == directories[newItemPosition].path
                 override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int) =
-                    old[oldItemPosition] == directories[newItemPosition] &&
-                        old[oldItemPosition].folderStatuses == directories[newItemPosition].folderStatuses
+                    DirectoryPresentation.sameContent(old[oldItemPosition], directories[newItemPosition])
             })
             activity.runOnUiThread {
                 if (generation != diffGeneration || activity.isDestroyed ||

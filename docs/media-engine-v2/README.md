@@ -20,6 +20,7 @@
 7. [07-minimal-refactor-implementation.md](07-minimal-refactor-implementation.md)：当前分支审计、证据分类、实施取舍与实际代码修改。
 8. [08-minimal-refactor-verification.md](08-minimal-refactor-verification.md)：自动化验证、Actions、APK、性能基线与未完成验收项。
 9. **[09-refresh-publication-stability.md](09-refresh-publication-stability.md)：第二阶段扫描生命周期、分类目录进度和照片配置列表发布的审计、修复与验证记录。**
+10. **[10-display-scroll-stability.md](10-display-scroll-stability.md)：第三阶段显示内容 Diff、Adapter 提交、目录相等性和滚动锚点的审计与验证。****
 
 ## 审计口径与重要限制
 
