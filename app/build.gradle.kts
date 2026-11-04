@@ -48,6 +48,8 @@ android {
         versionCode = baseVersionCode
     }
 
+    testBuildType = "release"
+
     signingConfigs {
         if (keystorePropertiesFile.exists()) {
             register("release") {
