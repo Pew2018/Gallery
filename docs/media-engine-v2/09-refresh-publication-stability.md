@@ -1,5 +1,7 @@
 # 09 — 第二阶段：刷新生命周期与渐进发布稳定性
 
+> **历史源码/任务资料（非当前实施指令）**：下文提及的旧工作分支、历史“当前进度”“唯一任务”“下一步”，只适用于所写日期和原固定提交。2026-11-05 起，当前工作遵循 [18 — 现行路线图](18-current-media-pipeline-roadmap.md)、[05 — 实施细则](05-minimal-scan-sort-display-refactor.md) 和 [04 — 验收矩阵](04-validation-and-migration-readiness.md)。保留旧源码证据与原始 Actions/限制供追溯；不能据此声称新阶段 0–5 已完成或获得真机性能数据。
+
 日期：2026-11-04（执行环境 UTC）
 仓库：Pew2018/Gallery
 唯一目标分支：fix/photo-viewer-five-item-boundary
