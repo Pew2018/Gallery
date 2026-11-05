@@ -182,8 +182,10 @@ internal object GalleryDiagnosticLogger {
 
     fun session(): String = sessionId
 
-    fun anonymousId(value: String): String = java.security.MessageDigest.getInstance("SHA-256")
-        .digest("$hashSalt:$value".toByteArray(StandardCharsets.UTF_8)).take(8).joinToString("") { "%02x".format(it) }
+    fun anonymousId(value: String): String = anonymousIdForSalt(value, hashSalt)
+
+    internal fun anonymousIdForSalt(value: String, salt: String): String = java.security.MessageDigest.getInstance("SHA-256")
+        .digest("$salt:$value".toByteArray(StandardCharsets.UTF_8)).take(8).joinToString("") { "%02x".format(it) }
 
     private fun executeIo(block: () -> Unit) {
         try { io.execute { runCatching(block).onFailure { Log.w("GalleryDiagnostics", "Diagnostic I/O failed", it) } } }

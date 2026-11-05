@@ -63,8 +63,8 @@ class MediaPipelineDiagnosticsTest {
 
     @Test fun anonymizedScopeDoesNotExposeRawInputAndIsSessionScoped() {
         val raw = "/storage/emulated/0/DCIM/private/IMG_1234.jpg"
-        val firstSessionHash = GalleryDiagnosticLogger.anonymousId(raw)
-        val secondSessionHash = GalleryDiagnosticLogger.anonymousId(raw)
+        val firstSessionHash = GalleryDiagnosticLogger.anonymousIdForSalt(raw, "session-one")
+        val secondSessionHash = GalleryDiagnosticLogger.anonymousIdForSalt(raw, "session-two")
         assertNotEquals(raw, firstSessionHash)
         assertFalse(firstSessionHash.contains("IMG_1234"))
         assertNotEquals(firstSessionHash, secondSessionHash)

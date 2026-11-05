@@ -33,7 +33,7 @@ No business scan results, sorting algorithms, database schema, cache validity ru
 - Result: **not started**. Gradle 9.5.1 wrapper download failed with `java.net.SocketException: Network is unreachable`.
 - `adb devices -l`: **not available**, `adb: command not found`.
 - `git diff --check`: passed after final source/documentation edits.
-- GitHub Actions full unit suite, ARM64 build, package name, signature, ABI and artifact checks: pending run after commit.
+- GitHub Actions run `41950122386` exposed two compile errors in the new permission-mode and constructor visibility code; both were fixed in the follow-up commit. Run `41950527727` compiled production and test sources, then exposed one incorrect test assumption: session-salted IDs should be stable within a session and differ across salts. The test now exercises the logger's salt-aware helper directly. The next full workflow run is pending.
 - New test count: 8 test methods in `MediaPipelineDiagnosticsTest`; the exact whole-suite count will be read from the completed Actions report.
 
 ## Runtime evidence
