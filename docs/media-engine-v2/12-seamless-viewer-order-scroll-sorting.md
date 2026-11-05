@@ -1,5 +1,7 @@
 # Photos 会话：顺序、滚动发布、相册排序与收藏顶栏
 
+> **历史源码/任务资料（非当前实施指令）**：下文提及的旧工作分支、历史“当前进度”“唯一任务”“下一步”，只适用于所写日期和原固定提交。2026-11-05 起，当前工作遵循 [18 — 现行路线图](18-current-media-pipeline-roadmap.md)、[05 — 实施细则](05-minimal-scan-sort-display-refactor.md) 和 [04 — 验收矩阵](04-validation-and-migration-readiness.md)。保留旧源码证据与原始 Actions/限制供追溯；不能据此声称新阶段 0–5 已完成或获得真机性能数据。
+
 日期：2026-11-04（Asia/Taipei）。唯一目标分支：`feature/photo-session-seamless-viewer`。
 起始远程 HEAD：`ee6597a16e4a329343e24463dcbb0352f39e9d37`。
 开始时 main：`44b31846fcb8b817d27ff5fef05829601260b3f5`；原 fix：`ee6597a16e4a329343e24463dcbb0352f39e9d37`。
