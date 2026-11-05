@@ -4,8 +4,11 @@ import org.fossify.gallery.models.Medium
 import org.fossify.gallery.models.ThumbnailItem
 import org.fossify.gallery.models.ThumbnailSection
 
+enum class MediaUpdateReason { SCAN, USER_SORT, USER_SEARCH, DELETE_RESULT }
+
 /** Layout/database identity is not rendered thumbnail content. */
 internal object MediaUpdatePolicy {
+    private const val LARGE_EDIT_WINDOW = 4096
     /** Compare ordered rows by rendered content, ignoring persistence/layout-only fields. */
     fun sameDisplayedContent(before: List<ThumbnailItem>, after: List<ThumbnailItem>): Boolean =
         before.size == after.size && before.indices.all { index ->
@@ -48,6 +51,28 @@ internal object MediaUpdatePolicy {
             if (before[index].let { (it as Medium).path } != new.path) orderChanged = true
         }
         return oldByPath.isEmpty() && orderChanged
+    }
+
+    /** Bound edit-distance work, not simply list size. Equal identities/metadata-only
+     * refreshes and small edits retain granular notifications even on huge lists. */
+    fun shouldReplace(before: List<ThumbnailItem>, after: List<ThumbnailItem>,
+                      reason: MediaUpdateReason, diffRunning: Boolean): Boolean {
+        if (diffRunning && reason in setOf(MediaUpdateReason.USER_SORT, MediaUpdateReason.USER_SEARCH)) return true
+        if (maxOf(before.size, after.size) < LARGE_EDIT_WINDOW) return false
+        fun identity(item: ThumbnailItem): String = when (item) {
+            is Medium -> "m:${item.path}"
+            is ThumbnailSection -> "s:${item.key}"
+            else -> error("Unknown thumbnail item")
+        }
+        // A linear upper bound on the differing identity window. Do not run Myers
+        // over a large permutation or a search that removes/restores most rows.
+        var prefix = 0
+        val common = minOf(before.size, after.size)
+        while (prefix < common && identity(before[prefix]) == identity(after[prefix])) prefix++
+        var suffix = 0
+        while (suffix < common - prefix &&
+            identity(before[before.lastIndex - suffix]) == identity(after[after.lastIndex - suffix])) suffix++
+        return maxOf(before.size, after.size) - prefix - suffix >= LARGE_EDIT_WINDOW
     }
 
     fun durationOnly(before: Medium, after: Medium): Boolean =

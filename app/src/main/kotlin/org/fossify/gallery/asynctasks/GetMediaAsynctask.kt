@@ -36,6 +36,7 @@ internal class GetMediaAsynctask(
     private val diagnosticLoadReason: String? = null,
     private val folderPriorityPaths: List<String>? = null,
     private val onScanCancelled: (() -> Unit)? = null,
+    private val retainSortMetadata: Boolean = false,
     private val onFolderPreview: ((FolderMediaReadResult, ArrayList<ThumbnailItem>) -> Unit)? = null,
     private val onSortingMetadataRefreshRequired: (() -> Unit)? = null,
     private val onFavoritePreview: ((List<Medium>, Set<String>) -> Unit)? = null,
@@ -135,15 +136,20 @@ internal class GetMediaAsynctask(
         val pathToUse = if (showAll) SHOW_ALL else mPath
         val folderGrouping = context.config.getFolderGrouping(pathToUse)
         val folderSorting = context.config.getFolderSorting(pathToUse)
-        val getProperDateTaken = folderSorting and SORT_BY_DATE_TAKEN != 0 ||
+        // Physical enumeration already obtains size/modified for every row. Keep
+        // all sortable fields (including date overrides) in this one scan so a
+        // sort choice cannot discard it and enumerate the same directory again.
+        val physicalSortMetadata = retainSortMetadata && !showAll && mPath.startsWith('/') &&
+            mPath != RECYCLE_BIN && mPath != FAVORITES
+        val getProperDateTaken = physicalSortMetadata || folderSorting and SORT_BY_DATE_TAKEN != 0 ||
             folderGrouping and GROUP_BY_DATE_TAKEN_DAILY != 0 ||
             folderGrouping and GROUP_BY_DATE_TAKEN_MONTHLY != 0
 
-        val getProperLastModified = folderSorting and SORT_BY_DATE_MODIFIED != 0 ||
+        val getProperLastModified = physicalSortMetadata || folderSorting and SORT_BY_DATE_MODIFIED != 0 ||
             folderGrouping and GROUP_BY_LAST_MODIFIED_DAILY != 0 ||
             folderGrouping and GROUP_BY_LAST_MODIFIED_MONTHLY != 0
 
-        val getProperFileSize = folderSorting and SORT_BY_SIZE != 0
+        val getProperFileSize = physicalSortMetadata || folderSorting and SORT_BY_SIZE != 0
         val savedFavorites = FolderRefreshTrace.measure(requestId, "favorite_relationships") { context.getFavoritePaths() }
         if (mPath == FAVORITES) favoriteRelationshipSnapshot = savedFavorites.toSet()
         val favoritePaths = if (mPath == FAVORITES) {

@@ -21,6 +21,14 @@ import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import org.fossify.gallery.helpers.ViewerAccessCoordinator
 import org.fossify.gallery.helpers.FolderReturnCheckpoint
+import org.fossify.gallery.extensions.isThisOrParentExcluded
+import org.fossify.gallery.extensions.isThisOrParentIncluded
+import org.fossify.gallery.helpers.TYPE_IMAGES
+import org.fossify.gallery.helpers.TYPE_VIDEOS
+import org.fossify.gallery.helpers.MediaUpdateReason
+import org.fossify.gallery.helpers.DisplayedFolderSnapshot
+import org.fossify.gallery.helpers.DisplayedSourceStage
+import org.fossify.gallery.helpers.FolderCachePreviewAccess
 import android.app.WallpaperManager
 import android.content.Intent
 import android.graphics.Bitmap
@@ -1405,6 +1413,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             finalResult -> "COMPLETE"
             else -> "PARTIAL"
         }
+        val sourceVersion = displayedSourceVersion
+        val searchSorting = config.getFolderSorting(if (mShowAll) SHOW_ALL else mPath)
         val sourceMedia = ArrayList(mMedia)
         if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
             org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
@@ -1437,7 +1447,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 runOnUiThread {
                     // An earlier background search must not overwrite a newer query.
                     if (isFinishing || isDestroyed || mLastSearchedText != text ||
-                        searchGeneration != mediaSearchGeneration || !isSearchSnapshotCurrent(request)) {
+                        searchGeneration != mediaSearchGeneration || sourceVersion != displayedSourceVersion ||
+                        searchSorting != config.getFolderSorting(if (mShowAll) SHOW_ALL else mPath) ||
+                        !isSearchSnapshotCurrent(request)) {
                         if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
                             org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
                                 org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaSearch", "search_stale_drop",
@@ -1480,28 +1492,22 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     }
                     searchAdapter.updateMedia(safeGrouped, preserveScroll = false, isCurrent = {
                         searchGeneration == mediaSearchGeneration && mLastSearchedText == text &&
+                            sourceVersion == displayedSourceVersion &&
+                            searchSorting == config.getFolderSorting(if (mShowAll) SHOW_ALL else mPath) &&
                             isSearchSnapshotCurrent(request)
                     }, onCommitted = {
-                        if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
-                            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
-                                org.fossify.gallery.helpers.DiagnosticLevel.INFO, "MediaSearch", "search_results_committed",
-                                request, mapOf("generation" to searchGeneration, "queryLength" to text.length,
-                                    "inputCount" to sourceMedia.count { it is Medium },
-                                    "matchCount" to safeGrouped.count { it is Medium }, "complete" to finalResult,
-                                    "dataStage" to dataStage,
-                                    "scanRequest" to mediaRefreshRequest,
-                                    "adapterVersion" to (getMediaAdapter()?.committedVersion ?: -1L),
-                                    "adapterId" to (getMediaAdapter()?.let { System.identityHashCode(it) } ?: -1),
-                                    "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath),
-                                    "elapsedMs" to (android.os.SystemClock.elapsedRealtime() - searchStartedAt))
-                            )
+                        logSearchCommit(request, searchGeneration, text.length, sourceMedia.count { it is Medium },
+                            safeGrouped.count { it is Medium }, finalResult, dataStage, searchStartedAt)
                         if (searchGeneration == mediaSearchGeneration && mLastSearchedText == text) {
                             mCommittedSearchText = text
                         }
+                        if (finalResult && mediaLoadRequests.isCurrent(request)) setMediaLoading(false)
                         displayedMediaIsFinal = finalResult
                         restoreFavoritesScrollAnchor(request, finalResult)
                         onCommitted()
-                    }, diagnosticRequestId = request)
+                    }, diagnosticRequestId = request, updateReason = MediaUpdateReason.USER_SEARCH,
+                        effectiveSorting = searchSorting, diagnosticSnapshotVersion = sourceVersion,
+                        diagnosticSnapshotStage = displayedFolderSnapshot?.stage?.name ?: dataStage)
                 }
             } catch (error: Exception) {
                 if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
@@ -1515,14 +1521,31 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
     }
 
+    private fun logSearchCommit(request: Long, searchGeneration: Long, queryLength: Int,
+                                inputCount: Int, matchCount: Int, finalResult: Boolean,
+                                dataStage: String, searchStartedAt: Long) {
+        if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                org.fossify.gallery.helpers.DiagnosticLevel.INFO, "MediaSearch", "search_results_committed",
+                request, mapOf("generation" to searchGeneration, "queryLength" to queryLength,
+                    "inputCount" to inputCount,
+                    "matchCount" to matchCount, "complete" to finalResult,
+                    "dataStage" to dataStage,
+                    "scanRequest" to mediaRefreshRequest,
+                    "adapterVersion" to (getMediaAdapter()?.committedVersion ?: -1L),
+                    "adapterId" to (getMediaAdapter()?.let { System.identityHashCode(it) } ?: -1),
+                    "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath),
+                    "elapsedMs" to (android.os.SystemClock.elapsedRealtime() - searchStartedAt))
+            )
+    }
+
     /** A refresh can be scanning while the still-current displayed snapshot remains searchable. */
     private fun isSearchSnapshotCurrent(request: Long): Boolean {
-        val read = folderReadResult.takeIf { folderReadRequest == request }
         val accessCurrent = when {
             isPhotoProfiles -> mediaLoadRequests.isCurrent(request)
             mPath == FAVORITES -> FavoriteAccessSessionManager.isActive(favoriteSessionId)
-            folderUnlockSessionId != null -> FolderUnlockSessionManager.isActive(folderUnlockSessionId)
-            mPath.startsWith('/') && mPath != RECYCLE_BIN && !mShowAll -> read?.accessCurrent?.invoke() != false
+            mPath.startsWith('/') && mPath != RECYCLE_BIN && !mShowAll ->
+                displayedFolderSnapshot?.takeIf { it.request == request }?.accessCurrent?.invoke() == true
             else -> true
         }
         return org.fossify.gallery.helpers.MediaSearchRequestPolicy.canPublish(
@@ -1575,7 +1598,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private fun getMediaAdapter() = binding.mediaGrid.adapter as? MediaAdapter
 
-    private fun setupAdapter(onCommitted: () -> Unit = {}) {
+    private fun setupAdapter(updateReason: MediaUpdateReason = MediaUpdateReason.SCAN,
+                             onCommitted: () -> Unit = {}) {
         if (mPath == FAVORITES) {
             if (!FavoriteAccessSessionManager.isActive(favoriteSessionId)) return
         }
@@ -1599,6 +1623,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     itemClicked(it.path)
                 }
             }.apply {
+                sorting = config.getFolderSorting(if (mShowAll) SHOW_ALL else mPath)
                 setupZoomListener(mZoomListener)
                 binding.mediaGrid.adapter = this
             }
@@ -1620,9 +1645,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             val request = displayedMediaRequest
             val read = folderReadResult.takeIf { folderReadRequest == request }
             val searchGeneration = mediaSearchGeneration
+            val sourceVersion = displayedSourceVersion
+            val effectiveSorting = config.getFolderSorting(if (mShowAll) SHOW_ALL else mPath)
             val folderToken = folderUnlockSessionId
             (currAdapter as MediaAdapter).updateMedia(mMedia, isCurrent = {
                 isSearchSnapshotCurrent(request) && searchGeneration == mediaSearchGeneration &&
+                    sourceVersion == displayedSourceVersion &&
+                    effectiveSorting == config.getFolderSorting(if (mShowAll) SHOW_ALL else mPath) &&
                     !isFinishing && !isDestroyed &&
                     (mPath != FAVORITES || FavoriteAccessSessionManager.isActive(favoriteSessionId)) &&
                     read?.accessCurrent?.invoke() != false &&
@@ -1630,8 +1659,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     (folderToken == null || FolderUnlockSessionManager.isActive(folderToken))
             }, onCommitted = {
                 handleGridSpacing(currAdapter.media)
+                if (completedMediaRequest == request && !mIsGettingMedia) setMediaLoading(false)
                 onCommitted()
-            }, diagnosticRequestId = request)
+            }, diagnosticRequestId = request, updateReason = updateReason, effectiveSorting = effectiveSorting,
+                diagnosticSnapshotVersion = sourceVersion,
+                diagnosticSnapshotStage = displayedFolderSnapshot?.stage?.name)
         } else {
             searchQueryChanged(mLastSearchedText, onCommitted, SearchTrigger.MEDIA_SNAPSHOT)
         }
@@ -1708,7 +1740,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             org.fossify.gallery.helpers.FolderReadStatus.COMPLETE -> false
                             else -> -1
                         },
-                        "dataStage" to (visibleRead?.status?.name ?: "UNKNOWN"),
+                        "dataStage" to (displayedFolderSnapshot?.stage?.name ?: visibleRead?.status?.name ?: "UNKNOWN"),
                         "scanRequest" to mediaRefreshRequest,
                         "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath))
                 )
@@ -1717,7 +1749,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             // An active request will apply the latest sorting when it publishes.
             // Restarting it here canceled useful work and repeatedly invalidated
             // Adapter diffs during ordinary refreshes.
-            if (!mIsGettingMedia) getMedia()
+            if (!mIsGettingMedia) getMedia(reason = "sort_snapshot_unavailable")
             else if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
                 val activeRead = folderReadResult.takeIf { folderReadRequest == displayedMediaRequest }
                 val deferredReason = when {
@@ -1725,7 +1757,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         "special_source"
                     getMediaAdapter() == null -> "adapter_unavailable"
                     mMedia.any { it !is Medium } -> "grouped_rows"
-                    activeRead?.accessCurrent?.invoke() != true -> "snapshot_not_authorized"
+                    displayedFolderSnapshot?.accessCurrent?.invoke() != true -> "display_capability_unavailable"
                     activeRead?.status != org.fossify.gallery.helpers.FolderReadStatus.PARTIAL &&
                         activeRead?.status != org.fossify.gallery.helpers.FolderReadStatus.COMPLETE -> "snapshot_incomplete"
                     else -> "preview_ineligible"
@@ -1747,6 +1779,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val request = displayedMediaRequest
         val scanRequest = mediaRefreshRequest
         val read = folderReadResult.takeIf { folderReadRequest == request }
+        val snapshot = displayedFolderSnapshot?.takeIf { it.request == request }
+        val sourceVersion = displayedSourceVersion
         val adapter = getMediaAdapter() ?: return false
         val source = ArrayList(mMedia)
         val sourcePaths = source.filterIsInstance<Medium>().mapTo(HashSet()) { it.path }
@@ -1756,11 +1790,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             physicalFolder = !isPhotoProfiles && !mShowAll && mPath.startsWith('/') && mPath != RECYCLE_BIN,
             ordinarySource = mPath != FAVORITES,
             scanInProgress = mIsGettingMedia,
-            snapshotValid = read?.status == org.fossify.gallery.helpers.FolderReadStatus.PARTIAL ||
-                read?.status == org.fossify.gallery.helpers.FolderReadStatus.COMPLETE,
+            snapshotValid = snapshot != null,
             requestCurrent = request >= 0 && displayedMediaRequest == request && scanRequest >= 0 &&
                 mediaLoadRequests.isCurrent(scanRequest),
-            accessCurrent = read?.accessCurrent?.invoke() == true &&
+            accessCurrent = snapshot?.accessCurrent?.invoke() == true &&
                 (token == null || FolderUnlockSessionManager.isActive(token)),
             adapterMatchesSource = adapterMatches,
             rows = source
@@ -1770,23 +1803,23 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val folder = mPath
         val sorting = config.getFolderSorting(folder)
         logSortSnapshotSelected(sortOperation, request, sorting,
-            read?.status?.name ?: "UNKNOWN", source.size)
+            snapshot?.stage?.name ?: "UNKNOWN", source.size)
         ensureBackgroundThread {
             try {
                 val sorted = ArrayList(source.filterIsInstance<Medium>().map { it.copy() })
                 MediaFetcher(applicationContext).sortMedia(sorted, sorting)
                 runOnUiThread {
-                    val latestRead = folderReadResult.takeIf { folderReadRequest == request }
                     if (isFinishing || isDestroyed || !mediaSortOperations.isCurrent(sortOperation) ||
                         displayedMediaRequest != request || !mediaLoadRequests.isCurrent(scanRequest) ||
                         mPath != folder || folderUnlockSessionId != token ||
-                        config.getFolderSorting(folder) != sorting || latestRead?.accessCurrent?.invoke() != true ||
+                        config.getFolderSorting(folder) != sorting || sourceVersion != displayedSourceVersion ||
+                        snapshot?.accessCurrent?.invoke() != true ||
                         (token != null && !FolderUnlockSessionManager.isActive(token))) {
                         logSortStaleDrop(sortOperation, request, sorting, "preview_snapshot_or_access_changed")
                         return@runOnUiThread
                     }
                     mMedia = ArrayList(sorted)
-                    setupAdapter {
+                    setupAdapter(MediaUpdateReason.USER_SORT) {
                         val sourceIsPartial = read?.status != org.fossify.gallery.helpers.FolderReadStatus.COMPLETE
                         logSortCommit("sort_preview_committed", sortOperation, request, sorting, sourceIsPartial,
                             startedAt, sorted.size, getMediaAdapter()?.committedVersion ?: -1L)
@@ -1826,6 +1859,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val folder = mPath
         val folderToken = folderUnlockSessionId
         val sorting = config.getFolderSorting(folder)
+        val sourceVersion = displayedSourceVersion
         val snapshot = mMedia.filterIsInstance<Medium>().map { it.copy() }
         logSortSnapshotSelected(sortOperation, request, sorting, "COMPLETE", snapshot.size)
         fun recoverFromSortFailure(error: Exception) {
@@ -1844,7 +1878,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     runOnUiThread {
                         if (isFinishing || isDestroyed || !mediaSortOperations.isCurrent(sortOperation) ||
                             !mediaLoadRequests.isCurrent(request) || completedMediaRequest != request ||
-                            mIsGettingMedia || mPath != folder || folderUnlockSessionId != folderToken ||
+                            mIsGettingMedia || sourceVersion != displayedSourceVersion || mPath != folder ||
+                            folderUnlockSessionId != folderToken ||
                             config.getFolderSorting(folder) != sorting ||
                             (folderToken != null && !FolderUnlockSessionManager.isActive(folderToken))) {
                             logSortStaleDrop(sortOperation, request, sorting, "complete_snapshot_or_access_changed")
@@ -1858,7 +1893,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             return@runOnUiThread
                         }
                         mMedia = ArrayList(sorted)
-                        setupAdapter {
+                        setupAdapter(MediaUpdateReason.USER_SORT) {
                             logSortCommit("sort_final_committed", sortOperation, request, sorting, false,
                                 startedAt, sorted.size, getMediaAdapter()?.committedVersion ?: -1L)
                         }
@@ -2013,7 +2048,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
     }
 
-    private fun getMedia(manualRefresh: Boolean = false) {
+    private fun getMedia(manualRefresh: Boolean = false, reason: String = "source_refresh") {
+        if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaPipeline",
+                "scan_restart_requested", mediaRefreshRequest,
+                mapOf("reason" to reason, "scanInProgress" to mIsGettingMedia,
+                    "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath)))
         mediaSortOperations.invalidate()
         if (isPhotoProfiles) { getPhotoProfileMedia(); return }
         if (mPath == FAVORITES && favoriteSessionId != null) {
@@ -2092,6 +2133,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var folderReadRequest = -1L
     private var folderReadResult: org.fossify.gallery.helpers.FolderMediaReadResult? = null
     private var folderStatsRequestVersion = 0L
+    private var displayedSourceVersion = 0L
+    private var displayedFolderSnapshot: DisplayedFolderSnapshot? = null
 
     private val folderPublicationVersion = java.util.concurrent.atomic.AtomicLong()
     private fun folderPublicationAllowed(path: String, token: String? = folderUnlockSessionId): Boolean {
@@ -2128,6 +2171,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             cachedMediaFallback = retainedMedia.map { it.copy() },
             folderSessionId = folderUnlockSessionId,
             requestId = request,
+            retainSortMetadata = true,
             onFolderPreview = { read, partial ->
                 if (scanGeneration == mediaScanGeneration && mediaLoadRequests.isCurrent(request) &&
                     requestedFolder == mPath && !isFinishing && !isDestroyed) {
@@ -2138,7 +2182,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             },
             onSortingMetadataRefreshRequired = {
                 if (mediaLoadRequests.isCurrent(request) && scanGeneration == mediaScanGeneration &&
-                    requestedFolder == mPath && !isFinishing && !isDestroyed) getMedia()
+                    requestedFolder == mPath && !isFinishing && !isDestroyed) getMedia(reason = "sort_metadata_missing")
             },
             onFolderDetails = { details ->
                 if (scanGeneration == mediaScanGeneration && mediaLoadRequests.isCurrent(request) &&
@@ -2898,14 +2942,65 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             val candidate = ArrayList(media)
             ensureBackgroundThread {
                 if (!mediaLoadRequests.isCurrent(request)) return@ensureBackgroundThread
+                val configuration = FolderCachePreviewAccess.configuration(applicationContext, folder)
+                val sorting = config.getFolderSorting(folder)
+                val read = folderReadResult.takeIf { folderReadRequest == request }
+                val storageAccess = if (isFromCache && read == null)
+                    FolderCachePreviewAccess.capture(applicationContext, folder) else read?.accessCurrent ?: { false }
+                val access = {
+                    storageAccess() &&
+                        configuration == FolderCachePreviewAccess.configuration(applicationContext, folder) &&
+                        folder == mPath && token == folderUnlockSessionId &&
+                        (token == null || FolderUnlockSessionManager.isActive(token))
+                }
                 val safe = ArrayList(candidate.filter { item ->
-                    (item as? Medium)?.let { folderPublicationAllowed(it.path, token) } != false
+                    (item as? Medium)?.let {
+                        folderPublicationAllowed(it.path, token) &&
+                            (when {
+                                mIsGetImageIntent && !mIsGetVideoIntent -> it.type == TYPE_IMAGES
+                                mIsGetVideoIntent && !mIsGetImageIntent -> it.type == TYPE_VIDEOS
+                                else -> it.type and config.filterMedia != 0
+                            }) &&
+                            (!it.path.contains("/.") || config.shouldShowHidden) &&
+                            (config.temporarilyShowExcluded ||
+                                it.parentPath.isThisOrParentIncluded(config.includedFolders) ||
+                                !it.parentPath.isThisOrParentExcluded(config.excludedFolders))
+                    } != false
                 })
+                // Reapply the latest sort to the full source, including the final
+                // scan that may have been sorted before a UI choice changed.
+                val sorted = ArrayList(safe.filterIsInstance<Medium>().map { it.copy() })
+                MediaFetcher(applicationContext).sortMedia(sorted, sorting)
+                val presented = MediaFetcher(applicationContext).groupMedia(sorted, folder)
                 runOnUiThread {
                     if (version == folderPublicationVersion.get() && folder == mPath && token == folderUnlockSessionId &&
                         mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed &&
                         (token == null || FolderUnlockSessionManager.isActive(token))) {
-                        publishMedia(safe, isFromCache, request)
+                        if (isFromCache && completedMediaRequest == request) return@runOnUiThread
+                        if (configuration != FolderCachePreviewAccess.configuration(applicationContext, folder)) {
+                            getMedia(reason = "publication_configuration_changed")
+                        } else if (sorting != config.getFolderSorting(folder)) {
+                            gotMedia(candidate, isFromCache, request)
+                        } else if (!storageAccess()) {
+                            displayedFolderSnapshot = null
+                            mMedia.clear()
+                            binding.mediaGrid.adapter = null
+                            renderMediaScanState(request, org.fossify.gallery.helpers.GalleryScanResult(
+                                org.fossify.gallery.helpers.GalleryScanState.FAILED,
+                                cause = SecurityException("Folder access expired")))
+                            binding.mediaRefreshLayout.isRefreshing = false
+                            toast(R.string.media_load_permission_error)
+                        } else if (access()) {
+                            val stage = when {
+                                !isFromCache && read?.status == org.fossify.gallery.helpers.FolderReadStatus.COMPLETE ->
+                                    DisplayedSourceStage.SCAN_COMPLETE
+                                read != null -> DisplayedSourceStage.SCAN_PARTIAL
+                                else -> DisplayedSourceStage.CACHE_PREVIEW
+                            }
+                            displayedFolderSnapshot =
+                                DisplayedFolderSnapshot(request, displayedSourceVersion + 1, stage, access)
+                            publishMedia(presented, isFromCache, request)
+                        }
                     }
                 }
             }
@@ -2959,6 +3054,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 // Photos deliberately opts out of the adapter's generic anchor.
                 rememberPhotoScrollAnchor()
             }
+            displayedSourceVersion++
             mMedia = ArrayList(media)
             if (isPhotoProfiles && !isFromCache) {
                 photoHasContent = media.any { it is Medium }
@@ -2974,6 +3070,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
             displayedMediaRequest = request
             displayedMediaIsFinal = false
+            if (!isFromCache && media.isNotEmpty()) setMediaLoading(true)
+            if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+                org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                    org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "folder_snapshot_selected", request,
+                    mapOf("snapshotStage" to displayedFolderSnapshot?.stage?.name,
+                        "generation" to displayedSourceVersion, "itemCount" to media.size,
+                        "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath)))
             // A preview must not hide the central loading indicator or stop a manual refresh.
             binding.mediaEmptyDescription.beGone()
             binding.mediaEmptyTextPlaceholder.beVisibleIf(media.isEmpty() && !isFromCache)
@@ -3001,6 +3104,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             } else {
                 setupAdapter {
                     if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return@setupAdapter
+                    if (!isFromCache) setMediaLoading(false)
                     displayedMediaIsFinal = !isFromCache && outcome.complete
                     org.fossify.gallery.helpers.FolderRefreshTrace.event(request, "adapter_committed",
                         getMediaAdapter()?.media.orEmpty().filterIsInstance<Medium>().map { it.path }, "final=$displayedMediaIsFinal")

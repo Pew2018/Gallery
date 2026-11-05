@@ -319,6 +319,46 @@ class FolderRefreshActivityTest {
         }
     }
 
+    @Test fun ordinaryCachePreviewSortsBeforeAnyReadResultAndDoesNotRestartScan() {
+        File(root, ".nomedia").delete()
+        context.config.saveCustomSorting(root.path, org.fossify.commons.helpers.SORT_BY_NAME)
+        withActivity { activity ->
+            MediaActivity.mMedia.clear()
+            val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
+            val request = requests.begin()
+            (field(activity, "mediaScanTerminals").get(activity) as GalleryScanTerminalGate).begin(request)
+            field(activity, "mediaRefreshRequest").setLong(activity, request)
+            field(activity, "mIsGettingMedia").setBoolean(activity, true)
+            field(activity, "folderReadResult").set(activity, null)
+            val media = ArrayList<org.fossify.gallery.models.ThumbnailItem>((0 until 11023).map {
+                Medium(null, "image-%05d.jpg".format(it), "${root.path}/image-%05d.jpg".format(it), root.path,
+                    10, 10, 100, TYPE_IMAGES, 0, false, 0, 0)
+            })
+            MediaActivity::class.java.getDeclaredMethod("gotMedia", ArrayList::class.java,
+                Boolean::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
+                .invoke(activity, media, true, request)
+            await { paths(activity).size == 11023 }
+            val snapshot = field(activity, "displayedFolderSnapshot").get(activity) as DisplayedFolderSnapshot
+            assertEquals(DisplayedSourceStage.CACHE_PREVIEW, snapshot.stage)
+            assertNull(field(activity, "folderReadResult").get(activity))
+            context.config.saveCustomSorting(root.path, org.fossify.commons.helpers.SORT_BY_NAME or
+                org.fossify.commons.helpers.SORT_DESCENDING)
+            val gate = field(activity, "mediaSortOperations").get(activity) as MediaSortOperationGate
+            val accepted = MediaActivity::class.java.getDeclaredMethod("previewSortDuringFolderScan",
+                Long::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
+                .invoke(activity, gate.begin(), android.os.SystemClock.elapsedRealtime()) as Boolean
+            assertTrue(accepted)
+            await {
+                val adapter = activity.findViewById<MyRecyclerView>(R.id.media_grid).adapter as? MediaAdapter
+                (adapter?.media?.firstOrNull() as? Medium)?.name == "image-11022.jpg"
+            }
+            assertEquals(request, field(activity, "mediaRefreshRequest").getLong(activity))
+            assertTrue(field(activity, "mIsGettingMedia").getBoolean(activity))
+            assertNull(field(activity, "mCurrAsyncTask").get(activity))
+            assertEquals(11023, paths(activity).size)
+        }
+    }
+
     @Test fun cachedPreviewKeepsTheRefreshDeadlineActiveUntilFormalCompletion() {
         val old = photo("cached.jpg")
         withActivity { activity ->

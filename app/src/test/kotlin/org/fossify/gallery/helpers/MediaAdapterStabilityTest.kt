@@ -328,6 +328,151 @@ class MediaAdapterStabilityTest {
         assertEquals(1, changes)
     }
 
+    @Test fun heldDiffCannotBlockOrOverwriteNewSortAndSearch() = withAdapter { adapter, recycler, tasks ->
+        for (count in listOf(2012, 5000, 11023)) {
+            val full = ArrayList<ThumbnailItem>((0 until count).map { item("photo-$it.jpg") })
+            adapter.updateMedia(full, preserveScroll = false)
+            drain(tasks)
+            // Identity order unchanged: metadata diff deliberately held by executor.
+            val changed = ArrayList<ThumbnailItem>(full.map { (it as Medium).copy(modified = 20) })
+            adapter.updateMedia(changed)
+            assertEquals(1, tasks.size)
+            val blocked = tasks.removeFirst()
+            val sorted = ArrayList<ThumbnailItem>(changed.asReversed())
+            var sortCommitted = false
+            adapter.updateMedia(sorted, updateReason = MediaUpdateReason.USER_SORT,
+                effectiveSorting = org.fossify.commons.helpers.SORT_BY_SIZE, onCommitted = { sortCommitted = true })
+            assertTrue("Sort commits BEFORE releasing the old diff", sortCommitted)
+            assertEquals(sorted, adapter.media)
+            assertEquals(org.fossify.commons.helpers.SORT_BY_SIZE, adapter.sorting)
+            val matches = ArrayList<ThumbnailItem>(sorted.take(12))
+            var searchCommitted = false
+            adapter.updateMedia(matches, preserveScroll = false, updateReason = MediaUpdateReason.USER_SEARCH,
+                onCommitted = { searchCommitted = true })
+            assertTrue("Search commits BEFORE releasing the old diff", searchCommitted)
+            assertEquals(matches, adapter.media)
+            assertEquals(12, adapter.itemCount)
+            assertSame(adapter, recycler.adapter)
+            val version = adapter.committedVersion
+            blocked.run()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(version, adapter.committedVersion)
+            assertEquals(matches, adapter.media)
+            assertTrue(tasks.isEmpty())
+            adapter.updateMedia(full, preserveScroll = false, updateReason = MediaUpdateReason.USER_SEARCH)
+            drain(tasks)
+            assertEquals(count, adapter.itemCount)
+        }
+    }
+
+    @Test fun largeFinalPermutationAndSearchClearDoNotQueueUnboundedDiffWork() = withAdapter { adapter, _, tasks ->
+        val full = ArrayList<ThumbnailItem>((0 until 11023).map { item("photo-$it.jpg") })
+        adapter.updateMedia(full, preserveScroll = false)
+        drain(tasks)
+        val final = ArrayList<ThumbnailItem>(full.asReversed().map { (it as Medium).copy(modified = 20) })
+        adapter.updateMedia(final)
+        assertTrue(tasks.isEmpty())
+        assertEquals(final, adapter.media)
+        for (query in listOf("1", "10", "1", "")) {
+            val expected = ArrayList<ThumbnailItem>(final.filter { (it as Medium).name.contains(query) })
+            adapter.updateMedia(expected, preserveScroll = false, updateReason = MediaUpdateReason.USER_SEARCH)
+            drain(tasks)
+            assertEquals(expected, adapter.media)
+        }
+    }
+
+    @Test fun recordHostCommitCostsForLargeLists() = withAdapter { adapter, _, tasks ->
+        val rows = mutableListOf("scenario,count,submitToCommitMs,queuedDiffs,finalCount")
+        fun measure(label: String, data: ArrayList<ThumbnailItem>, reason: MediaUpdateReason) {
+            val start = System.nanoTime()
+            var elapsed = -1.0
+            adapter.updateMedia(data, preserveScroll = false, updateReason = reason,
+                onCommitted = { elapsed = (System.nanoTime() - start) / 1_000_000.0 })
+            val queued = tasks.size
+            drain(tasks)
+            assertTrue(elapsed >= 0)
+            assertEquals(data, adapter.media)
+            rows += "$label,${data.size},$elapsed,$queued,${adapter.itemCount}"
+        }
+        for (count in listOf(2012, 5000, 11023)) {
+            val full = ArrayList<ThumbnailItem>((0 until count).map { item("$it.jpg") })
+            measure("initial", full, MediaUpdateReason.SCAN)
+            measure("sort", ArrayList(full.asReversed()), MediaUpdateReason.USER_SORT)
+            if (count == 11023) {
+                measure("final_changed_order_and_metadata",
+                    ArrayList(full.map { (it as Medium).copy(modified = 30) }), MediaUpdateReason.SCAN)
+                measure("search_narrow", ArrayList(full.take(120)), MediaUpdateReason.USER_SEARCH)
+                measure("search_clear", full, MediaUpdateReason.USER_SEARCH)
+                measure("metadata_only", ArrayList(full.map { (it as Medium).copy(modified = 40) }),
+                    MediaUpdateReason.SCAN)
+            }
+        }
+        val report = java.io.File("build/reports/ui-regression/media-commit-host.csv")
+        report.parentFile.mkdirs()
+        report.writeText(rows.joinToString("\n") + "\n")
+        println(rows.joinToString("\n"))
+    }
+
+    @Test fun permissionLossBlocksFastReplacementAndOldDiff() = withAdapter { adapter, recycler, tasks ->
+        var access = true
+        adapter.updateMedia(arrayListOf(item("old.jpg")), isCurrent = { access })
+        val blocked = tasks.removeFirst()
+        access = false
+        adapter.updateMedia(ArrayList((0 until 11023).map { item("$it.jpg") }),
+            updateReason = MediaUpdateReason.USER_SEARCH, isCurrent = { access })
+        assertEquals("a.jpg", (adapter.media.single() as Medium).name)
+        assertSame(adapter, recycler.adapter)
+        // The older request also loses authorization before its callback.
+        blocked.run()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("a.jpg", (adapter.media.single() as Medium).name)
+    }
+
+    @Test fun destroyedActivityCannotReceiveTheHeldDiff() {
+        val controller = Robolectric.buildActivity(SimpleActivity::class.java).setup()
+        val activity = controller.get()
+        val recycler = MyRecyclerView(activity).apply { layoutManager = LinearLayoutManager(activity) }
+        activity.setContentView(recycler)
+        val tasks = ArrayDeque<Runnable>()
+        val adapter = MediaAdapter(activity, arrayListOf(item("a.jpg")), null, false, false,
+            "/photos", recycler, Executor { tasks.addLast(it) }) {}
+        recycler.adapter = adapter
+        adapter.updateMedia(arrayListOf(item("late.jpg")))
+        assertEquals(1, tasks.size)
+        controller.pause().stop().destroy()
+        tasks.removeFirst().run()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("a.jpg", (adapter.media.single() as Medium).name)
+        assertEquals(1L, adapter.committedVersion)
+    }
+
+    @Test fun rejectedExecutorRecoversOnceWithoutLeavingTheAdapterStuck() = withAdapter { _, recycler, tasks ->
+        val activity = recycler.context as SimpleActivity
+        val rejecting = MediaAdapter(activity, arrayListOf(item("a.jpg")), null, false, false,
+            "/photos", recycler, Executor { throw java.util.concurrent.RejectedExecutionException() }) {}
+        recycler.adapter = rejecting
+        rejecting.updateMedia(arrayListOf(item("new.jpg")))
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("new.jpg", (rejecting.media.single() as Medium).name)
+        assertTrue(tasks.isEmpty())
+    }
+
+    @Test fun metadataDiffAndGroupedReplacementKeepTheirStrategies() = withAdapter { adapter, _, tasks ->
+        val full = ArrayList<ThumbnailItem>((0 until 11023).map { item("$it.jpg") })
+        adapter.updateMedia(full, preserveScroll = false)
+        drain(tasks)
+        adapter.updateMedia(ArrayList(full.map { (it as Medium).copy(modified = 30) }))
+        assertEquals(1, tasks.size)
+        val blocked = tasks.removeFirst()
+        val grouped = arrayListOf<ThumbnailItem>(ThumbnailSection("June", "june"), item("x.jpg"))
+        adapter.updateMedia(grouped, updateReason = MediaUpdateReason.USER_SEARCH)
+        assertEquals(grouped, adapter.media)
+        assertTrue(adapter.media.first() is ThumbnailSection)
+        blocked.run()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(grouped, adapter.media)
+    }
+
     @Test fun unchangedFullBindKeepsDrawableAndRequestToken() = withAdapter { adapter, recycler, _ ->
         val holder = adapter.onCreateViewHolder(recycler, adapter.getItemViewType(0))
         adapter.onBindViewHolder(holder, 0)
