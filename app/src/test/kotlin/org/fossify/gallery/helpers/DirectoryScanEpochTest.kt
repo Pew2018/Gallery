@@ -44,7 +44,7 @@ class DirectoryScanEpochTest {
         val timedOut = begin()
         assertTrue(gate.finish(timedOut, GalleryScanResult(GalleryScanState.TIMED_OUT)))
         enqueue(timedOut, "too-late")
-        pending.last().invoke()
+        pending[2].invoke()
         assertEquals(listOf("fresh"), published)
         assertEquals(GalleryScanState.TIMED_OUT, gate.result(timedOut)?.state)
     }
