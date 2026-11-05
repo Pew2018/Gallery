@@ -1599,6 +1599,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     /** Authentication has succeeded; only the clicked path gates the first image. */
     private fun startFolderViewer(existingToken: String?, authenticatedRoot: String?, onInvalid: () -> Unit) {
+        folderScanGate.cancel()
+        folderScanWatchdog.stop()
+        folderHandoffExpansionRunning = false
+        folderCompletePreparing = false
+        expandCommittedFolder = null
         appliedViewerCatalogComplete = false
         photoNavigation.publish(false)
         val request = ++viewerAccessGeneration
@@ -1655,6 +1660,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         viewerStageGeneration++
                         viewerScanNeedsRetry = true
                         folderCompletePreparing = false
+                        folderHandoffExpansionRunning = false
                         photoNavigation.cancel()
                         photoNavigation.publish(false)
                         finishViewerBoundaryTrace()
