@@ -17,13 +17,17 @@ The complete scan applies the latest sorting mode before grouping, retaining the
 ## Validation status
 
 - `git diff --check`: passed during implementation.
-- Focused and complete FOSS Release unit tests: **not yet run**. The local wrapper could not download Gradle 9.5.1 because network access to `services.gradle.org` was unavailable. Therefore a local red-before-fix run was not possible; the new tests are committed as regression coverage, and the existing GitHub Actions workflow is the required validation route after the source commit is pushed.
+- Local focused/complete tests could not start because the wrapper could not download Gradle 9.5.1 from `services.gradle.org`; therefore a local red-before-fix run was not possible.
+- Final Actions run [42029731443](https://github.com/Pew2018/Gallery/actions/runs/42029731443), tested source SHA `93726b35c27c96cd6a81955dfbf1fcc2aaa26ebe`: **902 tests / 0 failures / 0 errors / 0 skipped**. The uploaded XML report artifact was independently counted.
+- The initial run [42029222905](https://github.com/Pew2018/Gallery/actions/runs/42029222905) failed at Kotlin compilation because the repository-upload API truncated the large Activity source blob. The complete local file and remote blob SHA were then verified equal, a follow-up commit was pushed, and the complete successful run above rebuilt and validated that source.
 - Pixel 8 Pro: `PENDING_DEVICE` until the user installs and tests the resulting APK.
-- No repair-time or post-fix device latency is claimed. The supplied log timings are pre-fix observations only.
+- No post-fix device latency is claimed. The supplied log timings are pre-fix observations only.
 
 ## CI and APK
 
-Pending successful GitHub Actions run. Fill this section with the tested source SHA, run URL, complete test counts, artifact ID/name, APK package/version/ABI/signature type and SHA-256 only after the run and artifact have been verified. The expected CI signature is temporary unless workflow evidence says otherwise.
+Successful run: [42029731443](https://github.com/Pew2018/Gallery/actions/runs/42029731443), source SHA `93726b35c27c96cd6a81955dfbf1fcc2aaa26ebe`. The APK artifact `gallery-foss-arm64-v8a-release` (ID `13416366219`) was downloaded and inspected; it contains one APK, 18,369,179 bytes. APK SHA-256: `55b9bda771955449c6176b5d96f7c37b7f2c685a3f9202557a56fd4cab4c4b6c`.
+
+CI verified package `org.fossify.gallery`, version `1.14.1` / versionCode `32`, `arm64-v8a` only, and APK Signature Scheme v2. The signer certificate is `CN=Gallery Temporary CI Test Signature, O=Local Testing`; this temporary CI signature is not an upgrade-signature compatibility guarantee. Test reports are in artifact `backup-ui-test-reports` (ID `13416450541`). The final documentation-only commit will have a HEAD later than the tested source SHA.
 
 ## Device retest checklist
 
