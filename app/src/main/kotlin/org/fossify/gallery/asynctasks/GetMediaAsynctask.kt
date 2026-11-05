@@ -34,6 +34,8 @@ internal class GetMediaAsynctask(
     private val folderSessionId: String? = null,
     private val requestId: Long = 0,
     private val diagnosticLoadReason: String? = null,
+    private val folderPriorityPaths: List<String>? = null,
+    private val onScanCancelled: (() -> Unit)? = null,
     private val onFolderPreview: ((FolderMediaReadResult, ArrayList<ThumbnailItem>) -> Unit)? = null,
     private val onFavoritePreview: ((List<Medium>, Set<String>) -> Unit)? = null,
     private val onFolderDetails: ((List<Medium>) -> Unit)? = null,
@@ -63,6 +65,7 @@ internal class GetMediaAsynctask(
     private var workerFinishedElapsedMs = createdAtElapsedMs
     private val mediaFetcher = MediaFetcher(context, reportReadFailures = true, discoverUnindexedFolders = manualRefresh).also {
         it.traceRequest = requestId
+        it.preferredFolderOrder = folderPriorityPaths
         it.pipelineDiagnostics = pipelineDiagnostics
     }
     init {
@@ -338,7 +341,6 @@ internal class GetMediaAsynctask(
             if (result.context.isCurrent(context)) {
                 pipelineDiagnostics?.apply {
                     add("stageCount")
-                    add("stagePublishCount")
                 }
                 if (GalleryDiagnosticLogger.isEnabled() && diagnosticProfileStages.add(result.stage.name)) GalleryDiagnosticLogger.event(
                     DiagnosticLevel.INFO, "PhotoProfile", "scan_partial_published", requestId,
@@ -406,6 +408,7 @@ internal class GetMediaAsynctask(
     override fun onCancelled(media: ArrayList<ThumbnailItem>?) {
         super.onCancelled(media)
         finishPipelineDiagnostics("CANCELLED", media.orEmpty())
+        onScanCancelled?.invoke()
     }
 
     private fun finishPipelineDiagnostics(terminalState: String, media: List<ThumbnailItem>) {

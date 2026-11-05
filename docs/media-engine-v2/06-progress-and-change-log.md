@@ -1,3 +1,7 @@
+## 2026-11-05 — Phase 1.5 Pixel真机日志驱动的正确性修复
+
+在 `refactor/media-pipeline-stability` 最新远程 `7670a10a…` 上审计A/B完整日志，保留旧Activity取消所有权，用当前Viewer重新验证已提交候选扩展邻域；明确grid commit版本、partial/random与COMPLETE权威排序，保留live path及权限/revision；合并阶段发布并移除逐文件默认timing。审计、实际代码/测试和交接见 [25](25-phase1-5-device-log-root-cause-audit.md)、[26](26-phase1-5-viewer-consistency-fixes.md)、[27](27-phase1-5-validation-and-handoff.md)。CI以27的真实结果为准，Pixel所有复测仍PENDING_DEVICE；原阶段2–4不提前实施。
+
 
 ## 2026-11-05 — 新 Phase 1（工作分支 `refactor/media-pipeline-stability`）
 

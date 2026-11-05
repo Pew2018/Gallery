@@ -194,6 +194,9 @@ class PhotoProfileMediaLoader internal constructor(
         checkCurrent(request)
         val scanning = GalleryPerfTrace.begin()
         val supplements = LinkedHashMap<String, Medium>(stagedCandidates)
+        val publicationBudget = ProgressivePublicationBudget()
+        var supplementVersion = 0L
+        val pendingSupplements = LinkedHashMap<String, Medium>()
         val media = fetcher.scanProfileFileSupplements(folders, favoriteFiles, ArrayList(request.favorites), indexed,
             preferredPath = { PhotoSessionViewerCatalogStore.focusPath(request) ?: anchorPath }) { batch ->
             checkCurrent(request)
@@ -211,11 +214,20 @@ class PhotoProfileMediaLoader internal constructor(
                 // and the cumulative list is sorted below before publication.
                 // Sorting the batch here as well only repeats work and does not
                 // affect the order of the published snapshot.
-                val stage = result(PhotoLoadStage.FILESYSTEM, batch, preserveInputOrder = true)
-                stage.media.forEach { supplements[it.path] = it }
-                val ordered = ArrayList(supplements.values)
-                sort(ordered)
-                publishValidatedStage(stage.copy(media = ordered))
+                batch.forEach {
+                    if ((pendingSupplements[it.path] ?: supplements[it.path]) != it) supplementVersion++
+                    pendingSupplements[it.path] = it
+                }
+                // Merge all batches before validating new candidates. Previously
+                // validated rows remain scope-bound; COMPLETE revalidates everything.
+                if (publicationBudget.admit(android.os.SystemClock.elapsedRealtime(), supplementVersion)) {
+                    val stage = result(PhotoLoadStage.FILESYSTEM, ArrayList(pendingSupplements.values), preserveInputOrder = true)
+                    pendingSupplements.clear()
+                    stage.media.forEach { supplements[it.path] = it }
+                    val ordered = ArrayList(supplements.values)
+                    sort(ordered)
+                    publishValidatedStage(stage.copy(media = ordered))
+                }
             }
         }
         diagnostics?.add("diskSupplementCount", (media.size - indexed.mediaByPath.size).coerceAtLeast(0).toLong())

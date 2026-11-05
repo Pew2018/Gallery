@@ -31,3 +31,11 @@
 - [24 — 结果与交接](24-phase1-results-and-handoff.md)：CI/Artifact 证据链、设备矩阵与阶段 2 准入。
 
 阶段 1 自动化测试已由受测源码 `5b75cb2a5c7a96021f35013292a5479436f87f36` 的成功 CI 核验；全部真机权限、并发和性能场景仍为 `PENDING_DEVICE`。旧 01–21 为独立历史/阶段 0 事实，不得将 0 的 Run 当成 1 的构建证明。
+
+## Phase 1.5 — Pixel 8 Pro Viewer 和渐进发布
+
+- [25 — 完整设备日志与F/R/U根因](25-phase1-5-device-log-root-cause-audit.md)
+- [26 — 函数修复、目录协议与测试边界](26-phase1-5-viewer-consistency-fixes.md)
+- [27 — CI/ARM64交付与PENDING_DEVICE矩阵](27-phase1-5-validation-and-handoff.md)
+
+本阶段不代表进入原阶段2；现有main与历史构建证明保持独立。

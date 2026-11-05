@@ -35,6 +35,7 @@ class MediaFetcher(
     internal var folderFileAccess: FolderFileAccess = DeviceFolderFileAccess(context)
     internal var traceRequest = 0L
     internal var pipelineDiagnostics: MediaPipelineDiagnostics? = null
+    internal var preferredFolderOrder: List<String>? = null
     internal var onFolderProgress: ((FolderMediaReadResult) -> Unit)? = null
     private val folderObservations = hashMapOf<String, FolderReadObservation>()
 
@@ -547,10 +548,11 @@ class MediaFetcher(
                 accessCurrent = observation.accessCurrent))
         }
         // Prioritize the live anchor without re-enumerating or changing final sorting.
+        val preferredFiles = ViewerCommittedWindow.prioritize(files, preferredFolderOrder) { it.absolutePath }
         val orderedFiles = preferredPath?.let { anchor ->
             val selected = files.indexOfFirst { it.absolutePath == anchor }
             if (selected >= 0) files.subList(selected, files.size) + files.subList(0, selected) else files
-        } ?: files
+        } ?: preferredFiles
         for (curFile in orderedFiles) {
             var file = curFile
             if (shouldStop) throw java.util.concurrent.CancellationException()

@@ -698,6 +698,8 @@ class MediaAdapter(
 
     private fun getItemWithKey(key: Int): Medium? = media.firstOrNull { (it as? Medium)?.path?.hashCode() == key } as? Medium
 
+    var committedVersion: Long = 1L
+        private set
     @Volatile private var diffGeneration = 0
     private val refreshScroll = FavoritesScrollRestorer()
     private data class PendingUpdate(
@@ -779,6 +781,7 @@ class MediaAdapter(
             // Keep the newest database snapshot for later actions without asking
             // RecyclerView to diff or rebind rows whose visible content is stable.
             media = incoming
+            committedVersion++
             currentMediaHash = media.hashCode()
             if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
                 org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
@@ -833,6 +836,7 @@ class MediaAdapter(
                     refreshScroll.remember(recyclerView, media.map { (it as? Medium)?.path })
                 }
                 media = incoming
+                committedVersion++
                 currentMediaHash = media.hashCode()
                 selectedKeys.retainAll(media.filterIsInstance<Medium>().map { it.path.hashCode() }.toSet())
                 if (selectedKeys.isEmpty()) finishActMode() else actMode?.invalidate()
@@ -842,7 +846,7 @@ class MediaAdapter(
                     org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
                         org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_commit",
                         pending.requestId, mapOf(
-                            "itemCount" to incoming.size,
+                            "itemCount" to incoming.size, "gridVersion" to committedVersion,
                             "oldCount" to old.size,
                             "diffMs" to (android.os.SystemClock.elapsedRealtime() - diffStarted).coerceAtLeast(0L)
                         )

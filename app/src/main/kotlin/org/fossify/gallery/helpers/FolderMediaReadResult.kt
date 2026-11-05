@@ -73,6 +73,9 @@ internal object FolderRefreshTrace {
     fun dump(): String = synchronized(records) { records.joinToString("\n") }
     fun clear() = synchronized(records) { records.clear() }
     inline fun <T> measure(request: Long, stage: String, block: () -> T): T {
+        // Per-file counters/time are aggregated by MediaPipelineDiagnostics.
+        // Keep the opt-in target trace, but never persist two events per file.
+        if (stage == "file_metadata") return block()
         if (!enabled && !GalleryDiagnosticLogger.isEnabled()) return block()
         val start = android.os.SystemClock.elapsedRealtime()
         event(request, stage + "_start")

@@ -13,11 +13,21 @@ internal object ViewerGridOrderStore {
 
     private data class Entry(
         val id: String, val source: String, val selected: String,
-        val createdAt: Long, val paths: List<String>
+        val createdAt: Long, val evidence: Evidence
+    )
+    data class Evidence(
+        val paths: List<String>, val candidates: List<Medium>,
+        val version: Long, val contract: String?, val revision: Long
     )
     private var pending: Entry? = null
 
-    @Synchronized fun offer(source: String, selected: String, items: List<ThumbnailItem>): String? {
+    /** This identifies display scope, not access. Sessions must still be validated at publication. */
+    fun contract(sorting: Int, filter: Int, hidden: Boolean, query: String, session: String?, revision: Long) =
+        listOf(sorting, filter, hidden, query, session, revision).joinToString("\u0000")
+
+    @Synchronized fun offer(source: String, selected: String, items: List<ThumbnailItem>,
+        version: Long = 0L, contract: String? = null, includeCandidates: Boolean = false,
+        revision: Long = FolderContentRevision.current()): String? {
         if (source.isBlank() || selected.isBlank()) return null
         // A concurrent adapter commit may replace its backing list while the
         // handoff worker reads it; missing a snapshot must never prevent opening.
@@ -27,17 +37,27 @@ internal object ViewerGridOrderStore {
         }.getOrNull() ?: return null
         if (paths.isEmpty() || paths.size > MAX_ITEMS || selected !in paths) return null
         val id = UUID.randomUUID().toString()
-        pending = Entry(id, source, selected, SystemClock.elapsedRealtime(), paths)
+        val candidates = if (includeCandidates) items.filterIsInstance<Medium>().map { it.copy() } else emptyList()
+        pending = Entry(id, source, selected, SystemClock.elapsedRealtime(), Evidence(paths, candidates, version, contract, revision))
+        if (GalleryDiagnosticLogger.isEnabled()) GalleryDiagnosticLogger.event(
+            DiagnosticLevel.INFO, "Viewer", "viewer_grid_handoff_capture", id,
+            mapOf("scopeKey" to GalleryDiagnosticLogger.anonymousId(source), "gridVersion" to version,
+                "revision" to revision, "itemCount" to paths.size,
+                "mediaId" to GalleryDiagnosticLogger.anonymousId(selected), "containsSelected" to true))
         return id
     }
 
-    @Synchronized fun take(id: String?, source: String, selected: String): List<String>? {
+    fun take(id: String?, source: String, selected: String): List<String>? = takeEvidence(id, source, selected)?.paths
+
+    @Synchronized fun takeEvidence(id: String?, source: String, selected: String,
+        contract: String? = null): Evidence? {
         val entry = pending ?: return null
         if (id == null || entry.id != id) return null
         pending = null
         if (entry.source != source || entry.selected != selected ||
+            (contract != null && entry.evidence.contract != contract) ||
             SystemClock.elapsedRealtime() - entry.createdAt !in 0..MAX_AGE_MS) return null
-        return entry.paths
+        return entry.evidence
     }
 }
 
@@ -74,9 +94,10 @@ internal object ViewerGridOrderPolicy {
      * A conflicting old grid cannot reorder just the resident window safely. */
     fun <T> reconcilePhotoCatalog(
         gridOrder: List<String>?, previous: List<T>, fresh: List<T>,
-        segmented: Boolean, path: (T) -> String
+        segmented: Boolean, complete: Boolean = false, random: Boolean = false, path: (T) -> String
     ): Pair<List<T>, Boolean> {
-        val ordered = reconcile(gridOrder, previous, fresh, false, path)
+        if (complete && !random) return fresh to false
+        val ordered = reconcile(gridOrder, previous, fresh, random, path)
         if (segmented && gridOrder != null && fresh.indices.any { path(fresh[it]) != path(ordered[it]) }) {
             return fresh to false
         }
