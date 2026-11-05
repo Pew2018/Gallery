@@ -2,7 +2,7 @@
 
 ## 实施状态
 
-记录基于本轮远程起始 HEAD b7175e8fa0411d8ff600366e316777efb28bb8f3。业务实现已完成，最终本地/Actions SHA、单测数量、APK Artifact、哈希和签名结果须在提交并运行现有 arm64-foss-release.yml 后补录。当前这些 CI 字段为 PENDING_CI，不代表已通过。
+记录基于本轮远程起始 HEAD b7175e8fa0411d8ff600366e316777efb28bb8f3。代码通过 SHA `27008fc1b5226187c3c8b99c0a12911aa5163632` 的 Actions Run 42085423790；随后只更新本文、README、06 与 18 文档。GitHub Runner 完整单测与 ARM64 APK 校验成功。最终文档提交 SHA 会晚于实际构建 SHA。
 
 Pixel 8 Pro 交互与显示帧验收为 PENDING_DEVICE。
 
@@ -44,18 +44,19 @@ Pixel 8 Pro 交互与显示帧验收为 PENDING_DEVICE。
 
 - 快路径不调用 getMedia、不创建 GetMediaAsynctask、不进行目录枚举或 MediaStore 全库查询。收藏与回收站各在排序前、提交前读取一次来源成员集合；每个核验阶段是一条批量关系查询，不会按媒体逐项查 Room。
 - 成功路径调用 MediaFetcher.sortMedia 与 groupMedia 后提交现有 Adapter；提交策略及耗时由既有 MediaAdapter 诊断记录。
+- Robolectric 主机 Activity 测试中，收藏与回收站直接调用生产快路径并断言现有 refresh request 不变、Adapter 对象不变、完整成员集合及顺序正确；因此该调用没有发起新完整扫描。没有测量真实设备点击到绘制时间或相同主机下完整扫描次数前后差。
 - 同条件主机合成耗时前后比较：NOT_MEASURED。本轮没有虚构扫描耗时降低百分比。
 - Pixel 8 Pro 点击至真实屏幕绘制、缩略图重绑、滚动稳定：PENDING_DEVICE。
 
 ## Actions/APK
 
 - Workflow：.github/workflows/arm64-foss-release.yml
-- Run ID / URL：PENDING_CI
-- 实际构建 SHA：PENDING_CI
-- FOSS Release 单测总数/失败数：PENDING_CI
-- Kotlin 编译、ARM64 APK 构建：PENDING_CI
-- 包名/版本/ABI/签名：PENDING_CI
-- APK Artifact ID 与下载 SHA-256：PENDING_CI
+- Run ID / URL：[42085423790](https://github.com/Pew2018/Gallery/actions/runs/42085423790)
+- 实际构建 SHA：`27008fc1b5226187c3c8b99c0a12911aa5163632`
+- FOSS Release 单测：924 tests / 0 failures / 0 errors / 0 skipped；Kotlin 生产与测试源码编译成功。
+- ARM64 APK 构建：成功；包名 `org.fossify.gallery`，versionCode `32`，versionName `1.14.1`，ABI `arm64-v8a` only。
+- 签名：apksigner v2 verification 成功，V2 signer DN 为 `CN=Gallery Temporary CI Test Signature, O=Local Testing`。此临时测试签名不保证可覆盖安装正式签名版本。
+- APK Artifact ID `13442478424`，名称 `gallery-foss-arm64-v8a-release`。Workflow 输出 APK SHA-256：`defa90434e1249f7c3d6e80e12364ab67f05309e51e745100d2dd7c9b4e214e4`。GitHub Artifact API 返回 ZIP digest `sha256:112f9bd2fb90a27829524e53eec0c42367889a2b8fcaae8df4acc0bff1686004`。当前执行环境通过 `gh run download` 与 Artifact ZIP API 下载时均收到 blob 存储 403，因此 APK SHA 与签名依据为 Actions runner 的成功校验日志，未在本地重新计算/复验。
 
 ## 限制及 Pixel 8 Pro 清单
 

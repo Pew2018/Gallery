@@ -3,7 +3,7 @@
 
 ## Phase 2D — 虚拟收藏/回收站排序与搜索
 
-本轮从重新获取的远程 HEAD b7175e8fa0411d8ff600366e316777efb28bb8f3 审计，已实现虚拟完整快照排序复用、回收站成员 revision 与虚拟来源扫描排序复核。源码审计见[41](41-virtual-favorites-recycle-bin-sort-search-audit.md)，实现与验证状态见[42](42-virtual-media-snapshot-reuse-implementation-and-validation.md)。Actions/APK 尚待最终提交构建；Pixel 8 Pro 仍为 PENDING_DEVICE。
+本轮从重新获取的远程 HEAD b7175e8fa0411d8ff600366e316777efb28bb8f3 审计，已实现虚拟完整快照排序复用、回收站成员 revision 与虚拟来源扫描排序复核。Actions Run [42085423790](https://github.com/Pew2018/Gallery/actions/runs/42085423790) 在 SHA `27008fc1b5226187c3c8b99c0a12911aa5163632` 上通过 924 项 FOSS Release 单测和 ARM64 APK 构建/签名校验。实现及限制见[41](41-virtual-favorites-recycle-bin-sort-search-audit.md)、[42](42-virtual-media-snapshot-reuse-implementation-and-validation.md)。Pixel 8 Pro 仍为 PENDING_DEVICE。
 
 ## Phase 2A — 元数据、排序与扫描热点（2026-11-05）
 

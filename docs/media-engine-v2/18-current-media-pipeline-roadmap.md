@@ -13,7 +13,7 @@
 
 开始审计前重新获取目标远程 HEAD b7175e8fa0411d8ff600366e316777efb28bb8f3。源码确认虚拟收藏和回收站不符合普通物理目录快照复用准入，闲置时排序会走 getMedia；扫描期间则等有效请求完成。定点实现继续复用现有 Adapter、排序器、searchQueryChanged 与扫描；增加来源成员有效性、回收站 Room 成员 epoch、扫描末端的最新排序配置处理以及同值 RANDOM 操作反馈。实现、测试、CI/APK 及真机状态见[41–42](41-virtual-favorites-recycle-bin-sort-search-audit.md)。
 
-当前实现不增加永久索引或 Room Migration，也不逐项 File.exists()。本机 buildSrc 编译通过，但 app Kotlin 编译因缺少 Android SDK 未启动；当前提交的 GitHub Actions 和 ARM64 APK 为 PENDING_CI，Pixel 8 Pro 为 PENDING_DEVICE。
+当前实现不增加永久索引或 Room Migration，也不逐项 File.exists()。本机 buildSrc 编译通过，但 app Kotlin 编译因缺少 Android SDK 未启动；GitHub Actions Run [42085423790](https://github.com/Pew2018/Gallery/actions/runs/42085423790) 已验证 SHA `27008fc1b5226187c3c8b99c0a12911aa5163632` 的 924 项单测和 ARM64 APK。Pixel 8 Pro 为 PENDING_DEVICE。
 
 ## 1. 任务、目标与职责
 

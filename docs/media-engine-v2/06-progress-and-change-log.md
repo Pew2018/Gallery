@@ -23,7 +23,7 @@
 
 ## Phase 2D 更新（2026-11-05）
 
-重新获取的目标分支 HEAD 为 b7175e8fa0411d8ff600366e316777efb28bb8f3。已实现 Favorites/Recycle Bin 正式快照排序复用、回收站成员 epoch/search stale gate、虚拟扫描的最新排序配置复读及重复 RANDOM 操作反馈。审计和实现记录见[41](41-virtual-favorites-recycle-bin-sort-search-audit.md)、[42](42-virtual-media-snapshot-reuse-implementation-and-validation.md)。本机 Gradle 能编译 buildSrc，但缺少 Android SDK，未进入 app Kotlin 源码编译；Actions、完整测试、ARM64 APK 仍待最终提交验证；Pixel 8 Pro 为 PENDING_DEVICE。
+重新获取的目标分支 HEAD 为 b7175e8fa0411d8ff600366e316777efb28bb8f3。已实现 Favorites/Recycle Bin 正式快照排序复用、回收站成员 epoch/search stale gate、虚拟扫描的最新排序配置复读及重复 RANDOM 操作反馈。Actions Run [42085423790](https://github.com/Pew2018/Gallery/actions/runs/42085423790) 对 SHA `27008fc1b5226187c3c8b99c0a12911aa5163632` 完成 Kotlin 编译、924 tests / 0 failures / 0 errors / 0 skipped 和 ARM64 APK 签名校验。审计、实现和环境限制见[41](41-virtual-favorites-recycle-bin-sort-search-audit.md)、[42](42-virtual-media-snapshot-reuse-implementation-and-validation.md)。Pixel 8 Pro 为 PENDING_DEVICE。
 
 ## 1. 新阶段状态总览
 
