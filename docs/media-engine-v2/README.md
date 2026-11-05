@@ -1,6 +1,14 @@
 
 **Phase 1.5 最终CI交付**：源码 `026a943a445619407134394bf434b753c65695e2`；[Run41975453251](https://github.com/Pew2018/Gallery/actions/runs/41975453251) completed/success；完整886项单测、ARM64构建、包名/ABI/v2签名与实际下载哈希核验通过；Artifact13391393642。Pixel连续浏览和性能前后复测仍PENDING_DEVICE，不等于所有P0真机验收通过，不启动原阶段2。见[27](27-phase1-5-validation-and-handoff.md)。
 
+## Phase 2A — 元数据、排序与扫描热点（2026-11-05）
+
+- [28 — 热点审计与性能证据](28-phase2a-hotspot-audit.md)：复核Phase 1.5保护机制，分清MediaStore候选、磁盘/SAF验证、Room证据和待测数据。
+- [29 — 实施与回归边界](29-phase2a-implementation-and-regression.md)：普通完整文件夹排序复用实现与回归范围。
+- [30 — 结果与交接](30-phase2a-results-and-handoff.md)：最终SHA、完整FOSS Release测试、ARM64 Artifact、设备缺口与下一阶段准入。
+
+Phase 2A只处理有直接代码证据的完整普通文件夹排序重载；媒体实体验证和`.nomedia`补扫继续运行。没有可审计的Room query plan或修复后设备计时，因此不修改Schema，也不报告性能提升数字。Phase 1.5真机验收仍为`PENDING_DEVICE`。
+
 # Gallery 媒体管线文档索引
 
 > **当前唯一执行依据**：[18 — 现行媒体索引/加载/排序与稳定性路线图](18-current-media-pipeline-roadmap.md)。阶段 0 与阶段 1 的源码和 CI 均已完成（阶段 1 Run 41961735980，863/863 单测、ARM64 Artifact 13385912998），分支为 `refactor/media-pipeline-stability`；设备性能基线仍为 `PENDING_DEVICE`。测试与 Artifact 详情见 [21 — 结果与交接](21-phase0-results-and-handoff.md)。

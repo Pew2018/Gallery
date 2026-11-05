@@ -46,6 +46,14 @@
 
 ## 3. 已有记录
 
+### 2026-11-05｜Phase 2A — 热点审计与完整文件夹排序复用
+
+- **分支/起始SHA**：仅 `refactor/media-pipeline-stability`；重新读取远程HEAD `500f327a534832b83e872babc26ef32729e07867`，未重置。
+- **审计结论**：旧Pixel日志中5,285项metadata 6,720ms、排序99ms属于Phase1.5修复前样本，不能代表当前性能。当前物理补扫每个候选仍须核对实体/可读状态；Photo阶段间校验承担不同发布时点授权职责；没有安全依据合并。Room SQL/EXPLAIN与目录主线程耗时没有实测。
+- **实现**：完整、当前、非分组的普通物理目录排序改为复用`mMedia`正式快照，后台排序，再以原Adapter/Diff提交；不清Adapter、不创建扫描task。PhotoProfile、收藏、首页、回收站、PARTIAL/加载中或失权时保留旧加载路径。未修改Viewer、Room Schema、`.nomedia`扫描和UI样式。
+- **测试/验证**：新增3项生产策略单测。完整`./gradlew :app:testFossReleaseUnitTest`在本地未启动，Wrapper下载Gradle 9.5.1时Network is unreachable；待Actions。diff/静态审计结果及限制见[28](28-phase2a-hotspot-audit.md)、[29](29-phase2a-implementation-and-regression.md)。
+- **最终交付**：Actions SHA/Run、测试计数、APK/Artifact与签名、设备缺口待补录[30](30-phase2a-results-and-handoff.md)。阶段1.5 Pixel真机可靠性验收仍`PENDING_DEVICE`。
+
 ### 2026-11-04｜R00 — 为精简重构建档（仅文档）
 
 **目标**：按用户最新指令，把原“大型媒体引擎 V2”实施口径收敛为扫描、排序、显示三项，保留 Fossify Gallery 成熟底层；记录当前进度为尚未开始；为 fix 分支后续工作建立强制记录方式。
