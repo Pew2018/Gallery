@@ -4,6 +4,7 @@
 > 源码审计基线：`refactor/media-pipeline-stability` @ `b7175e8fa0411d8ff600366e316777efb28bb8f3`。
 > 该 SHA 仅为审计证据锚点；**实际开发前重新读取远程分支 HEAD，禁止重置到此提交**。
 > 本轮任务 **仅新增 `docs/` 文档，不修改应用代码、资源、构建配置、测试或其他目录**。
+> **2026-11-06 第二轮定位**：重新审计较新的 `27008fc1b5226187c3c8b99c0a12911aa5163632`，增加 05–09 文件；这个 HEAD 同样只是当时的证据锚点。发现 `PhotoProfileEditActivity` 的 FAB 在 IME 可见时被显式设为 `GONE`，详见 07。**仍未修复任何 UI。**
 
 ## 1. 目标与边界
 
@@ -48,6 +49,11 @@
 | [02-phased-implementation.md](02-phased-implementation.md) | 依赖关系、阶段 0–4、代码级修改边界、逐项 DoD |
 | [03-verification-matrix.md](03-verification-matrix.md) | 自动化和真机矩阵、量化观察项、非回归门槛 |
 | [04-predictive-back-feasibility.md](04-predictive-back-feasibility.md) | 预测性返回的系统约束、路径清单、试点方案、开关边界及工程量 |
+| [05-menu-settings-popup-code-atlas.md](05-menu-settings-popup-code-atlas.md) | 15 个菜单 XML、动态三点菜单、设置手柄和弹出/关闭动线 |
+| [06-navigation-hierarchy-and-viewer-back-map.md](06-navigation-hierarchy-and-viewer-back-map.md) | 普通文件夹/虚拟收藏/回收站/照片配置的页面层级与 Viewer 返回路径 |
+| [07-input-ime-empty-profile-fab.md](07-input-ime-empty-profile-fab.md) | 输入框、Commons 搜索逻辑、自定义配置空草稿加号被 IME 隐藏的源码定位及修法 |
+| [08-animations-dialog-viewer-transition-atlas.md](08-animations-dialog-viewer-transition-atlas.md) | 所有 Gallery Dialog、Commons 弹窗、Popup、全屏翻页和返回动画入口 |
+| [09-ui-work-orders-and-safety-rails.md](09-ui-work-orders-and-safety-rails.md) | 可领取的实施工单、文件热区、依赖前置及不能破坏的行为 |
 
 关联历史材料：[经典弹窗修复审计](../classic-dialog-repair-review.md)、[历史弹窗全覆盖记录](../../classic-dialog-review.md)、[经典动画真机验收](../../testing/classic-motion-device-checks.md)、[媒体管线文档](../../media-engine-v2/README.md)。
 
@@ -63,6 +69,8 @@
 | UI-06 | 列表顶部底部经典越界反馈 | P2 | 3 | 待原型 |
 | UI-07 | 预测性返回与可选动画开关 | P2，独立风险项 | 4 | 仅可行性规划 |
 | UI-08 | Toolbar/Dialog/Picker/深浅主题等扫尾 | P2 | 1–4 | 待覆盖审计 |
+| UI-09 | 新建/编辑照片配置时 IME 隐藏添加来源 FAB | P1（源码明确） | 优先独立小修 | **已定位：待真机布局确认，未修复** |
+| UI-10 | Popup/Dialog/Viewer/文件夹进退全套动画归属 | P2 | 先做规格审计再分级实现 | 已建代码地图，未改 UI |
 
 优先级说明：P0 表示明确影响当前界面状态辨识或操作；不代表优先于正在修复的虚拟文件夹功能 P0。
 
