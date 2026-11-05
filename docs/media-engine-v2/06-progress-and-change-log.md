@@ -21,6 +21,10 @@
 >
 > **新六阶段状态**：阶段0、1、1.5均有完整CI/ARM64交付；1.5真机仍`PENDING_DEVICE`。Phase 2A 的 Run 41983357685 通过889项测试；Phase 2B 最终 Run 41996848531 对应用 SHA `bbda62743fb931b7955b24bd48a7fb91f9eb68d8` 通过893项测试与ARM64 APK校验。Pixel性能/交互验证仍`PENDING_DEVICE`；详情见33。历史 `main` Run 41939577702 不是当前代码或真机性能基准。
 
+## Phase 2D 更新（2026-11-05）
+
+重新获取的目标分支 HEAD 为 b7175e8fa0411d8ff600366e316777efb28bb8f3。已实现 Favorites/Recycle Bin 正式快照排序复用、回收站成员 epoch/search stale gate、虚拟扫描的最新排序配置复读及重复 RANDOM 操作反馈。审计和实现记录见[41](41-virtual-favorites-recycle-bin-sort-search-audit.md)、[42](42-virtual-media-snapshot-reuse-implementation-and-validation.md)。本机 Gradle 能编译 buildSrc，但缺少 Android SDK，未进入 app Kotlin 源码编译；Actions、完整测试、ARM64 APK 仍待最终提交验证；Pixel 8 Pro 为 PENDING_DEVICE。
+
 ## 1. 新阶段状态总览
 
 | 阶段 | 当前状态 | 进入下一阶段的要求 |

@@ -347,6 +347,9 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
                 }
                 if (permanentDelete && deletedPaths.isNotEmpty()) {
                     deletedPaths.forEach { mediaDB.deleteMediumPath(it) }
+                    if (deletedPaths.any { it.startsWith("${org.fossify.commons.helpers.RECYCLE_BIN}/") }) {
+                        org.fossify.gallery.helpers.RecycleBinMembershipRevision.changed()
+                    }
                     org.fossify.gallery.helpers.PhotoContentRevision.changed()
                 }
                 runOnUiThread {

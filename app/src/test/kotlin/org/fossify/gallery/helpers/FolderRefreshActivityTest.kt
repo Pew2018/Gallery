@@ -13,10 +13,14 @@ import org.fossify.gallery.activities.MediaActivity
 import org.fossify.gallery.activities.MainActivity
 import org.fossify.gallery.adapters.DirectoryAdapter
 import org.fossify.gallery.extensions.directoryDB
+import org.fossify.gallery.extensions.mediaDB
+import org.fossify.gallery.extensions.favoritesDB
+import org.fossify.commons.extensions.recycleBinPath
 import org.fossify.gallery.adapters.MediaAdapter
 import org.fossify.gallery.databases.GalleryDatabase
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.models.Medium
+import org.fossify.gallery.models.Favorite
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -356,6 +360,136 @@ class FolderRefreshActivityTest {
             assertTrue(field(activity, "mIsGettingMedia").getBoolean(activity))
             assertNull(field(activity, "mCurrAsyncTask").get(activity))
             assertEquals(11023, paths(activity).size)
+        }
+    }
+
+    @Test fun recycleBinCompletedSnapshotUsesVirtualSortPathAndKeepsAdapterAndRequest() {
+        val bin = File(context.recycleBinPath, "virtual-sort-regression").apply { mkdirs() }
+        val alpha = File(bin, "alpha.jpg").apply { writeBytes(byteArrayOf(1, 2)) }
+        val zeta = File(bin, "zeta.jpg").apply { writeBytes(byteArrayOf(1, 2)) }
+        dbExecutor.submit {
+            context.mediaDB.clearRecycleBin()
+            context.mediaDB.insertAll(listOf(alpha, zeta).map {
+                Medium(null, it.name, RECYCLE_BIN + "/virtual-sort-regression/" + it.name, bin.path,
+                    100, 200, 2, TYPE_IMAGES, 0, false, 10, 0)
+            })
+        }.get(5, TimeUnit.SECONDS)
+        context.config.saveCustomSorting(RECYCLE_BIN, org.fossify.commons.helpers.SORT_BY_NAME)
+        val controller = Robolectric.buildActivity(MediaActivity::class.java,
+            Intent(context, MediaActivity::class.java).putExtra(DIRECTORY, RECYCLE_BIN)).create(Bundle()).start()
+        try {
+            val activity = controller.get()
+            val previousTask = field(activity, "mCurrAsyncTask").get(activity) as? org.fossify.gallery.asynctasks.GetMediaAsynctask
+            previousTask?.stopFetching()
+            val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
+            val request = requests.begin()
+            field(activity, "mediaRefreshRequest").setLong(activity, request)
+            field(activity, "displayedMediaRequest").setLong(activity, request)
+            field(activity, "completedMediaRequest").setLong(activity, request)
+            val recycleRevision = RecycleBinMembershipRevision.current()
+            field(activity, "recycleBinLoadRevision").setLong(activity, recycleRevision)
+            field(activity, "displayedRecycleBinRevision").setLong(activity, recycleRevision)
+            field(activity, "mediaScanOutcomeRequest").setLong(activity, request)
+            field(activity, "mediaScanOutcome").set(activity,
+                GalleryScanResult(GalleryScanState.COMPLETE))
+            field(activity, "displayedMediaIsFinal").setBoolean(activity, true)
+            field(activity, "mIsGettingMedia").setBoolean(activity, false)
+            val source = arrayListOf<org.fossify.gallery.models.ThumbnailItem>(
+                Medium(null, zeta.name, File(context.recycleBinPath, "virtual-sort-regression/zeta.jpg").path,
+                    bin.path, 100, 200, 2, TYPE_IMAGES, 0, false, 10, 0),
+                Medium(null, alpha.name, File(context.recycleBinPath, "virtual-sort-regression/alpha.jpg").path,
+                    bin.path, 100, 200, 2, TYPE_IMAGES, 0, false, 10, 0)
+            )
+            MediaActivity.mMedia = ArrayList(source)
+            val grid = activity.findViewById<MyRecyclerView>(R.id.media_grid)
+            val adapter = MediaAdapter(activity, ArrayList(source), activity, false, false, RECYCLE_BIN, grid) {}
+            grid.adapter = adapter
+            val operationGate = field(activity, "mediaSortOperations").get(activity) as MediaSortOperationGate
+            val method = MediaActivity::class.java.getDeclaredMethod("tryResortVirtualMediaSnapshot",
+                Long::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
+            assertTrue(method.invoke(activity, operationGate.begin(), android.os.SystemClock.elapsedRealtime()) as Boolean)
+            await {
+                (grid.adapter as? MediaAdapter)?.media?.filterIsInstance<Medium>()?.firstOrNull()?.name == "alpha.jpg" &&
+                    MediaActivity.mMedia.filterIsInstance<Medium>().firstOrNull()?.name == "alpha.jpg"
+            }
+            assertSame(adapter, grid.adapter)
+            assertEquals(request, field(activity, "mediaRefreshRequest").getLong(activity))
+            assertEquals(setOf(alpha.path, zeta.path), paths(activity))
+            val searchCurrent = MediaActivity::class.java.getDeclaredMethod(
+                "isSearchSnapshotCurrent", Long::class.javaPrimitiveType
+            ).apply { isAccessible = true }
+            assertTrue(searchCurrent.invoke(activity, request) as Boolean)
+            RecycleBinMembershipRevision.changed()
+            assertFalse(searchCurrent.invoke(activity, request) as Boolean)
+        } finally {
+            controller.stop().destroy()
+            bin.deleteRecursively()
+        }
+    }
+
+    @Test fun favoritesCompletedSnapshotUsesVirtualSortPathWithActiveSession() {
+        val alpha = photo("favorite-alpha.jpg")
+        val zeta = photo("favorite-zeta.jpg")
+        val favoritePaths = setOf(alpha.path, zeta.path)
+        dbExecutor.submit {
+            context.favoritesDB.clearFavorites()
+            context.favoritesDB.insertAll(favoritePaths.map {
+                Favorite(null, it, File(it).name, root.path)
+            }.toList())
+        }.get(5, TimeUnit.SECONDS)
+        context.config.saveCustomSorting(FAVORITES, org.fossify.commons.helpers.SORT_BY_NAME)
+        var token: String? = null
+        val sessionSnapshot = FavoriteAccessSessionManager.captureSnapshot(favoritePaths, context::favoriteProtection)
+        token = FavoriteAccessSessionManager.createSession(
+            "virtual-sort-test", sessionSnapshot, emptySet(), context::favoriteProtection
+        )
+        assertNotNull(token)
+        val controller = Robolectric.buildActivity(MediaActivity::class.java,
+            Intent(context, MediaActivity::class.java).putExtra(DIRECTORY, FAVORITES))
+            .create(Bundle().apply { putString("favoriteOwnerId", "virtual-sort-test") }).start()
+        try {
+            val activity = controller.get()
+            (field(activity, "mCurrAsyncTask").get(activity) as? org.fossify.gallery.asynctasks.GetMediaAsynctask)
+                ?.stopFetching()
+            field(activity, "favoriteSessionId").set(activity, token)
+            field(activity, "favoriteAccessPaths").set(activity, favoritePaths)
+            field(activity, "favoriteCatalogRelationshipPaths").set(activity, favoritePaths)
+            val favoriteRevision = (field(activity, "favoriteRelationshipRevision").get(activity)
+                as java.util.concurrent.atomic.AtomicLong).get()
+            field(activity, "favoriteLoadRevision").setLong(activity, favoriteRevision)
+            field(activity, "displayedFavoriteRelationshipRevision").setLong(activity, favoriteRevision)
+            val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
+            val request = requests.begin()
+            field(activity, "mediaRefreshRequest").setLong(activity, request)
+            field(activity, "displayedMediaRequest").setLong(activity, request)
+            field(activity, "completedMediaRequest").setLong(activity, request)
+            field(activity, "mediaScanOutcomeRequest").setLong(activity, request)
+            field(activity, "mediaScanOutcome").set(activity, GalleryScanResult(GalleryScanState.COMPLETE))
+            field(activity, "displayedMediaIsFinal").setBoolean(activity, true)
+            field(activity, "mIsGettingMedia").setBoolean(activity, false)
+            val source = arrayListOf<org.fossify.gallery.models.ThumbnailItem>(
+                Medium(null, zeta.name, zeta.path, root.path, 100, 200, 2, TYPE_IMAGES, 0, true, 0, 0),
+                Medium(null, alpha.name, alpha.path, root.path, 100, 200, 2, TYPE_IMAGES, 0, true, 0, 0)
+            )
+            MediaActivity.mMedia = ArrayList(source)
+            val grid = activity.findViewById<MyRecyclerView>(R.id.media_grid)
+            val adapter = MediaAdapter(activity, ArrayList(source), activity, false, false, FAVORITES, grid) {}
+            grid.adapter = adapter
+            val operationGate = field(activity, "mediaSortOperations").get(activity) as MediaSortOperationGate
+            val method = MediaActivity::class.java.getDeclaredMethod("tryResortVirtualMediaSnapshot",
+                Long::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
+            assertTrue(method.invoke(activity, operationGate.begin(), android.os.SystemClock.elapsedRealtime()) as Boolean)
+            await {
+                (grid.adapter as? MediaAdapter)?.media?.filterIsInstance<Medium>()?.firstOrNull()?.name ==
+                    "favorite-alpha.jpg" &&
+                    MediaActivity.mMedia.filterIsInstance<Medium>().firstOrNull()?.name == "favorite-alpha.jpg"
+            }
+            assertSame(adapter, grid.adapter)
+            assertEquals(request, field(activity, "mediaRefreshRequest").getLong(activity))
+            assertEquals(favoritePaths, paths(activity))
+        } finally {
+            controller.stop().destroy()
+            token?.let(FavoriteAccessSessionManager::revokeSession)
         }
     }
 

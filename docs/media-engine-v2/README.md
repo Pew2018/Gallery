@@ -1,6 +1,10 @@
 
 **Phase 1.5 最终CI交付**：源码 `026a943a445619407134394bf434b753c65695e2`；[Run41975453251](https://github.com/Pew2018/Gallery/actions/runs/41975453251) completed/success；完整886项单测、ARM64构建、包名/ABI/v2签名与实际下载哈希核验通过；Artifact13391393642。Pixel连续浏览和性能前后复测仍PENDING_DEVICE，不等于所有P0真机验收通过，不启动原阶段2。见[27](27-phase1-5-validation-and-handoff.md)。
 
+## Phase 2D — 虚拟收藏/回收站排序与搜索
+
+本轮从重新获取的远程 HEAD b7175e8fa0411d8ff600366e316777efb28bb8f3 审计，已实现虚拟完整快照排序复用、回收站成员 revision 与虚拟来源扫描排序复核。源码审计见[41](41-virtual-favorites-recycle-bin-sort-search-audit.md)，实现与验证状态见[42](42-virtual-media-snapshot-reuse-implementation-and-validation.md)。Actions/APK 尚待最终提交构建；Pixel 8 Pro 仍为 PENDING_DEVICE。
+
 ## Phase 2A — 元数据、排序与扫描热点（2026-11-05）
 
 - [28 — 热点审计与性能证据](28-phase2a-hotspot-audit.md)：复核Phase 1.5保护机制，分清MediaStore候选、磁盘/SAF验证、Room证据和待测数据。
@@ -70,3 +74,5 @@ Phase 2A验证：应用源码`dcd41024e06451eb7a46d28db18a84157cd5102b`；[Run 4
 - [39 — follow-up display commit reliability](39-phase2c-followup-sort-search-display-commit.md): analysis of the next Pixel 8 Pro logs, COMPLETE-during-refresh sort preview, low-cost pure reorder commits, 907-test Actions result, ARM64 APK metadata and `PENDING_DEVICE` boundary.
 
 - [40 — device sort/search Adapter commit recovery](40-device-sort-search-adapter-commit-recovery.md): four-log timeline, blocked-Diff recovery, cache capability, bounded replacement and device acceptance.
+- [41 — 虚拟收藏与回收站排序/搜索审计](41-virtual-favorites-recycle-bin-sort-search-audit.md)：最新源码中的虚拟来源、成员、扫描、搜索链路及确定事实边界。
+- [42 — 虚拟媒体快照复用实现与验证](42-virtual-media-snapshot-reuse-implementation-and-validation.md)：实现范围、准入规则、测试、CI/APK 和设备状态。

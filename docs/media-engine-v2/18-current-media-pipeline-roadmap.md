@@ -9,6 +9,12 @@
 
 > 状态（2026-11-05更新）：Phase 2C 正在 `refactor/media-pipeline-stability` 上执行，审计起始 HEAD `2e6165dec230630a08a06c08d55baeef3bc5d251`。Phase 2C 目前没有证据充分支持生产发布/Room 写入/索引行为变更；补充合成性能与 Room 写入回归，最终 CI/ARM64 与交接见[34–36](34-phase2c-album-publication-audit.md)。Pixel 请求级性能、滚动锚点及 Phase 1.5 Viewer 复测仍`PENDING_DEVICE`。Phase 2B受测代码与 CI 见[31–33](31-phase2b-sort-concurrency-and-ui-audit.md)。
 
+## Phase 2D — 虚拟来源排序与搜索（2026-11-05）
+
+开始审计前重新获取目标远程 HEAD b7175e8fa0411d8ff600366e316777efb28bb8f3。源码确认虚拟收藏和回收站不符合普通物理目录快照复用准入，闲置时排序会走 getMedia；扫描期间则等有效请求完成。定点实现继续复用现有 Adapter、排序器、searchQueryChanged 与扫描；增加来源成员有效性、回收站 Room 成员 epoch、扫描末端的最新排序配置处理以及同值 RANDOM 操作反馈。实现、测试、CI/APK 及真机状态见[41–42](41-virtual-favorites-recycle-bin-sort-search-audit.md)。
+
+当前实现不增加永久索引或 Room Migration，也不逐项 File.exists()。本机 buildSrc 编译通过，但 app Kotlin 编译因缺少 Android SDK 未启动；当前提交的 GitHub Actions 和 ARM64 APK 为 PENDING_CI，Pixel 8 Pro 为 PENDING_DEVICE。
+
 ## 1. 任务、目标与职责
 
 **目标**：先确保发现媒体、目录数量、访问控制和发布顺序正确，再减少重复索引/扫描、MediaStore 和文件 IO、Room 读写、全量排序、Diff 与缩略图重绑；同时提升首屏、重复打开、刷新、全屏左右滑动及删除后的稳定性。

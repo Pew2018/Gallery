@@ -158,7 +158,8 @@ class ChangeSortingDialog(
 
         val newEffectiveSorting = if (isDirectorySorting) config.directorySorting else config.getFolderSorting(pathToUse)
         val newCustomScope = !isDirectorySorting && config.hasCustomSorting(pathToUse)
-        if (oldEffectiveSorting != newEffectiveSorting || oldCustomScope != newCustomScope) {
+        if (oldCustomScope != newCustomScope ||
+            org.fossify.gallery.helpers.SortChangePolicy.shouldApply(oldEffectiveSorting, newEffectiveSorting)) {
             callback()
         }
     }

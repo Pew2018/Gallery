@@ -3008,6 +3008,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                                 mediaDB.deleteMediumPath(it.path)
                             }
                         }
+                        if (filesToDelete.isNotEmpty()) {
+                            org.fossify.gallery.helpers.RecycleBinMembershipRevision.changed()
+                        }
                     } catch (e: Exception) {
                     }
                 }

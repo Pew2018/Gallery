@@ -383,6 +383,7 @@ fun BaseSimpleActivity.movePathsInRecycleBin(paths: ArrayList<String>, callback:
 
                     if (fileDocument.getItemSize(true) == copiedSize && getDoesFilePathExist(destination)) {
                         mediaDB.updateDeleted("$RECYCLE_BIN$source", System.currentTimeMillis(), source)
+                        org.fossify.gallery.helpers.RecycleBinMembershipRevision.changed()
                         pathsCnt--
                         contentChanged = true
                     }
@@ -401,6 +402,7 @@ fun BaseSimpleActivity.movePathsInRecycleBin(paths: ArrayList<String>, callback:
                 try {
                     if (file.copyRecursively(internalFile, true)) {
                         mediaDB.updateDeleted("$RECYCLE_BIN$source", System.currentTimeMillis(), source)
+                        org.fossify.gallery.helpers.RecycleBinMembershipRevision.changed()
                         pathsCnt--
                         contentChanged = true
 
@@ -478,6 +480,7 @@ fun BaseSimpleActivity.restoreRecycleBinPaths(paths: ArrayList<String>, callback
 
                 if (File(source).length() == copiedSize) {
                     mediaDB.updateDeleted(destination.removePrefix(recycleBinPath), 0, "$RECYCLE_BIN${source.removePrefix(recycleBinPath)}")
+                    org.fossify.gallery.helpers.RecycleBinMembershipRevision.changed()
                 }
                 newPaths.add(destination)
 
@@ -507,6 +510,7 @@ fun BaseSimpleActivity.emptyTheRecycleBin(callback: (() -> Unit)? = null) {
         try {
             recycleBin.deleteRecursively()
             mediaDB.clearRecycleBin()
+            org.fossify.gallery.helpers.RecycleBinMembershipRevision.changed()
             directoryDB.deleteRecycleBin()
             toast(org.fossify.commons.R.string.recycle_bin_emptied)
             callback?.invoke()

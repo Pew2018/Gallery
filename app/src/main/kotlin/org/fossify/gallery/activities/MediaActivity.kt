@@ -111,6 +111,7 @@ import org.fossify.gallery.extensions.favoritesDB
 import org.fossify.gallery.extensions.getCachedMedia
 import org.fossify.gallery.extensions.getHumanizedFilename
 import org.fossify.gallery.extensions.getFavoritePaths
+import org.fossify.gallery.extensions.getUpdatedDeletedMedia
 import org.fossify.gallery.extensions.isDownloadsFolder
 import org.fossify.gallery.extensions.launchAbout
 import org.fossify.gallery.extensions.launchCamera
@@ -562,6 +563,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var favoriteAuthGeneration = 0L
     private var folderAuthGeneration = 0L
     private var favoritePublicationGeneration = 0L
+    private var recyclePublicationGeneration = 0L
     private var favoritePublicationTask: Future<*>? = null
     private var sourceProtectionRefreshPending = false
     private val favoriteListenerId = java.util.UUID.randomUUID().toString()
@@ -609,14 +611,28 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
     private val favoriteObserverLock = Any()
     @Volatile private var favoriteObserverDisposed = false
+    private val favoriteRelationshipRevision = java.util.concurrent.atomic.AtomicLong()
+    private var displayedFavoriteRelationshipRevision = -1L
+    private var favoriteLoadRevision = -1L
     private var favoriteObservedTracker: androidx.room.InvalidationTracker? = null
     private val favoriteDatabaseObserver = object : androidx.room.InvalidationTracker.Observer("favorites") {
         override fun onInvalidated(tables: Set<String>) {
             if (favoriteObserverDisposed) return
             val token = favoriteSessionId ?: return
+            favoriteRelationshipRevision.incrementAndGet()
             val app = applicationContext
             ensureBackgroundThread {
-                FavoriteAccessSessionManager.retainFavorites(token, app.getFavoritePaths().toSet())
+                val current = app.getFavoritePaths().toSet()
+                val captured = FavoriteAccessSessionManager.getCapturedPaths(token).orEmpty()
+                FavoriteAccessSessionManager.retainFavorites(token, current)
+                if (current.any { it !in captured }) {
+                    binding.root.post {
+                        if (token == favoriteSessionId && !isFinishing && !isDestroyed) {
+                            sourceProtectionRefreshPending = true
+                            FavoriteAccessSessionManager.revokeSession(token)
+                        }
+                    }
+                }
             }
         }
     }
@@ -1543,7 +1559,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun isSearchSnapshotCurrent(request: Long): Boolean {
         val accessCurrent = when {
             isPhotoProfiles -> mediaLoadRequests.isCurrent(request)
-            mPath == FAVORITES -> FavoriteAccessSessionManager.isActive(favoriteSessionId)
+            mPath == FAVORITES -> FavoriteAccessSessionManager.isActive(favoriteSessionId) &&
+                displayedFavoriteRelationshipRevision == favoriteRelationshipRevision.get()
+            mPath == RECYCLE_BIN -> displayedRecycleBinRevision ==
+                org.fossify.gallery.helpers.RecycleBinMembershipRevision.current()
             mPath.startsWith('/') && mPath != RECYCLE_BIN && !mShowAll ->
                 displayedFolderSnapshot?.takeIf { it.request == request }?.accessCurrent?.invoke() == true
             else -> true
@@ -1744,6 +1763,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         "scanRequest" to mediaRefreshRequest,
                         "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath))
                 )
+            if (tryResortVirtualMediaSnapshot(sortOperation, startedAt)) return@ChangeSortingDialog
             if (resortCompletedPhysicalFolder(sortOperation, startedAt)) return@ChangeSortingDialog
             if (previewSortDuringFolderScan(sortOperation, startedAt)) return@ChangeSortingDialog
             // An active request will apply the latest sorting when it publishes.
@@ -1772,6 +1792,216 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 )
             }
         }
+    }
+
+    /** Sorts a complete Favorites/Recycle Bin display snapshot without restarting its media load. */
+    private fun tryResortVirtualMediaSnapshot(sortOperation: Long, startedAt: Long): Boolean {
+        val sourceKind = when (mPath) {
+            FAVORITES -> "FAVORITES"
+            RECYCLE_BIN -> "RECYCLE_BIN"
+            else -> return false
+        }
+        val sourcePath = mPath
+        val request = displayedMediaRequest
+        val sourceVersion = displayedSourceVersion
+        val scanInProgress = mIsGettingMedia
+        val scanRequest = mediaRefreshRequest
+        val sorting = config.getFolderSorting(sourcePath)
+        val grouping = config.getFolderGrouping(sourcePath)
+        val adapter = getMediaAdapter()
+        val snapshot = mMedia.filterIsInstance<Medium>().map { it.copy() }
+        val mediaPaths = snapshot.mapTo(LinkedHashSet()) { it.path }
+        val favoriteRelationships = favoriteCatalogRelationshipPaths
+        val favoriteToken = favoriteSessionId
+        val favoriteRevision = favoriteRelationshipRevision.get()
+        val recycleRevision = org.fossify.gallery.helpers.RecycleBinMembershipRevision.current()
+        val activityCurrent = !isFinishing && !isDestroyed &&
+            lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+        val complete = displayedMediaIsFinal && request >= 0 &&
+            completedMediaRequest == request && mediaScanOutcomeRequest == request && mediaScanOutcome.complete
+        val requestCurrent = if (scanInProgress) mediaLoadRequests.isCurrent(scanRequest) else mediaLoadRequests.isCurrent(request)
+        val supportedRows = mMedia.all { it is Medium || it is ThumbnailSection } &&
+            adapter?.media?.all { it is Medium || it is ThumbnailSection } == true
+        val adapterMatches = adapter != null && adapter.path == sourcePath &&
+            binding.mediaGrid.adapter === adapter && supportedRows
+        val capturedFavoritePaths = if (sourceKind == "FAVORITES")
+            FavoriteAccessSessionManager.getCapturedPaths(favoriteToken) else null
+        val accessCurrent = when (sourceKind) {
+            "FAVORITES" -> capturedFavoritePaths?.containsAll(mediaPaths) == true
+            else -> true
+        }
+        val displayedMembersCurrent = when (sourceKind) {
+            "FAVORITES" -> favoriteRelationships != null &&
+                displayedFavoriteRelationshipRevision == favoriteRevision &&
+                capturedFavoritePaths?.containsAll(favoriteRelationships) == true
+            else -> displayedRecycleBinRevision == recycleRevision
+        }
+        // Zero is a valid size/timestamp (for example an empty file or unknown capture date),
+        // not evidence that the complete Room/scan snapshot lacks sort metadata.
+        val metadataPresent = snapshot.all { it.path.isNotBlank() && it.name.isNotBlank() }
+        val decision = org.fossify.gallery.helpers.VirtualMediaSortPolicy.decide(
+            source = sourcePath,
+            activityCurrent = activityCurrent,
+            adapterMatchesSource = adapterMatches,
+            displayedSnapshotComplete = complete,
+            requestCurrent = requestCurrent,
+            accessCurrent = accessCurrent,
+            // The relationship/Room snapshot is checked off the UI thread immediately
+            // before sorting and again before publishing the result.
+            membersCurrent = if (displayedMembersCurrent) null else false,
+            requiredSortMetadataPresent = metadataPresent,
+            scanInProgress = scanInProgress
+        )
+        if (decision == org.fossify.gallery.helpers.VirtualMediaSortDecision.ACCESS_INVALID) {
+            if (sourceKind == "FAVORITES") finish()
+            return true
+        }
+        if (decision == org.fossify.gallery.helpers.VirtualMediaSortDecision.WAIT_FOR_ACTIVE_REFRESH) {
+            logVirtualSortDecision(sortOperation, sourceKind, sorting, snapshot.size, "wait_for_scan")
+            return true
+        }
+        if (decision != org.fossify.gallery.helpers.VirtualMediaSortDecision.VERIFY_MEMBERS &&
+            decision != org.fossify.gallery.helpers.VirtualMediaSortDecision.PREVIEW_COMPLETE_DURING_REFRESH) {
+            logVirtualSortDecision(sortOperation, sourceKind, sorting, snapshot.size, "controlled_reload")
+            if (!scanInProgress) getMedia(reason = "virtual_sort_snapshot_unavailable")
+            return true
+        }
+
+        logVirtualSortDecision(sortOperation, sourceKind, sorting, snapshot.size,
+            if (scanInProgress) "reuse_complete_during_refresh" else "reuse_complete")
+        ensureBackgroundThread {
+            fun membershipSnapshot(): Set<String>? = when (sourceKind) {
+                "FAVORITES" -> {
+                    if (favoriteRevision != favoriteRelationshipRevision.get()) return null
+                    val captured = FavoriteAccessSessionManager.getCapturedPaths(favoriteToken)
+                    if (captured == null || !captured.containsAll(favoriteRelationships.orEmpty()) ||
+                        !captured.containsAll(mediaPaths)) null
+                    else applicationContext.getFavoritePaths().toSet().takeIf {
+                        it == favoriteRelationships && favoriteRevision == favoriteRelationshipRevision.get()
+                    }
+                }
+                else -> {
+                    if (recycleRevision != org.fossify.gallery.helpers.RecycleBinMembershipRevision.current()) return null
+                    val filter = config.filterMedia
+                    applicationContext.getUpdatedDeletedMedia().asSequence()
+                        .filter { config.shouldShowHidden || !File(it.path).name.startsWith('.') }
+                        .filter { it.type and filter != 0 }
+                        .map { it.path }
+                        .toCollection(LinkedHashSet())
+                        .takeIf { recycleRevision == org.fossify.gallery.helpers.RecycleBinMembershipRevision.current() }
+                }
+            }
+
+            try {
+                val membersBefore = membershipSnapshot()
+                val favoritesChanged = sourceKind == "FAVORITES" && membersBefore != favoriteRelationships
+                if (membersBefore == null || favoritesChanged || !membersBefore.containsAll(mediaPaths)) {
+                    runOnUiThread {
+                        if (mediaSortOperations.isCurrent(sortOperation) && displayedMediaRequest == request &&
+                            scanInProgress && mIsGettingMedia && mediaLoadRequests.isCurrent(scanRequest)) {
+                            logVirtualSortDecision(sortOperation, sourceKind, sorting, snapshot.size, "members_changed_wait")
+                        } else if (scanInProgress && !mIsGettingMedia && !isFinishing && !isDestroyed &&
+                            mPath == sourcePath && mediaSortOperations.isCurrent(sortOperation)) {
+                            tryResortVirtualMediaSnapshot(sortOperation, startedAt)
+                        } else if (!scanInProgress && !isFinishing && !isDestroyed && mPath == sourcePath) {
+                            getMedia(reason = "virtual_sort_members_changed")
+                        }
+                    }
+                    return@ensureBackgroundThread
+                }
+                val verifiedDecision = org.fossify.gallery.helpers.VirtualMediaSortPolicy.decide(
+                    source = sourcePath,
+                    activityCurrent = activityCurrent,
+                    adapterMatchesSource = adapterMatches,
+                    displayedSnapshotComplete = complete,
+                    requestCurrent = requestCurrent,
+                    accessCurrent = (sourceKind != "FAVORITES" ||
+                        FavoriteAccessSessionManager.getCapturedPaths(favoriteToken)?.containsAll(mediaPaths) == true) &&
+                        (sourceKind != "RECYCLE_BIN" ||
+                            recycleRevision == org.fossify.gallery.helpers.RecycleBinMembershipRevision.current()),
+                    membersCurrent = true,
+                    requiredSortMetadataPresent = metadataPresent,
+                    scanInProgress = scanInProgress
+                )
+                if (verifiedDecision != org.fossify.gallery.helpers.VirtualMediaSortDecision.REUSE_COMPLETE &&
+                    verifiedDecision != org.fossify.gallery.helpers.VirtualMediaSortDecision.PREVIEW_COMPLETE_DURING_REFRESH) {
+                    runOnUiThread {
+                        if (scanInProgress && !mIsGettingMedia && !isFinishing && !isDestroyed &&
+                            mPath == sourcePath && mediaSortOperations.isCurrent(sortOperation)) {
+                            tryResortVirtualMediaSnapshot(sortOperation, startedAt)
+                        } else if (!scanInProgress && !isFinishing && !isDestroyed &&
+                            mPath == sourcePath && mediaSortOperations.isCurrent(sortOperation)) {
+                            getMedia(reason = "virtual_sort_membership_invalid")
+                        }
+                    }
+                    return@ensureBackgroundThread
+                }
+                val sorted = ArrayList(snapshot)
+                MediaFetcher(applicationContext).sortMedia(sorted, sorting)
+                val grouped = MediaFetcher(applicationContext).groupMedia(sorted, sourcePath)
+                val membersAfter = membershipSnapshot()
+                runOnUiThread {
+                    val stillCurrent = !isFinishing && !isDestroyed && mPath == sourcePath &&
+                        mediaSortOperations.isCurrent(sortOperation) && displayedMediaRequest == request &&
+                        displayedSourceVersion == sourceVersion && binding.mediaGrid.adapter === adapter &&
+                        config.getFolderSorting(sourcePath) == sorting && config.getFolderGrouping(sourcePath) == grouping &&
+                        (sourceKind != "FAVORITES" ||
+                            FavoriteAccessSessionManager.getCapturedPaths(favoriteToken)?.let {
+                                it.containsAll(mediaPaths) && it.containsAll(favoriteRelationships.orEmpty())
+                            } == true) &&
+                        (sourceKind != "FAVORITES" ||
+                            (displayedFavoriteRelationshipRevision == favoriteRevision &&
+                                favoriteRevision == favoriteRelationshipRevision.get())) &&
+                        (!scanInProgress || (mIsGettingMedia && mediaRefreshRequest == scanRequest &&
+                            mediaLoadRequests.isCurrent(scanRequest))) &&
+                        (scanInProgress || mediaLoadRequests.isCurrent(request)) &&
+                        membersAfter == membersBefore &&
+                        (sourceKind != "FAVORITES" || favoriteRevision == favoriteRelationshipRevision.get()) &&
+                        (sourceKind != "RECYCLE_BIN" ||
+                            recycleRevision == org.fossify.gallery.helpers.RecycleBinMembershipRevision.current())
+                    if (!stillCurrent) {
+                        logSortStaleDrop(sortOperation, request, sorting, "virtual_source_or_members_changed")
+                        if (scanInProgress && !mIsGettingMedia && !isFinishing && !isDestroyed &&
+                            mPath == sourcePath && mediaSortOperations.isCurrent(sortOperation)) {
+                            tryResortVirtualMediaSnapshot(sortOperation, startedAt)
+                        }
+                        return@runOnUiThread
+                    }
+                    mediaSearchGeneration++
+                    displayedSourceVersion++
+                    mMedia = ArrayList(grouped)
+                    setupAdapter(MediaUpdateReason.USER_SORT) {
+                        logSortCommit("virtual_sort_snapshot_committed", sortOperation, request, sorting,
+                            scanInProgress, startedAt, sorted.size, getMediaAdapter()?.committedVersion ?: -1L)
+                    }
+                }
+            } catch (error: Exception) {
+                if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+                    org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                        org.fossify.gallery.helpers.DiagnosticLevel.WARN, "MediaSort", "virtual_sort_failed",
+                        request, mapOf("generation" to sortOperation, "source" to sourceKind,
+                            "errorType" to error.javaClass.simpleName)
+                    )
+                runOnUiThread {
+                    if (!scanInProgress && !isFinishing && !isDestroyed && mPath == sourcePath &&
+                        mediaSortOperations.isCurrent(sortOperation)) getMedia(reason = "virtual_sort_failed")
+                }
+            }
+        }
+        return true
+    }
+
+    private fun logVirtualSortDecision(generation: Long, source: String, sorting: Int,
+                                       itemCount: Int, decision: String) {
+        if (!org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) return
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaSort", "virtual_sort_decision",
+            displayedMediaRequest, mapOf("generation" to generation, "source" to source,
+                "sorting" to sorting, "itemCount" to itemCount, "decision" to decision,
+                "scanRequest" to mediaRefreshRequest,
+                "sourceVersion" to displayedSourceVersion,
+                "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath))
+        )
     }
 
     /** Display-only sort of already published rows while an ordinary folder scan continues. */
@@ -2074,6 +2304,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mediaChangeGate.scanStarted()
         val request = mediaLoadRequests.begin()
         mediaRefreshRequest = request
+        if (mPath == FAVORITES) favoriteLoadRevision = favoriteRelationshipRevision.get()
+        if (mPath == RECYCLE_BIN) recycleBinLoadRevision =
+            org.fossify.gallery.helpers.RecycleBinMembershipRevision.current()
         mediaScanTerminals.begin(request)
         if (mPath == FAVORITES && favoritesReturnCover?.covering == true) {
             val token = favoriteSessionId
@@ -2135,6 +2368,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var folderStatsRequestVersion = 0L
     private var displayedSourceVersion = 0L
     private var displayedFolderSnapshot: DisplayedFolderSnapshot? = null
+    private var displayedRecycleBinRevision = -1L
+    private var recycleBinLoadRevision = -1L
 
     private val folderPublicationVersion = java.util.concurrent.atomic.AtomicLong()
     private fun folderPublicationAllowed(path: String, token: String? = folderUnlockSessionId): Boolean {
@@ -2310,6 +2545,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             )
                         ) {
                             mediaDB.deleteMediumPath(old.path)
+                            if (old.path.startsWith("$RECYCLE_BIN/")) {
+                                org.fossify.gallery.helpers.RecycleBinMembershipRevision.changed()
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -2919,6 +3157,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             favoritePublicationTask = try { ViewerAccessCoordinator.submit {
                 if (generation != favoritePublicationGeneration || Thread.currentThread().isInterrupted) return@submit
                 val safe = FavoriteAccessPolicy.authorizedItems(token, candidateMedia) { (it as? Medium)?.path }
+                val sorting = config.getFolderSorting(FAVORITES)
+                val grouping = config.getFolderGrouping(FAVORITES)
+                val presented = if (!isFromCache) {
+                    val sorted = ArrayList(safe.filterIsInstance<Medium>().map { it.copy() })
+                    MediaFetcher(applicationContext).sortMedia(sorted, sorting)
+                    MediaFetcher(applicationContext).groupMedia(sorted, FAVORITES)
+                } else safe
                 runOnUiThread {
                     if (generation != favoritePublicationGeneration || !mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) {
                         return@runOnUiThread
@@ -2927,11 +3172,37 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         finish()
                         return@runOnUiThread
                     }
-                    publishMedia(safe, isFromCache, request)
+                    if (!isFromCache && (sorting != config.getFolderSorting(FAVORITES) ||
+                            grouping != config.getFolderGrouping(FAVORITES))) {
+                        gotMedia(candidateMedia, false, request)
+                    } else publishMedia(presented, isFromCache, request)
                 }
             } } catch (_: java.util.concurrent.RejectedExecutionException) {
                 finish()
                 null
+            }
+            return
+        }
+        if (mPath == RECYCLE_BIN) {
+            val generation = ++recyclePublicationGeneration
+            val source = ArrayList(media)
+            val sorting = config.getFolderSorting(RECYCLE_BIN)
+            val grouping = config.getFolderGrouping(RECYCLE_BIN)
+            val requestPath = mPath
+            ensureBackgroundThread {
+                val presented = if (isFromCache) source else {
+                    val sorted = ArrayList(source.filterIsInstance<Medium>().map { it.copy() })
+                    MediaFetcher(applicationContext).sortMedia(sorted, sorting)
+                    MediaFetcher(applicationContext).groupMedia(sorted, requestPath)
+                }
+                runOnUiThread {
+                    if (generation != recyclePublicationGeneration || !mediaLoadRequests.isCurrent(request) ||
+                        requestPath != mPath || isFinishing || isDestroyed) return@runOnUiThread
+                    if (!isFromCache && (sorting != config.getFolderSorting(RECYCLE_BIN) ||
+                            grouping != config.getFolderGrouping(RECYCLE_BIN))) {
+                        gotMedia(source, false, request)
+                    } else publishMedia(presented, isFromCache, request)
+                }
             }
             return
         }
@@ -3013,6 +3284,30 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         runOnUiThread {
             if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed ||
                 (isFromCache && completedMediaRequest == request)) return@runOnUiThread
+
+            if (mPath == RECYCLE_BIN && !isFromCache) {
+                val currentRevision = org.fossify.gallery.helpers.RecycleBinMembershipRevision.current()
+                if (recycleBinLoadRevision != currentRevision) {
+                    getMedia(reason = "recycle_bin_members_changed_during_load")
+                    return@runOnUiThread
+                }
+                displayedRecycleBinRevision = recycleBinLoadRevision
+            }
+        if (mPath == FAVORITES && !isFromCache) {
+            val currentRevision = favoriteRelationshipRevision.get()
+            if (favoriteLoadRevision != currentRevision) {
+                getMedia(reason = "favorite_members_changed_during_load")
+                return@runOnUiThread
+            }
+                val relationships = favoriteCatalogRelationshipPaths
+                val captured = FavoriteAccessSessionManager.getCapturedPaths(favoriteSessionId)
+                if (relationships != null && captured?.containsAll(relationships) != true) {
+                    sourceProtectionRefreshPending = true
+                    FavoriteAccessSessionManager.revokeSession(favoriteSessionId)
+                    return@runOnUiThread
+                }
+            displayedFavoriteRelationshipRevision = favoriteLoadRevision
+        }
 
             val physicalFolder = !isPhotoProfiles && !mShowAll && mPath.startsWith('/') && mPath != RECYCLE_BIN
             if (physicalFolder) {
@@ -3285,6 +3580,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
                 if (permanentDelete) {
                     deletedPaths.forEach { mediaDB.deleteMediumPath(it) }
+                    if (requestPath == RECYCLE_BIN || deletedPaths.any { it.startsWith("$RECYCLE_BIN/") }) {
+                        org.fossify.gallery.helpers.RecycleBinMembershipRevision.changed()
+                    }
                     org.fossify.gallery.helpers.PhotoContentRevision.changed()
                 }
                 runOnUiThread {

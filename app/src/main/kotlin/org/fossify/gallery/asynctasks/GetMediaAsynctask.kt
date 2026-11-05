@@ -313,6 +313,19 @@ internal class GetMediaAsynctask(
                 if (needsUnavailableMetadata) sortingMetadataRefreshRequired = true
                 else mediaFetcher.sortMedia(media, latestSorting)
             }
+        } else if (mPath == FAVORITES || mPath == RECYCLE_BIN) {
+            // Virtual sources read from a fixed relationship/Room snapshot. Re-read
+            // only the effective sort mode here; keep the one source read and do
+            // not let a sort chosen during that read publish the scan-start order.
+            val latestSorting = context.config.getFolderSorting(pathToUse)
+            if (latestSorting != folderSorting) {
+                val needsUnavailableMetadata =
+                    (latestSorting and SORT_BY_DATE_TAKEN != 0 && !getProperDateTaken) ||
+                    (latestSorting and SORT_BY_DATE_MODIFIED != 0 && !getProperLastModified) ||
+                    (latestSorting and SORT_BY_SIZE != 0 && !getProperFileSize)
+                if (needsUnavailableMetadata) sortingMetadataRefreshRequired = true
+                else mediaFetcher.sortMedia(media, latestSorting)
+            }
         }
         val result = FolderRefreshTrace.measure(requestId, "grouping") { mediaFetcher.groupMedia(media, pathToUse) }
         val safeResult = if (mPath == FAVORITES && favoriteSessionId != null) {

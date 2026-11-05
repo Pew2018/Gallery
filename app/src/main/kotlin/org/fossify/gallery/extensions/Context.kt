@@ -1195,6 +1195,9 @@ fun Context.deleteDBPath(path: String) {
 fun Context.deleteMediumWithPath(path: String) {
     try {
         mediaDB.deleteMediumPath(path)
+        if (path.startsWith("$RECYCLE_BIN/") || path.startsWith(recycleBinPath)) {
+            org.fossify.gallery.helpers.RecycleBinMembershipRevision.changed()
+        }
         org.fossify.gallery.helpers.PhotoContentRevision.changed()
     } catch (ignored: Exception) {
     }
