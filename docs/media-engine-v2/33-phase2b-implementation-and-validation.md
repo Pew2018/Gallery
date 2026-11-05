@@ -13,23 +13,25 @@
 
 | 检查 | 结果 |
 |---|---|
-| 本地 `git diff --check` | 待最终提交前记录 |
+| 本地 `git diff --check` | 通过（各次提交前） |
 | 本地定向 Gradle | 未启动；Wrapper 下载 Gradle 9.5.1 报 `Network is unreachable` |
-| 定向竞态与 Room 测试 | 由当前提交的 GitHub Actions 执行并记录下方 |
-| 完整 `:app:testFossReleaseUnitTest` | 待 Actions |
-| ARM64 FOSS Release、签名、包名、ABI | 待 Actions |
-| Room query plan | Robolectric 合成数据库；待提取测试输出；不是 Pixel/user DB |
+| 新增竞态 gate / Room 查询计划用例 | 通过，包含在完整测试套件中 |
+| 完整 `:app:testFossReleaseUnitTest` | 893 tests；0 failures、0 errors、0 skipped |
+| ARM64 FOSS Release、签名、包名、ABI | 构建和所有 CI 校验成功 |
+| Room query plan | Room v11 合成库 100/5k/30k/100k 计划和单次查询时延记录见 32；不是 Pixel/user DB |
 | Pixel 8 Pro / Android 16 | `PENDING_DEVICE` |
 
 ### GitHub Actions
 
-待提交后触发 `Arm64 FOSS Release APK (non-publishing)` 工作流；不能将 pending run 或单独的 workflow dispatch 当作通过。
+最终成功运行：[Actions Run 41994855432](https://github.com/Pew2018/Gallery/actions/runs/41994855432)。首次 Run `41993490608` 因 Room 新用例默认 SDK 36 与 workflow Java 17 不兼容失败；第二次 `41994221209` 因计划断言未包含 SQLite API 28 输出的 `SCAN TABLE` 字样失败。两处均针对测试 harness 修正后，在下列最终 SHA 完整重跑通过。
 
-- Run / source SHA：待记录
-- 完整测试数、failures/errors/skipped：待记录
-- 测试 artifact 与 APK artifact：待记录
-- APK package/version/ABI/signature/digest：待记录
-- Actions job `GalleryDbPlan` 计划与合成单次时延：待记录
+- 受测应用 SHA：`f57d851c7a6ca3f73b6190fe793c072f7aa31d4a`（远程分支对应完整源文件；本地生成等价 tree）
+- 测试：893 / 0 failures / 0 errors / 0 skipped；CI JUnit 汇总与 `GalleryDbPlan` 输出均在 run log。
+- 测试报告 Artifact：[`backup-ui-test-reports`，ID 13400356003](https://github.com/Pew2018/Gallery/actions/runs/41994855432/artifacts/13400356003)，SHA-256 `8aa07b1a3379bc0a092a4cae3b126da91de63d06fea0cc46c5e368b56cab6b8a`。
+- ARM64 APK Artifact：[`gallery-foss-arm64-v8a-release`，ID 13399812825](https://github.com/Pew2018/Gallery/actions/runs/41994855432/artifacts/13399812825)，ZIP 10,442,642 bytes，SHA-256 `8f45fd54ec715fc9ba75350c3737d3b66d53317d359a1e4da3171d7fe8c3885f`；GitHub artifact 下载工具已成功返回文件引用。
+- APK：`org.fossify.gallery`，versionName `1.14.1`，versionCode `34`（base 32 + arm64 ABI split code 2），仅 `arm64-v8a`；APK SHA-256 `a3f61f5ca33e42778fdbe97d9c859fce8f35437223b4dfd4aebe8b1ded6905dd`。
+- 签名：`apksigner` 通过，V2=true；CI 临时证书 `CN=Gallery Temporary CI Test Signature, O=Local Testing`，SHA-256 `e0bf9f67b075957c23146d7e38d67f452da1698118d1da617537d5fe64ecfdb7`；签名模式 `temporary-CI-not-upgrade-compatible`。
+- Room 计划与 synthetic single-call samples：详见[32](32-phase2b-database-query-plan.md)；只有一个样本/规模，不算 p50/p95。
 
 ## 3. 性能与风险边界
 

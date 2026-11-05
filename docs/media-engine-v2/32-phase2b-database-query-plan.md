@@ -34,7 +34,18 @@
 
 测试在每个规模执行 `ANALYZE`，断言 full_path 查询和收藏关系 join 使用 `index_media_full_path`，而 parent_path 查询对当前 v11 走 media scan；同一目录多路径 query 不返回重复路径；非回收站、回收站与收藏关系结果数按造数规则匹配。DAO 查询计时以单次 `System.nanoTime()` 采样并打印在测试日志；它表示 Robolectric/合成数据库运行值，不能替代设备存储、SQLite cache warm/cold 或用户行分布。
 
-要做重复运行的实测，需在新版 Actions `testFossReleaseUnitTest` 的 `GalleryDbPlan` 行提取每个规模的 plan 和 `singleCallUsAndRows` 字段。该一轮测试的 query 调用数是每规模每列 1 次；不计算 p50/p95。测试通过与日志核对结果写入 33。真实 Pixel 数据库的行数、次数、累计/平均耗时仍 `PENDING_DEVICE`。
+### Run 41994855432 的合成实测（单次样本）
+
+API 28 Robolectric/Room in-memory SQLite；测试数据完全合成，不是 Pixel 或用户数据库。每个规模所有计划一致：`full_path IN` 为 `SEARCH TABLE media USING INDEX index_media_full_path (full_path=?)`；`parent_path = ?` 为 `SCAN TABLE media`；收藏关系为 `SCAN TABLE favorites USING COVERING INDEX index_favorites_full_path | SEARCH TABLE media USING INDEX index_media_full_path (full_path=?)`。
+
+| media rows | parent = (µs / rows) | parent IN two (µs / rows) | full_path IN (µs / rows) | favorites JOIN (µs / rows) | deleted (µs / rows) | directories all (µs / rows) |
+|---:|---:|---:|---:|---:|---:|---:|
+| 100 | 760 / 1 | 617 / 1 | 1,075 / 1 | 1,217 / 5 | 1,304 / 5 | 6,486 / 100 |
+| 5,000 | 1,421 / 50 | 1,865 / 50 | 684 / 1 | 3,595 / 250 | 2,572 / 250 | 1,370 / 100 |
+| 30,000 | 3,342 / 300 | 3,956 / 300 | 433 / 1 | 7,274 / 1,500 | 5,521 / 1,500 | 839 / 100 |
+| 100,000 | 24,194 / 1,000 | 25,003 / 1,000 | 862 / 1 | 39,204 / 5,000 | 28,990 / 5,000 | 1,267 / 100 |
+
+每格为测试中一次 `System.nanoTime()` 样本，不重复取平均；数据表在每个阈值重新 `ANALYZE`，首次目录全表查询受初始化/缓存影响明显。不能据此推导真实设备性能、冷/热 cache 对照或用户媒体分布。测试在每个规模每种计时 DAO 查询调用一次，计划查询与正确性断言另有调用。总调用数与真实 Activity 的日常查询频率未知，保持 `PENDING_DEVICE`。
 
 ## 3. 评估与 Migration 门槛
 

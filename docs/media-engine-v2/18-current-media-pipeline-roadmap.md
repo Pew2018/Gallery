@@ -7,7 +7,7 @@
 
 # 18 — 媒体索引、加载、排序及稳定性：当前唯一实施路线图
 
-> 状态（2026-11-05更新）：阶段0、1、1.5自动化/CI交付完成，阶段1.5 Pixel真机验收仍`PENDING_DEVICE`。Phase 2A已完成；当前 Phase 2B 正在 `ad8155c73bcd542e9e565d83cb6444e9679b58bf` 上审计排序发布所有权、主页显示计时和 Room v11 查询计划。2B 实施、验证、CI 和 APK 以[31–33](31-phase2b-sort-concurrency-and-ui-audit.md)为准。2A历史记录见[28–30](28-phase2a-hotspot-audit.md)。
+> 状态（2026-11-05更新）：Phase 2B 实施与完整CI/ARM64 APK交付完成，受测应用 SHA `f57d851c7a6ca3f73b6190fe793c072f7aa31d4a`，893项单测通过。Phase 1.5 Viewer 与本阶段排序/主页/Room设备测量仍`PENDING_DEVICE`。实施、Room计划、APK和真实性边界见[31–33](31-phase2b-sort-concurrency-and-ui-audit.md)。Phase 2A历史记录见[28–30](28-phase2a-hotspot-audit.md)。
 
 ## 1. 任务、目标与职责
 
