@@ -133,6 +133,25 @@ class MediaPipelineDiagnosticsTest {
         assertEquals(0L, zero.fields["acceptedCount"])
     }
 
+    @Test fun measuredEmptySourceAndDurationCountRemainZeroNotUnknown() {
+        val events = mutableListOf<CapturedEvent>()
+        val collector = MediaPipelineDiagnostics(
+            "ml-empty", "FOLDER", "REFRESH", "SCOPED_STORAGE", "scope", 32L, 0L,
+            { 20L }, { level, module, name, request, fields ->
+                events += CapturedEvent(level, module, name, request, fields)
+            }
+        )
+        collector.add("diskEnumeratedItems", 0L)
+        collector.recordDuration("dbReadMs", startedAtElapsedMs = 20L, amount = 0L)
+        collector.finish("COMPLETE", 1L, 1L, 1L, 0L, 0L)
+        val source = events.first { it.name == "media_source_summary" }.fields
+        val cache = events.first { it.name == "media_cache_db_summary" }.fields
+        assertEquals(0L, source["diskEnumeratedItems"])
+        assertEquals(-1L, source["mediaStoreRows"])
+        assertEquals(0L, cache["dbReadCount"])
+        assertEquals(0L, cache["dbReadMs"])
+    }
+
     @Test fun illegalNegativeInputsNeverBecomeValidCounters() {
         val events = mutableListOf<CapturedEvent>()
         val collector = MediaPipelineDiagnostics(

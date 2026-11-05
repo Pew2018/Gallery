@@ -23,11 +23,11 @@ internal class MediaPipelineDiagnostics(
     private val terminal = AtomicBoolean(false)
 
     fun add(metric: String, value: Long = 1L) {
-        if (value <= 0L) return
+        if (value < 0L) return
         synchronized(lock) {
             val previous = counters[metric]?.takeIf { it >= 0L } ?: 0L
             counters[metric] = if (Long.MAX_VALUE - previous < value) Long.MAX_VALUE else previous + value
-            if (metric == "safOperationCount" && permissionMode != "UNKNOWN") permissionMode = "MIXED"
+            if (value > 0L && metric == "safOperationCount" && permissionMode != "UNKNOWN") permissionMode = "MIXED"
         }
     }
 
@@ -35,7 +35,7 @@ internal class MediaPipelineDiagnostics(
 
     fun recordDuration(metric: String, startedAtElapsedMs: Long, amount: Long = 1L) {
         add(metric, (clock() - startedAtElapsedMs).coerceAtLeast(0L))
-        if (amount > 0L) add(metric.removeSuffix("Ms") + "Count", amount)
+        if (amount >= 0L) add(metric.removeSuffix("Ms") + "Count", amount)
     }
 
     fun snapshot(): Map<String, Long> = synchronized(lock) { counters.toMap() }
