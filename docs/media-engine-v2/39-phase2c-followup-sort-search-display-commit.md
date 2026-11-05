@@ -26,7 +26,9 @@ This follow-up responds to three Pixel 8 Pro Android 16 logs captured on 2026-11
 
 ## Validation and remaining evidence
 
-- `git diff --check` is run before commit.
-- A local focused Gradle invocation could not start because Gradle 9.5.1 was unavailable and network access to `services.gradle.org` was blocked. This means the new test's pre-fix red result is inferred from its assertion against the previous Adapter implementation; it was not locally executed. The complete FOSS Release unit suite and ARM64 build must be confirmed by GitHub Actions after the repair commit.
+- `git diff --check` passed before the source commit. The local Gradle invocation could not start because Gradle 9.5.1 was unavailable and `services.gradle.org` was unreachable. The new tests' pre-fix red result was therefore not executed locally; CI confirms only the repaired source.
+- Successful Actions run [42050016101](https://github.com/Pew2018/Gallery/actions/runs/42050016101) tested source SHA `82478f070427cf3255823d08d2b298a1c4e8f0a7`: **907 tests / 0 failures / 0 errors / 0 skipped** (131 XML suites independently counted). The required ARM64 build, APK validation, artifact upload, and transient keystore deletion all succeeded.
+- Test report artifact: `backup-ui-test-reports`, ID `13427765564`. APK artifact: `gallery-foss-arm64-v8a-release`, ID `13425823509`, uploaded ZIP digest `9406e9b82b2df83ec934b3bdf8ce5f7c21df1724b656f898291a637b875571e4`.
+- CI validation reports package `org.fossify.gallery`, version `1.14.1` / versionCode `32`, native libraries `arm64-v8a` only, and APK Signature Scheme v2. Signer: `CN=Gallery Temporary CI Test Signature, O=Local Testing`; this temporary signature is not upgrade-compatible with a separately signed install. APK SHA-256: `da999870f0110628f43a3063bdfbf1e60251f95a62346e9cf6e56cbf504b30cc`.
 - The new Adapter reorder path is intentionally narrow. It does not flatten or reorder section headers, skip scan completeness, bypass protected-folder/SAF authorization, write Room, or mutate media metadata.
-- No post-fix device timings are claimed. Pixel 8 Pro verification remains `PENDING_DEVICE` until the user installs and exercises the new APK.
+- No post-fix device timings are claimed. Pixel 8 Pro verification remains `PENDING_DEVICE` until the user installs and exercises the new APK. The documentation commit is later than the tested source SHA; the implementation tree is the tested tree.

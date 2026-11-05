@@ -215,5 +215,5 @@
 - 新一轮 Pixel 8 Pro 日志确认多个排序/搜索列表产生了有效 Adapter 候选，但出现 `adapter_submit_replaced`、`adapter_diff_dropped`，并且没有在日志窗口内观察到对应最终提交。普通目录 5,271 项 COMPLETE 扫描为 5.404 秒；`.nomedia` 2,012 项排序 Diff 约 2.75–3.53 秒。搜索输入事件和非零匹配候选均已记录，故本次主要定位到显示提交阶段；输入控件是否有独立问题仍无证据。
 - 代码审计发现扫描中的 COMPLETE 显示快照被 PARTIAL-only 排序预览拒绝，排序回退会调用 `getMedia()`；修复后可在授权仍有效时重排当前 COMPLETE 或 PARTIAL 普通目录快照，并在安全预览不适用时保留活动扫描，等待最终发布。
 - 对普通媒体同成员、同内容且仅顺序变化的更新新增 Adapter 快速提交和可见项重绑；分组标题、集合成员变化和媒体内容变化仍走 DiffUtil。搜索诊断区分用户输入与扫描发布后的重算，并关联实际 Adapter version/id。
-- 新增 5,000 项排序、分组媒体保护、搜索缩窄/清空和 A→B→A Adapter 测试。Gradle 9.5.1 本地下载失败，故本地未能执行新测试，也未实测修复前红灯。CI 与 ARM64 APK 待本次提交后验证；Pixel 8 Pro 仍为 `PENDING_DEVICE`。
-- 详细证据、实现和验证限制见 [39](39-phase2c-followup-sort-search-display-commit.md)。
+- 新增 5,000 项排序、分组媒体保护、搜索缩窄/清空和 A→B→A Adapter 测试。Gradle 9.5.1 本地下载失败，故本地未能执行新测试，也未实测修复前红灯。
+- 最终受测源码 SHA `82478f070427cf3255823d08d2b298a1c4e8f0a7`；[Run 42050016101](https://github.com/Pew2018/Gallery/actions/runs/42050016101) success，907 tests / 0 failures / 0 errors / 0 skipped。ARM64 Release、包名 `org.fossify.gallery`、1.14.1/versionCode 32、arm64-v8a only、v2 temporary CI signature 检查通过。Artifact `gallery-foss-arm64-v8a-release` ID `13425823509`，ZIP digest `9406e9b82b2df83ec934b3bdf8ce5f7c21df1724b656f898291a637b875571e4`，APK SHA-256 `da999870f0110628f43a3063bdfbf1e60251f95a62346e9cf6e56cbf504b30cc`；测试报告 Artifact ID `13427765564`。文档 HEAD 晚于受测源码，代码树一致。修复前红灯未能本地执行，也没有修复后 Pixel 时延数据；真机仍为 `PENDING_DEVICE`。详细证据、实现和验证限制见 [39](39-phase2c-followup-sort-search-display-commit.md)。
