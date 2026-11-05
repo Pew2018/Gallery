@@ -19,7 +19,7 @@
 | `ViewPagerActivity.gotMedia/applySwipeMediaPublication` | 部分边界可能早报COMPLETE；异步工作完成时重新stamp revision | 实际应用目录后才认END；捕获worker输入revision并在UI/idle再核验；实际应用时读取当前path，缺失partial不覆盖，缺失complete仅复用既有删除邻居策略，不以旧整数替换 |
 | `PhotoProfileMediaLoader.loadStaged` / `ProgressivePublicationBudget` | 每120项或200ms批次重建/排序累计snapshot | worker-local合并所有batch，首次有效可立即发，其后默认500ms间隔才验证新增批次、复制和排序累计；COMPLETE独立必发；用内容version，不能用count代替成员变化 |
 | `FolderRefreshTrace.measure` | 默认每个metadata读取输出start/end | file_metadata仅保留pipeline聚合计数/时间；不改变实际读取/异常；其他扫描错误和终态仍记录。独立folder target开关仍可用enumerated/type/metadata_passed匿名事件定位，不向默认日志倒入每文件timing |
-| `GetMediaAsynctask.onProgressUpdate` / `MediaActivity.getPhotoProfileMedia` | stagePublishCount双计数、照片businessRequest缺省0 | loader负责publication计数；onProgress只计收到的stage；照片传真实request ID；Viewer扫描标记loadReason=VIEWER |
+| `GetMediaAsynctask.onProgressUpdate` / `MediaActivity.getPhotoProfileMedia` | stagePublishCount双计数、照片businessRequest缺省0 | loader负责publication计数；onProgress只计收到的stage；照片传真实request ID；Viewer扫描传入load代际作为businessRequest；调用方VIEWER原因在现有白名单下保守记录为UNKNOWN，不以该字段单独关联 |
 | `ViewPagerActivity.recordViewerDiagnosticPublication` | 仅数量/整数位置 | 追加gridVersion、handoffCount、revision、当前位置/前后匿名ID、containsSelected和orderMode；配合handoff capture/consume ID判断版本交错，最多一次目录publication一条摘要 |
 
 ## 2. 目录协议
@@ -59,3 +59,5 @@
 最后的所有权清理：`startFolderViewer` 每次重新认证前 retire 旧 gate、停止旧watchdog并清空局部扩展准备标志；failed也清空扩展标志。A02/A05所覆盖的旧attempt完成不得退休retry，必须同时落实在真实Activity入口，不仅存在于helper。最终受测源码见27。
 
 无进度超时回归：新增生产gate的progress(attempt,count)，只有当前attempt且accepted数量严格增加才能续期；重复/倒退/旧attempt不能隐藏停滞，retry独立从0累计。`a05OnlyNewCurrentAttemptProgressMayRenewTheStallDeadline` 显式覆盖此时序；既有RefreshReliabilityTest覆盖真实Handler watchdog的stop/arm/过期，均无sleep。两份Phase15测试文件最终共23项。
+
+最终自动化结果：应用源码`026a943a445619407134394bf434b753c65695e2`，Run41975453251完整FOSS Release **886/886**通过、0 failures/errors/skipped；新增23项均通过，ARM64 APK签名/包名/ABI与实际下载核验通过。详细证据、历史编译错误和PENDING_DEVICE边界见27。

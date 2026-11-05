@@ -1,3 +1,6 @@
+
+**Phase 1.5 最终CI交付**：源码 `026a943a445619407134394bf434b753c65695e2`；[Run41975453251](https://github.com/Pew2018/Gallery/actions/runs/41975453251) completed/success；完整886项单测、ARM64构建、包名/ABI/v2签名与实际下载哈希核验通过；Artifact13391393642。Pixel连续浏览和性能前后复测仍PENDING_DEVICE，不等于所有P0真机验收通过，不启动原阶段2。见[27](27-phase1-5-validation-and-handoff.md)。
+
 ## 2026-11-05 — Phase 1.5 Pixel真机日志驱动的正确性修复
 
 在 `refactor/media-pipeline-stability` 最新远程 `7670a10a…` 上审计A/B完整日志，保留旧Activity取消所有权，用当前Viewer重新验证已提交候选扩展邻域；明确grid commit版本、partial/random与COMPLETE权威排序，保留live path及权限/revision；合并阶段发布并移除逐文件默认timing。审计、实际代码/测试和交接见 [25](25-phase1-5-device-log-root-cause-audit.md)、[26](26-phase1-5-viewer-consistency-fixes.md)、[27](27-phase1-5-validation-and-handoff.md)。CI以27的真实结果为准，Pixel所有复测仍PENDING_DEVICE；原阶段2–4不提前实施。

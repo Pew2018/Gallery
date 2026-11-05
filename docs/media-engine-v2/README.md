@@ -1,3 +1,6 @@
+
+**Phase 1.5 最终CI交付**：源码 `026a943a445619407134394bf434b753c65695e2`；[Run41975453251](https://github.com/Pew2018/Gallery/actions/runs/41975453251) completed/success；完整886项单测、ARM64构建、包名/ABI/v2签名与实际下载哈希核验通过；Artifact13391393642。Pixel连续浏览和性能前后复测仍PENDING_DEVICE，不等于所有P0真机验收通过，不启动原阶段2。见[27](27-phase1-5-validation-and-handoff.md)。
+
 # Gallery 媒体管线文档索引
 
 > **当前唯一执行依据**：[18 — 现行媒体索引/加载/排序与稳定性路线图](18-current-media-pipeline-roadmap.md)。阶段 0 与阶段 1 的源码和 CI 均已完成（阶段 1 Run 41961735980，863/863 单测、ARM64 Artifact 13385912998），分支为 `refactor/media-pipeline-stability`；设备性能基线仍为 `PENDING_DEVICE`。测试与 Artifact 详情见 [21 — 结果与交接](21-phase0-results-and-handoff.md)。

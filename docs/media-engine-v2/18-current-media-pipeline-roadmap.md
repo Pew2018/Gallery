@@ -1,3 +1,6 @@
+
+**Phase 1.5 最终CI交付**：源码 `026a943a445619407134394bf434b753c65695e2`；[Run41975453251](https://github.com/Pew2018/Gallery/actions/runs/41975453251) completed/success；完整886项单测、ARM64构建、包名/ABI/v2签名与实际下载哈希核验通过；Artifact13391393642。Pixel连续浏览和性能前后复测仍PENDING_DEVICE，不等于所有P0真机验收通过，不启动原阶段2。见[27](27-phase1-5-validation-and-handoff.md)。
+
 ## 2026-11-05 — Phase 1.5 Pixel真机日志驱动的正确性修复
 
 在 `refactor/media-pipeline-stability` 最新远程 `7670a10a…` 上审计A/B完整日志，保留旧Activity取消所有权，用当前Viewer重新验证已提交候选扩展邻域；明确grid commit版本、partial/random与COMPLETE权威排序，保留live path及权限/revision；合并阶段发布并移除逐文件默认timing。审计、实际代码/测试和交接见 [25](25-phase1-5-device-log-root-cause-audit.md)、[26](26-phase1-5-viewer-consistency-fixes.md)、[27](27-phase1-5-validation-and-handoff.md)。CI以27的真实结果为准，Pixel所有复测仍PENDING_DEVICE；原阶段2–4不提前实施。
@@ -32,6 +35,7 @@
 |---|---|---|
 | **0 诊断/基线** | 扩展 `GalleryPerfTrace`、`GalleryDiagnosticLogger`，记录 scope+request、排队、查询、枚举、DB、排序、stage、UI、首屏/完成、heap | 同 APK、设备、授权、数据集；冷/热/刷新各至少 10 次 p50/p95；无源码功能改动 |
 | **1 扫描生命周期与正确性** | 复用 `DirectoryScanEpoch`、`GalleryScanTerminalGate`、现有 loaders；精确修复旧 generation、终态和删除/撤权竞态 | COMPLETE/PARTIAL/FAILED/CANCELLED/TIMED_OUT/ACCESS_REQUIRED 正确；不伪装空集、不复活删除媒体、不无限加载 |
+| **1.5 Viewer设备日志正确性** | 已提交网格候选重新验证、UNKNOWN扩展/恢复、COMPLETE全局确定性排序及live path、阶段发布合并；详见25–27 | 886项CI与ARM64已通过；Pixel双向20项、删除/撤权、同条件等待时间复测仍PENDING_DEVICE |
 | **2 查询/排序/写入热点** | `MediumDao` EXPLAIN 后酌情组合索引（显式 Room Migration）；预计算排序键、ties 测试；`PhotoProfileMediaLoader` 有序批次合并；减少重复元数据和不变写入 | 全部原始成员、排序/随机/分组/收藏语义一致；同设备 SQL/CPU/IO 前后有证据 |
 | **3 可信缓存/按范围增量** | 复用现有 cache/checkpoint，定点失效/变更读取；无法证明变更时安全全扫；不预设新增永久索引或第二状态机 | 重开未变目录减少读取；外部新增、.nomedia、SAF、离线卷及文件移动不会漏项/误删 |
 | **4 网格/缩略图/Viewer** | 收敛上游快照与 Diff，沿用 path+版本、分段目录、UNKNOWN 边界、内容签名、删除历史锚点 | 从可见缩略图打开正确媒体；双向连续 20 项；加载中删除/刷新不闪退、不跳错图 |
