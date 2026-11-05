@@ -17,6 +17,41 @@ import org.robolectric.RuntimeEnvironment
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
 class GalleryDatabaseQueryPlanTest {
+    @Test fun repeatedUnchangedBatchWriteAndMetadataUpdatePreserveRowsAndFavoriteRelations() {
+        val context = RuntimeEnvironment.getApplication()
+        val db = Room.inMemoryDatabaseBuilder(context, GalleryDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val mediaDao = db.MediumDao()
+            val favoriteDao = db.FavoritesDao()
+            val original = (0 until 500).map { index ->
+                val folder = "/synthetic/write/folder-${index % 5}"
+                Medium(null, "image-$index.jpg", "$folder/image-$index.jpg", folder,
+                    1L, 2L, 1024L + index, 1, 0, false, 0L, index.toLong())
+            }
+            mediaDao.insertAll(original)
+            val favoritePaths = original.filterIndexed { index, _ -> index % 10 == 0 }
+            favoriteDao.insertAll(favoritePaths.map { Favorite(null, it.path, it.name, it.parentPath) })
+
+            val repeatedStarted = System.nanoTime()
+            mediaDao.insertAll(original.map { it.copy() })
+            val repeatedWriteMicros = (System.nanoTime() - repeatedStarted) / 1_000
+            assertEquals(500, mediaDao.getAllMedia().size)
+            assertEquals(50, favoriteDao.getFavoritesCount().toInt())
+
+            val changedPath = original.first().path
+            val changed = original.first().copy(size = 99_999L, modified = 123_456L)
+            mediaDao.insertAll(listOf(changed))
+            assertEquals(99_999L, mediaDao.getCachedMediaFromFiles(listOf(changedPath)).single().size)
+            assertEquals(50, favoriteDao.getFavoritesCount().toInt())
+            println("GalleryDbWriteSynthetic rows=500 repeatIdenticalBatch=${repeatedWriteMicros}us " +
+                "repeatCalls=1 repeatInputRows=500 finalMediaRows=${mediaDao.getAllMedia().size} " +
+                "favoriteRelationRows=${favoriteDao.getFavoritesCount()}")
+        } finally {
+            db.close()
+        }
+    }
+
     @Test fun representativeV11QueryPlansAndMembershipHoldAtRequestedScales() {
         val context = RuntimeEnvironment.getApplication()
         val db = Room.inMemoryDatabaseBuilder(context, GalleryDatabase::class.java)

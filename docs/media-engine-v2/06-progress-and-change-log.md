@@ -191,3 +191,12 @@
 ### 2026-11-05｜Phase 1 正式 CI 完成
 
 受测业务代码 SHA `5b75cb2a5c7a96021f35013292a5479436f87f36`；[Run 41961735980](https://github.com/Pew2018/Gallery/actions/runs/41961735980) success、完整 FOSS Release 863 tests / 0 failure / 0 error / 0 skipped；ARM64 Artifact `gallery-foss-arm64-v8a-release` ID 13385912998，包名/ABI/v2 临时签名验证通过。真机 B01–B20/D01–D08 均待测，阶段 2 没有定量性能数据支撑。[24](24-phase1-results-and-handoff.md) 保留精确 SHA-256 与局限。
+
+### 2026-11-05｜Phase 2C — 主页发布、Room 写入与索引评估
+
+- 起始远程 HEAD：`2e6165dec230630a08a06c08d55baeef3bc5d251`，与任务参考 SHA 一致；只在 `refactor/media-pipeline-stability` 工作。
+- **F**：`gotDirectories()` 对缓存目录真实变化每 8 项发布一次中间状态；`DirectoryAdapter` 对相同可见内容跳过 Diff；缓存目录循环中每物理目录一次 `mediaDB.insertAll(curMedia)`；新发现目录及媒体在当前 request gate 下批量 transaction 写入。
+- **R/U**：当前没有新版 Pixel request 级实际变化数、submit/commit/diff 丢弃、Room 重复写时延或主线程耗时。真实目录写入错误路径的语义和 stale prune gate 已审查；无证据支持改变写入/发布时序或新建 Migration。
+- 新增目录展示合成计时（100/500/1,000/5,000，名称/日期/大小/随机排序与去重/显示准备/搜索）、同数量不同成员、20 卡片最终排序，以及 Room v11 500 行相同数据重复 `insertAll()` 与 metadata/favorite relation 正确性测试。
+- 未改生产 Kotlin、Room Schema/版本/Migration、权限、`.nomedia`、Viewer、OxygenOS Classic UI。Phase 2D 暂不进入 Migration；Phase 3 暂不引入额外缓存体系。详细证据见 [34](34-phase2c-album-publication-audit.md) 与 [35](35-phase2c-room-write-and-index-evaluation.md)。
+- 本地定向 Gradle 测试因无法下载 Gradle 9.5.1 而在测试启动前失败；完整 FOSS Release 单测/ARM64 Actions、APK 与最终提交尚待本阶段 CI 完成。以 [36](36-phase2c-implementation-and-handoff.md) 最终记录为准。真机性能及 Phase 1.5 Viewer 验收继续 `PENDING_DEVICE`。

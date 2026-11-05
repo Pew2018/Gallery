@@ -11,7 +11,7 @@ Phase 2A验证：应用源码`dcd41024e06451eb7a46d28db18a84157cd5102b`；[Run 4
 
 # Gallery 媒体管线文档索引
 
-> **当前唯一执行依据**：[18 — 现行媒体索引/加载/排序与稳定性路线图](18-current-media-pipeline-roadmap.md)。Phase 0、1、1.5与本次Phase 2A的CI/ARM64交付均已完成；设备性能与Phase 1.5 Viewer复测仍为`PENDING_DEVICE`。当前阶段文档见[28–30](28-phase2a-hotspot-audit.md)。
+> **当前唯一执行依据**：[18 — 现行媒体索引/加载/排序与稳定性路线图](18-current-media-pipeline-roadmap.md)。Phase 0、1、1.5、2A、2B与2C的工程记录见本索引；Phase 2C 当前 Pixel 性能与 Viewer 设备复测仍为`PENDING_DEVICE`。本阶段审计与 Room 准入见[34–36](34-phase2c-album-publication-audit.md)。
 
 ## 现行任务与验收
 
@@ -50,3 +50,15 @@ Phase 2A验证：应用源码`dcd41024e06451eb7a46d28db18a84157cd5102b`；[Run 4
 - [27 — CI/ARM64交付与PENDING_DEVICE矩阵](27-phase1-5-validation-and-handoff.md)
 
 本阶段不代表进入原阶段2；现有main与历史构建证明保持独立。
+
+## Phase 2B — 排序并发、主页计时与 Room v11 查询计划
+
+- [31 — 排序并发与主页显示审计](31-phase2b-sort-concurrency-and-ui-audit.md)
+- [32 — Room v11 SQL 与查询计划](32-phase2b-database-query-plan.md)
+- [33 — 实施和 CI/ARM64 交接](33-phase2b-implementation-and-validation.md)
+
+## Phase 2C — 主页发布、Room 写入与索引评估
+
+- [34 — 主页目录扫描与显示发布审计](34-phase2c-album-publication-audit.md)
+- [35 — Room 写入与索引准入评估](35-phase2c-room-write-and-index-evaluation.md)
+- [36 — 实施与交接](36-phase2c-implementation-and-handoff.md)

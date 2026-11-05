@@ -7,7 +7,7 @@
 
 # 18 — 媒体索引、加载、排序及稳定性：当前唯一实施路线图
 
-> 状态（2026-11-05更新）：Phase 2B实施与完整CI/ARM64 APK交付完成，受测应用SHA `bbda62743fb931b7955b24bd48a7fb91f9eb68d8`，893项单测通过。Phase 1.5 Viewer 与本阶段排序/主页/Room设备测量仍`PENDING_DEVICE`。实施、Room计划、APK和真实性边界见[31–33](31-phase2b-sort-concurrency-and-ui-audit.md)。Phase 2A历史记录见[28–30](28-phase2a-hotspot-audit.md)。
+> 状态（2026-11-05更新）：Phase 2C 正在 `refactor/media-pipeline-stability` 上执行，审计起始 HEAD `2e6165dec230630a08a06c08d55baeef3bc5d251`。Phase 2C 目前没有证据充分支持生产发布/Room 写入/索引行为变更；补充合成性能与 Room 写入回归，最终 CI/ARM64 与交接见[34–36](34-phase2c-album-publication-audit.md)。Pixel 请求级性能、滚动锚点及 Phase 1.5 Viewer 复测仍`PENDING_DEVICE`。Phase 2B受测代码与 CI 见[31–33](31-phase2b-sort-concurrency-and-ui-audit.md)。
 
 ## 1. 任务、目标与职责
 
@@ -52,6 +52,10 @@
 ## 10. Phase 2B — 排序并发、主页显示与 Room v11 计划
 
 阶段2B基于重新获取的远程HEAD `ad8155c73bcd542e9e565d83cb6444e9679b58bf`。审计发现普通文件夹连续排序缺少排序操作身份：A→B→A 或重复 RANDOM 时同一配置值不能阻止旧 worker 最后覆盖。修复使用独立 generation，不复用 scan request 作为唯一操作身份。刷新、暂停、权限和 Activity 生命周期仍各走原 gate。主页日期/大小等排序继续必要的目录读取；不以无版本的缓存元数据跳过扫描。补充分段主页准备计时并构造真实 Room v11 schema 的合成数据库执行计划测试。无 Pixel 新版日志时，主页帧预算、用户库查询次数及真实 SQL 时延继续 `PENDING_DEVICE`。结果以[31–33](31-phase2b-sort-concurrency-and-ui-audit.md)为准。
+
+## 11. Phase 2C — 主页发布与 Room 写入/索引证据
+
+在远程起始 HEAD `2e6165dec230630a08a06c08d55baeef3bc5d251` 审计 `MainActivity.gotDirectories()`、`setupAdapter()`、`DirectoryAdapter.updateDirs()` 与 Room 写路径。代码证明缓存目录每 8 个真实卡片变化进行中间发布；相同可见内容由 Adapter 短路；缓存目录循环中每个物理目录一次整批媒体 `insertAll()`，但跨独立 request 的重叠写入及设备成本尚未知。由此，本阶段不依据推测改变扫描发布、Room 写入、主线程计算或 Schema；新增 100/500/1k/5k 生产 presentation synthetic benchmark、成员变化/20卡片回归与 500 行 Room unchanged-write/metadata/favorite-relation 样本。合成测试不代表 Pixel 性能。审计和结果以[34–36](34-phase2c-album-publication-audit.md)为准。
 
 ## 4. 必须保持的实现约束
 

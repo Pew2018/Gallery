@@ -108,4 +108,66 @@ class DirectoryPresentationTest {
         assertEquals(listOf("/root/b", "/root/a", "/root/c"), context.getSortedDirectories(dirs).map { it.path })
     }
 
+    @Test fun sameSizedCatalogWithDifferentMembersIsNotAnIdenticalPresentation() {
+        val before = listOf(directory("/root/a"), directory("/root/b"))
+        val after = listOf(directory("/root/a"), directory("/root/c"))
+        assertEquals(before.size, after.size)
+        assertFalse(DirectoryPresentation.sameContents(before, after))
+    }
+
+    @Test fun twentyChangedCardsRetainEveryPathAndCurrentSortOrder() {
+        context.config.pinnedFolders = hashSetOf()
+        context.config.directorySorting = SORT_BY_NAME or SORT_USE_NUMERIC_VALUE
+        val initial = (1..20).map { directory("/root/Album ${it.toString().padStart(2, '0')}") }
+        var published = initial.map { it.snapshot() }
+        // Model the production scan's eight-changed-card publication cadence.
+        for (index in initial.indices) {
+            initial[index].mediaCnt = 20 - index
+            if ((index + 1) % 8 == 0 || index == initial.lastIndex) {
+                val next = context.getSortedDirectories(ArrayList(initial.map { it.snapshot() }))
+                assertEquals(initial.map { it.path }.sorted(), next.map { it.path })
+                published = next.map { it.snapshot() }
+            }
+        }
+        assertEquals(20, published.size)
+        assertEquals(initial.map { it.path }.toSet(), published.map { it.path }.toSet())
+    }
+
+    @Test fun presentationPreparationBenchmarkReportsSyntheticDirectoryScales() {
+        context.config.pinnedFolders = hashSetOf()
+        val randomRanks = HashMap<String, Long>()
+        val modes = listOf(
+            "name" to (SORT_BY_NAME or SORT_USE_NUMERIC_VALUE),
+            "date" to SORT_BY_DATE_MODIFIED,
+            "size" to SORT_BY_SIZE,
+            "random" to SORT_BY_RANDOM
+        )
+        for (size in listOf(100, 500, 1_000, 5_000)) {
+            val source = (0 until size).map { index ->
+                directory("/synthetic/Album ${index.toString().padStart(5, '0')}",
+                    size = (size - index).toLong(), count = index % 37).apply {
+                    modified = (size - index).toLong()
+                    taken = index.toLong()
+                    folderStatuses = if (index % 13 == 0) "excluded" else ""
+                }
+            }
+            val samples = ArrayList<String>()
+            for ((name, mode) in modes) {
+                context.config.directorySorting = mode
+                val runs = ArrayList<Long>()
+                repeat(3) {
+                    val started = System.nanoTime()
+                    val sorted = context.getSortedDirectories(ArrayList(source), randomRanks)
+                    val deduped = sorted.distinctBy { it.path }
+                    val visible = context.getDirsToShow(deduped, deduped, "", randomRanks, sortDirs = false)
+                    // Use the same case-insensitive name predicate as MainActivity's search preparation.
+                    visible.filter { it.name.contains("Album 00", true) }
+                    runs += (System.nanoTime() - started) / 1_000
+                }
+                samples += "$name=${runs.sorted()[1]}us"
+            }
+            println("AlbumPresentationSynthetic rows=$size medianOf3(sort+dedupe+visibility+search) ${samples.joinToString()}")
+        }
+    }
+
 }
