@@ -5,13 +5,13 @@
 
 ## 1. 本阶段代码与 CI 的可追踪边界
 
-本文件随**同一个**阶段 1 集中代码提交写入。Git 提交的 SHA 由其内容决定，提交不能在自身文件中包含自身最终 SHA（递归引用）。因此真实代码 SHA 以 GitHub **本文件所在的提交** 为准，而不能事先在提交正文中自我宣称。Actions Run ID、URL、测试数量、产物 ID 与 SHA-256 只能在 CI 实际结束后由运行记录确定；本次文件创建时不得伪造。这些动态值以仓库 Actions 运行页和交付报告为准。
+本阶段源码初次集中提交，随后针对明确的测试编译错误、零值诊断契约及超时终态进行必要补修。**最终受 CI 验证的应用源码 SHA 是 `5b75cb2a5c7a96021f35013292a5479436f87f36`**；本页另经纯文档提交补写实际 Actions/Artifact 记录，因此文档提交 SHA 可能更新，而不表示应用源码又发生变化。所有构建数据来自下述真实成功运行，不预先填造。
 
 - 审计基线：`5cc20adf6875ca220df8db4ff3bb24e42f82de22`。
 - 阶段 1 最终受测源码 SHA：`5b75cb2a5c7a96021f35013292a5479436f87f36`。文档收尾提交 SHA 请参阅本文件 git history。
 - Actions 完整单测：**已成功：Run 41961735980（见第 6 节）**（参照与该提交对应的 `Arm64 FOSS Release APK (non-publishing)` run）。
 - ARM64 APK：**成功**，Artifact `gallery-foss-arm64-v8a-release`（ID `13385912998`），已实际下载核验；详见第 6 节。
-- 实际包名、签名、原生 ABI：必须查看 CI “Validate APK, package name, signature and ABI” 成功日志后确定。
+- APK 校验结果：CI 已验证包名 `org.fossify.gallery`、原生 ABI `arm64-v8a`、v2 临时测试签名；实际证书和版本见第 6 节。
 - 设备：**PENDING_DEVICE**，未获得第 0 阶段真实设备 B01–B20 数据，故无同设备性能基线、jank/首帧画面证据。
 
 **证据链的阅读顺序：** [22 — 审计与根因](22-phase1-lifecycle-audit.md) → [23 — 实施/测试](23-phase1-implementation-and-tests.md) → 当前提交 Git tree → 本提交对应的 GitHub Actions Workflow Run 和 Artifact。不能用原阶段 0 的成功 Run 证明阶段 1 已通过。
