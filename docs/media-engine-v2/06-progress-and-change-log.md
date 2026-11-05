@@ -19,7 +19,7 @@
 
 > **2026-11-05 校订**：原文中的“当前任务”“唯一 fix 分支”和 P1/P2/P3 均是 2026-11-04 历史开发记录，不再是现行工程指令。现行权威方案：[18](18-current-media-pipeline-roadmap.md)、[05](05-minimal-scan-sort-display-refactor.md)；工作分支 `refactor/media-pipeline-stability`；基线 `main` `49e799eceab00414ef074cbf71b7f0a35133b669`。
 >
-> **新六阶段状态**：阶段0、1、1.5均有完整CI/ARM64交付；1.5真机仍`PENDING_DEVICE`。Phase 2A 的 Run 41983357685 通过889项测试；Phase 2B 的 Run 41994855432 对应用 SHA `f57d851c7a6ca3f73b6190fe793c072f7aa31d4a` 通过893项测试和ARM64 APK校验。Pixel性能/交互验证仍`PENDING_DEVICE`；详情见33。历史 `main` Run 41939577702 不是当前代码或真机性能基准。
+> **新六阶段状态**：阶段0、1、1.5均有完整CI/ARM64交付；1.5真机仍`PENDING_DEVICE`。Phase 2A 的 Run 41983357685 通过889项测试；Phase 2B 最终 Run 41996848531 对应用 SHA `bbda62743fb931b7955b24bd48a7fb91f9eb68d8` 通过893项测试与ARM64 APK校验。Pixel性能/交互验证仍`PENDING_DEVICE`；详情见33。历史 `main` Run 41939577702 不是当前代码或真机性能基准。
 
 ## 1. 新阶段状态总览
 
@@ -59,8 +59,8 @@
 - **基线**：开始前读取 `origin/refactor/media-pipeline-stability` 为 `ad8155c73bcd542e9e565d83cb6444e9679b58bf`；没有重置或触碰其他本地工作区中的提交。
 - **审计发现**：普通文件夹后台排序只有配置值校验，重复随机排序和 A→B→A 没有独立操作身份，旧 worker 可以与新选择同值并竞争发布。主页拍摄/修改日期和大小会走目录扫描；`setupAdapter()` 的去重/排序/筛选/搜索位于主线程。DAO 源码表明 `parent_path`、`deleted_ts`、`is_favorite` 无索引，full_path/path 持有 Room 唯一索引。
 - **实施**：为物理文件排序新增独立单调 generation；新媒体请求、Activity 暂停使其失效；后台排序异常/拒绝在当前请求仍有效时退回原加载链。保留查询时的当前搜索、授权复验、DiffUtil/stable ID、滚动延期和完整扫描。主页新增可选诊断分段计时与排序确认到可见提交时间；没有绕过必要扫描。新增 Room v11 实际 Room schema in-memory 测试，造数 100/5k/30k/100k，并检查计划、媒体筛选/收藏关系与多文件夹集合。
-- **测试/性能边界**：本地 Wrapper 下载 Gradle 9.5.1 因 `Network is unreachable` 未能运行测试。Actions Run 41994855432 在应用 SHA `f57d851c7a6ca3f73b6190fe793c072f7aa31d4a` 上 893/893、0 failures/errors/skipped，ARM64 构建与 APK 校验成功。合成 Room 时延不是 Pixel / 用户数据库数据；主页排序、PhotoProfile 5k、SAF 和 `.nomedia` 新版性能为 `PENDING_DEVICE`。没有新增索引/Migration，也没有性能百分比结论。
-- **交付**：APK Artifact 13399812825；签名、digest、测试日志和查询计划实测见[31](31-phase2b-sort-concurrency-and-ui-audit.md)、[32](32-phase2b-database-query-plan.md)、[33](33-phase2b-implementation-and-validation.md)。
+- **测试/性能边界**：本地 Wrapper 下载 Gradle 9.5.1 因 `Network is unreachable` 未能运行测试。Actions Run 41996848531 在应用 SHA `bbda62743fb931b7955b24bd48a7fb91f9eb68d8` 上 893/893、0 failures/errors/skipped，ARM64 构建与 APK 校验成功。合成 Room 时延不是 Pixel / 用户数据库数据；主页排序、PhotoProfile 5k、SAF 和 `.nomedia` 新版性能为 `PENDING_DEVICE`。没有新增索引/Migration，也没有性能百分比结论。
+- **交付**：APK Artifact 13401415606；签名、digest、测试日志和查询计划实测见[31](31-phase2b-sort-concurrency-and-ui-audit.md)、[32](32-phase2b-database-query-plan.md)、[33](33-phase2b-implementation-and-validation.md)。
 
 ### 2026-11-04｜R00 — 为精简重构建档（仅文档）
 

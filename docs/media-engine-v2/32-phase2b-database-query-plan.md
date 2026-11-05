@@ -36,16 +36,18 @@
 
 ### Run 41994855432 的合成实测（单次样本）
 
-API 28 Robolectric/Room in-memory SQLite；测试数据完全合成，不是 Pixel 或用户数据库。每个规模所有计划一致：`full_path IN` 为 `SEARCH TABLE media USING INDEX index_media_full_path (full_path=?)`；`parent_path = ?` 为 `SCAN TABLE media`；收藏关系为 `SCAN TABLE favorites USING COVERING INDEX index_favorites_full_path | SEARCH TABLE media USING INDEX index_media_full_path (full_path=?)`。
+API 28 Robolectric/Room in-memory SQLite；测试数据完全合成，不是 Pixel 或用户数据库。100/5k/30k/100k 四种规模的计划一致：`full_path IN` 为 `SEARCH TABLE media USING INDEX index_media_full_path (full_path=?)`；`parent_path = ?`、`parent_path IN`、`deleted_ts != 0`、`deleted_ts = 0 AND is_favorite = 1` 均为 `SCAN TABLE media`；favorite relation 为 `SCAN TABLE favorites USING COVERING INDEX index_favorites_full_path | SEARCH TABLE media USING INDEX index_media_full_path (full_path=?)`；`DirectoryDao.getAll()` 为 `SCAN TABLE directories`，`getByPaths()` 为 `SEARCH TABLE directories USING INDEX index_directories_path (path=?)`。
 
 | media rows | parent = (µs / rows) | parent IN two (µs / rows) | full_path IN (µs / rows) | favorites JOIN (µs / rows) | deleted (µs / rows) | directories all (µs / rows) |
 |---:|---:|---:|---:|---:|---:|---:|
-| 100 | 760 / 1 | 617 / 1 | 1,075 / 1 | 1,217 / 5 | 1,304 / 5 | 6,486 / 100 |
-| 5,000 | 1,421 / 50 | 1,865 / 50 | 684 / 1 | 3,595 / 250 | 2,572 / 250 | 1,370 / 100 |
-| 30,000 | 3,342 / 300 | 3,956 / 300 | 433 / 1 | 7,274 / 1,500 | 5,521 / 1,500 | 839 / 100 |
-| 100,000 | 24,194 / 1,000 | 25,003 / 1,000 | 862 / 1 | 39,204 / 5,000 | 28,990 / 5,000 | 1,267 / 100 |
+| 100 | 1,127 / 1 | 983 / 1 | 1,173 / 1 | 1,112 / 5 | 1,354 / 5 | 5,688 / 100 |
+| 5,000 | 2,501 / 50 | 2,739 / 50 | 703 / 1 | 7,118 / 250 | 6,020 / 250 | 2,497 / 100 |
+| 30,000 | 3,578 / 300 | 4,152 / 300 | 508 / 1 | 7,773 / 1,500 | 6,054 / 1,500 | 1,095 / 100 |
+| 100,000 | 11,749 / 1,000 | 13,792 / 1,000 | 600 / 1 | 27,773 / 5,000 | 19,106 / 5,000 | 1,166 / 100 |
 
-每格为测试中一次 `System.nanoTime()` 样本，不重复取平均；数据表在每个阈值重新 `ANALYZE`，首次目录全表查询受初始化/缓存影响明显。不能据此推导真实设备性能、冷/热 cache 对照或用户媒体分布。测试在每个规模每种计时 DAO 查询调用一次，计划查询与正确性断言另有调用。总调用数与真实 Activity 的日常查询频率未知，保持 `PENDING_DEVICE`。
+额外计时 `getFavorites()`（缓存收藏标记）分别返回 5/250/1,500/5,000 行，单次耗时 983/5,747/6,046/20,420µs；`DirectoryDao.getByPaths()` 每次返回2行，耗时1,910/998/417/645µs。合成批量写入的累计值为：100行时 media 1次/10ms、favorites 1次/2ms；5,000时累计6次/160ms、6次/15ms；30,000时累计31次/384ms、31次/46ms；100,000时累计101次/957ms、101次/137ms。这里 batch 最大1,000条，favorites 仅在有行时写入。
+
+每格查询时间为测试中一次 `System.nanoTime()` 样本，不重复取平均；累计写入时间同样只是该次测试。数据表在每个阈值重新 `ANALYZE`，首次目录全表查询受初始化/缓存影响明显。不能据此推导真实设备性能、冷/热 cache 对照或用户媒体分布。测试在每个规模每种计时 DAO 查询调用一次，计划查询与正确性断言另有调用。总调用数与真实 Activity 的日常查询频率未知，保持 `PENDING_DEVICE`。
 
 ## 3. 评估与 Migration 门槛
 

@@ -23,14 +23,14 @@
 
 ### GitHub Actions
 
-最终成功运行：[Actions Run 41994855432](https://github.com/Pew2018/Gallery/actions/runs/41994855432)。首次 Run `41993490608` 因 Room 新用例默认 SDK 36 与 workflow Java 17 不兼容失败；第二次 `41994221209` 因计划断言未包含 SQLite API 28 输出的 `SCAN TABLE` 字样失败。两处均针对测试 harness 修正后，在下列最终 SHA 完整重跑通过。
+最终完整范围运行：[Actions Run 41996848531](https://github.com/Pew2018/Gallery/actions/runs/41996848531)。早期Run `41993490608` 因Room新用例默认SDK36与workflow Java17不兼容失败；`41994221209` 因计划断言未匹配SQLite API28的`SCAN TABLE`文字失败；`41994855432` 在修正后通过893项测试并生成APK，但最终核对发现需补充DirectoryDao计划和批量写入测量，因此本次扩大覆盖并在最终SHA重新完整测试/构建。早期失败已通过测试配置/断言修复，最终以本段Run为准。
 
-- 受测应用 SHA：`f57d851c7a6ca3f73b6190fe793c072f7aa31d4a`（远程分支对应完整源文件；本地生成等价 tree）
+- 受测应用 SHA：`bbda62743fb931b7955b24bd48a7fb91f9eb68d8`
 - 测试：893 / 0 failures / 0 errors / 0 skipped；CI JUnit 汇总与 `GalleryDbPlan` 输出均在 run log。
-- 测试报告 Artifact：[`backup-ui-test-reports`，ID 13400356003](https://github.com/Pew2018/Gallery/actions/runs/41994855432/artifacts/13400356003)，SHA-256 `8aa07b1a3379bc0a092a4cae3b126da91de63d06fea0cc46c5e368b56cab6b8a`。
-- ARM64 APK Artifact：[`gallery-foss-arm64-v8a-release`，ID 13399812825](https://github.com/Pew2018/Gallery/actions/runs/41994855432/artifacts/13399812825)，ZIP 10,442,642 bytes，SHA-256 `8f45fd54ec715fc9ba75350c3737d3b66d53317d359a1e4da3171d7fe8c3885f`；GitHub artifact 下载工具已成功返回文件引用。
-- APK：`org.fossify.gallery`，versionName `1.14.1`，versionCode `34`（base 32 + arm64 ABI split code 2），仅 `arm64-v8a`；APK SHA-256 `a3f61f5ca33e42778fdbe97d9c859fce8f35437223b4dfd4aebe8b1ded6905dd`。
-- 签名：`apksigner` 通过，V2=true；CI 临时证书 `CN=Gallery Temporary CI Test Signature, O=Local Testing`，SHA-256 `e0bf9f67b075957c23146d7e38d67f452da1698118d1da617537d5fe64ecfdb7`；签名模式 `temporary-CI-not-upgrade-compatible`。
+- 测试报告 Artifact：[`backup-ui-test-reports`，ID 13401275978](https://github.com/Pew2018/Gallery/actions/runs/41996848531/artifacts/13401275978)，SHA-256 `5e72578fc5553004ddc4e5e16ca97211125ff83fecb884fa2afa324ec6cb613c`。
+- ARM64 APK Artifact：[`gallery-foss-arm64-v8a-release`，ID 13401415606](https://github.com/Pew2018/Gallery/actions/runs/41996848531/artifacts/13401415606)，ZIP 10,442,648 bytes，SHA-256 `59d186760c1b50e7e0a6240a0ca276306563d91c40291ac47a48dd3e24a8d588`；GitHub artifact 下载工具已成功返回文件引用。
+- APK：`org.fossify.gallery`，versionName `1.14.1`，versionCode `32`，仅 `arm64-v8a`；APK SHA-256 `a28d5a49aeac4bc2ebe33818f3c6a4d3faa36a7bf67c010903e9292911f3a657`。
+- 签名：`apksigner` 通过，V2=true；CI 临时证书 `CN=Gallery Temporary CI Test Signature, O=Local Testing`，SHA-256 `b24cf0a0294c022b4502b9cd364fbf1968155e03a58001f961ceb48832449804`；签名模式 `temporary-CI-not-upgrade-compatible`。
 - Room 计划与 synthetic single-call samples：详见[32](32-phase2b-database-query-plan.md)；只有一个样本/规模，不算 p50/p95。
 
 ## 3. 性能与风险边界
