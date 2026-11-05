@@ -1,6 +1,6 @@
 # 18 — 媒体索引、加载、排序及稳定性：当前唯一实施路线图
 
-> 状态：**阶段 0 诊断/CI 完成，设备性能基线待采集；阶段 1 定点代码已准备，CI 与设备验收以实际结果为准**。仓库 `Pew2018/Gallery`，远程工作分支最新核对 HEAD `29f3528df55c9997cfe5c95a217ddc97eb85e331`。旧 01–17 文档中的历史分支、过时计划、当前状态仅对原文 SHA 有效。
+> 状态：**阶段 0 诊断/CI 完成，设备性能基线待采集；阶段 1 定点代码和完整 CI/ARM64 Artifact 已验证，真机仍待验**。仓库 `Pew2018/Gallery`，远程工作分支最新核对 HEAD `29f3528df55c9997cfe5c95a217ddc97eb85e331`。旧 01–17 文档中的历史分支、过时计划、当前状态仅对原文 SHA 有效。
 
 ## 1. 任务、目标与职责
 
@@ -67,3 +67,5 @@
 按 [22](22-phase1-lifecycle-audit.md)、[23](23-phase1-implementation-and-tests.md)、[24](24-phase1-results-and-handoff.md) 实施本阶段的**定点请求终态/诊断可靠性**。开始审计的远程工作分支 HEAD 是 `5cc20adf6875ca220df8db4ff3bb24e42f82de22`。发现的明确问题包括 -1 未测值被记为零、HOME/CATEGORIZED 被旧请求取消时诊断遗漏/错误终态，以及媒体 Executor 拒绝时业务终态门缺 FAIL；此外避免扫描结束后后台直接读取 UI 的可变 mMedia 以降低竞态。继续复用原 epoch、terminal、auth、complete-only prune，未修改 SQL/排序/线程池/UI/Viewer 基础架构。
 
 阶段 0 的同设备性能基线仍为 `PENDING_DEVICE`，不得在阶段 1 虚构性能提升；本阶段完整 Actions/APK 和真机验收请以 [24](24-phase1-results-and-handoff.md) 所列验证证据为准。阶段 2 必须等待可核实的 IO/SQL/排序/渲染热点数据，不可越级修改。
+
+阶段 1 的最终经 CI 验证源码为 `5b75cb2a5c7a96021f35013292a5479436f87f36`，完整 [Run 41961735980](https://github.com/Pew2018/Gallery/actions/runs/41961735980) **success**、863/863 单测通过，ARM64 APK Artifact ID `13385912998`。真机 `PENDING_DEVICE`，阶段 2 尚未开始。详见 [24](24-phase1-results-and-handoff.md)。

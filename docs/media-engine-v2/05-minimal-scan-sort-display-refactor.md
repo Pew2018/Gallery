@@ -25,4 +25,6 @@
 
 ## 状态
 
-**新阶段 0–5 全部待实施。** 原小规模阶段的实施及 Action 结果作为历史留在 06–17 中，不转化为新阶段已完成。当前 `main` 的 [Actions 41939577702](https://github.com/Pew2018/Gallery/actions/runs/41939577702) 为 success（完整单测和 ARM64），但没有本路线的真机基线。
+**阶段 0 的诊断源码/CI、阶段 1 的定点生命周期修复/CI 已完成；真机性能/权限矩阵仍 PENDING_DEVICE，阶段 2–5 尚未开始。** 原小规模阶段的实施及 Action 结果作为历史留在 06–17 中，不转化为新阶段已完成。当前 `main` 的 [Actions 41939577702](https://github.com/Pew2018/Gallery/actions/runs/41939577702) 为 success（完整单测和 ARM64），但没有本路线的真机基线。
+
+阶段 1 受测源码 `5b75cb2a5c7a96021f35013292a5479436f87f36` 的 [Run 41961735980](https://github.com/Pew2018/Gallery/actions/runs/41961735980) success、863 tests 通过，ARM64 Artifact 13385912998；仍须在真机确认 `.nomedia`/SAF/权限/Viewer 及性能基线。

@@ -1,6 +1,6 @@
 # Gallery 媒体管线文档索引
 
-> **当前唯一执行依据**：[18 — 现行媒体索引/加载/排序与稳定性路线图](18-current-media-pipeline-roadmap.md)。阶段 0 代码与 CI 已完成，分支为 `refactor/media-pipeline-stability`；设备性能基线仍为 `PENDING_DEVICE`。测试与 Artifact 详情见 [21 — 结果与交接](21-phase0-results-and-handoff.md)。
+> **当前唯一执行依据**：[18 — 现行媒体索引/加载/排序与稳定性路线图](18-current-media-pipeline-roadmap.md)。阶段 0 与阶段 1 的源码和 CI 均已完成（阶段 1 Run 41961735980，863/863 单测、ARM64 Artifact 13385912998），分支为 `refactor/media-pipeline-stability`；设备性能基线仍为 `PENDING_DEVICE`。测试与 Artifact 详情见 [21 — 结果与交接](21-phase0-results-and-handoff.md)。
 
 ## 现行任务与验收
 
@@ -30,4 +30,4 @@
 - [23 — 定点实施和回归测试](23-phase1-implementation-and-tests.md)：修改范围、完整性映射、T01–T15 覆盖与限制。
 - [24 — 结果与交接](24-phase1-results-and-handoff.md)：CI/Artifact 证据链、设备矩阵与阶段 2 准入。
 
-阶段 1 的业务正确性需以该提交的完整 CI 为准；全部真机权限、并发和性能场景仍为 `PENDING_DEVICE`。旧 01–21 为独立历史/阶段 0 事实，不得将 0 的 Run 当成 1 的构建证明。
+阶段 1 自动化测试已由受测源码 `5b75cb2a5c7a96021f35013292a5479436f87f36` 的成功 CI 核验；全部真机权限、并发和性能场景仍为 `PENDING_DEVICE`。旧 01–21 为独立历史/阶段 0 事实，不得将 0 的 Run 当成 1 的构建证明。

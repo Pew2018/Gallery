@@ -1,6 +1,6 @@
 # 23 — Phase 1 实施、状态映射与自动化回归清单
 
-日期：2026-11-05。起始远程 HEAD `5cc20adf6875ca220df8db4ff3bb24e42f82de22`；唯一分支 `refactor/media-pipeline-stability`。审计证据及未确认风险见 [22](22-phase1-lifecycle-audit.md)。以下“修改”表示已编入本阶段待 CI 验证的代码，不代表 APK/真机已通过。
+日期：2026-11-05。起始远程 HEAD `5cc20adf6875ca220df8db4ff3bb24e42f82de22`；唯一分支 `refactor/media-pipeline-stability`。审计证据及未确认风险见 [22](22-phase1-lifecycle-audit.md)。以下“修改”表示已编入本阶段CI 通过（Run 41961735980），设备待验的代码，不代表 APK/真机已通过。
 
 ## 1. 代码变更和根因
 
@@ -51,17 +51,17 @@
 
 | 验收用例 | 来源、断言 | 结果状态 |
 |---|---|---|
-| T01/T04 两请求交错、延迟主线程发布 | `DirectoryScanEpochTest.latestEpochAndFirstTerminalOwnDelayedUiPublication` 使用手动 callback 顺序，断言老 epoch 不发布 | 待 CI 验证 |
-| T03 超时后 Worker 迟到 | 同上；TIMED_OUT 先占 terminal gate，后到 COMPLETE 被拒绝 | 待 CI 验证 |
-| T05 bounded 执行器拒绝和安全再次入队 | `RefreshReliabilityTest.rejectedBoundedScanHasAnExplicitFailedTerminalAndLaterRetryCanRun`，受控 latch，无 sleep | 待 CI 验证 |
+| T01/T04 两请求交错、延迟主线程发布 | `DirectoryScanEpochTest.latestEpochAndFirstTerminalOwnDelayedUiPublication` 使用手动 callback 顺序，断言老 epoch 不发布 | CI 通过（Run 41961735980），设备待验 |
+| T03 超时后 Worker 迟到 | 同上；TIMED_OUT 先占 terminal gate，后到 COMPLETE 被拒绝 | CI 通过（Run 41961735980），设备待验 |
+| T05 bounded 执行器拒绝和安全再次入队 | `RefreshReliabilityTest.rejectedBoundedScanHasAnExplicitFailedTerminalAndLaterRetryCanRun`，受控 latch，无 sleep | CI 通过（Run 41961735980），设备待验 |
 | T06 页面退出后的旧回调 | 既有 `FolderRefreshActivityTest`、`DirectoryScanEpochTest` 与 `GalleryRefreshRegressionTest`；本轮补 HOME/CATEGORIZED 诊断闭合 | 既有覆盖；真机待验 |
-| T07 PARTIAL 不得清缓存 | `FolderMediaScanTest.failedFolderDoesNotPreventLaterFoldersAndKeepsOnlyItsOwnCache` 新增 PARTIAL/outcome.complete=false 断言；`MediaCachePrunePolicyTest` 既有删缓存门 | 待 CI 验证 |
+| T07 PARTIAL 不得清缓存 | `FolderMediaScanTest.failedFolderDoesNotPreventLaterFoldersAndKeepsOnlyItsOwnCache` 新增 PARTIAL/outcome.complete=false 断言；`MediaCachePrunePolicyTest` 既有删缓存门 | CI 通过（Run 41961735980），设备待验 |
 | T08 `.nomedia` 新增媒体 | 既有 `NoMediaCategoryRefreshTest`、`FolderRefreshActivityTest.pullRefreshAddsCopiedNoMediaImageToTheActualAdapterAndHomeCard`；本轮不重写 | 既有代码证据；真机待验 |
 | T09 分类条件变更 | `CategorizedFolderScanner` / `loadCategorizedFolders` 复用 version + flags 校验；诊断关闭新增 | 代码修复；动态 UI 交错待专测 |
 | T10 照片配置切换后旧阶段失效 | 既有 `PhotoProfileSourceScanPolicyTest`、`PhotoProfileMediaLoadingTest` 与 `PhotoProfileLoadContext.isCurrent` | 既有代码覆盖；完整阶段交错待专测 |
 | T11 混合锁定来源公开可见 | 既有 `PhotoProfileSourceScanPolicyTest.lockedVirtualFavoritesDoNotSuppressPublicFolders` 和 `PhotoProfileMediaLoadingTest` | 已有静态/模拟覆盖；设备待验 |
 | T12/T13 删除/移动/恢复竞态 | `ViewerDeletionNavigationPolicyTest`、`PhotoViewer...Test`、`MediaCachePrunePolicyTest` 等既有测试与路径身份保护 | 不等同真实并发事务测试，标为 R/PENDING_DEVICE |
-| T14/T15 终态、未知值、非法负数 | `MediaPipelineDiagnosticsTest` 新增 3 项：未知 vs 真零、非法负计数、不重复关闭诊断 | 待 CI 验证 |
+| T14/T15 终态、未知值、非法负数 | `MediaPipelineDiagnosticsTest` 新增 3 项：未知 vs 真零、非法负计数、不重复关闭诊断 | CI 通过（Run 41961735980），设备待验 |
 | T02 缓存回调晚于请求失效 | `MediaActivity.getMedia` 回调核验 `mediaLoadRequests.isCurrent`，已有生命周期 Activity 回归 | 尚无独立可控缓存调度器的针对性新测试 |
 
 **测试改动清单**：`MediaPipelineDiagnosticsTest.kt`（5 项：含零测量与超时先于取消），`DirectoryScanEpochTest.kt`（1 项），`RefreshReliabilityTest.kt`（1 项），`FolderMediaScanTest.kt`（扩充 1 个原测试断言）。已有 `FolderRefreshActivityTest`、`NoMediaCategoryRefreshTest` 和 `PhotoProfileMediaLoadingTest` 保留，不重复复制夹具。上述测试数量不是全部 15 项都具独立强制调度验收的声明。
@@ -72,3 +72,7 @@
 - CI：已有 push 工作流 `.github/workflows/arm64-foss-release.yml` 必须运行完整 FOSS Release 单测、唯一 arm64-v8a APK、包名、签名和 ABI 校验，确认 Artifact 真实存在。结果以相同业务源码 SHA 为准。
 - 真机：Android 8/11/14/16、All Files/SAF/Scoped、`.nomedia` 增删、扫描中删除/恢复、连续刷新与后台、混合授权、跨配置 Viewer 20 张都仍为 `PENDING_DEVICE`。
 - 阶段 2 未授权：线程池尺寸、Room Schema/SQL、排序、Glide、分页、UI 动画和布局一律不动。没有设备/真实统计不得推断性能提升。
+
+## 6. 最终自动化验证
+
+最终 [Actions Run 41961735980](https://github.com/Pew2018/Gallery/actions/runs/41961735980) 成功：完整 `:app:testFossReleaseUnitTest` 共 863 项，0 failures、0 errors、0 skipped；arm64-v8a APK 及包名/签名/ABI 检查通过；Artifact ID `13385912998`。首次 Run 41960357994 是新增测试编译错误，不代表修复前所有业务竞态已在测试中红灯复现。具体 SHA-256、签名与设备限制见 [24](24-phase1-results-and-handoff.md)。

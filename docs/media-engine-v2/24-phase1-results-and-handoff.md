@@ -8,9 +8,9 @@
 本文件随**同一个**阶段 1 集中代码提交写入。Git 提交的 SHA 由其内容决定，提交不能在自身文件中包含自身最终 SHA（递归引用）。因此真实代码 SHA 以 GitHub **本文件所在的提交** 为准，而不能事先在提交正文中自我宣称。Actions Run ID、URL、测试数量、产物 ID 与 SHA-256 只能在 CI 实际结束后由运行记录确定；本次文件创建时不得伪造。这些动态值以仓库 Actions 运行页和交付报告为准。
 
 - 审计基线：`5cc20adf6875ca220df8db4ff3bb24e42f82de22`。
-- 阶段 1 提交：**参阅本文件 git history；提交前未分配**。
-- Actions 完整单测：**PENDING_CI**（参照与该提交对应的 `Arm64 FOSS Release APK (non-publishing)` run）。
-- ARM64 APK：**PENDING_CI**；产物预期名称 `gallery-foss-arm64-v8a-release`，不代表已生成。
+- 阶段 1 最终受测源码 SHA：`5b75cb2a5c7a96021f35013292a5479436f87f36`。文档收尾提交 SHA 请参阅本文件 git history。
+- Actions 完整单测：**已成功：Run 41961735980（见第 6 节）**（参照与该提交对应的 `Arm64 FOSS Release APK (non-publishing)` run）。
+- ARM64 APK：**成功**，Artifact `gallery-foss-arm64-v8a-release`（ID `13385912998`），已实际下载核验；详见第 6 节。
 - 实际包名、签名、原生 ABI：必须查看 CI “Validate APK, package name, signature and ABI” 成功日志后确定。
 - 设备：**PENDING_DEVICE**，未获得第 0 阶段真实设备 B01–B20 数据，故无同设备性能基线、jank/首帧画面证据。
 
@@ -53,4 +53,17 @@ Phase 0 的历史独立成功证据：[Run 41951185632](https://github.com/Pew20
 
 ## 5. 安全与发布说明
 
-CI 若使用 `temporary-CI-not-upgrade-compatible` 临时证书，则构建的 APK 不保证与已安装其他证书的 Gallery 覆盖安装兼容；不要为了测试要求用户清应用数据或执行破坏性迁移。若 GitHub Actions 无对应成功 Run 或未找到 Artifact，应判定 **阶段 1 APK 交付未完成**，而不是因 Workflow 触发就宣称完成。
+本次 CI 确认使用 `temporary-CI-not-upgrade-compatible` 临时测试证书，构建成功的 APK 不能保证覆盖安装不同签名的现有 Gallery；不应为测试要求用户清除应用数据。实际成功 Run 和下载核验见第 6 节。
+
+## 6. 最终 GitHub Actions 与 APK 交付核验（2026-11-05）
+
+**CI 验证的最终应用源码 SHA：** `5b75cb2a5c7a96021f35013292a5479436f87f36`。本节所列真实构建结果覆盖并更新上文最初建档时的 PENDING_CI 占位信息；以下文档收尾提交仅修改 docs，不能在文档自身填写其最终 SHA，也不改变已经过 CI 验证的应用源代码。
+
+- GitHub Actions：[**Run 41961735980**](https://github.com/Pew2018/Gallery/actions/runs/41961735980)，触发提交 `5b75cb2a5c7a96021f35013292a5479436f87f36`，最终 `completed / success`。
+- 完整命令 `./gradlew :app:testFossReleaseUnitTest --stacktrace --info`：CI 实测 **863 tests、0 failures、0 errors、0 skipped**。与阶段 0 的 856 tests 分开记录。
+- 命令 `./gradlew :app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a --stacktrace`：成功；校验包名 `org.fossify.gallery`、版本名 `1.14.1`、versionCode `32`、原生库 **仅 arm64-v8a**。
+- `apksigner verify --verbose --print-certs`：APK Signature Scheme **v2 = true**；使用测试证书 `CN=Gallery Temporary CI Test Signature, O=Local Testing`，证书 SHA-256 `8769216c723427b2b6754867d0e1dd7c757a706b1a696769a2d2ae4e6f5a28b4`；模式 `temporary-CI-not-upgrade-compatible`，不保证能覆盖安装不同签名的已装应用。
+- **实际存在且已通过 GitHub 下载核验的 ARM64 Artifact**：`gallery-foss-arm64-v8a-release`，Artifact ID `13385912998`，ZIP SHA-256 `f39709503637709a1fcae8dddbaae73f318d4f43cbc23240f3a91b16a46894e3`。内部 APK `gallery-foss-arm64-v8a-release.apk` SHA-256 `a9ca687234ee8d40528130b27cc22a0630c02d830da2e254b81002c18ef8e0c2`，与 CI SHA-256 日志相同。
+- 失败与补修证据：首次 [Run 41960357994](https://github.com/Pew2018/Gallery/actions/runs/41960357994) 于 `DirectoryScanEpochTest.kt:47` 新测试 `invoke` 的 Kotlin 编译报错，随后修正。中间新推送使旧 Run 被并发策略取消。最终成功 Run 的 863 项测试不能被写成“所有新用例都有修复前运行失败的红绿实验”；对未进行前后失败实测的行为，仅有静态根因、可控竞态断言和修复后通过证据。
+
+**剩余状态：** D01–D08（Android 8/11/14/16 的普通及 `.nomedia` 增删、SAF 授权变更、删除/移动/回收站、混合解锁 PhotoProfile、Viewer 和大媒体库帧性能）均为 `PENDING_DEVICE`；第 0 阶段 B01–B20 真实设备采样尚未取得，不能依据 CI 断言“所有 P0 已在真机消失”或开始阶段 2 的 SQL/排序性能优化。

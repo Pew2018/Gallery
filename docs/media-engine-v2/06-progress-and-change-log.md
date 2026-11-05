@@ -12,14 +12,14 @@
 
 > **2026-11-05 校订**：原文中的“当前任务”“唯一 fix 分支”和 P1/P2/P3 均是 2026-11-04 历史开发记录，不再是现行工程指令。现行权威方案：[18](18-current-media-pipeline-roadmap.md)、[05](05-minimal-scan-sort-display-refactor.md)；工作分支 `refactor/media-pipeline-stability`；基线 `main` `49e799eceab00414ef074cbf71b7f0a35133b669`。
 >
-> **新六阶段状态**：阶段 0 在工作分支已有成功的完整 CI 与 ARM64 Artifact（Run 41951185632），但真机基线仍为 PENDING_DEVICE。阶段 1 定点源码修复与测试已准备，尚需以本次提交后实际 CI 结果验收；阶段 2–5 未开始。[19](19-phase0-instrumentation-audit.md)、[20](20-phase0-metrics-and-test-plan.md)、[21](21-phase0-results-and-handoff.md) 为本轮记录。历史 `main` Run 41939577702 不等于本轮代码验证，也不等于真机性能基准。
+> **新六阶段状态**：阶段 0 在工作分支已有成功的完整 CI 与 ARM64 Artifact（Run 41951185632），但真机基线仍为 PENDING_DEVICE。阶段 1 源码和完整 CI 已通过（Run 41961735980，863/863 测试、ARM64 Artifact 13385912998）；阶段 2–5 未开始。[19](19-phase0-instrumentation-audit.md)、[20](20-phase0-metrics-and-test-plan.md)、[21](21-phase0-results-and-handoff.md) 为本轮记录。历史 `main` Run 41939577702 不等于本轮代码验证，也不等于真机性能基准。
 
 ## 1. 新阶段状态总览
 
 | 阶段 | 当前状态 | 进入下一阶段的要求 |
 |---|---|---|
 | 0 诊断与性能基准 | 诊断源码与 CI 完成；真机数据 PENDING_DEVICE | 请求链路、查询/枚举/数据库/排序/UI 耗时及同设备 p50/p95 |
-| 1 扫描生命周期与正确性 | 定点实施待 CI 验证；真机 PENDING_DEVICE | 旧结果拒绝、删除/权限并发、正确终态、.nomedia 同步 |
+| 1 扫描生命周期与正确性 | 源码/CI 已通过；真机 PENDING_DEVICE | 旧结果拒绝、删除/权限并发、正确终态、.nomedia 同步 |
 | 2 数据库与排序热点 | 未开始 | SQL EXPLAIN、增量排序和相同集合前后比较 |
 | 3 缓存复用和增量索引 | 未开始 | 外部变化检测、正确失效和无法证明时安全回退 |
 | 4 缩略图/网格/Viewer | 未开始 | 身份、顺序、连续滑动、删除恢复和滚动稳定 |
@@ -164,3 +164,7 @@
 - 新增 app-private 单线程有界日志写入，约 5 MiB 循环文件、字段/堆栈路径隐私过滤、session-salted 媒体关联 ID、未捕获异常委托记录和 Android 11+ 退出原因摘要。保留既有 FolderRefreshTrace/ GalleryPerfTrace Logcat 行为；详细设计和限制见 [诊断功能说明](../diagnostics/app-diagnostics.md)。
 - 已接入扫描/刷新关键边界、GalleryPerfTrace 已有事件、Viewer 打开/页绑定/关闭和网格/全屏删除请求结果。未记录媒体路径、URI、文件名、照片内容或逐帧事件。
 - 完整验证：源码 `82c4b4ffe26b80cdb6c6b6303ce2a9488998dad4`；Run [41858925567](https://github.com/Pew2018/Gallery/actions/runs/41858925567) 成功，848 tests / 0 failures / 0 errors / 0 skipped；ARM64 Release 编译、v2 签名、包名及 arm64-only ABI 检查通过。APK artifact `gallery-foss-arm64-v8a-release` ID `13338484426`，SHA-256 `57a3cceb80e1960587d9c4c0b516a5002808644cf4340f7219ca9c7b11daf1d0`。使用临时 CI 签名，不代表与已安装 APK 可覆盖升级。没有真机验证，不能确认设备级崩溃覆盖、实际性能、系统文档提供器兼容性或界面效果；诊断模块专项新增测试只覆盖到期、脱敏和原异常处理器委托。
+
+### 2026-11-05｜Phase 1 正式 CI 完成
+
+受测业务代码 SHA `5b75cb2a5c7a96021f35013292a5479436f87f36`；[Run 41961735980](https://github.com/Pew2018/Gallery/actions/runs/41961735980) success、完整 FOSS Release 863 tests / 0 failure / 0 error / 0 skipped；ARM64 Artifact `gallery-foss-arm64-v8a-release` ID 13385912998，包名/ABI/v2 临时签名验证通过。真机 B01–B20/D01–D08 均待测，阶段 2 没有定量性能数据支撑。[24](24-phase1-results-and-handoff.md) 保留精确 SHA-256 与局限。
