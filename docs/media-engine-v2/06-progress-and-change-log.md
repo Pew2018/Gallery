@@ -200,3 +200,11 @@
 - 新增目录展示合成计时（100/500/1,000/5,000，名称/日期/大小/随机排序与去重/显示准备/搜索）、同数量不同成员、20 卡片最终排序，以及 Room v11 500 行相同数据重复 `insertAll()` 与 metadata/favorite relation 正确性测试。
 - 未改生产 Kotlin、Room Schema/版本/Migration、权限、`.nomedia`、Viewer、OxygenOS Classic UI。Phase 2D 暂不进入 Migration；Phase 3 暂不引入额外缓存体系。详细证据见 [34](34-phase2c-album-publication-audit.md) 与 [35](35-phase2c-room-write-and-index-evaluation.md)。
 - 最终 CI 源码 `034bd9deee48aaf900956bb896f2152a43e6f05e`；[Run 42012246773](https://github.com/Pew2018/Gallery/actions/runs/42012246773) success：897 tests / 0 failures / 0 errors / 0 skipped，ARM64 Release APK、包名/version/ABI 与 v2 签名检查通过。APK Artifact ID `13407079108`，SHA-256 `0ea101cf8598234ad512b6e31d3fa3f01bc3f62907ec5ac10f72a242a4f1aa31`。GitHub runner synthetic 测量和真机限制见 [36](36-phase2c-implementation-and-handoff.md)；真机性能及 Phase 1.5 Viewer 验收继续 `PENDING_DEVICE`。
+
+### 2026-11-05｜Phase 2C sort/search device follow-up
+
+- Audited both supplied Pixel 8 Pro logs and current sorting/search call chains on `refactor/media-pipeline-stability` at `6a7a49e33fc8f5fdc1e20a0b7d0877158ff230cb`.
+- Confirmed source paths: sort fallback detached the adapter; a refresh could invalidate a search's captured scan request while the previous authorized snapshot remained displayed; empty PARTIAL search results were treated as final for ordinary folders; final scan sorting used the scan-start mode; and dialog callback comparison omitted folder/global ownership changes.
+- Added bounded display-only PARTIAL sorting and preserved the adapter during required rescans. Search is keyed to the still-displayed snapshot with fresh lifecycle/access checks, and each newly published media snapshot reruns the latest query. The final ordinary-folder result adopts the latest effective sorting mode before grouping.
+- Added helper-policy cases and an existing Robolectric `MediaAdapter.updateMedia()` commit-order test. Local tests have not run because Gradle 9.5.1 could not be downloaded in this environment; `git diff --check` passed. Full CI and ARM64 artifact are pending.
+- Evidence and limits: [37](37-phase2c-device-sort-search-root-cause.md); implementation/validation: [38](38-phase2c-sort-search-fix-and-validation.md). Pixel 8 Pro remains `PENDING_DEVICE`.

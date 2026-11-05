@@ -118,6 +118,14 @@ class MediaAdapterStabilityTest {
         assertFalse(MediaUpdatePolicy.sameDisplayedContent(first, changedSection))
     }
 
+    @Test fun adapterCommitsNewSortOrderWithoutRecreatingAdapter() = withAdapter { adapter, recycler, tasks ->
+        val before = adapter
+        adapter.updateMedia(arrayListOf(item("z.jpg"), item("a.jpg")), preserveScroll = true)
+        drain(tasks)
+        assertSame("Sorting keeps the existing adapter attached", before, recycler.adapter)
+        assertEquals(listOf("z.jpg", "a.jpg"), adapter.media.filterIsInstance<Medium>().map { it.name })
+    }
+
     @Test fun persistenceAndGridPositionChangesDoNotScheduleDiffOrNotifyRows() = withAdapter { adapter, _, tasks ->
         var notifications = 0
         adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {

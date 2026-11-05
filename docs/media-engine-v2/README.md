@@ -62,3 +62,8 @@ Phase 2A验证：应用源码`dcd41024e06451eb7a46d28db18a84157cd5102b`；[Run 4
 - [34 — 主页目录扫描与显示发布审计](34-phase2c-album-publication-audit.md)
 - [35 — Room 写入与索引准入评估](35-phase2c-room-write-and-index-evaluation.md)
 - [36 — 实施与交接](36-phase2c-implementation-and-handoff.md)
+
+## Phase 2C device sort/search follow-up
+
+- [37 — Pixel 8 Pro sort/search root-cause audit](37-phase2c-device-sort-search-root-cause.md): log-backed facts, source-confirmed failure paths, and remaining uncertainty around the exact search symptom.
+- [38 — sort/search fix and validation](38-phase2c-sort-search-fix-and-validation.md): implementation, tests, CI/APK status, and `PENDING_DEVICE` retest steps.

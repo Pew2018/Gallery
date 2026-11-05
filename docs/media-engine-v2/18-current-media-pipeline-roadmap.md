@@ -93,3 +93,7 @@
 阶段 0 的同设备性能基线仍为 `PENDING_DEVICE`，不得在阶段 1 虚构性能提升；本阶段完整 Actions/APK 和真机验收请以 [24](24-phase1-results-and-handoff.md) 所列验证证据为准。阶段 2 必须等待可核实的 IO/SQL/排序/渲染热点数据，不可越级修改。
 
 阶段 1 的最终经 CI 验证源码为 `5b75cb2a5c7a96021f35013292a5479436f87f36`，完整 [Run 41961735980](https://github.com/Pew2018/Gallery/actions/runs/41961735980) **success**、863/863 单测通过，ARM64 APK Artifact ID `13385912998`。真机 `PENDING_DEVICE`，阶段 2 尚未开始。详见 [24](24-phase1-results-and-handoff.md)。
+
+## Phase 2C device sort/search follow-up (2026-11-05)
+
+The next bounded pass addresses ordinary-folder sort feedback and search while scanning. The audit separates confirmed source paths from unproven causes in the Pixel logs; see [37](37-phase2c-device-sort-search-root-cause.md). The implementation and evidence status are tracked in [38](38-phase2c-sort-search-fix-and-validation.md). Room/schema, persistent index, Viewer continuity, delete anchors and home-card movement remain out of scope. Device verification remains `PENDING_DEVICE` until the updated APK is tested on Pixel 8 Pro.

@@ -37,6 +37,7 @@ internal class GetMediaAsynctask(
     private val folderPriorityPaths: List<String>? = null,
     private val onScanCancelled: (() -> Unit)? = null,
     private val onFolderPreview: ((FolderMediaReadResult, ArrayList<ThumbnailItem>) -> Unit)? = null,
+    private val onSortingMetadataRefreshRequired: (() -> Unit)? = null,
     private val onFavoritePreview: ((List<Medium>, Set<String>) -> Unit)? = null,
     private val onFolderDetails: ((List<Medium>) -> Unit)? = null,
     val callback: (media: ArrayList<ThumbnailItem>) -> Unit
@@ -78,6 +79,7 @@ internal class GetMediaAsynctask(
         }
     }
     internal var folderReadResult: FolderMediaReadResult? = null
+    private var sortingMetadataRefreshRequired = false
         private set
     /** Captured before cache fallback/group headers; never use an Adapter for directory counts. */
     internal var folderStatsMediaSnapshot: List<Medium> = emptyList()
@@ -293,6 +295,18 @@ internal class GetMediaAsynctask(
             media.forEach { item -> cached[item.path]?.let { old ->
                 if (old.modified == item.modified && old.size == item.size) item.videoDuration = old.videoDuration
             } }
+            // Sorting can change while a long directory read is in flight. Apply
+            // the latest effective setting to the complete source before grouping
+            // and publishing, so the earlier task snapshot cannot restore old order.
+            val latestSorting = context.config.getFolderSorting(pathToUse)
+            if (latestSorting != folderSorting) {
+                val needsUnavailableMetadata =
+                    (latestSorting and SORT_BY_DATE_TAKEN != 0 && !getProperDateTaken) ||
+                    (latestSorting and SORT_BY_DATE_MODIFIED != 0 && !getProperLastModified) ||
+                    (latestSorting and SORT_BY_SIZE != 0 && !getProperFileSize)
+                if (needsUnavailableMetadata) sortingMetadataRefreshRequired = true
+                else mediaFetcher.sortMedia(media, latestSorting)
+            }
         }
         val result = FolderRefreshTrace.measure(requestId, "grouping") { mediaFetcher.groupMedia(media, pathToUse) }
         val safeResult = if (mPath == FAVORITES && favoriteSessionId != null) {
@@ -380,6 +394,11 @@ internal class GetMediaAsynctask(
         } else {
             if (folderFailures.isNotEmpty()) onPartialFailure(folderFailures)
             finishPipelineDiagnostics(scanResult.state.name, media)
+            if (sortingMetadataRefreshRequired) {
+                FolderRefreshTrace.event(requestId, "sorting_refresh_required", detail = "metadata_not_loaded")
+                onSortingMetadataRefreshRequired?.invoke()
+                return
+            }
             callback(media)
             val read = folderReadResult
             if (read != null && onFolderPreview != null && context.config.showThumbnailVideoDuration && !isCancelled) {

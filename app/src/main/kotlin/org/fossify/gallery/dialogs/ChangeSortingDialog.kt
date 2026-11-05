@@ -123,6 +123,8 @@ class ChangeSortingDialog(
     }
 
     override fun onClick(dialog: DialogInterface, which: Int) {
+        val oldEffectiveSorting = if (isDirectorySorting) config.directorySorting else config.getFolderSorting(pathToUse)
+        val oldCustomScope = !isDirectorySorting && config.hasCustomSorting(pathToUse)
         val sortingRadio = binding.sortingDialogRadioSorting
         var sorting = when (sortingRadio.checkedRadioButtonId) {
             R.id.sorting_dialog_radio_name -> SORT_BY_NAME
@@ -154,7 +156,9 @@ class ChangeSortingDialog(
             }
         }
 
-        if (currSorting != sorting) {
+        val newEffectiveSorting = if (isDirectorySorting) config.directorySorting else config.getFolderSorting(pathToUse)
+        val newCustomScope = !isDirectorySorting && config.hasCustomSorting(pathToUse)
+        if (oldEffectiveSorting != newEffectiveSorting || oldCustomScope != newCustomScope) {
             callback()
         }
     }
