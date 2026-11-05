@@ -1,79 +1,40 @@
-# 04 — 下一阶段的证据采集、回归矩阵与迁移前置条件
+# 04 — 当前基准采集、验证矩阵与安全迁移准入
 
-状态：准备方案；**未执行构建、真机性能测量或业务重构**。基线：c5cc5b6852291491a999934d12f26314455959c6。
+> 2026-11-05 按 [18 — 现行路线图](18-current-media-pipeline-roadmap.md) 更正；旧 S0–S7 全新引擎/双实现迁移方案已废止，不再当作执行任务。`main` 静态基线 `49e799eceab00414ef074cbf71b7f0a35133b669`。**以下均为计划，不代表本轮已有测试结果。**
 
-## 1. 已有测试资产（源码目录存在，不等于本轮已运行）
+## 1. 阶段 0：必要的性能与正确性证据
 
-- 刷新与文件夹：DirectoryScanEpochTest、DirectoryMetadataRepositoryTest、GalleryRefreshRegressionTest、GalleryRefreshRecoveryTest、RefreshReliabilityTest、RefreshCompletionTest、FolderRefreshActivityTest、NoMediaCategoryRefreshTest、FolderMediaReadTest、FolderMediaScanTest。
-- 列表稳定性：MediaAdapterStabilityTest、DirectoryAdapterRefreshTest、ViewerGridOrderPolicyTest、ViewerMediaUpdatePolicyTest。
-- 照片配置：PhotoProfileMediaLoadingTest、PhotoProfileSourceScanPolicyTest、PhotoSessionViewerCatalogStoreTest、PhotoViewerCatalogCoordinatorTest、PhotoProfileReturnProbeTest。
-- 全屏：PhotoViewerContinuousSwipeTest、PhotoViewerProgressivePagerTest、PhotoViewerPageAccessStateTest、ViewerSwipePublicationGateTest、MyPagerAdapterLifecycleTest、ViewerNeighborWindowTest。
-- 安全/回退：FavoriteAccessPolicyTest、FolderUnlockSessionManagerTest、ViewerAccessCoordinatorTest、PhotoAccessValidationBatch 相关调用与安全回归。
-- 备份：GalleryBackupZipCodecTest、PhotoProfileBackupCodecTest、OxygenSettingsBackupCodecTest、FavoriteBackupRestoreTest、BackupPerformanceTest 等。
+必须记录 APK SHA、设备型号/SDK、存储授权、媒体和文件夹数量、匿名 scope/request、sourceType、queueWaitMs、cacheHit、MediaStore queryCount/queryMs、directory enumerate/statCount/ioMs、Room read/write rows/ms、sortCount/sortMs、stagePublishCount、Adapter submit/commit/drop/bindCount、topPathHash/offsetPx、firstVisibleMs、completeMs、heap/GC、Viewer firstFrame/boundaryMs 和终态。
 
-测试文件目录：app/src/test/kotlin/org/fossify/gallery/。后续首先检查上述测试的断言是否覆盖**真实生命周期/竞态**，不是只验证纯函数。
+推荐在现有 `GalleryDiagnosticLogger` 手动启用并脱敏的前提下做按请求摘要，避免默认给每个文件写大量 Release 日志。`GalleryPerfTrace` 当前仅允许部分前缀进入 Release，不应假定全量计数已存在。
 
-## 2. 数据采集表：每组都要附设备、APK SHA 与权限
+```csv
+apk_sha,android_sdk,permission_mode,case_id,media_count,folder_count,scope_hash,first_visible_ms,complete_ms,query_count,enumerate_count,room_write_rows,sort_count,adapter_commits,bind_count,anchor_shift_px,scan_state
+```
 
-| 代号 | 操作场景 | 需记录的观测值 | 通过条件（逻辑） |
-|---|---|---|---|
-| T01 | 普通目录新复制 1 / 100 张后主页下拉 | index 查询数、目录数量、耗时、完结状态 | 数量一致、索引终止、不得遗漏 |
-| T02 | .nomedia 目录新增、删除媒体后主页/目录/配置刷新 | 磁盘真实数、三个视图数、完整性与失败原因 | 具当前授权时结果一致 |
-| T03 | 首次打开大量图库（5k/20k/50k/100k） | 首个稳定列表耗时、CPU、内存峰值、总读取数 | 不卡死、可中止、有可恢复失败 |
-| T04 | 同一目录连续快速下拉 10 次、切底栏和返回 | 请求版本、取消数、排队数、终态数、loading 指示 | 旧请求不发布、最终请求有终态 |
-| T05 | 长列表高速 fling 期间复制/删除/修改元数据 | topVisiblePath、offsetPx、Adapter 操作、缩略图重绑 | 未删除锚点不跳，未变化条目无大规模动画 |
-| T06 | 搜索、排序、分组、修改缩略图列数、随机排序 | 排序快照、选中状态、滚动与查看器列表顺序 | 用户明确排序才改变顺序 |
-| T07 | 收藏目录及媒体动态增删 | 关系表、数量、全屏返回状态、排序 | 不丢收藏关系、不泄漏非收藏内容 |
-| T08 | 照片配置多来源（含 .nomedia + 收藏）、切配置 | 去重数、阶段数量、完整目录、数据更新 | 同一文件仅显示一次，旧 scope 不提交 |
-| T09 | 全屏从任意位置连续前/后 20 张，边界等待中换向 | currentPath、catalogRevision、window、before/after、等待时长 | 五张预览不构成真实边界，无重复/跳片 |
-| T10 | 浏览时撤销受保护目录/配置/收藏授权 | 访问事件、页面内容、Bitmap 请求、内存快照 | 立即停止不再有授权的展示与预加载 |
-| T11 | SAF 授权变化、无 all-files、外置存储离线 | READ 结果状态、已保留缓存、error UI | 不把未读文件当成删除；正确提示 |
-| T12 | 旧安装升级 / 全量导出导入 / 配置独立备份 | Config 键值、Favorites DB 关系、配置 ID/source | 用户数据逐条一致，格式仍可恢复 |
-| T13 | 横屏/后台切前台/进程重建/页面返回 | pending publication、adapter state、currentPath | 不重复加载/回退空页/旧回调覆盖 |
-| T14 | 快速拖动滚动条与缩略图加载取消 | scroll offsets、thumb 位置、load bind count | 滚动条同步、不卡顿、不出现大片闪动 |
+同设备/同数据集至少重复 10 次，冷启动、热打开、手动刷新和回前台分别统计 p50/p95。无基线不得宣称“秒开”“提升 xx%”。
 
-## 3. 应有的诊断字段与采集格式
+## 2. 核心测试矩阵
 
-建议在真正重构前先由**现有工具**采集或增加仅供诊断的最小埋点（本轮不修改代码），每条事件至少关联：
+| 场景 | 必须满足 |
+|---|---|
+| 普通、.nomedia 文件夹新增/删除、主页面与配置 | 数量/路径最终一致；空 MediaStore 不能判定文件被删除 |
+| 收藏、回收站、多来源照片配置 | 保留动态关系、路径去重和完整性；受保护来源不泄漏 |
+| 连续 10 次刷新、切页、取消、后台恢复 | 旧请求拒绝发布，新请求终态明确，进度不永远停留 |
+| 扫描中删除、移动、改名及撤权 | 不复活旧照片，失败不视为成功，授权不可被缓存冒用 |
+| 排序、分组、搜索、随机、时间/大小 ties | 网格与全屏路径顺序一致；随机会话不无故打乱 |
+| 5k/30k/100k 高速 fling、全屏往返 20 张 | anchor 正确、缩略图不绑错、部分窗口不假报 END |
+| Android 8/11/14/16，All-files/受限/SAF/离线 | 正确错误/部分状态、允许安全回退，不误删缓存 |
+| 老版本升级、设置/收藏/配置备份恢复 | 不丢收藏关系、配置 ID、文件夹规则和用户设置 |
 
-- appVersion / APK commit SHA / Android SDK / 授权模式；
-- requestId / scopeKey（匿名散列）/ stage / sourceType / datasetRevision / authRevision；
-- scan start/end/cancel、cache hit/miss、MediaStore query 数、disk enumerate 数、partial/complete 及失败类型；
-- directory count old/new、Adapter submit/commit/drop/rebase 数、stable-anchor old/new 与 offsetPx；
-- Viewer selectedPath（仅设备本地敏感调试，上传报告须脱敏）、catalog count、boundary UNKNOWN/HAS_MORE/END、expand size、延时；
-- CPU time、wall time、heap size、临时磁盘空间、UI jank frames。
+现有测试入口包括 `GalleryRefreshRegressionTest`、`NoMediaCategoryRefreshTest`、`FolderMediaScanTest`、`MediaAdapterStabilityTest`、`PhotoProfileMediaLoadingTest`、`PhotoViewerProgressivePagerTest` 等；必须核对最新源码的真实断言，不得把存在测试文件当作实机已验收。
 
-GalleryPerfTrace.kt 已有 path-free 计数/耗时埋点；其他 FolderRefreshTrace 调用也存在于 MediaFetcher/MainActivity。不要在发布版日志输出真实用户路径、照片名、凭据、受保护内容。
+## 3. 各阶段退出条件
 
-**最小原始结果格式（后续填写，不要编造数字）：**
+0：数据及可复现/待测结论可追踪。1：终态/删除/失权回归和 P0 不再出现于覆盖场景。2：EXPLAIN、SQL/排序基线前后可比、顺序/备份回归。3：可信缓存复用和外部变更/.nomedia 正确。4：同 path/顺序/版本的 Grid/Viewer、滚动/删除稳定。5：完整 FOSS 单测+ARM64、设备/权限/100k 压测、性能前后对照且标出残留风险。
 
-~~~csv
-apk_sha,android_sdk,permission_mode,case_id,media_count,folder_count,request_id,stage,wall_ms,ui_jank_frames,adapter_commits,anchor_shift_px,scan_state,notes
-~~~
+**数据库条件**：先用 `EXPLAIN QUERY PLAN` 评估 `MediumDao` 的 `parent_path`、`deleted_ts` 过滤与批量写入成本；如测量证明索引有效，做显式 Room Migration、旧库/收藏/配置/备份升级验证，绝不 destructiveMigration。不预设新永久媒体索引、影子双引擎或固定工期。
 
-统计口径：以多轮（建议每组合计至少 10 次冷/热启动与操作）报告 p50/p95；区分初次加载、增量刷新、全量重建、Viewer 首帧、边界扩展。阈值需基于现有应用基线和设备能力定，不在未经测量时给出“已达到 xx ms”。
+## 4. 本轮状态
 
-## 4. 暂定迁移阶段和验收门
-
-| 阶段 | 交付物 | 进入下一阶段的门槛 |
-|---|---|---|
-| S0 本轮 | 现状数据流、源码证据、兼容契约、用例矩阵写入 docs | 文档存在、分支/固定 SHA 可追溯；不改业务代码 |
-| S1 观测基线 | 真机 trace + 现有单元测试和 CI 构建记录 + 数据量分布 | 对主要用户报告症状建立可复现/不可复现结论 |
-| S2 状态/数据契约 | 新 MediaScope、ScanOutcome、目录 revision、Immutable MediaSnapshot、授权能力接口设计 | 单一版本/完整性/取消/权限不变量具自动化测试 |
-| S3 新读取层 | MediaStore + disk + SAF .nomedia 统一只读查询，对旧引擎进行 shadow compare | 普通目录/分类/配置数量与顺序对照，受限权限安全 |
-| S4 发布调度层 | 单请求所有者、coalescing、epoch、唯一 terminal、不可过期提交；兼容 Activity/Adapter | 高频刷新测试中无挂起/过期/无限指示 |
-| S5 页面迁移 | 主页 -> 普通目录 -> 收藏 -> 照片配置逐个受控替换 | 每个场景与旧实现对照通过才扩大 |
-| S6 Viewer 接入 | 使用当前列表同源 revision / path index 与权限验证，继承 fix 渐进加载 | 连续左右翻页、目录升级、切换方向/授权吊销测试通过 |
-| S7 稳定与清理 | 设备矩阵 + 数据迁移/备份回归 + 性能对比，最后删除无调用旧路径 | 证据可审计，发布失败可切回旧引擎 |
-
-**回滚建议**：先在 fix 分支内部以实现开关切换“旧引擎 / V2”，不变更用户数据库/备份格式；直到每个场景稳定后再移除旧路径。开关方案是建议，尚未实现。
-
-## 5. 工作量与风险
-
-上一轮粗估为**43–78 人日**，属于架构级工程规划而不是实测数据；当前 fix 分支新增加的部分/分段 Viewer 降低重复实现必要性，但也增加兼容测试面。要在 S1 采集后重新评估，不能把估算当交付承诺。
-
-## 6. 本轮完成 / 未完成边界
-
-已完成：以当前 fix SHA 采集主要源码流、与 main 的分支差异、用户功能边界、已有测试资产、证据和待测问题清单；文档放置于 docs/media-engine-v2。
-
-未完成：实际运行 CI、连接真机、执行性能采样、修复任何 Kotlin 问题、删除旧代码或数据库迁移。以上须另行阶段实施。
+只更正文档；没有执行新 Unit、真实设备 Profiling、数据库迁移或 APK 构建。历史 CI 成绩与旧计划的人日估算不计入新阶段验收。

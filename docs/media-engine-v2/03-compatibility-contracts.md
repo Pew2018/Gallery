@@ -1,6 +1,6 @@
 # 03 — 重构不可破坏的用户侧与数据兼容契约
 
-审计基线：c5cc5b6852291491a999934d12f26314455959c6。本页是**后续设计约束**而非已经执行的改动。
+历史审计基线：c5cc5b6852291491a999934d12f26314455959c6；现行源码参考：`main` `49e799eceab00414ef074cbf71b7f0a35133b669`（2026-11-05）。本页为当前的**兼容性约束**，不是功能已通过真机验证的证明。实施按 [18](18-current-media-pipeline-roadmap.md)。
 
 ## A. 用户侧既有功能（默认保持）
 
@@ -38,18 +38,13 @@
 
 **当前事实**：GalleryDatabase version=11，包含 Directory / Medium / Widget / DateTaken / Favorite / FavoriteFolder；PhotoProfileRepository 使用 SharedPreferences 键 photo_profiles_v1；GalleryBackupCollector 读取设置、收藏媒体与目录、照片配置并形成快照。
 
-建议 V2 新索引归入**可丢弃、可重建**的元数据层；不应悄悄替换业务收藏或照片配置的权威存储，不应改变现有压缩包 manifest/Codec 含义。若必须变更 schema，只允许显式、可验证、保留用户数据的迁移；升级前复制并对照 DB 数据。
+如阶段 2–3 真实数据证明需要新增索引，建议只将其作为**可丢弃、可重建**的元数据层；不应悄悄替换业务收藏或照片配置的权威存储，不应改变现有压缩包 manifest/Codec 含义。若必须变更 schema，只允许显式、可验证、保留用户数据的迁移；升级前复制并对照 DB 数据。
 
-## D. 现存 fix 特色能力的保留清单
+## D. 当前 main 的浏览能力必须保留
 
-当前 fix 相对 main 新增或调整：
-- PhotoSessionViewerCatalogStore 与 PhotoViewerCatalogCoordinator；
-- SegmentedPhotoCatalog 与 PhotoProfileSourceScanPolicy；
-- ViewPagerActivity 的 staged pager、访问窗口和 boundary 等待；
-- ProgressivePhotoViewPager、ViewerSwipePublicationGate、ViewerMotion；
-- PhotoProfileReturnProbe、ViewerGridOrderStore 与相关专项测试。
+旧文中“当前 fix 相对 main 新增”属于当时的历史分支对照；在 `main` `49e799eceab00414ef074cbf71b7f0a35133b669` 已可查见 `PhotoSessionViewerCatalogStore`、`SegmentedPhotoCatalog`、`FolderViewerSnapshotStore`、`ViewerGridOrderStore`、`PhotoProfileSourceScanPolicy` 及全屏渐进/鉴权实现。新计划以当前 main 为起点，不得再把这些当作尚未合并的可丢弃功能。
 
-这些**不能直接定义为“已稳定”**，但属于本 fix 分支应保留并测试的实现。重构时优先通过兼容适配器、快照契约与双实现对照验证，再决定替换其内部逻辑。
+重构必须测试并保留：当前网格路径与全屏次序交接、UNKNOWN/HAS_MORE/END 真实边界、分段媒体目录、扫描中删除后的可信恢复、受保护与公共来源隔离、缓存不能代替授权。这是兼容责任，不代表实机已完全稳定。
 
 ## E. 禁止的捷径
 
