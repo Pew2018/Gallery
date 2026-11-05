@@ -1,5 +1,7 @@
 # Refresh and choice follow-up (2026-11-03)
 
+> **历史缺陷复现及修复记录（非当前任务）**：原文的目标分支、执行规则、完成结果和下一步仅适用于当时提交。当前媒体索引/加载/排序/稳定性工程使用 [18 — 现行路线图](../media-engine-v2/18-current-media-pipeline-roadmap.md)、[05 — 实施细则](../media-engine-v2/05-minimal-scan-sort-display-refactor.md)。保留旧数据、旧修复和测试结果作为证据，不把历史 Actions 通过视作新阶段性能/真机验收。
+
 Baseline: feature/oxygenos-ui-animation-consistency, 61b10e0f5eec81be77a1fdb54cd962b03c489f6e. No new branch, PR or main merge.
 
 ## Refresh

@@ -1,5 +1,7 @@
 # 全屏删除后的照片浏览连续性
 
+> **历史缺陷复现及修复记录（非当前任务）**：原文的目标分支、执行规则、完成结果和下一步仅适用于当时提交。当前媒体索引/加载/排序/稳定性工程使用 [18 — 现行路线图](18-current-media-pipeline-roadmap.md)、[05 — 实施细则](05-minimal-scan-sort-display-refactor.md)。保留旧数据、旧修复和测试结果作为证据，不把历史 Actions 通过视作新阶段性能/真机验收。
+
 日期：2026-11-04（Asia/Taipei）  
 目标仓库：`Pew2018/Gallery`  
 唯一修改分支：`fix/photo-viewer-five-item-boundary`
