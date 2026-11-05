@@ -45,7 +45,7 @@
 
 ## 9. Phase 2A — 当前热点与状态（2026-11-05）
 
-审计与实施详见[28](28-phase2a-hotspot-audit.md)和[29](29-phase2a-implementation-and-regression.md)。有直接代码证据的改动仅为：对仍有效、正式COMPLETE、授权有效的普通物理文件夹，改变排序时复用当前媒体快照，在后台调用现有排序器并沿既有Adapter/Diff更新；不清Adapter、不重扫。扫描中、部分结果、受保护聚合、收藏/主页/回收站等保留原加载路径。
+审计、实施与最终结果详见[28](28-phase2a-hotspot-audit.md)、[29](29-phase2a-implementation-and-regression.md)、[30](30-phase2a-results-and-handoff.md)。最终应用源码`dcd41024e06451eb7a46d28db18a84157cd5102b`通过Run41983357685：889项完整FOSS Release测试、ARM64构建与签名/包名/ABI校验成功；Artifact ID13395436120。有直接代码证据的改动仅为：对仍有效、正式COMPLETE、授权有效的普通物理文件夹，改变排序时复用当前媒体快照，在后台调用现有排序器并沿既有Adapter/Diff更新；不清Adapter、不重扫。扫描中、部分结果、受保护聚合、收藏/主页/回收站等保留原加载路径。
 
 元数据方面未找到可以安全跳过的单次实体验证：枚举不含文件size/mtime/readability；MediaStore记录不证明文件当前存在；跨阶段再次校验用于发布时权限与可见性。`.nomedia`补扫和COMPLETE/PARTIAL区分未变。排序CPU、主线程目录准备、Room实际SQL计划与设备读时延没有修复后数据；不新增缓存或Migration。阶段1.5设备回归仍为`PENDING_DEVICE`。最终源码、测试与Actions以[30](30-phase2a-results-and-handoff.md)为准。
 

@@ -7,11 +7,11 @@
 - [29 — 实施与回归边界](29-phase2a-implementation-and-regression.md)：普通完整文件夹排序复用实现与回归范围。
 - [30 — 结果与交接](30-phase2a-results-and-handoff.md)：最终SHA、完整FOSS Release测试、ARM64 Artifact、设备缺口与下一阶段准入。
 
-Phase 2A只处理有直接代码证据的完整普通文件夹排序重载；媒体实体验证和`.nomedia`补扫继续运行。没有可审计的Room query plan或修复后设备计时，因此不修改Schema，也不报告性能提升数字。Phase 1.5真机验收仍为`PENDING_DEVICE`。
+Phase 2A验证：应用源码`dcd41024e06451eb7a46d28db18a84157cd5102b`；[Run 41983357685](https://github.com/Pew2018/Gallery/actions/runs/41983357685) success，889项完整测试、ARM64 APK Artifact ID 13395436120。只处理有直接代码证据的完整普通文件夹排序重载；媒体实体验证和`.nomedia`补扫继续运行。没有可审计的Room query plan或修复后设备计时，因此不修改Schema，也不报告性能提升数字。Phase 1.5真机验收仍为`PENDING_DEVICE`，详见[30](30-phase2a-results-and-handoff.md)。
 
 # Gallery 媒体管线文档索引
 
-> **当前唯一执行依据**：[18 — 现行媒体索引/加载/排序与稳定性路线图](18-current-media-pipeline-roadmap.md)。阶段 0 与阶段 1 的源码和 CI 均已完成（阶段 1 Run 41961735980，863/863 单测、ARM64 Artifact 13385912998），分支为 `refactor/media-pipeline-stability`；设备性能基线仍为 `PENDING_DEVICE`。测试与 Artifact 详情见 [21 — 结果与交接](21-phase0-results-and-handoff.md)。
+> **当前唯一执行依据**：[18 — 现行媒体索引/加载/排序与稳定性路线图](18-current-media-pipeline-roadmap.md)。Phase 0、1、1.5与本次Phase 2A的CI/ARM64交付均已完成；设备性能与Phase 1.5 Viewer复测仍为`PENDING_DEVICE`。当前阶段文档见[28–30](28-phase2a-hotspot-audit.md)。
 
 ## 现行任务与验收
 
