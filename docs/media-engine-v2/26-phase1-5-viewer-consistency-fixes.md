@@ -1,6 +1,6 @@
 # 26 — Phase 1.5 Viewer 一致性定点实施
 
-基线 `7670a10a3b857df490ea2120f6fa1272f48a8879`。全部修改位于 `refactor/media-pipeline-stability`；未更改main、数据库Schema、UI风格、Diff/stable ID、图片解码/签名配置。原始设备证据与F/R/U见25，最终CI及交接见27。
+基线 `7670a10a3b857df490ea2220f6fa1272f48a8879`。全部修改位于 `refactor/media-pipeline-stability`；未更改main、数据库Schema、UI风格、Diff/stable ID、图片解码/签名配置。原始设备证据与F/R/U见25，最终CI及交接见27。
 
 ## 1. 文件与调用链
 
@@ -27,13 +27,13 @@
 1. 点击证据：Adapter.media已经commit；source配置+搜索+排序+筛选+session+revision组成契约，Store只短期保存元数据。异步候选/最新catalog不表示网格已显示。
 2. 快速首屏：当前图片和原先最多5项邻近窗口；普通候选可在自身Worker重新验证后扩展，不等全量元数据扫描。没有可验证候选时维持UNKNOWN并继续扫描。
 3. partial：仅接纳旧grid中围绕**当前path**的连续已验证路径，保留未知缺口；已删除/不可读/未授权不为了连续性绕过检查。
-4. COMPLETE：来源与授权仍有效才可采用；非随机按生产者既有全局排序；随机保留已显示相对顺序并追加新成员。未改变现有比较器或每页重排整个目录。
+4. COMPLETE：来源与授权仍有效才可采用；非随机按生产者既有全局排序；随机保留已显示相对顺序并追加新成员。只对现有比较器主键相同的情形补充原始路径次级键，未重写比较器或每页重排整个目录。
 5. 手势中目录延期，idle时再读当前真实path。缺失partial不覆盖；完整证明已移除时优先既有历史/邻居删除策略。请求代际、revision失效、失权优先于顺序。
 6. 普通旧Activity仍在onPause取消并失效其UI代际。共享的是已提交候选副本，不是旧Activity worker；不声称已经避免全部重复枚举/元数据读取。当前请求内读取并未发现足够证据安全跳过physical metadata，保持每个文件验证。
 
 ## 3. 回归测试与证据限度
 
-新增 `Phase15ViewerRegressionTest`（16 tests）和 `Phase15GridEvidenceTest`（5 tests）。使用真实生产helper和显式事件调度，不使用Thread.sleep。具体真实总数以CI XML为准。
+新增 `Phase15ViewerRegressionTest`（16 tests）和 `Phase15GridEvidenceTest`（6 tests）。使用真实生产helper和显式事件调度，不使用Thread.sleep。具体真实总数以CI XML为准。
 
 | 需求 | 新/既有覆盖 | 限制 |
 |---|---|---|
@@ -52,4 +52,6 @@
 
 ## 4. 性能边界
 
-原设备两轮完整扫描的元数据分别6720ms/5685ms，排序99ms/81ms。此次只合并无意义publication，未改Room/排序比较器、线程池尺寸或跳过真实文件读取。新增有界候选重新验证有实际文件状态检查成本；没有同设备前后测量，无法承诺扩展毫秒数或性能百分比。所有真实性能复测项目见27。
+原设备两轮完整扫描的元数据分别6720ms/5685ms，排序99ms/81ms。此次只合并无意义publication，未改Room/排序主键或随机语义、线程池尺寸或跳过真实文件读取。新增有界候选重新验证有实际文件状态检查成本；没有同设备前后测量，无法承诺扩展毫秒数或性能百分比。所有真实性能复测项目见27。
+
+补充的B2排序边界：`MediaFetcher.sortMedia` 在主键相等时原本继承输入顺序，累计/完整扫描的输入顺序可能不同。只添加原始path次级键（方向沿用原descending）；新测试对名称/大小/拍摄日期/修改日期/路径的相等键、正逆输入与升降序调用真实sortMedia。随机分支仍提前shuffle返回，不受影响。这个修改用于确定性一致性，不声称是性能优化。

@@ -1,6 +1,8 @@
 package org.fossify.gallery.helpers
 
 import android.app.Application
+import org.fossify.commons.helpers.*
+import org.robolectric.RuntimeEnvironment
 import org.fossify.gallery.models.Medium
 import org.junit.Assert.*
 import org.junit.Test
@@ -50,6 +52,21 @@ class Phase15GridEvidenceTest {
         val token = FolderUnlockSessionManager.createSession("/gallery")
         FolderUnlockSessionManager.revokeSession(token)
         assertFalse(FolderUnlockSessionManager.isMediaAuthorized(token, evidence.paths.single()) { true })
+    }
+
+    @Test fun b03EqualSortKeysHaveTheSameGlobalOrderRegardlessOfStageInput() {
+        val first = medium(1).copy(name = "same.jpg", path = "/Gallery/A.jpg")
+        val second = medium(2).copy(name = "same.jpg", path = "/Gallery/a.jpg")
+        val fetcher = MediaFetcher(RuntimeEnvironment.getApplication())
+        listOf(SORT_BY_NAME, SORT_BY_SIZE, SORT_BY_DATE_MODIFIED, SORT_BY_DATE_TAKEN, SORT_BY_PATH).forEach { mode ->
+            listOf(mode, mode or SORT_DESCENDING).forEach { sorting ->
+                val forward = arrayListOf(first, second)
+                val reverse = arrayListOf(second, first)
+                fetcher.sortMedia(forward, sorting)
+                fetcher.sortMedia(reverse, sorting)
+                assertEquals("equal keys require a deterministic path tie-break", forward.map { it.path }, reverse.map { it.path })
+            }
+        }
     }
 
     @Test fun diagnosticsOffStillExecutesEveryMetadataReadAndPropagatesFailure() {

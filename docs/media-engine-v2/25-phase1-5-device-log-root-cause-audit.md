@@ -15,13 +15,13 @@ F 为日志/源码事实；R 为源码支持但尚无设备因果证明的风险
 
 | 墙钟 | 单调 ms | request / source | 事实、数量、状态 | 源码入口 | 结论 |
 |---|---:|---|---|---|---|
-|12:44:10.412|见附件关键事件|business=1 / FOLDER|开始普通文件夹 worker|MediaActivity.startAsyncTask → GetMediaAsynctask|F|
+|12:44:10.412|689256393|business=1 / FOLDER|开始普通文件夹 worker|MediaActivity.startAsyncTask → GetMediaAsynctask|F|
 |12:44:10.914|689256895|1 / FolderRefresh|缓存已 commit 11008，final=false|MediaActivity.publishMedia|F，原页面已有大集合候选，非完整授权凭据|
 |12:44:14.369|689260350|无 request / Performance|viewer_catalog_miss|MediaActivity.openOrdinaryViewer|F，不能复用完整目录|
 |12:44:14.384|689260365|1 / FolderRefresh|scan_cancelled|MediaActivity.onPause → stopFetching|F|
 |12:44:14.390|689260372|ml-b8a15f61-b46b-4696-a879-463e91769b76 / FOLDER|business=1；scope=d18f41c17cca4435；CANCELLED；worker=3974ms；MediaStore=11348；metadata=786|GetMediaAsynctask.finishPipelineDiagnostics|F，11348是索引行数，不能声称全部完成磁盘验证|
 |12:44:14.410|689260392|vw-b50714d0-8777-4c02-b059-4b9c940b0b31 / folder|scope=1df3c24ea48ded6c；选中 mediaId=22605a9e99edf2f7|ViewPagerActivity 入口|F|
-|12:44:14.446|见附件关键事件|0 / FolderRefresh|新普通目录扫描开始|startFolderViewer.scanRemaining|F；request=0 有关联缺口|
+|12:44:14.446|689260428|0 / FolderRefresh|新普通目录扫描开始|startFolderViewer.scanRemaining|F；request=0 有关联缺口|
 |12:44:14.460|689260441|同上 vw|5张；position=2|publishAdjacent → gotMedia → refreshUI|F|
 |12:44:14.906|689260887|同上 vw|index=1，mediaId=39fc7df98e397622|onPageSelected|F|
 |12:44:15.231|689261212|同上 vw|index=0，mediaId=b5cbdf636c9ccefa|onPageSelected|F|
@@ -435,3 +435,7 @@ UTF-8 bytes=3809646；lines=22611；SHA-256 `d4a643431cfc08d6c56ef6f76b3854c6f41
 | 22609 | 2026-11-05 12:48:08.336 | 689494317 | 0 | scan_cancelled | count=0 |
 | 22610 | 2026-11-05 12:48:08.889 | 689494870 | 0 | scan_cancelled | count=0 |
 | 22611 | 2026-11-05 12:48:13.480 | 689499461 | 0 | scan_cancelled | count=0 |
+
+### B2 相等排序键补充
+
+F源码：`MediaFetcher.sortMedia` 对相等名称/时间/大小或忽略大小写后相等的路径返回0，输入来自不同扫描阶段时相邻顺序不能保证一致。本轮只补raw path次级键，主排序及random不变。新增真实sortMedia反向输入回归；旧日志是否实际遇到这些tie仍为U，不能把它当成用户具体错图的已证根因。

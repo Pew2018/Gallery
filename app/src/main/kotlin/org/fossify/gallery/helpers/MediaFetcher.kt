@@ -1179,6 +1179,9 @@ class MediaFetcher(
                 else -> o1.taken.compareTo(o2.taken)
             }
 
+            // Equal dates/sizes/names must not inherit enumeration or stage order.
+            // Grid and Viewer use this same total order; random remains untouched.
+            if (result == 0) result = o1.path.compareTo(o2.path)
             if (sorting and SORT_DESCENDING != 0) {
                 result *= -1
             }
