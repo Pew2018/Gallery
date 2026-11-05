@@ -2395,7 +2395,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val contentRevision = org.fossify.gallery.helpers.FolderContentRevision.current()
         val handoffContract = org.fossify.gallery.helpers.ViewerGridOrderStore.contract(
             config.getFolderSorting(source), config.filterMedia, config.shouldShowHidden,
-            mCommittedSearchText, folderToken, contentRevision)
+            mCommittedSearchText, if (source == FAVORITES) favoriteToken else folderToken, contentRevision)
         val neighborId = org.fossify.gallery.helpers.ViewerNeighborWindow.captureAround(displayedOrder, path)?.let { neighbors ->
             org.fossify.gallery.helpers.ViewerNeighborHandoffStore.offer(
                 org.fossify.gallery.helpers.ViewerNeighborWindow(

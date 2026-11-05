@@ -1427,7 +1427,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val selectedStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
         viewerLoadTask?.stopFetching()
         val path = mPath
-        viewerGridOrder = takeGridEvidence(FAVORITES, path, folderSessionId, false)
+        viewerGridOrder = takeGridEvidence(FAVORITES, path, favoriteSessionId, false)
         val selected = selectedViewerMedium(path)
         val token = favoriteSessionId
         val neighborWindow = takeNeighborWindow(
