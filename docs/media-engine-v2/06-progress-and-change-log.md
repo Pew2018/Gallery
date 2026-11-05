@@ -1,15 +1,25 @@
+
+## 2026-11-05 — 新 Phase 1（工作分支 `refactor/media-pipeline-stability`）
+
+- 审计远程 HEAD `5cc20adf6875ca220df8db4ff3bb24e42f82de22`，阶段 0 的 CI Run 41951185632 成功、但尚无设备数据，不能用于声称阶段 1 成功。
+- 当前定点改动：诊断 -1/0 区分、取消/导航/分类过期诊断收尾、拒绝执行显式失败终态、工作线程旧媒体快照数据所有权；保留业务 epoch、TerminalGate、.nomedia/权限/缓存清理与 Viewer 语义。
+- 回归：诊断单测新增三个；目录代际/超时一个；bounded executor 拒绝/再次入队一个；部分来源完整性在既有测试追加断言。所有新增测试不依赖 Thread.sleep。
+- 状态：GitHub Actions 完整 FOSS Release 与 ARM64 APK **以实际运行结果为准**；真实设备场景 `PENDING_DEVICE`，阶段 2 暂无定量性能依据。
+- 详见 [22](22-phase1-lifecycle-audit.md)、[23](23-phase1-implementation-and-tests.md)、[24](24-phase1-results-and-handoff.md)。
+
+
 # 06 — 历史精简修复与新阶段进度说明
 
 > **2026-11-05 校订**：原文中的“当前任务”“唯一 fix 分支”和 P1/P2/P3 均是 2026-11-04 历史开发记录，不再是现行工程指令。现行权威方案：[18](18-current-media-pipeline-roadmap.md)、[05](05-minimal-scan-sort-display-refactor.md)；工作分支 `refactor/media-pipeline-stability`；基线 `main` `49e799eceab00414ef074cbf71b7f0a35133b669`。
 >
-> **新六阶段状态**：阶段 0 的代码、测试和文档已在 `refactor/media-pipeline-stability` 开始实施；CI/ARM64 Artifact 及真机性能基线待该轮实际核验。阶段 1–5 尚未实施。[19](19-phase0-instrumentation-audit.md)、[20](20-phase0-metrics-and-test-plan.md)、[21](21-phase0-results-and-handoff.md) 为本轮记录。历史 `main` Run 41939577702 不等于本轮代码验证，也不等于真机性能基准。
+> **新六阶段状态**：阶段 0 在工作分支已有成功的完整 CI 与 ARM64 Artifact（Run 41951185632），但真机基线仍为 PENDING_DEVICE。阶段 1 定点源码修复与测试已准备，尚需以本次提交后实际 CI 结果验收；阶段 2–5 未开始。[19](19-phase0-instrumentation-audit.md)、[20](20-phase0-metrics-and-test-plan.md)、[21](21-phase0-results-and-handoff.md) 为本轮记录。历史 `main` Run 41939577702 不等于本轮代码验证，也不等于真机性能基准。
 
 ## 1. 新阶段状态总览
 
 | 阶段 | 当前状态 | 进入下一阶段的要求 |
 |---|---|---|
-| 0 诊断与性能基准 | 实施中；本地 Gradle/ADB 不可用，CI 与设备结果待记 | 请求链路、查询/枚举/数据库/排序/UI 耗时及同设备 p50/p95 |
-| 1 扫描生命周期与正确性 | 未开始 | 旧结果拒绝、删除/权限并发、正确终态、.nomedia 同步 |
+| 0 诊断与性能基准 | 诊断源码与 CI 完成；真机数据 PENDING_DEVICE | 请求链路、查询/枚举/数据库/排序/UI 耗时及同设备 p50/p95 |
+| 1 扫描生命周期与正确性 | 定点实施待 CI 验证；真机 PENDING_DEVICE | 旧结果拒绝、删除/权限并发、正确终态、.nomedia 同步 |
 | 2 数据库与排序热点 | 未开始 | SQL EXPLAIN、增量排序和相同集合前后比较 |
 | 3 缓存复用和增量索引 | 未开始 | 外部变化检测、正确失效和无法证明时安全回退 |
 | 4 缩略图/网格/Viewer | 未开始 | 身份、顺序、连续滑动、删除恢复和滚动稳定 |

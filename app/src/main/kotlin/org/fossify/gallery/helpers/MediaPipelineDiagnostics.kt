@@ -23,21 +23,37 @@ internal class MediaPipelineDiagnostics(
     private val terminal = AtomicBoolean(false)
 
     fun add(metric: String, value: Long = 1L) {
-        if (value == 0L) return
+        if (value <= 0L) return
         synchronized(lock) {
-            counters[metric] = (counters[metric] ?: 0L) + value
+            val previous = counters[metric]?.takeIf { it >= 0L } ?: 0L
+            counters[metric] = if (Long.MAX_VALUE - previous < value) Long.MAX_VALUE else previous + value
             if (metric == "safOperationCount" && permissionMode != "UNKNOWN") permissionMode = "MIXED"
         }
     }
 
-    fun set(metric: String, value: Long) = synchronized(lock) { counters[metric] = value }
+    fun set(metric: String, value: Long) = synchronized(lock) { counters[metric] = countOrUnknown(value) }
 
     fun recordDuration(metric: String, startedAtElapsedMs: Long, amount: Long = 1L) {
         add(metric, (clock() - startedAtElapsedMs).coerceAtLeast(0L))
-        if (amount != 0L) add(metric.removeSuffix("Ms") + "Count", amount)
+        if (amount > 0L) add(metric.removeSuffix("Ms") + "Count", amount)
     }
 
     fun snapshot(): Map<String, Long> = synchronized(lock) { counters.toMap() }
+
+    /** Distinguish unmeasured (-1) from measured zero throughout Phase 0 metrics. */
+    private fun countOrUnknown(value: Long): Long = if (value >= 0L) value else -1L
+
+    /** Unknown duration is -1, while clock underflow (-2 or below) is invalid. */
+    private fun durationOrUnknown(value: Long): Long =
+        if (value == -1L) -1L else value.coerceAtLeast(0L)
+
+    /** Cancellation and delayed worker callbacks compete for one diagnostic terminal. */
+    fun finishIfOpen(
+        terminalState: String, queueWaitMs: Long, workerMs: Long, publicationWaitMs: Long,
+        candidateCount: Long, acceptedCount: Long
+    ) {
+        if (!terminal.get()) finish(terminalState, queueWaitMs, workerMs, publicationWaitMs, candidateCount, acceptedCount)
+    }
 
     fun finish(
         terminalState: String,
@@ -62,10 +78,10 @@ internal class MediaPipelineDiagnostics(
         eventSink(
             DiagnosticLevel.INFO, "MediaPipeline", "media_scan_summary", diagnosticRequestId,
             common + mapOf(
-                "queueWaitMs" to queueWaitMs.coerceAtLeast(0L), "workerMs" to workerMs.coerceAtLeast(0L),
-                "publicationWaitMs" to publicationWaitMs.coerceAtLeast(0L),
+                "queueWaitMs" to durationOrUnknown(queueWaitMs), "workerMs" to durationOrUnknown(workerMs),
+                "publicationWaitMs" to durationOrUnknown(publicationWaitMs),
                 "totalRequestMs" to (clock() - startedAtElapsedMs).coerceAtLeast(0L),
-                "candidateCount" to candidateCount.coerceAtLeast(0L), "acceptedCount" to acceptedCount.coerceAtLeast(0L),
+                "candidateCount" to countOrUnknown(candidateCount), "acceptedCount" to countOrUnknown(acceptedCount),
                 "terminalState" to terminalState
             )
         )
@@ -95,7 +111,7 @@ internal class MediaPipelineDiagnostics(
 
     private fun emit(name: String, common: Map<String, Any?>, values: Map<String, Long>, keys: List<String>) {
         val fields = LinkedHashMap<String, Any?>(common)
-        keys.forEach { key -> fields[key] = values[key] ?: -1L }
+        keys.forEach { key -> fields[key] = countOrUnknown(values[key] ?: -1L) }
         eventSink(DiagnosticLevel.DEBUG, "MediaPipeline", name, diagnosticRequestId, fields)
     }
 

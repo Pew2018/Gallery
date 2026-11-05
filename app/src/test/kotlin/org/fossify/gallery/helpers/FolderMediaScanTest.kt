@@ -19,6 +19,8 @@ class FolderMediaScanTest {
         assertEquals(listOf("/failed", "/good"), visited)
         assertEquals(setOf("/failed/old.jpg", "/good/new.jpg"), result.media.map { it.path }.toSet())
         assertEquals(setOf("/failed"), result.failures.keys)
+        assertEquals(GalleryScanState.PARTIAL, result.outcome.state)
+        assertFalse("a partial folder scan cannot authorize complete-only cache pruning", result.outcome.complete)
         assertNotSame(fallback.first(), result.media.first { it.path == "/failed/old.jpg" })
     }
 

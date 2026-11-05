@@ -1878,12 +1878,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 }
             }
         ) { scannedMedia ->
+            // Capture the current grid snapshot on the callback (main) thread.
+            // Reconciliation must not iterate mMedia while a newer scan replaces it.
+            val oldMedia = mMedia.filterIsInstance<Medium>().map { it.copy() }
             ensureBackgroundThread {
                 if (scanGeneration != mediaScanGeneration || !mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) {
                     return@ensureBackgroundThread
                 }
                 try {
-                    val oldMedia = mMedia.filterIsInstance<Medium>()
                     val newPaths = scannedMedia.filterIsInstance<Medium>().mapTo(HashSet()) { it.path }
                     if (requestedFolder == FAVORITES) {
                         favoriteCatalogRelationshipPaths = scanTask?.favoriteRelationshipSnapshot
@@ -1966,6 +1968,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             org.fossify.gallery.helpers.FolderRefreshTrace.event(request, "folder_queued")
             task.executeOnExecutor(org.fossify.gallery.helpers.GalleryMediaScanExecutor)
         } catch (error: java.util.concurrent.RejectedExecutionException) {
+            // No worker callback is guaranteed after an executor rejection.
+            // Explicitly record the failed terminal before retiring this request.
+            task.reportRejectedExecution()
+            mediaScanTerminals.finish(request, org.fossify.gallery.helpers.GalleryScanResult(
+                org.fossify.gallery.helpers.GalleryScanState.FAILED, cause = error))
             task.stopFetching()
             mediaLoadRequests.invalidate()
             mediaScanGeneration++

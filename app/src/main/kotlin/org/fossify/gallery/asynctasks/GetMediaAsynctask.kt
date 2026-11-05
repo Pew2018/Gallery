@@ -412,14 +412,20 @@ internal class GetMediaAsynctask(
         val trace = pipelineDiagnostics ?: return
         val now = android.os.SystemClock.elapsedRealtime()
         val metrics = trace.snapshot()
-        trace.finish(
+        trace.finishIfOpen(
             terminalState = terminalState,
             queueWaitMs = (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
             workerMs = (workerFinishedElapsedMs - workerStartedElapsedMs).coerceAtLeast(0L),
             publicationWaitMs = (now - workerFinishedElapsedMs).coerceAtLeast(0L),
             candidateCount = metrics["candidateCount"] ?: metrics["mediaStoreRows"] ?: -1L,
-            acceptedCount = media.count { it is Medium }.toLong()
+            acceptedCount = if (terminalState == "COMPLETE" || terminalState == "PARTIAL")
+                media.count { it is Medium }.toLong() else -1L
         )
+    }
+
+    /** A rejected executor never started the scan, and has no post-execute result. */
+    fun reportRejectedExecution() {
+        finishPipelineDiagnostics("FAILED", emptyList())
     }
 
     fun stopFetching() {

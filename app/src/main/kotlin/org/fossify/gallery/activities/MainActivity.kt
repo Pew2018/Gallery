@@ -248,6 +248,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     @Volatile private var mLastMediaFetcher: MediaFetcher? = null
     private val directoryScanEpoch = DirectoryScanEpoch()
     private val directoryScanTerminals = GalleryScanTerminalGate()
+    // Diagnostic leases are separate from business scan epochs and cannot publish UI.
+    private var activeHomeScanDiagnostics: org.fossify.gallery.helpers.MediaPipelineDiagnostics? = null
+    private var activeCategoryScanDiagnostics: org.fossify.gallery.helpers.MediaPipelineDiagnostics? = null
     // Cache preview is optional. Kept injectable for Activity-level failure regression tests.
     internal var directoryCacheReader: () -> List<Directory> = { directoryDB.getAll() }
     private val directoryRandomOrder = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -258,6 +261,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     /** Called on the UI thread before navigation, invalidation or final stop. */
     private fun retireDirectoryScan() {
+        activeHomeScanDiagnostics?.finishIfOpen("CANCELLED", -1L, -1L, -1L, -1L, -1L)
+        activeHomeScanDiagnostics = null
+        activeCategoryScanDiagnostics?.finishIfOpen("CANCELLED", -1L, -1L, -1L, -1L, -1L)
+        activeCategoryScanDiagnostics = null
         directoryScanTerminals.finish(directoryScanEpoch.currentVersion(), GalleryScanResult(GalleryScanState.CANCELLED))
         directoryScanEpoch.retire()
         categorizedLoadVersion++
@@ -677,6 +684,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         // Authentication Activities can temporarily pause us. Favorite requests are
         // retired at onStop, not here, so their successful results are not lost.
         categorizedLoadVersion++
+        activeCategoryScanDiagnostics?.finishIfOpen("CANCELLED", -1L, -1L, -1L, -1L, -1L)
+        activeCategoryScanDiagnostics = null
         if (!mShowingFolderFavorites && isSpecialFolderFilterActive()) categorizedReloadPending = true
         if (categorizedLoadActive) {
             mLastMediaFetcher?.shouldStop = true
@@ -1088,6 +1097,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             org.fossify.gallery.helpers.MediaPipelineDiagnostics.create(
                 "HOME", "HOME", if (forceRefresh) "REFRESH" else "INITIAL", scanRequest
             ) else null
+        activeHomeScanDiagnostics = diagnostics
         var queuedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
         directoryTraceRequest = scanRequest
         org.fossify.gallery.helpers.FolderRefreshTrace.event(scanRequest, "album_queued")
@@ -1104,7 +1114,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 org.fossify.gallery.helpers.GalleryAlbumScanExecutor.execute {
                     if (!isCurrentDirectoryScan(scanRequest)) {
                         val stoppedAt = android.os.SystemClock.elapsedRealtime()
-                        diagnostics?.finish("CANCELLED", (stoppedAt - queuedAtElapsedMs).coerceAtLeast(0L), 0L, 0L, -1L, -1L)
+                        diagnostics?.finishIfOpen("CANCELLED", (stoppedAt - queuedAtElapsedMs).coerceAtLeast(0L), 0L, 0L, -1L, -1L)
                         return@execute
                     }
                     val workerStartedElapsedMs = android.os.SystemClock.elapsedRealtime()
@@ -1119,7 +1129,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     val workerFinishedElapsedMs = android.os.SystemClock.elapsedRealtime()
                     if (isCurrentDirectoryScan(scanRequest)) finishDirectoryScan(scanRequest, outcome, diagnostics,
                         queuedAtElapsedMs, workerStartedElapsedMs, workerFinishedElapsedMs)
-                    else diagnostics?.finish("CANCELLED", (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
+                    else diagnostics?.finishIfOpen("CANCELLED", (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
                         (workerFinishedElapsedMs - workerStartedElapsedMs).coerceAtLeast(0L), 0L, -1L, -1L)
                 }
             } catch (error: java.util.concurrent.RejectedExecutionException) {
@@ -1148,7 +1158,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         workerFinishedElapsedMs: Long = android.os.SystemClock.elapsedRealtime()
     ) {
         runOnUiThread {
-            if (!isCurrentDirectoryScan(request) || !directoryScanTerminals.finish(request, result)) return@runOnUiThread
+            if (!isCurrentDirectoryScan(request) || !directoryScanTerminals.finish(request, result)) {
+                diagnostics?.finishIfOpen("CANCELLED", -1L, -1L, -1L, -1L, -1L)
+                return@runOnUiThread
+            }
             diagnostics?.finish(
                 result.state.name,
                 (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
@@ -1157,6 +1170,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 diagnostics.snapshot()["candidateCount"] ?: -1L,
                 diagnostics.snapshot()["acceptedCount"] ?: -1L
             )
+            if (activeHomeScanDiagnostics === diagnostics) activeHomeScanDiagnostics = null
             mIsGettingDirs = false
             setDirectoryLoading(false)
             binding.directoriesRefreshLayout.isRefreshing = false
@@ -1503,6 +1517,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             org.fossify.gallery.helpers.MediaPipelineDiagnostics.create(
                 requestedVisibility.contentToString(), "CATEGORIZED", "INITIAL", requestVersion
             ) else null
+        activeCategoryScanDiagnostics = diagnostics
         var queuedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
         var workerStartedElapsedMs = queuedAtElapsedMs
         var workerFinishedElapsedMs = queuedAtElapsedMs
@@ -1511,11 +1526,15 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val failed: (Exception) -> Unit = { error ->
             android.util.Log.e("GalleryFolders", "Folder category scan failed", error)
             val finishedAt = android.os.SystemClock.elapsedRealtime()
-            diagnostics?.finish("FAILED", (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
-                (workerFinishedElapsedMs - workerStartedElapsedMs).coerceAtLeast(0L),
-                (finishedAt - workerFinishedElapsedMs).coerceAtLeast(0L), -1L, -1L)
             runOnUiThread {
-                if (!isFinishing && !isDestroyed && requestVersion == categorizedLoadVersion) {
+                val stillCurrent = !isFinishing && !isDestroyed && requestVersion == categorizedLoadVersion &&
+                    requestedVisibility.contentEquals(mFolderVisibility)
+                diagnostics?.finishIfOpen(if (stillCurrent) "FAILED" else "CANCELLED",
+                    (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
+                    (workerFinishedElapsedMs - workerStartedElapsedMs).coerceAtLeast(0L),
+                    (finishedAt - workerFinishedElapsedMs).coerceAtLeast(0L), -1L, -1L)
+                if (activeCategoryScanDiagnostics === diagnostics) activeCategoryScanDiagnostics = null
+                if (stillCurrent) {
                     categorizedLoadActive = false
                     mIsGettingDirs = false
                     setDirectoryLoading(false)
@@ -1563,7 +1582,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 workerFinishedElapsedMs = android.os.SystemClock.elapsedRealtime()
                 val visible = scanned.directories
                 runOnUiThread {
-                    if (!current()) return@runOnUiThread
+                    if (!current()) {
+                        diagnostics?.finishIfOpen("CANCELLED", -1L, -1L, -1L, -1L, -1L)
+                        return@runOnUiThread
+                    }
                     categorizedLoadActive = false
                     mDirs = visible
                     mDirsIgnoringSearch = ArrayList(visible)
@@ -1572,11 +1594,15 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     setDirectoryLoading(false)
                     setupAdapter(visible, presentationIsCurrent = { current() }, onCommitted = {
                         val finishedAt = android.os.SystemClock.elapsedRealtime()
-                        diagnostics?.finish(if (scanned.failures.isEmpty()) "COMPLETE" else "PARTIAL",
+                        diagnostics?.finishIfOpen(if (scanned.failures.isEmpty()) "COMPLETE" else "PARTIAL",
                             (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
                             (workerFinishedElapsedMs - workerStartedElapsedMs).coerceAtLeast(0L),
                             (finishedAt - workerFinishedElapsedMs).coerceAtLeast(0L),
                             visible.size.toLong(), visible.size.toLong())
+                        if (activeCategoryScanDiagnostics === diagnostics) activeCategoryScanDiagnostics = null
+                    }, onDiscarded = {
+                        diagnostics?.finishIfOpen("CANCELLED", -1L, -1L, -1L, -1L, -1L)
+                        if (activeCategoryScanDiagnostics === diagnostics) activeCategoryScanDiagnostics = null
                     })
                     checkPlaceholderVisibility(visible)
                     binding.directoriesRefreshLayout.isRefreshing = false
@@ -1586,7 +1612,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 if (current()) failed(error)
                 else {
                     val finishedAt = android.os.SystemClock.elapsedRealtime()
-                    diagnostics?.finish("CANCELLED", (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
+                    diagnostics?.finishIfOpen("CANCELLED", (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
                         (finishedAt - workerStartedElapsedMs).coerceAtLeast(0L), 0L, -1L, -1L)
                 }
             }

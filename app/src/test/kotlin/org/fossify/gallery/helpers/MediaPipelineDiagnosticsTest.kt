@@ -113,6 +113,68 @@ class MediaPipelineDiagnosticsTest {
         assertEquals(1, events.count { it.name == "media_load_duplicate_terminal" })
     }
 
+
+    @Test fun unmeasuredAndMeasuredZeroCountsAreDistinct() {
+        val events = mutableListOf<CapturedEvent>()
+        fun collector() = MediaPipelineDiagnostics(
+            "ml-unknown", "HOME", "REFRESH", "UNKNOWN", "scope", 21L, 0L,
+            { 20L }, { level, module, name, request, fields ->
+                events += CapturedEvent(level, module, name, request, fields)
+            }
+        )
+        collector().finish("CANCELLED", 0, 0, 0, -1, -1)
+        val unknown = events.first { it.name == "media_scan_summary" }
+        assertEquals(-1L, unknown.fields["candidateCount"])
+        assertEquals(-1L, unknown.fields["acceptedCount"])
+        events.clear()
+        collector().finish("COMPLETE", 0, 0, 0, 0, 0)
+        val zero = events.first { it.name == "media_scan_summary" }
+        assertEquals(0L, zero.fields["candidateCount"])
+        assertEquals(0L, zero.fields["acceptedCount"])
+    }
+
+    @Test fun illegalNegativeInputsNeverBecomeValidCounters() {
+        val events = mutableListOf<CapturedEvent>()
+        val collector = MediaPipelineDiagnostics(
+            "ml-invalid", "FOLDER", "REFRESH", "UNKNOWN", "scope", 22L, 0L,
+            { 20L }, { level, module, name, request, fields ->
+                events += CapturedEvent(level, module, name, request, fields)
+            }
+        )
+        collector.add("mediaStoreRows", -7)
+        collector.set("sortCount", -9)
+        collector.set("cachedItemCount", -1)
+        collector.add("sortCount", 3)
+        collector.finish("FAILED", -3, -4, -5, -200, -9)
+        val scan = events.first { it.name == "media_scan_summary" }.fields
+        assertEquals(-1L, scan["candidateCount"])
+        assertEquals(-1L, scan["acceptedCount"])
+        assertEquals(0L, scan["queueWaitMs"])
+        assertEquals(0L, scan["workerMs"])
+        assertEquals(-1L, events.first { it.name == "media_source_summary" }.fields["mediaStoreRows"])
+        assertEquals(3L, events.first { it.name == "media_sort_summary" }.fields["sortCount"])
+        assertEquals(-1L, events.first { it.name == "media_cache_db_summary" }.fields["cachedItemCount"])
+    }
+
+    @Test fun retirementClosureIsIdempotentWithoutASecondTerminalWarning() {
+        val events = mutableListOf<CapturedEvent>()
+        val collector = MediaPipelineDiagnostics(
+            "ml-retired", "CATEGORIZED", "INITIAL", "UNKNOWN", "scope", 23L, 0L,
+            { 20L }, { level, module, name, request, fields ->
+                events += CapturedEvent(level, module, name, request, fields)
+            }
+        )
+        collector.finishIfOpen("CANCELLED", -1, -1, -1, -1, -1)
+        collector.finishIfOpen("COMPLETE", 1, 2, 3, 5, 5)
+        val summary = events.first { it.name == "media_scan_summary" }.fields
+        assertEquals(-1L, summary["queueWaitMs"])
+        assertEquals(-1L, summary["workerMs"])
+        assertEquals(-1L, summary["publicationWaitMs"])
+        assertEquals(1, events.count { it.name == "media_load_terminal" })
+        assertEquals(0, events.count { it.name == "media_load_duplicate_terminal" })
+        assertEquals("CANCELLED", events.first { it.name == "media_load_terminal" }.fields["terminalState"])
+    }
+
     @Test fun disabledDiagnosticsFactoryReturnsNoRequestCollector() {
         assertEquals(null, MediaPipelineDiagnostics.create("/private/path", "FOLDER", "INITIAL", 21L))
     }

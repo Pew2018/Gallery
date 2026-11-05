@@ -23,3 +23,11 @@
 旧文中的“唯一 fix 分支”“当前阶段”“下一步”“未合并 main”“人日粗估”仅限原任务时间点，不能覆盖新计划。保留原始修复/CI 数字以便追溯，不推断真机已经无闪烁、索引不停或错图问题。
 
 当前 `main` SHA `49e799eceab00414ef074cbf71b7f0a35133b669` 的 [Actions Run 41939577702](https://github.com/Pew2018/Gallery/actions/runs/41939577702) 成功（完整 FOSS Release 单元测试与 ARM64 校验）；这不是新阶段的设备性能验收。
+
+## Phase 1 — 生命周期可靠性与发布正确性
+
+- [22 — 生命周期审计](22-phase1-lifecycle-audit.md)：五条请求链、F/R/U、既有保护、扫码/权限/诊断终态。
+- [23 — 定点实施和回归测试](23-phase1-implementation-and-tests.md)：修改范围、完整性映射、T01–T15 覆盖与限制。
+- [24 — 结果与交接](24-phase1-results-and-handoff.md)：CI/Artifact 证据链、设备矩阵与阶段 2 准入。
+
+阶段 1 的业务正确性需以该提交的完整 CI 为准；全部真机权限、并发和性能场景仍为 `PENDING_DEVICE`。旧 01–21 为独立历史/阶段 0 事实，不得将 0 的 Run 当成 1 的构建证明。

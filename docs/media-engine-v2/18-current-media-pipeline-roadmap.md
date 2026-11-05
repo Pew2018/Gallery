@@ -1,6 +1,6 @@
 # 18 — 媒体索引、加载、排序及稳定性：当前唯一实施路线图
 
-> 状态：**阶段 0 诊断埋点实施中；设备性能基线待采集**。仓库 `Pew2018/Gallery`，远程工作分支最新核对 HEAD `29f3528df55c9997cfe5c95a217ddc97eb85e331`。旧 01–17 文档中的历史分支、过时计划、当前状态仅对原文 SHA 有效。
+> 状态：**阶段 0 诊断/CI 完成，设备性能基线待采集；阶段 1 定点代码已准备，CI 与设备验收以实际结果为准**。仓库 `Pew2018/Gallery`，远程工作分支最新核对 HEAD `29f3528df55c9997cfe5c95a217ddc97eb85e331`。旧 01–17 文档中的历史分支、过时计划、当前状态仅对原文 SHA 有效。
 
 ## 1. 任务、目标与职责
 
@@ -61,3 +61,9 @@
 ## 7. 历史状态证明
 
 当前 `main` 的 [Actions Run 41939577702](https://github.com/Pew2018/Gallery/actions/runs/41939577702) 为 success，包括完整 FOSS Release 单测、ARM64 Release APK 与签名/ABI 校验。此结果**不是**新六阶段的设备性能和并发验收。本轮未修改 Kotlin/数据库/CI，未进行真机测量；不承诺历史旧 8–16 或 43–78 人日估算。
+
+## 8. Phase 1：生命周期正确性（2026-11-05）
+
+按 [22](22-phase1-lifecycle-audit.md)、[23](23-phase1-implementation-and-tests.md)、[24](24-phase1-results-and-handoff.md) 实施本阶段的**定点请求终态/诊断可靠性**。开始审计的远程工作分支 HEAD 是 `5cc20adf6875ca220df8db4ff3bb24e42f82de22`。发现的明确问题包括 -1 未测值被记为零、HOME/CATEGORIZED 被旧请求取消时诊断遗漏/错误终态，以及媒体 Executor 拒绝时业务终态门缺 FAIL；此外避免扫描结束后后台直接读取 UI 的可变 mMedia 以降低竞态。继续复用原 epoch、terminal、auth、complete-only prune，未修改 SQL/排序/线程池/UI/Viewer 基础架构。
+
+阶段 0 的同设备性能基线仍为 `PENDING_DEVICE`，不得在阶段 1 虚构性能提升；本阶段完整 Actions/APK 和真机验收请以 [24](24-phase1-results-and-handoff.md) 所列验证证据为准。阶段 2 必须等待可核实的 IO/SQL/排序/渲染热点数据，不可越级修改。

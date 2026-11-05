@@ -91,6 +91,37 @@ class RefreshReliabilityTest {
             assertTrue(fresh.await(2, TimeUnit.SECONDS))
         } finally { release.countDown(); executor.shutdown() }
     }
+    @Test fun rejectedBoundedScanHasAnExplicitFailedTerminalAndLaterRetryCanRun() {
+        val executor = BoundedScanExecutor("rejection-test", workers = 1, queued = 1)
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val retried = CountDownLatch(1)
+        val terminals = GalleryScanTerminalGate()
+        terminals.begin(1L)
+        try {
+            executor.execute { started.countDown(); release.await(5, TimeUnit.SECONDS) }
+            assertTrue(started.await(2, TimeUnit.SECONDS))
+            val cancelled = FutureTask<Unit> { fail("canceled queued scan executed") }
+            executor.execute(cancelled)
+            try {
+                executor.execute { fail("a full bounded queue unexpectedly accepted work") }
+                fail("expected bounded executor rejection")
+            } catch (error: java.util.concurrent.RejectedExecutionException) {
+                assertTrue(terminals.finish(1L, GalleryScanResult(GalleryScanState.FAILED, cause = error)))
+            }
+            assertEquals(GalleryScanState.FAILED, terminals.result(1L)?.state)
+            cancelled.cancel(true)
+            terminals.begin(2L)
+            executor.execute { retried.countDown() }
+            release.countDown()
+            assertTrue(retried.await(2, TimeUnit.SECONDS))
+            assertTrue(terminals.finish(2L, GalleryScanResult(GalleryScanState.COMPLETE)))
+        } finally {
+            release.countDown()
+            executor.shutdown()
+        }
+    }
+
     @Test fun aBlockedVideoCannotPreventEarlierDetailsOrBaseMediaFromBeingAvailable() {
         val executor = Executors.newSingleThreadExecutor()
         val blocked = CountDownLatch(1); val release = CountDownLatch(1); val first = CountDownLatch(1)
