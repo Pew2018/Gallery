@@ -28,9 +28,8 @@ internal object VirtualMediaSortPolicy {
         if (source != FAVORITES && source != RECYCLE_BIN) return VirtualMediaSortDecision.RELOAD_REQUIRED
         if (!activityCurrent || !accessCurrent) return VirtualMediaSortDecision.ACCESS_INVALID
         if (!adapterMatchesSource || !displayedSnapshotComplete || !requiredSortMetadataPresent) {
-            return if (scanInProgress && displayedSnapshotComplete && accessCurrent && adapterMatchesSource) {
-                VirtualMediaSortDecision.WAIT_FOR_ACTIVE_REFRESH
-            } else VirtualMediaSortDecision.RELOAD_REQUIRED
+            return if (scanInProgress) VirtualMediaSortDecision.WAIT_FOR_ACTIVE_REFRESH
+            else VirtualMediaSortDecision.RELOAD_REQUIRED
         }
         if (!requestCurrent) return if (scanInProgress) VirtualMediaSortDecision.WAIT_FOR_ACTIVE_REFRESH
         else VirtualMediaSortDecision.RELOAD_REQUIRED
