@@ -1,6 +1,6 @@
 # Gallery 媒体管线文档索引
 
-> **当前唯一执行依据**：[18 — 现行媒体索引/加载/排序与稳定性路线图](18-current-media-pipeline-roadmap.md)。阶段 0 诊断埋点正在 `refactor/media-pipeline-stability` 实施；开始 HEAD 为 `29f3528df55c9997cfe5c95a217ddc97eb85e331`。CI 与真机基线须以 [21 — 结果与交接](21-phase0-results-and-handoff.md) 中实际记录为准。
+> **当前唯一执行依据**：[18 — 现行媒体索引/加载/排序与稳定性路线图](18-current-media-pipeline-roadmap.md)。阶段 0 代码与 CI 已完成，分支为 `refactor/media-pipeline-stability`；设备性能基线仍为 `PENDING_DEVICE`。测试与 Artifact 详情见 [21 — 结果与交接](21-phase0-results-and-handoff.md)。
 
 ## 现行任务与验收
 

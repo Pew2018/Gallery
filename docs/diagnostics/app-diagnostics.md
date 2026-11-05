@@ -54,7 +54,7 @@ For enabled requests, one `ml-*` request token links split `media_scan_summary`,
 
 Observed counters cover MediaStore cursor attempts/rows/time, filesystem enumeration and metadata calls, sorting, selected Photo profile cache and Room boundaries, stage publication, and MediaAdapter submit/diff/commit events. This is not a complete Room trace. Actual database affected rows, all directory metadata/cleanup queries, thumbnail lifecycle, anchor displacement, decoded/drawn image frame and frame jank are not currently measured. Do not treat `viewer_page_bound` as an image draw. The full field-level limits and comparison protocol are in the metric plan.
 
-The 848-test/Run `41858925567` record above is the historical diagnostics feature build. It is not evidence that Phase 0 changes passed; use the actual current branch Actions and artifact recorded in the Phase 0 results file.
+The 848-test/Run `41858925567` record above is the historical diagnostics feature build. Phase 0 was separately validated by [Run 41951185632](https://github.com/Pew2018/Gallery/actions/runs/41951185632): 856 tests passed, and the ARM64 APK artifact `gallery-foss-arm64-v8a-release` (ID `13380139965`) passed package, signature and ABI checks. Its temporary CI signing key is not upgrade-compatible by default. Device performance is still `PENDING_DEVICE`; see the [Phase 0 results](../media-engine-v2/21-phase0-results-and-handoff.md).
 
 ## Device acceptance steps
 

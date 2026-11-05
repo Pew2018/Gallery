@@ -56,7 +56,7 @@
 
 日志字段缺失用 `-1` 表示，测得为零才记 `0`。`ml-*` UUID 连接一个请求的汇总；`businessRequest` 用于与既有扫描日志、适配器事件关联。统计值在采集完整前不能替代设备测量。
 
-当前开发环境没有 `adb`，Gradle wrapper 下载也因网络不可达未能启动本地测试；GitHub Actions、ARM64 APK 和 Artifact 需在本轮提交后实际核验。真机性能数据保持 `PENDING_DEVICE`。
+本轮 Phase 0 的完整 FOSS Release 单测和 ARM64 APK 已由 [Actions Run 41951185632](https://github.com/Pew2018/Gallery/actions/runs/41951185632) 在提交 `eeddba4b68779a0809c24ede5daaff613aed9426` 上通过。开发环境没有 `adb`，本地 wrapper 下载因网络不可达而未启动；真机性能数据保持 `PENDING_DEVICE`，请按文档 20 执行场景采集。
 
 ## 7. 历史状态证明
 

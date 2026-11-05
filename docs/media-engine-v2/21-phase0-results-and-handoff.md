@@ -2,7 +2,9 @@
 
 Date: 2026-11-05. Branch: `refactor/media-pipeline-stability`.
 Start HEAD: `29f3528df55c9997cfe5c95a217ddc97eb85e331`.
-Final commit, Actions run and artifact: pending until CI completes.
+Code commit validated by CI: `eeddba4b68779a0809c24ede5daaff613aed9426`.
+Successful Actions run: [41951185632](https://github.com/Pew2018/Gallery/actions/runs/41951185632).
+APK artifact: `gallery-foss-arm64-v8a-release` (ID `13380139965`), available from the run's **Artifacts** section through 2026-11-19.
 
 ## Scope delivered in source
 
@@ -23,7 +25,7 @@ The durations, counts, scope token and request token above come from fixed test 
 
 ## Files changed
 
-Code: `GalleryPerfTrace.kt`, new `MediaPipelineDiagnostics.kt`, `GetMediaAsynctask.kt`, `MediaFetcher.kt`, `PhotoProfileMediaLoader.kt`, `MainActivity.kt`, `MediaActivity.kt`, `ViewPagerActivity.kt`, `MediaAdapter.kt`, `.github/workflows/arm64-foss-release.yml`. Tests: new `MediaPipelineDiagnosticsTest.kt`. Documentation: new 19–21 plus README, roadmap 18, validation 04, progress log 06 and `docs/diagnostics/app-diagnostics.md`.
+Code: `GalleryPerfTrace.kt`, `GalleryDiagnosticLogger.kt`, new `MediaPipelineDiagnostics.kt`, `GetMediaAsynctask.kt`, `MediaFetcher.kt`, `PhotoProfileMediaLoader.kt`, `MainActivity.kt`, `MediaActivity.kt`, `ViewPagerActivity.kt`, `MediaAdapter.kt`, `.github/workflows/arm64-foss-release.yml`. Tests: new `MediaPipelineDiagnosticsTest.kt`. Documentation: new 19–21 plus README, roadmap 18, validation 04, progress log 06 and `docs/diagnostics/app-diagnostics.md`.
 
 No business scan results, sorting algorithms, database schema, cache validity rules, executor sizing, permission policy, Viewer ordering or UI style were intentionally changed.
 
@@ -33,8 +35,11 @@ No business scan results, sorting algorithms, database schema, cache validity ru
 - Result: **not started**. Gradle 9.5.1 wrapper download failed with `java.net.SocketException: Network is unreachable`.
 - `adb devices -l`: **not available**, `adb: command not found`.
 - `git diff --check`: passed after final source/documentation edits.
-- GitHub Actions run `41950122386` exposed two compile errors in the new permission-mode and constructor visibility code; both were fixed in the follow-up commit. Run `41950527727` compiled production and test sources, then exposed one incorrect test assumption: session-salted IDs should be stable within a session and differ across salts. The test now exercises the logger's salt-aware helper directly. The next full workflow run is pending.
-- New test count: 8 test methods in `MediaPipelineDiagnosticsTest`; the exact whole-suite count will be read from the completed Actions report.
+- GitHub Actions run `41950122386` exposed two compile errors in the new permission-mode and constructor visibility code; both were fixed. Run `41950527727` exposed an incorrect test assumption about session salts; that test was corrected.
+- Successful Actions run [41951185632](https://github.com/Pew2018/Gallery/actions/runs/41951185632), commit `eeddba4b68779a0809c24ede5daaff613aed9426`: **856 tests, 0 failures, 0 errors, 0 skipped**; FOSS ARM64 Release assembly succeeded.
+- APK validation succeeded: package `org.fossify.gallery` version `1.14.1` (`versionCode 32`), v2 signature valid, ARM64-only native libraries. APK SHA-256: `730d8ff0be3dc0586383646fe988b9eab7baf1b857ce752683c427307ffad0c3`.
+- Artifact: `gallery-foss-arm64-v8a-release`, ID `13380139965`, downloadable from the successful run's Artifacts section; GitHub expiry is 2026-11-19. Signing mode was `temporary-CI-not-upgrade-compatible`; it may not install over an APK signed with a different certificate.
+- New test count: 8 test methods in `MediaPipelineDiagnosticsTest`; full FOSS Release suite count: 856.
 
 ## Runtime evidence
 
