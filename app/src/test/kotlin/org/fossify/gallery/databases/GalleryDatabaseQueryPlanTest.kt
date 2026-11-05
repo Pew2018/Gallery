@@ -64,7 +64,7 @@ class GalleryDatabaseQueryPlanTest {
                 assertTrue("full_path lookup must use its v11 unique index: $byPath",
                     byPath.any { it.contains("index_media_full_path") })
                 assertTrue("parent_path has no v11 index and should be scanned: $byParent",
-                    byParent.any { it.contains("SCAN media") })
+                    byParent.any { it.startsWith("SCAN") && it.contains("media") })
                 assertTrue("favorite relationship join must use full_path lookup: $favoriteJoin",
                     favoriteJoin.any { it.contains("index_media_full_path") ||
                         it.contains("index_favorites_full_path") })
