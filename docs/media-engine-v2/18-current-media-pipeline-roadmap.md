@@ -57,6 +57,8 @@
 
 在远程起始 HEAD `2e6165dec230630a08a06c08d55baeef3bc5d251` 审计 `MainActivity.gotDirectories()`、`setupAdapter()`、`DirectoryAdapter.updateDirs()` 与 Room 写路径。代码证明缓存目录每 8 个真实卡片变化进行中间发布；相同可见内容由 Adapter 短路；缓存目录循环中每个物理目录一次整批媒体 `insertAll()`，但跨独立 request 的重叠写入及设备成本尚未知。由此，本阶段不依据推测改变扫描发布、Room 写入、主线程计算或 Schema；新增 100/500/1k/5k 生产 presentation synthetic benchmark、成员变化/20卡片回归与 500 行 Room unchanged-write/metadata/favorite-relation 样本。合成测试不代表 Pixel 性能。审计和结果以[34–36](34-phase2c-album-publication-audit.md)为准。
 
+最终源码 `034bd9deee48aaf900956bb896f2152a43e6f05e` 通过 [Run 42012246773](https://github.com/Pew2018/Gallery/actions/runs/42012246773)：897 tests / 0 failures / 0 errors / 0 skipped；ARM64 APK 与包名、version、ABI、v2 签名校验成功。Artifact ID `13407079108`。真实 Pixel 8 Pro 请求级工作量仍未采集；Phase 2D 暂不进入正式索引 Migration，Phase 3 暂不新增缓存/增量索引。
+
 ## 4. 必须保持的实现约束
 
 - **真实媒体来源**：MediaStore 与文件系统/SAF 同等重要；显式选中的 `.nomedia` 目录可能未进入 MediaStore。查询空/读取失败不允许作为文件已删除的证据。

@@ -21,7 +21,7 @@
 
 未实施发布合并、纯计算线程迁移、Room 写前查询或新增索引。该决定满足“只对证据充分的热点修改代码”的门槛；尚未实现的生产性能候选进入真机测量清单。
 
-## 3. 测试与当前本地验证状态
+## 3. 测试与 CI 验证
 
 新增测试：
 
@@ -30,11 +30,20 @@
 - `DirectoryPresentationTest.presentationPreparationBenchmarkReportsSyntheticDirectoryScales`
 - `GalleryDatabaseQueryPlanTest.repeatedUnchangedBatchWriteAndMetadataUpdatePreserveRowsAndFavoriteRelations`
 
-执行 `./gradlew :app:testFossReleaseUnitTest --tests org.fossify.gallery.helpers.DirectoryPresentationTest --tests org.fossify.gallery.databases.GalleryDatabaseQueryPlanTest` 时，Gradle Wrapper 因当前执行环境无法访问 `services.gradle.org` 下载 Gradle 9.5.1，在测试启动前失败；尚无本地编译/测试结果。完整 `:app:testFossReleaseUnitTest`、ARM64 assemble、APK 元信息/签名/ABI 检查均须由本提交 GitHub Actions 重新执行后，方可在此补录结论。Phase 2B 的 893 项成功结果不是本提交的验证。
+当前执行环境无法访问 `services.gradle.org`，本地 Gradle Wrapper 未能下载 Gradle 9.5.1，因此没有本地测试结果。GitHub Actions 最终验证源码提交为 `034bd9deee48aaf900956bb896f2152a43e6f05e`，Run [42012246773](https://github.com/Pew2018/Gallery/actions/runs/42012246773) completed/success：完整 `:app:testFossReleaseUnitTest` 为 **897 tests / 0 failures / 0 errors / 0 skipped**；`assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a` 成功；APK 包名 `org.fossify.gallery`、versionCode `32`、versionName `1.14.1`、native ABI 仅 `arm64-v8a`，APK v2 签名验证通过。签名证书为临时 CI 测试证书，不证明可覆盖安装。
 
 ## 4. 性能数据解释
 
-两项测试只提供合成 JVM/Robolectric 运行测量。目录 benchmark 统计生产纯数据 helper 的排序、去重、可见集合和搜索过滤；不代表 Android 主线程帧时延。Room 样本测 500 行单次重复写；不代表 Pixel 文件数据库或重复发生频率。没有新版真机同条件基准，不计算百分比。
+两项测试只提供合成 JVM/Robolectric 运行测量。GitHub runner 上目录准备 benchmark 3 次取中位数，排序+去重+可见集合+搜索的耗时如下（微秒）：
+
+| 目录行数 | 名称 | 日期 | 大小 | 随机 |
+|---:|---:|---:|---:|---:|
+| 100 | 1,756 | 835 | 751 | 332 |
+| 500 | 2,974 | 1,529 | 1,493 | 1,052 |
+| 1,000 | 2,471 | 1,954 | 1,889 | 1,313 |
+| 5,000 | 13,910 | 8,426 | 7,997 | 8,725 |
+
+这不是 Android 主线程帧时延，也不是 Pixel 8 Pro 表现。Room v11 的 500 行样本中，一次重复 `insertAll` 调用输入 500 行、测得 3,763 微秒，最终媒体行 500、收藏关系行 50；它不代表设备数据库、批量内部 SQL 次数或多请求重复写频率。没有新版真机同条件基准，不计算性能提升百分比。
 
 ## 5. 当前验收状态及后续准入
 
@@ -43,4 +52,6 @@
 - Phase 3 缓存/增量：**暂不引入第二缓存或永久媒体索引**。先用设备诊断判断重复 IO/Room 写入在哪些真实请求可复现，并确立可靠失效及权限边界。
 - 真机待验：Pixel 8 Pro 新版诊断的 `C/V/N`、缓存媒体写 rows/time、PhotoProfile/HOME 重叠写、per-request submit/commit/dropped diff、dedupe/sort/filter 主线程 ms、scroll top path/offset、排序/搜索并发、`.nomedia`、SAF、保护目录、删除/移动/回收站交错和 Viewer 连续浏览。
 
-最终 Git SHA、Actions URL、完整 suite 数、ARM64 APK artifact ID、包名/version/ABI/signature、APK 哈希与 CI 日志性能样本：待最终 CI 完成后补入。
+最终源码 SHA：`034bd9deee48aaf900956bb896f2152a43e6f05e`。Actions Run：[42012246773](https://github.com/Pew2018/Gallery/actions/runs/42012246773)。完整 suite：897/0/0/0。ARM64 APK Artifact：`gallery-foss-arm64-v8a-release`，ID `13407079108`，大小 10,442,642 bytes，SHA-256 `0ea101cf8598234ad512b6e31d3fa3f01bc3f62907ec5ac10f72a242a4f1aa31`。测试报告 Artifact ID `13407213579`。最终提交在 `refactor/media-pipeline-stability`；起始远程 HEAD 为 `2e6165dec230630a08a06c08d55baeef3bc5d251`。CI 汇总与签名/ABI 细节见 Actions 日志。
+
+本阶段的两次失败 Actions 分别捕获测试集合类型编译错误和 Robolectric/Picasso 全局单例隔离问题，均在最终成功源码之前修复。其间一次 GitHub API 文件传输损坏在 Actions 编译发现后重传；修复后的远程 blob 与本地文件 Git SHA 核对一致。最终 Run 验证的是完整最终源码，而不是失败 Run。
