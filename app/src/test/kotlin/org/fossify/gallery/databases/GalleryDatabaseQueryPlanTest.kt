@@ -9,11 +9,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 
 /** Synthetic Room v11 database only; this does not inspect a user's gallery.db. */
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28])
 class GalleryDatabaseQueryPlanTest {
     @Test fun representativeV11QueryPlansAndMembershipHoldAtRequestedScales() {
         val context = RuntimeEnvironment.getApplication()
