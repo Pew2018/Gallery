@@ -53,7 +53,7 @@ internal class GetMediaAsynctask(
             diagnosticSource, if (manualRefresh) "REFRESH" else diagnosticLoadReason ?: "INITIAL", requestId,
             permissionMode = when {
                 android.os.Build.VERSION.SDK_INT < 30 -> "LEGACY"
-                context.isExternalStorageManager() -> "ALL_FILES"
+                android.os.Environment.isExternalStorageManager() -> "ALL_FILES"
                 else -> "SCOPED_STORAGE"
             }
         ) else null

@@ -7,7 +7,7 @@ import org.fossify.gallery.models.Medium
 import org.fossify.gallery.models.ThumbnailItem
 
 /** Cached metadata is provisional; every newly published batch has fresh access evidence. */
-class PhotoProfileMediaLoader(
+class PhotoProfileMediaLoader internal constructor(
     private val context: Context,
     private val cancellationFetcher: MediaFetcher = MediaFetcher(context),
     private val sessionId: String? = null,
