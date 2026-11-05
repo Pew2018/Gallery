@@ -12,7 +12,7 @@
 | `ViewerGridOrderStore.offer/takeEvidence` | 30秒、5万项、单次paths证据 | 保留生命周期/上限，增候选副本、版本及显示条件；不匹配拒绝；从未包含访问凭据。普通候选在主线程点击之外复制 |
 | `ViewPagerActivity.takeGridEvidence/startFolderViewer` | 第一个5项窗口之后等待枚举自然到达相邻路径 | 验证已commit的前后各64项候选（最多129），仍为PARTIAL/UNKNOWN；每次临时边界可围绕当前路径重取邻域；自己的当前session/文件可读/存在/type/hidden/search/目录范围/revision均须通过 |
 | `ViewerCommittedWindow` / `GetMediaAsynctask.folderPriorityPaths` / `MediaFetcher.preferredFolderOrder` | 原始枚举顺序与点击邻域无关系 | 新扫描先读取已提交邻域，随后仍遍历每个剩余文件；未关闭.noMedia发现或全目录扫描；不引入目录mtime完整性假设 |
-| `ViewerFolderScanGate` / `startFolderViewer.scanRemaining` | 默认AsyncTask执行器，无Viewer单独deadline/取消回调和拒绝处理 | 复用bounded扫描执行器，一个attempt所有权；45秒deadline（含排队），失败/取消/超时/拒绝不报END，停止Loading且可在边界重试；迟到attempt不能结束新attempt |
+| `ViewerFolderScanGate` / `startFolderViewer.scanRemaining` | 默认AsyncTask执行器，无Viewer单独deadline/取消回调和拒绝处理 | 复用bounded扫描执行器，一个attempt所有权；45秒无新增有效进度deadline（初始含排队等待；新增候选才续期），失败/取消/超时/拒绝不报END，停止Loading且可在边界重试；迟到attempt不能结束新attempt |
 | `ViewPagerActivity.publishFolderCandidates` | partial依靠连续路径；完整仍旧网格优先 | partial仍保守连续，重新验证候选；非随机完整使用新扫描排序；校验捕获的FolderContentRevision；complete准备中不让新候选扩展取消其发布 |
 | `ViewerGridOrderPolicy.reconcilePhotoCatalog` | 无论partial/complete都旧grid优先+append | 显式complete/random契约；完整非随机采用已验证生产者全局顺序；partial与random保留旧邻域，分段ordinal继续作为权威 |
 | `ViewPagerActivity.completePhotoViewerLoad/consumePhotoCatalogAdvance` | 旧1070顺序一直支配5285完整集合 | 完整非随机升级时放弃旧顺序证据、保留当前path；手势中last-wins延期。升级允许新合法成员进入，可能改变邻居；这属于完整全局排序契约，不能假称新成员也曾显示于旧网格 |
@@ -33,7 +33,7 @@
 
 ## 3. 回归测试与证据限度
 
-新增 `Phase15ViewerRegressionTest`（16 tests）和 `Phase15GridEvidenceTest`（6 tests）。使用真实生产helper和显式事件调度，不使用Thread.sleep。具体真实总数以CI XML为准。
+新增 `Phase15ViewerRegressionTest`（17 tests）和 `Phase15GridEvidenceTest`（6 tests）。使用真实生产helper和显式事件调度，不使用Thread.sleep。具体真实总数以CI XML为准。
 
 | 需求 | 新/既有覆盖 | 限制 |
 |---|---|---|
@@ -55,3 +55,7 @@
 原设备两轮完整扫描的元数据分别6720ms/5685ms，排序99ms/81ms。此次只合并无意义publication，未改Room/排序主键或随机语义、线程池尺寸或跳过真实文件读取。新增有界候选重新验证有实际文件状态检查成本；没有同设备前后测量，无法承诺扩展毫秒数或性能百分比。所有真实性能复测项目见27。
 
 补充的B2排序边界：`MediaFetcher.sortMedia` 在主键相等时原本继承输入顺序，累计/完整扫描的输入顺序可能不同。只添加原始path次级键（方向沿用原descending）；新测试对名称/大小/拍摄日期/修改日期/路径的相等键、正逆输入与升降序调用真实sortMedia。随机分支仍提前shuffle返回，不受影响。这个修改用于确定性一致性，不声称是性能优化。
+
+最后的所有权清理：`startFolderViewer` 每次重新认证前 retire 旧 gate、停止旧watchdog并清空局部扩展准备标志；failed也清空扩展标志。A02/A05所覆盖的旧attempt完成不得退休retry，必须同时落实在真实Activity入口，不仅存在于helper。最终受测源码见27。
+
+无进度超时回归：新增生产gate的progress(attempt,count)，只有当前attempt且accepted数量严格增加才能续期；重复/倒退/旧attempt不能隐藏停滞，retry独立从0累计。`a05OnlyNewCurrentAttemptProgressMayRenewTheStallDeadline` 显式覆盖此时序；既有RefreshReliabilityTest覆盖真实Handler watchdog的stop/arm/过期，均无sleep。两份Phase15测试文件最终共23项。

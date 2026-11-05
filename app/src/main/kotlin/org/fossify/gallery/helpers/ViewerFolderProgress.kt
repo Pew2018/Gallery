@@ -4,8 +4,14 @@ package org.fossify.gallery.helpers
 internal class ViewerFolderScanGate {
     private var sequence = 0L
     private var active: Long? = null
+    private var acceptedCount = 0
     val running get() = active != null
-    fun begin(): Long? = if (running) null else (++sequence).also { active = it }
+    fun begin(): Long? = if (running) null else (++sequence).also { active = it; acceptedCount = 0 }
+    fun progress(attempt: Long, count: Int): Boolean {
+        if (!current(attempt) || count <= acceptedCount) return false
+        acceptedCount = count
+        return true
+    }
     fun current(attempt: Long) = active == attempt
     fun finish(attempt: Long): Boolean {
         if (!current(attempt)) return false

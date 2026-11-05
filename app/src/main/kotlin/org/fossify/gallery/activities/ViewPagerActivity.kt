@@ -1667,6 +1667,16 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         viewerLoading.setLoading(false)
                         showErrorToast(error)
                     }
+                    fun armDeadline() {
+                        folderScanWatchdog.stop()
+                        folderScanWatchdog.arm {
+                            if (folderScanGate.current(attempt)) {
+                                viewerLoadTask?.reportTimedOut()
+                                failed(java.util.concurrent.TimeoutException("Viewer scan stalled; retry at boundary"))
+                                viewerLoadTask?.stopFetching()
+                            }
+                        }
+                    }
                     retryViewerScan = { scanRemaining() }
                     val fullStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
                     val fallbackStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
@@ -1677,6 +1687,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         onScanCancelled = { failed(java.util.concurrent.CancellationException("Viewer scan cancelled; retry at boundary")) },
                         onFolderPreview = { result, candidates ->
                             if (folderScanGate.current(attempt) && request == viewerAccessGeneration && load == viewerLoadGeneration && result.accessCurrent()) {
+                                if (folderScanGate.progress(attempt, candidates.size)) armDeadline()
                                 publishFolderCandidates(request, load, token, path,
                                     candidates.filterIsInstance<Medium>(), completeSource = false)
                             }
@@ -1696,14 +1707,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                             }
                         }
                     }
-                    folderScanWatchdog.stop()
-                    folderScanWatchdog.arm {
-                        if (folderScanGate.current(attempt)) {
-                            viewerLoadTask?.reportTimedOut()
-                            failed(java.util.concurrent.TimeoutException("Viewer scan timed out; retry at boundary"))
-                            viewerLoadTask?.stopFetching()
-                        }
-                    }
+                    // A large but advancing directory must not be truncated by a total-time limit.
+                    // Queue wait and lack of new accepted rows are bounded; every real advance renews it.
+                    armDeadline()
                     try {
                         viewerLoadTask?.executeOnExecutor(org.fossify.gallery.helpers.GalleryMediaScanExecutor)
                     } catch (error: java.util.concurrent.RejectedExecutionException) {

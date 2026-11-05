@@ -53,6 +53,20 @@ class Phase15ViewerRegressionTest {
         }
     }
 
+    @Test fun a05OnlyNewCurrentAttemptProgressMayRenewTheStallDeadline() {
+        val gate = ViewerFolderScanGate()
+        val first = gate.begin()!!
+        assertFalse(gate.progress(first, 0))
+        assertTrue(gate.progress(first, 120))
+        assertFalse(gate.progress(first, 120)) // duplicate callbacks cannot hide a stall
+        assertFalse(gate.progress(first, 100))
+        assertTrue(gate.progress(first, 240)) // advancing large scans can continue
+        gate.cancel()
+        val retry = gate.begin()!!
+        assertFalse(gate.progress(first, 1000))
+        assertTrue(gate.progress(retry, 5)) // retry has its own progress and deadline
+    }
+
     @Test fun a06LargeFolderExpandsBeyondFiveAndFifteenWithoutWaitingForComplete() {
         val paths = (0 until 11_348).map(Int::toString)
         var window = ViewerCommittedWindow.around(paths, "5000") { it }
