@@ -19,7 +19,7 @@
 
 > **2026-11-05 校订**：原文中的“当前任务”“唯一 fix 分支”和 P1/P2/P3 均是 2026-11-04 历史开发记录，不再是现行工程指令。现行权威方案：[18](18-current-media-pipeline-roadmap.md)、[05](05-minimal-scan-sort-display-refactor.md)；工作分支 `refactor/media-pipeline-stability`；基线 `main` `49e799eceab00414ef074cbf71b7f0a35133b669`。
 >
-> **新六阶段状态**：阶段 0 在工作分支已有成功的完整 CI 与 ARM64 Artifact（Run 41951185632），但真机基线仍为 PENDING_DEVICE。阶段 1 源码和完整 CI 已通过（Run 41961735980，863/863 测试、ARM64 Artifact 13385912998）；阶段 2–5 未开始。[19](19-phase0-instrumentation-audit.md)、[20](20-phase0-metrics-and-test-plan.md)、[21](21-phase0-results-and-handoff.md) 为本轮记录。历史 `main` Run 41939577702 不等于本轮代码验证，也不等于真机性能基准。
+> **新六阶段状态**：阶段0、1、1.5均有完整CI/ARM64交付；1.5真机仍`PENDING_DEVICE`。Phase 2A 已有成功CI与ARM64 Artifact（Run 41983357685，889项）；当前 Phase 2B 在 `ad8155c73bcd542e9e565d83cb6444e9679b58bf` 上进行排序代际、主页显示计时和 Room v11 执行计划审计/修复。最终成绩以33为准，用户设备测量未完成。历史 `main` Run 41939577702 不是当前代码或真机性能基准。
 
 ## 1. 新阶段状态总览
 
@@ -27,7 +27,7 @@
 |---|---|---|
 | 0 诊断与性能基准 | 诊断源码与 CI 完成；真机数据 PENDING_DEVICE | 请求链路、查询/枚举/数据库/排序/UI 耗时及同设备 p50/p95 |
 | 1 扫描生命周期与正确性 | 源码/CI 已通过；真机 PENDING_DEVICE | 旧结果拒绝、删除/权限并发、正确终态、.nomedia 同步 |
-| 2 数据库与排序热点 | 未开始 | SQL EXPLAIN、增量排序和相同集合前后比较 |
+| 2 数据库与排序热点 | 2A 已完成；2B 实施/验证中 | 2B 的完整异步排序 gate、合成 Room v11 query plan；真机时延仍 PENDING_DEVICE |
 | 3 缓存复用和增量索引 | 未开始 | 外部变化检测、正确失效和无法证明时安全回退 |
 | 4 缩略图/网格/Viewer | 未开始 | 身份、顺序、连续滑动、删除恢复和滚动稳定 |
 | 5 大库压力与跨 Android 回归 | 未开始 | Actions、ARM64、设备权限矩阵和实测性能 |
@@ -53,6 +53,14 @@
 - **实现**：完整、当前、非分组的普通物理目录排序改为复用`mMedia`正式快照，后台排序，再以原Adapter/Diff提交；不清Adapter、不创建扫描task。PhotoProfile、收藏、首页、回收站、PARTIAL/加载中或失权时保留旧加载路径。未修改Viewer、Room Schema、`.nomedia`扫描和UI样式。
 - **测试/验证**：新增3项生产策略单测；本地Wrapper下载Gradle 9.5.1因Network is unreachable未启动。最终Actions Run 41983357685在SHA `dcd41024e06451eb7a46d28db18a84157cd5102b`通过889/889完整单测与ARM64校验。
 - **最终交付**：Artifact ID 13395436120，临时CI签名；准确版本、ABI、哈希和未测边界见[30](30-phase2a-results-and-handoff.md)。阶段1.5 Pixel真机可靠性验收仍`PENDING_DEVICE`。
+
+### 2026-11-05｜Phase 2B — 排序交互可靠性、主页目录和 Room v11 审计
+
+- **基线**：开始前读取 `origin/refactor/media-pipeline-stability` 为 `ad8155c73bcd542e9e565d83cb6444e9679b58bf`；没有重置或触碰其他本地工作区中的提交。
+- **审计发现**：普通文件夹后台排序只有配置值校验，重复随机排序和 A→B→A 没有独立操作身份，旧 worker 可以与新选择同值并竞争发布。主页拍摄/修改日期和大小会走目录扫描；`setupAdapter()` 的去重/排序/筛选/搜索位于主线程。DAO 源码表明 `parent_path`、`deleted_ts`、`is_favorite` 无索引，full_path/path 持有 Room 唯一索引。
+- **实施**：为物理文件排序新增独立单调 generation；新媒体请求、Activity 暂停使其失效；后台排序异常/拒绝在当前请求仍有效时退回原加载链。保留查询时的当前搜索、授权复验、DiffUtil/stable ID、滚动延期和完整扫描。主页新增可选诊断分段计时与排序确认到可见提交时间；没有绕过必要扫描。新增 Room v11 实际 Room schema in-memory 测试，造数 100/5k/30k/100k，并检查计划、媒体筛选/收藏关系与多文件夹集合。
+- **测试/性能边界**：本地 Wrapper 下载 Gradle 9.5.1 因 `Network is unreachable` 未能运行测试；完整测试与数据库计划输出由当前 SHA 的 Actions 验证。合成 Room 时间不是 Pixel / 用户数据库数据；主页排序、PhotoProfile 5k、SAF 和 `.nomedia` 新版性能为 `PENDING_DEVICE`。没有新增索引/Migration，也没有性能百分比结论。
+- **文档**：[31](31-phase2b-sort-concurrency-and-ui-audit.md)、[32](32-phase2b-database-query-plan.md)、[33](33-phase2b-implementation-and-validation.md)。Actions、提交 SHA、Artifact 与新增测试最终结果以33更新为准。
 
 ### 2026-11-04｜R00 — 为精简重构建档（仅文档）
 

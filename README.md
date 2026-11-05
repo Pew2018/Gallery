@@ -32,6 +32,10 @@ Experience the beauty of intuitive material design with dynamic themes. Want mor
 ➡️ Join the community on Reddit: https://www.reddit.com/r/Fossify<br>
 ➡️ Connect on Telegram: https://t.me/Fossify
 
+## Media pipeline engineering notes
+
+The current scan, sorting, display, and Room query-plan work is tracked in [`docs/media-engine-v2/18-current-media-pipeline-roadmap.md`](docs/media-engine-v2/18-current-media-pipeline-roadmap.md). Phase 2B evidence and validation are recorded in [31](docs/media-engine-v2/31-phase2b-sort-concurrency-and-ui-audit.md), [32](docs/media-engine-v2/32-phase2b-database-query-plan.md), and [33](docs/media-engine-v2/33-phase2b-implementation-and-validation.md).
+
 <div align="center">
 <img alt="App image" src="fastlane/metadata/android/en-US/images/phoneScreenshots/1_en-US.png" width="30%">
 <img alt="App image" src="fastlane/metadata/android/en-US/images/phoneScreenshots/2_en-US.png" width="30%">

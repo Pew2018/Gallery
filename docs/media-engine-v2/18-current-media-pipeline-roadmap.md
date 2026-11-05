@@ -7,7 +7,7 @@
 
 # 18 — 媒体索引、加载、排序及稳定性：当前唯一实施路线图
 
-> 状态（2026-11-05更新）：阶段0、1、1.5自动化/CI交付完成，阶段1.5 Pixel真机验收仍`PENDING_DEVICE`。Phase 2A审计、实现和最终验证见[28–30](28-phase2a-hotspot-audit.md)。本轮起始远程HEAD `500f327a534832b83e872babc26ef32729e07867`；最终SHA和CI以30为准。此前HEAD及阶段状态仅作历史追溯。
+> 状态（2026-11-05更新）：阶段0、1、1.5自动化/CI交付完成，阶段1.5 Pixel真机验收仍`PENDING_DEVICE`。Phase 2A已完成；当前 Phase 2B 正在 `ad8155c73bcd542e9e565d83cb6444e9679b58bf` 上审计排序发布所有权、主页显示计时和 Room v11 查询计划。2B 实施、验证、CI 和 APK 以[31–33](31-phase2b-sort-concurrency-and-ui-audit.md)为准。2A历史记录见[28–30](28-phase2a-hotspot-audit.md)。
 
 ## 1. 任务、目标与职责
 
@@ -43,11 +43,15 @@
 
 每阶段独立提交并记录固定 HEAD、源码证据 F / 风险 R / 未测 U、文件级变更、测试、Actions、APK 和真机结论。CI 通过不等于真实场景正确；执行前重读分支最新 HEAD 和相关阶段文档。
 
-## 9. Phase 2A — 当前热点与状态（2026-11-05）
+## 9. Phase 2A — 历史热点与状态（2026-11-05）
 
 审计、实施与最终结果详见[28](28-phase2a-hotspot-audit.md)、[29](29-phase2a-implementation-and-regression.md)、[30](30-phase2a-results-and-handoff.md)。最终应用源码`dcd41024e06451eb7a46d28db18a84157cd5102b`通过Run41983357685：889项完整FOSS Release测试、ARM64构建与签名/包名/ABI校验成功；Artifact ID13395436120。有直接代码证据的改动仅为：对仍有效、正式COMPLETE、授权有效的普通物理文件夹，改变排序时复用当前媒体快照，在后台调用现有排序器并沿既有Adapter/Diff更新；不清Adapter、不重扫。扫描中、部分结果、受保护聚合、收藏/主页/回收站等保留原加载路径。
 
 元数据方面未找到可以安全跳过的单次实体验证：枚举不含文件size/mtime/readability；MediaStore记录不证明文件当前存在；跨阶段再次校验用于发布时权限与可见性。`.nomedia`补扫和COMPLETE/PARTIAL区分未变。排序CPU、主线程目录准备、Room实际SQL计划与设备读时延没有修复后数据；不新增缓存或Migration。阶段1.5设备回归仍为`PENDING_DEVICE`。最终源码、测试与Actions以[30](30-phase2a-results-and-handoff.md)为准。
+
+## 10. Phase 2B — 排序并发、主页显示与 Room v11 计划
+
+阶段2B基于重新获取的远程HEAD `ad8155c73bcd542e9e565d83cb6444e9679b58bf`。审计发现普通文件夹连续排序缺少排序操作身份：A→B→A 或重复 RANDOM 时同一配置值不能阻止旧 worker 最后覆盖。修复使用独立 generation，不复用 scan request 作为唯一操作身份。刷新、暂停、权限和 Activity 生命周期仍各走原 gate。主页日期/大小等排序继续必要的目录读取；不以无版本的缓存元数据跳过扫描。补充分段主页准备计时并构造真实 Room v11 schema 的合成数据库执行计划测试。无 Pixel 新版日志时，主页帧预算、用户库查询次数及真实 SQL 时延继续 `PENDING_DEVICE`。结果以[31–33](31-phase2b-sort-concurrency-and-ui-audit.md)为准。
 
 ## 4. 必须保持的实现约束
 

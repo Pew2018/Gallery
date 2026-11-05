@@ -440,6 +440,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mCurrAsyncTask: GetMediaAsynctask? = null
     @Volatile private var mediaScanGeneration = 0L
     private val mediaLoadRequests = FavoriteMediaLoadRequests()
+    private val mediaSortOperations = org.fossify.gallery.helpers.MediaSortOperationGate()
     private var completedMediaRequest = -1L
     // Only paths whose parent folder is unprotected or has passed the normal
     // folder-lock flow may enter the favorites cache or scan for this Activity.
@@ -944,6 +945,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     override fun onPause() {
+        mediaSortOperations.invalidate()
         viewerHandoffGeneration++
         if (mPath == FAVORITES) rememberFavoritesScrollAnchor()
         favoritesScroll.cancelLayout()
@@ -1595,7 +1597,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private fun showSortingDialog() {
         ChangeSortingDialog(this, false, true, mPath) {
-            if (resortCompletedPhysicalFolder()) return@ChangeSortingDialog
+            val sortOperation = mediaSortOperations.begin()
+            if (resortCompletedPhysicalFolder(sortOperation)) return@ChangeSortingDialog
             mLoadedInitialPhotos = false
             binding.mediaGrid.adapter = null
             getMedia()
@@ -1603,7 +1606,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     /** Reuse a complete physical-folder snapshot; incomplete or protected sources still reload. */
-    private fun resortCompletedPhysicalFolder(): Boolean {
+    private fun resortCompletedPhysicalFolder(sortOperation: Long): Boolean {
         val request = displayedMediaRequest
         val read = folderReadResult.takeIf { folderReadRequest == request }
         val canReuse = org.fossify.gallery.helpers.MediaSortReusePolicy.canReuse(
@@ -1624,21 +1627,38 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val folderToken = folderUnlockSessionId
         val sorting = config.getFolderSorting(folder)
         val snapshot = mMedia.filterIsInstance<Medium>().map { it.copy() }
-        ensureBackgroundThread {
-            val sorted = ArrayList(snapshot)
-            MediaFetcher(applicationContext).sortMedia(sorted, sorting)
+        fun recoverFromSortFailure(error: Exception) {
+            android.util.Log.w("GalleryMedia", "Background folder sort failed; retrying through scan path", error)
             runOnUiThread {
-                if (isFinishing || isDestroyed || !mediaLoadRequests.isCurrent(request) ||
-                    completedMediaRequest != request || mIsGettingMedia || mPath != folder ||
-                    folderUnlockSessionId != folderToken || config.getFolderSorting(folder) != sorting ||
-                    (folderToken != null && !FolderUnlockSessionManager.isActive(folderToken))) return@runOnUiThread
-                val latestRead = folderReadResult.takeIf { folderReadRequest == request }
-                if (latestRead?.let {
-                        it.status == org.fossify.gallery.helpers.FolderReadStatus.COMPLETE && it.accessCurrent()
-                    } != true) return@runOnUiThread
-                mMedia = ArrayList(sorted)
-                setupAdapter()
+                if (!isFinishing && !isDestroyed && mediaSortOperations.isCurrent(sortOperation) &&
+                    mediaLoadRequests.isCurrent(request) && mPath == folder &&
+                    config.getFolderSorting(folder) == sorting) getMedia()
             }
+        }
+        try {
+            ensureBackgroundThread {
+                try {
+                    val sorted = ArrayList(snapshot)
+                    MediaFetcher(applicationContext).sortMedia(sorted, sorting)
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed || !mediaSortOperations.isCurrent(sortOperation) ||
+                            !mediaLoadRequests.isCurrent(request) || completedMediaRequest != request ||
+                            mIsGettingMedia || mPath != folder || folderUnlockSessionId != folderToken ||
+                            config.getFolderSorting(folder) != sorting ||
+                            (folderToken != null && !FolderUnlockSessionManager.isActive(folderToken))) return@runOnUiThread
+                        val latestRead = folderReadResult.takeIf { folderReadRequest == request }
+                        if (latestRead?.let {
+                                it.status == org.fossify.gallery.helpers.FolderReadStatus.COMPLETE && it.accessCurrent()
+                            } != true) return@runOnUiThread
+                        mMedia = ArrayList(sorted)
+                        setupAdapter()
+                    }
+                } catch (error: Exception) {
+                    recoverFromSortFailure(error)
+                }
+            }
+        } catch (error: java.util.concurrent.RejectedExecutionException) {
+            recoverFromSortFailure(error)
         }
         return true
     }
@@ -1752,6 +1772,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun getMedia(manualRefresh: Boolean = false) {
+        mediaSortOperations.invalidate()
         if (isPhotoProfiles) { getPhotoProfileMedia(); return }
         if (mPath == FAVORITES && favoriteSessionId != null) {
             favoriteAccessPaths = FavoriteAccessSessionManager.getCapturedPaths(favoriteSessionId)

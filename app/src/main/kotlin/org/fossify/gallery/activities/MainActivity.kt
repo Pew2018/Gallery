@@ -254,6 +254,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     // Cache preview is optional. Kept injectable for Activity-level failure regression tests.
     internal var directoryCacheReader: () -> List<Directory> = { directoryDB.getAll() }
     private val directoryRandomOrder = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private var directorySortStartedNanos = 0L
+    private var directorySortRequestedMode = 0
 
     private fun isCurrentDirectoryScan(id: Long): Boolean =
         directoryScanEpoch.isCurrent(id) && !mShouldStopFetching &&
@@ -1424,6 +1426,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     private fun showSortingDialog() {
         ChangeSortingDialog(this, true, false) {
+            directorySortStartedNanos = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+            directorySortRequestedMode = config.directorySorting
+            org.fossify.gallery.helpers.GalleryPerfTrace.event(
+                "album_sort_requested", revision = directorySortRequestedMode.toLong()
+            )
             directoryRandomOrder.clear()
             if (config.directorySorting and SORT_BY_DATE_MODIFIED != 0 || config.directorySorting and SORT_BY_DATE_TAKEN != 0 ||
                 config.directorySorting and SORT_BY_SIZE != 0) {
@@ -2747,21 +2754,37 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             val query = textToSearch ?: binding.mainMenu.getCurrentQuery()
             val sortingAtPublication = config.directorySorting
             val preparationStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+            val measurePreparationDetails = org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()
+            val dedupeStarted = if (measurePreparationDetails)
+                org.fossify.gallery.helpers.GalleryPerfTrace.begin() else 0L
             val distinctDirs = snapshot.filter { !mShowingFolderFavorites || mFavoriteFolderPaths.contains(it.path) }
                 .distinctBy {
                     if (mShowingFolderFavorites) FavoriteFolderRules.normalizedPath(it.path)
                     else it.path.getDistinctPath()
                 }.toCollection(ArrayList())
+            if (measurePreparationDetails) org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                "album_presentation_dedupe", dedupeStarted, snapshot.size
+            )
+            val sortStarted = if (measurePreparationDetails)
+                org.fossify.gallery.helpers.GalleryPerfTrace.begin() else 0L
             val sorted = if (sortDirs) getSortedDirectories(distinctDirs, directoryRandomOrder) else distinctDirs
+            if (measurePreparationDetails) org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                "album_presentation_sort", sortStarted, distinctDirs.size
+            )
             if (textToSearch == null) {
                 // Search always derives from the latest complete catalog, not the first cache.
                 mDirs = ArrayList(sorted)
                 mDirsIgnoringSearch = ArrayList(sorted)
             }
+            val filterStarted = if (measurePreparationDetails)
+                org.fossify.gallery.helpers.GalleryPerfTrace.begin() else 0L
             var visible = getDirsToShow(sorted, mDirs, mCurrentPathPrefix, directoryRandomOrder, sortDirs = sortDirs)
                 .toCollection(ArrayList())
             if (query.isNotEmpty()) visible = visible.filter { it.name.contains(query, true) }
                 .sortedBy { !it.name.startsWith(query, true) }.toCollection(ArrayList())
+            if (measurePreparationDetails) org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                "album_presentation_filter", filterStarted, visible.size
+            )
 
             if (scanRequest != null && org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
                 org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
@@ -2783,6 +2806,15 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                             org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "album_adapter_commit", scanRequest,
                             mapOf("itemCount" to visible.size, "scanComplete" to scanComplete)
                         )
+                    if (directorySortStartedNanos != 0L &&
+                        directorySortRequestedMode == sortingAtPublication &&
+                        sortingAtPublication == config.directorySorting &&
+                        (scanComplete || (scanRequest == null && !mIsGettingDirs))) {
+                        org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                            "album_sort_to_commit", directorySortStartedNanos, visible.size
+                        )
+                        directorySortStartedNanos = 0L
+                    }
                     onCommitted()
                 } else onDiscarded()
             }
