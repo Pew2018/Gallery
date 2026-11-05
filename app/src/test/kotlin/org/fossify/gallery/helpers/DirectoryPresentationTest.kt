@@ -158,7 +158,7 @@ class DirectoryPresentationTest {
                 repeat(3) {
                     val started = System.nanoTime()
                     val sorted = context.getSortedDirectories(ArrayList(source), randomRanks)
-                    val deduped = sorted.distinctBy { it.path }
+                    val deduped = ArrayList(sorted.distinctBy { it.path })
                     val visible = context.getDirsToShow(deduped, deduped, "", randomRanks, sortDirs = false)
                     // Use the same case-insensitive name predicate as MainActivity's search preparation.
                     visible.filter { it.name.contains("Album 00", true) }
