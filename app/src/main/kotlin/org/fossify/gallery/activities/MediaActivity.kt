@@ -1870,25 +1870,27 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         logVirtualSortDecision(sortOperation, sourceKind, sorting, snapshot.size,
             if (scanInProgress) "reuse_complete_during_refresh" else "reuse_complete")
         ensureBackgroundThread {
-            fun membershipSnapshot(): Set<String>? = when (sourceKind) {
-                "FAVORITES" -> {
-                    if (favoriteRevision != favoriteRelationshipRevision.get()) return null
-                    val captured = FavoriteAccessSessionManager.getCapturedPaths(favoriteToken)
-                    if (captured == null || !captured.containsAll(favoriteRelationships.orEmpty()) ||
-                        !captured.containsAll(mediaPaths)) null
-                    else applicationContext.getFavoritePaths().toSet().takeIf {
-                        it == favoriteRelationships && favoriteRevision == favoriteRelationshipRevision.get()
+            fun membershipSnapshot(): Set<String>? {
+                return when (sourceKind) {
+                    "FAVORITES" -> {
+                        if (favoriteRevision != favoriteRelationshipRevision.get()) return null
+                        val captured = FavoriteAccessSessionManager.getCapturedPaths(favoriteToken)
+                        if (captured == null || !captured.containsAll(favoriteRelationships.orEmpty()) ||
+                            !captured.containsAll(mediaPaths)) null
+                        else applicationContext.getFavoritePaths().toSet().takeIf {
+                            it == favoriteRelationships && favoriteRevision == favoriteRelationshipRevision.get()
+                        }
                     }
-                }
-                else -> {
-                    if (recycleRevision != org.fossify.gallery.helpers.RecycleBinMembershipRevision.current()) return null
-                    val filter = config.filterMedia
-                    applicationContext.getUpdatedDeletedMedia().asSequence()
-                        .filter { config.shouldShowHidden || !File(it.path).name.startsWith('.') }
-                        .filter { it.type and filter != 0 }
-                        .map { it.path }
-                        .toCollection(LinkedHashSet())
-                        .takeIf { recycleRevision == org.fossify.gallery.helpers.RecycleBinMembershipRevision.current() }
+                    else -> {
+                        if (recycleRevision != org.fossify.gallery.helpers.RecycleBinMembershipRevision.current()) return null
+                        val filter = config.filterMedia
+                        applicationContext.getUpdatedDeletedMedia().asSequence()
+                            .filter { config.shouldShowHidden || !File(it.path).name.startsWith('.') }
+                            .filter { it.type and filter != 0 }
+                            .map { it.path }
+                            .toCollection(LinkedHashSet())
+                            .takeIf { recycleRevision == org.fossify.gallery.helpers.RecycleBinMembershipRevision.current() }
+                    }
                 }
             }
 

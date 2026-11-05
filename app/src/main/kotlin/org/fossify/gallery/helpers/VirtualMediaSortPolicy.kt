@@ -1,7 +1,6 @@
 package org.fossify.gallery.helpers
 
 import org.fossify.commons.helpers.FAVORITES
-import org.fossify.commons.helpers.RECYCLE_BIN
 
 /** Reasons the virtual collection sort path may reuse, defer, or reject a snapshot. */
 internal enum class VirtualMediaSortDecision {
