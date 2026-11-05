@@ -175,6 +175,26 @@ class MediaPipelineDiagnosticsTest {
         assertEquals(-1L, events.first { it.name == "media_cache_db_summary" }.fields["cachedItemCount"])
     }
 
+    @Test fun deadlineWinsBeforeCancellationAndNeverBecomesSuccessful() {
+        val events = mutableListOf<CapturedEvent>()
+        val collector = MediaPipelineDiagnostics(
+            "ml-timeout", "FOLDER", "REFRESH", "UNKNOWN", "scope", 41L, 0L,
+            { 20L }, { level, module, name, request, fields ->
+                events += CapturedEvent(level, module, name, request, fields)
+            }
+        )
+        val gate = GalleryScanTerminalGate()
+        gate.begin(41L)
+        assertTrue(gate.finish(41L, GalleryScanResult(GalleryScanState.TIMED_OUT)))
+        collector.finishIfOpen("TIMED_OUT", 1L, 10L, 1L, -1L, -1L)
+        collector.finishIfOpen("CANCELLED", 1L, 10L, 2L, -1L, -1L)
+        assertFalse(gate.finish(41L, GalleryScanResult(GalleryScanState.COMPLETE)))
+        assertEquals(GalleryScanState.TIMED_OUT, gate.result(41L)?.state)
+        assertEquals(1, events.count { it.name == "media_load_terminal" })
+        assertEquals("TIMED_OUT", events.first { it.name == "media_load_terminal" }.fields["terminalState"])
+        assertEquals("TIMED_OUT", events.first { it.name == "media_scan_summary" }.fields["terminalState"])
+    }
+
     @Test fun retirementClosureIsIdempotentWithoutASecondTerminalWarning() {
         val events = mutableListOf<CapturedEvent>()
         val collector = MediaPipelineDiagnostics(

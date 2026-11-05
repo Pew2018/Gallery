@@ -492,7 +492,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             org.fossify.gallery.helpers.FolderRefreshTrace.event(
                 request, if (mShowAll) "all_files_timeout" else "folder_timeout"
             )
-            renderMediaScanState(request, org.fossify.gallery.helpers.GalleryScanResult(org.fossify.gallery.helpers.GalleryScanState.TIMED_OUT))
+            // A deadline may only retire the request when it wins the terminal gate.
+            if (!renderMediaScanState(request, org.fossify.gallery.helpers.GalleryScanResult(
+                    org.fossify.gallery.helpers.GalleryScanState.TIMED_OUT))) return@arm
+            mCurrAsyncTask?.reportTimedOut()
             mediaLoadRequests.invalidate()
             mediaScanGeneration++
             mCurrAsyncTask?.stopFetching()

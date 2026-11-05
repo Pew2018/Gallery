@@ -423,6 +423,11 @@ internal class GetMediaAsynctask(
         )
     }
 
+    /** A timed-out business request must not be diagnosed as just CANCELLED. */
+    fun reportTimedOut() {
+        finishPipelineDiagnostics("TIMED_OUT", emptyList())
+    }
+
     /** A rejected executor never started the scan, and has no post-execute result. */
     fun reportRejectedExecution() {
         finishPipelineDiagnostics("FAILED", emptyList())

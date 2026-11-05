@@ -32,6 +32,7 @@
 | F03 | F-fix（诊断边界） | `loadCategorizedFolders` 原 1566 行过期 final UI 回调早退；1514 行 failure 在 UI current 校验前记录 FAILED，可能把切换后的过期请求记成实际失败 | 基于版本/flags 的同一 UI 校验记录 CANCELLED/FAILED，不变更目录业务状态机 |
 | F04 | F-fix（终态边界） | `MediaActivity.startAsyncTask` 原 1968 行 RejectedExecutionException 已关闭 loading 与允许重试，但没有 `GalleryScanTerminalGate.finish(FAILED)`；AsyncTask 取消诊断可能误记 CANCELLED | 拒绝路径先结算诊断 FAILED 和既有终态，再取消 task，保持原失败 UI |
 | F05 | F（数据所有权风险） | `MediaActivity` 原 1886 行 `ensureBackgroundThread` 中迭代跨请求可变的 `mMedia`；UI 下一次刷新会替换该集合，导致 cache reconciliation 的旧基线可能竞争 | 在主线程正式回调创建 copy snapshot，再交给后台处理；保留请求复核与完整性剪枝条件 |
+| F06 | F-fix（终态一致性） | `MediaActivity.armMediaRefreshDeadline` 原 495–498 行先写业务 TIMED_OUT 再 `stopFetching()`，`GetMediaAsynctask.onCancelled` 原 406–409 行可能将诊断终态写成 CANCELLED；若超时未赢得 gate 仍继续失效请求 | 超时获业务 terminal gate 后立即上报诊断 TIMED_OUT，再取消 Worker；若 gate 拒绝则直接结束 watchdog callback |
 | R01 | R | `GalleryScanTerminalGate` 和 epoch 能阻止 UI 旧结果，但真实删除/移动与 Room 事务跨请求交错需更强可控数据库调度器/真机证据 | 记录；本轮不臆测全部删除/恢复问题均已消失 |
 | R02 | R | 分类 scan 进度/最终 Adapter commit 异步可被后续导航替代；诊断终结与可见帧不是同一个时间点 | 保留 Adapter 自己的 current 门；在第 4 阶段用 observer + device trace 验证实际显示 |
 | R03 | R | ALL Files 分区存储、SAF 撤权和扫描途中外部修改涉及多来源一致性 | 维持 PARTIAL/FAILED、不做全局缓存清理；待设备权限矩阵验证 |

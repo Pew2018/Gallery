@@ -8,8 +8,8 @@
 |---|---|---|
 | `helpers/MediaPipelineDiagnostics.kt`: `add`, `set`, `finish`, `emit` | 汇总候选与接纳计数 -1 被转为 0；其它计数可记任意非法负值；诊断早退遗漏，终态有时不可追踪 | 合法非负计数保留、其余统一 -1；未知计数与实测零严格分离；长时间计时只对不合法负数做非负处理，未知计时仍记 -1；累加拒绝负数并防溢出；`finishIfOpen` 为生命周期被取消的诊断提供幂等补终态，不更改业务 `GalleryScanTerminalGate` |
 | `activities/MainActivity.kt`: `retireDirectoryScan`、`getDirectories`、`finishDirectoryScan`、`loadCategorizedFolders`、`onPause` | HOME worker 已完成但 UI 早退时诊断可能没有终态；CATEGORY 变更/切页后旧 final/failure 诊断会丢失或误记 FAILED | 当前诊断引用与原有 epoch/version 一同被失效，旧回调仅结束日志为 CANCELLED，不能重新发布；正常页按既有 terminal gate 关闭 loading；分类错误仅在相同的当前 UI 检验中记 FAILED |
-| `asynctasks/GetMediaAsynctask.kt`: `finishPipelineDiagnostics`、`reportRejectedExecution` | 拒绝执行没有合适的 FAILED worker 诊断；CANCELLED/FAILED 的空结果会被记录为已正式接纳 0 项 | 无已发布正式结果时 `acceptedCount=-1`；拒绝路径可以独立结算 FAILED；重复异步 onCancelled 不再将已结束的诊断改为 CANCELLED |
-| `activities/MediaActivity.kt`: `startAsyncTask` | 执行器拒绝时 UI 被恢复但 terminal gate 未记 FAILED；后台调和读取可变 `mMedia` | 在拒绝 catch 中先对当前 task 记录诊断/业务 FAILED，再取消、失效请求、恢复已有 UI；正式结果回调在主线程复制旧媒体快照，再下发后台读差集。继续在旧 request/scanGeneration 与 COMPLETE 限制下剪枝 |
+| `asynctasks/GetMediaAsynctask.kt`: `finishPipelineDiagnostics`、`reportRejectedExecution`、`reportTimedOut` | 拒绝执行没有合适的 FAILED worker 诊断；CANCELLED/FAILED 的空结果会被记录为已正式接纳 0 项 | 无已发布正式结果时 `acceptedCount=-1`；拒绝路径可以独立结算 FAILED；重复异步 onCancelled 不再将已结束的诊断改为 CANCELLED；超时先写 TIMED_OUT 再取消 |
+| `activities/MediaActivity.kt`: `startAsyncTask` | 执行器拒绝时 UI 被恢复但 terminal gate 未记 FAILED；后台调和读取可变 `mMedia` | 在拒绝 catch 中先对当前 task 记录诊断/业务 FAILED，再取消、失效请求、恢复已有 UI；超时先赢得 terminal gate 并记录 TIMED_OUT，若未赢得则不误取消已完成请求；正式结果回调在主线程复制旧媒体快照，再下发后台读差集。继续在旧 request/scanGeneration 与 COMPLETE 限制下剪枝 |
 | `DirectoryScanEpoch.kt`、`GalleryScanResult.kt`、`FolderMediaScan.kt`、`DirectoryMetadataRepository.kt` | 已具备版本／终态／完整性／会话安全门 | **不修改业务实现**，只扩充现有测试，避免引入第二个管理器 |
 | `MediaFetcher.kt`、`FolderFileAccess.kt`、`CategorizedFolderScanner.kt`、`PhotoProfileMediaLoader.kt`、`PhotoProfileLoadContext.kt` | 已分清文件/索引、缓存/正式阶段和受保护来源 | 无足够可复现的新缺陷时不改读取语义、SQL、排序、阶段模型或权限 |
 | `MediaAdapter.kt`、`DirectoryAdapter.kt`、`ViewPagerActivity.kt`、`GalleryDiagnosticLogger.kt` | 原本具有 Diff/身份/授权/日志保护 | 不改视觉、布局、缩略图、签名或 Viewer 分段结构 |
@@ -64,7 +64,7 @@
 | T14/T15 终态、未知值、非法负数 | `MediaPipelineDiagnosticsTest` 新增 3 项：未知 vs 真零、非法负计数、不重复关闭诊断 | 待 CI 验证 |
 | T02 缓存回调晚于请求失效 | `MediaActivity.getMedia` 回调核验 `mediaLoadRequests.isCurrent`，已有生命周期 Activity 回归 | 尚无独立可控缓存调度器的针对性新测试 |
 
-**测试改动清单**：`MediaPipelineDiagnosticsTest.kt`（3 项），`DirectoryScanEpochTest.kt`（1 项），`RefreshReliabilityTest.kt`（1 项），`FolderMediaScanTest.kt`（扩充 1 个原测试断言）。已有 `FolderRefreshActivityTest`、`NoMediaCategoryRefreshTest` 和 `PhotoProfileMediaLoadingTest` 保留，不重复复制夹具。上述测试数量不是全部 15 项都具独立强制调度验收的声明。
+**测试改动清单**：`MediaPipelineDiagnosticsTest.kt`（5 项：含零测量与超时先于取消），`DirectoryScanEpochTest.kt`（1 项），`RefreshReliabilityTest.kt`（1 项），`FolderMediaScanTest.kt`（扩充 1 个原测试断言）。已有 `FolderRefreshActivityTest`、`NoMediaCategoryRefreshTest` 和 `PhotoProfileMediaLoadingTest` 保留，不重复复制夹具。上述测试数量不是全部 15 项都具独立强制调度验收的声明。
 
 ## 5. 验证计划与禁止事项
 
