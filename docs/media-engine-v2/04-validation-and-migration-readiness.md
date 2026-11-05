@@ -4,9 +4,11 @@
 
 ## 1. 阶段 0：必要的性能与正确性证据
 
-必须记录 APK SHA、设备型号/SDK、存储授权、媒体和文件夹数量、匿名 scope/request、sourceType、queueWaitMs、cacheHit、MediaStore queryCount/queryMs、directory enumerate/statCount/ioMs、Room read/write rows/ms、sortCount/sortMs、stagePublishCount、Adapter submit/commit/drop/bindCount、topPathHash/offsetPx、firstVisibleMs、completeMs、heap/GC、Viewer firstFrame/boundaryMs 和终态。
+当前指标字典、事件关联、缺失值和 B01–B20 操作步骤见 [20 — Phase 0 metrics and test plan](20-phase0-metrics-and-test-plan.md)；源码覆盖及限制见 [19 — Phase 0 instrumentation audit](19-phase0-instrumentation-audit.md)。
 
-推荐在现有 `GalleryDiagnosticLogger` 手动启用并脱敏的前提下做按请求摘要，避免默认给每个文件写大量 Release 日志。`GalleryPerfTrace` 当前仅允许部分前缀进入 Release，不应假定全量计数已存在。
+必须记录 APK SHA、设备型号/SDK、存储授权、媒体和文件夹数量、匿名 scope/request、sourceType、queueWaitMs、cacheHit、MediaStore queryCount/queryMs、directory enumerate/statCount/ioMs、Room read/write rows/ms、sortCount/sortMs、stagePublishCount、Adapter submit/commit/drop/bindCount、topPathHash/offsetPx、firstVisibleMs、completeMs、heap/GC、Viewer firstPageBound/boundaryMs 和终态。实际尚未接入公共请求摘要的字段以 `-1` 表示未测；不得推断为零。
+
+使用现有 `GalleryDiagnosticLogger` 手动启用的按请求摘要。`GalleryPerfTrace` 的 Release 持久事件过滤已修正：详细持久日志仍需手动启用；Logcat 原有 Release allowlist 维持。完整 Room、图片绑定及帧时间覆盖限制记录于 19。
 
 ```csv
 apk_sha,android_sdk,permission_mode,case_id,media_count,folder_count,scope_hash,first_visible_ms,complete_ms,query_count,enumerate_count,room_write_rows,sort_count,adapter_commits,bind_count,anchor_shift_px,scan_state
@@ -35,6 +37,6 @@ apk_sha,android_sdk,permission_mode,case_id,media_count,folder_count,scope_hash,
 
 **数据库条件**：先用 `EXPLAIN QUERY PLAN` 评估 `MediumDao` 的 `parent_path`、`deleted_ts` 过滤与批量写入成本；如测量证明索引有效，做显式 Room Migration、旧库/收藏/配置/备份升级验证，绝不 destructiveMigration。不预设新永久媒体索引、影子双引擎或固定工期。
 
-## 4. 本轮状态
+## 4. Phase 0 执行状态
 
-只更正文档；没有执行新 Unit、真实设备 Profiling、数据库迁移或 APK 构建。历史 CI 成绩与旧计划的人日估算不计入新阶段验收。
+本分支当前阶段 0 的代码、测试、Actions 与设备状态以 [21 — results and handoff](21-phase0-results-and-handoff.md) 为准。本地 Gradle 若因 wrapper 网络不可用未启动，不计为测试通过。历史 CI 成绩与旧计划的人日估算不计入新阶段验收。

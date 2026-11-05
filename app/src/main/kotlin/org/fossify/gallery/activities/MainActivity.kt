@@ -1084,6 +1084,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         directoryMetadataRebindWatchdog.stop()
         val scanRequest = directoryScanEpoch.begin()
         directoryScanTerminals.begin(scanRequest)
+        val diagnostics = if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+            org.fossify.gallery.helpers.MediaPipelineDiagnostics.create(
+                "HOME", "HOME", if (forceRefresh) "REFRESH" else "INITIAL", scanRequest
+            ) else null
+        var queuedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
         directoryTraceRequest = scanRequest
         org.fossify.gallery.helpers.FolderRefreshTrace.event(scanRequest, "album_queued")
         mShouldStopFetching = false
@@ -1094,21 +1099,32 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val launched = java.util.concurrent.atomic.AtomicBoolean(false)
         fun launch(cached: ArrayList<Directory>) {
             if (!isCurrentDirectoryScan(scanRequest) || !launched.compareAndSet(false, true)) return
+            queuedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
             try {
                 org.fossify.gallery.helpers.GalleryAlbumScanExecutor.execute {
-                    if (!isCurrentDirectoryScan(scanRequest)) return@execute
+                    if (!isCurrentDirectoryScan(scanRequest)) {
+                        val stoppedAt = android.os.SystemClock.elapsedRealtime()
+                        diagnostics?.finish("CANCELLED", (stoppedAt - queuedAtElapsedMs).coerceAtLeast(0L), 0L, 0L, -1L, -1L)
+                        return@execute
+                    }
+                    val workerStartedElapsedMs = android.os.SystemClock.elapsedRealtime()
                     val outcome = try {
-                        gotDirectories(addTempFolderIfNeeded(cached), scanRequest, forceRefresh)
+                        gotDirectories(addTempFolderIfNeeded(cached), scanRequest, forceRefresh, diagnostics)
                     } catch (error: Exception) {
                         android.util.Log.e("GalleryDirs", "Directory scan failed", error)
                         GalleryScanResult(if (error is java.util.concurrent.CancellationException ||
                             error is android.os.OperationCanceledException) GalleryScanState.CANCELLED
                             else GalleryScanState.FAILED, cause = error)
                     }
-                    finishDirectoryScan(scanRequest, outcome)
+                    val workerFinishedElapsedMs = android.os.SystemClock.elapsedRealtime()
+                    if (isCurrentDirectoryScan(scanRequest)) finishDirectoryScan(scanRequest, outcome, diagnostics,
+                        queuedAtElapsedMs, workerStartedElapsedMs, workerFinishedElapsedMs)
+                    else diagnostics?.finish("CANCELLED", (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
+                        (workerFinishedElapsedMs - workerStartedElapsedMs).coerceAtLeast(0L), 0L, -1L, -1L)
                 }
             } catch (error: java.util.concurrent.RejectedExecutionException) {
-                finishDirectoryScan(scanRequest, GalleryScanResult(GalleryScanState.FAILED, cause = error))
+                finishDirectoryScan(scanRequest, GalleryScanResult(GalleryScanState.FAILED, cause = error), diagnostics,
+                    queuedAtElapsedMs, queuedAtElapsedMs, android.os.SystemClock.elapsedRealtime())
             }
         }
         // Capture an immutable presentation fallback on the UI thread; do not clear it on cache failure.
@@ -1124,9 +1140,23 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         ) { launch(it) }
     }
 
-    private fun finishDirectoryScan(request: Long, result: GalleryScanResult) {
+    private fun finishDirectoryScan(
+        request: Long, result: GalleryScanResult,
+        diagnostics: org.fossify.gallery.helpers.MediaPipelineDiagnostics? = null,
+        queuedAtElapsedMs: Long = android.os.SystemClock.elapsedRealtime(),
+        workerStartedElapsedMs: Long = queuedAtElapsedMs,
+        workerFinishedElapsedMs: Long = android.os.SystemClock.elapsedRealtime()
+    ) {
         runOnUiThread {
             if (!isCurrentDirectoryScan(request) || !directoryScanTerminals.finish(request, result)) return@runOnUiThread
+            diagnostics?.finish(
+                result.state.name,
+                (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
+                (workerFinishedElapsedMs - workerStartedElapsedMs).coerceAtLeast(0L),
+                (android.os.SystemClock.elapsedRealtime() - workerFinishedElapsedMs).coerceAtLeast(0L),
+                diagnostics.snapshot()["candidateCount"] ?: -1L,
+                diagnostics.snapshot()["acceptedCount"] ?: -1L
+            )
             mIsGettingDirs = false
             setDirectoryLoading(false)
             binding.directoriesRefreshLayout.isRefreshing = false
@@ -1469,10 +1499,21 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         categorizedLoadActive = true
         categorizedReloadPending = false
         val requestedVisibility = mFolderVisibility.copyOf()
+        val diagnostics = if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+            org.fossify.gallery.helpers.MediaPipelineDiagnostics.create(
+                requestedVisibility.contentToString(), "CATEGORIZED", "INITIAL", requestVersion
+            ) else null
+        var queuedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
+        var workerStartedElapsedMs = queuedAtElapsedMs
+        var workerFinishedElapsedMs = queuedAtElapsedMs
         mLastMediaFetcher?.shouldStop = true
         val retained = mDirsIgnoringSearch.mapTo(ArrayList()) { it.snapshot() }
         val failed: (Exception) -> Unit = { error ->
             android.util.Log.e("GalleryFolders", "Folder category scan failed", error)
+            val finishedAt = android.os.SystemClock.elapsedRealtime()
+            diagnostics?.finish("FAILED", (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
+                (workerFinishedElapsedMs - workerStartedElapsedMs).coerceAtLeast(0L),
+                (finishedAt - workerFinishedElapsedMs).coerceAtLeast(0L), -1L, -1L)
             runOnUiThread {
                 if (!isFinishing && !isDestroyed && requestVersion == categorizedLoadVersion) {
                     categorizedLoadActive = false
@@ -1498,14 +1539,18 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 }
             }) { cached ->
             try {
+                queuedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
                 val scanned = org.fossify.gallery.helpers.CategorizedFolderScanner.scan(
                     applicationContext, cached, requestedVisibility, cancelled = { !current() }, onFetcher = { fetcher ->
                         fetcher.traceRequest = requestVersion
+                        fetcher.pipelineDiagnostics = diagnostics
+                        workerStartedElapsedMs = android.os.SystemClock.elapsedRealtime()
                         org.fossify.gallery.helpers.FolderRefreshTrace.event(requestVersion, "album_worker_started")
                         runOnUiThread { if (current()) mLastMediaFetcher = fetcher else fetcher.shouldStop = true }
                     }, onMetadata = { snapshot ->
                         org.fossify.gallery.helpers.DirectoryMetadataRepository.commit(applicationContext, snapshot)
                     }, onProgress = { partial ->
+                        diagnostics?.apply { add("stageCount"); add("stagePublishCount") }
                         runOnUiThread {
                             if (current()) {
                                 mDirs = partial.directories
@@ -1515,6 +1560,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                             }
                         }
                     })
+                workerFinishedElapsedMs = android.os.SystemClock.elapsedRealtime()
                 val visible = scanned.directories
                 runOnUiThread {
                     if (!current()) return@runOnUiThread
@@ -1524,13 +1570,25 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     mLoadedInitialPhotos = true
                     mIsGettingDirs = false
                     setDirectoryLoading(false)
-                    setupAdapter(visible, presentationIsCurrent = { current() })
+                    setupAdapter(visible, presentationIsCurrent = { current() }, onCommitted = {
+                        val finishedAt = android.os.SystemClock.elapsedRealtime()
+                        diagnostics?.finish(if (scanned.failures.isEmpty()) "COMPLETE" else "PARTIAL",
+                            (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
+                            (workerFinishedElapsedMs - workerStartedElapsedMs).coerceAtLeast(0L),
+                            (finishedAt - workerFinishedElapsedMs).coerceAtLeast(0L),
+                            visible.size.toLong(), visible.size.toLong())
+                    })
                     checkPlaceholderVisibility(visible)
                     binding.directoriesRefreshLayout.isRefreshing = false
                     if (scanned.failures.isNotEmpty()) toast(R.string.media_load_partial_error)
                 }
             } catch (error: Exception) {
                 if (current()) failed(error)
+                else {
+                    val finishedAt = android.os.SystemClock.elapsedRealtime()
+                    diagnostics?.finish("CANCELLED", (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
+                        (finishedAt - workerStartedElapsedMs).coerceAtLeast(0L), 0L, -1L, -1L)
+                }
             }
         }
     }
@@ -2056,7 +2114,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 
-    private fun gotDirectories(newDirs: ArrayList<Directory>, scanRequest: Long, discoverUnindexed: Boolean = false): GalleryScanResult {
+    private fun gotDirectories(
+        newDirs: ArrayList<Directory>, scanRequest: Long, discoverUnindexed: Boolean = false,
+        diagnostics: org.fossify.gallery.helpers.MediaPipelineDiagnostics? = null
+    ): GalleryScanResult {
         if (!isCurrentDirectoryScan(scanRequest)) return GalleryScanResult(GalleryScanState.CANCELLED)
         if (mShowingFolderFavorites) {
             // All favorite results must pass the same authentication and generation
@@ -2133,6 +2194,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             !isCurrentDirectoryScan(scanRequest)
         }, reportReadFailures = true, discoverUnindexedFolders = discoverUnindexed)
         scanFetcher.traceRequest = scanRequest
+        scanFetcher.pipelineDiagnostics = diagnostics
         mLastMediaFetcher = scanFetcher
         val getImages = mIsPickImageIntent || mIsGetImageContentIntent
         val getVideos = mIsPickVideoIntent || mIsGetVideoContentIntent
@@ -2675,6 +2737,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             if (query.isNotEmpty()) visible = visible.filter { it.name.contains(query, true) }
                 .sortedBy { !it.name.startsWith(query, true) }.toCollection(ArrayList())
 
+            if (scanRequest != null && org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+                org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                    org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "album_adapter_submit", scanRequest,
+                    mapOf("itemCount" to visible.size, "sortDirs" to sortDirs, "scanComplete" to scanComplete)
+                )
+
             org.fossify.gallery.helpers.GalleryPerfTrace.end("album_presentation_prepare", preparationStarted, snapshot.size)
             val committed = {
                 if (presentationIsCurrent() && (scanRequest == null || isCurrentDirectoryScan(scanRequest))) {
@@ -2684,6 +2752,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                         GalleryBottomBar.markRootContentReady(this@MainActivity, if (visible.isEmpty())
                             GalleryBottomBar.RootContent.EMPTY else GalleryBottomBar.RootContent.CONTENT)
                     }
+                    if (scanRequest != null && org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+                        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "album_adapter_commit", scanRequest,
+                            mapOf("itemCount" to visible.size, "scanComplete" to scanComplete)
+                        )
                     onCommitted()
                 } else onDiscarded()
             }

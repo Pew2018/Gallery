@@ -34,6 +34,7 @@ class MediaFetcher(
     internal var noMediaSnapshot = NoMediaSnapshot()
     internal var folderFileAccess: FolderFileAccess = DeviceFolderFileAccess(context)
     internal var traceRequest = 0L
+    internal var pipelineDiagnostics: MediaPipelineDiagnostics? = null
     internal var onFolderProgress: ((FolderMediaReadResult) -> Unit)? = null
     private val folderObservations = hashMapOf<String, FolderReadObservation>()
 
@@ -72,6 +73,11 @@ class MediaFetcher(
             "limited_visibility" in observation.reasons) FolderReadStatus.ACCESS_REQUIRED else observation.status
         FolderRefreshTrace.event(traceRequest, "read_result", media.map { it.path },
             "method=${observation.method} nomedia=${noMediaSnapshot.contains(path)} status=$status enumerated=${observation.enumerated} reasons=${observation.reasons}")
+        pipelineDiagnostics?.apply {
+            add("candidateCount", media.size.toLong())
+            add("acceptedCount", media.size.toLong())
+            add("diskEnumeratedItems", observation.enumerated.toLong())
+        }
         if (status != FolderReadStatus.COMPLETE) directoryReadFailures[path] =
             error ?: java.io.IOException("Incomplete directory read: $status")
         return FolderMediaReadResult(media, status, observation.method, observation.enumerated,
@@ -491,7 +497,16 @@ class MediaFetcher(
             FAVORITES -> favoritePaths.filter { showHidden || !it.contains("/.") }.map { File(it) }
             RECYCLE_BIN -> deletedMedia.map { File(it.path) }
             else -> try {
+                val enumerationStarted = if (pipelineDiagnostics != null) android.os.SystemClock.elapsedRealtime() else 0L
                 val enumeration = FolderRefreshTrace.measure(traceRequest, "directory_enumeration") { folderFileAccess.enumerate(folder) }
+                pipelineDiagnostics?.apply {
+                    add("diskEnumerateCount")
+                    add("diskEnumerateMs", (android.os.SystemClock.elapsedRealtime() - enumerationStarted).coerceAtLeast(0L))
+                    if (enumeration.method.contains("saf", ignoreCase = true)) {
+                        add("safOperationCount")
+                        add("safOperationMs", (android.os.SystemClock.elapsedRealtime() - enumerationStarted).coerceAtLeast(0L))
+                    }
+                }
                 observation?.apply {
                     method = enumeration.method
                     enumerated = enumeration.files.size
@@ -590,7 +605,12 @@ class MediaFetcher(
 
             FolderRefreshTrace.event(traceRequest, "type_passed", listOf(path))
             val metadata = if (physical) try {
+                val metadataStarted = if (pipelineDiagnostics != null) android.os.SystemClock.elapsedRealtime() else 0L
                 FolderRefreshTrace.measure(traceRequest, "file_metadata") { folderFileAccess.metadata(file) }.also {
+                    pipelineDiagnostics?.apply {
+                        add("metadataReadCount")
+                        add("metadataReadMs", (android.os.SystemClock.elapsedRealtime() - metadataStarted).coerceAtLeast(0L))
+                    }
                     if (!it.readable || !it.regular) {
                         if (!it.regular) observation?.count("not_file") else observation?.partial("unreadable")
                     }
@@ -704,13 +724,26 @@ class MediaFetcher(
         uri: Uri, projection: Array<String>, selection: String?, args: Array<String>?,
         callback: (Cursor) -> Unit
     ) {
-        val cursor = context.contentResolver.query(uri, projection, selection, args, null, querySignal())
-            ?: run {
-                if (reportReadFailures) throw java.io.IOException("MediaStore did not return a cursor")
-                return
+        val started = if (pipelineDiagnostics != null) android.os.SystemClock.elapsedRealtime() else 0L
+        var rows = 0L
+        pipelineDiagnostics?.add("mediaStoreQueryCount")
+        try {
+            val cursor = context.contentResolver.query(uri, projection, selection, args, null, querySignal())
+                ?: run {
+                    if (reportReadFailures) throw java.io.IOException("MediaStore did not return a cursor")
+                    return
+                }
+            cursor.use {
+                while (!shouldStop && it.moveToNext()) {
+                    rows++
+                    callback(it)
+                }
             }
-        cursor.use {
-            while (!shouldStop && it.moveToNext()) callback(it)
+        } finally {
+            pipelineDiagnostics?.apply {
+                add("mediaStoreQueryMs", (android.os.SystemClock.elapsedRealtime() - started).coerceAtLeast(0L))
+                add("mediaStoreRows", rows)
+            }
         }
     }
 
@@ -1106,7 +1139,14 @@ class MediaFetcher(
     }
 
     fun sortMedia(media: ArrayList<Medium>, sorting: Int) {
-        FolderRefreshTrace.measure(traceRequest, "sorting") {
+        val diagnostics = pipelineDiagnostics
+        val sortStarted = if (diagnostics != null) android.os.SystemClock.elapsedRealtime() else 0L
+        diagnostics?.apply {
+            add("sortCount")
+            add("sortInputItems", media.size.toLong())
+            set("sortMode", sorting.toLong())
+        }
+        try { FolderRefreshTrace.measure(traceRequest, "sorting") {
         if (sorting and SORT_BY_RANDOM != 0) {
             media.shuffle()
             return
@@ -1142,6 +1182,10 @@ class MediaFetcher(
             }
             result
         }
+        } } finally {
+            if (diagnostics != null) diagnostics.add(
+                "sortMs", (android.os.SystemClock.elapsedRealtime() - sortStarted).coerceAtLeast(0L)
+            )
         }
     }
 

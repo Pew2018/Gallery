@@ -2,13 +2,13 @@
 
 > **2026-11-05 校订**：原文中的“当前任务”“唯一 fix 分支”和 P1/P2/P3 均是 2026-11-04 历史开发记录，不再是现行工程指令。现行权威方案：[18](18-current-media-pipeline-roadmap.md)、[05](05-minimal-scan-sort-display-refactor.md)；工作分支 `refactor/media-pipeline-stability`；基线 `main` `49e799eceab00414ef074cbf71b7f0a35133b669`。
 >
-> **新六阶段 0–5 尚未实施和验收**。当前 `main` 的 [Actions 41939577702](https://github.com/Pew2018/Gallery/actions/runs/41939577702) 成功，仅证明指定 SHA 的完整 FOSS Release 单测和 ARM64 编译/校验，不等于新计划已有实机性能基准。
+> **新六阶段状态**：阶段 0 的代码、测试和文档已在 `refactor/media-pipeline-stability` 开始实施；CI/ARM64 Artifact 及真机性能基线待该轮实际核验。阶段 1–5 尚未实施。[19](19-phase0-instrumentation-audit.md)、[20](20-phase0-metrics-and-test-plan.md)、[21](21-phase0-results-and-handoff.md) 为本轮记录。历史 `main` Run 41939577702 不等于本轮代码验证，也不等于真机性能基准。
 
 ## 1. 新阶段状态总览
 
 | 阶段 | 当前状态 | 进入下一阶段的要求 |
 |---|---|---|
-| 0 诊断与性能基准 | 未开始 | 请求链路、查询/枚举/数据库/排序/UI 耗时及同设备 p50/p95 |
+| 0 诊断与性能基准 | 实施中；本地 Gradle/ADB 不可用，CI 与设备结果待记 | 请求链路、查询/枚举/数据库/排序/UI 耗时及同设备 p50/p95 |
 | 1 扫描生命周期与正确性 | 未开始 | 旧结果拒绝、删除/权限并发、正确终态、.nomedia 同步 |
 | 2 数据库与排序热点 | 未开始 | SQL EXPLAIN、增量排序和相同集合前后比较 |
 | 3 缓存复用和增量索引 | 未开始 | 外部变化检测、正确失效和无法证明时安全回退 |

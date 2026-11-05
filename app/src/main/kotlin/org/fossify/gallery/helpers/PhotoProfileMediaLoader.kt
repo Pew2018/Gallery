@@ -11,7 +11,8 @@ class PhotoProfileMediaLoader(
     private val context: Context,
     private val cancellationFetcher: MediaFetcher = MediaFetcher(context),
     private val sessionId: String? = null,
-    private val cancelled: () -> Boolean = { false }
+    private val cancelled: () -> Boolean = { false },
+    private val diagnostics: MediaPipelineDiagnostics? = null
 ) {
     companion object {
         const val PATH = "__photo_profiles__"
@@ -43,6 +44,8 @@ class PhotoProfileMediaLoader(
         try {
         PhotoProfileMediaCache.initialize(context.applicationContext)
         val fetcher = MediaFetcher(context, scope.filter and MEDIA_TYPES, ::stopped, reportReadFailures = true)
+        fetcher.pipelineDiagnostics = diagnostics
+        fetcher.traceRequest = cancellationFetcher.traceRequest
         val requestedFolders = scope.sources.filter { it.type == PhotoSourceType.FOLDER }.mapNotNull { it.path }
             .filter { !it.contains("/.") && !FavoriteFolderRules.isExcluded(it, scope.excluded) }.toSet()
         // Never enumerate or query protected source roots before their capability
@@ -68,6 +71,7 @@ class PhotoProfileMediaLoader(
             if (stage.media.isEmpty() || (stableLockedPreview && lockedPreviewPublished)) return
             if (lastPublishedStage?.let { PhotoLoadPublicationPolicy.sameVisibleContent(it, stage) } == true) return
             PhotoSessionViewerCatalogStore.offerPartial(context, stage)
+            diagnostics?.add("stagePublishCount")
             onStage(stage)
             lastPublishedStage = stage
             if (stableLockedPreview) lockedPreviewPublished = true
@@ -95,6 +99,13 @@ class PhotoProfileMediaLoader(
 
         val cacheLookup = GalleryPerfTrace.begin()
         val reusable = if (forceScan) null else PhotoProfileMediaCache.readReusable(request, context)
+        diagnostics?.apply {
+            add("cacheLookupCount")
+            if (reusable == null) add("cacheMissCount") else {
+                add("cacheHitCount")
+                add("cachedItemCount", reusable.size.toLong())
+            }
+        }
         if (reusable == null) GalleryPerfTrace.end("viewer_catalog_miss", cacheLookup, 0)
         if (reusable != null) {
             val validationStarted = GalleryPerfTrace.begin()
@@ -128,6 +139,13 @@ class PhotoProfileMediaLoader(
             val cached = PhotoProfileMediaCache.read(request) ?: runCatching {
                 readDatabaseCache(folders, favoriteFiles)
             }.getOrDefault(emptyList())
+            diagnostics?.apply {
+                add("cacheLookupCount")
+                if (cached.isEmpty()) add("cacheMissCount") else {
+                    add("cacheHitCount")
+                    add("cachedItemCount", cached.size.toLong())
+                }
+            }
             GalleryPerfTrace.end("photo_cache", started, cached.size)
             val sorted = ArrayList(cached)
             sort(sorted)
@@ -200,8 +218,13 @@ class PhotoProfileMediaLoader(
                 publishValidatedStage(stage.copy(media = ordered))
             }
         }
+        diagnostics?.add("diskSupplementCount", (media.size - indexed.mediaByPath.size).coerceAtLeast(0).toLong())
         GalleryPerfTrace.end("photo_supplement_scan", scanning, media.size)
         val complete = result(PhotoLoadStage.COMPLETE, media)
+        diagnostics?.apply {
+            set("candidateCount", media.size.toLong())
+            set("acceptedCount", complete.media.size.toLong())
+        }
         checkCurrent(request)
         if (complete.access.publicOnly && scope.sessionId == null) {
             val handoffStarted = GalleryPerfTrace.begin()
@@ -213,7 +236,13 @@ class PhotoProfileMediaLoader(
             // Public metadata only, never persist an authorization or a partial result.
             runCatching {
                 checkCurrent(request)
+                val writeStarted = if (diagnostics != null) android.os.SystemClock.elapsedRealtime() else 0L
                 context.mediaDB.insertAll(complete.media.filter { it.deletedTS == 0L })
+                diagnostics?.apply {
+                    add("dbWriteCount")
+                    add("dbWriteInputRows", complete.media.count { it.deletedTS == 0L }.toLong())
+                    add("dbWriteMs", (android.os.SystemClock.elapsedRealtime() - writeStarted).coerceAtLeast(0L))
+                }
             }.onFailure { if (it is PhotoLoadInvalidatedException) throw it }
         }
         checkCurrent(request)
@@ -231,11 +260,25 @@ class PhotoProfileMediaLoader(
         val media = LinkedHashMap<String, Medium>()
         folders.toList().chunked(400).forEach { batch ->
             if (stopped()) throw PhotoLoadInvalidatedException()
-            context.mediaDB.getCachedMediaFromFolders(batch).forEach { media[it.path] = it }
+            val started = if (diagnostics != null) android.os.SystemClock.elapsedRealtime() else 0L
+            val rows = context.mediaDB.getCachedMediaFromFolders(batch)
+            diagnostics?.apply {
+                add("dbReadCount")
+                add("dbReadRows", rows.size.toLong())
+                add("dbReadMs", (android.os.SystemClock.elapsedRealtime() - started).coerceAtLeast(0L))
+            }
+            rows.forEach { media[it.path] = it }
         }
         files.toList().chunked(400).forEach { batch ->
             if (stopped()) throw PhotoLoadInvalidatedException()
-            context.mediaDB.getCachedMediaFromFiles(batch).forEach { media[it.path] = it }
+            val started = if (diagnostics != null) android.os.SystemClock.elapsedRealtime() else 0L
+            val rows = context.mediaDB.getCachedMediaFromFiles(batch)
+            diagnostics?.apply {
+                add("dbReadCount")
+                add("dbReadRows", rows.size.toLong())
+                add("dbReadMs", (android.os.SystemClock.elapsedRealtime() - started).coerceAtLeast(0L))
+            }
+            rows.forEach { media[it.path] = it }
         }
         return ArrayList(media.values)
     }

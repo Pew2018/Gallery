@@ -15,7 +15,7 @@ The active file rotates at about 1 MiB across five numbered files (5 MiB total).
 Persisted event sources currently include:
 
 - `FolderRefreshTrace` request, worker, measured stage, read result, scan output, publication, adapter commit, directory metadata commit and timeout boundaries. Per-file `enumerated`, `type_passed` and `metadata_passed` events remain available only through the older targeted folder trace; they are not copied into persistent diagnostics.
-- Existing `GalleryPerfTrace` grid, album, photo-loader and viewer stage/count events, without changing its release Logcat behavior.
+- Existing `GalleryPerfTrace` grid, album, photo-loader and viewer stage/count events. Release Logcat behavior is unchanged; user-enabled diagnostics can persist stages outside the existing Release Logcat prefix allowlist.
 - Full-screen Viewer open, page-bound and close events, with the current index, visible count, content revision, collection type and a session-keyed media identifier.
 - Grid and full-screen delete request/result boundaries, including requested/completed counts and whether the operation was permanent or used the recycle bin.
 - Photo-profile full-screen delete recovery stages, path-identity candidate selection, validation failures, and the pager's applied item/index. Recovery events reuse the delete operation ID and use session-keyed anonymous media IDs; no media paths are recorded.
@@ -45,6 +45,16 @@ Copy keeps at most 250 KiB of the newest text and adds a truncation note. Export
 - The added diagnostic-specific test class covers expiry, redaction and uncaught-handler delegation. The other store concurrency, export-provider, UI interaction and device lifecycle cases listed in the feature request do not each have dedicated new tests; the project-wide suite passing is not evidence for all those scenarios.
 
 On-device visual behavior, real provider export compatibility, crash persistence under abrupt power loss, and performance impact still require a physical-device check. Native crashes, ANRs whose process is killed before managed code runs, and system force-stops cannot be guaranteed to produce a stack trace.
+
+## Media pipeline Phase 0 additions
+
+The `refactor/media-pipeline-stability` branch adds request-scoped events through `MediaPipelineDiagnostics` while reusing this switch, expiry, privacy rules, private storage, queue and rotation. See [Phase 0 audit](../media-engine-v2/19-phase0-instrumentation-audit.md), [metric plan](../media-engine-v2/20-phase0-metrics-and-test-plan.md) and [results](../media-engine-v2/21-phase0-results-and-handoff.md).
+
+For enabled requests, one `ml-*` request token links split `media_scan_summary`, `media_sort_summary`, `media_source_summary`, `media_cache_db_summary`, `media_ui_summary`, `media_thumbnail_summary` and `media_load_terminal` events. The generated request token does not replace Activity request IDs; `businessRequest` connects them to existing FolderRefreshTrace and Adapter event records. A per-session salted `scopeKey` is emitted instead of the raw path/scope. Missing metrics use `-1` and measured zero uses `0`.
+
+Observed counters cover MediaStore cursor attempts/rows/time, filesystem enumeration and metadata calls, sorting, selected Photo profile cache and Room boundaries, stage publication, and MediaAdapter submit/diff/commit events. This is not a complete Room trace. Actual database affected rows, all directory metadata/cleanup queries, thumbnail lifecycle, anchor displacement, decoded/drawn image frame and frame jank are not currently measured. Do not treat `viewer_page_bound` as an image draw. The full field-level limits and comparison protocol are in the metric plan.
+
+The 848-test/Run `41858925567` record above is the historical diagnostics feature build. It is not evidence that Phase 0 changes passed; use the actual current branch Actions and artifact recorded in the Phase 0 results file.
 
 ## Device acceptance steps
 

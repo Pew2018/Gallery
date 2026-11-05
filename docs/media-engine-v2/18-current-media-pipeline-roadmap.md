@@ -1,6 +1,6 @@
 # 18 — 媒体索引、加载、排序及稳定性：当前唯一实施路线图
 
-> 状态：**2026-11-05 已制定方案，阶段 0–5 尚未实施**。仓库 `Pew2018/Gallery`，静态审计 `main` `49e799eceab00414ef074cbf71b7f0a35133b669`；新工作分支 `refactor/media-pipeline-stability`。本轮仅重整文档，不修改应用代码。旧 01–17 文档中的历史分支、过时计划、当前状态仅对原文 SHA 有效。
+> 状态：**阶段 0 诊断埋点实施中；设备性能基线待采集**。仓库 `Pew2018/Gallery`，远程工作分支最新核对 HEAD `29f3528df55c9997cfe5c95a217ddc97eb85e331`。旧 01–17 文档中的历史分支、过时计划、当前状态仅对原文 SHA 有效。
 
 ## 1. 任务、目标与职责
 
@@ -50,6 +50,14 @@
 
 工作分支 `refactor/media-pipeline-stability`，从 `main` `49e799eceab00414ef074cbf71b7f0a35133b669` 建立；本轮只整理文档，不触发新的编译、不合并 `main`。老阶段 01–17 为追溯资料；[04](04-validation-and-migration-readiness.md) 为当前验证矩阵，[05](05-minimal-scan-sort-display-refactor.md) 为实施细则，[03](03-compatibility-contracts.md) 为用户功能和授权契约。
 
-## 6. 状态证明
+## 6. Phase 0 状态
+
+阶段 0 实施及指标边界见 [19 — instrumentation audit](19-phase0-instrumentation-audit.md)、[20 — metrics and test plan](20-phase0-metrics-and-test-plan.md) 与 [21 — results and handoff](21-phase0-results-and-handoff.md)。目前修改范围为计时门控、请求级 opt-in 汇总、媒体读取/排序/Photo 缓存与 DB、Adapter 提交观测、回归测试和文档；不调整扫描/排序/缓存/DB/UI 行为。
+
+日志字段缺失用 `-1` 表示，测得为零才记 `0`。`ml-*` UUID 连接一个请求的汇总；`businessRequest` 用于与既有扫描日志、适配器事件关联。统计值在采集完整前不能替代设备测量。
+
+当前开发环境没有 `adb`，Gradle wrapper 下载也因网络不可达未能启动本地测试；GitHub Actions、ARM64 APK 和 Artifact 需在本轮提交后实际核验。真机性能数据保持 `PENDING_DEVICE`。
+
+## 7. 历史状态证明
 
 当前 `main` 的 [Actions Run 41939577702](https://github.com/Pew2018/Gallery/actions/runs/41939577702) 为 success，包括完整 FOSS Release 单测、ARM64 Release APK 与签名/ABI 校验。此结果**不是**新六阶段的设备性能和并发验收。本轮未修改 Kotlin/数据库/CI，未进行真机测量；不承诺历史旧 8–16 或 43–78 人日估算。

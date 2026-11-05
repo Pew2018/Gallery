@@ -33,13 +33,47 @@ internal class GetMediaAsynctask(
     private val manualRefresh: Boolean = false,
     private val folderSessionId: String? = null,
     private val requestId: Long = 0,
+    private val diagnosticLoadReason: String? = null,
     private val onFolderPreview: ((FolderMediaReadResult, ArrayList<ThumbnailItem>) -> Unit)? = null,
     private val onFavoritePreview: ((List<Medium>, Set<String>) -> Unit)? = null,
     private val onFolderDetails: ((List<Medium>) -> Unit)? = null,
     val callback: (media: ArrayList<ThumbnailItem>) -> Unit
 ) :
     AsyncTask<Void, PhotoLoadResult, ArrayList<ThumbnailItem>>() {
-    private val mediaFetcher = MediaFetcher(context, reportReadFailures = true, discoverUnindexedFolders = manualRefresh).also { it.traceRequest = requestId }
+    private val diagnosticSource = when {
+        photoProfileId != null || mPath == PhotoProfileMediaLoader.PATH -> "PHOTO_PROFILE"
+        mPath == FAVORITES -> "FAVORITES"
+        mPath == RECYCLE_BIN -> "RECYCLE_BIN"
+        showAll -> "FOLDER"
+        else -> "FOLDER"
+    }
+    private val pipelineDiagnostics = if (GalleryDiagnosticLogger.isEnabled())
+        MediaPipelineDiagnostics.create(
+            if (photoProfileId != null) "photo-profile:$photoProfileId" else mPath,
+            diagnosticSource, if (manualRefresh) "REFRESH" else diagnosticLoadReason ?: "INITIAL", requestId,
+            permissionMode = when {
+                android.os.Build.VERSION.SDK_INT < 30 -> "LEGACY"
+                context.isExternalStorageManager() -> "ALL_FILES"
+                else -> "SCOPED_STORAGE"
+            }
+        ) else null
+    private val createdAtElapsedMs = android.os.SystemClock.elapsedRealtime()
+    private var queuedAtElapsedMs = createdAtElapsedMs
+    private var workerStartedElapsedMs = createdAtElapsedMs
+    private var workerFinishedElapsedMs = createdAtElapsedMs
+    private val mediaFetcher = MediaFetcher(context, reportReadFailures = true, discoverUnindexedFolders = manualRefresh).also {
+        it.traceRequest = requestId
+        it.pipelineDiagnostics = pipelineDiagnostics
+    }
+    init {
+        pipelineDiagnostics?.apply {
+            add("cacheLookupCount")
+            if (cachedMediaFallback.isEmpty()) add("cacheMissCount") else {
+                add("cacheHitCount")
+                add("cachedItemCount", cachedMediaFallback.size.toLong())
+            }
+        }
+    }
     internal var folderReadResult: FolderMediaReadResult? = null
         private set
     /** Captured before cache fallback/group headers; never use an Adapter for directory counts. */
@@ -60,12 +94,19 @@ internal class GetMediaAsynctask(
 
     internal var durationReader: (String) -> Int = { context.getDuration(it) ?: 0 }
     private val delivery = android.os.Handler(android.os.Looper.getMainLooper())
+
+    override fun onPreExecute() {
+        super.onPreExecute()
+        queuedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
+    }
+
     private fun folderAllowed(path: String): Boolean {
         val parent = java.io.File(path).parent ?: return false
         return FolderUnlockSessionManager.findProtectedAncestor(parent, context.config::isFolderProtected) == null ||
             FolderUnlockSessionManager.isMediaAuthorized(folderSessionId, path, context.config::isFolderProtected)
     }
     override fun doInBackground(vararg params: Void): ArrayList<ThumbnailItem> {
+        workerStartedElapsedMs = android.os.SystemClock.elapsedRealtime()
         FolderRefreshTrace.event(requestId, "scan_started", detail = "source=${if (photoProfileId != null) "photo_profile" else if (showAll) "all_media" else if (mPath == FAVORITES) "favorites" else "folder"}")
         FolderRefreshTrace.event(requestId, "worker_started")
         return try {
@@ -76,7 +117,7 @@ internal class GetMediaAsynctask(
             runCatching { FolderReturnCheckpoint.capture(context, mPath) }.getOrNull()
         } else null
         if (mPath == PhotoProfileMediaLoader.PATH || photoProfileId != null) {
-            val loader = PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId) { isCancelled }
+            val loader = PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId, { isCancelled }, pipelineDiagnostics)
             val final = loader.loadStaged(photoProfileId, photoAllowPreview && onPhotoResult != null, photoAnchorPath,
                 forceScan = manualRefresh, reuseActiveProducer = photoReuseProducer) {
                 if (!isCancelled) publishProgress(it.snapshotForUi())
@@ -287,12 +328,18 @@ internal class GetMediaAsynctask(
             scanResult = GalleryScanResult(GalleryScanState.FAILED, folderFailures.keys, error)
             scanFailure = error
             ArrayList()
+        } finally {
+            workerFinishedElapsedMs = android.os.SystemClock.elapsedRealtime()
         }
     }
 
     override fun onProgressUpdate(vararg values: PhotoLoadResult) {
         if (!isCancelled) values.forEach { result ->
             if (result.context.isCurrent(context)) {
+                pipelineDiagnostics?.apply {
+                    add("stageCount")
+                    add("stagePublishCount")
+                }
                 if (GalleryDiagnosticLogger.isEnabled() && diagnosticProfileStages.add(result.stage.name)) GalleryDiagnosticLogger.event(
                     DiagnosticLevel.INFO, "PhotoProfile", "scan_partial_published", requestId,
                     mapOf("stage" to result.stage.name, "count" to result.media.size, "requestVersion" to result.context.revision)
@@ -306,12 +353,14 @@ internal class GetMediaAsynctask(
         super.onPostExecute(media)
         if (isCancelled || scanResult.state == GalleryScanState.CANCELLED) {
             FolderRefreshTrace.event(requestId, "scan_cancelled")
+            finishPipelineDiagnostics("CANCELLED", media)
             return
         }
         val error = scanFailure ?: if (scanResult.state == GalleryScanState.FAILED)
             scanResult.cause ?: java.io.IOException("Media scan has no reliable source") else null
         if (error != null) {
             FolderRefreshTrace.event(requestId, "scan_failed", detail = "type=${error.javaClass.simpleName}")
+            finishPipelineDiagnostics(if (error is SecurityException) "ACCESS_REQUIRED" else "FAILED", media)
             onFailure(error)
             return
         }
@@ -320,12 +369,15 @@ internal class GetMediaAsynctask(
         if (result != null) {
             if (!result.context.isCurrent(context)) {
                 FolderRefreshTrace.event(requestId, "scan_failed", detail = "type=PhotoLoadInvalidatedException")
+                finishPipelineDiagnostics("FAILED", media)
                 onFailure(PhotoLoadInvalidatedException())
                 return
             }
+            finishPipelineDiagnostics(scanResult.state.name, media)
             if (onPhotoResult != null) onPhotoResult.invoke(result) else callback(media)
         } else {
             if (folderFailures.isNotEmpty()) onPartialFailure(folderFailures)
+            finishPipelineDiagnostics(scanResult.state.name, media)
             callback(media)
             val read = folderReadResult
             if (read != null && onFolderPreview != null && context.config.showThumbnailVideoDuration && !isCancelled) {
@@ -349,6 +401,25 @@ internal class GetMediaAsynctask(
                     })
             }
         }
+    }
+
+    override fun onCancelled(media: ArrayList<ThumbnailItem>?) {
+        super.onCancelled(media)
+        finishPipelineDiagnostics("CANCELLED", media.orEmpty())
+    }
+
+    private fun finishPipelineDiagnostics(terminalState: String, media: List<ThumbnailItem>) {
+        val trace = pipelineDiagnostics ?: return
+        val now = android.os.SystemClock.elapsedRealtime()
+        val metrics = trace.snapshot()
+        trace.finish(
+            terminalState = terminalState,
+            queueWaitMs = (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
+            workerMs = (workerFinishedElapsedMs - workerStartedElapsedMs).coerceAtLeast(0L),
+            publicationWaitMs = (now - workerFinishedElapsedMs).coerceAtLeast(0L),
+            candidateCount = metrics["candidateCount"] ?: metrics["mediaStoreRows"] ?: -1L,
+            acceptedCount = media.count { it is Medium }.toLong()
+        )
     }
 
     fun stopFetching() {

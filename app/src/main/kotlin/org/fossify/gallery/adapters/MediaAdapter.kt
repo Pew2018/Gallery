@@ -702,7 +702,8 @@ class MediaAdapter(
     private val refreshScroll = FavoritesScrollRestorer()
     private data class PendingUpdate(
         val items: ArrayList<ThumbnailItem>, val preserveScroll: Boolean,
-        val current: () -> Boolean, val committed: () -> Unit, val generation: Int
+        val current: () -> Boolean, val committed: () -> Unit, val generation: Int,
+        val requestId: Long?, val diagnosticsEnabled: Boolean
     )
     private var pendingUpdate: PendingUpdate? = null
     private var diffRunning = false
@@ -740,9 +741,20 @@ class MediaAdapter(
     }.toCollection(ArrayList())
 
     fun updateMedia(newMedia: ArrayList<ThumbnailItem>, preserveScroll: Boolean = true,
-                    isCurrent: () -> Boolean = { true }, onCommitted: () -> Unit = {}) {
+                    isCurrent: () -> Boolean = { true }, onCommitted: () -> Unit = {},
+                    diagnosticRequestId: Long? = null) {
         if (!isCurrent()) return
-        pendingUpdate = PendingUpdate(snapshot(newMedia), preserveScroll, isCurrent, onCommitted, ++diffGeneration)
+        val diagnosticsEnabled = org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()
+        if (diagnosticsEnabled) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_submit", diagnosticRequestId,
+            mapOf("itemCount" to newMedia.size, "preserveScroll" to preserveScroll)
+        )
+        if (diagnosticsEnabled && pendingUpdate != null) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_submit_replaced", diagnosticRequestId,
+            mapOf("itemCount" to newMedia.size)
+        )
+        pendingUpdate = PendingUpdate(snapshot(newMedia), preserveScroll, isCurrent, onCommitted, ++diffGeneration,
+            diagnosticRequestId, diagnosticsEnabled)
         recyclerView.removeCallbacks(drainUpdates)
         submitPendingUpdate()
     }
@@ -768,12 +780,18 @@ class MediaAdapter(
             // RecyclerView to diff or rebind rows whose visible content is stable.
             media = incoming
             currentMediaHash = media.hashCode()
+            if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+                org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                    org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_same_content_skip",
+                    pending.requestId, mapOf("itemCount" to incoming.size)
+                )
             pending.committed()
             return
         }
         val old = snapshot(media)
         diffRunning = true
         diffExecutor.execute {
+            val diffStarted = if (pending.diagnosticsEnabled) android.os.SystemClock.elapsedRealtime() else 0L
             val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
                 override fun getOldListSize() = old.size
                 override fun getNewListSize() = incoming.size
@@ -795,6 +813,11 @@ class MediaAdapter(
                 diffRunning = false
                 if (pending.generation != diffGeneration || activity.isDestroyed ||
                     recyclerView.adapter !== this || !pending.current()) {
+                    if (pending.diagnosticsEnabled)
+                        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_diff_dropped",
+                            pending.requestId, mapOf("itemCount" to incoming.size)
+                        )
                     submitPendingUpdate()
                     return@runOnUiThread
                 }
@@ -815,6 +838,15 @@ class MediaAdapter(
                 if (selectedKeys.isEmpty()) finishActMode() else actMode?.invalidate()
                 listener?.updateMediaGridDecoration(media)
                 diff.dispatchUpdatesTo(this)
+                if (pending.diagnosticsEnabled)
+                    org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                        org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_commit",
+                        pending.requestId, mapOf(
+                            "itemCount" to incoming.size,
+                            "oldCount" to old.size,
+                            "diffMs" to (android.os.SystemClock.elapsedRealtime() - diffStarted).coerceAtLeast(0L)
+                        )
+                    )
                 if (refreshScroll.pending != null) refreshScroll.restore(recyclerView,
                     media.map { (it as? Medium)?.path }, true, isCurrent = {
                         pending.generation == diffGeneration && recyclerView.adapter === this && pending.current() &&

@@ -1,6 +1,6 @@
 # Gallery 媒体管线文档索引
 
-> **当前唯一执行依据**：[18 — 现行媒体索引/加载/排序与稳定性路线图](18-current-media-pipeline-roadmap.md)（2026-11-05，`main` `49e799eceab00414ef074cbf71b7f0a35133b669`）。新工作分支：`refactor/media-pipeline-stability`。本轮仅整理文档；新阶段 0–5 尚未实施。
+> **当前唯一执行依据**：[18 — 现行媒体索引/加载/排序与稳定性路线图](18-current-media-pipeline-roadmap.md)。阶段 0 诊断埋点正在 `refactor/media-pipeline-stability` 实施；开始 HEAD 为 `29f3528df55c9997cfe5c95a217ddc97eb85e331`。CI 与真机基线须以 [21 — 结果与交接](21-phase0-results-and-handoff.md) 中实际记录为准。
 
 ## 现行任务与验收
 
@@ -9,6 +9,9 @@
 3. [04 — 验证与迁移准入](04-validation-and-migration-readiness.md)：基线字段、正确性/设备矩阵、EXPLAIN 和 Room Migration 门槛。
 4. [03 — 兼容契约](03-compatibility-contracts.md)：权限、.nomedia、收藏/备份、配置、OxygenOS 风格及 Viewer 不变量。
 5. [01 — 历史数据流](01-current-dataflow.md)、[02 — 历史风险登记](02-evidence-and-risk-register.md)：固定旧 SHA 的事实资料，应在最新 HEAD 重新核对。
+6. [19 — Phase 0 埋点审计](19-phase0-instrumentation-audit.md)：已有能力、调用链、修正的 Release 过滤盲点及未覆盖项。
+7. [20 — 指标与测试计划](20-phase0-metrics-and-test-plan.md)：事件字段、B01–B20 设备采集方法与统计口径。
+8. [21 — Phase 0 结果与交接](21-phase0-results-and-handoff.md)：实际改动、测试、Actions、APK 与真机待采集状态。
 
 ## 历史修复及构建资料（非现行执行指令）
 

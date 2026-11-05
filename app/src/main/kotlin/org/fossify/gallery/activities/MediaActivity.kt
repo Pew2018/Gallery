@@ -331,6 +331,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mCurrAsyncTask = GetMediaAsynctask(applicationContext, PhotoProfileMediaLoader.PATH,
             showAll = false, photoProfileId = profile.id, photoSessionId = requestedToken,
             manualRefresh = reason == org.fossify.gallery.helpers.PhotoLoadReason.REFRESH,
+            diagnosticLoadReason = when (reason) {
+                org.fossify.gallery.helpers.PhotoLoadReason.ENTER -> "INITIAL"
+                org.fossify.gallery.helpers.PhotoLoadReason.REFRESH -> "REFRESH"
+                org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED -> "CONFIG_SWITCH"
+            },
             photoAllowPreview = !retainGrid,
             photoAnchorPath = photoScroll.pending?.path,
             onPhotoResult = photoResult@{ result ->
@@ -1424,7 +1429,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         }
                         displayedMediaIsFinal = finalResult
                         restoreFavoritesScrollAnchor(request, finalResult)
-                    })
+                    }, diagnosticRequestId = request)
                 }
             } catch (ignored: Exception) {
             }
@@ -1523,7 +1528,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }, onCommitted = {
                 handleGridSpacing(currAdapter.media)
                 onCommitted()
-            })
+            }, diagnosticRequestId = request)
         } else {
             searchQueryChanged(mLastSearchedText)
         }

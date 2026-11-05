@@ -221,6 +221,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var mIsFullScreen = false
     private var mPos = -1
     private var diagnosticViewerOpened = false
+    private val viewerDiagnosticStartedAt = android.os.SystemClock.elapsedRealtime()
+    private var viewerDiagnosticRequestId: String? = null
+    private var viewerDiagnosticScopeKey: String? = null
+    private var viewerDiagnosticOpenMs = -1L
+    private var viewerDiagnosticFirstPageBoundMs = -1L
+    private var viewerDiagnosticPublicationCount = 0L
+    private var viewerDiagnosticExpandCount = 0L
+    private var viewerDiagnosticBoundaryStartedAt = 0L
     private var mShowAll = false
     private var lastVisitedPath: String? = null
     private var lastUserNavigationForward: Boolean? = null
@@ -611,8 +619,24 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override fun onDestroy() {
         if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
             org.fossify.gallery.helpers.DiagnosticLevel.INFO, "Viewer", "viewer_close",
+            viewerDiagnosticRequestId,
             fields = mapOf("index" to mPos, "count" to runCatching { getCurrentMedia().size }.getOrDefault(0))
         )
+        if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled() && viewerDiagnosticRequestId != null)
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                org.fossify.gallery.helpers.DiagnosticLevel.INFO, "MediaPipeline", "media_viewer_summary",
+                viewerDiagnosticRequestId,
+                mapOf(
+                    "scopeKey" to viewerDiagnosticScopeKey,
+                    "sourceType" to if (isPhotoProfile) "PHOTO_PROFILE" else if (isFavoriteRequest) "FAVORITES" else "FOLDER",
+                    "viewerOpenMs" to viewerDiagnosticOpenMs,
+                    "firstPageBoundMs" to viewerDiagnosticFirstPageBoundMs,
+                    "viewerCatalogLoadMs" to -1,
+                    "viewerExpandCount" to viewerDiagnosticExpandCount,
+                    "viewerPublicationCount" to viewerDiagnosticPublicationCount,
+                    "terminalState" to "CLOSED"
+                )
+            )
         photoDeleteGeneration++
         photoDeleteRecovery = null
         retryViewerScan = null
@@ -805,9 +829,21 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun initViewPager(savedPath: String) {
         if (!diagnosticViewerOpened && org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
             diagnosticViewerOpened = true
+            viewerDiagnosticRequestId = "vw-${java.util.UUID.randomUUID()}"
+            val scope = when {
+                isPhotoProfile -> photoProfileId ?: "UNKNOWN"
+                isFavoriteRequest -> FAVORITES
+                mDirectory.isNotEmpty() -> mDirectory
+                else -> "UNKNOWN"
+            }
+            viewerDiagnosticScopeKey = org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(scope)
+            viewerDiagnosticOpenMs = (android.os.SystemClock.elapsedRealtime() - viewerDiagnosticStartedAt).coerceAtLeast(0L)
             org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
                 org.fossify.gallery.helpers.DiagnosticLevel.INFO, "Viewer", "viewer_open",
-                fields = mapOf("mediaId" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(savedPath),
+                viewerDiagnosticRequestId,
+                fields = mapOf("scopeKey" to viewerDiagnosticScopeKey,
+                    "mediaId" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(savedPath),
+                    "viewerOpenMs" to viewerDiagnosticOpenMs,
                     "collection" to if (isPhotoProfile) "photo_profile" else if (mDirectory == SHOW_ALL) "all_media" else "folder")
             )
         }
@@ -1144,8 +1180,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             photoFallbackStarted = false
         }
         if (path.isEmpty() || !photoNavigation.request(path, forward)) return false
+        if (viewerDiagnosticRequestId != null) viewerDiagnosticExpandCount++
         if (viewerBoundaryStarted == 0L) {
             viewerBoundaryStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+            viewerDiagnosticBoundaryStartedAt = android.os.SystemClock.elapsedRealtime()
             org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_expand_started", activePagerAdapter?.count)
         }
         photoLastDirection = forward
@@ -1199,9 +1237,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun finishViewerBoundaryTrace() {
         if (viewerBoundaryStarted == 0L) return
+        if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled() && viewerDiagnosticRequestId != null) {
+            val duration = (android.os.SystemClock.elapsedRealtime() - viewerDiagnosticBoundaryStartedAt).coerceAtLeast(0L)
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaPipeline", "media_viewer_expand",
+                viewerDiagnosticRequestId, mapOf("boundaryWaitMs" to duration, "visibleCount" to activePagerAdapter?.count)
+            )
+        }
         org.fossify.gallery.helpers.GalleryPerfTrace.end("viewer_boundary_wait", viewerBoundaryStarted, activePagerAdapter?.count)
         org.fossify.gallery.helpers.GalleryPerfTrace.end("viewer_expand_finished", viewerBoundaryStarted, activePagerAdapter?.count)
         viewerBoundaryStarted = 0L
+        viewerDiagnosticBoundaryStartedAt = 0L
     }
 
     /** Works before the first catalog handoff, with UNKNOWN edges owned by the producer. */
@@ -3789,14 +3835,33 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     mPos = prepared.indexOfFirst { it.path == livePath }.takeIf { it >= 0 }
                         ?: mPos.coerceIn(0, prepared.lastIndex)
                     updatePagerItems(prepared)
+                    recordViewerDiagnosticPublication(prepared)
                     scheduleSwipe()
                 }
             }
-        } else updatePagerItems(mMediaFiles, positionIndex)
+        } else {
+            updatePagerItems(mMediaFiles, positionIndex)
+            recordViewerDiagnosticPublication(mMediaFiles)
+        }
 
         refreshMenuItems()
         checkOrientation()
         initBottomActions()
+    }
+
+    private fun recordViewerDiagnosticPublication(media: List<Medium>) {
+        if (!org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) return
+        val requestId = viewerDiagnosticRequestId ?: return
+        viewerDiagnosticPublicationCount++
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "Viewer", "media_viewer_publication", requestId,
+            fields = mapOf(
+                "scopeKey" to viewerDiagnosticScopeKey,
+                "publicationCount" to viewerDiagnosticPublicationCount,
+                "itemCount" to media.size,
+                "positionIndex" to mPos
+            )
+        )
     }
 
     private fun getPositionInList(items: List<Medium>): Int {
@@ -4145,10 +4210,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             mPos = position
             if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
                 val selected = getCurrentMedia().getOrNull(position)
+                if (viewerDiagnosticFirstPageBoundMs < 0L)
+                    viewerDiagnosticFirstPageBoundMs = (android.os.SystemClock.elapsedRealtime() - viewerDiagnosticStartedAt).coerceAtLeast(0L)
                 org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
                     org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "Viewer", "viewer_page_bound",
+                    viewerDiagnosticRequestId,
                     fields = mapOf(
                         "index" to position, "count" to getCurrentMedia().size,
+                        "firstPageBoundMs" to viewerDiagnosticFirstPageBoundMs,
                         "mediaId" to selected?.path?.let(org.fossify.gallery.helpers.GalleryDiagnosticLogger::anonymousId),
                         "revision" to org.fossify.gallery.helpers.PhotoContentRevision.current(),
                         "collection" to if (isPhotoProfile) "photo_profile" else if (mDirectory == SHOW_ALL) "all_media" else "folder"
