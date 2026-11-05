@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.os.Looper
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import org.fossify.commons.extensions.getSharedPrefs
+import org.fossify.commons.helpers.FAVORITES
 import org.fossify.commons.views.MyRecyclerView
 import org.fossify.gallery.R
 import org.fossify.gallery.activities.MediaActivity
@@ -15,6 +16,7 @@ import org.fossify.gallery.adapters.DirectoryAdapter
 import org.fossify.gallery.extensions.directoryDB
 import org.fossify.gallery.extensions.mediaDB
 import org.fossify.gallery.extensions.favoritesDB
+import org.fossify.gallery.extensions.favoriteProtection
 import org.fossify.commons.extensions.recycleBinPath
 import org.fossify.gallery.adapters.MediaAdapter
 import org.fossify.gallery.databases.GalleryDatabase
