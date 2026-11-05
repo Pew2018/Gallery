@@ -126,6 +126,77 @@ class MediaAdapterStabilityTest {
         assertEquals(listOf("z.jpg", "a.jpg"), adapter.media.filterIsInstance<Medium>().map { it.name })
     }
 
+    @Test fun largePureReorderCommitsWithoutAnExpensiveContentDiff() = withAdapter { adapter, recycler, tasks ->
+        val original = ArrayList<ThumbnailItem>(5_000)
+        repeat(5_000) { original += item("photo-$it.jpg") }
+        adapter.updateMedia(original, preserveScroll = false)
+        drain(tasks)
+        assertEquals(5_000, adapter.media.size)
+
+        val versionBefore = adapter.committedVersion
+        var committed = false
+        val sorted = ArrayList<ThumbnailItem>(original.asReversed())
+        adapter.updateMedia(sorted, preserveScroll = true, onCommitted = { committed = true })
+
+        assertTrue("A sort of the same plain media set must not queue a quadratic DiffUtil calculation", tasks.isEmpty())
+        assertTrue("The order-only update commits synchronously on the UI thread", committed)
+        assertEquals(versionBefore + 1, adapter.committedVersion)
+        assertSame(adapter, recycler.adapter)
+        assertEquals("photo-4999.jpg", (adapter.media.first() as Medium).name)
+        assertEquals("photo-0.jpg", (adapter.media.last() as Medium).name)
+    }
+
+    @Test fun coalescedAtoBtoABurstCommitsOnlyTheLastUserSnapshot() = withAdapter { adapter, _, tasks ->
+        val a = arrayListOf<ThumbnailItem>(item("a.jpg"), item("b.jpg"), item("c.jpg"))
+        val b = arrayListOf<ThumbnailItem>(item("c.jpg"), item("b.jpg"), item("a.jpg"))
+        val commits = ArrayList<String>()
+
+        adapter.updateMedia(b, preserveScroll = false, onCommitted = { commits += "B" })
+        adapter.updateMedia(a, preserveScroll = false, onCommitted = { commits += "A" })
+        adapter.updateMedia(b, preserveScroll = false, onCommitted = { commits += "B2" })
+        adapter.updateMedia(a, preserveScroll = false, onCommitted = { commits += "A2" })
+
+        drain(tasks)
+
+        assertEquals(listOf("A2"), commits)
+        assertEquals(listOf("a.jpg", "b.jpg", "c.jpg"), adapter.media.filterIsInstance<Medium>().map { it.name })
+    }
+
+    @Test fun searchNarrowingAndClearDuringAnInflightDiffCommitsTheLatestFullSnapshot() =
+        withAdapter { adapter, _, tasks ->
+            val full = ArrayList<ThumbnailItem>((0 until 200).map { item("image-$it.jpg") })
+            adapter.updateMedia(full, preserveScroll = false)
+            drain(tasks)
+            val firstQuery = ArrayList<ThumbnailItem>(full.filterIsInstance<Medium>().take(120))
+            val secondQuery = ArrayList<ThumbnailItem>(full.filterIsInstance<Medium>().take(12))
+            val commits = ArrayList<String>()
+
+            adapter.updateMedia(firstQuery, preserveScroll = false, onCommitted = { commits += "first" })
+            adapter.updateMedia(secondQuery, preserveScroll = false, onCommitted = { commits += "second" })
+            adapter.updateMedia(full, preserveScroll = false, onCommitted = { commits += "clear" })
+            drain(tasks)
+
+            assertEquals(listOf("clear"), commits)
+            assertEquals(full.map { (it as Medium).path }, adapter.media.filterIsInstance<Medium>().map { it.path })
+        }
+
+    @Test fun groupedSortRowsRemainOnTheDiffUtilPath() = withAdapter { adapter, _, tasks ->
+        val grouped = arrayListOf<ThumbnailItem>(
+            ThumbnailSection("June", "2026-06"), item("a.jpg"), item("b.jpg")
+        )
+        adapter.updateMedia(grouped, preserveScroll = false)
+        drain(tasks)
+        val reorderedWithinSection = arrayListOf<ThumbnailItem>(
+            ThumbnailSection("June", "2026-06"), item("b.jpg"), item("a.jpg")
+        )
+
+        adapter.updateMedia(reorderedWithinSection, preserveScroll = false)
+
+        assertEquals("Grouped rows are not flattened into the plain-list shortcut", 1, tasks.size)
+        drain(tasks)
+        assertEquals(listOf("b.jpg", "a.jpg"), adapter.media.filterIsInstance<Medium>().map { it.name })
+    }
+
     @Test fun persistenceAndGridPositionChangesDoNotScheduleDiffOrNotifyRows() = withAdapter { adapter, _, tasks ->
         var notifications = 0
         adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {

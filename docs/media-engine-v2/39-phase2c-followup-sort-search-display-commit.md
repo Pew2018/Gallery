@@ -1,0 +1,32 @@
+# Phase 2C Follow-up: sort/search display commit reliability
+
+## Scope and source
+
+This follow-up responds to three Pixel 8 Pro Android 16 logs captured on 2026-11-05 after the first sort/search repair. It is limited to ordinary physical-folder sorting, search publication, Adapter commit reliability, and request-level diagnostics. The implementation is based on the latest branch source at `56a986f0fb061e3f53f2982573ae6945ca6b525e`.
+
+## New device-log evidence
+
+- The ordinary-folder sorting log reports a 5,271-item COMPLETE load in 5,404 ms. A sort action at 21:23:00.598 is followed by `adapter_submit` 16 ms later, but the log has no matching adapter commit for that operation. A second sort at 21:23:05.791 overlaps refresh requests; the earlier diff later emits `adapter_diff_dropped`.
+- The `.nomedia` log reports 2,012 items COMPLETE. One sort submission took 2,750 ms to reach `adapter_commit`. Other scan publications took 3,150 ms and 3,526 ms; several subsequent submissions were replaced or dropped. The log does not show a final commit for several later sort/search submissions.
+- Ordinary-folder search input reached the listener. Query lengths 1 and 2 produced candidate Adapter lists of 4,902 and 633 rows. The subsequent refresh changed the media request, and later submissions replaced pending Adapter updates. In the `.nomedia` log, query lengths 1 and 2 yielded 1,150 and 205 media rows, but the corresponding submissions were replaced before a logged commit. Therefore filtering found matches; the UI input itself was not proven unavailable. The log also does not prove whether each final update was still pending at export time or was invalidated by a later Activity/request transition.
+- Several `.nomedia` and ordinary-folder scan requests were canceled and restarted near sort actions. The source path confirms that an ineligible sort preview fell through to `getMedia()`, which can stop the active request. Timing supports this as a cause of the observed restarts, though the old diagnostic did not record the cancellation initiator.
+
+## Source-confirmed failure paths
+
+1. COMPLETE reuse rejects any snapshot while `mIsGettingMedia` is true. The preview path also rejected a still-displayed COMPLETE snapshot, accepting only a missing or PARTIAL read result. A sort during refresh therefore missed both fast paths and called `getMedia()`, restarting useful work.
+2. `MediaAdapter.updateMedia()` intentionally coalesces updates while one DiffUtil calculation is running. A new request replaces its pending snapshot, and a stale in-flight calculation is dropped. This is correct for stale-data safety, but a large pure permutation can keep the newest sort/search update waiting for a costly edit-distance calculation. Device logs show multi-second diffs and the required distinction between submit and commit.
+3. Search filtering and grouping happen in the background and are guarded by search generation, displayed request, lifecycle, and access checks. Device logs show nonzero match counts, so the search failure is downstream of filtering in the observed cases. On publication, the latest search is recomputed, but repeated Adapter replacement can delay its visible commit. Earlier diagnostics also labeled publication-triggered recomputation as `search_text_changed`, obscuring actual user input events.
+
+## Changes in this follow-up
+
+- `MediaActivity.kt`: allow a validated PARTIAL or COMPLETE currently displayed physical-folder snapshot to be preview-sorted during an active scan. Recheck the exact displayed read result and access capability before publishing. If a safe preview cannot be built while a scan is already active (for example, grouped rows), retain the list and let that scan publish with the latest configured sort instead of canceling/restarting it. Add source stage, active scan request, selected snapshot, classified deferred action, stale-drop, failure, and actual Adapter-version diagnostics. Distinguish actual search input from query recomputation after a media publication; record counts and adapter identity/version without logging query text or paths.
+- `MediaUpdatePolicy.kt` and `MediaAdapter.kt`: identify only plain-media, same-membership, same-content permutations. Commit that order by swapping the adapter's position-to-item snapshot and notifying the item range so visible cells rebind. This avoids a large DiffUtil edit-distance calculation for pure sorting. Membership/content changes and all `ThumbnailSection` grouped lists continue through DiffUtil. The adapter is retained and scroll offset is not cleared. Adapter submit/replace/drop/commit events now include local diff generation, adapter identity, and committed version for request-level correlation.
+- `MediaSortPreviewPolicy.kt`: require the displayed snapshot itself to be known PARTIAL or COMPLETE, in addition to current request, source, adapter, and authorization checks.
+- Tests: add a 5,000-item plain reorder commit test, grouped-row DiffUtil guard, search narrowing/clear coalescing, A→B→A latest-submit behavior, and preview acceptance/rejection for an authorized visible snapshot during refresh.
+
+## Validation and remaining evidence
+
+- `git diff --check` is run before commit.
+- A local focused Gradle invocation could not start because Gradle 9.5.1 was unavailable and network access to `services.gradle.org` was blocked. This means the new test's pre-fix red result is inferred from its assertion against the previous Adapter implementation; it was not locally executed. The complete FOSS Release unit suite and ARM64 build must be confirmed by GitHub Actions after the repair commit.
+- The new Adapter reorder path is intentionally narrow. It does not flatten or reorder section headers, skip scan completeness, bypass protected-folder/SAF authorization, write Room, or mutate media metadata.
+- No post-fix device timings are claimed. Pixel 8 Pro verification remains `PENDING_DEVICE` until the user installs and exercises the new APK.

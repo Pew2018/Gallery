@@ -23,6 +23,33 @@ internal object MediaUpdatePolicy {
         before.copy(id = null, gridPosition = 0, mediaStoreId = 0) ==
             after.copy(id = null, gridPosition = 0, mediaStoreId = 0)
 
+    /**
+     * Sorting a plain media list changes positions without changing membership or
+     * rendered content. RecyclerView only needs visible rows rebound at their new
+     * adapter positions; running a full edit-distance diff for a large permutation
+     * can take seconds and let subsequent user updates continually supersede it.
+     * Grouped rows deliberately stay on the normal DiffUtil path.
+     */
+    fun isPureMediaReorder(before: List<ThumbnailItem>, after: List<ThumbnailItem>): Boolean {
+        if (before.size != after.size || before.isEmpty() || before.size < 2 ||
+            before.any { it !is Medium } || after.any { it !is Medium }) return false
+
+        val oldByPath = HashMap<String, Medium>(before.size)
+        for (item in before) {
+            val medium = item as Medium
+            if (oldByPath.put(medium.path, medium) != null) return false
+        }
+
+        var orderChanged = false
+        for (index in after.indices) {
+            val old = oldByPath.remove((after[index] as Medium).path) ?: return false
+            val new = after[index] as Medium
+            if (!MediaUpdatePolicy.sameContent(old, new)) return false
+            if (before[index].let { (it as Medium).path } != new.path) orderChanged = true
+        }
+        return oldByPath.isEmpty() && orderChanged
+    }
+
     fun durationOnly(before: Medium, after: Medium): Boolean =
         before.videoDuration != after.videoDuration &&
             sameContent(before.copy(videoDuration = after.videoDuration), after)

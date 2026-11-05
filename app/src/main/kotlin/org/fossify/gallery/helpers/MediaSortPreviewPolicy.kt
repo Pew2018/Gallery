@@ -9,10 +9,11 @@ internal object MediaSortPreviewPolicy {
         physicalFolder: Boolean,
         ordinarySource: Boolean,
         scanInProgress: Boolean,
+        snapshotValid: Boolean,
         requestCurrent: Boolean,
         accessCurrent: Boolean,
         adapterMatchesSource: Boolean,
         rows: List<ThumbnailItem>
-    ): Boolean = physicalFolder && ordinarySource && scanInProgress && requestCurrent &&
+    ): Boolean = physicalFolder && ordinarySource && scanInProgress && snapshotValid && requestCurrent &&
         accessCurrent && adapterMatchesSource && rows.isNotEmpty() && rows.all { it is Medium }
 }

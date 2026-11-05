@@ -67,3 +67,4 @@ Phase 2A验证：应用源码`dcd41024e06451eb7a46d28db18a84157cd5102b`；[Run 4
 
 - [37 — Pixel 8 Pro sort/search root-cause audit](37-phase2c-device-sort-search-root-cause.md): log-backed facts, source-confirmed failure paths, and remaining uncertainty around the exact search symptom.
 - [38 — sort/search fix and validation](38-phase2c-sort-search-fix-and-validation.md): implementation, tests, CI/APK status, and `PENDING_DEVICE` retest steps.
+- [39 — follow-up display commit reliability](39-phase2c-followup-sort-search-display-commit.md): analysis of the next Pixel 8 Pro logs, COMPLETE-during-refresh sort preview, low-cost pure reorder commits, and validation limits.

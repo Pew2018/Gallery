@@ -29,6 +29,10 @@ Successful run: [42029731443](https://github.com/Pew2018/Gallery/actions/runs/42
 
 CI verified package `org.fossify.gallery`, version `1.14.1` / versionCode `32`, `arm64-v8a` only, and APK Signature Scheme v2. The signer certificate is `CN=Gallery Temporary CI Test Signature, O=Local Testing`; this temporary CI signature is not an upgrade-signature compatibility guarantee. Test reports are in artifact `backup-ui-test-reports` (ID `13416450541`). The final documentation-only commit will have a HEAD later than the tested source SHA.
 
+## Follow-up after device retest
+
+The next Pixel 8 Pro logs showed that the first repair did not guarantee timely Adapter commits: several sort/search submissions were replaced or dropped while 2,012-item reorder diffs took 2.75–3.53 seconds. They also show nonzero search matches, so the observed failures were downstream of filtering. A source-confirmed path rejected the visible COMPLETE snapshot during an active refresh, then restarted the scan on sort fallback. These findings and the follow-up implementation/validation are recorded in [39](39-phase2c-followup-sort-search-display-commit.md). The CI/APK data above validates only the initial repair; follow-up Actions results will be recorded separately. Pixel 8 Pro remains `PENDING_DEVICE`.
+
 ## Device retest checklist
 
 1. Open a 5,000+ item ordinary folder, start a refresh, change sorting and verify current visible rows reorder without the grid disappearing; wait for completion and confirm final ordering matches the last choice.

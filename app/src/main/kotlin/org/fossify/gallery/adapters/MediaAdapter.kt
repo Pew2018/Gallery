@@ -749,11 +749,14 @@ class MediaAdapter(
         val diagnosticsEnabled = org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()
         if (diagnosticsEnabled) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
             org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_submit", diagnosticRequestId,
-            mapOf("itemCount" to newMedia.size, "preserveScroll" to preserveScroll)
+            mapOf("itemCount" to newMedia.size, "preserveScroll" to preserveScroll,
+                "diffGeneration" to (diffGeneration + 1), "adapterId" to System.identityHashCode(this),
+                "adapterVersion" to committedVersion)
         )
         if (diagnosticsEnabled && pendingUpdate != null) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
             org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_submit_replaced", diagnosticRequestId,
-            mapOf("itemCount" to newMedia.size)
+            mapOf("itemCount" to newMedia.size, "replacedGeneration" to pendingUpdate?.generation,
+                "diffGeneration" to (diffGeneration + 1), "adapterId" to System.identityHashCode(this))
         )
         pendingUpdate = PendingUpdate(snapshot(newMedia), preserveScroll, isCurrent, onCommitted, ++diffGeneration,
             diagnosticRequestId, diagnosticsEnabled)
@@ -786,7 +789,28 @@ class MediaAdapter(
             if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
                 org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
                     org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_same_content_skip",
-                    pending.requestId, mapOf("itemCount" to incoming.size)
+                    pending.requestId, mapOf("itemCount" to incoming.size, "diffGeneration" to pending.generation,
+                        "adapterId" to System.identityHashCode(this), "adapterVersion" to committedVersion)
+                )
+            pending.committed()
+            return
+        }
+        if (MediaUpdatePolicy.isPureMediaReorder(media, incoming)) {
+            // A plain sort is a permutation of the same authorized rows. Commit
+            // the new position-to-item mapping directly and rebind visible cells;
+            // DiffUtil's edit-distance search is needlessly expensive for a large
+            // permutation. Membership/content changes and grouped rows still use
+            // the regular DiffUtil path below.
+            media = incoming
+            committedVersion++
+            currentMediaHash = media.hashCode()
+            listener?.updateMediaGridDecoration(media)
+            notifyItemRangeChanged(0, incoming.size)
+            if (pending.diagnosticsEnabled)
+                org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                    org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_reorder_commit",
+                    pending.requestId, mapOf("itemCount" to incoming.size, "gridVersion" to committedVersion,
+                        "diffGeneration" to pending.generation, "adapterId" to System.identityHashCode(this))
                 )
             pending.committed()
             return
@@ -819,7 +843,9 @@ class MediaAdapter(
                     if (pending.diagnosticsEnabled)
                         org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
                             org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_diff_dropped",
-                            pending.requestId, mapOf("itemCount" to incoming.size)
+                            pending.requestId, mapOf("itemCount" to incoming.size,
+                                "diffGeneration" to pending.generation, "adapterId" to System.identityHashCode(this),
+                                "adapterVersion" to committedVersion)
                         )
                     submitPendingUpdate()
                     return@runOnUiThread
@@ -847,6 +873,7 @@ class MediaAdapter(
                         org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_commit",
                         pending.requestId, mapOf(
                             "itemCount" to incoming.size, "gridVersion" to committedVersion,
+                            "diffGeneration" to pending.generation, "adapterId" to System.identityHashCode(this),
                             "oldCount" to old.size,
                             "diffMs" to (android.os.SystemClock.elapsedRealtime() - diffStarted).coerceAtLeast(0L)
                         )

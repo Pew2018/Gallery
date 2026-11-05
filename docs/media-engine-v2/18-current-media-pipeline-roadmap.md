@@ -97,3 +97,5 @@
 ## Phase 2C device sort/search follow-up (2026-11-05)
 
 The next bounded pass addresses ordinary-folder sort feedback and search while scanning. The audit separates confirmed source paths from unproven causes in the Pixel logs; see [37](37-phase2c-device-sort-search-root-cause.md). The implementation and evidence status are tracked in [38](38-phase2c-sort-search-fix-and-validation.md). Room/schema, persistent index, Viewer continuity, delete anchors and home-card movement remain out of scope. Device verification remains `PENDING_DEVICE` until the updated APK is tested on Pixel 8 Pro.
+
+Follow-up logs showed that `adapter_submit` could be replaced or dropped before commit and that sorting during refresh could restart an active scan. The follow-up implementation permits authorized current COMPLETE snapshots during refresh and commits plain-media reorder-only updates directly; sectioned media stays on DiffUtil. See [39](39-phase2c-followup-sort-search-display-commit.md). CI is pending for this follow-up; Pixel 8 Pro remains `PENDING_DEVICE`.
