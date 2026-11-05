@@ -1,188 +1,46 @@
-package org.fossify.gallery.databases
+YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíßÎtN‹Z–‹­¦ëeŠw¬ÕÁ…­…”½Éœ¹™½ÍÍ¥™ä¹…±±•Éä¹‘…Ñ…‰…Í•Ì()¥µÁ½ÉĞ…¹‘É½¥¹…ÁÀ¹ÁÁ±¥…Ñ¥½¸)¥µÁ½ÉĞ…¹‘É½¥‘à¹É½½´¹I½½´)¥µÁ½ÉĞ…¹‘É½¥‘à¹ÍÅ±¥Ñ”¹‘ˆ¹MÕÁÁ½ÉÑME1¥Ñ•…Ñ…‰…Í”)¥µÁ½ÉĞ½Éœ¹™½ÍÍ¥™ä¹…±±•Éä¹µ½‘•±Ì¹¥É•Ñ½Éä)¥µÁ½ÉĞ½Éœ¹™½ÍÍ¥™ä¹…±±•Éä¹µ½‘•±Ì¹…Ù½É¥Ñ”)¥µÁ½ÉĞ½Éœ¹™½ÍÍ¥™ä¹…±±•Éä¹µ½‘•±Ì¹5•‘¥Õ´)¥µÁ½ÉĞ½Éœ¹©Õ¹¥Ğ¹ÍÍ•ÉĞ¹…ÍÍ•ÉÑÅÕ…±Ì)¥µÁ½ÉĞ½Éœ¹©Õ¹¥Ğ¹ÍÍ•ÉĞ¹…ÍÍ•ÉÑQÉÕ”)¥µÁ½ÉĞ½Éœ¹©Õ¹¥Ğ¹Q•ÍĞ)¥µÁ½ÉĞ½Éœ¹©Õ¹¥Ğ¹ÉÕ¹¹•È¹IÕ¹]¥Ñ )¥µÁ½ÉĞ½Éœ¹É½‰½±•ÑÉ¥Œ¹…¹¹½Ñ…Ñ¥½¸¹½¹™¥œ)¥µÁ½ÉĞ½Éœ¹É½‰½±•ÑÉ¥Œ¹I½‰½±•ÑÉ¥Q•ÍÑIÕ¹¹•È)¥µÁ½ÉĞ½Éœ¹É½‰½±•ÑÉ¥Œ¹IÕ¹Ñ¥µ•¹Ù¥É½¹µ•¹Ğ((¼¨¨Må¹Ñ¡•Ñ¥ŒI½½´ØÄÄ‘…Ñ…‰…Í”½¹±äìÑ¡¥Ì‘½•Ì¹½Ğ¥¹ÍÁ•Ğ„ÕÍ•ÈÌ…±±•Éä¹‘ˆ¸€¨¼)IÕ¹]¥Ñ ¡I½‰½±•ÑÉ¥Q•ÍÑIÕ¹¹•Èèé±…ÍÌ¤)½¹™¥œ¡Í‘¬€ôlÈát°…ÁÁ±¥…Ñ¥½¸€ôÁÁ±¥…Ñ¥½¸èé±…ÍÌ¤)±…ÍÌ…±±•Éå…Ñ…‰…Í•EÕ•ÉåA±…¹Q•ÍĞì(€€€Q•ÍĞ™Õ¸É•Á•…Ñ•‘U¹¡…¹•‘	…Ñ¡]É¥Ñ•¹‘5•Ñ…‘…Ñ…UÁ‘…Ñ•AÉ•Í•ÉÙ•I½İÍ¹‘…Ù½É¥Ñ•I•±…Ñ¥½¹Ì ¤ì(€€€€€€€Ù…°½¹Ñ•áĞ€ôIÕ¹Ñ¥µ•¹Ù¥É½¹µ•¹Ğ¹•ÑÁÁ±¥…Ñ¥½¸ ¤(€€€€€€€Ù…°‘ˆ€ôI½½´¹¥¹5•µ½Éå…Ñ…‰…Í•	Õ¥±‘•È¡½¹Ñ•áĞ°…±±•Éå…Ñ…‰…Í”èé±…ÍÌ¹©…Ù„¤(€€€€€€€€€€€€¹…±±½İ5…¥¹Q¡É•…‘EÕ•É¥•Ì ¤¹‰Õ¥± ¤(€€€€€€€ÑÉäì(€€€€€€€€€€€Ù…°µ•‘¥……¼€ô‘ˆ¹5•‘¥Õµ…¼ ¤(€€€€€€€€€€€Ù…°™…Ù½É¥Ñ•…¼€ô‘ˆ¹…Ù½É¥Ñ•Í…¼ ¤(€€€€€€€€€€€Ù…°½É¥¥¹…°€ô€ ÀÕ¹Ñ¥°€ÔÀÀ¤¹µ…Àì¥¹‘•à€´ø(€€€€€€€€€€€€€€€Ù…°™½±‘•È€ô€ˆ½Íå¹Ñ¡•Ñ¥Œ½İÉ¥Ñ”½™½±‘•È´‘í¥¹‘•à€”€Õôˆ(€€€€€€€€€€€€€€€5•‘¥Õ´¡¹Õ±°°€‰¥µ…”´‘¥¹‘•à¹©Áœˆ°€ˆ‘™½±‘•È½¥µ…”´‘¥¹‘•à¹©Áœˆ°™½±‘•È°(€€€€€€€€€€€€€€€€€€€€Å0°€É0°€ÄÀÈÑ0€¬¥¹‘•à°€Ä°€À°™…±Í”°€Á0°¥¹‘•à¹Ñ½1½¹œ ¤¤(€€€€€€€€€€€ô(€€€€€€€€€€€µ•‘¥……¼¹¥¹Í•ÉÑ±°¡½É¥¥¹…°¤(€€€€€€€€€€€Ù…°™…Ù½É¥Ñ•A…Ñ¡Ì€ô½É¥¥¹…°¹™¥±Ñ•É%¹‘•á•ì¥¹‘•à°|€´ø¥¹‘•à€”€ÄÀ€ôô€Àô(€€€€€€€€€€€™…Ù½É¥Ñ•…¼¹¥¹Í•ÉÑ±°¡™…Ù½É¥Ñ•A…Ñ¡Ì¹µ…Àì…Ù½É¥Ñ”¡¹Õ±°°¥Ğ¹Á…Ñ °¥Ğ¹¹…µ”°¥Ğ¹Á…É•¹ÑA…Ñ ¤ô¤((€€€€€€€€€€€Ù…°É•Á•…Ñ•‘MÑ…ÉÑ•€ôMåÍÑ•´¹¹…¹½Q¥µ” ¤(€€€€€€€€€€€µ•‘¥……¼¹¥¹Í•ÉÑ±°¡½É¥¥¹…°¹µ…Àì¥Ğ¹½Áä ¤ô¤(€€€€€€€€€€€Ù…°É•Á•…Ñ•‘]É¥Ñ•5¥É½Ì€ô€¡MåÍÑ•´¹¹…¹½Q¥µ” ¤€´É•Á•…Ñ•‘MÑ…ÉÑ•¤€¼€Å|ÀÀÀ(€€€€€€€€€€€…ÍÍ•ÉÑÅÕ…±Ì ÔÀÀ°µ•‘¥……¼¹•Ñ±±5•‘¥„ ¤¹Í¥é”¤(€€€€€€€€€€€…ÍÍ•ÉÑÅÕ…±Ì ÔÀ°™…Ù½É¥Ñ•…¼¹•Ñ…Ù½É¥Ñ•Í½Õ¹Ğ ¤¹Ñ½%¹Ğ ¤¤((€€€€€€€€€€€Ù…°¡…¹•‘A…Ñ €ô½É¥¥¹…°¹™¥ÉÍĞ ¤¹Á…Ñ (€€€€€€€€€€€Ù…°¡…¹•€ô½É¥¥¹…°¹™¥ÉÍĞ ¤¹½Áä¡Í¥é”€ô€äå|ääå0°µ½‘¥™¥•€ô€ÄÈÍ|ĞÔÙ0¤(€€€€€€€€€€€µ•‘¥……¼¹¥¹Í•ÉÑ±°¡±¥ÍÑ=˜¡¡…¹•¤¤(€€€€€€€€€€€…ÍÍ•ÉÑÅÕ…±Ì äå|ääå0°µ•‘¥……¼¹•Ñ…¡•‘5•‘¥…É½µ¥±•Ì¡±¥ÍÑ=˜¡¡…¹•‘A…Ñ ¤¤¹Í¥¹±” ¤¹Í¥é”¤(€€€€€€€€€€€…ÍÍ•ÉÑÅÕ…±Ì ÔÀ°™…Ù½É¥Ñ•…¼¹•Ñ…Ù½É¥Ñ•Í½Õ¹Ğ ¤¹Ñ½%¹Ğ ¤¤(€€€€€€€€€€€ÁÉ¥¹Ñ±¸ ‰…±±•Éå‰]É¥Ñ•Må¹Ñ¡•Ñ¥ŒÉ½İÌôÔÀÀÉ•Á•…Ñ%‘•¹Ñ¥…±	…Ñ ô‘íÉ•Á•…Ñ•‘]É¥Ñ•5¥É½ÍõÕÌ€ˆ€¬(€€€€€€€€€€€€€€€€‰É•Á•…Ñ…±±ÌôÄÉ•Á•…Ñ%¹ÁÕÑI½İÌôÔÀÀ™¥¹…±5•‘¥…I½İÌô‘íµ•‘¥……¼¹•Ñ±±5•‘¥„ ¤¹Í¥é•ô€ˆ€¬(€€€€€€€€€€€€€€€€‰™…Ù½É¥Ñ•I•±…Ñ¥½¹I½İÌô‘í™…Ù½É¥Ñ•…¼¹•Ñ…Ù½É¥Ñ•Í½Õ¹Ğ ¥ôˆ¤(€€€€€€€ô™¥¹…±±äì(€€€€€€€€€€€‘ˆ¹±½Í” ¤(€€€€€€€ô(€€€ô((€€€Q•ÍĞ™Õ¸É•ÁÉ•Í•¹Ñ…Ñ¥Ù•XÄÅEÕ•ÉåA±…¹Í¹‘5•µ‰•ÉÍ¡¥Á!½±‘ÑI•ÅÕ•ÍÑ•‘M…±•Ì ¤ì(€€€€€€€Ù…°½¹Ñ•áĞ€ôIÕ¹Ñ¥µ•¹Ù¥É½¹µ•¹Ğ¹•ÑÁÁ±¥…Ñ¥½¸ ¤(€€€€€€€Ù…°‘ˆ€ôI½½´¹¥¹5•µ½Éå…Ñ…‰…Í•	Õ¥±‘•È¡½¹Ñ•áĞ°…±±•Éå…Ñ…‰…Í”èé±…ÍÌ¹©…Ù„¤(€€€€€€€€€€€€¹…±±½İ5…¥¹Q¡É•…‘EÕ•É¥•Ì ¤¹‰Õ¥± ¤(€€€€€€€ÑÉäì(€€€€€€€€€€€Ù…°Ñ¡É•Í¡½±‘Ì€ô±¥ÍÑ=˜ ÄÀÀ°€Õ|ÀÀÀ°€ÌÁ|ÀÀÀ°€ÄÀÁ|ÀÀÀ¤(€€€€€€€€€€€Ù…°µ•‘¥……¼€ô‘ˆ¹5•‘¥Õµ…¼ ¤(€€€€€€€€€€€Ù…°™…Ù½É¥Ñ•…¼€ô‘ˆ¹…Ù½É¥Ñ•Í…¼ ¤(€€€€€€€€€€€Ù…°‘¥É•Ñ½Éå…¼€ô‘ˆ¹¥É•Ñ½Éå…¼ ¤(€€€€€€€€€€€‘¥É•Ñ½Éå…¼¹¥¹Í•ÉÑ±°  ÀÕ¹Ñ¥°€ÄÀÀ¤¹µ…Àì¥¹‘•à€´ø(€€€€€€€€€€€€€€€¥É•Ñ½Éä¡¹Õ±°°€ˆ½Íå¹Ñ¡•Ñ¥Œ½™½±‘•È´‘¥¹‘•àˆ°€ˆˆ°€‰™½±‘•È´‘¥¹‘•àˆ°€Ä°(€€€€€€€€€€€€€€€€€€€¥¹‘•à¹Ñ½1½¹œ ¤°¥¹‘•à¹Ñ½1½¹œ ¤°¥¹‘•à¹Ñ½1½¹œ ¤°€À°€Ä°€ˆˆ¤(€€€€€€€€€€€ô¤(€€€€€€€€€€€Ù…È¥¹Í•ÉÑ•€ô€À(€€€€€€€€€€€Ù…Èµ•‘¥…]É¥Ñ•…±±Ì€ô€À(€€€€€€€€€€€Ù…Èµ•‘¥…]É¥Ñ•5Ì€ô€Á0(€€€€€€€€€€€Ù…È™…Ù½É¥Ñ•]É¥Ñ•…±±Ì€ô€À(€€€€€€€€€€€Ù…È™…Ù½É¥Ñ•]É¥Ñ•5Ì€ô€Á0(€€€€€€€€€€€™½È€¡Ñ…É•Ğ¥¸Ñ¡É•Í¡½±‘Ì¤ì(€€€€€€€€€€€€€€€İ¡¥±”€¡¥¹Í•ÉÑ•€ğÑ…É•Ğ¤ì(€€€€€€€€€€€€€€€€€€€Ù…°•¹€ôµ¥¹=˜¡¥¹Í•ÉÑ•€¬€Å|ÀÀÀ°Ñ…É•Ğ¤(€€€€€€€€€€€€€€€€€€€Ù…°É½İÌ€ô€¡¥¹Í•ÉÑ•Õ¹Ñ¥°•¹¤¹µ…Àì¥¹‘•à€´ø(€€€€€€€€€€€€€€€€€€€€€€€Ù…°™½±‘•È€ô€ˆ½Íå¹Ñ¡•Ñ¥Œ½™½±‘•È´‘í¥¹‘•à€”€ÄÀÁôˆ(€€€€€€€€€€€€€€€€€€€€€€€5•‘¥Õ´¡¹Õ±°°€‰¥µ…”´‘¥¹‘•à¹©Áœˆ°€ˆ‘™½±‘•È½¥µ…”´‘¥¹‘•à¹©Áœˆ°™½±‘•È°(€€€€€€€€€€€€€€€€€€€€€€€€€€€¥¹‘•à¹Ñ½1½¹œ ¤°¥¹‘•à¹Ñ½1½¹œ ¤°€ÄÀÈÑ0€¬¥¹‘•à°€Ä°€À°(€€€€€€€€€€€€€€€€€€€€€€€€€€€¥¹‘•à€”€ÄÀ€ôô€À°¥˜€¡¥¹‘•à€”€ÈÀ€ôô€À¤€Å0•±Í”€Á0°¥¹‘•à¹Ñ½1½¹œ ¤¤(€€€€€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€€€€€Ù…°µ•‘¥…]É¥Ñ•MÑ…ÉÑ•€ôMåÍÑ•´¹¹…¹½Q¥µ” ¤(€€€€€€€€€€€€€€€€€€€µ•‘¥……¼¹¥¹Í•ÉÑ±°¡É½İÌ¤(€€€€€€€€€€€€€€€€€€€µ•‘¥…]É¥Ñ•5Ì€¬ô€¡MåÍÑ•´¹¹…¹½Q¥µ” ¤€´µ•‘¥…]É¥Ñ•MÑ…ÉÑ•¤€¼€Å|ÀÀÁ|ÀÀÁ0(€€€€€€€€€€€€€€€€€€€µ•‘¥…]É¥Ñ•…±±Ì¬¬(€€€€€€€€€€€€€€€€€€€Ù…°™…Ù½É¥Ñ•Ì€ôÉ½İÌ¹™¥±Ñ•Èì¥Ğ¹Á…Ñ ¹ÍÕ‰ÍÑÉ¥¹™Ñ•É1…ÍĞ œ¼œ¤¹ÍÕ‰ÍÑÉ¥¹	•™½É” œ¸œ¤(ƒÎt¶‰Ëkºwµç[ÛÚİ\]\İ\ÙH]ÈŒLH[š\]YH[™^ˆ	T]‹ˆT]˜[HÈ]˜ÛÛZ[œÊš[™^ÛYYXWÙ[Ü]ŠHJBˆ\ÜÙ\YJœ\™[Ü]\È›ÈŒLH[™^[™Úİ[™HØØ[›™Yˆ	T\™[‹ˆT\™[˜[HÈ]œİ\ÕÚ]
+”ĞĞSˆŠH	‰ˆ]˜ÛÛZ[œÊ›YYXHŠHJBˆ\ÜÙ\YJœ\™[Ü]Sˆ\È›ÈŒLH[™^[™Úİ[™HØØ[›™Yˆ	T\™[È‹ˆT\™[Ë˜[HÈ]œİ\ÕÚ]
+”ĞĞSˆŠH	‰ˆ]˜ÛÛZ[œÊ›YYXHŠHJBˆ\ÜÙ\YJ™[]YİÈ\È›ÈŒLH[™^[™Úİ[™HØØ[›™Yˆ	[]Y‹ˆ[]Y˜[HÈ]œİ\ÕÚ]
+”ĞĞSˆŠH	‰ˆ]˜ÛÛZ[œÊ›YYXHŠHJBˆ\ÜÙ\YJš\×Ù˜]›Üš]H\È›ÈŒLH[™^[™Úİ[™HØØ[›™Yˆ	˜]›Üš]Q›YÈ‹ˆ˜]›Üš]Q›YË˜[HÈ]œİ\ÕÚ]
+”ĞĞSˆŠH	‰ˆ]˜ÛÛZ[œÊ›YYXHŠHJBˆ\ÜÙ\YJ™˜]›Üš]H™[][ÛœÚ\›Ú[ˆ]\İ\ÙH[Ü]ÛÚİ\ˆ	˜]›Üš]R›Ú[ˆ‹ˆ˜]›Üš]R›Ú[‹˜[HÈ]˜ÛÛZ[œÊš[™^ÛYYXWÙ[Ü]ŠHˆ]˜ÛÛZ[œÊš[™^Ù˜]›Üš]\×Ù[Ü]ŠHJBˆ\ÜÙ\YJ™\™XİÜšY\È[\İ[™È\ÈHX›HØØ[ˆ	\™XİÜP[‹ˆ\™XİÜP[˜[HÈ]œİ\ÕÚ]
+”ĞĞSˆŠH	‰ˆ]˜ÛÛZ[œÊ™\™XİÜšY\ÈŠHJBˆ\ÜÙ\YJ™\™XİÜH]\İ]\İ\ÙHHŒLH][™^ˆ	\™XİÜPT]È‹ˆ\™XİÜPT]Ë˜[HÈ]˜ÛÛZ[œÊš[™^Ù\™XİÜšY\×Ü]ŠHJB‚ˆ˜[Ù[XİY›Û\œÈH\İÙŠ‹ÜŞ[]XËÙ›Û\‹L‹‹ÜŞ[]XËÙ›Û\‹LHŠBˆ˜[][Q›Û\”›İÜÈHYYXQ[Ë™Ù]ØXÚYYYXQœ›ÛQ›Û\œÊÙ[XİY›Û\œÊBˆ\ÜÙ\\]X[Ê][Q›Û\”›İÜË›X\È]œ]KÔÙ]
 
-import androidx.room.Room
-import androidx.sqlite.db.SupportSQLiteDatabase
-import org.fossify.gallery.models.Directory
-import org.fossify.gallery.models.Favorite
-import org.fossify.gallery.models.Medium
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.annotation.Config
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.RuntimeEnvironment
+KœÚ^™K][Q›Û\”›İÜËœÚ^™JBˆ\ÜÙ\\]X[Ê\™Ù]H\™Ù]ÈŒYYXQ[Ë™Ù][YYXJ
+KœÚ^™JBˆ\ÜÙ\\]X[Ê\™Ù]ÈŒYYXQ[Ë™Ù]ØXÚY˜]›Üš]SYYXJ
+KœÚ^™JBˆ\ÜÙ\\]X[Ê\™Ù]ÈŒYYXQ[Ë™Ù][]YYYXPÛİ[
 
-/** Synthetic Room v11 database only; this does not inspect a user's gallery.db. */
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28])
-class GalleryDatabaseQueryPlanTest {
-    @Test fun repeatedUnchangedBatchWriteAndMetadataUpdatePreserveRowsAndFavoriteRelations() {
-        val context = RuntimeEnvironment.getApplication()
-        val db = Room.inMemoryDatabaseBuilder(context, GalleryDatabase::class.java)
-            .allowMainThreadQueries().build()
-        try {
-            val mediaDao = db.MediumDao()
-            val favoriteDao = db.FavoritesDao()
-            val original = (0 until 500).map { index ->
-                val folder = "/synthetic/write/folder-${index % 5}"
-                Medium(null, "image-$index.jpg", "$folder/image-$index.jpg", folder,
-                    1L, 2L, 1024L + index, 1, 0, false, 0L, index.toLong())
-            }
-            mediaDao.insertAll(original)
-            val favoritePaths = original.filterIndexed { index, _ -> index % 10 == 0 }
-            favoriteDao.insertAll(favoritePaths.map { Favorite(null, it.path, it.name, it.parentPath) })
+KÒ[
 
-            val repeatedStarted = System.nanoTime()
-            mediaDao.insertAll(original.map { it.copy() })
-            val repeatedWriteMicros = (System.nanoTime() - repeatedStarted) / 1_000
-            assertEquals(500, mediaDao.getAllMedia().size)
-            assertEquals(50, favoriteDao.getFavoritesCount().toInt())
+JBˆ\ÜÙ\\]X[Ê\™Ù]ÈL˜]›Üš]Q[Ë™Ù]˜]›Üš]\ĞÛİ[
 
-            val changedPath = original.first().path
-            val changed = original.first().copy(size = 99_999L, modified = 123_456L)
-            mediaDao.insertAll(listOf(changed))
-            assertEquals(99_999L, mediaDao.getCachedMediaFromFiles(listOf(changedPath)).single().size)
-            assertEquals(50, favoriteDao.getFavoritesCount().toInt())
-            println("GalleryDbWriteSynthetic rows=500 repeatIdenticalBatch=${repeatedWriteMicros}us " +
-                "repeatCalls=1 repeatInputRows=500 finalMediaRows=${mediaDao.getAllMedia().size} " +
-                "favoriteRelationRows=${favoriteDao.getFavoritesCount()}")
-        } finally {
-            db.close()
-        }
-    }
+KÒ[
 
-    @Test fun representativeV11QueryPlansAndMembershipHoldAtRequestedScales() {
-        val context = RuntimeEnvironment.getApplication()
-        val db = Room.inMemoryDatabaseBuilder(context, GalleryDatabase::class.java)
-            .allowMainThreadQueries().build()
-        try {
-            val thresholds = listOf(100, 5_000, 30_000, 100_000)
-            val mediaDao = db.MediumDao()
-            val favoriteDao = db.FavoritesDao()
-            val directoryDao = db.DirectoryDao()
-            directoryDao.insertAll((0 until 100).map { index ->
-                Directory(null, "/synthetic/folder-$index", "", "folder-$index", 1,
-                    index.toLong(), index.toLong(), index.toLong(), 0, 1, "")
-            })
-            var inserted = 0
-            var mediaWriteCalls = 0
-            var mediaWriteMs = 0L
-            var favoriteWriteCalls = 0
-            var favoriteWriteMs = 0L
-            for (target in thresholds) {
-                while (inserted < target) {
-                    val end = minOf(inserted + 1_000, target)
-                    val rows = (inserted until end).map { index ->
-                        val folder = "/synthetic/folder-${index % 100}"
-                        Medium(null, "image-$index.jpg", "$folder/image-$index.jpg", folder,
-                            index.toLong(), index.toLong(), 1024L + index, 1, 0,
-                            index % 10 == 0, if (index % 20 == 0) 1L else 0L, index.toLong())
-                    }
-                    val mediaWriteStarted = System.nanoTime()
-                    mediaDao.insertAll(rows)
-                    mediaWriteMs += (System.nanoTime() - mediaWriteStarted) / 1_000_000L
-                    mediaWriteCalls++
-                    val favorites = rows.filter { it.path.substringAfterLast('/').substringBefore('.')
-                        .removePrefix("image-").toInt() % 10 == 0 }.map {
-                        Favorite(null, it.path, it.name, it.parentPath)
-                    }
-                    if (favorites.isNotEmpty()) {
-                        val favoriteWriteStarted = System.nanoTime()
-                        favoriteDao.insertAll(favorites)
-                        favoriteWriteMs += (System.nanoTime() - favoriteWriteStarted) / 1_000_000L
-                        favoriteWriteCalls++
-                    }
-                    inserted = end
-                }
-                // Match the actual Room v11 entity/table layout and let SQLite
-                // choose plans after seeing representative cardinality statistics.
-                val sqlite = db.openHelper.writableDatabase
-                sqlite.execSQL("ANALYZE")
-                val byPath = explain(sqlite,
-                    "SELECT * FROM media WHERE deleted_ts = 0 AND full_path IN (?, ?, ?)",
-                    arrayOf("/synthetic/folder-0/image-0.jpg", "/synthetic/folder-1/image-1.jpg", "/missing"))
-                val byParent = explain(sqlite,
-                    "SELECT * FROM media WHERE deleted_ts = 0 AND parent_path = ?",
-                    arrayOf("/synthetic/folder-1"))
-                val byParents = explain(sqlite,
-                    "SELECT * FROM media WHERE deleted_ts = 0 AND parent_path IN (?, ?)",
-                    arrayOf("/synthetic/folder-0", "/synthetic/folder-1"))
-                val deleted = explain(sqlite,
-                    "SELECT * FROM media WHERE deleted_ts != 0", emptyArray())
-                val favoriteFlag = explain(sqlite,
-                    "SELECT * FROM media WHERE deleted_ts = 0 AND is_favorite = 1", emptyArray())
-                val favoriteJoin = explain(sqlite,
-                    "SELECT media.* FROM media INNER JOIN favorites ON media.full_path = favorites.full_path WHERE media.deleted_ts = 0",
-                    emptyArray())
-                val directoryAll = explain(sqlite,
-                    "SELECT path, thumbnail, filename, media_count, last_modified, date_taken, size, location, media_types, sort_value FROM directories",
-                    emptyArray())
-                val directoryByPaths = explain(sqlite,
-                    "SELECT path, thumbnail, filename, media_count, last_modified, date_taken, size, location, media_types, sort_value FROM directories WHERE path IN (?, ?)",
-                    arrayOf("/synthetic/folder-0", "/synthetic/folder-1"))
-                assertTrue("full_path lookup must use its v11 unique index: $byPath",
-                    byPath.any { it.contains("index_media_full_path") })
-                assertTrue("parent_path has no v11 index and should be scanned: $byParent",
-                    byParent.any { it.startsWith("SCAN") && it.contains("media") })
-                assertTrue("parent_path IN has no v11 index and should be scanned: $byParents",
-                    byParents.any { it.startsWith("SCAN") && it.contains("media") })
-                assertTrue("deleted_ts has no v11 index and should be scanned: $deleted",
-                    deleted.any { it.startsWith("SCAN") && it.contains("media") })
-                assertTrue("is_favorite has no v11 index and should be scanned: $favoriteFlag",
-                    favoriteFlag.any { it.startsWith("SCAN") && it.contains("media") })
-                assertTrue("favorite relationship join must use full_path lookup: $favoriteJoin",
-                    favoriteJoin.any { it.contains("index_media_full_path") ||
-                        it.contains("index_favorites_full_path") })
-                assertTrue("directories full listing is a table scan: $directoryAll",
-                    directoryAll.any { it.startsWith("SCAN") && it.contains("directories") })
-                assertTrue("directory path list must use the v11 path index: $directoryByPaths",
-                    directoryByPaths.any { it.contains("index_directories_path") })
+JBˆ˜[Ø[\T]ÈH\İÙŠ‹ÜŞ[]XËÙ›Û\‹LÚ[XYÙKLšœÈ‹‹ÜŞ[]XËÙ›Û\‹LKÚ[XYÙKLKšœÈŠBˆ˜[[Z[™ÜÈH\İÙŠˆœ\™[Ù\HˆÈÈYYXQ[Ë™Ù]YYXQœ›ÛT]
+‹ÜŞ[]XËÙ›Û\‹LHŠHKˆœ\™[Ú[ˆˆÈÈYYXQ[Ë™Ù]ØXÚYYYXQœ›ÛQ›Û\œÊÙ[XİY›Û\œÊHKˆœ]Ú[ˆˆÈÈYYXQ[Ë™Ù]ØXÚYYYXQœ›ÛQš[\ÊØ[\T]ÊHKˆ™˜]›Üš]WÙ›YÈˆÈÈYYXQ[Ë™Ù]˜]›Üš]\Ê
+HKˆ™˜]›Üš]WÚ›Ú[ˆˆÈÈYYXQ[Ë™Ù]ØXÚY˜]›Üš]SYYXJ
+HKˆ™[]YˆÈÈYYXQ[Ë™Ù][]YYYXJ
+HKˆ™\™XİÜWØ[ˆÈÈ\™XİÜQ[Ë™Ù][
 
-                val selectedFolders = listOf("/synthetic/folder-0", "/synthetic/folder-1")
-                val multiFolderRows = mediaDao.getCachedMediaFromFolders(selectedFolders)
-                assertEquals(multiFolderRows.map { it.path }.toSet().size, multiFolderRows.size)
-                assertEquals(target - target / 20, mediaDao.getAllMedia().size)
-                assertEquals(target / 20, mediaDao.getCachedFavoriteMedia().size)
-                assertEquals(target / 20, mediaDao.getDeletedMediaCount().toInt())
-                assertEquals(target / 10, favoriteDao.getFavoritesCount().toInt())
-                val samplePaths = listOf("/synthetic/folder-0/image-0.jpg", "/synthetic/folder-1/image-1.jpg")
-                val timings = listOf(
-                    "parent_eq" to { mediaDao.getMediaFromPath("/synthetic/folder-1") },
-                    "parent_in" to { mediaDao.getCachedMediaFromFolders(selectedFolders) },
-                    "path_in" to { mediaDao.getCachedMediaFromFiles(samplePaths) },
-                    "favorite_flag" to { mediaDao.getFavorites() },
-                    "favorite_join" to { mediaDao.getCachedFavoriteMedia() },
-                    "deleted" to { mediaDao.getDeletedMedia() },
-                    "directory_all" to { directoryDao.getAll() },
-                    "directory_paths" to { directoryDao.getByPaths(selectedFolders) }
-                ).map { (name, query) ->
-                    val started = System.nanoTime()
-                    val result = query()
-                    name to ((System.nanoTime() - started) / 1_000.0 to result.size)
-                }
-                println("GalleryDbPlan syntheticRows=$target byPath=${byPath.joinToString(" | ")} " +
-                        "byParent=${byParent.joinToString(" | ")} byParents=${byParents.joinToString(" | ")} " +
-                        "deleted=${deleted.joinToString(" | ")} favoriteFlag=${favoriteFlag.joinToString(" | ")} " +
-                        "favoriteJoin=${favoriteJoin.joinToString(" | ")} " +
-                        "directoryAll=${directoryAll.joinToString(" | ")} " +
-                        "directoryByPaths=${directoryByPaths.joinToString(" | ")} " +
-                        "mediaWriteCalls=$mediaWriteCalls mediaWriteCumulativeMs=$mediaWriteMs " +
-                        "favoriteWriteCalls=$favoriteWriteCalls favoriteWriteCumulativeMs=$favoriteWriteMs " +
-                        "singleCallUsAndRows=${timings.joinToString { "${it.first}:${it.second.first.toLong()}us/${it.second.second}" }}")
-            }
-            assertEquals(2, directoryDao.getByPaths(listOf("/synthetic/folder-0", "/synthetic/folder-1")).size)
-        } finally {
-            db.close()
-        }
-    }
+HKˆ™\™XİÜWÜ]ÈˆÈÈ\™XİÜQ[Ë™Ù]T]ÊÙ[XİY›Û\œÊHBˆ
+K›X\È
+˜[YK]Y\JHO‚ˆ˜[İ\YHŞ\İ[K›˜[›Õ[YJ
+Bˆ˜[™\İ[H]Y\J
+Bˆ˜[YHÈ
 
-    private fun explain(db: SupportSQLiteDatabase, sql: String, args: Array<String>): List<String> {
-        val cursor = db.query("EXPLAIN QUERY PLAN $sql", args)
-        return cursor.use { result ->
-            buildList {
-                while (result.moveToNext()) add(result.getString(3))
-            }
-        }
-    }
-}
+Ş\İ[K›˜[›Õ[YJ
+HHİ\Y
+HÈWÌŒÈ™\İ[œÚ^™JBˆBˆš[Š‘Ø[\Q”[ˆŞ[]XÔ›İÜÏI\™Ù]T]IØT]š›Ú[•Ôİš[™ÊˆŠ_Hˆ
+Âˆ˜T\™[IØT\™[š›Ú[•Ôİš[™ÊˆŠ_HT\™[ÏIØT\™[Ëš›Ú[•Ôİš[™ÊˆŠ_Hˆ
+Âˆ™[]YIÙ[]Yš›Ú[•Ôİš[™ÊˆŠ_H˜]›Üš]Q›YÏIÙ˜]›Üš]Q›YËš›Ú[•Ôİš[™ÊˆŠ_Hˆ
+Âˆ™˜]›Üš]R›Ú[IÙ˜]›Üš]R›Ú[‹š›Ú[•Ôİš[™ÊˆŠ_Hˆ
+Âˆ™\™XİÜP[IÙ\™XİÜP[š›Ú[•Ôİš[™ÊˆŠ_Hˆ
+Âˆ™\™XİÜPT]ÏIÙ\™XİÜPT]Ëš›Ú[•Ôİš[™ÊˆŠ_Hˆ
+Âˆ›YYXUÜš]PØ[ÏIYYXUÜš]PØ[ÈYYXUÜš]Pİ[][]]™S\ÏIYYXUÜš]S\Èˆ
+Âˆ™˜]›Üš]UÜš]PØ[ÏI˜]›Üš]UÜš]PØ[È˜]›Üš]UÜš]Pİ[][]]™S\ÏI˜]›Üš]UÜš]S\Èˆ
+ÂˆœÚ[™ÛPØ[\Ğ[™›İÜÏIİ[Z[™ÜËš›Ú[•Ôİš[™ÈÈ‰Ú]™š\œİN‰Ú]œÙXÛÛ™™š\œİÓÛ™Ê
+_]\ËÉÚ]œÙXÛÛ™œÙXÛÛ™Hˆ_HŠBˆBˆ\ÜÙ\\]X[Ê‹\™XİÜQ[Ë™Ù]T]Ê\İÙŠ‹ÜŞ[]XËÙ›Û\‹L‹‹ÜŞ[]XËÙ›Û\‹LHŠJKœÚ^™JBˆHš[˜[HÂˆ‹˜ÛÜÙJ
+BˆBˆB‚ˆš]˜]H[ˆ^Z[Šˆİ\ÜÔS]Q]X˜\ÙKÜ[ˆİš[™Ë\™ÜÎˆ\œ˜^Oİš[™ÏŠNˆ\İİš[™ÏˆÂˆ˜[İ\œÛÜˆH‹œ]Y\J‘VRSˆUQT–HSˆ	Ü[‹\™ÜÊBˆ™]\›ˆİ\œÛÜ‹\ÙHÈ™\İ[O‚ˆZ[\İÂˆÚ[H
+™\İ[›[İ™UÓ™^
+
+JHY
+™\İ[™Ù]İš[™ÊÊJBˆBˆBˆBŸB
