@@ -228,6 +228,61 @@ Old device visible-commit delay: at least the logged 23,926 ms submit-to-drop wi
 with no successful final commit for the affected operation in that log. Post-fix
 Pixel timings and visual/scroll acceptance remain **PENDING_DEVICE**.
 
-The existing `arm64-foss-release.yml` push workflow is used unchanged. Its actual
-source SHA, run, test outcome, APK artifact and hash will be verified after push
-and included in the task delivery; no unexecuted Actions result is claimed here.
+## Post-push verified delivery and current-code audit (2026-11-06)
+
+Verified implementation SHA: `bebbe96692a964cc7669c47e481e30f6e93030aa`
+on `refactor/media-pipeline-stability`; its parent was
+`44717100de2e051ee27b89906c3d87f0137ceca0`. The implementation
+changed `MediaActivity`, `MediaAdapter`, `GetMediaAsynctask`,
+`DisplayedFolderSnapshot`, `MediaUpdatePolicy`, three regression-test files,
+this document and its README index. No Room schema/migration, Viewer, new
+persistent index, CI workflow or `main` changes are part of that commit.
+
+### Verified GitHub Actions (the exact implementation SHA)
+
+- [Run 42068997299](https://github.com/Pew2018/Gallery/actions/runs/42068997299):
+  push event, completed **success**, attempt 1, `head_sha` exactly
+  `bebbe96692a964cc7669c47e481e30f6e93030aa`.
+- Full FOSS Release JUnit XML aggregation: **917 tests, 0 failures, 0 errors,
+  0 skipped**. ARM64 Release assembly, APK checks, artifact upload and
+  temporary-keystore cleanup passed.
+- APK artifact `gallery-foss-arm64-v8a-release`, **ID 13436865163**.
+  Uploaded *artifact ZIP* SHA-256:
+  `351fd2e4ef0d23370701533b3e84813f318a365c2922a5caaccbce9c8dcabf83`.
+  Enclosed *APK* SHA-256 recorded in the workflow:
+  `6d76d391b70f242d7b0885af47162f0a02276a5f379252bd04c3b5e8a9430de3`.
+- Verified package `org.fossify.gallery`, version `1.14.1` (code `32`),
+  native libraries `arm64-v8a` only and APK Signature Scheme **v2**. Signer:
+  `CN=Gallery Temporary CI Test Signature, O=Local Testing`. A differently
+  signed installation may not accept this CI APK as an in-place update.
+- Test report artifact `backup-ui-test-reports` **ID 13433374868**; source
+  UI preview artifact **ID 13435645534**.
+
+### Source and verification boundaries
+
+- `MediaAdapter.submitPendingUpdate()` attempts same-content, pure reorder
+  and bounded whole-snapshot replacement before the `diffRunning` wait;
+  a superseded background Diff cannot publish stale rows. This addresses
+  user-sort/search commit starvation without creating a second Diff worker.
+- `MediaActivity` now attaches effective sorting, source-version and
+  access checks to adapter publication. Authorized `CACHE_PREVIEW` is
+  represented explicitly, separate from scan completeness.
+  `GetMediaAsynctask` retains optional sort metadata for physical-folder
+  scans started by MediaActivity.
+- New unit tests model an old held Diff and latest sort/search for 2,012,
+  5,000 and 11,023 rows; section-preserving replacement, permission loss,
+  rejected executor and cache-preview sorting are also covered. They do
+  **not** measure on-device input-to-rendered-frame latency.
+- The local independent Lint (4 errors / 789 warnings) and Detekt (2,749
+  findings) results described above are **not passing**, despite the
+  successful CI APK workflow. Host timing figures are synthetic, not a
+  measured old-to-new Pixel speedup.
+- **PENDING_DEVICE:** Pixel 8 Pro / Android 16 final-frame responsiveness,
+  scroll anchor and thumbnail stability, rapid sort/search/clear, grouped
+  files, `.nomedia`, FastScroller sorting bubble, SAF/protected session
+  revocation, scan restarts and physical-sort metadata-query overhead.
+  The four source logs precede this fix, not post-fix acceptance.
+
+This documentation-only follow-up cannot retrospectively change the verified
+implementation SHA or its APK. Any workflow triggered by the documentation
+commit must be considered a separate run.

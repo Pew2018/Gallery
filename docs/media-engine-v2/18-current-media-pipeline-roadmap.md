@@ -99,3 +99,21 @@
 The next bounded pass addresses ordinary-folder sort feedback and search while scanning. The audit separates confirmed source paths from unproven causes in the Pixel logs; see [37](37-phase2c-device-sort-search-root-cause.md). The implementation and evidence status are tracked in [38](38-phase2c-sort-search-fix-and-validation.md). Room/schema, persistent index, Viewer continuity, delete anchors and home-card movement remain out of scope. Device verification remains `PENDING_DEVICE` until the updated APK is tested on Pixel 8 Pro.
 
 Follow-up logs showed that `adapter_submit` could be replaced or dropped before commit and that sorting during refresh could restart an active scan. The follow-up implementation permits authorized current COMPLETE snapshots during refresh and commits plain-media reorder-only updates directly; sectioned media stays on DiffUtil. See [39](39-phase2c-followup-sort-search-display-commit.md). Follow-up source `82478f070427cf3255823d08d2b298a1c4e8f0a7` passed [Actions Run 42050016101](https://github.com/Pew2018/Gallery/actions/runs/42050016101): 907/0/0/0, ARM64 APK validated; Pixel 8 Pro remains `PENDING_DEVICE`.
+
+## 12. 2026-11-06 — 最新排序/搜索显示提交修复状态
+
+已核对 `refactor/media-pipeline-stability` 实现提交
+`bebbe96692a964cc7669c47e481e30f6e93030aa`，详见
+[40 — Adapter 提交阻塞修复与真机证据](40-device-sort-search-adapter-commit-recovery.md)。
+本次在保持 Adapter 单一 Diff 工作任务、完整权限校验与扫描生命周期
+约束的前提下，允许用户排序/搜索绕过过期 Diff 等待并直接提交可授权
+的最新媒体列表；增加显示来源版本和物理文件夹排序元数据保留。
+这不是新的 Room/MediaStore 持久索引或数据库 Migration。
+
+实现源 [Actions 42068997299](https://github.com/Pew2018/Gallery/actions/runs/42068997299)
+**success**，917 项完整单测零失败，ARM64 APK artifact **13436865163**，
+包名、ABI、v2 签名检查通过；签名是临时 CI 测试签名。
+独立静态分析仍有既有失败项。Pixel 8 Pro 的真实搜索/排序输入到
+显示帧延迟、滚动/闪烁、`.nomedia` 和授权撤销交错、额外元数据
+读取开销仍为 **PENDING_DEVICE**，不能用 synthetic host timing
+或 CI 通过代替真机验收。此节为构建后的文档补录，不修改业务代码。
