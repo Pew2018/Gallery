@@ -93,7 +93,7 @@ class DeleteWithRememberDialogRippleTest {
                 val expectedAccent = OxygenClassicPalette.readableAccent(
                     Color.MAGENTA, if (dark) Color.rgb(48, 48, 48) else Color.WHITE
                 )
-                assertEquals(ColorUtils.setAlphaComponent(expectedAccent, 24), ripple.color!!.defaultColor)
+                assertEquals(ColorUtils.setAlphaComponent(expectedAccent, 24), ripple.getColor()!!.defaultColor)
                 assertEquals("row wrapper must preserve checkbox height", checkbox.measuredHeight, row.measuredHeight)
 
                 val y = row.height / 2f
