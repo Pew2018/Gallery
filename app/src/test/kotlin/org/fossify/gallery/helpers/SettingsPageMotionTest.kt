@@ -147,26 +147,31 @@ class SettingsPageMotionTest {
         val body = bodyField.get(activity) as View
         val navigate = activity.javaClass.getDeclaredMethod("navigateColors", Boolean::class.javaPrimitiveType)
             .apply { isAccessible = true }
-        val clock = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
         try {
             navigate.invoke(activity, true)
             assertTrue("theme scroll must be attached", scroll.isAttachedToWindow)
             assertTrue("theme scroll must have a laid out viewport", scroll.width > 0 && scroll.height > 0)
             scroll.viewTreeObserver.dispatchOnPreDraw()
-            clock.idleFor(48, java.util.concurrent.TimeUnit.MILLISECONDS)
+            ClassicSettingsPageTransition.applyProgressForTest(scroll, 0.25f)
             assertTrue(activity.javaClass.getDeclaredField("moreColors").apply { isAccessible = true }
                 .getBoolean(activity))
             assertEquals(1f, body.alpha, 0f)
             assertTrue(body.translationX != 0f)
-            clock.idleFor(300, java.util.concurrent.TimeUnit.MILLISECONDS)
+            ClassicSettingsPageTransition.applyProgressForTest(scroll, 1f)
             assertEquals(0f, body.translationX, 0f)
             assertEquals(1f, body.alpha, 0f)
+            ClassicSettingsPageTransition.cancel(scroll, body)
+
             navigate.invoke(activity, false)
-            clock.idleFor(300, java.util.concurrent.TimeUnit.MILLISECONDS)
+            scroll.viewTreeObserver.dispatchOnPreDraw()
+            ClassicSettingsPageTransition.applyProgressForTest(scroll, 0.25f)
+            assertTrue("return motion should start toward the opposite side", body.translationX != 0f)
+            ClassicSettingsPageTransition.applyProgressForTest(scroll, 1f)
             assertFalse(activity.javaClass.getDeclaredField("moreColors").apply { isAccessible = true }
                 .getBoolean(activity))
             assertEquals(1f, body.alpha, 0f)
             assertEquals(0f, body.translationX, 0f)
+            ClassicSettingsPageTransition.cancel(scroll, body)
         } finally {
             Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, prior)
             activity.windowManager.removeViewImmediate(scroll)

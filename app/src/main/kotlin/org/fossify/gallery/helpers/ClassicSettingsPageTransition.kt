@@ -26,7 +26,8 @@ object ClassicSettingsPageTransition {
         val onFinished: () -> Unit,
         var animator: ValueAnimator? = null,
         var preDrawListener: ViewTreeObserver.OnPreDrawListener? = null,
-        var titleCommitted: Boolean = false
+        var titleCommitted: Boolean = false,
+        var distance: Float = 0f
     )
 
     private val runs = WeakHashMap<View, Run>()
@@ -129,21 +130,14 @@ object ClassicSettingsPageTransition {
 
     private fun start(container: View, run: Run, direction: Int) {
         val distance = dp(container, DISTANCE_DP) * direction
+        run.distance = distance
         run.incoming.alpha = 1f
         run.incoming.translationX = distance
         val animator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = DURATION_MS
             interpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
             addUpdateListener { frame ->
-                if (runs[container] !== run) return@addUpdateListener
-                val progress = frame.animatedValue as Float
-                run.incoming.translationX = distance * (1f - progress)
-                // The incoming page remains opaque; the outgoing snapshot exits and fades
-                // over it. This keeps the page surface covered and avoids a flash to the parent.
-                run.outgoing.offsetX = -distance * progress
-                run.outgoing.alpha = ((1f - progress) * 255f).toInt()
-                if (progress >= 0.78f) commitTitle(run)
-                container.invalidate()
+                applyProgress(container, run, frame.animatedValue as Float)
             }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
@@ -155,6 +149,24 @@ object ClassicSettingsPageTransition {
         }
         run.animator = animator
         animator.start()
+    }
+
+    /** Drives the same frame update used by ValueAnimator for deterministic rendered-frame tests. */
+    internal fun applyProgressForTest(container: View, progress: Float) {
+        val run = runs[container] ?: return
+        applyProgress(container, run, progress)
+    }
+
+    private fun applyProgress(container: View, run: Run, progress: Float) {
+        if (runs[container] !== run) return
+        val frameProgress = progress.coerceIn(0f, 1f)
+        run.incoming.translationX = run.distance * (1f - frameProgress)
+        // The incoming page remains opaque; the outgoing snapshot exits and fades
+        // over it. This keeps the page surface covered and avoids a flash to the parent.
+        run.outgoing.offsetX = -run.distance * frameProgress
+        run.outgoing.alpha = ((1f - frameProgress) * 255f).toInt()
+        if (frameProgress >= 0.78f) commitTitle(run)
+        container.invalidate()
     }
 
     private fun commitTitle(run: Run) {

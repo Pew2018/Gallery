@@ -39,7 +39,6 @@ class ClassicSettingsPageTransitionTest {
             View.MeasureSpec.makeMeasureSpec(120, View.MeasureSpec.EXACTLY)
         )
         host.layout(0, 0, 120, 120)
-        val clock = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
         var titleCommitCount = 0
         ClassicSettingsPageTransition.run(host, page, 1, true, {
             page.setBackgroundColor(Color.BLUE)
@@ -49,22 +48,24 @@ class ClassicSettingsPageTransitionTest {
 
         val redLevels = mutableListOf<Int>()
         val blueLevels = mutableListOf<Int>()
-        var elapsed = 0L
-        for (timeMs in listOf(16L, 48L, 80L, 112L, 144L)) {
-            clock.idleFor(timeMs - elapsed, java.util.concurrent.TimeUnit.MILLISECONDS)
-            elapsed = timeMs
-            if (timeMs == 16L) assertEquals("Do not update the toolbar while the outgoing frame is opaque", 0, titleCommitCount)
+        for (progress in listOf(0.1f, 0.25f, 0.5f, 0.75f, 0.9f)) {
+            ClassicSettingsPageTransition.applyProgressForTest(host, progress)
             val frame = Bitmap.createBitmap(120, 120, Bitmap.Config.ARGB_8888)
             host.draw(Canvas(frame))
             val pixel = frame.getPixel(60, 60)
             redLevels += Color.red(pixel)
             blueLevels += Color.blue(pixel)
             frame.recycle()
+            if (progress < 0.78f) {
+                assertEquals("Keep the toolbar title with the outgoing page until its exit is nearly complete",
+                    0, titleCommitCount)
+            }
         }
-        clock.idleFor(80, java.util.concurrent.TimeUnit.MILLISECONDS)
         assertTrue("Outgoing content should steadily reveal the target page: $redLevels", redLevels.zipWithNext().all { it.first >= it.second })
         assertTrue("Incoming page should become progressively visible: $blueLevels", blueLevels.zipWithNext().all { it.first <= it.second })
-        assertTrue("Intermediate frames must contain both pages", redLevels.any { it in 1..254 } && blueLevels.any { it in 1..254 })
+        assertTrue("Intermediate frames must contain both pages (red=$redLevels, blue=$blueLevels)",
+            redLevels.any { it in 1..254 } && blueLevels.any { it in 1..254 })
+        ClassicSettingsPageTransition.applyProgressForTest(host, 1f)
         assertEquals(Color.BLUE, drawCenter(host))
         assertEquals("Toolbar title is committed near the end of the outgoing frame", 1, titleCommitCount)
         ClassicSettingsPageTransition.cancel(host, page)
