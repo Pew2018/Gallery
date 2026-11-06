@@ -16,9 +16,9 @@ The grid and full-screen Viewer both show `DeleteWithRememberDialog`. Its two ch
 
 - Robolectric coverage dispatches events from the dialog content root through the actual row/CheckBox hierarchy. It checks immediate first-tap state changes, cancellation, icon and label touch points, independent row state, Ripple ownership/bounds, light and dark themes, repeated styling, hidden-row behavior, and confirm/cancel callbacks.
 - Local execution of the targeted test is currently unavailable because the environment cannot download the Gradle 9.5.1 distribution; the wrapper failed with `Network is unreachable`. The branch's ARM64 FOSS Release workflow runs the complete unit-test suite before assembling the APK.
-- The earlier Ripple-layout build [#551](https://github.com/Pew2018/Gallery/actions/runs/42168357794) succeeded on source commit `f7685817f08e081d695aa7778267b94769ae3bb0`.
-- Full FOSS Release suite: 944 tests, 0 failures, 0 errors, 0 skipped.
-- ARM64 FOSS Release artifact: `gallery-foss-arm64-v8a-release`; APK SHA-256: `58499a6a448d5f4dcb48eab38cdee4b84d951d71d936072d2d0a75744cafa5ff`.
-- Follow-up Actions run [#552](https://github.com/Pew2018/Gallery/actions/runs/42171922487) reached the test suite but failed because the test still used `row.performClick()` for confirm-state setup and synthetic events sent through Robolectric's dialog decor were not routed to the row. The tests now exercise the actual dialog content root and use the native CheckBox path; a rerun is required to verify this follow-up and produce a matching APK.
+- The first follow-up runs exposed stale test assumptions about `row.performClick()`, synthetic touch routing, and when a View assigns Drawable bounds. The final tests now dispatch from the laid-out dialog content root and draw the row before checking its Ripple bounds.
+- GitHub Actions run [#555](https://github.com/Pew2018/Gallery/actions/runs/42173855517) succeeded on source commit `63066114189e45b3bde9d5f478a3b558ff24d902`.
+- Full FOSS Release suite: 945 tests, 0 failures, 0 errors, 0 skipped.
+- ARM64 FOSS Release artifact: `gallery-foss-arm64-v8a-release`; APK SHA-256: `0a7951d91b97ed1b073c6607b6b3c27ec7d31bebedeee701e6f301b025564bab`.
 - CI used a temporary signing key, so this APK is not upgrade-compatible with a differently signed installed build.
 - Pixel 8 Pro visual acceptance remains pending.
