@@ -14,10 +14,11 @@ The grid and full-screen Viewer both show `DeleteWithRememberDialog`. Its two ch
 
 ## Verification
 
-- Robolectric coverage dispatches events from the dialog decor through the actual row/CheckBox hierarchy. It checks immediate first-tap state changes, cancellation, icon and label touch points, independent row state, Ripple ownership/bounds, light and dark themes, repeated styling, hidden-row behavior, and confirm/cancel callbacks.
+- Robolectric coverage dispatches events from the dialog content root through the actual row/CheckBox hierarchy. It checks immediate first-tap state changes, cancellation, icon and label touch points, independent row state, Ripple ownership/bounds, light and dark themes, repeated styling, hidden-row behavior, and confirm/cancel callbacks.
 - Local execution of the targeted test is currently unavailable because the environment cannot download the Gradle 9.5.1 distribution; the wrapper failed with `Network is unreachable`. The branch's ARM64 FOSS Release workflow runs the complete unit-test suite before assembling the APK.
-- GitHub Actions run [#551](https://github.com/Pew2018/Gallery/actions/runs/42168357794) succeeded on source commit `f7685817f08e081d695aa7778267b94769ae3bb0`.
+- The earlier Ripple-layout build [#551](https://github.com/Pew2018/Gallery/actions/runs/42168357794) succeeded on source commit `f7685817f08e081d695aa7778267b94769ae3bb0`.
 - Full FOSS Release suite: 944 tests, 0 failures, 0 errors, 0 skipped.
 - ARM64 FOSS Release artifact: `gallery-foss-arm64-v8a-release`; APK SHA-256: `58499a6a448d5f4dcb48eab38cdee4b84d951d71d936072d2d0a75744cafa5ff`.
+- Follow-up Actions run [#552](https://github.com/Pew2018/Gallery/actions/runs/42171922487) reached the test suite but failed because the test still used `row.performClick()` for confirm-state setup and synthetic events sent through Robolectric's dialog decor were not routed to the row. The tests now exercise the actual dialog content root and use the native CheckBox path; a rerun is required to verify this follow-up and produce a matching APK.
 - CI used a temporary signing key, so this APK is not upgrade-compatible with a differently signed installed build.
 - Pixel 8 Pro visual acceptance remains pending.

@@ -79,7 +79,7 @@ class DeleteWithRememberDialogRippleTest {
             val dialog = latestDialog()
             val first = dialog.findViewById<CheckBox>(R.id.delete_remember_checkbox)!!
             val second = dialog.findViewById<CheckBox>(R.id.skip_the_recycle_bin_checkbox)!!
-            val decor = dialog.window!!.decorView
+            val contentRoot = dialog.findViewById<View>(R.id.delete_remember_holder)!!
             val rows = listOf(first, second).map { it.parent as DeleteConfirmationCheckboxRow }
             assertEquals(listOf(R.id.delete_remember_checkbox_row, R.id.skip_the_recycle_bin_checkbox_row),
                 rows.map { it.id })
@@ -101,7 +101,7 @@ class DeleteWithRememberDialogRippleTest {
                 for (x in listOf(12f, row.width * .65f)) {
                     val before = checkbox.isChecked
                     val beforeOther = if (index == 0) second.isChecked else first.isChecked
-                    tap(decor, row, x, y)
+                    tap(contentRoot, row, x, y)
                     assertEquals(!before, checkbox.isChecked)
                     assertEquals(beforeOther, if (index == 0) second.isChecked else first.isChecked)
                 }
@@ -134,25 +134,25 @@ class DeleteWithRememberDialogRippleTest {
         val activity = host(false)
         DeleteWithRememberDialog(activity, "Delete these photos?", true, callback = { _, _ -> })
         val dialog = latestDialog()
-        val decor = dialog.window!!.decorView
+        val contentRoot = dialog.findViewById<View>(R.id.delete_remember_holder)!!
         val checkbox = dialog.findViewById<CheckBox>(R.id.delete_remember_checkbox)!!
         val row = dialog.findViewById<DeleteConfirmationCheckboxRow>(R.id.delete_remember_checkbox_row)!!
         val x = row.width * .65f
         val y = row.height / 2f
         val downTime = android.os.SystemClock.uptimeMillis()
 
-        dispatchTouch(decor, row, MotionEvent.ACTION_DOWN, x, y, downTime, downTime)
+        dispatchTouch(contentRoot, row, MotionEvent.ACTION_DOWN, x, y, downTime, downTime)
         assertTrue("the row Ripple should enter pressed state on the initial down", row.isPressed)
         assertTrue("the native CheckBox should receive the same down event", checkbox.isPressed)
-        dispatchTouch(decor, row, MotionEvent.ACTION_CANCEL, x, y,
+        dispatchTouch(contentRoot, row, MotionEvent.ACTION_CANCEL, x, y,
             downTime, android.os.SystemClock.uptimeMillis())
         shadowOf(Looper.getMainLooper()).idle()
         assertFalse("cancelled gesture must not toggle", checkbox.isChecked)
         assertFalse("cancel must release the row Ripple", row.isPressed)
 
-        tap(decor, row, x, y)
+        tap(contentRoot, row, x, y)
         assertTrue("the first completed tap must toggle immediately", checkbox.isChecked)
-        tap(decor, row, x, y)
+        tap(contentRoot, row, x, y)
         assertFalse("the next tap must toggle exactly once", checkbox.isChecked)
         dialog.dismiss()
         activity.finish()
@@ -167,8 +167,11 @@ class DeleteWithRememberDialogRippleTest {
             result = remember to skip
         })
         var dialog = latestDialog()
-        (dialog.findViewById<View>(R.id.delete_remember_checkbox_row)!!).performClick()
-        (dialog.findViewById<View>(R.id.skip_the_recycle_bin_checkbox_row)!!).performClick()
+        val root = dialog.findViewById<View>(R.id.delete_remember_holder)!!
+        val rememberRow = dialog.findViewById<View>(R.id.delete_remember_checkbox_row)!!
+        val skipRow = dialog.findViewById<View>(R.id.skip_the_recycle_bin_checkbox_row)!!
+        tap(root, rememberRow, rememberRow.width * .65f, rememberRow.height / 2f)
+        tap(root, skipRow, skipRow.width * .65f, skipRow.height / 2f)
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(1, calls)
@@ -177,7 +180,9 @@ class DeleteWithRememberDialogRippleTest {
         result = null
         DeleteWithRememberDialog(activity, "Delete these photos?", true, callback = { _, _ -> calls++ })
         dialog = latestDialog()
-        dialog.findViewById<View>(R.id.delete_remember_checkbox_row)!!.performClick()
+        val cancelRoot = dialog.findViewById<View>(R.id.delete_remember_holder)!!
+        val cancelRow = dialog.findViewById<View>(R.id.delete_remember_checkbox_row)!!
+        tap(cancelRoot, cancelRow, cancelRow.width * .65f, cancelRow.height / 2f)
         dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(1, calls)
