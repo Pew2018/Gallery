@@ -14,6 +14,8 @@
 
 ## 2. 最小设备与配置矩阵
 
+**新增主题维度**：至少 3 个实际 Gallery 预设、用户自定义高亮/极浅/极暗/低对比色（含可能有 alpha 的颜色），分别在浅色/深色/Oxygen 主题关闭的 Commons 回退模式下检验；任何选中、按压、焦点、进度、Edge Glow 颜色都不允许仍固定旧蓝。Toolbar 白前景、错误红、沉浸黑底按既有语义独立测试。参见 [10](10-accent-semantic-and-runtime-invariants.md)。
+
 - **基准设备**：Pixel 8 Pro 或同级真机，记录实际 Android 版本、逻辑密度、刷新率、屏宽 dp、导航模式、字体缩放、系统动画缩放和 APK commit。
 - **屏幕宽度**：至少 320、360、412、600dp（可用 emulator + 真机组合；不是要求目标真机改变物理尺寸）。
 - **方向/语言**：竖屏、横屏、系统中文、英文长字符串、RTL（例如阿拉伯语资源/布局方向）。
@@ -46,6 +48,8 @@
 
 ## 4. 新增/扩展测试建议
 
+**新增 Material Motion 稳定性层**：根据 [11](11-legacy-material-motion-selection.md) 分清 AndroidX View、平台 Activity/Window、AppCompat Popup/AlertDialog；先检查实际依赖版本及 FOSS Release 可编译性。每一种新 Transition 测快速重入/取消、动画比例 0、主题中途更换/不闪旧色、经典控件最终几何不变；没有稳定双 View 时不强制使用 SharedAxis。
+
 1. **菜单**：扩展 `ClassicOverflowPositionTest`：实际 PopupWindow rect、RTL、条目数 3/20、对齐及超界。新增 `favorite_always_show_excluded/hidden` 的非 checkable 菜单行、无勾选框/旧右边距、动态标题与四种配置组合测试；**不再把原 CheckBox 缺失根因排查作为交付条件**。
 2. **布局**：增加设置分类行和 section 的 Native Raster + 不同 fontScale/宽度测试；保护保留 icon/titles/summary 的可读边界。
 3. **底栏**：扩展 `GalleryBottomBarRippleTest`，严格保证同一 RippleDrawable 实例未被 recolor 重建、快速切换只有一次导航；切换动画取消时颜色最终正确。
@@ -55,6 +59,15 @@
 7. **隐私与数据**：继续运行既有媒体管线、收藏、Viewer 顺序和删除恢复回归；UI 精修不改变这些合同。
 
 ## 5. 定量验收门槛
+
+| 新增约束 | 验收条件 |
+|---|---|
+| 用户强调色 | 用户自定义和预设色下所有主题强调控件由 `OxygenThemeEngine.snapshot()` 派生、无硬编码参考蓝；深浅/不同 surface 对比正确 |
+| 运动与形态分离 | 新 Material Motion 不改变 56dp Toolbar、经典 Popup/按钮/底栏、Dialog 宽高圆角、Switch 几何 |
+| 依赖与窗口所有权 | AndroidX Material Transition 只用于确实有 View/Fragment 容器的场景；Popup/Dialog 窗口独立验收；真实 Gradle 编译通过 |
+| 并发/动画竞争 | 主题切换/窗口关闭/返回取消/旋转/0x 后无残留 alpha、旧强调色或旧数据，权限/业务操作一次且及时 |
+
+以下保留原有各项验收门槛：
 
 | 指标 | 目标 |
 |---|---|

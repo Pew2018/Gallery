@@ -52,6 +52,8 @@
 
 指南中 `#FAFAFA` 页面、`#FFFFFF` 白色弹层、`#212121` 标题栏和 `#2196F3` 蓝色代表**参考外观**，Gallery 的主题引擎 `OxygenThemeEngine` 仍要允许用户设置深浅模式、顶栏前景和强调色；不得硬编码为每屏同色。
 
+**[新设计要求] 不能把参考图的蓝色用作运行时固定强调色**：`OxygenThemeEngine.snapshot(context,config)` 已按预设/用户自定义强调色解析 `rawAccent`、`interactiveAccent`、`toolbarBackground` 等；Switch 选中 thumb 按 `OxygenThemeColors.switchPalette()` 使用 raw seed，Dialog、文本等按所在背景用 `readableAccent()`。底栏、Popup、设置、加载进度、输入焦点、未来 EdgeEffect/Material Motion scrim 都应遵守 [10](10-accent-semantic-and-runtime-invariants.md)；不抹掉语义错误色和沉浸媒体黑底。
+
 ## D. 必须区分“截图发现”与“代码猜测”
 
 - **[历史截图确认]** 收藏页旧版两行 Checkbox 在所提供的截屏不可见。
@@ -66,6 +68,8 @@
 - **[尚未确认]** Gallery 实际默认 overscroll 是 Stretch、Glow、禁用还是被 SwipeRefresh 消费；必须观测而非假定。
 
 ## E. 不可破坏的功能行为
+
+**动画选型补充**：参见 [11](11-legacy-material-motion-selection.md)，可以复用 Google MDC-Android MaterialSharedAxis/MaterialFade/MaterialFadeThrough 的**运动**，但不复用其 M3 控件/色板或形状。当前设置页面同一个 Activity 动态重绘，并非现成两个 Fragment；Popup/Dialog 属于独立窗口，AndroidX View MaterialFade 不能直接操控其整个窗口；底栏不同根页面跨 Activity 且有 0ms 抗闪帧约束。
 
 - 收藏过滤允许切换与取消认证后正确回退，不泄露受保护图片；显隐开关实际含义与存储不改变。
 - 搜索文本变更仍驱动媒体过滤；排序立即反馈且保持媒体顺序；不通过动画掩盖异步发布错误。

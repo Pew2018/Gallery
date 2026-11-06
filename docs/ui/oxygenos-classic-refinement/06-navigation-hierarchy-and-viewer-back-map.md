@@ -106,6 +106,8 @@ MediaActivity [普通文件夹、虚拟收藏、回收站、照片配置、全�
 
 ## 5. 跨页面返回动画应分两类设计
 
+**新增动画策略**：[11-老 Material Motion 选型](11-legacy-material-motion-selection.md) 规定，Viewer 图片主体保留 ViewPager 原生跟手；`MaterialContainerTransform` 只在非保护、单图锚点已稳定且无旧帧泄露的场景作为可选实验。GalleryBottomBar 根页跨 Activity 时仍使用 0ms 抗闪帧，不套 MDC 底栏示例；MaterialSharedAxis 主要考虑设置/屏内导航，预测性返回由 AndroidX Back API 控制。任何可能带颜色的 transition container/scrim 取实际当前页面/弹窗主题 Token，而不是固定强调蓝，见 [10](10-accent-semantic-and-runtime-invariants.md)。
+
 1. **系统 Activity Window 返回**：普通文件夹→主页、Viewer→文件夹、设置页→上级 Activity，优先让系统处理，核查是否已具备预测性返回；不要滥用 `overridePendingTransition`。
 2. **同 Activity 层级返回**：Main 的分组目录、Settings 的内页、OxygenTheme 的颜色子页；才考虑绑定 `BackEventCompat.progress` 的应用内预览与取消恢复。完成手势时只执行一次状态提交。
 3. **GalleryBottomBar 根页面切换例外**：`GalleryBottomBar.open()` 用 `startActivity` + `overridePendingTransition(0,0)` 和 first-draw gate；这是曾经为闪帧所做的保护，**不把它当作普通 Back 过渡**。

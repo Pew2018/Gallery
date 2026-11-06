@@ -6,6 +6,10 @@
 
 ## 共用执行守则
 
+**最高优先级的两个交叉规范**：
+- [10 — 动态强调色](10-accent-semantic-and-runtime-invariants.md)：所有选中/按压/焦点/加载/进度/EdgeGlow/动画容器着色从 `OxygenThemeEngine.snapshot()` 的当前预设或用户自定义色派生；不写死任何参考蓝色；经典 Switch 的 onThumb 使用现有 `switchPalette(rawAccent)` 而非强制所有使用 `interactiveAccent`。
+- [11 — 经典 Material Motion 选型](11-legacy-material-motion-selection.md)：在不改变 OxygenOS 7.1.1 Classic 几何和小圆角的情况下优先复用 Google MDC-Android Views（MD2 时期）`MaterialSharedAxis`、`MaterialFade`、`MaterialFadeThrough`；Dialog/Popup Window、跨 Activity root、IME、ViewPager 和预测性返回按各自真实 API 实施，禁止强行拿 View Transition 替代。先查实际 Gradle 解析到的 MDC/AndroidX Transition 版本，严禁无证据升级 Commons 7.1.3 或全局主题。
+
 1. 每阶段开始：核对远程 HEAD、`git diff` 与同分支并发任务；列出本阶段确切的 Kotlin/XML 修改路径。已有虚拟文件夹/排序搜索改动不回滚。
 2. 先冻结一套截图录屏与布局度量；对每个疑点建立“复现步骤 → View/资源证据 → 假设 → 最小修正 → 回归用例”记录。
 3. 现有 `OxygenThemeEngine`、`OxygenClassicControls`、`OxygenClassicMotion`、`OxygenToolbarStyle`、`OxygenClassicDialog`、`OxygenClassicMenus` 是**优先复用的单一入口**。不复制同名视觉逻辑到每个 Activity。
@@ -15,6 +19,8 @@
 7. 在每阶段结束前只更新文档中的已证实结论；未安装验证的项仍标为待验收。
 
 ## Phase 0 — 前置冻结和实测基线（零 UI 代码变更）
+
+新增工作：记录至少三种用户主题预设及自定义浅/深/低对比色下的 Toolbar、菜单、Dialog、Switch、底栏、输入、进度和 EdgeEffect；记录 MDC 与 AndroidX Transition 的 resolved dependency/API，不假定 Material Motion 已经可编译；确定哪些设置内容有两个真实 View 可进行 SharedAxis。
 
 **依赖**：虚拟文件夹 Agent 相关提交合入当前分支并得到用户验收；如仍有 P0 不可用、闪退、未授权展示，不进入 UI 改码阶段。
 
@@ -78,6 +84,8 @@
 
 ## Phase 2 — 设置主页、分类和内页排版
 
+**Motion 选型**：设置主页→内页优先评估 AndroidX View `MaterialSharedAxis.X`；**若当前同一 NestedScrollView 被销毁/重建而没有稳定 outgoing/incoming View，维持现有 `animateSettingsPageChange()` 只统一 Google Material easing 与现有 80+100ms 时间，不为使用库而重构页面。** 局部说明显隐可试 `MaterialFade`；互斥内容才考虑 `MaterialFadeThrough`，默认缩放可取消。所有强调色来自当前 `OxygenThemeEngine.snapshot()`。
+
 首要文件：
 - `app/src/main/kotlin/org/fossify/gallery/activities/SettingsActivity.kt`
 - `app/src/main/kotlin/org/fossify/gallery/views/TiebaSettingsCategoryRow.kt`
@@ -104,6 +112,8 @@
 
 ### 3.1 底栏：局部选中动画，不改 Activity 交接
 
+**MDC 限制**：Gallery 根底栏跨 Activity，保留 0ms Window 动画/first-draw gate，**不直接移植 MaterialFadeThrough 的 bottom navigation 示例**；只使用原生 `RippleDrawable` 与轻量颜色 ValueAnimator，颜色在每次着色时解析用户主题 token。
+
 文件：`GalleryBottomBar.kt`、`GalleryNavigation.kt`、`OxygenClassicMotion.kt`、`res/values/dimens.xml`、`MainActivity.kt`、`MediaActivity.kt`。
 
 - 先以现有 56/52/24dp + 12sp 为几何基准修复图标视觉中心、文字 baseline 与左右间距。
@@ -113,6 +123,8 @@
 - 冷启动/慢扫描/受保护源必须无错误内容泄露、错误底色帧或黑白闪烁。
 
 ### 3.2 搜索输入
+
+**Motion 选型**：可对稳定子 View 试用 AndroidX `Fade/ChangeBounds`；IME 位置由 Insets/系统处理，`MaterialFade` 只用于真实功能显隐，不让 FAB 因软键盘弹出而变成 GONE。颜色源为 `OxygenClassicPageInput` 和 [10](10-accent-semantic-and-runtime-invariants.md)；不能用 MDC 默认蓝染色。
 
 文件：`OxygenToolbarStyle.kt`、`OxygenClassicPageInput.kt`、`OxygenSearchNavigation.kt`，相关 `MainActivity`、`MediaActivity`、`SearchActivity`。
 
@@ -136,6 +148,8 @@
 **DoD**：切 tab、按压、搜索和触边都可打断且有正确最终态；媒体排序/搜索数据正确性与前期稳定性无回退。
 
 ## Phase 4 — 预测性返回专项 + 跨组件最终扫尾
+
+**Motion 专项分级**：普通 AlertDialog/Popup 的 Window 进出参照 MaterialFade 的**视觉语义**，但不误把 AndroidX `MaterialFade(View)` 施加于独立 Window；Viewer 左右翻页仍保留原生 ViewPager；仅在非保护且 anchor 稳定的普通单图试验 `MaterialContainerTransform`（默认禁用）；预测性返回使用 AndroidX Back progress 规范，不能靠 `MaterialSharedAxis` 自动解决。按 [11](11-legacy-material-motion-selection.md) 的风险级别分别验收。
 
 预测性返回不是“UI 统一顺手加一行”的改动，单独按 [04 评估](04-predictive-back-feasibility.md) 先做小范围 Spike。
 

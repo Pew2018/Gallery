@@ -5,6 +5,8 @@
 
 ## 1. 为什么要独立评估
 
+**与新 Material Motion 方案的关系**：Google MDC-Android Views 的 `MaterialSharedAxis/MaterialFade` 可以负责**已经归 Gallery 所有的屏内 View 转场**，但不能自动接管系统预测性 Back、IME、独立 Dialog Window 或 Commons `BaseSimpleActivity` 的返回事件。先确认 AndroidX Back 进度和 cancel/commit 语义，再决定是否把进度映射到某个轻量动画。见 [11](11-legacy-material-motion-selection.md)。预览中如存在强调色，必须使用用户当前主题 [10](10-accent-semantic-and-runtime-invariants.md)，不能固定蓝色。
+
 用户观察“部分页面有预测性返回，其他页面没有”。这可能由**跨 Activity 系统动画**、**屏内导航回调拦截**、**IME 消费返回**、**对话框窗口**、**Gallery Viewer 横向手势**等多个因素造成。不能把“页面返回没有动画”统一归为某个 Android Manifest 属性。
 
 Gallery 当前 `gradle/libs.versions.toml`：`minSdk=26`、`compileSdk=36`、`targetSdk=36`；`commons=7.1.3`。`SettingsActivity` 有 `OnBackPressedCallback`（只在分类子页启用），`MainActivity` 和 `MediaActivity` 有 `onBackPressedCompat()`；`OxygenThemeActivity` 另有返回逻辑。检查的 `app/src/main/AndroidManifest.xml` 没有显式 `enableOnBackInvokedCallback` 声明。**仍需检查 Commons 基类、合并后的 Manifest 和 AndroidX 依赖树，不能仅凭本项目代码断言所有页面的系统行为。**

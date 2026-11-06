@@ -5,6 +5,10 @@
 
 ## 1. 该不该优化？结论与优先级
 
+**正式技术选型（用户已确认）**：复用 Google **Material Design 2 时期的 MDC-Android Views Material Motion**：`MaterialSharedAxis`（真实页面层级）、`MaterialFade`（子 View 显隐）、`MaterialFadeThrough`（互斥内容），但控件形态/主题/菜单/弹窗规格仍保持 OxygenOS Classic，**不引入 Material 3 UI**。具体代码位置、依赖、API 边界和候选时长见 [11](11-legacy-material-motion-selection.md)。
+
+**动态强调色硬要求**：所有涉及颜色的选中、Ripple、焦点、输入、进度、EdgeGlow、过渡容器色均由 `OxygenThemeEngine.snapshot()` 基于用户**预设/自定义强调色**派生；截图蓝色不是固定实现值。见 [10](10-accent-semantic-and-runtime-invariants.md)。
+
 **可以优化，但必须分场景，不能“给所有弹窗统一加一套弹性动画”。** 特别是之前已有菜单、Dialog、底栏切换闪烁和媒体逐张位移问题。推荐顺序：
 
 1. 静态可用性：收藏菜单**无勾选双态文案**、菜单宽高/锚点、FAB+IME（明确的 P1 项）；其他场景中的 Checkbox 仍需正常工作；
@@ -83,6 +87,8 @@
 
 ## 4. Dialog 开闭动画的建议设计
 
+**避免错误引用**：`com.google.android.material.transition.MaterialFade` 的 AndroidX 版本只处理 View/Fragment；不能直接对整个 AppCompat AlertDialog Window 使用。真正的 Window 入退应在原有 `OxygenClassicDialog.prepareWindow()` 和公开 window animation style 层试点；Dialog 内部可控 View 显隐才考虑 MaterialFade。模态按钮、聚焦与 Ripple 用当前用户主题 Token，不借用 Material 默认蓝色。
+
 **技术基础与触点**
 
 - `OxygenClassicDialog.kt`：`prepareWindow()/apply()/show()/builder()`，负责窗口几何、色彩、滚动、按钮与输入框样式。
@@ -103,6 +109,8 @@
 6. 特别禁止在 Dialog 开始动画时清除/替换原始 ViewBinding、焦点或 Insets 监听器。
 
 ## 5. 图片打开/退出与全屏滑动的建议设计
+
+**MaterialContainerTransform 的级别**：只属于可选受控实验，不是全站必做。Viewer 的 Fragment/目录扫描/邻页预取/权限比容器变形复杂，若无安全稳定的跨 Activity shared element 就沿用系统动画；Viewer 左右拖动继续现有 ViewPager，禁止套用 SharedAxis/FadeThrough。未来 ContainerTransform 的容器和 scrim 颜色按实际用户主题派生。
 
 - 对普通“点击缩略图进入全屏”：**先考察默认 Activity open/close**，再比对 OnePlus 参考；不要以缩略图截图快照长期覆盖真实 Viewer 内容。
 - 如果考虑 Shared Element：必须满足 selected path 已经通过授权、图片尺寸/矩形可从当前 RecyclerView 获取、不重新构造 Fragment、不因扫描部分结果替换 anchor；候选先在单个**未受保护的普通物理文件夹**实验，特殊来源暂退回系统动画。

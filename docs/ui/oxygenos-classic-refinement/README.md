@@ -8,6 +8,8 @@
 
 ## 1. 目标与边界
 
+**2026-11-06 新增 UI 精修硬性设计原则：** 保留 OxygenOS 7.1.1 Classic 控件的形态/宽高/留白/小圆角/传统菜单；**尽可能复用 Google 开源的 Material Design 2 / Views 时期 Motion 动画 API**，但仅接入动画，不使用 Material 3/Material You/Expressive 控件样式。所有交互强调色（Ripple、选中图标/文字、Switch/Slider、焦点下划线、进度、Edge Glow、涉及上色的动画）必须由 `OxygenThemeEngine.snapshot()` 解析**用户当前主题预设/自定义强调色**，不可写死旧 ROM 蓝色；详情 10、11 两份专题文档。旧截图的蓝色只作参考样本。
+
 将 Gallery 当前“部分像 OxygenOS 7.1.1”的界面提升为**规格一致、交互完整、可重复验证**的经典 Android 7.1.1 / OxygenOS 4.5.15 风格，保留现有 Gallery 功能和用户主题自定义，而不是重建旧 ROM、切换到 M3 Expressive 或全盘替换 AppCompat。
 
 优先目标：
@@ -54,6 +56,8 @@
 | [07-input-ime-empty-profile-fab.md](07-input-ime-empty-profile-fab.md) | 输入框、Commons 搜索逻辑、自定义配置空草稿加号被 IME 隐藏的源码定位及修法 |
 | [08-animations-dialog-viewer-transition-atlas.md](08-animations-dialog-viewer-transition-atlas.md) | 所有 Gallery Dialog、Commons 弹窗、Popup、全屏翻页和返回动画入口 |
 | [09-ui-work-orders-and-safety-rails.md](09-ui-work-orders-and-safety-rails.md) | 可领取的实施工单、文件热区、依赖前置及不能破坏的行为 |
+| [10-accent-semantic-and-runtime-invariants.md](10-accent-semantic-and-runtime-invariants.md) | **用户自定义强调色不可写死**；语义 Token、读色位置、渐变/动画上色、各种主题回归 |
+| [11-legacy-material-motion-selection.md](11-legacy-material-motion-selection.md) | Google 旧 Material Design Views Motion 选型、真实 Kotlin 入口、Window 与 View 区别、候选时长和回退 |
 
 关联历史材料：[经典弹窗修复审计](../classic-dialog-repair-review.md)、[历史弹窗全覆盖记录](../../classic-dialog-review.md)、[经典动画真机验收](../../testing/classic-motion-device-checks.md)、[媒体管线文档](../../media-engine-v2/README.md)。
 
@@ -73,12 +77,14 @@
 | UI-08 | Toolbar/Dialog/Picker/深浅主题等扫尾 | P2 | 1–4 | 待覆盖审计 |
 | UI-09 | 新建/编辑照片配置时 IME 隐藏添加来源 FAB | P1（源码明确） | 优先独立小修 | **已定位：待真机布局确认，未修复** |
 | UI-10 | Popup/Dialog/Viewer/文件夹进退全套动画归属 | P2 | 先做规格审计再分级实现 | 已建代码地图，未改 UI |
+| UI-11 | 全部强调色与动画着色适配用户自定义颜色 | 跨阶段硬性约束 | 0–4 | 已建立 Token/测试合同，未改 UI |
+| UI-12 | Google 旧版 Material Motion 只用于动画、不改变经典控件形态 | 跨阶段技术选型 | 0–4 | 已建立场景矩阵，待依赖检查与试点 |
 
 优先级说明：P0 表示明确影响当前界面状态辨识或操作；不代表优先于正在修复的虚拟文件夹功能 P0。
 
 ## 6. 下一位 Agent 的首要动作
 
-1. 读取远程分支最新 HEAD 与本目录四份文档，核对全部列出的代码位置是否仍有效。
+1. 读取远程分支最新 HEAD 与本目录全部 12 份 Markdown 文档，核对全部列出的代码位置是否仍有效。
 2. 与当前虚拟文件夹 Agent 的实际修改文件核对冲突，确认功能修复已验收。
 3. **先补齐 Phase 0 的真机截图/尺寸/行为基线；** 禁止靠“看上去差不多”批量硬编码宽高。
 4. 严格按阶段推进，每阶段有代码审计、确定性测试、CI 构建、真机回归与结果记录。

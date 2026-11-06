@@ -49,6 +49,8 @@ CoordinatorLayout [root / 全屏]
 
 ## 3. 实施时的最小工程路线（拟议，必须先测）
 
+**Material Motion 补充**：可以对“添加来源导致空态真正显隐”的文本区域采用 MaterialFade（须经依赖检查），但是**IME 打开时 FAB 必须保持 VISIBLE，不能用 MaterialFade 把按钮淡没**；加号的位置跟随 `WindowInsetsCompat` / `WindowInsetsAnimationCompat`，保持正常点击。动画时 Fab 的 tint、输入框焦点/光标和 Dialog 按钮应从用户的主题选择解析 `OxygenThemeEngine.snapshot()`，不可写死蓝色。详见 [10](10-accent-semantic-and-runtime-invariants.md)、[11](11-legacy-material-motion-selection.md)。
+
 **路线 A：首选“确认 adjustResize 真实生效 + 删除错误隐藏条件”。**
 
 1. 先在真机分别记录 IME 打开/关闭时 `root.height`、`photoProfileEditScroll.height`、`photoProfileEditAddSource.getLocationOnScreen()`、`WindowInsetsCompat.Type.ime()` 的 bottom/top 与 `Type.navigationBars()` bottom。

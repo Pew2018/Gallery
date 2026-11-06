@@ -6,6 +6,8 @@
 
 ## 1. 热区清单：按“一个共享入口多处生效”排序
 
+**所有工单共同新约束（2026-11-06）**：强调色遵循当前用户自定义/预设色，使用 `OxygenThemeEngine.snapshot()` 等已有语义 Token，不能固定 OxygenOS 蓝；Google 经典 Material Design 2 / Views Motion 仅作为动画实现，不改变经典形状/宽高/文本、Dialog/Popup、底栏或 Switch；Popup/Window/系统 IME/Back 各自 API 不能用 AndroidX View Transition 直接代替。专项入口：[10](10-accent-semantic-and-runtime-invariants.md)、[11](11-legacy-material-motion-selection.md)。
+
 | 优先顺序 | 模块 | 核心源文件（相对 `app/src/main/`） | 最小改动原则 | 必测屏幕 |
 |---|---|---|---|---|
 | UI-P0 | “照片配置”新建空草稿+IME 加号 | `kotlin/org/fossify/gallery/activities/PhotoProfileEditActivity.kt`、`res/layout/activity_photo_profile_edit.xml`、Manifest 中该 Activity 的 `adjustResize` | 先验证根 window resize，最小修复 **去掉 IME 时 FAB=GONE**，再做按实际遮挡的补偿；不修改来源配置模型 | 无配置、新建空配置、编辑已有配置 |
@@ -23,6 +25,11 @@
 **为什么工单顺序与旧 `02-phased-implementation.md` 不完全相同？** 这是本次额外发现 UI-P0 **FAB 被 IME 强制隐藏** 后的具体实施顺序建议。旧文档的宏观 Phase 1–4 仍有效；执行时先落实 UI-P0，然后逐步开展菜单/设置/动画。不得误解为此刻已批准修改代码。
 
 ## 2. 最低成本的“首轮 UI 小修”建议
+
+**在大规模动画实现之前的新增工单**：
+- **UI-P0-accent**：审查 `OxygenThemeEngine`/颜色语义与重渲染，确保菜单、设置、Dialog、底栏、输入、进度、可选 Edge Glow 跟随用户自定义/预设色；补主题深浅、低对比和透明 seed 测试。参考蓝 `#2196F3` 不是实现常量。
+- **UI-P0-motion-deps**：核查 Material Motion/AndroidX Transition resolved 版本、Commons 7.1.3 兼容性、对应 API、许可证及 Release 编译；依赖未证实前不开始全站切换。
+- **UI-P1-motion-local**：设置真实双 View 才用 SharedAxis，单 View 显隐优先 MaterialFade；Dialog/Popup 留给 Window，底栏根切换 0ms 不动，Viewer 左右翻页不动。
 
 如果用户在虚拟文件夹验收后决定“先小修并出 APK”，不必一口气进入全部动画：
 
@@ -86,5 +93,7 @@
 - `07-input-ime-empty-profile-fab.md`：输入入口、Commons 搜索、IME 对加号的明确隐藏逻辑与最小修法。
 - `08-animations-dialog-viewer-transition-atlas.md`：26 个 Gallery Dialog、Commons 依赖、全套开闭/翻页/退出动画归属。
 - **本页**：可以发给下一位 Agent 的阶段工单和安全红线。
+- `10-accent-semantic-and-runtime-invariants.md`：所有当前和未来的强调色、动态主题/token、不同表面和颜色/动画测试硬性合同。
+- `11-legacy-material-motion-selection.md`：按页面定位的 Google MD2/MDC Views Motion 选型、Window 与 View 限制、依赖检查与回退。
 
 > 全部文档均为“计划 + 代码静态审计”，除非之后另行记录真机检查、测试与提交，否则**所有 UI 实施状态仍为未开始**。

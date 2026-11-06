@@ -71,6 +71,10 @@
 
 ## 5. Popup 打开/关闭动画应修改哪里？
 
+**Material Motion 接入边界（新增）**：基于 AndroidX Transition 的 `MaterialFade` 是 View 的 `Visibility` 转场，**不能直接当作独立 PopupWindow 的开闭动画**。Gallery 普通三点、设置手柄、配置管理、Picker 溢出仍使用现有 AppCompat Presenter + `OxygenClassicMenus.createPopup()`；仅当 AppCompat 公开 Window animation/style 可用且设备行为稳定，才用轻淡入/短退出。不得为套用 Material 动画而重造新的菜单窗口或引入 M3 控件。完整矩阵 [11](11-legacy-material-motion-selection.md)。
+
+**强调色约束**：菜单表面/文字要按 `OxygenThemeEngine.snapshot()` 与实际 dialog/popup 背景取色；Pressed Ripple、必要的 Radio/CheckBox 选中态随用户主题色，而不是固定旧 ROM 蓝；收藏两条“显示/不显示”是普通文本 item，不要重新添加 CheckBox。见 [10](10-accent-semantic-and-runtime-invariants.md)。
+
 1. 菜单配置：`OxygenClassicMenus`、`OxygenToolbarStyle.preparePopup`、`oxygenos_classic.xml` 与 Popup 背景。
 2. **打开与关闭行为**：多数由 AppCompat `Toolbar.showOverflowMenu` / `PopupMenu.show/dismiss` 的内部 `PopupWindow`/ActionMenuPresenter 持有；本分支没有观察到一个统一 `animateOpenMenu()/animateDismissMenu()` 实现。**不要在 `TiebaMenuItemView` 的每一行上启动菜单整体动画**。
 3. 为开/关视觉添加过渡必须先验证 AppCompat 支持的公开 Window 动画样式及安卓版本上的行为，再考虑包装的 presentation 层；**不建议反射其私有 PopupWindow**。
