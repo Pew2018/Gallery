@@ -30,11 +30,7 @@ class ClassicSettingsPageTransitionTest {
         val host = FrameLayout(activity).apply { setBackgroundColor(Color.WHITE) }
         val page = View(activity).apply { setBackgroundColor(Color.RED) }
         host.addView(page, FrameLayout.LayoutParams(120, 120))
-        activity.setContentView(host)
-        if (!activity.window.decorView.isAttachedToWindow) {
-            activity.windowManager.addView(activity.window.decorView,
-                android.view.WindowManager.LayoutParams(120, 120))
-        }
+        activity.windowManager.addView(host, android.view.WindowManager.LayoutParams(120, 120))
         org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         assertTrue("transition fixture must be attached to a window", host.isAttachedToWindow)
         host.measure(
@@ -73,6 +69,7 @@ class ClassicSettingsPageTransitionTest {
         ClassicSettingsPageTransition.cancel(host, page)
         assertEquals(1f, page.alpha, 0f)
         assertEquals(0f, page.translationX, 0f)
+        activity.windowManager.removeViewImmediate(host)
         controller.pause().stop().destroy()
     }
 

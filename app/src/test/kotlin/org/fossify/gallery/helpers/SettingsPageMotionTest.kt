@@ -132,16 +132,16 @@ class SettingsPageMotionTest {
     @Test fun themeColorSubpageKeepsItsIndependentNavigationAndScrollMotion() {
         val controller = Robolectric.buildActivity(OxygenThemeActivity::class.java).setup().visible()
         val activity = controller.get()
-        if (!activity.window.decorView.isAttachedToWindow) {
-            activity.windowManager.addView(activity.window.decorView,
-                android.view.WindowManager.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT))
-        }
-        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         val resolver = activity.contentResolver
         val prior = Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
         Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val scroll = activity.javaClass.getDeclaredField("scroll").apply { isAccessible = true }
+            .get(activity) as View
+        (scroll.parent as android.view.ViewGroup).removeView(scroll)
+        activity.windowManager.addView(scroll, android.view.WindowManager.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT))
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         val bodyField = activity.javaClass.getDeclaredField("body").apply { isAccessible = true }
         val body = bodyField.get(activity) as View
         val navigate = activity.javaClass.getDeclaredMethod("navigateColors", Boolean::class.javaPrimitiveType)
@@ -149,8 +149,6 @@ class SettingsPageMotionTest {
         val clock = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
         try {
             navigate.invoke(activity, true)
-            val scroll = activity.javaClass.getDeclaredField("scroll").apply { isAccessible = true }
-                .get(activity) as View
             assertTrue("theme scroll must be attached", scroll.isAttachedToWindow)
             assertTrue("theme scroll must have a laid out viewport", scroll.width > 0 && scroll.height > 0)
             scroll.viewTreeObserver.dispatchOnPreDraw()
@@ -170,6 +168,7 @@ class SettingsPageMotionTest {
             assertEquals(0f, body.translationX, 0f)
         } finally {
             Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, prior)
+            activity.windowManager.removeViewImmediate(scroll)
             controller.pause().stop().destroy()
         }
     }
