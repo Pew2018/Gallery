@@ -74,7 +74,10 @@ class ClassicSettingsControlsTest {
                     assertTrue(label.layout.height <= label.height)
                     for (line in 0 until label.lineCount) {
                         assertEquals("Settings text must wrap rather than ellipsize", 0, label.layout.getEllipsisCount(line))
-                        assertTrue(label.layout.getLineWidth(line) <= label.width + 1)
+                        // getLineWidth includes hanging trailing whitespace. Only visible
+                        // glyph advance must fit the TextView's content bounds.
+                        assertTrue("Visible text overflow width=$width scale=$scale rtl=$rtl line=$line: ${label.text}",
+                            label.layout.getLineMax(line) <= label.width + 1)
                     }
                     assertFalse(label.isClickable)
                 }

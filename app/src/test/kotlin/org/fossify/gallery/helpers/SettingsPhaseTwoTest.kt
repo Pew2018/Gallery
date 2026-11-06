@@ -33,6 +33,15 @@ import kotlin.math.roundToInt
 @LooperMode(LooperMode.Mode.PAUSED)
 class SettingsPhaseTwoTest {
     @Before fun noMotion() {
+        // API 30+ Environment indexes the first external directory; Robolectric
+        // intentionally has none until the fixture supplies one. Keep real AppOps checks.
+        org.robolectric.shadows.ShadowEnvironment.addExternalDir("primary")
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            val app = RuntimeEnvironment.getApplication()
+            app.getSystemService(android.app.AppOpsManager::class.java).setMode(
+                android.app.AppOpsManager.OPSTR_MANAGE_EXTERNAL_STORAGE,
+                app.applicationInfo.uid, app.packageName, android.app.AppOpsManager.MODE_IGNORED)
+        }
         Settings.Global.putFloat(RuntimeEnvironment.getApplication().contentResolver,
             Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
     }
@@ -143,6 +152,18 @@ class SettingsPhaseTwoTest {
             assertEquals(if (android.os.Build.VERSION.SDK_INT < 29) View.VISIBLE else View.GONE,
                 activity.findViewById<View>(R.id.settings_manage_hidden_folders_holder).visibility)
             activity.onBackPressedDispatcher.onBackPressed()
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                rows(activity)[6].performClick()
+                assertEquals(View.GONE, activity.findViewById<View>(R.id.settings_hidden_item_password_protection_holder).visibility)
+                assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.settings_excluded_item_password_protection_holder).visibility)
+                activity.getSystemService(android.app.AppOpsManager::class.java).setMode(
+                    android.app.AppOpsManager.OPSTR_MANAGE_EXTERNAL_STORAGE,
+                    activity.applicationInfo.uid, activity.packageName, android.app.AppOpsManager.MODE_ALLOWED)
+                controller.pause().resume()
+                assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.settings_hidden_item_password_protection_holder).visibility)
+                assertEquals(View.GONE, activity.findViewById<View>(R.id.settings_excluded_item_password_protection_holder).visibility)
+                activity.onBackPressedDispatcher.onBackPressed()
+            }
             rows(activity)[7].performClick()
             assertEquals(if (android.os.Build.VERSION.SDK_INT >= 33) View.VISIBLE else View.GONE,
                 activity.findViewById<View>(R.id.settings_language_holder).visibility)
