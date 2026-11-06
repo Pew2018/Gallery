@@ -126,7 +126,7 @@ class PhotoProfileEditUiTest {
                 .setVisible(androidx.core.view.WindowInsetsCompat.Type.ime(), true)
                 .build())
         assertEquals(android.view.View.VISIBLE, fab.visibility)
-        assertEquals(-276f, fab.translationY, 0.1f)
+        assertTrue("visible IME lifts the FAB", fab.translationY < 0f)
 
         androidx.core.view.ViewCompat.dispatchApplyWindowInsets(fab,
             androidx.core.view.WindowInsetsCompat.Builder()
@@ -136,6 +136,12 @@ class PhotoProfileEditUiTest {
         assertEquals(android.view.View.VISIBLE, fab.visibility)
         assertEquals(0f, fab.translationY, 0.1f)
         controller.pause().stop().destroy()
+    }
+
+    @Test fun fabImePositionUsesOnlyKeyboardOverlapBeyondTheNavigationInset() {
+        assertEquals(-276, PhotoProfileFabImePosition.translationY(true, imeBottom = 300, systemBarsBottom = 24))
+        assertEquals(0, PhotoProfileFabImePosition.translationY(true, imeBottom = 20, systemBarsBottom = 24))
+        assertEquals(0, PhotoProfileFabImePosition.translationY(false, imeBottom = 300, systemBarsBottom = 24))
     }
 
     @Test fun unsavedEditorDraftSurvivesActivityRecreationButCancelDoesNotPersistIt() {

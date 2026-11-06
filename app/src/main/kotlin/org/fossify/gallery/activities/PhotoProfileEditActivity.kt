@@ -122,7 +122,11 @@ class PhotoProfileEditActivity : SimpleActivity() {
             val params = view.layoutParams as androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams
             params.marginEnd = dp(16) + bars.right
             view.layoutParams = params
-            view.translationY = fabImeTranslation(insets).toFloat()
+            view.translationY = PhotoProfileFabImePosition.translationY(
+                insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()),
+                ime.bottom,
+                bars.bottom
+            ).toFloat()
             view.visibility = View.VISIBLE
             insets
         }
@@ -135,7 +139,11 @@ class PhotoProfileEditActivity : SimpleActivity() {
                     insets: androidx.core.view.WindowInsetsCompat,
                     runningAnimations: MutableList<androidx.core.view.WindowInsetsAnimationCompat>
                 ): androidx.core.view.WindowInsetsCompat {
-                    binding.photoProfileEditAddSource.translationY = fabImeTranslation(insets).toFloat()
+                    binding.photoProfileEditAddSource.translationY = PhotoProfileFabImePosition.translationY(
+                        insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()),
+                        insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime()).bottom,
+                        insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars()).bottom
+                    ).toFloat()
                     return insets
                 }
             }
@@ -183,15 +191,6 @@ class PhotoProfileEditActivity : SimpleActivity() {
     }
 
     private fun captureName() { if (::draft.isInitialized) draft = draft.copy(name = binding.photoProfileEditName.text.toString()) }
-
-    private fun fabImeTranslation(insets: androidx.core.view.WindowInsetsCompat): Int {
-        if (!insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())) return 0
-        val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-        val imeBottom = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime()).bottom
-        // The IME inset includes the navigation area; the FAB already sits above
-        // that area through moveBottomSystem's baseline margin.
-        return -(imeBottom - bars.bottom).coerceAtLeast(0)
-    }
 
     private fun applyPageColors() {
         val tokens = OxygenThemeEngine.snapshot(this, config)
