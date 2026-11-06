@@ -82,3 +82,18 @@ PENDING_DEVICE：快速名称→大小→修改→随机及反复随机；搜索
 ## 首轮 Actions 证据与提交回调复核
 
 首轮提交 `a203dae8942684d08879cdd3cdf7b904e29954ba`，Run [42149906288](https://github.com/Pew2018/Gallery/actions/runs/42149906288) 的完整 FOSS Release 单测步骤已成功（构建尚在执行时记录，最终结果另行核实）。复核补充了 volatile 显示凭据、首次 Room 通知基线、USER_SORT 替换最终 SCAN Diff 时的真实终态收敛；名称回归用例明确使用倒序缓存并要求 Adapter version 增长，以免初始顺序碰巧满足断言。最终提交将重新运行完整单测和ARM64构建。
+
+## 最终交付核实
+
+- 实际代码/测试提交：`68e29d17c44d579a6f44d589f16f0532dd9e2011`。
+- 保留远程并发提交 `38ad8072435822749cfd3e0642eb0985aec0e00a` 的7份UI文档修改；本轮后续提交以其为父提交，没有覆盖并发工作。
+- 最终工作流 **Arm64 FOSS Release APK (non-publishing)**，文件 `.github/workflows/arm64-foss-release.yml`，Run [42150638203](https://github.com/Pew2018/Gallery/actions/runs/42150638203)，run SHA=`68e29d17c44d579a6f44d589f16f0532dd9e2011`，status=completed，conclusion=success。单测、assemble、签名/包名/ABI校验、上传APK各步骤全部success。
+- JUnit：**932 tests / 0 failures / 0 errors / 0 skipped**。从最终Run的 `backup-ui-test-reports` Artifact下载并解析全部JUnit XML，统计与工作流日志一致。新增7项收藏Activity用例（含可控Executor最终Diff覆盖）及1项策略用例全部通过。既有 MediaAdapterStabilityTest 中 scrollingDefersCatalogAndIdleCommitsNewestResult、heldDiffCannotBlockOrOverwriteNewSortAndSearch、permissionLossBlocksFastReplacementAndOldDiff，以及普通文件夹/照片配置/回收站相关测试随完整套件执行成功。
+- 两个直接覆盖本次问题的用例：`favoriteCache382SortsBeforeScanCompletesAndKeepsTheRequest` 明确从cache-381倒序开头开始，要求实际Adapter version增加、cache-000成为首项，同时scan运行且final=false；`favoriteCacheSearchAndClearCommitBeforeScanCompletes` 要求真实Adapter在扫描中382→10→382。这里没有宣称执行过旧版APK或测量过旧版触控；旧版必然拒绝路径由日志、原策略和原revision=-1门控共同确定，新增测试不依赖原版初始顺序碰巧满足断言。
+- APK Artifact：[gallery-foss-arm64-v8a-release](https://github.com/Pew2018/Gallery/actions/runs/42150638203/artifacts/13471969094)，ID=`13471969094`，保留至2026-11-20（GitHub登录/访问权限按仓库设置）。ZIP内唯一文件 `gallery-foss-arm64-v8a-release.apk`，18,401,947 bytes。
+- 下载最终Artifact后在本机重新计算APK SHA-256：`9beffb72521f65f2a745981277cab1c040cd9911270aa14e1ffaad162b7532c0`，与runner日志完全一致。
+- 包名 `org.fossify.gallery`，versionName=`1.14.1`，versionCode=`32`；native libs严格arm64-v8a。签名校验由runner的apksigner完成；本地只复算文件SHA，不冒充本地签名校验。签名模式为 `temporary-CI-not-upgrade-compatible`，不保证覆盖安装现有版本。
+- 首轮Run `42149906288` 单测931项通过；后续提交触发同分支concurrency取消，不能将首轮run当作最终成功构建。交付只使用上面的最终success运行。
+- 本节为构建结束后追加的**仅文档提交**。该提交晚于实际构建SHA；生产Kotlin与测试代码与已通过Run完全相同，未再改代码，也未为文档重复构建APK。
+
+本轮完成9个文件的修订：MediaActivity、GetMediaAsynctask、VirtualMediaSortPolicy、FavoriteInteractiveSnapshot、FavoriteSortMetadata、FolderRefreshActivityTest、VirtualMediaSortPolicyTest、本文及media-engine-v2/README。真机指标、动画/滚动体感及完整操作矩阵仍按前述PENDING_DEVICE执行，不把932项主机测试等同于设备验收。
