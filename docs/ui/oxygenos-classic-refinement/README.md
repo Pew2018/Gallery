@@ -68,7 +68,7 @@
 | 编号 | 项目 | 优先级 | 实施阶段 | 状态 |
 |---|---|---|---|---|
 | UI-01 | 收藏菜单移除两个 CheckBox，改为随当前设置切换的操作文案 | P1（设计决策） | 1 | 已实现；四种状态/中英文与无 CheckBox 自动化通过；真机视觉待验收 |
-| UI-02 | 三点菜单锚点、宽度、高度、留白 | P1 | 1 | 已按对比图修正下沿展开；新增 188dp 最小宽度及 320/360/412/600dp LTR/RTL bounds 回归，待 Actions 验证和用户真机复验 |
+| UI-02 | 三点菜单锚点、宽度、高度、留白 | P1 | 1 | 已按对比图修正下沿展开；188dp 最小宽度及 320/360/412/600dp LTR/RTL bounds 自动化通过；待用户真机复验 |
 | UI-03 | 设置主页与内部设置行规格和分栏 | P1 | 2 | 现状已审计，待校准 |
 | UI-04 | 底栏选中态、形态与 Ripple 时序 | P1 | 3 | 待视觉测试 |
 | UI-05 | 搜索输入/焦点/IME 动画 | P1 | 3 | 待验证 |
@@ -84,7 +84,7 @@
 
 ## Phase 1 implementation
 
-本阶段交付记录见 [phase-1/00-implementation-summary.md](phase-1/00-implementation-summary.md)。P1-A/P1-B 源码改动和回归用例已提交；P1-C 按用户对比图对全局 Overflow/Popup 菜单实施下沿展开与面板最小宽度校准，保留 280dp 上限、48dp 可触控行高、经典配色与 Ripple。完整测试与 ARM64 APK 状态以 phase-1/04 记录为准；代码已修改、自动化待本次 Actions 验证、真机视觉待验收。
+本阶段交付记录见 [phase-1/00-implementation-summary.md](phase-1/00-implementation-summary.md)。P1-A/P1-B 源码改动和回归用例已提交；P1-C 按用户对比图对全局 Overflow/Popup 菜单实施下沿展开与面板最小宽度校准，保留 280dp 上限、48dp 可触控行高、经典配色与 Ripple。完整测试与 ARM64 APK 状态以 phase-1/04 记录为准；代码已修改、自动化已验证、真机视觉待验收。
 
 ## 6. 下一阶段的首要动作
 

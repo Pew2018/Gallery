@@ -32,6 +32,8 @@ Phase 1 用户要求的完整回归任务由 `.github/workflows/arm64-foss-relea
 
 第七次 run：[#42162250082](https://github.com/Pew2018/Gallery/actions/runs/42162250082)，校准提交 `91605bab970f451250c23f1695589dbdb10e0801`。完整单测 935 项、0 failures、0 errors、0 skipped；Toolbar 与 anchored Popup 的垂直边界断言在 LTR/RTL 均通过，明暗主题的 anchored-overflow 契约测试通过。ARM64 Release 构建、签名与 ABI 校验和 Artifact 上传全部成功。Artifact `gallery-foss-arm64-v8a-release`（10,470,359 bytes，SHA-256 `7eb6218de1c67906388618bb9d2c7973559de49eb7fbe35cc4d1dd55613ff0b7`），仍为临时 CI 签名，14 天到期。
 
+第八次 run：[#42164771922](https://github.com/Pew2018/Gallery/actions/runs/42164771922)，宽度精修提交 `ef96a2387f0a599e13cf2d5f707bf097aeeeb862`。完整 FOSS Release 单测 941 项、0 failures、0 errors、0 skipped；四种窗口宽度的 LTR/RTL Toolbar 与 anchored Popup 几何测试、菜单最小/最大宽度与可见窗口边界断言全部通过。ARM64 Release build、APK 包名/签名/ABI 校验和 Artifact 上传成功。Artifact `gallery-foss-arm64-v8a-release`（10,470,686 bytes，SHA-256 `d16c2696515bc452fcc8cea3b2ba0d7b0e9d929d28fd39d4c5219c47752da840`），临时 CI 签名、14 天保留。
+
 ## 尚无设备证据
 
 当前没有连接 ADB 设备或模拟器。尚未完成 FAB 实际 IME 间距/动画/可点、主题切换与旋转；未采集各宿主 Popup 坐标和长菜单/真实 Ripple 录屏。因此真机状态均为待验收。
