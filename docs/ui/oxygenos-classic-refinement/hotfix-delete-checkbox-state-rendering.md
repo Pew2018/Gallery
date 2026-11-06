@@ -57,6 +57,9 @@ Existing CANCEL, ripple bounds, hidden-row geometry and callback tests remain.
 Local Gradle could not download its distribution (network unreachable); full unit
 tests and the installable ARM64 FOSS Release build are delegated to the existing
 GitHub Actions workflow. CI result must be reported separately after completion.
+The first CI attempt (#556) compiled successfully, but Robolectric rejected the
+API 36 sandbox under Java 17. The ARM64 workflow now runs on Java 21 as required
+by that sandbox; the existing application Java/Kotlin bytecode target stays 17.
 Robolectric API 36 and bitmap checks improve coverage but do not constitute a
 Pixel 8 Pro hardware/TalkBack acceptance result. Final device acceptance remains
 the visible first-tap/second-tap behavior on the delivered APK; no further debug

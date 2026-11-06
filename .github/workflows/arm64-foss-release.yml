@@ -41,7 +41,8 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          # Robolectric API 36 needs Java 21; app bytecode remains targeted to 17.
+          java-version: "21"
 
       - uses: gradle/actions/setup-gradle@v4
 
