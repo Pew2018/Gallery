@@ -53,7 +53,7 @@ class ClassicSettingsPageTransitionTest {
         for (progress in listOf(0.1f, 0.25f, 0.5f, 0.75f, 0.9f)) {
             ClassicSettingsPageTransition.applyProgressForTest(host, progress)
             val frame = Bitmap.createBitmap(120, 120, Bitmap.Config.ARGB_8888)
-            ClassicSettingsPageTransition.drawCompositeForTest(host, Canvas(frame))
+            ClassicSettingsPageTransition.drawCompositeForTest(host, page, Canvas(frame))
             val pixel = frame.getPixel(60, 60)
             redLevels += Color.red(pixel)
             blueLevels += Color.blue(pixel)
@@ -68,7 +68,7 @@ class ClassicSettingsPageTransitionTest {
         assertTrue("Intermediate frames must contain both pages (red=$redLevels, blue=$blueLevels)",
             redLevels.any { it in 1..254 } && blueLevels.any { it in 1..254 })
         ClassicSettingsPageTransition.applyProgressForTest(host, 1f)
-        assertEquals(Color.BLUE, drawCenter(host))
+        assertEquals(Color.BLUE, drawCenter(host, page))
         assertEquals("Toolbar title is committed near the end of the outgoing frame", 1, titleCommitCount)
         ClassicSettingsPageTransition.cancel(host, page)
         assertEquals(1f, page.alpha, 0f)
@@ -77,9 +77,9 @@ class ClassicSettingsPageTransitionTest {
         controller.pause().stop().destroy()
     }
 
-    private fun drawCenter(view: View): Int {
+    private fun drawCenter(view: View, incoming: View): Int {
         val bitmap = Bitmap.createBitmap(120, 120, Bitmap.Config.ARGB_8888)
-        ClassicSettingsPageTransition.drawCompositeForTest(view, Canvas(bitmap))
+        ClassicSettingsPageTransition.drawCompositeForTest(view, incoming, Canvas(bitmap))
         return bitmap.getPixel(60, 60).also { bitmap.recycle() }
     }
 

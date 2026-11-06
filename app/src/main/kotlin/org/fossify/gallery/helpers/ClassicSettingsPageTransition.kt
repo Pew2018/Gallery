@@ -5,6 +5,7 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
@@ -159,10 +160,14 @@ object ClassicSettingsPageTransition {
     }
 
     /** Robolectric's software View.draw() omits ViewOverlay, so compose its actual drawable here. */
-    internal fun drawCompositeForTest(container: View, canvas: Canvas) {
+    internal fun drawCompositeForTest(container: View, incoming: View, canvas: Canvas) {
         val save = canvas.save()
         canvas.clipRect(0, 0, container.width, container.height)
-        container.draw(canvas)
+        canvas.drawColor(Color.WHITE)
+        val incomingSave = canvas.save()
+        canvas.translate(incoming.left + incoming.translationX, incoming.top + incoming.translationY)
+        incoming.draw(canvas)
+        canvas.restoreToCount(incomingSave)
         runs[container]?.outgoing?.draw(canvas)
         canvas.restoreToCount(save)
     }
