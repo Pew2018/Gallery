@@ -159,19 +159,6 @@ object ClassicSettingsPageTransition {
         applyProgress(container, run, progress)
     }
 
-    /** Robolectric's software View.draw() omits ViewOverlay, so compose its actual drawable here. */
-    internal fun drawCompositeForTest(container: View, incoming: View, canvas: Canvas) {
-        val save = canvas.save()
-        canvas.clipRect(0, 0, container.width, container.height)
-        canvas.drawColor(Color.WHITE)
-        val incomingSave = canvas.save()
-        canvas.translate(incoming.left + incoming.translationX, incoming.top + incoming.translationY)
-        incoming.draw(canvas)
-        canvas.restoreToCount(incomingSave)
-        runs[container]?.outgoing?.draw(canvas)
-        canvas.restoreToCount(save)
-    }
-
     internal fun snapshotPixelForTest(container: View, x: Int, y: Int): Int? =
         runs[container]?.outgoing?.pixelForTest(x, y)
 

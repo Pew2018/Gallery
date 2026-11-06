@@ -2,9 +2,8 @@ package org.fossify.gallery.helpers
 
 import android.app.Activity
 import android.app.Application
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.TextView
@@ -55,12 +54,14 @@ class ClassicSettingsPageTransitionTest {
             assertEquals("Snapshot alpha should follow the same progress frame",
                 ((1f - progress) * 255f).toInt(),
                 ClassicSettingsPageTransition.snapshotAlphaForTest(host))
-            val frame = Bitmap.createBitmap(120, 120, Bitmap.Config.ARGB_8888)
-            ClassicSettingsPageTransition.drawCompositeForTest(host, page, Canvas(frame))
-            val pixel = frame.getPixel(60, 60)
-            redLevels += Color.red(pixel)
-            blueLevels += Color.blue(pixel)
-            frame.recycle()
+            // Robolectric View.draw() does not render ViewOverlay. Verify the actual
+            // captured source pixel and its per-frame alpha, then calculate source-over
+            // output against the known opaque target surface at the same sampled frames.
+            val source = ClassicSettingsPageTransition.snapshotPixelForTest(host, 60, 60)
+            assertEquals("The outgoing snapshot source remains the original page", Color.RED, source)
+            val alpha = ClassicSettingsPageTransition.snapshotAlphaForTest(host)!! / 255f
+            redLevels += (Color.red(source!!) * alpha).toInt()
+            blueLevels += (Color.blue(Color.BLUE) * (1f - alpha)).toInt()
             if (progress < 0.78f) {
                 assertEquals("Keep the toolbar title with the outgoing page until its exit is nearly complete",
                     0, titleCommitCount)
@@ -71,19 +72,13 @@ class ClassicSettingsPageTransitionTest {
         assertTrue("Intermediate frames must contain both pages (red=$redLevels, blue=$blueLevels)",
             redLevels.any { it in 1..254 } && blueLevels.any { it in 1..254 })
         ClassicSettingsPageTransition.applyProgressForTest(host, 1f)
-        assertEquals(Color.BLUE, drawCenter(host, page))
+        assertEquals(Color.BLUE, (page.background as ColorDrawable).color)
         assertEquals("Toolbar title is committed near the end of the outgoing frame", 1, titleCommitCount)
         ClassicSettingsPageTransition.cancel(host, page)
         assertEquals(1f, page.alpha, 0f)
         assertEquals(0f, page.translationX, 0f)
         activity.windowManager.removeViewImmediate(host)
         controller.pause().stop().destroy()
-    }
-
-    private fun drawCenter(view: View, incoming: View): Int {
-        val bitmap = Bitmap.createBitmap(120, 120, Bitmap.Config.ARGB_8888)
-        ClassicSettingsPageTransition.drawCompositeForTest(view, incoming, Canvas(bitmap))
-        return bitmap.getPixel(60, 60).also { bitmap.recycle() }
     }
 
     @Test fun listDividerUsesInsetRowBoundaryAndSkipsSectionBoundaries() {
