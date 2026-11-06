@@ -175,6 +175,8 @@ object ClassicSettingsPageTransition {
     internal fun snapshotPixelForTest(container: View, x: Int, y: Int): Int? =
         runs[container]?.outgoing?.pixelForTest(x, y)
 
+    internal fun snapshotAlphaForTest(container: View): Int? = runs[container]?.outgoing?.alpha
+
     private fun applyProgress(container: View, run: Run, progress: Float) {
         if (runs[container] !== run) return
         val frameProgress = progress.coerceIn(0f, 1f)

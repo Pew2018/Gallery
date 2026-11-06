@@ -52,6 +52,9 @@ class ClassicSettingsPageTransitionTest {
         val blueLevels = mutableListOf<Int>()
         for (progress in listOf(0.1f, 0.25f, 0.5f, 0.75f, 0.9f)) {
             ClassicSettingsPageTransition.applyProgressForTest(host, progress)
+            assertEquals("Snapshot alpha should follow the same progress frame",
+                ((1f - progress) * 255f).toInt(),
+                ClassicSettingsPageTransition.snapshotAlphaForTest(host))
             val frame = Bitmap.createBitmap(120, 120, Bitmap.Config.ARGB_8888)
             ClassicSettingsPageTransition.drawCompositeForTest(host, page, Canvas(frame))
             val pixel = frame.getPixel(60, 60)
