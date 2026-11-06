@@ -1,6 +1,8 @@
 package org.fossify.gallery.helpers
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.RippleDrawable
@@ -45,6 +47,12 @@ class DeleteWithRememberDialogRippleTest {
         // dispatching synthetic input through its content root.
         shadowOf(Looper.getMainLooper()).idle()
         return ShadowDialog.getLatestDialog() as AlertDialog
+    }
+
+    private fun drawRow(row: View) {
+        val bitmap = Bitmap.createBitmap(row.width, row.height, Bitmap.Config.ARGB_8888)
+        row.draw(Canvas(bitmap))
+        bitmap.recycle()
     }
 
     private fun dispatchTouch(
@@ -98,6 +106,7 @@ class DeleteWithRememberDialogRippleTest {
                 val checkbox = if (index == 0) first else second
                 assertFalse("row is a ripple host, not a competing click target", row.isClickable)
                 assertNull("checkbox must not own a competing ripple", checkbox.background)
+                drawRow(row)
                 val ripple = row.background as RippleDrawable
                 assertEquals(Rect(0, 0, row.width, row.height), ripple.bounds)
                 assertEquals("row wrapper must preserve checkbox height", checkbox.measuredHeight, row.measuredHeight)
