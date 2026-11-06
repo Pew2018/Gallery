@@ -15,7 +15,7 @@ The grid and full-screen Viewer both show `DeleteWithRememberDialog`. Its two ch
 ## Verification
 
 - Robolectric coverage exercises both row Ripple bounds, icon and label touch points, single checked-state transitions, light and dark themes, repeated styling, hidden-row behavior, and confirm/cancel callbacks.
-- GitHub Actions run [#551](https://github.com/Pew2018/Gallery/actions/runs/42168357794) succeeded on source commit `f7685817f08e081d695aa7778267b94769ae3bb0).
+- GitHub Actions run [#551](https://github.com/Pew2018/Gallery/actions/runs/42168357794) succeeded on source commit `f7685817f08e081d695aa7778267b94769ae3bb0`.
 - Full FOSS Release suite: 944 tests, 0 failures, 0 errors, 0 skipped.
 - ARM64 FOSS Release artifact: `gallery-foss-arm64-v8a-release`; APK SHA-256: `58499a6a448d5f4dcb48eab38cdee4b84d951d71d936072d2d0a75744cafa5ff`.
 - CI used a temporary signing key, so this APK is not upgrade-compatible with a differently signed installed build.
