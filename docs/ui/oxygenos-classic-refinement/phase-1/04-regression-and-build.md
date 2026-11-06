@@ -28,6 +28,8 @@ Phase 1 用户要求的完整回归任务由 `.github/workflows/arm64-foss-relea
 
 第六次 run：[#42159394735](https://github.com/Pew2018/Gallery/actions/runs/42159394735)，远程分支提交 `d84856fcabbd6e00f500807e13a108f22c42a250`。完整 `:app:testFossReleaseUnitTest` 成功：935 tests、0 failures、0 errors、0 skipped。`:app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a` 成功；工作流验证 APK 包名、签名及 ABI，并上传 Artifact `gallery-foss-arm64-v8a-release`（10,470,369 bytes，SHA-256 `b32987a4e5836c1ad7a1fde8aed4fb960a99a8eb886c0e307fe4e2ca164e24fa`）。签名模式为 `temporary-CI-not-upgrade-compatible`：该包可安装作测试，但不能覆盖升级不同签名的已安装版本；Artifact 保留 14 天。
 
+垂直位置复验 run：[#42161616128](https://github.com/Pew2018/Gallery/actions/runs/42161616128) 在两个测试中捕捉到锚点偏差：无重叠后，Toolbar Overflow 弹窗顶部为 y=44、顶栏底部 y=56。该证据说明锚点下沿仍比 Toolbar 底部高 12dp；随后将偏移校准为 12dp，并更新旧 overlap 契约测试。该 run 的测试失败，因此没有 APK；新的校准结果待复跑确认。
+
 ## 尚无设备证据
 
 当前没有连接 ADB 设备或模拟器。尚未完成 FAB 实际 IME 间距/动画/可点、主题切换与旋转；未采集各宿主 Popup 坐标和长菜单/真实 Ripple 录屏。因此真机状态均为待验收。

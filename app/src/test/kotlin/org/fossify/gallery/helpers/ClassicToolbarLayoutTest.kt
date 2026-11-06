@@ -173,7 +173,7 @@ class ClassicToolbarLayoutTest {
             val window = org.robolectric.Shadows.shadowOf(activity.application).latestPopupWindow!!
             try {
                 assertTrue(window.isShowing)
-                assertTrue("Anchored overflow must share the toolbar overlap policy", window.overlapAnchor)
+                assertFalse("Anchored overflow opens below its Toolbar anchor", window.overlapAnchor)
                 assertEquals(dp(8).toFloat(), window.elevation, 0.5f)
                 val background = window.background as android.graphics.drawable.GradientDrawable
                 assertEquals(dp(4).toFloat(), background.cornerRadius, 0.5f)
