@@ -30,6 +30,7 @@ import com.google.android.material.tabs.TabLayout
 import android.os.Build
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.R
+import org.fossify.gallery.views.DeleteConfirmationCheckboxRow
 import org.fossify.commons.extensions.getProperBackgroundColor
 import org.fossify.commons.extensions.getProperPrimaryColor
 
@@ -568,6 +569,7 @@ object OxygenClassicDialog {
                     animationsEnabled = OxygenClassicMotion.enabled(activity)
                 )
                 val row = button.parent as? org.fossify.gallery.views.ClassicDialogCheckboxRow
+                val deleteConfirmationRow = button.parent as? DeleteConfirmationCheckboxRow
                 val trailing = v.id == R.id.sorting_dialog_numeric_sorting || v.id == R.id.sorting_dialog_use_for_this_folder
                 if (trailing) {
                     val mark = button.buttonDrawable
@@ -585,6 +587,10 @@ object OxygenClassicDialog {
                     row.background = ripple(readableAccent, dp)
                     button.background = null
                     button.setPaddingRelative(0, (8 * dp).toInt(), 0, (8 * dp).toInt())
+                } else if (deleteConfirmationRow != null) {
+                    // Keep this dialog's original content height while the row owns the touch ripple.
+                    deleteConfirmationRow.background = ripple(readableAccent, dp)
+                    button.background = null
                 } else button.background = ripple(dialogText, dp)
                 button.isAllCaps = false
                 button.minHeight = ((if (row != null) 56f else 48f) * dp).toInt()

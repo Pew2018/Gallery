@@ -25,7 +25,7 @@ class DeleteWithRememberDialog(
         binding.deleteRememberTitle.text = message
         binding.deleteRememberCheckbox.isChecked = false
         binding.skipTheRecycleBinCheckbox.isChecked = false
-        binding.skipTheRecycleBinCheckbox.beGoneIf(!showSkipRecycleBinOption)
+        binding.skipTheRecycleBinCheckboxRow.beGoneIf(!showSkipRecycleBinOption)
         activity.getAlertDialogBuilder()
             .setPositiveButton(org.fossify.commons.R.string.yes) { dialog, which -> dialogConfirmed() }
             .setNegativeButton(org.fossify.commons.R.string.no, null)

@@ -16,18 +16,30 @@
         android:text="@string/proceed_with_deletion"
         android:textSize="@dimen/bigger_text_size" />
 
-    <org.fossify.commons.views.MyAppCompatCheckbox
-        android:id="@+id/delete_remember_checkbox"
+    <org.fossify.gallery.views.DeleteConfirmationCheckboxRow
+        android:id="@+id/delete_remember_checkbox_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_below="@+id/delete_remember_title"
-        android:text="@string/do_not_ask_again" />
+        android:layout_below="@+id/delete_remember_title">
 
-    <org.fossify.commons.views.MyAppCompatCheckbox
-        android:id="@+id/skip_the_recycle_bin_checkbox"
+        <org.fossify.commons.views.MyAppCompatCheckbox
+            android:id="@+id/delete_remember_checkbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/do_not_ask_again" />
+    </org.fossify.gallery.views.DeleteConfirmationCheckboxRow>
+
+    <org.fossify.gallery.views.DeleteConfirmationCheckboxRow
+        android:id="@+id/skip_the_recycle_bin_checkbox_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_below="@+id/delete_remember_checkbox"
-        android:text="@string/skip_the_recycle_bin" />
+        android:layout_below="@+id/delete_remember_checkbox_row">
+
+        <org.fossify.commons.views.MyAppCompatCheckbox
+            android:id="@+id/skip_the_recycle_bin_checkbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/skip_the_recycle_bin" />
+    </org.fossify.gallery.views.DeleteConfirmationCheckboxRow>
 
 </RelativeLayout>
