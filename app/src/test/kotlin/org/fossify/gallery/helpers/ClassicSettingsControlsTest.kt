@@ -74,7 +74,15 @@ class ClassicSettingsControlsTest {
                     assertTrue(label.layout.height <= label.height)
                     for (line in 0 until label.lineCount) {
                         assertEquals("Settings text must wrap rather than ellipsize", 0, label.layout.getEllipsisCount(line))
-                        assertTrue(label.layout.getLineWidth(line) <= label.width + 1)
+                        var visibleEnd = label.layout.getLineEnd(line)
+                        while (visibleEnd > label.layout.getLineStart(line) &&
+                            label.text[visibleEnd - 1].isWhitespace()) visibleEnd--
+                        val visibleWidth = kotlin.math.abs(
+                            label.layout.getPrimaryHorizontal(visibleEnd) -
+                                label.layout.getPrimaryHorizontal(label.layout.getLineStart(line))
+                        )
+                        assertTrue("Visible text overflow width=$width scale=$scale rtl=$rtl line=$line: ${label.text}",
+                            visibleWidth <= label.width + 1)
                     }
                     assertFalse(label.isClickable)
                 }
@@ -84,12 +92,18 @@ class ClassicSettingsControlsTest {
             }
             assertTrue(row.performClick())
             assertEquals(1, opens)
-            // Keep representative native renders available with the existing CI previews.
-            val bitmap = Bitmap.createBitmap(row.width, row.height, Bitmap.Config.ARGB_8888)
-            Canvas(bitmap).apply { drawColor(tokens(dark).pageBackground); row.draw(this) }
-            val output = File("build/reports/photo-source-previews").apply { mkdirs() }
-            File(output, "settings-category-${android.os.Build.VERSION.SDK_INT}-$dark-$rtl-$scale.png").outputStream().use {
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+            // Comparable 12/13sp candidate renders at phone width; these are
+            // Robolectric font/layout samples, never a claim about device rendering.
+            val summaryView = (row.getChildAt(1) as LinearLayout).getChildAt(1) as TextView
+            for (summarySp in listOf(12f, 13f)) {
+                summaryView.textSize = summarySp
+                measure(row, dp(360))
+                val bitmap = Bitmap.createBitmap(row.width, row.height, Bitmap.Config.ARGB_8888)
+                Canvas(bitmap).apply { drawColor(tokens(dark).pageBackground); row.draw(this) }
+                val output = File("build/reports/photo-source-previews").apply { mkdirs() }
+                File(output, "settings-category-${android.os.Build.VERSION.SDK_INT}-$dark-$rtl-$scale-${summarySp.toInt()}sp.png").outputStream().use {
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+                }
             }
         }
     }

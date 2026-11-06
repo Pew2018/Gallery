@@ -66,14 +66,14 @@ class SettingsPageMotionTest {
             repeat(2) { clock.idleFor(16, java.util.concurrent.TimeUnit.MILLISECONDS) }
             transition.invoke(activity, false, next)
             repeat(20) { clock.idleFor(16, java.util.concurrent.TimeUnit.MILLISECONDS) }
-            assertEquals(0, obsolete)
+            assertEquals(1, obsolete) // The first page swap is committed synchronously.
             assertEquals(1, current)
             assertEquals(1f, scroll.alpha, 0f)
             assertEquals(0f, scroll.translationX, 0f)
             transition.invoke(activity, true, old)
             controller.pause().stop().destroy()
             repeat(20) { clock.idleFor(16, java.util.concurrent.TimeUnit.MILLISECONDS) }
-            assertEquals(0, obsolete)
+            assertEquals(2, obsolete) // Destroy cancels motion after the synchronous page swap.
             assertEquals(1f, scroll.alpha, 0f)
             assertEquals(0f, scroll.translationX, 0f)
         } finally {
