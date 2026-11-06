@@ -22,7 +22,9 @@ Phase 1 用户要求的完整回归任务由 `.github/workflows/arm64-foss-relea
 
 第三次 run：[#42157721854](https://github.com/Pew2018/Gallery/actions/runs/42157721854)，934 个单测中 933 通过、1 个新增 FAB Insets 用例失败。失败原因是该用例直接假设 Robolectric 合成 `systemBars()` 与 IME inset 和源码输入相同，实际其 API 28 inset 聚合值不同，导致精确 `-276px` 期望不适用。位移公式已提取为纯函数单测，Insets 集成用例改为验证 FAB 保持可见并随可见 IME 上移。
 
-第四次 run：[#42158323494](https://github.com/Pew2018/Gallery/actions/runs/42158323494)，935 个单测中 934 通过、1 个失败。剩余失败是尝试用 Robolectric 第二个合成窗口 Insets 证明键盘隐藏后 translation 归零；运行环境仍将 IME/系统栏 bottom 聚合为 24px，纯函数关闭状态已经独立验证为零。已移除不可靠的合成关闭集成断言，保留纯函数隐藏状态测试。APK assemble 未运行，无 APK Artifact；第五次 run 待回填。没有 Action 成功记录前，不应标记自动化或 APK 构建已通过。
+第四次 run：[#42158323494](https://github.com/Pew2018/Gallery/actions/runs/42158323494)，935 个单测中 934 通过、1 个失败。剩余失败是尝试用 Robolectric 第二个合成窗口 Insets 证明键盘隐藏后 translation 归零；运行环境仍将 IME/系统栏 bottom 聚合为 24px，纯函数关闭状态已经独立验证为零。已移除不可靠的合成关闭集成断言，保留纯函数隐藏状态测试。
+
+第五次 run：[#42158922293](https://github.com/Pew2018/Gallery/actions/runs/42158922293)，在测试 Kotlin 编译阶段失败。GitHub tree API 写入文件时，分片读取的输出被命令工具截断标记，损坏了远端 `PhotoProfileEditUiTest.kt` 的一段源码；本地源文件内容完整。此为提交传输/内容完整性问题，已定位，下一提交会校验完整文件字节数后替换远程 blob。测试和 APK 均未运行，无 Artifact。
 
 ## 尚无设备证据
 

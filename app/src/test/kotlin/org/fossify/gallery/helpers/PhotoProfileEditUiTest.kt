@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 2643)
-Total output lines: 196
-
 package org.fossify.gallery.helpers
 
 import android.app.Application
@@ -100,7 +97,16 @@ class PhotoProfileEditUiTest {
         val sources = root.findViewById<android.widget.LinearLayout>(R.id.photo_profile_edit_sources)
         assertEquals(1, field.maxLines)
         assertEquals((52 * context.resources.displayMetrics.density).toInt(), field.minimumHeight)
-        assertEquals(…143 tokens truncated…abStaysVisibleAndMovesWithImeInsets() {
+        assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, label.layoutParams.height)
+        assertNotNull(root.findViewById<TextView>(R.id.photo_profile_edit_sources_title))
+        assertEquals(0, (sources.layoutParams as ViewGroup.MarginLayoutParams).topMargin)
+        assertEquals((56 * context.resources.displayMetrics.density).toInt(), addSource.layoutParams.height)
+        assertTrue(field.hint.isNullOrEmpty())
+        assertNotNull(addSource.drawable)
+        assertTrue(root.findViewById<ScrollView>(R.id.photo_profile_edit_scroll).isFillViewport)
+    }
+
+    @Test fun addSourceFabStaysVisibleAndMovesWithImeInsets() {
         val app = RuntimeEnvironment.getApplication()
         val intent = Intent(app, org.fossify.gallery.activities.PhotoProfileEditActivity::class.java)
             .putExtra(org.fossify.gallery.activities.PhotoProfileEditActivity.EXTRA_CREATING, true)
