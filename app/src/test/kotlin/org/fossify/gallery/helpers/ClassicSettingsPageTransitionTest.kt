@@ -32,6 +32,7 @@ class ClassicSettingsPageTransitionTest {
         host.addView(page, FrameLayout.LayoutParams(120, 120))
         activity.setContentView(host)
         org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        org.robolectric.Shadows.shadowOf(host).callOnAttachedToWindow()
         assertTrue("transition fixture must be attached to a window", host.isAttachedToWindow)
         host.measure(
             View.MeasureSpec.makeMeasureSpec(120, View.MeasureSpec.EXACTLY),

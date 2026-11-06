@@ -145,6 +145,7 @@ class SettingsPageMotionTest {
             navigate.invoke(activity, true)
             val scroll = activity.javaClass.getDeclaredField("scroll").apply { isAccessible = true }
                 .get(activity) as View
+            org.robolectric.Shadows.shadowOf(scroll).callOnAttachedToWindow()
             assertTrue("theme scroll must be attached", scroll.isAttachedToWindow)
             assertTrue("theme scroll must have a laid out viewport", scroll.width > 0 && scroll.height > 0)
             scroll.viewTreeObserver.dispatchOnPreDraw()
