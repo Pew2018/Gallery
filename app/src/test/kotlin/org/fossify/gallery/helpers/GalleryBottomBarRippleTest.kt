@@ -115,7 +115,7 @@ class GalleryBottomBarRippleTest {
         assertEquals(2f, activity.resources.getDimension(R.dimen.oxygen_bottom_bar_label_gap) /
             activity.resources.displayMetrics.density, 0.01f)
         assertTrue(tabs.all { it.background is RippleDrawable })
-        assertTrue(tabs.all { (it.background as RippleDrawable).getDrawable(2) is android.graphics.drawable.InsetDrawable })
+        assertTrue(tabs.all { (it.background as RippleDrawable).getDrawable(1) is android.graphics.drawable.InsetDrawable })
         tabs[1].performClick()
         tabs[2].performClick()
         tabs[1].performClick()
@@ -184,7 +184,7 @@ class GalleryBottomBarRippleTest {
             val tabs = items(bar)
             assertEquals(order, tabs.map { it.tag })
             assertTrue(tabs.all { (it.layoutParams as LinearLayout.LayoutParams).weight == 1f })
-            assertTrue(tabs.all { (it.background as RippleDrawable).getDrawable(2) is android.graphics.drawable.InsetDrawable })
+            assertTrue(tabs.all { (it.background as RippleDrawable).getDrawable(1) is android.graphics.drawable.InsetDrawable })
             GalleryBottomBar.dispose(activity)
             activity.finish()
         }

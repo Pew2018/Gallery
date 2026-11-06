@@ -46,6 +46,7 @@ The test additions cover same-instance ripple recoloring, semantic theme colors 
 - Local targeted test command attempted: `./gradlew :app:testFossDebugUnitTest --tests org.fossify.gallery.helpers.GalleryBottomBarRippleTest`.
 - Local test execution was blocked before Gradle started because the wrapper needed Gradle 9.5.1 from `services.gradle.org`, which is unreachable in this environment. No local test pass is claimed.
 - ARM64 FOSS Release workflow: [Arm64 FOSS Release APK](https://github.com/Pew2018/Gallery/actions/workflows/arm64-foss-release.yml). It runs the complete `testFossReleaseUnitTest` suite and assembles/verifies the arm64-v8a release APK on pushes to this branch. The exact run, commit SHA, test outcome, and artifact will be reported after the push completes.
+- First workflow run (#590, commit `ae3b7b1896f36807a3c92887eb761aab5b58d01a`) compiled the app/tests but failed 2 of 988 tests because the new assertions queried `RippleDrawable` layer 2; Robolectric exposes the content and mask at indices 0 and 1. The assertions are corrected to inspect the mask at index 1. This follow-up commit exists specifically to fix that CI test failure; its complete rerun is pending.
 - Pixel 8 Pro / Android 16 GPU ripple inspection remains pending: light/dark themes, pale/dark custom accents, quick taps, hold/cancel, tap during theme refresh, system animator scale 0/1x, navigation modes, and cold/warm launch. No device result is claimed.
 
 ## Preserved contracts
