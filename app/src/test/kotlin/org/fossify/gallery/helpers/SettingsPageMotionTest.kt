@@ -141,7 +141,8 @@ class SettingsPageMotionTest {
         activity.windowManager.addView(scroll, android.view.WindowManager.LayoutParams(
             android.view.ViewGroup.LayoutParams.MATCH_PARENT,
             android.view.ViewGroup.LayoutParams.MATCH_PARENT))
-        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(
+            32, java.util.concurrent.TimeUnit.MILLISECONDS)
         val bodyField = activity.javaClass.getDeclaredField("body").apply { isAccessible = true }
         val body = bodyField.get(activity) as View
         val navigate = activity.javaClass.getDeclaredMethod("navigateColors", Boolean::class.javaPrimitiveType)
