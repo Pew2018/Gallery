@@ -22,7 +22,7 @@
         android:layout_height="wrap_content"
         android:layout_below="@+id/delete_remember_title">
 
-        <org.fossify.commons.views.MyAppCompatCheckbox
+        <org.fossify.gallery.views.DeleteConfirmationCheckbox
             android:id="@+id/delete_remember_checkbox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -35,7 +35,7 @@
         android:layout_height="wrap_content"
         android:layout_below="@+id/delete_remember_checkbox_row">
 
-        <org.fossify.commons.views.MyAppCompatCheckbox
+        <org.fossify.gallery.views.DeleteConfirmationCheckbox
             android:id="@+id/skip_the_recycle_bin_checkbox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

@@ -566,7 +566,8 @@ object OxygenClassicDialog {
                     )
                 } else OxygenClassicControls.selectionDrawable(
                     v is RadioButton, dp, controlColors, surfaceAccent = targeted,
-                    animationsEnabled = OxygenClassicMotion.enabled(activity)
+                    // Confirmation choices publish their final mark with native checked state.
+                    animationsEnabled = button.parent !is DeleteConfirmationCheckboxRow && OxygenClassicMotion.enabled(activity)
                 )
                 val row = button.parent as? org.fossify.gallery.views.ClassicDialogCheckboxRow
                 val deleteConfirmationRow = button.parent as? DeleteConfirmationCheckboxRow

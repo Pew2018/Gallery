@@ -143,11 +143,14 @@ object OxygenClassicControls {
                 val enabled = state.contains(android.R.attr.state_enabled)
                 val target = if (checked) 1f else 0f
                 val previous = selectionProgress
+                val checkedChanged = lastChecked != checked
                 val shouldAnimate = animationsEnabled && enabled && lastChecked != null &&
-                    lastChecked != checked && previous != null && previous != target
+                    checkedChanged && previous != null && previous != target
                 lastChecked = checked
                 // Press/focus changes must not snap an in-flight checked transition.
-                if (shouldAnimate || !enabled || !animationsEnabled || previous == null) {
+                // A reversal can reach the previous target before the first animator
+                // frame. Cancel the obsolete animator even when no new animation is needed.
+                if (checkedChanged || !enabled || !animationsEnabled || previous == null) {
                     selectionAnimator?.cancel()
                     selectionAnimator = null
                 }

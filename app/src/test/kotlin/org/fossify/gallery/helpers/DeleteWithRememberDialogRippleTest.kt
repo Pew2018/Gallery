@@ -9,11 +9,13 @@ import android.graphics.drawable.RippleDrawable
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.CheckBox
 import androidx.appcompat.app.AlertDialog
 import org.fossify.commons.extensions.baseConfig
 import org.fossify.gallery.R
 import org.fossify.gallery.dialogs.DeleteWithRememberDialog
+import org.fossify.gallery.extensions.config
 import org.fossify.gallery.views.DeleteConfirmationCheckboxRow
 import org.junit.Assert.*
 import org.junit.Test
@@ -28,11 +30,99 @@ import org.robolectric.shadows.ShadowDialog
 import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28], manifest = Config.NONE, application = Application::class,
+@Config(sdk = [28, 36], manifest = Config.NONE, application = Application::class,
     qualifiers = "w411dp-h800dp-mdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class DeleteWithRememberDialogRippleTest {
+    /** Paint the actual installed mark, including its InsetDrawable wrapper. */
+    private fun markPixels(checkbox: CheckBox): IntArray {
+        val mark = requireNotNull(checkbox.buttonDrawable)
+        val savedBounds = Rect(mark.bounds)
+        val bitmap = Bitmap.createBitmap(mark.intrinsicWidth, mark.intrinsicHeight, Bitmap.Config.ARGB_8888)
+        mark.setBounds(0, 0, bitmap.width, bitmap.height)
+        mark.draw(Canvas(bitmap))
+        val pixels = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        mark.bounds = savedBounds
+        bitmap.recycle()
+        return pixels
+    }
+
+    @Test fun confirmationMarksMatchNativeValueBeforeAnyAnimationFrameIncludingRecycleBinSingleRow() {
+        for (dark in listOf(false, true)) for (showSkip in listOf(false, true)) {
+            val activity = host(dark)
+            var result: Pair<Boolean, Boolean>? = null
+            DeleteWithRememberDialog(activity, "Delete these photos?", showSkip, callback = { remember, skip ->
+                result = remember to skip
+            })
+            val dialog = latestDialog()
+            val root = dialog.window!!.decorView
+            val first = dialog.findViewById<CheckBox>(R.id.delete_remember_checkbox)!!
+            val second = dialog.findViewById<CheckBox>(R.id.skip_the_recycle_bin_checkbox)!!
+            for (checkbox in if (showSkip) listOf(first, second) else listOf(first)) {
+                val row = checkbox.parent as View
+                val unchecked = markPixels(checkbox)
+                // Use native performClick without advancing the frame clock: catches
+                // logical true with a still-empty custom mark, which old tests missed.
+                checkbox.performClick()
+                assertTrue(checkbox.isChecked)
+                val checked = markPixels(checkbox)
+                assertFalse("first click must paint the selected mark immediately", unchecked.contentEquals(checked))
+                checkbox.buttonDrawable!!.jumpToCurrentState()
+                assertArrayEquals("first frame must already be the final checked mark", checked, markPixels(checkbox))
+                checkbox.performClick()
+                assertFalse(checkbox.isChecked)
+                assertArrayEquals(unchecked, markPixels(checkbox))
+
+                // Real window dispatch across icon, label and far edge, without
+                // waiting for selection animations between consecutive gestures.
+                for (x in listOf(12f, row.width * .5f, row.width - 2f)) {
+                    tap(root, row, x, row.height / 2f)
+                    assertTrue(checkbox.isChecked)
+                    assertArrayEquals(checked, markPixels(checkbox))
+                    tap(root, row, x, row.height / 2f)
+                    assertFalse(checkbox.isChecked)
+                    assertArrayEquals(unchecked, markPixels(checkbox))
+                }
+                repeat(11) { checkbox.performClick() }
+                assertTrue(checkbox.isChecked)
+                assertArrayEquals(checked, markPixels(checkbox))
+                assertTrue(checkbox.performAccessibilityAction(AccessibilityNodeInfo.ACTION_CLICK, null))
+                assertFalse(checkbox.isChecked)
+                assertArrayEquals(unchecked, markPixels(checkbox))
+                val info = checkbox.createAccessibilityNodeInfo()
+                assertTrue(info.isCheckable)
+                assertFalse(info.isChecked)
+                checkbox.isEnabled = false
+                tap(root, row, row.width / 2f, row.height / 2f)
+                assertFalse("disabled choice must not toggle", checkbox.isChecked)
+                checkbox.isEnabled = true
+                checkbox.performClick()
+            }
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+            assertEquals(true to showSkip, result)
+            activity.finish()
+        }
+    }
+
+    @Test fun animatedSelectionReversalBeforeFirstFrameCannotFinishAtObsoleteTarget() {
+        val activity = host(false)
+        val tokens = OxygenThemeEngine.snapshot(activity, activity.config)
+        val checkedState = intArrayOf(android.R.attr.state_enabled, android.R.attr.state_checked)
+        val uncheckedState = intArrayOf(android.R.attr.state_enabled)
+        for (radio in listOf(false, true)) {
+            val animated = OxygenClassicControls.selectionDrawable(radio, 1f, tokens, animationsEnabled = true)
+            val checkbox = CheckBox(activity).apply { buttonDrawable = animated }
+            animated.state = uncheckedState
+            val off = markPixels(checkbox)
+            animated.state = checkedState
+            animated.state = uncheckedState
+            shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.MILLISECONDS)
+            assertArrayEquals("a cancelled selection must stay off after old animation deadline", off, markPixels(checkbox))
+        }
+        activity.finish()
+    }
     private fun host(dark: Boolean) =
         Robolectric.buildActivity(org.fossify.gallery.activities.SimpleActivity::class.java).setup().get().apply {
             setTheme(if (dark) R.style.OxygenClassicAlertDialog_Dark else R.style.OxygenClassicAlertDialog_Light)
