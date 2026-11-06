@@ -40,7 +40,12 @@ class DeleteWithRememberDialogRippleTest {
             baseConfig.primaryColor = Color.MAGENTA
         }
 
-    private fun latestDialog() = ShadowDialog.getLatestDialog() as AlertDialog
+    private fun latestDialog(): AlertDialog {
+        // Let the shown dialog complete its initial measure/layout before
+        // dispatching synthetic input through its content root.
+        shadowOf(Looper.getMainLooper()).idle()
+        return ShadowDialog.getLatestDialog() as AlertDialog
+    }
 
     private fun dispatchTouch(
         root: View, row: View, action: Int, x: Float, y: Float,
