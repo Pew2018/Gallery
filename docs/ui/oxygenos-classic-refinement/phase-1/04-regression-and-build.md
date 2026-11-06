@@ -26,7 +26,7 @@ Phase 1 用户要求的完整回归任务由 `.github/workflows/arm64-foss-relea
 
 第五次 run：[#42158922293](https://github.com/Pew2018/Gallery/actions/runs/42158922293)，在测试 Kotlin 编译阶段失败。GitHub tree API 写入文件时，分片读取的输出被命令工具截断标记，损坏了远端 `PhotoProfileEditUiTest.kt` 的一段源码；本地源文件内容完整。此为提交传输/内容完整性问题，已定位，下一提交会校验完整文件字节数后替换远程 blob。测试和 APK 均未运行，无 Artifact。
 
-第六次 run：[#42159394735](https://github.com/Pew2018/Gallery/actions/runs/42159394735)，远程分支提交 `d84856fcabbd6e00f500807e13a108f22c42a250`。完整 `:app:testFossReleaseUnitTest` 成功：935 tests、0 failures、0 errors、0 skipped。`:app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a` 成功；工作流验证 APK 包名、签名及 ABI，并上传 Artifact `gallery-foss-arm64-v8a-release`（10,470,369 bytes，SHA-256 `b32987a4e5836c1ad7a1fde8aed4fb960a99a8eb886c0e307fe4e2ca164e24fa`）。
+第六次 run：[#42159394735](https://github.com/Pew2018/Gallery/actions/runs/42159394735)，远程分支提交 `d84856fcabbd6e00f500807e13a108f22c42a250`。完整 `:app:testFossReleaseUnitTest` 成功：935 tests、0 failures、0 errors、0 skipped。`:app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a` 成功；工作流验证 APK 包名、签名及 ABI，并上传 Artifact `gallery-foss-arm64-v8a-release`（10,470,369 bytes，SHA-256 `b32987a4e5836c1ad7a1fde8aed4fb960a99a8eb886c0e307fe4e2ca164e24fa`）。签名模式为 `temporary-CI-not-upgrade-compatible`：该包可安装作测试，但不能覆盖升级不同签名的已安装版本；Artifact 保留 14 天。
 
 ## 尚无设备证据
 
