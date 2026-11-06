@@ -64,6 +64,6 @@
 ## 验收状态和限制
 
 - 本轮新增确定性测试：可见相邻行 Divider 与 Section 边界；转场初始方向/透明度/完成归位；共享运动常量一致性。
-- 本地 Gradle 测试尚未运行：Gradle 9.5.1 Wrapper 发行包下载被当前网络连接拒绝（`services.gradle.org` Connection refused），环境中无已安装 Gradle 或 Kotlin 编译器。
+- 本地 Gradle 测试尚未运行：Gradle 9.5.1 Wrapper 发行包下载被当前网络连接拒绝（`services.gradle.org` Connection refused），环境中无已安装 Gradle 或 Kotlin 编译器。远程 Actions 已成功执行完整 FOSS Release 测试套件。
 - 尚未验证屏幕矩阵、TalkBack、Switch 真机拖动与滚动竞争、GPU 逐帧、Android 16 预测性返回、主题 Activity 窗口级动画以及各 Picker/密码/备份弹窗实机尺寸。
-- GitHub Actions 的 ARM64 FOSS Release 构建仍需在最终 commit 推送后检查其测试、签名、ABI 与 APK artifact 结果；在 CI 结束前不声明构建通过。
+- GitHub Actions `Arm64 FOSS Release APK (non-publishing)` run #571：提交 `db6d06129dccd650e9a188480450c403b5162964` 的完整 FOSS Release 测试通过，ARM64 FOSS Release APK 组装、签名/包名/ABI 校验与上传均通过。Artifact `gallery-foss-arm64-v8a-release`（APK 文件 `gallery-foss-arm64-v8a-release.apk`，18,405,015 bytes，SHA-256 `48141cc98e5b3685530178abc5ac70b69a9298ac26eac75a765829ae60648e44`，GitHub artifact ID `13499952653`，保留至 2026-11-20）。run 页面：[GitHub Actions #571](https://github.com/Pew2018/Gallery/actions/runs/42212318317)。
