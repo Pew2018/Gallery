@@ -136,6 +136,7 @@ import org.fossify.gallery.extensions.tryDeleteFileDirItem
 import org.fossify.gallery.extensions.updateDBDirectory
 import org.fossify.gallery.extensions.updateWidgets
 import org.fossify.gallery.helpers.FavoriteFolderRules
+import org.fossify.gallery.helpers.FavoriteMenuActionTitles
 import org.fossify.gallery.helpers.FavoriteAccessPolicy
 import org.fossify.gallery.helpers.FavoriteAccessSessionManager
 import org.fossify.gallery.helpers.OxygenFastScroller
@@ -823,11 +824,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 findItem(R.id.manage_unavailable_folder_favorites).isVisible = mShowingFolderFavorites
                 findItem(R.id.favorite_always_show_excluded).apply {
                     isVisible = mShowingFolderFavorites
-                    isChecked = config.favoriteShowExcluded
+                    setTitle(FavoriteMenuActionTitles.excluded(config.favoriteShowExcluded))
                 }
                 findItem(R.id.favorite_always_show_hidden).apply {
                     isVisible = mShowingFolderFavorites
-                    isChecked = config.favoriteShowHidden
+                    setTitle(FavoriteMenuActionTitles.hidden(config.favoriteShowHidden))
                 }
                 findItem(R.id.column_count).isVisible = config.viewTypeFolders == VIEW_TYPE_GRID
                 findItem(R.id.set_as_default_folder).isVisible = !config.defaultFolder.isEmpty()

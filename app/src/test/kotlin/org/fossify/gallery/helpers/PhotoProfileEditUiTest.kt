@@ -106,6 +106,38 @@ class PhotoProfileEditUiTest {
         assertTrue(root.findViewById<ScrollView>(R.id.photo_profile_edit_scroll).isFillViewport)
     }
 
+    @Test fun addSourceFabStaysVisibleAndTracksImeInsetsWithoutChangingItsClickTarget() {
+        val app = RuntimeEnvironment.getApplication()
+        val intent = Intent(app, org.fossify.gallery.activities.PhotoProfileEditActivity::class.java)
+            .putExtra(org.fossify.gallery.activities.PhotoProfileEditActivity.EXTRA_CREATING, true)
+        val controller = Robolectric.buildActivity(
+            org.fossify.gallery.activities.PhotoProfileEditActivity::class.java, intent
+        ).setup()
+        val activity = controller.get()
+        val fab = activity.findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(
+            R.id.photo_profile_edit_add_source
+        )
+        val bars = androidx.core.graphics.Insets.of(0, 24, 0, 24)
+        val ime = androidx.core.graphics.Insets.of(0, 0, 0, 300)
+        androidx.core.view.ViewCompat.dispatchApplyWindowInsets(fab,
+            androidx.core.view.WindowInsetsCompat.Builder()
+                .setInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars(), bars)
+                .setInsets(androidx.core.view.WindowInsetsCompat.Type.ime(), ime)
+                .setVisible(androidx.core.view.WindowInsetsCompat.Type.ime(), true)
+                .build())
+        assertEquals(android.view.View.VISIBLE, fab.visibility)
+        assertEquals(-276f, fab.translationY, 0.1f)
+
+        androidx.core.view.ViewCompat.dispatchApplyWindowInsets(fab,
+            androidx.core.view.WindowInsetsCompat.Builder()
+                .setInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars(), bars)
+                .setVisible(androidx.core.view.WindowInsetsCompat.Type.ime(), false)
+                .build())
+        assertEquals(android.view.View.VISIBLE, fab.visibility)
+        assertEquals(0f, fab.translationY, 0.1f)
+        controller.pause().stop().destroy()
+    }
+
     @Test fun unsavedEditorDraftSurvivesActivityRecreationButCancelDoesNotPersistIt() {
         val app = RuntimeEnvironment.getApplication()
         val store = PhotoProfileRepository.of(app)

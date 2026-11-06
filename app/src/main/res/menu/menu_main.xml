@@ -28,11 +28,11 @@
         app:showAsAction="never" />
     <item android:id="@+id/favorite_always_show_excluded"
         android:orderInCategory="40"
-        android:title="@string/oxygen_favorite_show_excluded" android:checkable="true"
+        android:title="@string/favorite_hide_excluded_action"
         app:showAsAction="never" />
     <item android:id="@+id/favorite_always_show_hidden"
         android:orderInCategory="41"
-        android:title="@string/oxygen_favorite_show_hidden" android:checkable="true"
+        android:title="@string/favorite_hide_hidden_action"
         app:showAsAction="never" />
     <item
         android:id="@+id/folder_visibility"

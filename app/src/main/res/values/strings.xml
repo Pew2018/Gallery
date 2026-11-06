@@ -306,6 +306,10 @@
     <string name="oxygen_bottom_navigation_order">Reorder bottom navigation</string>
     <string name="oxygen_favorite_show_hidden">Always show hidden items</string>
     <string name="oxygen_favorite_show_excluded">Always show excluded items</string>
+    <string name="favorite_show_excluded_action">Show excluded items</string>
+    <string name="favorite_hide_excluded_action">Do not show excluded items</string>
+    <string name="favorite_show_hidden_action">Show hidden items</string>
+    <string name="favorite_hide_hidden_action">Do not show hidden items</string>
     <string name="oxygen_selected_count">Selected %1$d items</string>
     <string name="gallery_nav_all_images">All images</string>
     <string name="export_favorite_folder_paths">Export favorite folders</string>

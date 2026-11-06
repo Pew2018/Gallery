@@ -91,7 +91,11 @@ class PhotoProfileEditActivity : SimpleActivity() {
         restoreSourcePickerOnResume = savedInstanceState?.getBoolean(STATE_SOURCE_PICKER_OPEN) ?: false
         sourcePickerOpen = restoreSourcePickerOnResume
         sourcePickerDraftPaths = savedInstanceState?.getStringArrayList(STATE_SOURCE_PICKER_DRAFT)?.toSet()
-        setupEdgeToEdge(padTopSystem = listOf(binding.photoProfileEditAppbar), padBottomImeAndSystem = listOf(binding.photoProfileEditScroll))
+        setupEdgeToEdge(
+            padTopSystem = listOf(binding.photoProfileEditAppbar),
+            padBottomImeAndSystem = listOf(binding.photoProfileEditScroll),
+            moveBottomSystem = listOf(binding.photoProfileEditAddSource)
+        )
         binding.photoProfileEditToolbar.apply {
             OxygenToolbarStyle.preparePopup(this@PhotoProfileEditActivity, this)
             title = getString(if (creating) R.string.photo_profiles_create else R.string.photo_profiles_edit)
@@ -114,13 +118,28 @@ class PhotoProfileEditActivity : SimpleActivity() {
         }
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(binding.photoProfileEditAddSource) { view, insets ->
             val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            val ime = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())
             val params = view.layoutParams as androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams
-            params.bottomMargin = dp(16) + bars.bottom
             params.marginEnd = dp(16) + bars.right
             view.layoutParams = params
-            view.visibility = if (insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())) View.GONE else View.VISIBLE
+            view.translationY = fabImeTranslation(insets).toFloat()
+            view.visibility = View.VISIBLE
             insets
         }
+        androidx.core.view.ViewCompat.setWindowInsetsAnimationCallback(
+            binding.photoProfileEditAddSource,
+            object : androidx.core.view.WindowInsetsAnimationCompat.Callback(
+                androidx.core.view.WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE
+            ) {
+                override fun onProgress(
+                    insets: androidx.core.view.WindowInsetsCompat,
+                    runningAnimations: MutableList<androidx.core.view.WindowInsetsAnimationCompat>
+                ): androidx.core.view.WindowInsetsCompat {
+                    binding.photoProfileEditAddSource.translationY = fabImeTranslation(insets).toFloat()
+                    return insets
+                }
+            }
+        )
         renderSources()
     }
 
@@ -164,6 +183,15 @@ class PhotoProfileEditActivity : SimpleActivity() {
     }
 
     private fun captureName() { if (::draft.isInitialized) draft = draft.copy(name = binding.photoProfileEditName.text.toString()) }
+
+    private fun fabImeTranslation(insets: androidx.core.view.WindowInsetsCompat): Int {
+        if (!insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())) return 0
+        val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        val imeBottom = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime()).bottom
+        // The IME inset includes the navigation area; the FAB already sits above
+        // that area through moveBottomSystem's baseline margin.
+        return -(imeBottom - bars.bottom).coerceAtLeast(0)
+    }
 
     private fun applyPageColors() {
         val tokens = OxygenThemeEngine.snapshot(this, config)

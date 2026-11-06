@@ -38,37 +38,50 @@ class UiFollowupTest {
 
     @Suppress("RestrictedApi")
     @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
-    @Test fun bothFavoriteMenuChecksUseTrailingTicksWithoutAChildPressBackground() {
+    @Test fun favoriteMenuOptionsArePlainTextAndOtherCheckableRowsKeepTheirCheckbox() {
         val activity = host()
         val themed = androidx.appcompat.view.ContextThemeWrapper(activity, OxygenClassicMenus.theme(activity))
         val menu = MenuBuilder(themed)
+        androidx.appcompat.view.SupportMenuInflater(themed).inflate(R.menu.menu_main, menu)
         for (id in listOf(R.id.favorite_always_show_hidden, R.id.favorite_always_show_excluded)) {
-            val item = menu.add(0, id, 0, "Favorite option").setCheckable(true) as MenuItemImpl
-            val row = LayoutInflater.from(themed).inflate(R.layout.abc_popup_menu_item_layout, null) as ListMenuItemView
-            for (state in listOf(false, true, false)) {
-                item.isChecked = state
-                row.initialize(item, 0)
-                val check = all(row).filterIsInstance<CheckBox>().single()
-                assertNull(check.background)
-                assertFalse(check.isClickable)
-                assertFalse(check.isFocusable)
-                assertEquals(state, check.isChecked)
-                assertEquals(24, check.buttonDrawable!!.intrinsicWidth)
-                assertFalse(check.isDuplicateParentStateEnabled)
-                assertEquals(state, check.buttonDrawable!!.state.contains(android.R.attr.state_checked))
-                assertEquals(16, (check.layoutParams as android.widget.LinearLayout.LayoutParams).marginStart)
-                val bitmap = android.graphics.Bitmap.createBitmap(24, 24, android.graphics.Bitmap.Config.ARGB_8888)
-                check.buttonDrawable!!.setBounds(0, 0, 24, 24)
-                check.buttonDrawable!!.draw(android.graphics.Canvas(bitmap))
-                val visiblePixels = (0 until 24).sumOf { y -> (0 until 24).count { x -> android.graphics.Color.alpha(bitmap.getPixel(x, y)) > 0 } }
-                assertEquals(state, visiblePixels > 0)
-                assertEquals("no enclosing checkbox border", 0, android.graphics.Color.alpha(bitmap.getPixel(2, 5)))
-                row.isPressed = true
-                assertNull(check.background)
-                row.isPressed = false
-            }
+            val xmlItem = menu.findItem(id) as MenuItemImpl
+            assertFalse("favorite action is not a checked state", xmlItem.isCheckable)
+            assertEquals(if (id == R.id.favorite_always_show_excluded) 40 else 41, xmlItem.order)
         }
+        menu.clear()
+        for (id in listOf(R.id.favorite_always_show_hidden, R.id.favorite_always_show_excluded)) {
+            val item = menu.add(0, id, 0, "Favorite option") as MenuItemImpl
+            assertFalse(item.isCheckable)
+            val row = LayoutInflater.from(themed).inflate(R.layout.abc_popup_menu_item_layout, null) as ListMenuItemView
+            row.initialize(item, 0)
+            assertTrue(all(row).filterIsInstance<CheckBox>().isEmpty())
+            assertEquals("Favorite option", row.findViewById<TextView>(androidx.appcompat.R.id.title).text)
+        }
+
+        val other = menu.add(0, 90001, 0, "Other checkable option").setCheckable(true).setChecked(true) as MenuItemImpl
+        val otherRow = LayoutInflater.from(themed).inflate(R.layout.abc_popup_menu_item_layout, null) as ListMenuItemView
+        otherRow.initialize(other, 0)
+        assertTrue(all(otherRow).filterIsInstance<CheckBox>().isNotEmpty())
+        assertTrue(all(otherRow).filterIsInstance<CheckBox>().any { it.isChecked })
         activity.finish()
+    }
+
+    @Test fun favoriteActionTitlesCoverAllIndependentBooleanCombinationsAndLocales() {
+        val context = host()
+        val titleIds = listOf(
+            FavoriteMenuActionTitles.excluded(false) to "Show excluded items",
+            FavoriteMenuActionTitles.excluded(true) to "Do not show excluded items",
+            FavoriteMenuActionTitles.hidden(false) to "Show hidden items",
+            FavoriteMenuActionTitles.hidden(true) to "Do not show hidden items"
+        )
+        titleIds.forEach { (resId, expected) -> assertEquals(expected, context.getString(resId)) }
+        val chinese = context.createConfigurationContext(android.content.res.Configuration().apply {
+            setLocale(java.util.Locale.SIMPLIFIED_CHINESE)
+        })
+        assertEquals("显示已排除项目", chinese.getString(FavoriteMenuActionTitles.excluded(false)))
+        assertEquals("不显示已排除项目", chinese.getString(FavoriteMenuActionTitles.excluded(true)))
+        assertEquals("显示隐藏项目", chinese.getString(FavoriteMenuActionTitles.hidden(false)))
+        assertEquals("不显示隐藏项目", chinese.getString(FavoriteMenuActionTitles.hidden(true)))
     }
 
     @Test fun toolbarUsesOneBodyRippleTrailingChecksAndIndependentHandle() {
