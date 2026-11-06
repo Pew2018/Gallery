@@ -35,16 +35,22 @@ class TiebaSettingsContainer @JvmOverloads constructor(context: Context, attrs: 
             val child = getChildAt(index)
             if (child.visibility != VISIBLE || child.height <= 0) continue
             val prior = previous
-            if (prior != null && !isSection(prior) && !isSection(child)) {
-                val y = prior.bottom.toFloat() - 0.5f
-                val inset = dividerInset
-                canvas.drawLine(inset, y, width - inset, y, dividerPaint)
+            if (prior != null && shouldDrawDividerBetween(prior, child)) {
+                val y = dividerCenterY(prior)
+                canvas.drawLine(dividerStartX(), y, dividerEndX(), y, dividerPaint)
             }
             previous = child
         }
     }
 
     private fun isSection(view: android.view.View): Boolean = view.tag == "classic_section"
+
+    internal fun shouldDrawDividerBetween(previousVisible: android.view.View, nextVisible: android.view.View) =
+        !isSection(previousVisible) && !isSection(nextVisible)
+
+    internal fun dividerCenterY(row: android.view.View): Float = row.bottom.toFloat() - 0.5f
+    internal fun dividerStartX(): Float = dividerInset
+    internal fun dividerEndX(): Float = width - dividerInset
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)

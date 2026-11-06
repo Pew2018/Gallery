@@ -1,13 +1,12 @@
 package org.fossify.gallery.helpers
 
 import android.app.Application
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.TextView
 import org.fossify.gallery.views.TiebaSettingsContainer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -50,7 +49,7 @@ class ClassicSettingsPageTransitionTest {
         activity.finish()
     }
 
-    @Test fun listDividerUsesVisibleAdjacentRowsAndSkipsSectionBoundaries() {
+    @Test fun listDividerUsesInsetRowBoundaryAndSkipsSectionBoundaries() {
         val activity = Robolectric.buildActivity(androidx.appcompat.app.AppCompatActivity::class.java).setup().get()
         val list = TiebaSettingsContainer(activity).apply {
             orientation = android.widget.LinearLayout.VERTICAL
@@ -72,18 +71,11 @@ class ClassicSettingsPageTransitionTest {
             View.MeasureSpec.makeMeasureSpec(240, View.MeasureSpec.AT_MOST))
         list.layout(0, 0, 320, list.measuredHeight)
 
-        val bitmap = Bitmap.createBitmap(320, list.measuredHeight, Bitmap.Config.ARGB_8888)
-        list.draw(Canvas(bitmap))
-        val dividerY = first.bottom - 1
-        val count = (0 until bitmap.width).count {
-            android.graphics.Color.red(bitmap.getPixel(it, dividerY)) < 250
-        }
-        assertTrue("one visible-row divider should span the inset content width", count in 250..290)
-        val sectionBoundaryY = second.bottom - 1
-        val boundaryCount = (0 until bitmap.width).count {
-            android.graphics.Color.red(bitmap.getPixel(it, sectionBoundaryY)) < 250
-        }
-        assertEquals(0, boundaryCount)
+        assertTrue(list.shouldDrawDividerBetween(first, second))
+        assertEquals(first.bottom - 0.5f, list.dividerCenterY(first), 0f)
+        assertEquals(16f * activity.resources.displayMetrics.density, list.dividerStartX(), 0f)
+        assertEquals(list.width - 16f * activity.resources.displayMetrics.density, list.dividerEndX(), 0f)
+        assertFalse(list.shouldDrawDividerBetween(second, section))
         activity.finish()
     }
 }
