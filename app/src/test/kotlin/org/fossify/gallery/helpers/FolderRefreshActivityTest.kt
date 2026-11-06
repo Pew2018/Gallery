@@ -525,7 +525,7 @@ class FolderRefreshActivityTest {
             field(activity, "favoriteLoadRevision").setLong(activity,
                 (field(activity, "favoriteRelationshipRevision").get(activity) as java.util.concurrent.atomic.AtomicLong).get())
             field(activity, "mIsGettingMedia").setBoolean(activity, true)
-            val source = ArrayList<org.fossify.gallery.models.ThumbnailItem>(files.map {
+            val source = ArrayList<org.fossify.gallery.models.ThumbnailItem>(files.asReversed().map {
                 // Room metadata can be unrequested even for a nonzero fallback date.
                 Medium(null, it.name, it.path, root.path, 0, 7, 0, TYPE_IMAGES, 0, true, 0, 0)
             })
@@ -565,8 +565,11 @@ class FolderRefreshActivityTest {
     }
 
     @Test fun favoriteCache382SortsBeforeScanCompletesAndKeepsTheRequest() = withFavoriteCache { activity, adapter, request, _ ->
+        assertEquals("cache-381.jpg", adapter.media.filterIsInstance<Medium>().first().name)
+        val version = adapter.committedVersion
         sortFavorite(activity, org.fossify.commons.helpers.SORT_BY_NAME)
-        await { adapter.media.filterIsInstance<Medium>().firstOrNull()?.name == "cache-000.jpg" }
+        await { adapter.committedVersion > version &&
+            adapter.media.filterIsInstance<Medium>().firstOrNull()?.name == "cache-000.jpg" }
         assertSame(adapter, activity.findViewById<MyRecyclerView>(R.id.media_grid).adapter)
         assertEquals(request, field(activity, "mediaRefreshRequest").getLong(activity))
         assertTrue(field(activity, "mIsGettingMedia").getBoolean(activity))
@@ -616,7 +619,32 @@ class FolderRefreshActivityTest {
         assertFalse(field(activity, "mIsGettingMedia").getBoolean(activity))
     }
 
-    @Test fun favoriteCacheRejectsChangedRelationshipsRevocationAndActivityExit() = withFavoriteCache { activity, _, request, token ->
+    @Test fun favoriteUserSortReplacingPendingFinalDiffStillCommitsComplete() = withFavoriteCache { activity, _, request, _ ->
+        val grid = activity.findViewById<MyRecyclerView>(R.id.media_grid)
+        val queued = java.util.concurrent.ConcurrentLinkedQueue<Runnable>()
+        val adapter = MediaAdapter(activity, ArrayList(MediaActivity.mMedia), activity, false, false,
+            FAVORITES, grid, java.util.concurrent.Executor { queued.add(it) }) {}
+        grid.adapter = adapter
+        val rows = ArrayList(MediaActivity.mMedia.map { (it as Medium).copy(size = 2L) })
+        field(activity, "mediaScanOutcomeRequest").setLong(activity, request)
+        field(activity, "mediaScanOutcome").set(activity, GalleryScanResult(GalleryScanState.COMPLETE))
+        publishFavorite(activity, ArrayList<org.fossify.gallery.models.ThumbnailItem>(rows), false, request)
+        await { queued.isNotEmpty() && field(activity, "completedMediaRequest").getLong(activity) == request }
+        assertFalse(field(activity, "displayedMediaIsFinal").getBoolean(activity))
+        sortFavorite(activity, org.fossify.commons.helpers.SORT_BY_NAME)
+        await { adapter.media.filterIsInstance<Medium>().firstOrNull()?.name == "cache-000.jpg" &&
+            field(activity, "displayedMediaIsFinal").getBoolean(activity) }
+        // Deliver the superseded SCAN Diff after USER_SORT's fast commit.
+        while (queued.isNotEmpty()) {
+            queued.poll()?.run()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+        }
+        assertEquals("cache-000.jpg", adapter.media.filterIsInstance<Medium>().first().name)
+        assertFalse(field(activity, "mIsGettingMedia").getBoolean(activity))
+        assertSame(adapter, grid.adapter)
+    }
+
+    @Test fun favoriteCacheRejectsChangedRelationshipsAndRevocation() = withFavoriteCache { activity, _, request, token ->
         val current = MediaActivity::class.java.getDeclaredMethod("isSearchSnapshotCurrent", Long::class.javaPrimitiveType)
             .apply { isAccessible = true }
         assertTrue(current.invoke(activity, request) as Boolean)
@@ -642,6 +670,10 @@ class FolderRefreshActivityTest {
         publishFavorite(activity, arrayListOf(), true, request)
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         assertEquals(382, adapter.media.filterIsInstance<Medium>().size)
+        activity.finish()
+        val current = MediaActivity::class.java.getDeclaredMethod("isSearchSnapshotCurrent", Long::class.javaPrimitiveType)
+            .apply { isAccessible = true }
+        assertFalse(current.invoke(activity, request) as Boolean)
     }
 
     @Test fun cachedPreviewKeepsTheRefreshDeadlineActiveUntilFormalCompletion() {

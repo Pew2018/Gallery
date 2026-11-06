@@ -40,7 +40,7 @@
 - **FavoriteSortMetadata.kt**：名称/路径/随机无需数值补读；大小读取当前项 file.length，修改时间读取 file.lastModified；拍摄日期通过既有 queryProfileIndexedMedia 仅查询当前路径（既有批次查询和用户自定义日期覆盖），无索引日期沿用 scanner 的修改时间回退。分组日期同样补齐。缓存非零 taken 可能本来就是 fallback，不能据此声称可信，故相关字段重新取得。后台逐项检查最后排序 operation/会话。无法读取的值明确沿用0未知值和既有路径平局规则，不将未请求字段视为已经加载。发布前再做完整 session 文件身份验证，文件删除/替换导致撤权而非发布伪排序。
 - **GetMediaAsynctask.kt**：Favorites 在原有正式扫描保留 date/modified/size，避免用户切换字段后因 metadata_not_loaded 重启全集扫描；继续采用最新 sorting，未改扫描器或 Room schema。
 - **MediaActivity.kt / searchQueryChanged、isSearchSnapshotCurrent**：保留通用搜索逻辑，收藏改用已验证凭据；搜索工作线程还比对当前 Room 关系，访问验证和 UI/Adapter gates 保留。查询文本不记录；日志仅含长度、generation、sourceVersion、阶段及拒绝原因。清空恢复 mMedia，PARTIAL 零结果仍属临时，扫描新结果重跑当前 query。
-- **Favorites Room observer**：读取实际关系集合后才推进 epoch，相同集合的无效通知不反复使快照失效；实际变化继续保留原会话裁剪、新关系撤权流程。排序前后及搜索工作线程的 Room 比对补充 observer 投递延迟窗口。
+- **Favorites Room observer**：读取实际关系集合后才推进 epoch，首次观察建立基线，相同集合的无效通知不反复使快照失效；实际变化继续保留原会话裁剪、新关系撤权流程。排序前后及搜索工作线程的 Room 比对补充 observer 投递延迟窗口。
 
 未改 UI、菜单、间距、动画、Room schema、普通文件夹或配置来源策略；不调用 notifyDataSetChanged、不拆除 Adapter。沿用 USER_SORT/USER_SEARCH/SCAN、adapter_submit/commit/replaced/fast_commit 诊断及原有滚动锚点机制。cache_authorized/cache_preview_sort/cache_metadata_validation/cache_search_rejected 与 sourceVersion 可分辨授权、计算、拒绝、实际提交；正式结果仍记录 final=true。
 
@@ -58,9 +58,10 @@ FolderRefreshActivityTest 新增真实Activity/RecyclerView场景，使用382个
 2. favoriteCacheSearchAndClearCommitBeforeScanCompletes：扫描中382→10→382真实Adapter提交。原代码缓存关系版本=-1，结果被拒绝。
 3. favoriteCacheRepairsSizeAndDateAndLastSortWins：快速排序、0 size/modified及非零fallback taken补齐、随机提交/去重。
 4. favoriteCacheFinalPublicationKeepsLatestQueryAndSort：搜索与排序交错，正式结果晚到仍保留最后query和排序，最后真实完成。
-5. favoriteCacheRejectsChangedRelationshipsRevocationAndActivityExit：关系revision和session撤销使生产发布gate拒绝。
+5. favoriteCacheRejectsChangedRelationshipsAndRevocation：关系revision和session撤销使生产发布gate拒绝。
 6. favoriteCacheDoesNotPublishUnauthorizedCandidateOrOldRequest：不在关系/会话内的候选不发布，旧request不能覆盖。
-7. VirtualMediaSortPolicyTest 明确验证无凭据缓存仍WAIT、验证收藏可PREVIEW、回收站不可借用凭据、无成员/元数据证据仍拒绝。
+7. favoriteUserSortReplacingPendingFinalDiffStillCommitsComplete：用可控Executor挂起最终SCAN Diff，再让USER_SORT替换，最后投递旧Diff；顺序、Adapter及真实COMPLETE状态均必须正确。
+8. VirtualMediaSortPolicyTest 明确验证无凭据缓存仍WAIT、验证收藏可PREVIEW、回收站不可借用凭据、无成员/元数据证据仍拒绝。
 
 本地 `git diff --check` 可执行。Gradle测试尝试被distribution下载阻断：services.gradle.org Network is unreachable；本地没有Android SDK/已缓存Gradle，未宣称单测通过。完整FOSS Release单测/编译由现有Actions工作流执行，结果将在本文件追加记录。
 
@@ -77,3 +78,7 @@ FolderRefreshActivityTest 新增真实Activity/RecyclerView场景，使用382个
 单测证明状态/提交，不证明Pixel触控到画面延迟。数值补齐、session全量验证、日期分组需要后台IO，可能超过目标，须真机测量；不虚构耗时改进。扫描12.8秒的具体热点证据不足，留待独立任务。
 
 PENDING_DEVICE：快速名称→大小→修改→随机及反复随机；搜索/删字/清空与排序交错；日期分组/倒序；滚动中Adapter锚点与缩略图闪烁；收藏新增/取消/删除/上锁/退出重入；完整扫描终态与进度；普通文件夹/配置/回收站不退化。外部文件身份变动仍依靠原session验证与系统刷新；极短的验证到UI间外部文件变动窗口保持现有安全模型。无变更observer去重与异步投递还须真机验证，不声称整个并发矩阵已全部验证。
+
+## 首轮 Actions 证据与提交回调复核
+
+首轮提交 `a203dae8942684d08879cdd3cdf7b904e29954ba`，Run [42149906288](https://github.com/Pew2018/Gallery/actions/runs/42149906288) 的完整 FOSS Release 单测步骤已成功（构建尚在执行时记录，最终结果另行核实）。复核补充了 volatile 显示凭据、首次 Room 通知基线、USER_SORT 替换最终 SCAN Diff 时的真实终态收敛；名称回归用例明确使用倒序缓存并要求 Adapter version 增长，以免初始顺序碰巧满足断言。最终提交将重新运行完整单测和ARM64构建。

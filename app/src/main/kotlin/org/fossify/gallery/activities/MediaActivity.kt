@@ -614,7 +614,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private val favoriteRelationshipRevision = java.util.concurrent.atomic.AtomicLong()
     private var displayedFavoriteRelationshipRevision = -1L
     private var favoriteLoadRevision = -1L
-    private var favoriteInteractiveSnapshot: org.fossify.gallery.helpers.FavoriteInteractiveSnapshot? = null
+    @Volatile private var favoriteInteractiveSnapshot: org.fossify.gallery.helpers.FavoriteInteractiveSnapshot? = null
     @Volatile private var observedFavoriteRelationships: Set<String>? = null
     private var favoriteObservedTracker: androidx.room.InvalidationTracker? = null
     private val favoriteDatabaseObserver = object : androidx.room.InvalidationTracker.Observer("favorites") {
@@ -625,9 +625,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             ensureBackgroundThread {
                 val current = app.getFavoritePaths().toSet()
                 synchronized(favoriteObserverLock) {
-                    if (observedFavoriteRelationships == current) return@ensureBackgroundThread
+                    val previous = observedFavoriteRelationships
+                    if (previous == current) return@ensureBackgroundThread
                     observedFavoriteRelationships = current
-                    favoriteRelationshipRevision.incrementAndGet()
+                    // The first observation establishes a baseline; it does not
+                    // prove a membership change since this Activity opened.
+                    if (previous != null) favoriteRelationshipRevision.incrementAndGet()
                 }
                 val captured = FavoriteAccessSessionManager.getCapturedPaths(token).orEmpty()
                 FavoriteAccessSessionManager.retainFavorites(token, current)
@@ -2024,6 +2027,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     displayedSourceVersion++
                     mMedia = ArrayList(grouped)
                     setupAdapter(MediaUpdateReason.USER_SORT) {
+                        // A user sort can replace a pending final SCAN diff. Keep
+                        // the real terminal state even if that diff's callback is dropped.
+                        if (completedMediaRequest == request && mediaScanOutcomeRequest == request &&
+                            mediaScanOutcome.complete && !mIsGettingMedia) displayedMediaIsFinal = true
                         logSortCommit("virtual_sort_snapshot_committed", sortOperation, request, sorting,
                             scanInProgress, startedAt, sorted.size, getMediaAdapter()?.committedVersion ?: -1L)
                     }
