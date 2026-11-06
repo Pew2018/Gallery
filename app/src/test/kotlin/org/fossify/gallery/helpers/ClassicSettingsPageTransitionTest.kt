@@ -1,6 +1,9 @@
 package org.fossify.gallery.helpers
 
-import android.app.Application
+import android.app.Activity
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.TextView
@@ -12,41 +15,63 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.Shadows
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.LooperMode
-import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28], manifest = Config.NONE, application = Application::class)
-@LooperMode(LooperMode.Mode.PAUSED)
+@Config(sdk = [28], manifest = Config.NONE)
+@org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
 class ClassicSettingsPageTransitionTest {
-    @Test fun transitionKeepsOldFrameUntilNewPageIsPreparedThenNormalizesAtCompletion() {
-        val activity = Robolectric.buildActivity(androidx.appcompat.app.AppCompatActivity::class.java).setup().get()
-        val host = FrameLayout(activity)
-        val content = FrameLayout(activity)
-        val old = TextView(activity).apply { text = "old" }
-        content.addView(old)
-        host.addView(content)
+    @Test fun renderedOutgoingSnapshotFadesContinuouslyOverOpaqueIncomingPage() {
+        org.robolectric.shadows.ShadowChoreographer.setPaused(true)
+        org.robolectric.shadows.ShadowChoreographer.setFrameDelay(java.time.Duration.ofMillis(16))
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        val activity = controller.get()
+        val host = FrameLayout(activity).apply { setBackgroundColor(Color.WHITE) }
+        val page = View(activity).apply { setBackgroundColor(Color.RED) }
+        host.addView(page, FrameLayout.LayoutParams(120, 120))
         activity.setContentView(host)
-        host.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY))
-        host.layout(0, 0, 320, 480)
+        host.measure(
+            View.MeasureSpec.makeMeasureSpec(120, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(120, View.MeasureSpec.EXACTLY)
+        )
+        host.layout(0, 0, 120, 120)
+        val clock = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+        var titleCommitCount = 0
+        ClassicSettingsPageTransition.run(host, page, 1, true, {
+            page.setBackgroundColor(Color.BLUE)
+        }, onTitleCommit = { titleCommitCount++ })
+        assertEquals("Outgoing title/content stay in sync at transition start", 0, titleCommitCount)
 
-        var prepared = false
-        ClassicSettingsPageTransition.run(host, content, 1, true, prepareTarget = {
-            old.text = "new"
-            prepared = true
-        })
-        assertTrue(prepared)
-        assertTrue(content.translationX > 0f)
-        assertEquals(ClassicSettingsPageTransition.PAGE_ALPHA_FLOOR, content.alpha, 0.001f)
+        val redLevels = mutableListOf<Int>()
+        val blueLevels = mutableListOf<Int>()
+        var elapsed = 0L
+        for (timeMs in listOf(16L, 48L, 80L, 112L, 144L)) {
+            clock.idleFor(timeMs - elapsed, java.util.concurrent.TimeUnit.MILLISECONDS)
+            elapsed = timeMs
+            if (timeMs == 16L) assertEquals("Do not update the toolbar while the outgoing frame is opaque", 0, titleCommitCount)
+            val frame = Bitmap.createBitmap(120, 120, Bitmap.Config.ARGB_8888)
+            host.draw(Canvas(frame))
+            val pixel = frame.getPixel(60, 60)
+            redLevels += Color.red(pixel)
+            blueLevels += Color.blue(pixel)
+            frame.recycle()
+        }
+        clock.idleFor(80, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertTrue("Outgoing content should steadily reveal the target page: $redLevels", redLevels.zipWithNext().all { it.first >= it.second })
+        assertTrue("Incoming page should become progressively visible: $blueLevels", blueLevels.zipWithNext().all { it.first <= it.second })
+        assertTrue("Intermediate frames must contain both pages", redLevels.any { it in 1..254 } && blueLevels.any { it in 1..254 })
+        assertEquals(Color.BLUE, drawCenter(host))
+        assertEquals("Toolbar title is committed near the end of the outgoing frame", 1, titleCommitCount)
+        ClassicSettingsPageTransition.cancel(host, page)
+        assertEquals(1f, page.alpha, 0f)
+        assertEquals(0f, page.translationX, 0f)
+        controller.pause().stop().destroy()
+    }
 
-        Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(
-            ClassicSettingsPageTransition.DURATION_MS + 32, TimeUnit.MILLISECONDS)
-        assertEquals(0f, content.translationX, 0f)
-        assertEquals(1f, content.alpha, 0f)
-        activity.finish()
+    private fun drawCenter(view: View): Int {
+        val bitmap = Bitmap.createBitmap(120, 120, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bitmap))
+        return bitmap.getPixel(60, 60).also { bitmap.recycle() }
     }
 
     @Test fun listDividerUsesInsetRowBoundaryAndSkipsSectionBoundaries() {
@@ -57,7 +82,7 @@ class ClassicSettingsPageTransitionTest {
         }
         fun row(tagValue: String? = null) = TextView(activity).apply {
             tag = tagValue
-            setBackgroundColor(android.graphics.Color.WHITE)
+            setBackgroundColor(Color.WHITE)
         }
         val first = row()
         val hidden = row().apply { visibility = View.GONE }

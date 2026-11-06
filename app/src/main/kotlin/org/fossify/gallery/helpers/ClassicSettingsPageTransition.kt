@@ -1,53 +1,49 @@
 package org.fossify.gallery.helpers
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.ColorFilter
+import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
-import android.graphics.Bitmap
 import android.view.View
+import android.view.ViewTreeObserver
 import android.view.animation.PathInterpolator
 import java.util.WeakHashMap
 
-/**
- * Small View-system page transition shared by settings hosts. The outgoing frame is
- * snapshotted before the caller prepares the target page, so both pages move together
- * without recreating business views or exposing a replaced-content frame.
- */
+/** One visual snapshot plus the existing, interactive settings views. */
 object ClassicSettingsPageTransition {
     const val DURATION_MS = 180L
     const val DISTANCE_DP = 8
-    const val PAGE_ALPHA_FLOOR = 0.92f
-    private val running = WeakHashMap<View, ValueAnimator>()
-    private data class Pending(val task: Runnable, val discard: () -> Unit)
-    private val pending = WeakHashMap<View, Pending>()
 
-    fun cancel(container: View, incoming: View) {
-        pending.remove(container)?.let {
-            container.removeCallbacks(it.task)
-            it.discard()
-        }
-        running.remove(container)?.cancel()
-        incoming.animate().cancel()
-        incoming.translationX = 0f
-        incoming.alpha = 1f
-    }
+    private data class Run(
+        val incoming: View,
+        val outgoing: SnapshotDrawable,
+        val onTitleCommit: () -> Unit,
+        val onFinished: () -> Unit,
+        var animator: ValueAnimator? = null,
+        var preDrawListener: ViewTreeObserver.OnPreDrawListener? = null,
+        var titleCommitted: Boolean = false
+    )
+
+    private val runs = WeakHashMap<View, Run>()
 
     private class SnapshotDrawable(private val bitmap: Bitmap) : Drawable() {
-        var offsetX: Float = 0f
+        var offsetX = 0f
+        private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
         override fun draw(canvas: Canvas) {
             val save = canvas.save()
             canvas.translate(offsetX, 0f)
             canvas.drawBitmap(bitmap, null, bounds, paint)
             canvas.restoreToCount(save)
         }
-        private val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG or android.graphics.Paint.ANTI_ALIAS_FLAG)
-        override fun setAlpha(alpha: Int) { paint.alpha = alpha; invalidateSelf() }
+        override fun setAlpha(alpha: Int) { paint.alpha = alpha.coerceIn(0, 255); invalidateSelf() }
         override fun getAlpha() = paint.alpha
         override fun setColorFilter(colorFilter: ColorFilter?) { paint.colorFilter = colorFilter }
-        @Deprecated("Deprecated in Android")
-        override fun getOpacity() = PixelFormat.TRANSLUCENT
+        @Deprecated("Deprecated in Android") override fun getOpacity() = PixelFormat.TRANSLUCENT
         fun dispose() { if (!bitmap.isRecycled) bitmap.recycle() }
     }
 
@@ -58,75 +54,131 @@ object ClassicSettingsPageTransition {
         incomingDirection: Int,
         animationsEnabled: Boolean,
         prepareTarget: () -> Unit,
+        onTitleCommit: () -> Unit = {},
         onFinished: () -> Unit = {}
     ) {
         cancel(container, incoming)
         incoming.alpha = 1f
         incoming.translationX = 0f
-        if (!animationsEnabled || container.width <= 0 || container.height <= 0) {
+        if (!animationsEnabled || !container.isAttachedToWindow || container.width <= 0 || container.height <= 0) {
             prepareTarget()
             incoming.alpha = 1f
             incoming.translationX = 0f
+            onTitleCommit()
             onFinished()
             return
         }
 
-        val bitmap = Bitmap.createBitmap(container.width, container.height, Bitmap.Config.ARGB_8888)
-        container.draw(Canvas(bitmap))
+        // ARGB_8888 costs width * height * 4 bytes: at 1080 x 2000 this is ~8.2 MiB.
+        // Allocate only one viewport snapshot per transition and release it on every exit path.
+        val bitmap = try {
+            Bitmap.createBitmap(container.width, container.height, Bitmap.Config.ARGB_8888).also {
+                container.draw(Canvas(it))
+            }
+        } catch (_: RuntimeException) {
+            prepareTarget()
+            onTitleCommit()
+            onFinished()
+            return
+        } catch (_: OutOfMemoryError) {
+            prepareTarget()
+            onTitleCommit()
+            onFinished()
+            return
+        }
         val outgoing = SnapshotDrawable(bitmap).apply { setBounds(0, 0, container.width, container.height) }
+        val run = Run(incoming, outgoing, onTitleCommit, onFinished)
         container.overlay.add(outgoing)
-        prepareTarget()
-        incoming.alpha = PAGE_ALPHA_FLOOR
-        incoming.translationX = dp(container, DISTANCE_DP) * incomingDirection
+        runs[container] = run
 
-        // Let visibility and target layout resolve before the first animated frame.
-        container.requestLayout()
-        val start = Runnable {
-            pending.remove(container)
-            if (!container.isAttachedToWindow) {
-                container.overlay.remove(outgoing)
-                outgoing.dispose()
-                incoming.translationX = 0f
-                incoming.alpha = 1f
-                return@Runnable
-            }
-            val animator = ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = DURATION_MS
-                interpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
-                addUpdateListener { frame ->
-                    val progress = frame.animatedValue as Float
-                    incoming.translationX = dp(container, DISTANCE_DP) * incomingDirection * (1f - progress)
-                    incoming.alpha = PAGE_ALPHA_FLOOR + (1f - PAGE_ALPHA_FLOOR) * progress
-                    outgoing.offsetX = -dp(container, DISTANCE_DP) * incomingDirection * progress
-                    outgoing.alpha = (255f * (1f - progress * (1f - PAGE_ALPHA_FLOOR))).toInt()
-                    container.invalidate()
+        try {
+            prepareTarget()
+            container.requestLayout()
+            val preDraw = object : ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    val observer = container.viewTreeObserver
+                    if (observer.isAlive) observer.removeOnPreDrawListener(this)
+                    run.preDrawListener = null
+                    if (runs[container] !== run) return true
+                    if (!container.isAttachedToWindow || container.width <= 0 || container.height <= 0) {
+                        runs.remove(container)
+                        finishRun(container, run, commitTitle = true, invokeFinished = true)
+                        return true
+                    }
+                    start(container, run, incomingDirection)
+                    return true
                 }
-                addListener(object : android.animation.AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: android.animation.Animator) {
-                        running.remove(container)
-                        container.overlay.remove(outgoing)
-                        outgoing.dispose()
-                        incoming.translationX = 0f
-                        incoming.alpha = 1f
-                        onFinished()
-                    }
-                    override fun onAnimationCancel(animation: android.animation.Animator) {
-                        running.remove(container)
-                        container.overlay.remove(outgoing)
-                        outgoing.dispose()
-                        incoming.translationX = 0f
-                        incoming.alpha = 1f
-                    }
-                })
             }
-            running[container] = animator
-            animator.start()
+            run.preDrawListener = preDraw
+            container.viewTreeObserver.addOnPreDrawListener(preDraw)
+            container.invalidate()
+        } catch (failure: Throwable) {
+            if (runs[container] === run) runs.remove(container)
+            finishRun(container, run, commitTitle = true, invokeFinished = true)
+            throw failure
         }
-        pending[container] = Pending(start) {
-            container.overlay.remove(outgoing)
-            outgoing.dispose()
+    }
+
+    fun cancel(container: View, incoming: View) {
+        val run = runs.remove(container)
+        if (run != null) finishRun(container, run, commitTitle = true, invokeFinished = false)
+        incoming.animate().cancel()
+        incoming.alpha = 1f
+        incoming.translationX = 0f
+    }
+
+    private fun start(container: View, run: Run, direction: Int) {
+        val distance = dp(container, DISTANCE_DP) * direction
+        run.incoming.alpha = 1f
+        run.incoming.translationX = distance
+        val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = DURATION_MS
+            interpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
+            addUpdateListener { frame ->
+                if (runs[container] !== run) return@addUpdateListener
+                val progress = frame.animatedValue as Float
+                run.incoming.translationX = distance * (1f - progress)
+                // The incoming page remains opaque; the outgoing snapshot exits and fades
+                // over it. This keeps the page surface covered and avoids a flash to the parent.
+                run.outgoing.offsetX = -distance * progress
+                run.outgoing.alpha = ((1f - progress) * 255f).toInt()
+                if (progress >= 0.78f) commitTitle(run)
+                container.invalidate()
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (runs[container] !== run) return
+                    runs.remove(container)
+                    finishRun(container, run, commitTitle = true, invokeFinished = true)
+                }
+            })
         }
-        container.post(start)
+        run.animator = animator
+        animator.start()
+    }
+
+    private fun commitTitle(run: Run) {
+        if (run.titleCommitted) return
+        run.titleCommitted = true
+        run.onTitleCommit()
+    }
+
+    private fun finishRun(container: View, run: Run, commitTitle: Boolean, invokeFinished: Boolean) {
+        run.preDrawListener?.let { listener ->
+            val observer = container.viewTreeObserver
+            if (observer.isAlive) observer.removeOnPreDrawListener(listener)
+            run.preDrawListener = null
+        }
+        val animator = run.animator
+        run.animator = null
+        if (animator != null && (animator.isRunning || animator.isStarted)) animator.cancel()
+        container.overlay.remove(run.outgoing)
+        run.outgoing.dispose()
+        run.incoming.alpha = 1f
+        run.incoming.translationX = 0f
+        if (commitTitle) commitTitle(run)
+        container.invalidate()
+        if (invokeFinished) run.onFinished()
     }
 
     private fun dp(view: View, value: Int): Float = value * view.resources.displayMetrics.density
