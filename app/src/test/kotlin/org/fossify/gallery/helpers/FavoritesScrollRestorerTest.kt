@@ -185,6 +185,36 @@ class FavoritesScrollRestorerTest {
         assertEquals(0, manager.findFirstVisibleItemPosition())
     }
 
+    @Test fun idleFastScrollReplacesOldAnchorAndRestoresTheSamePathAfterReordering() {
+        val initial = (0 until 1_000).map { "/pictures/$it.jpg" as String? }
+        paths = initial
+        replace(initial)
+        manager.scrollToPositionWithOffset(0, -21)
+        frame()
+        restorer.remember(recycler, paths)
+        val staleTopAnchor = requireNotNull(restorer.pending)
+
+        // The fast-scroller can call scrollToPosition/scrollBy while RecyclerView
+        // remains IDLE, so no DRAGGING callback is available to invalidate the old anchor.
+        manager.scrollToPositionWithOffset(80, -37)
+        frame()
+        assertEquals(RecyclerView.SCROLL_STATE_IDLE, recycler.scrollState)
+        restorer.clear() // The fast-scroller's public HandleStateListener reports engagement.
+        restorer.remember(recycler, paths)
+        val userAnchor = requireNotNull(restorer.pending)
+        assertNotEquals(staleTopAnchor.path, userAnchor.path)
+
+        val moved = userAnchor.path
+        val finalRows = initial.filterNot { it == moved }.toMutableList().apply {
+            add(420, moved)
+        }
+        replace(finalRows)
+        restorer.restore(recycler, paths, true) { true }
+        frame()
+        assertRestored(userAnchor, moved)
+        assertEquals(420, paths.indexOf(moved))
+    }
+
     @Test fun refreshWhileUserIsScrollingDoesNotCaptureOrRestoreAStaleAnchor() {
         val setState = RecyclerView::class.java.getDeclaredMethod(
             "setScrollState", Int::class.javaPrimitiveType

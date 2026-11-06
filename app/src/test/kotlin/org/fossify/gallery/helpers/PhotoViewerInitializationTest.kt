@@ -31,7 +31,7 @@ class PhotoViewerInitializationTest {
         assertEquals("The singleton layout callback must not create a newer request", 4L, generation.getLong(activity))
     }
 
-    @Test fun actualPhotoGridDefersBeforeSnapshotWorkAndRejectsQueuedResultAfterRevisionChange() {
+    @Test fun actualPhotoGridDefersIdleFastScrollPublicationsBeforeSnapshotWork() {
         val app = org.robolectric.RuntimeEnvironment.getApplication()
         val profile = PhotoProfile(java.util.UUID.randomUUID().toString(), "grid",
             listOf(PhotoSource(PhotoSourceType.FOLDER, "/Gallery")))
@@ -54,8 +54,11 @@ class PhotoViewerInitializationTest {
         val adapter = org.fossify.gallery.adapters.MediaAdapter(activity, ArrayList(visible), null,
             false, false, PhotoProfileMediaLoader.PATH, binding.mediaGrid) { }
         binding.mediaGrid.adapter = adapter
-        androidx.recyclerview.widget.RecyclerView::class.java.getDeclaredMethod("setScrollState", Int::class.javaPrimitiveType)
-            .apply { isAccessible = true }.invoke(binding.mediaGrid, androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_DRAGGING)
+        assertEquals(androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE, binding.mediaGrid.scrollState)
+        type.getDeclaredMethod("onPhotoFastScrollStateChanged", Boolean::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(activity, true)
+        assertEquals("Fast-scroll intent is independent from RecyclerView state",
+            androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE, binding.mediaGrid.scrollState)
         val requests = field("mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
         val request = requests.begin()
         val key = type.getDeclaredMethod("photoDisplayKey").apply { isAccessible = true }.invoke(activity) as String
@@ -65,6 +68,7 @@ class PhotoViewerInitializationTest {
             val initial = PhotoLoadResult(context, PhotoLoadStage.INDEXED, listOf(item), PhotoAccessSummary(false, true))
             activity.submitPhotoGridResult(initial, request, key)
             val gate = field("photoGridPublication").get(activity) as ViewerSwipePublicationGate<*>
+            assertTrue(gate.isMoving)
             assertTrue(gate.hasPending)
             val firstPending = gate.javaClass.getDeclaredField("latest").apply { isAccessible = true }.get(gate)
             activity.submitPhotoGridResult(initial.copy(stage = PhotoLoadStage.COMPLETE,

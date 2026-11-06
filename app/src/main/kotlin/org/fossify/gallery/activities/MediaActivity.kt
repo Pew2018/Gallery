@@ -185,6 +185,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var photoLoadedRevision = -1L
     private var photoPublishedStage = -1
     private var photoRequestStarted = 0L
+    private var photoActiveRequestId = 0L
+    private var photoFastScrollActive = false
     private val photoScroll = FavoritesScrollRestorer()
     private val photoGridPublication = org.fossify.gallery.helpers.ViewerSwipePublicationGate<() -> Unit>()
     private var photoScrollProfileId: String? = null
@@ -193,11 +195,66 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         this, PhotoProfileRepository.of(this).state().current?.id, photoToken()
     ).toString()
 
-    private fun rememberPhotoScrollAnchor() {
+    private fun rememberPhotoScrollAnchor(source: String = "current_view") {
         if (!isPhotoProfiles) return
         val adapter = getMediaAdapter() ?: return
+        val hadAnchor = photoScroll.pending != null
         photoScroll.remember(binding.mediaGrid, adapter.media.map { (it as? Medium)?.path })
         if (photoScroll.pending != null) photoScrollProfileId = photoProfileId
+        if (!hadAnchor && photoScroll.pending != null) {
+            val anchor = photoScroll.pending
+            logPhotoScrollEvent("photo_scroll_anchor_capture", "source" to source,
+                "ordinal" to anchor?.ordinal, "offset" to anchor?.offset)
+        }
+    }
+
+    private fun onPhotoFastScrollStateChanged(active: Boolean) {
+        if (!isPhotoProfiles) return
+        if (active) {
+            if (photoFastScrollActive) return
+            photoFastScrollActive = true
+            // Fast-scroller calls can leave RecyclerView.scrollState at IDLE.
+            // A new thumb gesture supersedes any saved restore request.
+            val hadAnchor = photoScroll.pending != null
+            photoScroll.clear()
+            photoScrollProfileId = null
+            photoGridPublication.onScrollMoving(true)
+            if (hadAnchor) logPhotoScrollEvent("photo_scroll_anchor_invalidated", "reason" to "fast_scroll")
+            logPhotoScrollEvent("photo_fast_scroll_start", "anchorInvalidated" to hadAnchor)
+            return
+        }
+        if (!photoFastScrollActive) return
+        photoFastScrollActive = false
+        logPhotoScrollEvent("photo_fast_scroll_end", "anchorPresent" to (photoScroll.pending != null))
+        releasePhotoGridPublicationIfIdle()
+    }
+
+    private fun releasePhotoGridPublicationIfIdle() {
+        if (photoFastScrollActive || binding.mediaGrid.scrollState != RecyclerView.SCROLL_STATE_IDLE) return
+        if (photoGridPublication.hasPending) {
+            // Capture after the user's final fast-scroll movement and before the
+            // newest queued snapshot can replace adapter rows.
+            rememberPhotoScrollAnchor("fast_scroll_release")
+        }
+        photoGridPublication.onScrollMoving(false)?.invoke()
+    }
+
+    private fun logPhotoScrollEvent(name: String, vararg fields: Pair<String, Any?>) {
+        if (!org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) return
+        val adapter = getMediaAdapter()
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG,
+            "PhotoGrid", name, photoActiveRequestId.takeIf { it != 0L },
+            mapOf(
+                "profile" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(photoProfileId.orEmpty()),
+                "stage" to photoPublishedStage,
+                "adapterVersion" to displayedSourceVersion,
+                "mediaCount" to (adapter?.media?.size ?: 0),
+                "scrollState" to binding.mediaGrid.scrollState,
+                "fastScrollActive" to photoFastScrollActive,
+                "anchorPresent" to (photoScroll.pending != null)
+            ) + fields.toMap()
+        )
     }
 
     private fun clearPhotoDisplayState(keepAnchor: Boolean = false) {
@@ -285,6 +342,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         photoProfileId = profile?.id
         photoNeedsUnlock = false
         val request = mediaLoadRequests.begin()
+        photoActiveRequestId = request
         mCurrAsyncTask?.stopFetching()
         if (photoScroll.pending != null && photoScrollProfileId != profile?.id) {
             photoScroll.clear()
@@ -383,12 +441,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         // Defer before full-list copies/comparisons, anchors and menus.
         // First content and access failures must never wait for scroll idle.
         if (!result.access.needsUnlock && getMediaAdapter() != null && mMedia.isNotEmpty() &&
-            binding.mediaGrid.scrollState != RecyclerView.SCROLL_STATE_IDLE) {
+            (photoFastScrollActive || binding.mediaGrid.scrollState != RecyclerView.SCROLL_STATE_IDLE)) {
             photoGridPublication.onScrollMoving(true)
             val replaced = photoGridPublication.hasPending
             photoGridPublication.deferIfMoving(apply)
             org.fossify.gallery.helpers.GalleryPerfTrace.event(
                 if (replaced) "photo_grid_publication_replaced" else "photo_grid_publication_deferred")
+            logPhotoScrollEvent("photo_grid_publication_deferred", "stage" to result.stage.name,
+                "replaced" to replaced)
         } else {
             photoGridPublication.clear()
             apply()
@@ -404,6 +464,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             val accessChanged = photoNeedsUnlock != result.access.needsUnlock
             photoNeedsUnlock = result.access.needsUnlock
             val complete = result.stage == org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE
+            logPhotoScrollEvent("photo_grid_publication_committed", "stage" to result.stage.name,
+                "mediaCount" to result.media.size)
             publishMedia(ArrayList<ThumbnailItem>(result.media), !complete, request)
             if (accessChanged) refreshMenuItems()
             if (!complete) {
@@ -692,11 +754,17 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         binding.mediaGrid.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                 if (isPhotoProfiles) {
-                    photoGridPublication.onScrollMoving(newState != RecyclerView.SCROLL_STATE_IDLE)?.invoke()
+                    if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                        photoScroll.clear()
+                        photoScrollProfileId = null
+                    }
+                    val moving = newState != RecyclerView.SCROLL_STATE_IDLE || photoFastScrollActive
+                    if (!moving) releasePhotoGridPublicationIfIdle()
+                    else photoGridPublication.onScrollMoving(true)
                 }
                 if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
                     favoritesScroll.clear()
-                    photoScroll.clear()
+                    if (!isPhotoProfiles) photoScroll.clear()
                 }
             }
         })
@@ -1131,6 +1199,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     override fun onDestroy() {
+        photoFastScrollActive = false
+        photoGridPublication.clear()
         mediaRefreshWatchdog.stop()
         GalleryBottomBar.dispose(this)
         mediaHeaderProgress?.let(OxygenProgressStyle::dispose)
@@ -1729,6 +1799,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun styleFastScroller() {
+        binding.mediaFastscroller.setHandleStateListener(
+            object : com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller.HandleStateListener {
+                override fun onEngaged() = onPhotoFastScrollStateChanged(true)
+                override fun onReleased() = onPhotoFastScrollStateChanged(false)
+            }
+        )
         OxygenFastScroller.apply(binding.mediaFastscroller, binding.mediaGrid,
             OxygenThemeEngine.snapshot(this, config),
             if (mGallerySection == null) 0 else resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height))
@@ -3495,6 +3571,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             val adapter = getMediaAdapter()
                             if (adapter != null) photoScroll.restore(
                                 binding.mediaGrid, adapter.media.map { (it as? Medium)?.path }, !isFromCache,
+                                onResult = { result ->
+                                    logPhotoScrollEvent(
+                                        if (result == FavoritesScrollRestorer.RestoreResult.POSITIONED)
+                                            "photo_scroll_restore_applied" else "photo_scroll_restore_skipped",
+                                        "result" to result.name
+                                    )
+                                },
                                 isCurrent = {
                                     mediaLoadRequests.isCurrent(request) && binding.mediaGrid.adapter === adapter &&
                                         photoProfileId == PhotoProfileRepository.of(this).state().current?.id &&
