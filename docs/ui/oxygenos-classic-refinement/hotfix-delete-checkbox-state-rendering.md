@@ -60,6 +60,11 @@ GitHub Actions workflow. CI result must be reported separately after completion.
 The first CI attempt (#556) compiled successfully, but Robolectric rejected the
 API 36 sandbox under Java 17. The ARM64 workflow now runs on Java 21 as required
 by that sandbox; the existing application Java/Kotlin bytecode target stays 17.
+Attempt #557 ran 953 tests; its two failures were the new test's confirmation
+callback assertion (one per SDK), which ran before AlertController's posted
+Handler callback. The test now drains that queue after pressing confirmation,
+as the existing callback test does. Immediate mark assertions still run before
+any animation-frame wait. No production behavior was changed for this correction.
 Robolectric API 36 and bitmap checks improve coverage but do not constitute a
 Pixel 8 Pro hardware/TalkBack acceptance result. Final device acceptance remains
 the visible first-tap/second-tap behavior on the delivered APK; no further debug

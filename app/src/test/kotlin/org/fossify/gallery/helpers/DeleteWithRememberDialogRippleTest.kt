@@ -101,6 +101,9 @@ class DeleteWithRememberDialogRippleTest {
                 checkbox.performClick()
             }
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+            // AlertController posts its button callback to the main Handler.
+            // All immediate mark assertions above deliberately precede this drain.
+            shadowOf(Looper.getMainLooper()).idle()
             assertEquals(true to showSkip, result)
             activity.finish()
         }
