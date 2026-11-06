@@ -6,11 +6,14 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.os.Handler
 import android.os.Looper
 import org.fossify.gallery.extensions.config
 import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
+import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -86,21 +89,43 @@ object GalleryBottomBar {
         mainHandler.post(pending.timeout)
     }
 
-    private fun rippleColor(accent: Int): Int =
-        Color.argb(32, Color.red(accent), Color.green(accent), Color.blue(accent))
+    /**
+     * Keep the pressed tint semantic and legible on the current surface. Strong,
+     * already-readable accents use a lighter touch; borderline accents get a
+     * little more opacity so the native ripple remains visible in both themes.
+     */
+    internal fun rippleColor(accent: Int, surface: Int): Int {
+        val contrast = OxygenThemeColors.contrastRatio(accent, surface)
+        val alpha = when {
+            contrast >= 10.0 -> 24
+            contrast >= 7.0 -> 28
+            else -> 32
+        }
+        return Color.argb(alpha, Color.red(accent), Color.green(accent), Color.blue(accent))
+    }
 
     /**
      * RippleDrawable owns its pressed/released animation. Replacing its background
      * (even with the same color) cancels that native state and cuts off its fade.
      */
-    private fun updateRipple(item: LinearLayout, accent: Int) {
-        val color = rippleColor(accent)
+    private fun updateRipple(item: LinearLayout, colors: OxygenThemeTokens) {
+        val color = rippleColor(colors.interactiveAccent, colors.pageBackground)
         val ripple = item.background as? RippleDrawable
         if (ripple == null) {
+            val mask = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.WHITE)
+                cornerRadius = item.resources.getDimension(R.dimen.oxygen_bottom_bar_ripple_corner_radius)
+            }
             item.background = RippleDrawable(
                 ColorStateList.valueOf(color),
                 ColorDrawable(Color.TRANSPARENT),
-                ColorDrawable(Color.WHITE)
+                InsetDrawable(mask,
+                    item.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_ripple_inset_horizontal),
+                    item.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_ripple_inset_vertical),
+                    item.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_ripple_inset_horizontal),
+                    item.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_ripple_inset_vertical)
+                )
             )
         } else if (rippleColors[item] != color) {
             ripple.setColor(ColorStateList.valueOf(color))
@@ -155,7 +180,6 @@ object GalleryBottomBar {
         if (activity.isFinishing || activity.isDestroyed) return
         val tokens = OxygenThemeEngine.snapshot(activity, activity.config)
         val surface = tokens.pageBackground
-        val accent = tokens.rawAccent
         val selected = tokens.interactiveAccent
         val quiet = tokens.secondaryText
         if ((bar.background as? ColorDrawable)?.color != surface) bar.setBackgroundColor(surface)
@@ -163,7 +187,7 @@ object GalleryBottomBar {
             val item = bar.getChildAt(i) as? LinearLayout ?: continue
             updateTint(item, if (item.isSelected) selected else quiet)
             // setColor() preserves the same Drawable and any in-flight pressed ripple.
-            updateRipple(item, accent)
+            updateRipple(item, tokens)
         }
     }
 
@@ -298,7 +322,7 @@ object GalleryBottomBar {
         fun dp(value: Int) = (value * density + 0.5f).toInt()
         val tokens = OxygenThemeEngine.snapshot(activity, activity.config)
         val background = tokens.pageBackground
-        val primary = tokens.rawAccent
+        val primary = tokens
         val selectedText = tokens.interactiveAccent
         val quiet = tokens.secondaryText
 
@@ -370,7 +394,9 @@ object GalleryBottomBar {
                 typeface = Typeface.create(if (selected) "sans-serif-medium" else "sans-serif", Typeface.NORMAL)
                 includeFontPadding = false
                 importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }, LinearLayout.LayoutParams(-1, dp(20)).apply { topMargin = dp(3) })
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = activity.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_label_gap)
+            })
             bar.addView(item, LinearLayout.LayoutParams(0, itemHeight, 1f).apply {
                 marginStart = dp(2)
                 marginEnd = dp(2)
