@@ -36,7 +36,7 @@
 
 | 问题 | 根因 | 当前处理 |
 |---|---|---|
-| 子页 Divider 缺失 | XML 普通行之间没有统一装饰；主页只有分类间七条 View | `TiebaSettingsContainer.dispatchDraw()` 在可见相邻普通行之间轻量绘制；线条 0.5dp 画笔、内容左右各 16dp；Section 前后、页尾不画；色值取 `blend(pageBackground, primaryText, 0.10)` |
+| 子页 Divider 缺失 | XML 普通行之间没有统一装饰；主页只有分类间七条 View | `TiebaSettingsContainer.dispatchDraw()` 在可见相邻普通行之间轻量绘制；线条约 0.5dp（至少 1 个物理像素）、内容左右各 16dp；Section 前后、页尾不画；色值取 `blend(pageBackground, primaryText, 0.10)` |
 | 页面运动不对称 | 页面状态先替换，然后仅同一 NestedScrollView 入场 | 新增 `ClassicSettingsPageTransition`：先绘制旧滚动视口快照，再准备目标状态；旧快照与目标内容同步向相反方向移动。方向由正向/返回和 RTL 合成 |
 | 主题页面重建后才入场 | `navigateColors()` 先 `removeAllViews()`/重建，再开始入场动画 | 主题页共用同一快照转场工具；滚动位置在目标准备时恢复，Toolbar 固定 |
 | 参数分散 | 普通与主题页面独立持有运动逻辑 | 共享候选值：180ms、8dp、alpha 0.92 到 1、PathInterpolator `(0.4,0,0.2,1)`；动画比例为 0 时同步提交终态 |

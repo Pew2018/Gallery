@@ -29,14 +29,14 @@ class TiebaSettingsContainer @JvmOverloads constructor(context: Context, attrs: 
         dividerPaint.color = dividerColor
         // A 0.5dp stroke stays subtle across density buckets. Draw only
         // between currently visible rows; section headings and hidden rows are skipped.
-        dividerPaint.strokeWidth = resources.displayMetrics.density.coerceAtLeast(1f) * 0.5f
+        dividerPaint.strokeWidth = maxOf(1f, resources.displayMetrics.density * 0.5f)
         var previous: android.view.View? = null
         for (index in 0 until childCount) {
             val child = getChildAt(index)
             if (child.visibility != VISIBLE || child.height <= 0) continue
             val prior = previous
             if (prior != null && !isSection(prior) && !isSection(child)) {
-                val y = prior.bottom.toFloat() - dividerPaint.strokeWidth / 2f
+                val y = prior.bottom.toFloat() - 0.5f
                 val inset = dividerInset
                 canvas.drawLine(inset, y, width - inset, y, dividerPaint)
             }
