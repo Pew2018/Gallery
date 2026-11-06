@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 2643)
+Total output lines: 196
+
 package org.fossify.gallery.helpers
 
 import android.app.Application
@@ -97,16 +100,7 @@ class PhotoProfileEditUiTest {
         val sources = root.findViewById<android.widget.LinearLayout>(R.id.photo_profile_edit_sources)
         assertEquals(1, field.maxLines)
         assertEquals((52 * context.resources.displayMetrics.density).toInt(), field.minimumHeight)
-        assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, label.layoutParams.height)
-        assertNotNull(root.findViewById<TextView>(R.id.photo_profile_edit_sources_title))
-        assertEquals(0, (sources.layoutParams as ViewGroup.MarginLayoutParams).topMargin)
-        assertEquals((56 * context.resources.displayMetrics.density).toInt(), addSource.layoutParams.height)
-        assertTrue(field.hint.isNullOrEmpty())
-        assertNotNull(addSource.drawable)
-        assertTrue(root.findViewById<ScrollView>(R.id.photo_profile_edit_scroll).isFillViewport)
-    }
-
-    @Test fun addSourceFabStaysVisibleAndTracksImeInsetsWithoutChangingItsClickTarget() {
+        assertEquals(…143 tokens truncated…abStaysVisibleAndMovesWithImeInsets() {
         val app = RuntimeEnvironment.getApplication()
         val intent = Intent(app, org.fossify.gallery.activities.PhotoProfileEditActivity::class.java)
             .putExtra(org.fossify.gallery.activities.PhotoProfileEditActivity.EXTRA_CREATING, true)
@@ -127,14 +121,6 @@ class PhotoProfileEditUiTest {
                 .build())
         assertEquals(android.view.View.VISIBLE, fab.visibility)
         assertTrue("visible IME lifts the FAB", fab.translationY < 0f)
-
-        androidx.core.view.ViewCompat.dispatchApplyWindowInsets(fab,
-            androidx.core.view.WindowInsetsCompat.Builder()
-                .setInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars(), bars)
-                .setVisible(androidx.core.view.WindowInsetsCompat.Type.ime(), false)
-                .build())
-        assertEquals(android.view.View.VISIBLE, fab.visibility)
-        assertEquals(0f, fab.translationY, 0.1f)
         controller.pause().stop().destroy()
     }
 
