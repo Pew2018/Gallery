@@ -130,7 +130,7 @@ class SettingsPageMotionTest {
     }
 
     @Test fun themeColorSubpageKeepsItsIndependentNavigationAndScrollMotion() {
-        val controller = Robolectric.buildActivity(OxygenThemeActivity::class.java).setup()
+        val controller = Robolectric.buildActivity(OxygenThemeActivity::class.java).setup().visible()
         val activity = controller.get()
         org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         val resolver = activity.contentResolver

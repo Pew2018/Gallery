@@ -25,7 +25,7 @@ class ClassicSettingsPageTransitionTest {
     @Test fun renderedOutgoingSnapshotFadesContinuouslyOverOpaqueIncomingPage() {
         org.robolectric.shadows.ShadowChoreographer.setPaused(true)
         org.robolectric.shadows.ShadowChoreographer.setFrameDelay(java.time.Duration.ofMillis(16))
-        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup().visible()
         val activity = controller.get()
         val host = FrameLayout(activity).apply { setBackgroundColor(Color.WHITE) }
         val page = View(activity).apply { setBackgroundColor(Color.RED) }
