@@ -142,6 +142,9 @@ class SettingsPageMotionTest {
         val clock = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
         try {
             navigate.invoke(activity, true)
+            val scroll = activity.javaClass.getDeclaredField("scroll").apply { isAccessible = true }
+                .get(activity) as View
+            scroll.viewTreeObserver.dispatchOnPreDraw()
             clock.idleFor(48, java.util.concurrent.TimeUnit.MILLISECONDS)
             assertTrue(activity.javaClass.getDeclaredField("moreColors").apply { isAccessible = true }
                 .getBoolean(activity))

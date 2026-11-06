@@ -1,6 +1,7 @@
 package org.fossify.gallery.helpers
 
 import android.app.Activity
+import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -18,7 +19,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 @org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
 class ClassicSettingsPageTransitionTest {
     @Test fun renderedOutgoingSnapshotFadesContinuouslyOverOpaqueIncomingPage() {
