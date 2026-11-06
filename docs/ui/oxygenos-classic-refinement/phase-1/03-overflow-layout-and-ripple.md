@@ -9,7 +9,7 @@
 ## 几何与状态
 
 - LTR `-20dp` / RTL `+20dp` 水平 offset、背景圆角/padding 和 `TiebaMenuItemView` 280dp 测量上限仍无截图证据需要修改，予以保留。此前 `16dp` 垂直 offset 与 `overlapAnchor=true` 使菜单从 Overflow 锚点上方/顶栏中展开；用户提供的 Gallery 与 OxygenOS Classic 对比截图确认了这一位置差异。
-- 后续修正：Overflow 样式改为 `overlapAnchor=false`、垂直 offset `12dp`。第一次坐标测试测得 Toolbar Overflow 锚点下沿距顶栏底部 12dp；对应偏移使菜单上沿对齐顶栏底部。扩展的 `ClassicOverflowPositionTest` 要求 Toolbar 与 anchored Popup 在 LTR/RTL 下不覆盖顶栏，且不与顶栏分离超过 16dp；`ClassicToolbarLayoutTest` 同步锁定新的非重叠契约。最终以复跑 Actions 和真机结果为准。
+- 后续修正：Overflow 样式改为 `overlapAnchor=false`、垂直 offset `12dp`。第一次坐标测试测得 Toolbar Overflow 锚点下沿距顶栏底部 12dp；对应偏移使菜单上沿对齐顶栏底部。扩展的 `ClassicOverflowPositionTest` 要求 Toolbar 与 anchored Popup 在 LTR/RTL 下不覆盖顶栏，且不与顶栏分离超过 16dp；`ClassicToolbarLayoutTest` 同步锁定新的非重叠契约。复跑 Actions 已通过 935 项单测，其中新增垂直边界与旧 overlap 契约测试均通过；最终 Pixel 8 Pro 视觉位置仍待用户复验。
 - 现有 `ClassicOverflowPositionTest` 使用 PopupWindow bounds，在 360dp、LTR/RTL、Toolbar Overflow/anchored Popup、3/20 行菜单下核对锚点与屏幕边界。没有 320/412/600dp、设备 Insets、高字体或多层菜单证据。
 - 收藏双态文案去除旧 checkbox 特判，避免继续预留其 trailing checkbox 与 margin。菜单行其余测量代码不变。
 - AppCompat 行背景保留既有 RippleDrawable/state 处理。本阶段没有重建 Popup 或添加开闭动画；既有完整 Ripple 点击、按住滑出取消仍需设备录屏检查。
