@@ -38,8 +38,8 @@ class SettingsPhaseTwoTest {
         org.robolectric.shadows.ShadowEnvironment.addExternalDir("primary")
         if (android.os.Build.VERSION.SDK_INT >= 30) {
             val app = RuntimeEnvironment.getApplication()
-            app.getSystemService(android.app.AppOpsManager::class.java).setMode(
-                android.app.AppOpsManager.OPSTR_MANAGE_EXTERNAL_STORAGE,
+            org.robolectric.Shadows.shadowOf(app.getSystemService(android.app.AppOpsManager::class.java)).setMode(
+                "android:manage_external_storage",
                 app.applicationInfo.uid, app.packageName, android.app.AppOpsManager.MODE_IGNORED)
         }
         Settings.Global.putFloat(RuntimeEnvironment.getApplication().contentResolver,
@@ -156,8 +156,8 @@ class SettingsPhaseTwoTest {
                 rows(activity)[6].performClick()
                 assertEquals(View.GONE, activity.findViewById<View>(R.id.settings_hidden_item_password_protection_holder).visibility)
                 assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.settings_excluded_item_password_protection_holder).visibility)
-                activity.getSystemService(android.app.AppOpsManager::class.java).setMode(
-                    android.app.AppOpsManager.OPSTR_MANAGE_EXTERNAL_STORAGE,
+                org.robolectric.Shadows.shadowOf(activity.getSystemService(android.app.AppOpsManager::class.java)).setMode(
+                    "android:manage_external_storage",
                     activity.applicationInfo.uid, activity.packageName, android.app.AppOpsManager.MODE_ALLOWED)
                 controller.pause().resume()
                 assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.settings_hidden_item_password_protection_holder).visibility)

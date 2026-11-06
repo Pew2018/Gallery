@@ -36,3 +36,5 @@
 ## 第二轮验证与纠正
 
 [Run42186564876](https://github.com/Pew2018/Gallery/actions/runs/42186564876)实际执行977 tests、8失败：5个API35 Activity用例因Robolectric外部目录为空，在Environment真实实现取`getExternalDirs()[0]`时失败；fixture新增ShadowEnvironment.addExternalDir并设置真实AppOps输入（默认拒绝、权限用例再切允许），没有修改生产权限代码。2个TiebaStyleMigration旧600–840区间87%宽度断言改为连续公式525dp@700，仍保留重复测量/来回resize并加入600/840参考点。1个API35排版断言含行尾空格，改用Layout.getLineMax检查可见文字宽度，保留省略/高度/文字bounds断言并增加失败诊断。未删除失败测试、未降低生产文字字号来迁就测试。
+
+第三轮Run42187545854在测试编译发现AppOps setMode及MANAGE_EXTERNAL_STORAGE常量不在SDK公开stub中；改用Robolectric4.16.1公开ShadowAppOpsManager.setMode(String,uid,package,mode)及AOSP标准操作名。生产权限实现继续不改，fixture通过真实Environment/AppOps调用链验证显隐。
