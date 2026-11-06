@@ -182,16 +182,16 @@
         <item name="android:windowBackground">@drawable/oxygen_classic_popup_dark</item>
     </style>
     <style name="OxygenClassicOverflow.Light" parent="OxygenClassicPopupMenu.Light">
-        <!-- Align the panel end near the overflow glyph, overlapping the action slot. -->
-        <item name="overlapAnchor">true</item>
+        <!-- Keep the panel below the Toolbar action row, as in OxygenOS Classic. -->
+        <item name="overlapAnchor">false</item>
         <item name="android:dropDownHorizontalOffset">@dimen/oxygen_classic_overflow_horizontal_offset</item>
-        <item name="android:dropDownVerticalOffset">16dp</item>
+        <item name="android:dropDownVerticalOffset">0dp</item>
     </style>
     <style name="OxygenClassicOverflow.Dark" parent="OxygenClassicPopupMenu.Dark">
-        <!-- Align the panel end near the overflow glyph, overlapping the action slot. -->
-        <item name="overlapAnchor">true</item>
+        <!-- Keep the panel below the Toolbar action row, as in OxygenOS Classic. -->
+        <item name="overlapAnchor">false</item>
         <item name="android:dropDownHorizontalOffset">@dimen/oxygen_classic_overflow_horizontal_offset</item>
-        <item name="android:dropDownVerticalOffset">16dp</item>
+        <item name="android:dropDownVerticalOffset">0dp</item>
     </style>
 
     <!-- Keep menus on a neutral surface, never the user's accent color. -->

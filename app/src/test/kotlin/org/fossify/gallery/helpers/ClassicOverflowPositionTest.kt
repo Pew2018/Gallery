@@ -101,6 +101,8 @@ class ClassicOverflowPositionTest {
                     val params = decor.layoutParams as WindowManager.LayoutParams
                     val location = IntArray(2).also { anchor.getLocationOnScreen(it) }
                     val centerX = location[0] + anchor.width / 2
+                    val toolbarLocation = IntArray(2).also { toolbar.getLocationOnScreen(it) }
+                    val toolbarBottom = toolbarLocation[1] + toolbar.height
                     val panelEnd = if (rtl) params.x else params.x + window.width
                     val label = "${if (nativeToolbar) "toolbar" else "anchored"} rtl=$rtl count=$count"
                     val offset = activity.resources.getDimensionPixelOffset(
@@ -111,6 +113,10 @@ class ClassicOverflowPositionTest {
                     assertTrue("$label: popup escapes leading screen edge", params.x >= visible.left)
                     assertTrue("$label: popup escapes trailing screen edge",
                         params.x + window.width <= visible.right)
+                    assertTrue("$label: popup overlaps Toolbar (popupY=${params.y}, toolbarBottom=$toolbarBottom)",
+                        params.y >= toolbarBottom - dp(8))
+                    assertTrue("$label: popup is detached too far below Toolbar (popupY=${params.y}, toolbarBottom=$toolbarBottom)",
+                        params.y <= toolbarBottom + dp(16))
                     if (count == 3) {
                         decor.measure(View.MeasureSpec.makeMeasureSpec(window.width, View.MeasureSpec.EXACTLY),
                             View.MeasureSpec.makeMeasureSpec(window.height, View.MeasureSpec.EXACTLY))
