@@ -51,7 +51,7 @@ class ClassicSettingsPageTransitionTest {
         for (progress in listOf(0.1f, 0.25f, 0.5f, 0.75f, 0.9f)) {
             ClassicSettingsPageTransition.applyProgressForTest(host, progress)
             val frame = Bitmap.createBitmap(120, 120, Bitmap.Config.ARGB_8888)
-            host.draw(Canvas(frame))
+            ClassicSettingsPageTransition.drawCompositeForTest(host, Canvas(frame))
             val pixel = frame.getPixel(60, 60)
             redLevels += Color.red(pixel)
             blueLevels += Color.blue(pixel)
@@ -77,7 +77,7 @@ class ClassicSettingsPageTransitionTest {
 
     private fun drawCenter(view: View): Int {
         val bitmap = Bitmap.createBitmap(120, 120, Bitmap.Config.ARGB_8888)
-        view.draw(Canvas(bitmap))
+        ClassicSettingsPageTransition.drawCompositeForTest(view, Canvas(bitmap))
         return bitmap.getPixel(60, 60).also { bitmap.recycle() }
     }
 

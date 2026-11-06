@@ -157,6 +157,15 @@ object ClassicSettingsPageTransition {
         applyProgress(container, run, progress)
     }
 
+    /** Robolectric's software View.draw() omits ViewOverlay, so compose its actual drawable here. */
+    internal fun drawCompositeForTest(container: View, canvas: Canvas) {
+        val save = canvas.save()
+        canvas.clipRect(0, 0, container.width, container.height)
+        container.draw(canvas)
+        runs[container]?.outgoing?.draw(canvas)
+        canvas.restoreToCount(save)
+    }
+
     private fun applyProgress(container: View, run: Run, progress: Float) {
         if (runs[container] !== run) return
         val frameProgress = progress.coerceIn(0f, 1f)
