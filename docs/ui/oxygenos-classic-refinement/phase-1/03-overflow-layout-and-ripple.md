@@ -8,15 +8,16 @@
 
 ## 几何与状态
 
-- LTR `-20dp` / RTL `+20dp` 水平 offset、背景圆角/padding 和 `TiebaMenuItemView` 280dp 测量上限仍无截图证据需要修改，予以保留。此前 `16dp` 垂直 offset 与 `overlapAnchor=true` 使菜单从 Overflow 锚点上方/顶栏中展开；用户提供的 Gallery 与 OxygenOS Classic 对比截图确认了这一位置差异。
+- LTR `-20dp` / RTL `+20dp` 水平 offset、背景圆角/padding 和 `TiebaMenuItemView` 280dp 测量上限仍无证据需要修改，予以保留。此前 `16dp` 垂直 offset 与 `overlapAnchor=true` 使菜单从 Overflow 锚点上方/顶栏中展开；用户提供的 Gallery 与 OxygenOS Classic 对比截图确认了这一位置差异。
 - 后续修正：Overflow 样式改为 `overlapAnchor=false`、垂直 offset `12dp`。第一次坐标测试测得 Toolbar Overflow 锚点下沿距顶栏底部 12dp；对应偏移使菜单上沿对齐顶栏底部。扩展的 `ClassicOverflowPositionTest` 要求 Toolbar 与 anchored Popup 在 LTR/RTL 下不覆盖顶栏，且不与顶栏分离超过 16dp；`ClassicToolbarLayoutTest` 同步锁定新的非重叠契约。复跑 Actions 已通过 935 项单测，其中新增垂直边界与旧 overlap 契约测试均通过；最终 Pixel 8 Pro 视觉位置仍待用户复验。
-- 现有 `ClassicOverflowPositionTest` 使用 PopupWindow bounds，在 360dp、LTR/RTL、Toolbar Overflow/anchored Popup、3/20 行菜单下核对锚点与屏幕边界。没有 320/412/600dp、设备 Insets、高字体或多层菜单证据。
+- 对比图中参考面板约 188dp 宽，Gallery 面板按截图比例约窄一成。两种 AppCompat 菜单行布局现统一设置 188dp 最小宽度；超长内容继续自然增长并由 `TiebaMenuItemView` 截止于 280dp，保持 16sp 字体、16dp 文本边距、48dp 触控行高、8dp 纵向面板 padding、4dp 圆角和 8dp elevation。宽度值是依据截图比例设定的起点，仍需 Pixel 真机复核。
+- `ClassicOverflowPositionTest` 扩展为 320/360/412/600dp、LTR/RTL、Toolbar Overflow/anchored Popup、3/20 行菜单；验证锚点、188–280dp 宽度范围、面板未越出可见窗口且靠近顶栏下沿。高字体与多层子菜单仍需设备验收。
 - 收藏双态文案去除旧 checkbox 特判，避免继续预留其 trailing checkbox 与 margin。菜单行其余测量代码不变。
 - AppCompat 行背景保留既有 RippleDrawable/state 处理。本阶段没有重建 Popup 或添加开闭动画；既有完整 Ripple 点击、按住滑出取消仍需设备录屏检查。
 
 ## 结论
 
-P1-C 的水平定位、行高/Ripple 未做全局猜测性改动。垂直展开已根据用户实机截图作定点修正，待 Actions 与设备复验。设备复核步骤：在 320/360/412/600dp、LTR/RTL、英文/中文、常规/放大字体下逐页打开 15 个 XML 对应宿主和五个动态锚点；记录锚点/Popup bounds、系统栏 Insets、菜单项数、最大行宽、长列表滚动；执行轻点、按住、滑出、键盘焦点切换与主题变化。只对可复现 bounds/裁切缺陷作小范围修正。
+P1-C 保持水平锚点、行高和 Ripple 行为，仅按截图调整垂直展开及最小面板宽度。设备复核步骤：在 320/360/412/600dp、LTR/RTL、英文/中文、常规/放大字体下逐页打开 15 个 XML 对应宿主和五个动态锚点；记录锚点/Popup bounds、系统栏 Insets、菜单项数、最大行宽、长列表滚动；执行轻点、按住、滑出、键盘焦点切换与主题变化。只对可复现 bounds/裁切缺陷作小范围修正。
 
 ## 动画
 

@@ -13,6 +13,8 @@
     <!-- AppCompat overflow buttons are 40dp wide; explicit menu targets are 48dp.
          Align the popup edge at the glyph center (within 4dp), as in the reference. -->
     <dimen name="oxygen_classic_overflow_horizontal_offset">-20dp</dimen>
+    <!-- Reference popup panel is about 188dp wide at the source screenshot scale. -->
+    <dimen name="oxygen_classic_menu_min_width">188dp</dimen>
     <dimen name="oxygen_classic_toolbar_height">56dp</dimen>
     <dimen name="oxygen_classic_horizontal_margin">16dp</dimen>
     <dimen name="oxygen_classic_single_row">56dp</dimen>

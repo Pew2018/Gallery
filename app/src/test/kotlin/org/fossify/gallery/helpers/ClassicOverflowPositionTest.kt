@@ -34,17 +34,35 @@ import org.robolectric.annotation.GraphicsMode
 class ClassicOverflowPositionTest {
     @Test
     @Config(qualifiers = "w360dp-h800dp-mdpi")
-    fun toolbarAndAnchoredMenusEndNearTheirGlyphInLtr() = checkPositions(false)
+    fun toolbarAndAnchoredMenusMatchClassicGeometryInLtr() = checkPositions(false, 360)
 
     @Test
     @Config(qualifiers = "ar-rSA-ldrtl-w360dp-h800dp-mdpi")
-    fun toolbarAndAnchoredMenusEndNearTheirGlyphInRtl() = checkPositions(true)
+    fun toolbarAndAnchoredMenusMatchClassicGeometryInRtl() = checkPositions(true, 360)
+
+    @Test @Config(qualifiers = "w320dp-h800dp-mdpi")
+    fun narrowWindowMenusStayInsideBoundsInLtr() = checkPositions(false, 320)
+
+    @Test @Config(qualifiers = "ar-rSA-ldrtl-w320dp-h800dp-mdpi")
+    fun narrowWindowMenusStayInsideBoundsInRtl() = checkPositions(true, 320)
+
+    @Test @Config(qualifiers = "w412dp-h900dp-mdpi")
+    fun widePhoneMenusKeepTheSameMinimumInLtr() = checkPositions(false, 412)
+
+    @Test @Config(qualifiers = "ar-rSA-ldrtl-w412dp-h900dp-mdpi")
+    fun widePhoneMenusKeepTheSameMinimumInRtl() = checkPositions(true, 412)
+
+    @Test @Config(qualifiers = "w600dp-h900dp-mdpi")
+    fun tabletMenusStayContentBoundedInLtr() = checkPositions(false, 600)
+
+    @Test @Config(qualifiers = "ar-rSA-ldrtl-w600dp-h900dp-mdpi")
+    fun tabletMenusStayContentBoundedInRtl() = checkPositions(true, 600)
 
     private fun descendants(view: View): List<View> = listOf(view) +
         if (view is ViewGroup) (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) }
         else emptyList()
 
-    private fun checkPositions(rtl: Boolean) {
+    private fun checkPositions(rtl: Boolean, widthDp: Int) {
         val controller = Robolectric.buildActivity(AppCompatActivity::class.java).setup()
         val activity = controller.get()
         activity.config.oxygenThemeActivated = true
@@ -85,7 +103,7 @@ class ClassicOverflowPositionTest {
                     menu.add(0, index + 1, index, if (count == 3) labels[index] else "Menu item ${index + 1}")
                         .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER)
                 }
-                host.measure(View.MeasureSpec.makeMeasureSpec(dp(360), View.MeasureSpec.EXACTLY),
+                host.measure(View.MeasureSpec.makeMeasureSpec(dp(widthDp), View.MeasureSpec.EXACTLY),
                     View.MeasureSpec.makeMeasureSpec(dp(800), View.MeasureSpec.EXACTLY))
                 host.layout(0, 0, host.measuredWidth, host.measuredHeight)
                 Shadows.shadowOf(Looper.getMainLooper()).idle()
@@ -113,10 +131,17 @@ class ClassicOverflowPositionTest {
                     assertTrue("$label: popup escapes leading screen edge", params.x >= visible.left)
                     assertTrue("$label: popup escapes trailing screen edge",
                         params.x + window.width <= visible.right)
+                    assertTrue("$label: popup is narrower than the OxygenOS Classic reference",
+                        window.width >= dp(188))
+                    assertTrue("$label: popup exceeds its intrinsic width cap",
+                        window.width <= dp(280))
                     assertTrue("$label: popup overlaps Toolbar (popupY=${params.y}, toolbarBottom=$toolbarBottom)",
                         params.y >= toolbarBottom - dp(8))
                     assertTrue("$label: popup is detached too far below Toolbar (popupY=${params.y}, toolbarBottom=$toolbarBottom)",
                         params.y <= toolbarBottom + dp(16))
+                    assertTrue("$label: popup escapes the top of the visible window", params.y >= visible.top)
+                    assertTrue("$label: popup escapes the bottom of the visible window",
+                        params.y + window.height <= visible.bottom)
                     if (count == 3) {
                         decor.measure(View.MeasureSpec.makeMeasureSpec(window.width, View.MeasureSpec.EXACTLY),
                             View.MeasureSpec.makeMeasureSpec(window.height, View.MeasureSpec.EXACTLY))

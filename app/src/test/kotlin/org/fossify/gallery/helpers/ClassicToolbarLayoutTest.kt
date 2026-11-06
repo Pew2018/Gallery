@@ -185,7 +185,8 @@ class ClassicToolbarLayoutTest {
                     View.MeasureSpec.makeMeasureSpec(window.height, View.MeasureSpec.EXACTLY))
                 panel.layout(0, 0, panel.measuredWidth, panel.measuredHeight)
                 assertEquals(3, list.childCount)
-                assertTrue("Short menu should not retain AppCompat's 196dp minimum", window.width < dp(196))
+                assertTrue("Short classic menu should meet the 188dp reference minimum", window.width >= dp(188))
+                assertTrue("Short classic menu should remain content-sized", window.width <= dp(200))
                 val bitmap = android.graphics.Bitmap.createBitmap(panel.width, panel.height,
                     android.graphics.Bitmap.Config.ARGB_8888)
                 val canvas = android.graphics.Canvas(bitmap)
