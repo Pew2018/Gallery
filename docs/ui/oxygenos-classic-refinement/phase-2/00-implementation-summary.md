@@ -22,3 +22,7 @@
 主要文件：SettingsActivity、OxygenThemeActivity、TiebaSettingsCategoryRow、TiebaSettingsContainer、OxygenClassicMotion、ClassicSettingsPresentation、oxygenos_classic.xml；activity_settings.xml 的 View ID 和层次未改，ClassicSettingsSwitch/OxygenClassicControls/OxygenThemeEngine 逻辑未改。
 
 最终源码提交、CI、APK 和自动化结果在 [04](04-regression-and-build.md) 记录；[05](05-device-acceptance-checklist.md) 是独立的待真机验收清单。未以源码实施代替代码完成 DoD。
+
+## 最终交付状态
+
+执行基线8620d441；最终应用代码/测试HEAD为`ebe8fa34c600215910f29112e2078fd824dd2954`，Run42188141776成功。977测试全部通过、ARM64 APK签名/包名/ABI/摘要验证通过。P2-A至P2-F的代码与自动化工作完成；六项的最终视觉/真实系统交互均待设备验收。后续记录提交仅更新docs，不改变已构建app树。详细证据、修正历史与签名限制见04。
