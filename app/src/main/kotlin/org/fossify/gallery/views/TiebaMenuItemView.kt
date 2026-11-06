@@ -3,6 +3,7 @@ package org.fossify.gallery.views
 import android.annotation.SuppressLint
 import android.content.Context
 import android.util.AttributeSet
+import androidx.appcompat.view.menu.ListMenuItemView
 import kotlin.math.roundToInt
 
 /** Bound intrinsic menu measurement too: AppCompat otherwise permits 320dp or half a tablet. */

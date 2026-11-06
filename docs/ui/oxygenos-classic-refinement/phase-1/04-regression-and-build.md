@@ -16,7 +16,7 @@ Phase 1 用户要求的完整回归任务由 `.github/workflows/arm64-foss-relea
 :app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a
 ```
 
-Workflow run、测试总数/失败数、最终状态、签名/ABI 检查和 Artifact 名称将在推送后的结果可读时补充。没有 Action 成功记录前，不应标记自动化或 APK 构建已通过。
+首次 run：[#42157087601](https://github.com/Pew2018/Gallery/actions/runs/42157087601)，在 `:app:compileFossReleaseKotlin` 失败，`TiebaMenuItemView.kt` 移除专属逻辑时误删了仍被继承声明需要的 `ListMenuItemView` import。单元测试和 APK assemble 因而未运行，无 APK Artifact。修复已补回 import；下一次提交的完整测试/构建 run 结果待回填。没有 Action 成功记录前，不应标记自动化或 APK 构建已通过。
 
 ## 尚无设备证据
 
