@@ -48,7 +48,7 @@ class ClassicSettingsControlsTest {
         (0 until view.childCount).flatMap { children(view.getChildAt(it)) } else emptyList()
 
     @Test fun settingsCategoryWrapsWithoutClippingAndKeepsItsWholeRowAction() {
-        for (dark in listOf(false, true)) for (rtl in listOf(false, true)) for (scale in listOf(1f, 1.5f)) {
+        for (dark in listOf(false, true)) for (rtl in listOf(false, true)) for (scale in listOf(1f, 1.3f, 1.5f)) {
             val base = context()
             val configuration = android.content.res.Configuration(base.resources.configuration).apply { fontScale = scale }
             val ctx = ContextThemeWrapper(base.createConfigurationContext(configuration), R.style.AppTheme)
@@ -62,23 +62,26 @@ class ClassicSettingsControlsTest {
                 tokens(dark)
             ) { opens++ }
             children(row).forEach { it.layoutDirection = if (rtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR }
-            measure(row, dp(320))
-            val column = row.getChildAt(1) as LinearLayout
-            val labels = children(column).filterIsInstance<TextView>()
-            assertEquals(dp(72), if (rtl) row.width - column.right else column.left)
-            assertEquals(dp(16), if (rtl) column.left else row.width - column.right)
-            assertTrue(row.height >= dp(72))
-            labels.forEach { label ->
-                assertTrue(label.layout.lineCount > 0)
-                assertTrue(label.layout.height <= label.height)
-                for (line in 0 until label.lineCount) {
-                    assertEquals("Settings text must wrap rather than ellipsize", 0, label.layout.getEllipsisCount(line))
-                    assertTrue(label.layout.getLineWidth(line) <= label.width + 1)
+            for (width in listOf(320, 360, 412, 600)) {
+                measure(row, dp(width))
+                val column = row.getChildAt(1) as LinearLayout
+                val labels = children(column).filterIsInstance<TextView>()
+                assertEquals(dp(72), if (rtl) row.width - column.right else column.left)
+                assertEquals(dp(16), if (rtl) column.left else row.width - column.right)
+                assertTrue(row.height >= dp(72))
+                labels.forEach { label ->
+                    assertTrue(label.layout.lineCount > 0)
+                    assertTrue(label.layout.height <= label.height)
+                    for (line in 0 until label.lineCount) {
+                        assertEquals("Settings text must wrap rather than ellipsize", 0, label.layout.getEllipsisCount(line))
+                        assertTrue(label.layout.getLineWidth(line) <= label.width + 1)
+                    }
+                    assertFalse(label.isClickable)
                 }
-                assertFalse(label.isClickable)
+                assertTrue(labels[1].top >= labels[0].bottom + dp(3))
+                assertTrue(column.bottom <= row.height - row.paddingBottom)
+                assertEquals(ctx.resources.getDimension(R.dimen.oxygen_classic_settings_summary), labels[1].textSize, 0.01f)
             }
-            assertTrue(labels[1].top >= labels[0].bottom + dp(3))
-            assertTrue(column.bottom <= row.height - row.paddingBottom)
             assertTrue(row.performClick())
             assertEquals(1, opens)
             // Keep representative native renders available with the existing CI previews.
@@ -107,6 +110,10 @@ class ClassicSettingsControlsTest {
                 assertEquals(1f, it.alpha)
                 assertTrue("Unreadable ${it.id}",
                     OxygenThemeColors.contrastRatio(it.currentTextColor, t.pageBackground) >= 4.5)
+            }
+            labels.filter { it.visibility == View.VISIBLE && it.width > 0 }.forEach { label ->
+                assertTrue("Clipped ${label.id}", label.layout.height <= label.height - label.compoundPaddingTop - label.compoundPaddingBottom)
+                for (line in 0 until label.lineCount) assertEquals(0, label.layout.getEllipsisCount(line))
             }
             val switches = children(holder).filterIsInstance<SwitchCompat>()
             assertTrue(switches.size > 30)

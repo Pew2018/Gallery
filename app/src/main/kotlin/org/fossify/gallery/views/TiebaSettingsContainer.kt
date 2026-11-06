@@ -5,16 +5,17 @@ import android.util.AttributeSet
 import android.widget.LinearLayout
 import kotlin.math.roundToInt
 
-/** TiebaLite Container: full width on phones, centered 87% / 75% on larger windows. */
+/** Full width on phones; continuous centered width retaining 522dp at 600 and 75% at 840. */
 class TiebaSettingsContainer @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : LinearLayout(context, attrs) {
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
         val dpWidth = width / resources.displayMetrics.density
-        val fraction = when {
-            dpWidth >= 840 -> 0.75f
-            dpWidth >= 600 -> 0.87f
-            else -> 1f
-        }
-        super.onMeasure(MeasureSpec.makeMeasureSpec((width * fraction).roundToInt(), MeasureSpec.getMode(widthMeasureSpec)), heightMeasureSpec)
+        // Old 600/840 breakpoints suddenly removed 78/100dp of content width.
+        // A continuous cap keeps both established wide-window reference widths.
+        val contentWidth = minOf(dpWidth, maxOf(600f * 0.87f, dpWidth * 0.75f))
+        super.onMeasure(MeasureSpec.makeMeasureSpec(
+            (contentWidth * resources.displayMetrics.density).roundToInt(),
+            MeasureSpec.getMode(widthMeasureSpec)
+        ), heightMeasureSpec)
     }
 }

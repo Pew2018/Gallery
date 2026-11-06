@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.view.View
 import androidx.activity.OnBackPressedCallback
 import androidx.core.graphics.ColorUtils
+import androidx.core.view.doOnLayout
 import org.fossify.gallery.helpers.OxygenThemeEngine
 import android.widget.Toast
 import org.fossify.commons.dialogs.*
@@ -54,6 +55,8 @@ class SettingsActivity : SimpleActivity() {
     private lateinit var settingsBackCallback: OnBackPressedCallback
     private var pendingSettingsCategory: String? = null
     private var settingsTransitionEpoch = 0L
+    private val settingsScrollPositions = mutableMapOf<String, Int>()
+    private val settingsHubDividers = mutableListOf<View>()
 
     private data class SettingsCategory(
         val id: String, val title: Int, val summary: Int, val icon: Int, val itemIds: Set<Int>
@@ -134,6 +137,11 @@ class SettingsActivity : SimpleActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
+        activeSettingsCategory = savedInstanceState?.getString("settings_category")
+            ?.takeIf { id -> settingsCategories.any { it.id == id } }
+        savedInstanceState?.getBundle("settings_scroll_positions")?.let { positions ->
+            positions.keySet().forEach { key -> settingsScrollPositions[key] = positions.getInt(key) }
+        }
 
         settingsBackCallback = object : OnBackPressedCallback(false) {
             override fun handleOnBackPressed() {
@@ -168,9 +176,19 @@ class SettingsActivity : SimpleActivity() {
             topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
         OxygenToolbarStyle.applyToolbar(this, binding.settingsToolbar)
         OxygenSystemBars.apply(this)
+        // A resume rebind must not let a delayed navigation overwrite refreshed content.
+        settingsTransitionEpoch++
+        binding.settingsNestedScrollview.animate().cancel()
+        binding.settingsNestedScrollview.alpha = 1f
+        binding.settingsNestedScrollview.translationX = 0f
+        pendingSettingsCategory = null
+        val resumeY = if (::settingsHub.isInitialized) binding.settingsNestedScrollview.scrollY
+            else settingsScrollPositions[settingsPageKey()] ?: 0
         setupSettingItems()
         setupBottomNavigationOrder()
         setupSettingsHub()
+        settingsBackCallback.isEnabled = activeSettingsCategory != null
+        restoreSettingsScroll(resumeY)
         if (intent.getBooleanExtra(MANAGE_FAVORITE_PASSWORD, false)) {
             intent.removeExtra(MANAGE_FAVORITE_PASSWORD)
             openSettingsCategory(settingsCategories.first { it.id == "security" })
@@ -195,25 +213,34 @@ class SettingsActivity : SimpleActivity() {
         }
 
         val colors = OxygenThemeEngine.snapshot(this, config)
-        settingsHub.removeAllViews()
-        settingsCategories.forEachIndexed { index, category ->
-            val row = org.fossify.gallery.views.TiebaSettingsCategoryRow(
-                this, category.icon, getString(category.title), getString(category.summary), colors
-            ) { openSettingsCategory(category) }
-            settingsHub.addView(row, android.widget.LinearLayout.LayoutParams(-1, -2))
-            if (index < settingsCategories.lastIndex) {
-                settingsHub.addView(View(this).apply {
-                    setBackgroundColor(org.fossify.gallery.helpers.OxygenThemeColors.blend(
-                        colors.pageBackground, colors.primaryText, 0.10
-                    ))
-                },
-                    android.widget.LinearLayout.LayoutParams(-1, dp(1)))
+        if (settingsHub.childCount == 0) {
+            settingsCategories.forEachIndexed { index, category ->
+                val row = org.fossify.gallery.views.TiebaSettingsCategoryRow(
+                    this, category.icon, getString(category.title), getString(category.summary), colors
+                ) { openSettingsCategory(category) }
+                settingsHub.addView(row, android.widget.LinearLayout.LayoutParams(-1, -2))
+                if (index < settingsCategories.lastIndex) {
+                    val divider = View(this)
+                    settingsHubDividers.add(divider)
+                    settingsHub.addView(divider, android.widget.LinearLayout.LayoutParams(-1, dp(1)))
+                }
             }
         }
+        for (index in 0 until settingsHub.childCount) {
+            (settingsHub.getChildAt(index) as? org.fossify.gallery.views.TiebaSettingsCategoryRow)?.bindColors(colors)
+        }
+        settingsHubDividers.forEach {
+            it.setBackgroundColor(OxygenThemeColors.blend(colors.pageBackground, colors.primaryText, 0.10))
+        }
+        settingsPageViews.filter { it.id !in settingsSectionRows && it.hasOnClickListeners() }
+            .forEach { ClassicSettingsPresentation.rowRipple(it, colors) }
         renderSettingsPage()
     }
 
     private fun openSettingsCategory(category: SettingsCategory) {
+        if (pendingSettingsCategory == category.id ||
+            (pendingSettingsCategory == null && activeSettingsCategory == category.id)) return
+        rememberSettingsScroll()
         pendingSettingsCategory = category.id
         settingsBackCallback.isEnabled = true
         animateSettingsPageChange(forward = true) {
@@ -222,7 +249,7 @@ class SettingsActivity : SimpleActivity() {
             settingsBackCallback.isEnabled = true
             binding.settingsToolbar.title = getString(category.title)
             renderSettingsPage()
-            binding.settingsNestedScrollview.scrollTo(0, 0)
+            restoreSettingsScroll(settingsScrollPositions[settingsPageKey()] ?: 0)
         }
     }
 
@@ -236,17 +263,22 @@ class SettingsActivity : SimpleActivity() {
             content.translationX = 0f
             return
         }
-        val direction = if (forward) 1 else -1
+        // Every request starts from a normalized state, even after an interrupted fade.
+        content.alpha = 1f
+        content.translationX = 0f
+        val direction = (if (forward) 1 else -1) *
+            (if (content.layoutDirection == View.LAYOUT_DIRECTION_RTL) -1 else 1)
         // Fade the old page *before* replacing rows; then reveal the new page.
         // A newer navigation cancels both phases without executing the older callback.
-        content.animate().alpha(0.12f).translationX(-dp(8).toFloat() * direction)
+        content.animate().alpha(OxygenClassicMotion.SETTINGS_CONTENT_ALPHA)
+            .translationX(-dp(OxygenClassicMotion.SETTINGS_DISTANCE_DP).toFloat() * direction)
             .setDuration(OxygenClassicMotion.SETTINGS_EXIT_MS)
             .setInterpolator(OxygenClassicMotion.easing())
             .withEndAction {
                 if (settingsTransitionEpoch != epoch || isFinishing || isDestroyed) return@withEndAction
                 changePage()
-                content.alpha = 0.12f
-                content.translationX = dp(8).toFloat() * direction
+                content.alpha = OxygenClassicMotion.SETTINGS_CONTENT_ALPHA
+                content.translationX = dp(OxygenClassicMotion.SETTINGS_DISTANCE_DP).toFloat() * direction
                 content.animate().alpha(1f).translationX(0f)
                     .setDuration(OxygenClassicMotion.SETTINGS_ENTER_MS)
                     .setInterpolator(OxygenClassicMotion.easing())
@@ -308,16 +340,42 @@ class SettingsActivity : SimpleActivity() {
 
     private fun navigateSettingsBack(): Boolean {
         if (activeSettingsCategory == null && pendingSettingsCategory == null) return false
+        rememberSettingsScroll()
         pendingSettingsCategory = null
         animateSettingsPageChange(forward = false) {
             activeSettingsCategory = null
             settingsBackCallback.isEnabled = false
             renderSettingsPage()
-            binding.settingsNestedScrollview.scrollTo(0, 0)
+            restoreSettingsScroll(settingsScrollPositions[settingsPageKey()] ?: 0)
         }
         return true
     }
 
+
+    private fun settingsPageKey() = activeSettingsCategory ?: "hub"
+
+    private fun rememberSettingsScroll() {
+        settingsScrollPositions[settingsPageKey()] = binding.settingsNestedScrollview.scrollY
+    }
+
+    private fun restoreSettingsScroll(y: Int) {
+        val epoch = settingsTransitionEpoch
+        val key = settingsPageKey()
+        binding.settingsNestedScrollview.doOnLayout { view ->
+            if (epoch == settingsTransitionEpoch && key == settingsPageKey() && !isDestroyed) {
+                view.scrollTo(0, y)
+            }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        rememberSettingsScroll()
+        outState.putString("settings_category", activeSettingsCategory)
+        outState.putBundle("settings_scroll_positions", Bundle().apply {
+            settingsScrollPositions.forEach { (key, y) -> putInt(key, y) }
+        })
+        super.onSaveInstanceState(outState)
+    }
 
     private fun setupSettingItems() {
         setupCustomizeColors()

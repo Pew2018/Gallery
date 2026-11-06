@@ -22,6 +22,10 @@
     <dimen name="oxygen_classic_switch_width">48dp</dimen>
     <dimen name="oxygen_classic_switch_thumb_size">24dp</dimen>
 
+    <!-- Screenshot-fit/application tokens, not extracted OxygenOS ROM resources. -->
+    <dimen name="oxygen_classic_settings_summary">13sp</dimen>
+    <dimen name="oxygen_classic_settings_section">48dp</dimen>
+
     <style name="OxygenClassicToolbarTitle" parent="TextAppearance.Widget.AppCompat.Toolbar.Title">
         <item name="android:textSize">20sp</item>
         <item name="android:fontFamily">sans-serif-medium</item>
@@ -34,7 +38,7 @@
         <item name="android:paddingEnd">16dp</item>
         <item name="android:fontFamily">sans-serif-medium</item>
         <item name="android:tag">classic_section</item>
-        <item name="android:minHeight">0dp</item>
+        <item name="android:minHeight">@dimen/oxygen_classic_settings_section</item>
         <item name="android:textSize">12sp</item>
         <item name="android:gravity">center_vertical</item>
         <item name="android:paddingTop">16dp</item>
@@ -44,8 +48,8 @@
         <item name="android:minHeight">@dimen/oxygen_classic_single_row</item>
         <item name="android:paddingStart">16dp</item>
         <item name="android:paddingEnd">16dp</item>
-        <item name="android:paddingTop">8dp</item>
-        <item name="android:paddingBottom">8dp</item>
+        <item name="android:paddingTop">4dp</item>
+        <item name="android:paddingBottom">4dp</item>
         <item name="android:gravity">center_vertical</item>
     </style>
     <style name="OxygenClassicSettingsSingleRow" parent="SettingsHolderTextViewOneLinerStyle">
@@ -65,7 +69,7 @@
         <item name="android:gravity">center_vertical</item>
     </style>
     <style name="OxygenClassicSettingsSecondaryText">
-        <item name="android:textSize">14sp</item>
+        <item name="android:textSize">@dimen/oxygen_classic_settings_summary</item>
         <item name="android:alpha">1</item>
         <item name="android:tag">classic_secondary</item>
         <item name="android:layout_marginTop">3dp</item>

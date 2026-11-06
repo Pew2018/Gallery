@@ -8,7 +8,8 @@ import android.view.Gravity
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.content.res.AppCompatResources
+import org.fossify.gallery.R
+import org.fossify.gallery.helpers.ClassicSettingsPresentation
 import org.fossify.gallery.helpers.OxygenThemeTokens
 import kotlin.math.roundToInt
 
@@ -27,9 +28,6 @@ class TiebaSettingsCategoryRow(
         gravity = Gravity.CENTER_VERTICAL
         isClickable = true
         isFocusable = true
-        val selectable = TypedValue()
-        context.theme.resolveAttribute(android.R.attr.selectableItemBackground, selectable, true)
-        background = AppCompatResources.getDrawable(context, selectable.resourceId)
         minimumHeight = dp(72)
         setPadding(dp(16), dp(8), dp(16), dp(8))
         setOnClickListener { onClick() }
@@ -57,11 +55,22 @@ class TiebaSettingsCategoryRow(
             }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
             addView(TextView(context).apply {
                 text = summary
-                textSize = 14f
+                setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.oxygen_classic_settings_summary))
                 typeface = Typeface.create("sans-serif", Typeface.NORMAL)
                 includeFontPadding = false
                 setTextColor(colors.secondaryText)
             }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(3) })
         }, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        bindColors(colors)
+    }
+
+    /** Recolor in place on resume; preserve focus and the system ripple lifecycle. */
+    fun bindColors(colors: OxygenThemeTokens) {
+        val icon = (getChildAt(0) as LinearLayout).getChildAt(0) as ImageView
+        icon.imageTintList = ColorStateList.valueOf(colors.interactiveAccent)
+        val labels = getChildAt(1) as LinearLayout
+        (labels.getChildAt(0) as TextView).setTextColor(colors.primaryText)
+        (labels.getChildAt(1) as TextView).setTextColor(colors.secondaryText)
+        ClassicSettingsPresentation.rowRipple(this, colors)
     }
 }

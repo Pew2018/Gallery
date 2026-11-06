@@ -5,7 +5,6 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Bundle
-import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -130,18 +129,29 @@ class OxygenThemeActivity : SimpleActivity() {
         buildPage()
         scroll.scrollTo(0, if (open) 0 else mainScroll)
         // A short content transition keeps the toolbar fixed and respects disabled animations.
-        val animationsEnabled = runCatching {
-            Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
-        }.getOrDefault(true)
+        val animationsEnabled = OxygenClassicMotion.enabled(this)
         if (!animationsEnabled) {
             scroll.translationX = 0f
             scroll.alpha = 1f
             return
         }
-        val distance = dp(12).toFloat() * if (open) 1 else -1
+        val direction = (if (open) 1 else -1) *
+            (if (scroll.layoutDirection == View.LAYOUT_DIRECTION_RTL) -1 else 1)
+        val distance = dp(OxygenClassicMotion.SETTINGS_DISTANCE_DP).toFloat() * direction
         scroll.translationX = distance
-        scroll.alpha = 0.72f
-        scroll.animate().translationX(0f).alpha(1f).setDuration(150L).start()
+        scroll.alpha = OxygenClassicMotion.SETTINGS_CONTENT_ALPHA
+        scroll.animate().translationX(0f).alpha(1f)
+            .setDuration(OxygenClassicMotion.SETTINGS_ENTER_MS)
+            .setInterpolator(OxygenClassicMotion.easing()).start()
+    }
+
+    override fun onDestroy() {
+        if (::scroll.isInitialized) {
+            scroll.animate().cancel()
+            scroll.alpha = 1f
+            scroll.translationX = 0f
+        }
+        super.onDestroy()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -173,9 +183,8 @@ class OxygenThemeActivity : SimpleActivity() {
     }
 
     private fun section(id: Int) {
-        val label = text(getString(id), 12f).apply {
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setPadding(dp(16), dp(20), dp(16), dp(4))
+        val label = TextView(this, null, 0, R.style.OxygenClassicSettingsSection).apply {
+            setText(id)
         }
         body.addView(label, LinearLayout.LayoutParams(-1, -2))
         binders.add { label.setTextColor(colors.interactiveAccent) }
@@ -183,18 +192,13 @@ class OxygenThemeActivity : SimpleActivity() {
 
     private fun divider() {
         val line = View(this)
-        body.addView(line, LinearLayout.LayoutParams(-1, dp(1)).apply { topMargin = dp(8) })
+        body.addView(line, LinearLayout.LayoutParams(-1, dp(1)))
         binders.add { line.setBackgroundColor(OxygenThemeColors.blend(colors.pageBackground, colors.primaryText, 0.10)) }
     }
 
     /** A masked, bounded ripple: never an unbounded halo behind color swatches. */
     private fun ripple(view: View) {
-        val tint = ColorUtils.setAlphaComponent(colors.interactiveAccent, 28)
-        view.background = RippleDrawable(
-            ColorStateList.valueOf(tint),
-            android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT),
-            android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE)
-        )
+        ClassicSettingsPresentation.rowRipple(view, colors)
     }
 
     private fun actionRow(id: Int, action: () -> Unit) {
@@ -214,6 +218,7 @@ class OxygenThemeActivity : SimpleActivity() {
             minimumHeight = dp(56)
             setPadding(dp(16), dp(4), dp(16), dp(4))
             isClickable = true
+            isFocusable = true
             setOnClickListener { action() }
         }
         val name = text(label)

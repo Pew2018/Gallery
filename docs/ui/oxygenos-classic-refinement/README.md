@@ -1,6 +1,6 @@
 # OxygenOS 7.1.1 Classic — Gallery UI 精修项目总纲
 
-> 状态：**Phase 1 实施中，源码修改已集中完成；自动化与 Actions 验证进行中，真机视觉待验收**。首次审计：2026-11-06。
+> 状态：**Phase 2 设置精修源码/测试已准备；完整自动化与 Actions 验证待执行，真机视觉待验收**。首次审计：2026-11-06。
 > 源码审计基线：`refactor/media-pipeline-stability` @ `b7175e8fa0411d8ff600366e316777efb28bb8f3`。
 > 该 SHA 仅为审计证据锚点；**实际开发前重新读取远程分支 HEAD，禁止重置到此提交**。
 > 本轮任务 **仅新增 `docs/` 文档，不修改应用代码、资源、构建配置、测试或其他目录**。
@@ -69,7 +69,7 @@
 |---|---|---|---|---|
 | UI-01 | 收藏菜单移除两个 CheckBox，改为随当前设置切换的操作文案 | P1（设计决策） | 1 | 已实现；四种状态/中英文与无 CheckBox 自动化通过；真机视觉待验收 |
 | UI-02 | 三点菜单锚点、宽度、高度、留白 | P1 | 1 | 已按对比图修正下沿展开；188dp 最小宽度及 320/360/412/600dp LTR/RTL bounds 自动化通过；待用户真机复验 |
-| UI-03 | 设置主页与内部设置行规格和分栏 | P1 | 2 | 现状已审计，待校准 |
+| UI-03 | 设置主页与内部设置行规格和分栏 | P1 | 2 | Phase 2 已实施；完整自动化/CI 待执行，真机待验收；见 phase-2/04 |
 | UI-04 | 底栏选中态、形态与 Ripple 时序 | P1 | 3 | 待视觉测试 |
 | UI-05 | 搜索输入/焦点/IME 动画 | P1 | 3 | 待验证 |
 | UI-06 | 列表顶部底部经典越界反馈 | P2 | 3 | 待原型 |
@@ -110,3 +110,7 @@
 | [07-phase-1-readiness-and-patch-plan.md](phase-0/07-phase-1-readiness-and-patch-plan.md) | Prioritized minimum fixes and safety rails |
 
 Audit source SHA: 024b4731ac6508cab45f7d81eea73294a78d0d04. Source findings are separated from executed tests and device measurements. No APK was built and no UI was declared fixed.
+
+## Phase 2 implementation
+
+[实施摘要](phase-2/00-implementation-summary.md)记录设置主页、八分类、Section、控件主题、导航与宽屏的最小presentation修改。[回归与构建](phase-2/04-regression-and-build.md)区分已执行/待执行验证，[真机清单](phase-2/05-device-acceptance-checklist.md)仍待设备。UI-08仅设置/主题页Section与Divider一致性、UI-11仅设置Ripple/主题色合同获得本阶段代码覆盖，不宣称跨阶段全部完成。

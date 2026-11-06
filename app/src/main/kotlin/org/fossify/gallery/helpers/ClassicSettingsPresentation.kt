@@ -1,0 +1,18 @@
+package org.fossify.gallery.helpers
+
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.RippleDrawable
+import android.view.View
+import androidx.core.graphics.ColorUtils
+
+/** Small presentation helpers shared by XML settings and the programmatic theme page. */
+object ClassicSettingsPresentation {
+    fun rowRipple(view: View, colors: OxygenThemeTokens) {
+        val tint = ColorStateList.valueOf(ColorUtils.setAlphaComponent(colors.interactiveAccent, 28))
+        val current = view.background
+        if (current is RippleDrawable) current.setColor(tint)
+        else view.background = RippleDrawable(tint, ColorDrawable(Color.TRANSPARENT), ColorDrawable(Color.WHITE))
+    }
+}

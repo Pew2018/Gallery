@@ -81,4 +81,37 @@ class SettingsPageMotionTest {
         }
     }
 
+    @Test fun bothDirectionsAndRtlStayVisibleAndFinishNormalized() {
+        val controller = Robolectric.buildActivity(SettingsActivity::class.java).setup()
+        val activity = controller.get()
+        val resolver = activity.contentResolver
+        val prior = Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val clock = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+        val transition = activity.javaClass.getDeclaredMethod("animateSettingsPageChange",
+            Boolean::class.javaPrimitiveType, kotlin.jvm.functions.Function0::class.java).apply { isAccessible = true }
+        val scroll = activity.findViewById<View>(R.id.settings_nested_scrollview)
+        try {
+            for (rtl in listOf(false, true)) for (forward in listOf(false, true)) {
+                scroll.layoutDirection = if (rtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+                var commits = 0
+                val commit: () -> Unit = { commits++ }
+                transition.invoke(activity, forward, commit)
+                repeat(3) { clock.idleFor(16, java.util.concurrent.TimeUnit.MILLISECONDS) }
+                val exitSign = (if (forward) -1 else 1) * (if (rtl) -1 else 1)
+                assertTrue(scroll.translationX * exitSign >= 0f)
+                repeat(20) {
+                    clock.idleFor(16, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    assertTrue("Content approached blank", scroll.alpha >= OxygenClassicMotion.SETTINGS_CONTENT_ALPHA - 0.001f)
+                }
+                assertEquals(1, commits)
+                assertEquals(1f, scroll.alpha, 0f)
+                assertEquals(0f, scroll.translationX, 0f)
+            }
+        } finally {
+            controller.pause().stop().destroy()
+            Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, prior)
+        }
+    }
+
 }
