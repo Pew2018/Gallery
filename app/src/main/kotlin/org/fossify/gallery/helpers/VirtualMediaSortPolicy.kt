@@ -6,6 +6,7 @@ import org.fossify.commons.helpers.FAVORITES
 internal enum class VirtualMediaSortDecision {
     REUSE_COMPLETE,
     PREVIEW_COMPLETE_DURING_REFRESH,
+    PREVIEW_VERIFIED_CACHE,
     VERIFY_MEMBERS,
     WAIT_FOR_ACTIVE_REFRESH,
     RELOAD_REQUIRED,
@@ -23,11 +24,12 @@ internal object VirtualMediaSortPolicy {
         accessCurrent: Boolean,
         membersCurrent: Boolean?,
         requiredSortMetadataPresent: Boolean,
-        scanInProgress: Boolean
+        scanInProgress: Boolean,
+        interactiveCacheVerified: Boolean = false
     ): VirtualMediaSortDecision {
         if (source != FAVORITES && source != RECYCLE_BIN) return VirtualMediaSortDecision.RELOAD_REQUIRED
         if (!activityCurrent || !accessCurrent) return VirtualMediaSortDecision.ACCESS_INVALID
-        if (!adapterMatchesSource || !displayedSnapshotComplete || !requiredSortMetadataPresent) {
+        if (!adapterMatchesSource || !(displayedSnapshotComplete || (source == FAVORITES && interactiveCacheVerified))) {
             return if (scanInProgress) VirtualMediaSortDecision.WAIT_FOR_ACTIVE_REFRESH
             else VirtualMediaSortDecision.RELOAD_REQUIRED
         }
@@ -36,6 +38,9 @@ internal object VirtualMediaSortPolicy {
         if (membersCurrent == null) return VirtualMediaSortDecision.VERIFY_MEMBERS
         if (!membersCurrent) return if (scanInProgress) VirtualMediaSortDecision.WAIT_FOR_ACTIVE_REFRESH
         else VirtualMediaSortDecision.RELOAD_REQUIRED
+        if (!requiredSortMetadataPresent) return if (scanInProgress)
+            VirtualMediaSortDecision.WAIT_FOR_ACTIVE_REFRESH else VirtualMediaSortDecision.RELOAD_REQUIRED
+        if (!displayedSnapshotComplete && interactiveCacheVerified) return VirtualMediaSortDecision.PREVIEW_VERIFIED_CACHE
         return if (scanInProgress) VirtualMediaSortDecision.PREVIEW_COMPLETE_DURING_REFRESH
         else VirtualMediaSortDecision.REUSE_COMPLETE
     }

@@ -39,4 +39,14 @@ class VirtualMediaSortPolicyTest {
         assertEquals(VirtualMediaSortDecision.ACCESS_INVALID, decide(accessCurrent = false))
         assertEquals(VirtualMediaSortDecision.RELOAD_REQUIRED, decide(source = "/Camera"))
     }
+    @Test fun onlyExplicitlyVerifiedFavoriteCacheCanBypassScanCompleteness() {
+        fun cache(source: String, verified: Boolean, members: Boolean = true, metadata: Boolean = true) =
+            VirtualMediaSortPolicy.decide(source, true, true, false, true, true, members, metadata, true, verified)
+        assertEquals(VirtualMediaSortDecision.WAIT_FOR_ACTIVE_REFRESH, cache(FAVORITES, false))
+        assertEquals(VirtualMediaSortDecision.PREVIEW_VERIFIED_CACHE, cache(FAVORITES, true))
+        assertEquals(VirtualMediaSortDecision.WAIT_FOR_ACTIVE_REFRESH, cache(RECYCLE_BIN, true))
+        assertEquals(VirtualMediaSortDecision.WAIT_FOR_ACTIVE_REFRESH, cache(FAVORITES, true, members = false))
+        assertEquals(VirtualMediaSortDecision.WAIT_FOR_ACTIVE_REFRESH, cache(FAVORITES, true, metadata = false))
+    }
+
 }

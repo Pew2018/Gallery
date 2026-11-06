@@ -76,3 +76,5 @@ Phase 2A验证：应用源码`dcd41024e06451eb7a46d28db18a84157cd5102b`；[Run 4
 - [40 — device sort/search Adapter commit recovery](40-device-sort-search-adapter-commit-recovery.md): four-log timeline, blocked-Diff recovery, cache capability, bounded replacement and device acceptance.
 - [41 — 虚拟收藏与回收站排序/搜索审计](41-virtual-favorites-recycle-bin-sort-search-audit.md)：最新源码中的虚拟来源、成员、扫描、搜索链路及确定事实边界。
 - [42 — 虚拟媒体快照复用实现与验证](42-virtual-media-snapshot-reuse-implementation-and-validation.md)：实现范围、准入规则、测试、CI/APK 和设备状态。
+
+- [43 — 收藏缓存扫描期间排序与搜索](43-favorites-cache-interactive-sort-search-fix.md)

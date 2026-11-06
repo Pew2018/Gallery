@@ -136,11 +136,11 @@ internal class GetMediaAsynctask(
         val pathToUse = if (showAll) SHOW_ALL else mPath
         val folderGrouping = context.config.getFolderGrouping(pathToUse)
         val folderSorting = context.config.getFolderSorting(pathToUse)
-        // Physical enumeration already obtains size/modified for every row. Keep
-        // all sortable fields (including date overrides) in this one scan so a
-        // sort choice cannot discard it and enumerate the same directory again.
-        val physicalSortMetadata = retainSortMetadata && !showAll && mPath.startsWith('/') &&
-            mPath != RECYCLE_BIN && mPath != FAVORITES
+        // Retain sortable fields for physical folders and Favorites in this one
+        // scan. A choice made while scanning must not restart enumeration just
+        // because its numeric fields were not requested at scan start.
+        val physicalSortMetadata = retainSortMetadata && !showAll && (mPath.startsWith('/') || mPath == FAVORITES) &&
+            mPath != RECYCLE_BIN
         val getProperDateTaken = physicalSortMetadata || folderSorting and SORT_BY_DATE_TAKEN != 0 ||
             folderGrouping and GROUP_BY_DATE_TAKEN_DAILY != 0 ||
             folderGrouping and GROUP_BY_DATE_TAKEN_MONTHLY != 0

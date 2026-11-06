@@ -495,6 +495,155 @@ class FolderRefreshActivityTest {
         }
     }
 
+    /** Production gotMedia(cache) -> validation -> publishMedia -> real RecyclerView.
+     * No scan worker is scheduled: the in-flight request is held deterministically.
+     */
+    private fun withFavoriteCache(block: (MediaActivity, MediaAdapter, Long, String) -> Unit) {
+        val files = (0 until 382).map { photo("cache-%03d.jpg".format(it)) }
+        val members = files.mapTo(LinkedHashSet()) { it.path }
+        dbExecutor.submit {
+            context.favoritesDB.clearFavorites()
+            context.favoritesDB.insertAll(files.map { Favorite(null, it.path, it.name, root.path) })
+        }.get(5, TimeUnit.SECONDS)
+        context.config.saveCustomSorting(FAVORITES, org.fossify.commons.helpers.SORT_BY_NAME or
+            org.fossify.commons.helpers.SORT_DESCENDING)
+        val owner = "interactive-cache-test"
+        val token = FavoriteAccessSessionManager.createSession(owner,
+            FavoriteAccessSessionManager.captureSnapshot(members, context::favoriteProtection),
+            emptySet(), context::favoriteProtection)!!
+        val controller = Robolectric.buildActivity(MediaActivity::class.java,
+            Intent(context, MediaActivity::class.java).putExtra(DIRECTORY, FAVORITES))
+            .create(Bundle().apply { putString("favoriteOwnerId", owner) }).start()
+        try {
+            val activity = controller.get()
+            field(activity, "favoriteSessionId").set(activity, token)
+            field(activity, "favoriteAccessPaths").set(activity, members)
+            val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
+            val request = requests.begin()
+            field(activity, "mediaRefreshRequest").setLong(activity, request)
+            (field(activity, "mediaScanTerminals").get(activity) as GalleryScanTerminalGate).begin(request)
+            field(activity, "favoriteLoadRevision").setLong(activity,
+                (field(activity, "favoriteRelationshipRevision").get(activity) as java.util.concurrent.atomic.AtomicLong).get())
+            field(activity, "mIsGettingMedia").setBoolean(activity, true)
+            val source = ArrayList<org.fossify.gallery.models.ThumbnailItem>(files.map {
+                // Room metadata can be unrequested even for a nonzero fallback date.
+                Medium(null, it.name, it.path, root.path, 0, 7, 0, TYPE_IMAGES, 0, true, 0, 0)
+            })
+            publishFavorite(activity, source, true, request)
+            await { paths(activity).size == 382 }
+            val grid = activity.findViewById<MyRecyclerView>(R.id.media_grid)
+            val adapter = grid.adapter as MediaAdapter
+            assertFalse(field(activity, "displayedMediaIsFinal").getBoolean(activity))
+            assertEquals(-1L, field(activity, "completedMediaRequest").getLong(activity))
+            block(activity, adapter, request, token)
+        } finally {
+            controller.stop().destroy()
+            FavoriteAccessSessionManager.revokeSession(token)
+        }
+    }
+
+    private fun publishFavorite(activity: MediaActivity, rows: ArrayList<org.fossify.gallery.models.ThumbnailItem>,
+                                cache: Boolean, request: Long) {
+        MediaActivity::class.java.getDeclaredMethod("gotMedia", ArrayList::class.java,
+            Boolean::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
+            .invoke(activity, rows, cache, request)
+    }
+
+    private fun sortFavorite(activity: MediaActivity, sorting: Int) {
+        context.config.saveCustomSorting(FAVORITES, sorting)
+        val gate = field(activity, "mediaSortOperations").get(activity) as MediaSortOperationGate
+        MediaActivity::class.java.getDeclaredMethod("tryResortVirtualMediaSnapshot",
+            Long::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
+            .invoke(activity, gate.begin(), android.os.SystemClock.elapsedRealtime())
+    }
+
+    private fun searchFavorite(activity: MediaActivity, text: String) {
+        field(activity, "mLastSearchedText").set(activity, text)
+        val method = MediaActivity::class.java.declaredMethods.first { it.name == "searchQueryChanged" }
+            .apply { isAccessible = true }
+        method.invoke(activity, text, {}, method.parameterTypes[2].enumConstants.first())
+    }
+
+    @Test fun favoriteCache382SortsBeforeScanCompletesAndKeepsTheRequest() = withFavoriteCache { activity, adapter, request, _ ->
+        sortFavorite(activity, org.fossify.commons.helpers.SORT_BY_NAME)
+        await { adapter.media.filterIsInstance<Medium>().firstOrNull()?.name == "cache-000.jpg" }
+        assertSame(adapter, activity.findViewById<MyRecyclerView>(R.id.media_grid).adapter)
+        assertEquals(request, field(activity, "mediaRefreshRequest").getLong(activity))
+        assertTrue(field(activity, "mIsGettingMedia").getBoolean(activity))
+        assertFalse(field(activity, "displayedMediaIsFinal").getBoolean(activity))
+        assertEquals(-1L, field(activity, "completedMediaRequest").getLong(activity))
+    }
+
+    @Test fun favoriteCacheSearchAndClearCommitBeforeScanCompletes() = withFavoriteCache { activity, adapter, request, _ ->
+        // Baseline cache has displayedFavoriteRelationshipRevision=-1 and drops this.
+        searchFavorite(activity, "cache-00")
+        await { adapter.media.filterIsInstance<Medium>().size == 10 }
+        searchFavorite(activity, "")
+        await { adapter.media.filterIsInstance<Medium>().size == 382 }
+        assertEquals(request, field(activity, "mediaRefreshRequest").getLong(activity))
+        assertTrue(field(activity, "mIsGettingMedia").getBoolean(activity))
+        assertFalse(field(activity, "displayedMediaIsFinal").getBoolean(activity))
+    }
+
+    @Test fun favoriteCacheRepairsSizeAndDateAndLastSortWins() = withFavoriteCache { activity, adapter, _, _ ->
+        sortFavorite(activity, org.fossify.commons.helpers.SORT_BY_NAME)
+        sortFavorite(activity, org.fossify.commons.helpers.SORT_BY_SIZE)
+        sortFavorite(activity, org.fossify.commons.helpers.SORT_BY_DATE_MODIFIED)
+        await { MediaActivity.mMedia.filterIsInstance<Medium>().all { it.modified > 0 } }
+        sortFavorite(activity, org.fossify.commons.helpers.SORT_BY_SIZE)
+        await { adapter.media.filterIsInstance<Medium>().all { it.size == 2L } }
+        sortFavorite(activity, org.fossify.commons.helpers.SORT_BY_DATE_TAKEN)
+        await { adapter.media.filterIsInstance<Medium>().all { it.taken == it.modified && it.taken > 7L } }
+        val version = adapter.committedVersion
+        sortFavorite(activity, org.fossify.commons.helpers.SORT_BY_RANDOM)
+        await { adapter.committedVersion > version }
+        assertEquals(382, adapter.media.filterIsInstance<Medium>().map { it.path }.toSet().size)
+    }
+
+    @Test fun favoriteCacheFinalPublicationKeepsLatestQueryAndSort() = withFavoriteCache { activity, adapter, request, _ ->
+        searchFavorite(activity, "cache-00")
+        sortFavorite(activity, org.fossify.commons.helpers.SORT_BY_SIZE)
+        searchFavorite(activity, "cache-0")
+        val rows = ArrayList(MediaActivity.mMedia)
+        field(activity, "mediaScanOutcomeRequest").setLong(activity, request)
+        field(activity, "mediaScanOutcome").set(activity, GalleryScanResult(GalleryScanState.COMPLETE))
+        publishFavorite(activity, rows, false, request)
+        sortFavorite(activity, org.fossify.commons.helpers.SORT_BY_NAME)
+        await { field(activity, "displayedMediaIsFinal").getBoolean(activity) &&
+            adapter.media.filterIsInstance<Medium>().size == 100 &&
+            adapter.media.filterIsInstance<Medium>().firstOrNull()?.name == "cache-000.jpg" }
+        assertEquals("cache-0", field(activity, "mLastSearchedText").get(activity))
+        assertFalse(field(activity, "mIsGettingMedia").getBoolean(activity))
+    }
+
+    @Test fun favoriteCacheRejectsChangedRelationshipsRevocationAndActivityExit() = withFavoriteCache { activity, _, request, token ->
+        val current = MediaActivity::class.java.getDeclaredMethod("isSearchSnapshotCurrent", Long::class.javaPrimitiveType)
+            .apply { isAccessible = true }
+        assertTrue(current.invoke(activity, request) as Boolean)
+        val revision = field(activity, "favoriteRelationshipRevision").get(activity) as java.util.concurrent.atomic.AtomicLong
+        revision.incrementAndGet()
+        assertFalse(current.invoke(activity, request) as Boolean)
+        revision.decrementAndGet()
+        assertTrue(current.invoke(activity, request) as Boolean)
+        FavoriteAccessSessionManager.revokeSession(token)
+        assertFalse(current.invoke(activity, request) as Boolean)
+    }
+
+    @Test fun favoriteCacheDoesNotPublishUnauthorizedCandidateOrOldRequest() = withFavoriteCache { activity, adapter, request, _ ->
+        val source = ArrayList(MediaActivity.mMedia)
+        val outsider = photo("protected-outsider.jpg")
+        source.add(Medium(null, outsider.name, outsider.path, root.path, 1, 1, 2, TYPE_IMAGES, 0, true, 0, 0))
+        val before = field(activity, "displayedSourceVersion").getLong(activity)
+        publishFavorite(activity, source, true, request)
+        await { field(activity, "displayedSourceVersion").getLong(activity) > before }
+        assertFalse(outsider.path in paths(activity))
+        val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
+        requests.begin()
+        publishFavorite(activity, arrayListOf(), true, request)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(382, adapter.media.filterIsInstance<Medium>().size)
+    }
+
     @Test fun cachedPreviewKeepsTheRefreshDeadlineActiveUntilFormalCompletion() {
         val old = photo("cached.jpg")
         withActivity { activity ->
