@@ -12,14 +12,14 @@
 - `res/values-ldrtl/oxygen_classic_menu_offsets.xml`：RTL 水平 `+20dp` 偏移。
 - `res/drawable/oxygen_classic_menu_light.xml` 和 `_dark.xml`：菜单表面、4dp 圆角、上下 8dp padding；`res/drawable/oxygen_classic_popup_{light,dark}.xml` 是**Dialog 背景**，不要与菜单背景混用。
 - `res/layout/abc_popup_menu_item_layout.xml`、`abc_cascading_menu_item_layout.xml`：覆盖 AppCompat 标准行，根为 `views/TiebaMenuItemView.kt`，包括 title/shortcut/submenuarrow/运行时 CheckBox 与 Radio 的容器。
-- `views/TiebaMenuItemView.kt`：`onMeasure()` 当前 280dp 上限；`initialize()` 对收藏页两项 Checkbox 作特殊绘制；**不是整站全部 CheckBox 的绘制入口**。
+- `views/TiebaMenuItemView.kt`：`onMeasure()` 当前 280dp 上限；**旧实现**在 `initialize()` 对收藏页两项 Checkbox 作特殊绘制；**新方案应删除这段专属特判**，不影响整站其他 Checkbox 或菜单行测量。
 - `helpers/OxygenClassicControls.kt`：普通 CheckBox、Radio、Switch 的样式，区别于 Popup 内 AppCompat 自动创建的勾选控件。
 
 ## 2. 完整静态菜单资源 → 可见宿主 → 分发入口
 
 | res/menu XML | 宿主/真实页面 | Kotlin 入口、用途和注意 |
 |---|---|---|
-| `menu_main.xml` | 相册主页（文件夹视图）、底栏「收藏」**收藏文件夹**页 | `activities/MainActivity.kt:setupOptionsMenu()`（约 855–940）；`refreshMenuItems()`（约 817）；两项收藏 CheckBox 仅 `mShowingFolderFavorites` 时显示 |
+| `menu_main.xml` | 相册主页（文件夹视图）、底栏「收藏」**收藏文件夹**页 | `activities/MainActivity.kt:setupOptionsMenu()`（约 855–940）；`refreshMenuItems()`（约 817）；两项收藏**无勾选双态文字操作**只在 `mShowingFolderFavorites` 时显示（当前代码仍为 Checkbox，待后续实施） |
 | `menu_main_intent.xml` | 外部 PICK/GET_CONTENT 等调用下的主页 | `MainActivity.setupOptionsMenu()`；只含隐藏/排除临时可见项，不能误应用普通主页菜单状态 |
 | `menu_media.xml` | 普通物理文件夹、主页「全部文件」、固定虚拟收藏**媒体**文件夹、回收站、自定义「照片」配置网格 | `activities/MediaActivity.kt:setupOptionsMenu()`（约 1269），`refreshMenuItems()`（约 1203–1267）；按 `mPath`、`isPhotoProfiles`、Picker 标志动态切换可见性；回收站特有清空/全部恢复项 |
 | `menu_viewpager.xml` | Gallery 内部全屏连续浏览 | `activities/ViewPagerActivity.kt:setupOptionsMenu()`（约 779），`refreshMenuItems()`（约 726）；包含旋转/朝向多级菜单、删除/分享/恢复/设置等 |
@@ -50,15 +50,24 @@
 
 **设置主页与设置内页本身不是全都有“三点菜单”**：`SettingsActivity` 通过 `activity_settings.xml` 和 `SettingsActivity.setupSettingItems()` 组织点击行；上述两处“上/下移动”是设置内部的**真实锚定三点 Popup**，而选项（排序方式、过滤、底栏管理）多是 Dialog，不是 Popup。
 
-## 4. 两个收藏页 CheckBox 的完整定位
+## 4. 收藏页两条菜单的“按当前状态显示下一步操作”设计（取代 CheckBox 方案）
 
-- `res/menu/menu_main.xml`：`favorite_always_show_excluded`、`favorite_always_show_hidden` 均声明 `android:checkable="true"`，顺序值约 40/41。
-- `MainActivity.refreshMenuItems()`：当 `mShowingFolderFavorites` 时设 `isVisible`；从 `config.favoriteShowExcluded/favoriteShowHidden` 设 `isChecked`。
-- `MainActivity.setupOptionsMenu()`：点击两项翻转设置，清旧目录视图、重新读取收藏文件夹，必要时提示受保护来源授权。
-- `TiebaMenuItemView.initialize()`：理论上遍历 AppCompat 自动建立的 CheckBox 并应用 `tieba_choice_check`；**截图缺框的根因还未通过实际 View 树确认**。
-- 对比：Commons FilePicker 动态菜单的隐藏项也可勾选，但走的是其他 MenuItem 路径，不得仅以这两个 ID 统一修改所有 CheckBox。
+**当前源码的历史状态（本次尚未改码）**：
+- `res/menu/menu_main.xml`：`favorite_always_show_excluded`、`favorite_always_show_hidden` 目前为 `android:checkable="true"`，顺序值约 40/41。
+- `MainActivity.refreshMenuItems()`：当 `mShowingFolderFavorites` 时设置 `isVisible`，并按 `config.favoriteShowExcluded/favoriteShowHidden` 设置 `isChecked`。
+- `MainActivity.setupOptionsMenu()`：点击当前条目会翻转布尔配置、清除旧目录显示并重载；选择开启时可能要求受保护目录授权。**当前代码在授权被取消时仍会保存新的配置值**，未来 UI 文案应反映该保存值，不应擅自修改行为。
+- `TiebaMenuItemView.initialize()`：现有对两个 ID 的 CheckBox 着色与留白特判；**新方案移除而非继续调试**。Commons FilePicker 里的其他 checkable item 不受此修改影响。
 
-**下一步只采样，不改代码**：输出显示中的每个 MenuItem 的 checked/checkable、`ListMenuItemView` 实例、`CheckBox` 宽高、`buttonDrawable`、颜色、clip bounds、Menu Popup 宽度，确认是未实例化、测量压缩、绘制还是状态路径。
+**新目标（用户已确认）**：
+
+| 当前配置状态 | `favorite_always_show_excluded` 行应显示 | `favorite_always_show_hidden` 行应显示 |
+|---|---|---|
+| `false`（当前不启用） | **显示已排除项目** | **显示隐藏项目** |
+| `true`（当前启用） | **不显示已排除项目** | **不显示隐藏项目** |
+
+两项保持原 MenuItem ID、显示条件、排序顺序、持久化配置和点击业务回调；各为**普通纯文本行**，必须 `checkable=false`，不创建 CheckBox/Radio，右侧不预留原勾选框。菜单再次打开/状态刷新时更新标题；使用 4 条独立的本地化字符串，按系统语言翻译。这里的“显示/不显示”指**用户点击后要执行的操作**，不是当前状态标签。暂时显示隐藏/排除项目的另外两组菜单仍是独立功能，不改其含义。
+
+**新验收**：组合 `FF/FT/TF/TT` 四种持久化状态、菜单重开、切换语言/主题、旋转、长文案换行、认证取消，都应保持文字与配置相符。无需再检查旧 CheckBox 的绘制缺失原因。
 
 ## 5. Popup 打开/关闭动画应修改哪里？
 
@@ -70,7 +79,7 @@
 
 ### 相关自动化与真机记录
 
-- `app/src/test/kotlin/org/fossify/gallery/helpers/ClassicOverflowPositionTest.kt` 已有 LTR/RTL、3/20 项 PopupWindow 位置和截图生成测试；后续需要加入配置管理/设置手柄/Picker/回收站/长中文/Checkbox。
+- `app/src/test/kotlin/org/fossify/gallery/helpers/ClassicOverflowPositionTest.kt` 已有 LTR/RTL、3/20 项 PopupWindow 位置和截图生成测试；后续需要加入配置管理/设置手柄/Picker/回收站/长中文、**收藏纯文字两态宽度**及其他普通 CheckBox 场景。
 - `docs/testing/classic-motion-device-checks.md` 保留底栏、Ripple 与真实窗口帧验收标准。
 - 真机审计记录字段：`screen / anchorView / popupType / itemCount / itemIds / checkedStates / boundsDP / insets / layoutDirection / fontScale / enterMs / exitMs / clickSource / dismissReason`。
 

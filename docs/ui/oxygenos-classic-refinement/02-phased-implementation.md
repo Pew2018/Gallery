@@ -21,7 +21,7 @@
 任务：
 
 - 采集菜单运行态：相册主页、收藏、普通文件夹、.nomedia 文件夹、照片配置、全屏 Viewer、编辑器、文件选择器、媒体选择器以及双层子菜单。
-- 记录每个菜单 `anchorRect`、`popupRect`、安全区/Insets、内容行数、最大标题宽、画布最小/最大高、左基线、顶部/底部 padding、每个 CheckBox 的 View 类型/实际 bounding box。
+- 记录每个菜单 `anchorRect`、`popupRect`、安全区/Insets、内容行数、最大标题宽、画布最小/最大高、左基线、顶部/底部 padding。收藏两项只记录**纯文本菜单行**的实际 bounds、文案和 `checkable=false`；**其他仍使用 CheckBox 的菜单**按原规格测量控件。
 - 为设置首页八个分类与内部页面记录 dp/sp、baseline、line-height、分隔线 y 坐标；包括字体缩放 1.0x 与 1.5x。
 - 建立底栏与搜索动画逐帧基线；采样系统手势/3 键导航、横竖屏、不同动画 scale、深浅/自定义色。
 - 记录本文基线参考截图和新生成的真机截图的来源、设备、版本、分辨率、逻辑密度和隐私去标识化状态。不要将个人相册缩略图原图提交 GitHub。
@@ -29,28 +29,33 @@
 
 **产物**：可复现缺陷表、布局度量 JSON/表格、截屏匿名对比、验收基线。无足够证据时标注待验证。
 
-**退出条件**：UI-01 已定位到“状态/创建/测量/绘制”中的具体失败环节；UI-02 至 UI-09 至少有一例对应可重放视频。
+**退出条件**：UI-01 两项“按状态显示下一步操作文案”的规则和现有鉴权/重载行为已核对清楚；UI-02 至 UI-09 至少有一例对应可重放视频。
 
 ## Phase 1 — 三点菜单与基础控件（最先实际改码）
 
-### 1.1 P0 两个 Checkbox
+### 1.1 收藏页两条菜单改为无 Checkbox 的双态操作文案（已决定，未改码）
+
+**设计规则：** 每条菜单永远显示**下一次点击将执行的操作**，而不是用固定文案 + CheckBox 展示当前状态：
+
+| 当前配置值 | `favorite_always_show_excluded` | `favorite_always_show_hidden` |
+|---|---|---|
+| `false`（未启用） | **显示已排除项目** | **显示隐藏项目** |
+| `true`（已启用） | **不显示已排除项目** | **不显示隐藏项目** |
 
 首要文件：
-- `app/src/main/res/menu/menu_main.xml`
-- `app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt`
-- `app/src/main/kotlin/org/fossify/gallery/views/TiebaMenuItemView.kt`
-- `app/src/main/res/layout/abc_popup_menu_item_layout.xml`
-- `app/src/main/res/layout/abc_cascading_menu_item_layout.xml`
-- `app/src/main/res/drawable/tieba_choice_check.xml`（若实际路径存在；实施前重新核实）
+- `app/src/main/res/menu/menu_main.xml`：保留两个现有 item ID 和顺序、可见性条件，移除这两项的 `android:checkable="true"` 或明确置 `false`；不添加图形占位/伪 Checkbox。
+- `app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt`：`refreshMenuItems()` 使用 `config.favoriteShowExcluded` / `config.favoriteShowHidden` 动态设置 `title`，不再写这两项的 `isChecked`；原点击 handler 继续切换两个布尔值，按原逻辑刷新收藏目录、鉴权与权限状态。
+- `app/src/main/kotlin/org/fossify/gallery/views/TiebaMenuItemView.kt`：移除只针对这两个 ID 的 CheckBox 专属着色/留白特判；保留全站菜单行测量及其他控件行为。
+- `app/src/main/res/values/strings.xml` 及各已有 `values-*/strings.xml`：使用四条可本地化的操作字符串；检查翻译缺失回退和长字符串，不把中文直接写死 Kotlin。
 
-按顺序排查：
-1. 菜单构造结束、每次 `refreshMenuItems()` 后，`favorite_always_show_excluded`、`favorite_always_show_hidden` 的 `isVisible/isCheckable/isChecked`。
-2. `ListMenuItemView.initialize()` 是否创建了真正 `CheckBox`；若仅创建 `RadioButton` 或没有控件，查 AppCompat 资源覆盖/依赖差异，不直接绘制伪图形。
-3. 对 CheckBox 测量宽、高、padding、父级 clip、`CheckBox.buttonDrawable` intrinsic bounds、状态数组/tint 与文本布局剩余宽度做快照。
-4. 修复最小的布局或状态问题。确保点击整行后选中态立刻出现，设置持久化仍与原逻辑一致；权限/认证取消按既有业务规则处理。
-5. 验证 `ActionMenuPresenter` 刷新后新建菜单 item 时 CheckBox 不消失；在切换主题与 RTL 时仍有一致边距。
+实现顺序：
+1. 先确认旧 handler：当前源码点击时会**先保存配置并重载**，对于开启隐藏/排除项目的操作可弹出保护源认证；**认证取消时配置值仍可能保持开启**，不得在纯 UI 文案改造中擅自更改这条既有功能语义。
+2. 菜单被打开前/刷新时，分别根据两个持久化布尔值计算下一步操作文字；两项独立，允许 4 种组合。菜单关闭、再次打开、旋转、主题变化、恢复进程后均应展示最新文案。
+3. 点击后仍调用原菜单 ID 的操作回调，保留全部数据刷新/鉴权流程，菜单行的语义和可见性仅在 `mShowingFolderFavorites` 时适用。
+4. 从 `TiebaMenuItemView` 移除两项专用的 CheckBox 注入/着色逻辑，检查在 AppCompat 菜单内两行没有额外右侧空白，宽度跟随最长文字。
+5. 区分收藏专属“显示/不显示”持久化项与其他 `temporarily_show_hidden/temporarily_show_excluded` 的临时操作；不改变后者 ID、文案或功能。
 
-**DoD**：两个框在选中/未选中两态均明确可见、不会被遮挡；文字不超框；点击、取消权限、重启和旋转后的状态一致。
+**DoD**：两项均为不带 CheckBox/Radio 的普通 Ripple 菜单行；四种状态组合文案正确，点击后按当前**配置**更新下一次菜单文案；保留状态持久化、保护目录鉴权、刷新以及 RTL/字体放大可读性。
 
 ### 1.2 菜单位置/尺寸
 
@@ -58,7 +63,7 @@
 
 - 分别测量 AppCompat Toolbar Overflow 与自定义锚定 PopupMenu；不要混用“当前菜单右边缘”的坐标系。
 - 研究移除/替代固定 `-20dp`、`+20dp`、`16dp` 的必要性：优先真实 anchor、WindowInsets、RTL 和 PopupWindow 的原生裁剪能力。保持 AppCompat 对触摸/键盘/子菜单的所有权。
-- 当前 280dp 测量上限只可作候选上限。目标宽度依赖文本、CheckBox、边距与可用屏宽；在 320/360/412/600dp 窗口评估动态调整。
+- 当前 280dp 测量上限只可作候选上限。目标宽度依赖菜单文案、图标、**其他仍可勾选的菜单行**、边距与可用屏宽；收藏新双态文字不得因旧 CheckBox 预留空间而过宽，在 320/360/412/600dp 窗口评估动态调整。
 - 48dp 基本行高和 8dp 菜单上下内边距作为参考；不压缩多行中文字；过高时使用原生菜单滚动与可见安全区。
 - 检查点击反馈：真实 View 背景 Ripple，按住/松开/滑出/焦点状态不能只显示瞬间浅色块；不改变原本事件分发。
 - 覆盖 `menu_main.xml`、`menu_media.xml`、`menu_viewpager.xml`、`menu_search.xml`、各 CAB、文件与媒体 Picker 子菜单以及长文本/双层菜单。
@@ -69,7 +74,7 @@
 
 菜单文字颜色、选中框、单选框、子菜单箭头、主题色可读性、Popup 对话框圆角均与现有系统兼容；检查旧 `docs/ui/classic-dialog-repair-review.md` 的 Dialog 尺寸合同，不在菜单任务里改回过大密码/文件选择器。
 
-**阶段测试建议**：扩展 `ClassicOverflowPositionTest`（现有覆盖 LTR/RTL、3/20 项）、`ClassicGalleryUiContractTest`、CheckBox 原生绘制和可视宽度断言；必要时 `GraphicsMode.NATIVE` 截图；然后真机检查。
+**阶段测试建议**：扩展 `ClassicOverflowPositionTest`（现有覆盖 LTR/RTL、3/20 项）、`ClassicGalleryUiContractTest`；为两个收藏 item 增加 `checkable=false`、无右侧勾选视图/多余空白、四种组合的文案与点击持久化断言；普通可勾选菜单继续保留独立 CheckBox 测试。必要时使用 `GraphicsMode.NATIVE` 截图并进行真机检查。
 
 ## Phase 2 — 设置主页、分类和内页排版
 
@@ -147,4 +152,4 @@
 - 每阶段：记录基线 SHA、修改文件、截图/录屏（去除私密媒体）、测试命令与报告、Actions 构建链接、已知问题与后续任务。
 - 修复过程中如发现 UI 需求与虚拟文件夹/媒体管线有冲突，**停止跨功能变更并记录依赖**，不擅自篡改后者的实现。
 - 回退范围应限制在该阶段的 UI 变更；不要用 `git reset --hard` 回到历史 SHA 或强推覆盖其他 Agent。
-- Phase 1 的 CheckBox 与菜单对齐优先于细微动画。Phase 2/3 的视觉修正不得削弱 Phase 1 功能；Phase 4 不阻塞前三阶段的功能交付。
+- Phase 1 的收藏**双态文字操作**与菜单对齐优先于细微动画。Phase 2/3 的视觉修正不得削弱 Phase 1 功能；Phase 4 不阻塞前三阶段的功能交付。

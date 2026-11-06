@@ -29,8 +29,8 @@
 | 模块 | 测试动作 | 期望与可量化记录 |
 |---|---|---|
 | Popup 位置 | 主页、收藏、文件夹、Viewer、选取器；LTR/RTL；3、10、20+ 项 | 记录 anchor 与 Popup rect、左右边缘相差 dp、可见安全区；不裁剪末项 |
-| Popup 宽度 | 短/长中文、英文、带 CheckBox/子菜单 | 记录文本测量宽、实际宽、左右 padding；可换行但不得覆盖控件 |
-| 收藏双 CheckBox | 启用/停用两项、退出/重进、切主题、认证取消 | 真实 CheckBox box 可见且处于正确 checked 状态；不丢设置 |
+| Popup 宽度 | 短/长中文、英文、收藏双态文字、其他带 CheckBox/子菜单 | 记录文本测量宽、实际宽、左右 padding；收藏两行不预留旧勾选框宽度，其他控件不能被覆盖 |
+| 收藏双态文字菜单 | 两项独立启停的四种组合、退出/重进、切主题、认证取消 | 两项 `checkable=false` 且无勾选框；false 显示“显示已排除项目/显示隐藏项目”，true 显示“不显示已排除项目/不显示隐藏项目”；点击按原逻辑翻转配置、刷新列表，认证取消沿用现有语义 |
 | Popup Ripple | 正常点按、长按、按住滑出、重复打开、快速取消 | 一次点击一次 action；状态与 Ripple 不粘住、不溢出 |
 | Settings Hub | 八分类行与分割线、分类跳转和返回 | icon/titles/summary 基线一致，主副标题自然换行，当前分类正确 |
 | Settings 内页 | 分组标题与关联开关、隐藏条件项、顶部/底部滚动 | 没有孤立分组/重复 Divider；最后一项可被看到/点击 |
@@ -46,7 +46,7 @@
 
 ## 4. 新增/扩展测试建议
 
-1. **菜单**：扩展 `ClassicOverflowPositionTest`：实际 PopupWindow rect、RTL、条目数 3/20、对齐及超界。补充 `favorite_always_show_excluded/hidden` 的 MenuItem + CheckBox View 绘制层真实测量，查明缺失根因。
+1. **菜单**：扩展 `ClassicOverflowPositionTest`：实际 PopupWindow rect、RTL、条目数 3/20、对齐及超界。新增 `favorite_always_show_excluded/hidden` 的非 checkable 菜单行、无勾选框/旧右边距、动态标题与四种配置组合测试；**不再把原 CheckBox 缺失根因排查作为交付条件**。
 2. **布局**：增加设置分类行和 section 的 Native Raster + 不同 fontScale/宽度测试；保护保留 icon/titles/summary 的可读边界。
 3. **底栏**：扩展 `GalleryBottomBarRippleTest`，严格保证同一 RippleDrawable 实例未被 recolor 重建、快速切换只有一次导航；切换动画取消时颜色最终正确。
 4. **输入**：扩展 `ClassicToolbarLayoutTest` / 搜索交互测试，校验焦点、IME 消退、输入文字到列表更新的延迟不会由动画追加。
@@ -60,7 +60,7 @@
 |---|---|
 | 菜单越界 | 0 个必要操作项不可达；长菜单可滚到最后一项 |
 | 菜单锚点 | 在 Phase 0 实测确认的基准宽度上，与选定参考锚点误差控制在约 8dp 以内（初拟，可因平台/RTL 调整） |
-| 两个 CheckBox | 两项各自“勾选/未勾选”共四种视觉状态全部通过，含旋转与重开 |
+| 收藏两条菜单 | 两项组合的 4 种配置状态均显示正确的下一步操作文字；无 CheckBox/Radio；点击、重开、旋转、持久化、认证取消各路径均通过 |
 | 错误全屏闪帧 | 冷/热/慢扫描切 tab 的错误底色和旧媒体内容闪帧 0 |
 | 导航重复执行 | 正常单次点按、快速连点均无重复启动 |
 | 设置页面动画最终态 | 每种取消/完成/销毁用例 alpha=1、translationX=0，不复活过期变更 |

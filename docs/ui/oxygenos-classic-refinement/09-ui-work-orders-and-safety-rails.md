@@ -9,7 +9,7 @@
 | 优先顺序 | 模块 | 核心源文件（相对 `app/src/main/`） | 最小改动原则 | 必测屏幕 |
 |---|---|---|---|---|
 | UI-P0 | “照片配置”新建空草稿+IME 加号 | `kotlin/org/fossify/gallery/activities/PhotoProfileEditActivity.kt`、`res/layout/activity_photo_profile_edit.xml`、Manifest 中该 Activity 的 `adjustResize` | 先验证根 window resize，最小修复 **去掉 IME 时 FAB=GONE**，再做按实际遮挡的补偿；不修改来源配置模型 | 无配置、新建空配置、编辑已有配置 |
-| UI-P1a | 收藏页两个 Popup CheckBox | `res/menu/menu_main.xml`、`MainActivity.kt`、`views/TiebaMenuItemView.kt`、`res/layout/abc_popup_menu_item_layout.xml` | 调查控件创建/测量/绘制，不换业务状态管理 | 主页底栏收藏 |
+| UI-P1a | 收藏页两条菜单改为无 Checkbox 的双态文字 | `res/menu/menu_main.xml`、`MainActivity.kt`、`views/TiebaMenuItemView.kt`、`res/layout/abc_popup_menu_item_layout.xml`、`res/values*/strings.xml` | 保留 ID/布尔配置/鉴权与点击处理；`checkable=false`，根据当前布尔值显示下一步操作：“显示/不显示已排除项目”“显示/不显示隐藏项目”，移除专属 CheckBox 特判 | 主页底栏收藏 |
 | UI-P1b | 所有三点菜单尺寸/位置/开关 | `helpers/OxygenClassicMenus.kt`、`OxygenToolbarStyle.kt`、`res/values/oxygenos_classic.xml`、`values-ldrtl/oxygen_classic_menu_offsets.xml` | 一个共享布局规范覆盖 Toolbar 与程序式 Popup，不全局反射私有 PopupWindow | 相册、收藏、普通文件夹、回收站、Viewer、配置管理、Picker、设置手柄 |
 | UI-P2a | 设置分类与分组 | `SettingsActivity.kt`、`views/TiebaSettingsCategoryRow.kt`、`TiebaSettingsContainer.kt`、`activity_settings.xml` | 页面分类/回调不变，只调整字体、基线、Divider 和 page animation | 设置主页/全部 8 个内页 |
 | UI-P2b | 设置内的动态三点与重排 | `helpers/BottomNavigationOrderDialog.kt`、`ToolbarQuickActionsDialog.kt` | 复用菜单规范，保护绑定位置正确性与列表持久化 | 底栏顺序 / 自定义顶栏操作 Dialog |
@@ -27,9 +27,9 @@
 如果用户在虚拟文件夹验收后决定“先小修并出 APK”，不必一口气进入全部动画：
 
 1. 从远程最新 HEAD 建立可重复的真机布局测量（尤其 PhotoProfileEditActivity 的 insets/FAB）。
-2. 只处理 **FAB 被 IME 隐藏** 和 **收藏 Popup CheckBox 不可见** 两个可直接验证的问题。
-3. 运行 `ClassicOverflowPositionTest`、`ClassicGalleryUiContractTest`、`ClassicToolbarLayoutTest`、相关照片配置测试，另加 FAB/IME 与 CheckBox 运行态测试。
-4. Actions 构建 ARM64 FOSS Release，并复核 Android 手势导航/普通导航下 IME 开/关、收藏双 Checkbox 的截图。
+2. 只处理 **FAB 被 IME 隐藏** 和 **收藏 Popup 改为纯文字双态操作** 两个可直接验证的问题。
+3. 运行 `ClassicOverflowPositionTest`、`ClassicGalleryUiContractTest`、`ClassicToolbarLayoutTest`、相关照片配置测试，另加 FAB/IME、收藏两项 `checkable=false`、四种状态对应操作文案与操作持久化测试。
+4. Actions 构建 ARM64 FOSS Release，并复核 Android 手势导航/普通导航下 IME 开/关、收藏两条**无勾选框操作菜单**的截图及状态。
 5. 成功后再进入可预测性更低、覆盖范围更大的 Popup 位置与动画工程。
 
 优点：修改集中，风险清楚，不需要任何 Room Schema、媒体索引、数据库或多 Activity 导航架构重写。
@@ -41,7 +41,7 @@
 - 禁止把 `ProgressivePhotoViewPager` 改成一套新的拖动距离/页数索引算法，仅为复刻“卡片滑动感”。
 - 禁止动画运行中调用 `notifyDataSetChanged()` 并重新绑定整个网格，绕过现有 `ViewerSwipePublicationGate`。
 - 禁止“退出 Viewer”时直接删除 `FavoritesReturnCover` 或任意保护权限遮罩。
-- 禁止自行实现一个旁路 `PopupWindow` 以规避 AppCompat CheckBox 测量问题，却不支持长菜单/键盘/RTL/无障碍。
+- 禁止为收藏两条菜单重新实现旁路 `PopupWindow`；直接使用已有 AppCompat MenuItem 和 `refreshMenuItems()` 更新文案，不修改其他需要 Checkbox 的菜单机制，继续支持长菜单/键盘/RTL/无障碍。
 - 禁止为处理 IME 把原姓名草稿与已选择来源重建/清空。
 - 禁止在 System Back 手势进度事件里触发 `finish()`、释放会话或提交配置变更。
 - 禁止只通过修改截图或模拟器布局就标记为“真机通过”。

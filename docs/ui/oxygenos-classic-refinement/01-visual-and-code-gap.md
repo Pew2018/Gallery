@@ -7,7 +7,7 @@
 
 | 样本 | 可直接观察到的现象 | 注意 |
 |---|---|---|
-| Gallery 收藏页菜单（用户圈出区域） | 菜单宽大、遮挡相册；“始终显示已排除项目 / 始终显示隐藏项目”两行右侧看不到 CheckBox | 不能由截图证明 CheckBox View 没创建，也无法单凭像素确定 dp |
+| Gallery 收藏页菜单（用户圈出区域） | 菜单宽大、遮挡相册；旧版“始终显示已排除项目 / 始终显示隐藏项目”的 CheckBox 在截图中不可见 | **历史现状证据**，并非新设计要求；2026-11-06 用户已决定直接取消这两项的 CheckBox，改为无勾选的操作文案 |
 | Gallery 相册页菜单 | 菜单相对标题栏的水平/垂直落点、文本起点与参考图不同；长菜单需避让屏幕底端 | 列表长短和菜单位置是不同问题 |
 | Gallery 设置首页 | 分类行由左图标、主副标题、底部细线构成；文字留白与经典 OnePlus 仍有差距 | 带副标题的应用设置列表不应复制系统设置大标题 |
 | Gallery「全屏查看」设置内页 | 分组标题独立、开关右对齐，多项间留白偏大且不统一 | UI 规格问题，不推断实际点击/存储功能已坏 |
@@ -20,8 +20,8 @@
 
 | ID | 现状/证据（在分支内） | 判断 | 后续需要实际证明的事项 |
 |---|---|---|---|
-| UI-01 | `res/menu/menu_main.xml` 有两个 `android:checkable="true"` 项；`MainActivity.refreshMenuItems()` 赋 `isChecked`，且仅收藏页 `isVisible`；`TiebaMenuItemView.initialize()` 专门给两项寻找 `CheckBox` 换 `tieba_choice_check` | **不是 XML 选项未声明**；更可能在菜单 presenter、子控件实例化、测量/裁剪、状态和 tint 路径 | 真机遍历 PopupWindow 的 item、CheckBox 实例/尺寸/visibility/parent、绘制边界，检查 checked/unchecked 两态 |
-| UI-02 | `res/values/oxygenos_classic.xml` `oxygen_classic_overflow_horizontal_offset=-20dp`（RTL +20dp）、VerticalOffset=16dp、overlapAnchor=true；`OxygenClassicMenus.createPopup()` 用 `Gravity.END`；`TiebaMenuItemView.onMeasure()` 限制 280dp | 代码采用近似固定锚点和最大宽，不保证多设备/长标题/Checkbox 情况恰好符合截图 | 采集实际 anchor screen rect、popup screen rect、可视框、文本起点与宽度；区分 Toolbar Overflow 与独立 PopupMenu |
+| UI-01 | **当前源码（历史实现）**：`menu_main.xml` 的两项 `android:checkable="true"`，`MainActivity.refreshMenuItems()` 写 `isChecked`；`TiebaMenuItemView.initialize()` 特判两项勾选框 | **新设计决定废弃这套 Checkbox 外观与相关特判**；保留同一 MenuItem ID、配置布尔值、操作回调/鉴权/刷新 | 改成 `checkable=false` 的纯文字操作项；根据当前配置显示“显示已排除项目/不显示已排除项目”“显示隐藏项目/不显示隐藏项目”，确认双向切换、持久化和鉴权不回退 |
+| UI-02 | `res/values/oxygenos_classic.xml` `oxygen_classic_overflow_horizontal_offset=-20dp`（RTL +20dp）、VerticalOffset=16dp、overlapAnchor=true；`OxygenClassicMenus.createPopup()` 用 `Gravity.END`；`TiebaMenuItemView.onMeasure()` 限制 280dp | 代码采用近似固定锚点和最大宽，不保证多设备/长标题/普通复选控件情况恰好符合截图 | 采集实际 anchor screen rect、popup screen rect、可视框、文本起点与宽度；分别测试收藏新文案、Toolbar Overflow 与独立 PopupMenu |
 | UI-03 | `TiebaSettingsCategoryRow`: 最小 72dp，16dp 横内边距，左 56dp slot / 36dp icon container，主标题 16sp、次标题 **14sp**；`SettingsActivity.setupSettingsHub()` 逐行 `removeAllViews()` 重建 | 与指南拟合副标题约 12sp 存在差异；重建可影响焦点/Ripple/滚动，无实时证据说明这里造成闪烁 | 量测主副标题基线、行高与分割线；确认 `onResume` 重建的实际 UI 影响 |
 | UI-04 | `activity_settings.xml` 下多组条目共用 `OxygenClassicSettingsSingleRow` 56dp / `DetailsRow` 72dp；`OxygenClassicSettingsSection` 仅 paddingTop=16dp, bottom=8dp, minHeight=0 | 分组的视觉高度不被统一约束；内容长短及系统字体缩放可能改变视觉节奏 | 对同级标题测量顶部/底部空白，检查仅剩一项时的分组显示逻辑 |
 | UI-05 | `GalleryBottomBar` 使用 56dp 外栏、52dp item、24dp 图标、12sp 标签，左右外 padding 6dp、项左右 margin 2dp；`selectTab()` 直接设置 tint/typeface | 现有选择状态跳变，仍有精修空间 | 同一帧 Ripple 是否被导航中断；图标视觉居中与标签 baseline；快速点按和配置重排 |
@@ -42,7 +42,7 @@
 | PopupMenu 普通行 | min 48dp | 通常 48dp，长文本可增高 | 多行与字体缩放 |
 | PopupMenu 画布 | onMeasure max 280dp；背景 top/bottom 8dp | **内容测量 + 屏宽/insets 上限**；起点与锚点可量化 | 横屏/小窗会动态调整 |
 | PopupMenu 背景 | 4dp 圆角、8dp elevation | 优先对照 2–4dp 经典轻圆角和克制阴影 | 深色主题 |
-| Checkbox 图形 | 依赖 `tieba_choice_check` | 候选 18–20dp，右侧真实状态可见，整行 Ripple | 不允许使用伪 glyph |
+| 收藏菜单两项（目标） | 当前为 `checkable=true` + `tieba_choice_check` 特判 | **删除两项 Checkbox 图形，改为不带图标的纯文字行**；保留 48dp 候选触摸行高与 Ripple | 其他菜单 CheckBox 仍遵循各自样式，不受本决策影响 |
 | 设置主行 | 56dp | 保持默认 min 56dp，允许自动长高 | 长文/字体缩放 |
 | 设置双行 | 72dp | 保持默认 min 72dp；主 16sp，副 **12–13sp 候选** | 各语言自然换行 |
 | 设置分组 | 当前 min 0dp + padding 16/8dp | 候选总行距 48–56dp，分组字 12sp | 第一个分组可有额外顶距 |
@@ -54,9 +54,9 @@
 
 ## D. 必须区分“截图发现”与“代码猜测”
 
-- **[截图确认]** 收藏页两行 Checkbox 在当前截屏不可见。
-- **[源码确认]** 对应两个菜单 item、`isChecked` 更新和 View 定制代码均已存在。
-- **[尚未确认]** 最终运行时 Checkbox 是否不存在、被裁剪、没有宽度、tint 与背景重叠，或是 AppCompat 版本行为。
+- **[历史截图确认]** 收藏页旧版两行 Checkbox 在所提供的截屏不可见。
+- **[源码确认]** 审计时确实存在两个 `checkable=true` item、`isChecked` 更新及 View 定制代码；这是**待替换的旧实现**，不再需要投入工程量去诊断其勾选框是否被裁剪。
+- **[用户新设计决策]** 两行改为无勾选框的纯操作菜单项，文字依当前布尔值切换：`false → 显示已排除项目 / 显示隐藏项目`，`true → 不显示已排除项目 / 不显示隐藏项目`；需验证文案与实际开关状态一致，且认证要求不改变。
 - **[截图确认]** 菜单位置和宽度与参考图的视觉比例不符。
 - **[源码确认]** 当前存在固定偏移与 280dp 上限。
 - **[尚未确认]** 调整哪个参数能对所有 ROM/多窗口/RTL 保持一致。
