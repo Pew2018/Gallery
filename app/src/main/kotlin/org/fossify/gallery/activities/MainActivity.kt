@@ -465,8 +465,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         if (savedInstanceState == null) {
             config.temporarilyShowHidden = false
             config.temporarilyShowExcluded = false
-            config.tempSkipDeleteConfirmation = false
-            config.tempSkipRecycleBin = false
             // Retain periodic cleanup and job registration even when the
             // launcher immediately hands off to the All Photos Activity.
             checkRecycleBinItems()
@@ -722,12 +720,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
         }
 
-        if (config.temporarilyShowHidden || config.tempSkipDeleteConfirmation || config.temporarilyShowExcluded) {
+        if (config.temporarilyShowHidden || config.temporarilyShowExcluded) {
             mTempShowHiddenHandler.postDelayed({
                 config.temporarilyShowHidden = false
                 config.temporarilyShowExcluded = false
-                config.tempSkipDeleteConfirmation = false
-                config.tempSkipRecycleBin = false
             }, SHOW_TEMP_HIDDEN_DURATION)
         } else {
             mTempShowHiddenHandler.removeCallbacksAndMessages(null)
@@ -747,8 +743,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         if (!isChangingConfigurations) {
             config.temporarilyShowHidden = false
             config.temporarilyShowExcluded = false
-            config.tempSkipDeleteConfirmation = false
-            config.tempSkipRecycleBin = false
             mTempShowHiddenHandler.removeCallbacksAndMessages(null)
             removeTempFolder()
             unregisterFileUpdateListener()

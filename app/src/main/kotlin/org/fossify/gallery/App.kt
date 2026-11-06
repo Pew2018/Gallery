@@ -58,7 +58,10 @@ class App : FossifyApp() {
         // Apply its classic toolbar once on resume, after Commons sets its theme.
         registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             private var started = 0
-            override fun onActivityCreated(activity: Activity, state: Bundle?) = Unit
+            private val deleteSession = org.fossify.gallery.helpers.DeleteSessionLifecycle()
+            override fun onActivityCreated(activity: Activity, state: Bundle?) {
+                deleteSession.onCreated(activity)
+            }
             override fun onActivityStarted(activity: Activity) { started++ }
             override fun onActivityResumed(activity: Activity) {
                 // Pre-29 has no post-resume lifecycle callback. One queued pass is sufficient.
@@ -81,6 +84,7 @@ class App : FossifyApp() {
             }
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
             override fun onActivityDestroyed(activity: Activity) {
+                deleteSession.onDestroyed(activity, activity.isChangingConfigurations)
                 org.fossify.gallery.helpers.PhotoAuthentication.requests.cancelOwner(activity)
             }
         })

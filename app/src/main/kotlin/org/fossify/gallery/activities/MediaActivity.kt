@@ -1029,11 +1029,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             mLoadedInitialPhotos = false
         }
 
-        if (config.temporarilyShowHidden || config.tempSkipDeleteConfirmation) {
+        if (config.temporarilyShowHidden) {
             mTempShowHiddenHandler.postDelayed({
                 config.temporarilyShowHidden = false
-                config.tempSkipDeleteConfirmation = false
-                config.tempSkipRecycleBin = false
             }, SHOW_TEMP_HIDDEN_DURATION)
         } else {
             mTempShowHiddenHandler.removeCallbacksAndMessages(null)
@@ -1170,8 +1168,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         super.onDestroy()
         if (mShowAll && !isChangingConfigurations) {
             config.temporarilyShowHidden = false
-            config.tempSkipDeleteConfirmation = false
-            config.tempSkipRecycleBin = false
             unregisterFileUpdateListener()
             // The application database outlives pages and their background workers.
         }
