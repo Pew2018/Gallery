@@ -44,9 +44,10 @@ MediaActivity 为照片页快速滚动条注册第三方库公开的 `HandleStat
 
 ## 验证、构建和真机验收
 
-- `git diff --check`：待提交前记录。
-- 本地 Gradle 测试：执行环境缺少 Gradle 9.5.1 分发包，wrapper 下载失败（网络不可达）；由分支 Actions 的完整 FOSS Release 单元测试作为交付验证。
-- GitHub Actions 与 ARM64 APK：提交后补充实际运行链接、测试结论和产物信息。
+- `git diff --check`：通过。
+- 本地 Gradle 测试：执行环境缺少 Gradle 9.5.1 分发包，wrapper 下载失败（网络不可达）；已由 Actions 完整 FOSS Release 单元测试验证通过。
+- GitHub Actions：[#592 — `c6328b54796a51959217622860d28f75c757dfb2`](https://github.com/Pew2018/Gallery/actions/runs/42254061959)，完整 FOSS Release 单元测试通过；ARM64-only Release APK 构建、签名、包名及 ABI 校验均通过。
+- 产物：`gallery-foss-arm64-v8a-release`（10,480,344 bytes），其中 APK 文件为 `gallery-foss-arm64-v8a-release.apk`。Artifacts 有效期至 2026-11-20。
 - Pixel 8 Pro 待验：在自定义配置仍显示进度时拖动快速滚动条，分别测试正常松开、ACTION_CANCEL、配置切换和最终图片重排；确认当前媒体路径及屏幕偏移保持、进度结束且没有旧位置回弹。
 
 ## 范围与限制
