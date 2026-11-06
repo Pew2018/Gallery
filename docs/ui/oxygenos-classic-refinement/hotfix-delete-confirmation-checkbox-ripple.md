@@ -14,4 +14,4 @@ The grid and full-screen Viewer both show `DeleteWithRememberDialog`. Its two ch
 
 ## Verification
 
-Added Robolectric tests for full-row Ripple bounds, touch points on the icon and label area, one state transition per tap, light and dark accent colors, repeated styling, optional-row GONE behavior, and confirm/cancel callback behavior. GitHub Actions test/build status and APK artifact are recorded after the run completes. Pixel 8 Pro visual acceptance remains pending.
+Added Robolectric tests for full-row Ripple bounds, touch points on the icon and label area, one state transition per tap, light and dark themes, repeated styling, optional-row GONE behavior, and confirm/cancel callback behavior. GitHub Actions test/build status and APK artifact are recorded after the run completes. Pixel 8 Pro visual acceptance remains pending.

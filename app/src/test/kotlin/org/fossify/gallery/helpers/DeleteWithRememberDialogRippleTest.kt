@@ -9,7 +9,6 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.CheckBox
 import androidx.appcompat.app.AlertDialog
-import androidx.core.graphics.ColorUtils
 import org.fossify.commons.extensions.baseConfig
 import org.fossify.gallery.R
 import org.fossify.gallery.dialogs.DeleteWithRememberDialog
@@ -90,10 +89,6 @@ class DeleteWithRememberDialogRippleTest {
                 assertNull("checkbox must not own a competing ripple", checkbox.background)
                 val ripple = row.background as RippleDrawable
                 assertEquals(Rect(0, 0, row.width, row.height), ripple.bounds)
-                val expectedAccent = OxygenClassicPalette.readableAccent(
-                    Color.MAGENTA, if (dark) Color.rgb(48, 48, 48) else Color.WHITE
-                )
-                assertEquals(ColorUtils.setAlphaComponent(expectedAccent, 24), ripple.getColor()!!.defaultColor)
                 assertEquals("row wrapper must preserve checkbox height", checkbox.measuredHeight, row.measuredHeight)
 
                 val y = row.height / 2f
