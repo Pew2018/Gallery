@@ -45,6 +45,7 @@ object ClassicSettingsPageTransition {
         override fun getAlpha() = paint.alpha
         override fun setColorFilter(colorFilter: ColorFilter?) { paint.colorFilter = colorFilter }
         @Deprecated("Deprecated in Android") override fun getOpacity() = PixelFormat.TRANSLUCENT
+        fun pixelForTest(x: Int, y: Int): Int = bitmap.getPixel(x, y)
         fun dispose() { if (!bitmap.isRecycled) bitmap.recycle() }
     }
 
@@ -165,6 +166,9 @@ object ClassicSettingsPageTransition {
         runs[container]?.outgoing?.draw(canvas)
         canvas.restoreToCount(save)
     }
+
+    internal fun snapshotPixelForTest(container: View, x: Int, y: Int): Int? =
+        runs[container]?.outgoing?.pixelForTest(x, y)
 
     private fun applyProgress(container: View, run: Run, progress: Float) {
         if (runs[container] !== run) return

@@ -45,6 +45,8 @@ class ClassicSettingsPageTransitionTest {
         }, onTitleCommit = { titleCommitCount++ })
         assertEquals("Outgoing title/content stay in sync at transition start", 0, titleCommitCount)
         host.viewTreeObserver.dispatchOnPreDraw()
+        assertEquals("Snapshot captures the outgoing page before target preparation", Color.RED,
+            ClassicSettingsPageTransition.snapshotPixelForTest(host, 60, 60))
 
         val redLevels = mutableListOf<Int>()
         val blueLevels = mutableListOf<Int>()
