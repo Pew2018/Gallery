@@ -2,8 +2,7 @@ package org.fossify.gallery.views
 
 import android.content.Context
 import android.util.AttributeSet
-import android.view.View
-import android.view.accessibility.AccessibilityNodeInfo
+import android.view.MotionEvent
 import android.widget.CheckBox
 import android.widget.FrameLayout
 
@@ -14,23 +13,27 @@ import android.widget.FrameLayout
 class DeleteConfirmationCheckboxRow @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null
 ) : FrameLayout(context, attrs) {
-    override fun onFinishInflate() {
-        super.onFinishInflate()
-        val checkbox = getChildAt(0) as CheckBox
-        checkbox.isClickable = false
-        checkbox.isFocusable = false
-        checkbox.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
-        isFocusable = true
-        setOnClickListener { if (checkbox.isEnabled) checkbox.performClick() }
-        accessibilityDelegate = object : View.AccessibilityDelegate() {
-            override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
-                super.onInitializeAccessibilityNodeInfo(host, info)
-                info.className = CheckBox::class.java.name
-                info.text = checkbox.text
-                info.isCheckable = true
-                info.isChecked = checkbox.isChecked
-                info.isEnabled = checkbox.isEnabled
-            }
+    /**
+     * The CheckBox remains the native click and accessibility target. Mirror its
+     * pressed state to this wrapper so its full-row Ripple follows the same real
+     * touch sequence without manually forwarding performClick() to the child.
+     */
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN ||
+            event.actionMasked == MotionEvent.ACTION_MOVE
+        ) {
+            drawableHotspotChanged(event.x, event.y)
         }
+
+        val handled = super.dispatchTouchEvent(event)
+        val checkbox = getChildAt(0) as? CheckBox
+        isPressed = checkbox?.let { isEnabled && it.isEnabled && it.isPressed } == true
+
+        if (event.actionMasked == MotionEvent.ACTION_UP ||
+            event.actionMasked == MotionEvent.ACTION_CANCEL
+        ) {
+            isPressed = false
+        }
+        return handled
     }
 }

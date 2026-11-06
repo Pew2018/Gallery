@@ -42,25 +42,30 @@ class DeleteWithRememberDialogRippleTest {
 
     private fun latestDialog() = ShadowDialog.getLatestDialog() as AlertDialog
 
-    private fun layoutRow(row: View, width: Int = 320) {
-        row.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.AT_MOST))
-        row.layout(0, 0, row.measuredWidth, row.measuredHeight)
-        row.draw(android.graphics.Canvas(android.graphics.Bitmap.createBitmap(
-            row.width, row.height, android.graphics.Bitmap.Config.ARGB_8888
-        )))
+    private fun dispatchTouch(
+        root: View, row: View, action: Int, x: Float, y: Float,
+        downTime: Long, eventTime: Long
+    ) {
+        val rowLocation = IntArray(2)
+        val rootLocation = IntArray(2)
+        row.getLocationOnScreen(rowLocation)
+        root.getLocationOnScreen(rootLocation)
+        val event = MotionEvent.obtain(
+            downTime, eventTime, action,
+            rowLocation[0] - rootLocation[0] + x,
+            rowLocation[1] - rootLocation[1] + y,
+            0
+        )
+        root.dispatchTouchEvent(event)
+        event.recycle()
     }
 
-    private fun tap(row: View, x: Float, y: Float) {
+    private fun tap(root: View, row: View, x: Float, y: Float) {
         val now = android.os.SystemClock.uptimeMillis()
-        val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0)
-        row.dispatchTouchEvent(down)
-        down.recycle()
+        dispatchTouch(root, row, MotionEvent.ACTION_DOWN, x, y, now, now)
         shadowOf(Looper.getMainLooper()).idleFor(80, TimeUnit.MILLISECONDS)
-        val up = MotionEvent.obtain(now, android.os.SystemClock.uptimeMillis(),
-            MotionEvent.ACTION_UP, x, y, 0)
-        row.dispatchTouchEvent(up)
-        up.recycle()
+        dispatchTouch(root, row, MotionEvent.ACTION_UP, x, y,
+            now, android.os.SystemClock.uptimeMillis())
         shadowOf(Looper.getMainLooper()).idle()
     }
 
@@ -74,18 +79,19 @@ class DeleteWithRememberDialogRippleTest {
             val dialog = latestDialog()
             val first = dialog.findViewById<CheckBox>(R.id.delete_remember_checkbox)!!
             val second = dialog.findViewById<CheckBox>(R.id.skip_the_recycle_bin_checkbox)!!
+            val decor = dialog.window!!.decorView
             val rows = listOf(first, second).map { it.parent as DeleteConfirmationCheckboxRow }
             assertEquals(listOf(R.id.delete_remember_checkbox_row, R.id.skip_the_recycle_bin_checkbox_row),
                 rows.map { it.id })
             assertTrue(first.text.isNotEmpty() && second.text.isNotEmpty())
-            assertFalse(first.isClickable)
-            assertFalse(second.isClickable)
-            assertFalse(first.isFocusable)
-            assertFalse(second.isFocusable)
+            assertTrue("native CheckBox click handling must remain enabled", first.isClickable)
+            assertTrue("native CheckBox click handling must remain enabled", second.isClickable)
+            assertTrue("native CheckBox must remain independently focusable", first.isFocusable)
+            assertTrue("native CheckBox must remain independently focusable", second.isFocusable)
 
             rows.forEachIndexed { index, row ->
                 val checkbox = if (index == 0) first else second
-                layoutRow(row)
+                assertFalse("row is a ripple host, not a competing click target", row.isClickable)
                 assertNull("checkbox must not own a competing ripple", checkbox.background)
                 val ripple = row.background as RippleDrawable
                 assertEquals(Rect(0, 0, row.width, row.height), ripple.bounds)
@@ -95,7 +101,7 @@ class DeleteWithRememberDialogRippleTest {
                 for (x in listOf(12f, row.width * .65f)) {
                     val before = checkbox.isChecked
                     val beforeOther = if (index == 0) second.isChecked else first.isChecked
-                    tap(row, x, y)
+                    tap(decor, row, x, y)
                     assertEquals(!before, checkbox.isChecked)
                     assertEquals(beforeOther, if (index == 0) second.isChecked else first.isChecked)
                 }
@@ -120,6 +126,34 @@ class DeleteWithRememberDialogRippleTest {
         assertEquals(View.GONE, row.visibility)
         assertEquals(0, row.measuredHeight)
         assertEquals(View.VISIBLE, checkbox.visibility)
+        dialog.dismiss()
+        activity.finish()
+    }
+
+    @Test fun firstNativeTapTogglesImmediatelyAndCancelNeverToggles() {
+        val activity = host(false)
+        DeleteWithRememberDialog(activity, "Delete these photos?", true, callback = { _, _ -> })
+        val dialog = latestDialog()
+        val decor = dialog.window!!.decorView
+        val checkbox = dialog.findViewById<CheckBox>(R.id.delete_remember_checkbox)!!
+        val row = dialog.findViewById<DeleteConfirmationCheckboxRow>(R.id.delete_remember_checkbox_row)!!
+        val x = row.width * .65f
+        val y = row.height / 2f
+        val downTime = android.os.SystemClock.uptimeMillis()
+
+        dispatchTouch(decor, row, MotionEvent.ACTION_DOWN, x, y, downTime, downTime)
+        assertTrue("the row Ripple should enter pressed state on the initial down", row.isPressed)
+        assertTrue("the native CheckBox should receive the same down event", checkbox.isPressed)
+        dispatchTouch(decor, row, MotionEvent.ACTION_CANCEL, x, y,
+            downTime, android.os.SystemClock.uptimeMillis())
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse("cancelled gesture must not toggle", checkbox.isChecked)
+        assertFalse("cancel must release the row Ripple", row.isPressed)
+
+        tap(decor, row, x, y)
+        assertTrue("the first completed tap must toggle immediately", checkbox.isChecked)
+        tap(decor, row, x, y)
+        assertFalse("the next tap must toggle exactly once", checkbox.isChecked)
         dialog.dismiss()
         activity.finish()
     }
