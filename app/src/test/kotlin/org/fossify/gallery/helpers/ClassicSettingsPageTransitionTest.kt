@@ -41,6 +41,7 @@ class ClassicSettingsPageTransitionTest {
             page.setBackgroundColor(Color.BLUE)
         }, onTitleCommit = { titleCommitCount++ })
         assertEquals("Outgoing title/content stay in sync at transition start", 0, titleCommitCount)
+        host.viewTreeObserver.dispatchOnPreDraw()
 
         val redLevels = mutableListOf<Int>()
         val blueLevels = mutableListOf<Int>()
