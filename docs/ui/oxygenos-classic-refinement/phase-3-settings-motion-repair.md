@@ -3,7 +3,7 @@
 ## Baseline and evidence
 
 - Repository branch: `refactor/media-pipeline-stability`.
-- Remote HEAD audited before this change: `0937418ee46303e031ccecc084ad7cc410811efb` (the supplied historical SHA).
+- The task supplied `0937418ee46303e031ccecc084ad7cc410811efb` as a historical reference. Work remained on the existing `refactor/media-pipeline-stability` branch and used its re-fetched HEAD; the CI test-correction commit was based on `7a3d8aa0890623613df1c6ee9d82edef46f81db0`.
 - Device report: Google Pixel 8 Pro, Android 16. The user reports old rows remaining under a new toolbar title, overlapping content, abrupt replacement, and similar artifacts when returning from categories.
 - The supplied 14.04-second screen recording was opened and sampled at 4 frames per second. It documents the affected settings categories and the separate theme pages. That sampling interval is longer than the 180 ms transition, so the extracted frames do not establish the exact intermediate GPU frame sequence. The transient artifacts remain user-reported evidence pending a new on-device recording.
 - The project OxygenOS classic design guide describes a fixed, 56 dp toolbar and low-decoration settings rows. It does not specify an exact original ROM page-transition curve or duration.
@@ -35,7 +35,7 @@ The outgoing snapshot now moves away and fades from fully opaque to transparent 
 - `app/src/main/res/layout/activity_settings.xml`
   - Uses a viewport-sized `NestedScrollView` with the existing `fillViewport` and CoordinatorLayout scrolling behavior.
 - `app/src/test/kotlin/org/fossify/gallery/helpers/ClassicSettingsPageTransitionTest.kt`
-  - Adds rendered pixel sampling at intermediate times and verifies monotonic reveal of the incoming page and the final pixels. Keeps the pre-existing divider geometry regression test.
+  - Verifies the captured outgoing source pixel and the actual snapshot drawable alpha at 10%, 25%, 50%, 75%, and 90% progress; checks monotonic source-over channel values against the opaque target, target color and title timing. Keeps the pre-existing divider geometry regression test. Robolectric does not draw `ViewOverlay` in `View.draw()`, so these checks validate the production snapshot source and alpha state plus expected compositing math; they are not a screenshot of Android overlay composition.
 - `app/src/test/kotlin/org/fossify/gallery/helpers/SettingsPageMotionTest.kt`
   - Continues to cover both directions, RTL, zero system animation scale, rapid navigation, teardown, and final transform normalization.
 
@@ -45,7 +45,7 @@ The outgoing snapshot now moves away and fades from fully opaque to transparent 
 
 ## Verification and remaining acceptance
 
-- Source audit and the supplied clip review are complete; extracted clip frames are too sparse to measure the 180 ms transient motion.
-- Automated test execution was attempted with `./gradlew :app:testFossDebugUnitTest --tests org.fossify.gallery.helpers.SettingsPageMotionTest`, but the checkout has no cached Gradle 9.5.1 distribution and the runtime could not reach `services.gradle.org`. Therefore no local test or compile result is claimed.
-- Robolectric pixel sampling verifies the drawable composition in software, not Pixel 8 Pro GPU presentation, dropped frames, or device-specific insets.
-- Pending: run the new and existing relevant tests in CI, build and inspect the ARM64 FOSS Release artifact for the final commit, and have the user repeat the category, return, rapid-navigation, RTL, zero-animation, and two theme-page checks on the Pixel 8 Pro.
+- GitHub Actions run `42230856478` for commit `b60767e93a78fbeca06dd5bffb6eb4b530370ea2` passed the complete `testFossReleaseUnitTest` suite, assembled the FOSS arm64-v8a Release APK, validated package/signature/ABI, and uploaded `gallery-foss-arm64-v8a-release`. This run verifies the code/test correction; the final documentation-only follow-up commit receives its own workflow run and artifact.
+- An earlier local Gradle invocation could not download Gradle 9.5.1 because the environment could not reach `services.gradle.org`; no local test or compile result is claimed.
+- Robolectric verifies the snapshot's captured source pixel and per-frame alpha. It cannot prove Pixel 8 Pro GPU composition, dropped frames, edge-to-edge insets, or the actual `ViewOverlay` output. The 14.04-second recording was sampled at 4 fps, too sparse to establish 180 ms intermediate frames.
+- Pending user acceptance: install the final ARM64 APK on Pixel 8 Pro, check all eight ordinary settings categories, category-to-home return, rapid navigation, RTL and zero animation scale, and revisit both theme color subpages. Device frame-time and transient-frame appearance remain unverified until this check.

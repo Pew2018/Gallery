@@ -21,7 +21,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 @org.robolectric.annotation.LooperMode(org.robolectric.annotation.LooperMode.Mode.PAUSED)
 class ClassicSettingsPageTransitionTest {
-    @Test fun renderedOutgoingSnapshotFadesContinuouslyOverOpaqueIncomingPage() {
+    @Test fun outgoingSnapshotFadeAndSourceOverRevealAreContinuous() {
         org.robolectric.shadows.ShadowChoreographer.setPaused(true)
         org.robolectric.shadows.ShadowChoreographer.setFrameDelay(java.time.Duration.ofMillis(16))
         val controller = Robolectric.buildActivity(Activity::class.java).setup().visible()
