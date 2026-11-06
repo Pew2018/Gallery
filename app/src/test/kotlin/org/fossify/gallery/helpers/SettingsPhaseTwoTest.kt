@@ -275,6 +275,11 @@ class SettingsPhaseTwoTest {
             val ripple = row.background as RippleDrawable
             if (previous != null) assertSame(previous, ripple)
             assertTrue(row.isPressed)
+            val expected = android.graphics.ColorUtils.setAlphaComponent(
+                if (dark) android.graphics.Color.WHITE else android.graphics.Color.BLACK,
+                if (dark) 31 else 20
+            )
+            assertEquals(expected, ripple.color!!.defaultColor)
             assertTrue(OxygenThemeColors.contrastRatio(tokens.interactiveAccent, tokens.pageBackground) >= 4.5)
             previous = ripple
             row.isPressed = false

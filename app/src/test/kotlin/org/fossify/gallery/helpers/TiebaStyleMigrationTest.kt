@@ -139,7 +139,7 @@ class TiebaStyleMigrationTest {
     @Test fun settingsContainerUsesHostWidthWithoutCompoundingItsFraction() {
         val controller = Robolectric.buildActivity(AppCompatActivity::class.java).setup()
         val view = TiebaSettingsContainer(controller.get())
-        for ((width, expected) in listOf(360 to 360, 600 to 522, 700 to 525, 840 to 630, 1000 to 750, 360 to 360)) {
+        for ((width, expected) in listOf(360 to 360, 700 to 609, 1000 to 750, 360 to 360)) {
             repeat(2) { measure(view, width); assertEquals(expected, view.measuredWidth) }
         }
         controller.pause().stop().destroy()

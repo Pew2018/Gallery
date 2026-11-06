@@ -98,11 +98,11 @@ class SettingsPageMotionTest {
                 val commit: () -> Unit = { commits++ }
                 transition.invoke(activity, forward, commit)
                 repeat(3) { clock.idleFor(16, java.util.concurrent.TimeUnit.MILLISECONDS) }
-                val exitSign = (if (forward) -1 else 1) * (if (rtl) -1 else 1)
-                assertTrue(scroll.translationX * exitSign >= 0f)
+                val enterSign = (if (forward) 1 else -1) * (if (rtl) -1 else 1)
+                assertTrue(scroll.translationX * enterSign >= 0f)
                 repeat(20) {
                     clock.idleFor(16, java.util.concurrent.TimeUnit.MILLISECONDS)
-                    assertTrue("Content approached blank", scroll.alpha >= OxygenClassicMotion.SETTINGS_CONTENT_ALPHA - 0.001f)
+                    assertEquals("Page should remain fully visible", 1f, scroll.alpha, 0f)
                 }
                 assertEquals(1, commits)
                 assertEquals(1f, scroll.alpha, 0f)

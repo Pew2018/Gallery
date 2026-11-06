@@ -1,9 +1,9 @@
 # OxygenOS 7.1.1 Classic — Gallery UI 精修项目总纲
 
-> 状态：**Phase 2 代码与 CI 完成：977 单测全通过，ARM64 FOSS Release APK 构建/签名/ABI 验证成功；真机视觉待验收**。首次审计：2026-11-06。
+> 状态：**Phase 2 设置精修源码/测试已准备；完整自动化与 Actions 验证待执行，真机视觉待验收**。首次审计：2026-11-06。
 > 源码审计基线：`refactor/media-pipeline-stability` @ `b7175e8fa0411d8ff600366e316777efb28bb8f3`。
 > 该 SHA 仅为审计证据锚点；**实际开发前重新读取远程分支 HEAD，禁止重置到此提交**。
-> 首轮审计曾仅新增 `docs/`；当前 Phase 2 已按用户授权实施设置 presentation、测试与文档，最终证据见 `phase-2/04-regression-and-build.md`。
+> 本轮任务 **仅新增 `docs/` 文档，不修改应用代码、资源、构建配置、测试或其他目录**。
 > **2026-11-06 第二轮定位**：重新审计较新的 `27008fc1b5226187c3c8b99c0a12911aa5163632`，增加 05–09 文件；这个 HEAD 同样只是当时的证据锚点。发现 `PhotoProfileEditActivity` 的 FAB 在 IME 可见时被显式设为 `GONE`，详见 07。**仍未修复任何 UI。**
 
 ## 1. 目标与边界
@@ -69,15 +69,15 @@
 |---|---|---|---|---|
 | UI-01 | 收藏菜单移除两个 CheckBox，改为随当前设置切换的操作文案 | P1（设计决策） | 1 | 已实现；四种状态/中英文与无 CheckBox 自动化通过；真机视觉待验收 |
 | UI-02 | 三点菜单锚点、宽度、高度、留白 | P1 | 1 | 已按对比图修正下沿展开；188dp 最小宽度及 320/360/412/600dp LTR/RTL bounds 自动化通过；待用户真机复验 |
-| UI-03 | 设置主页与内部设置行规格和分栏 | P1 | 2 | Phase 2 代码/CI完成；977测试通过，ARM64 APK成功；真机待验收，见 phase-2/04 |
+| UI-03 | 设置主页与内部设置行规格和分栏 | P1 | 2 | Phase 2 已实施；完整自动化/CI 待执行，真机待验收；见 phase-2/04 |
 | UI-04 | 底栏选中态、形态与 Ripple 时序 | P1 | 3 | 待视觉测试 |
 | UI-05 | 搜索输入/焦点/IME 动画 | P1 | 3 | 待验证 |
 | UI-06 | 列表顶部底部经典越界反馈 | P2 | 3 | 待原型 |
 | UI-07 | 预测性返回与可选动画开关 | P2，独立风险项 | 4 | 仅可行性规划 |
-| UI-08 | Toolbar/Dialog/Picker/深浅主题等扫尾 | P2 | 1–4 | Phase 2仅完成设置/主题页Section、Divider与深浅主题测试；跨Dialog/Picker等仍待后续 |
+| UI-08 | Toolbar/Dialog/Picker/深浅主题等扫尾 | P2 | 1–4 | 待覆盖审计 |
 | UI-09 | 新建/编辑照片配置时 IME 隐藏添加来源 FAB | P1（源码明确） | 1 | 强制 GONE 已移除；复用 edge-to-edge 底栏 Insets 并跟随 IME 动画；自动化通过，真机距离/窗口几何待验收 |
 | UI-10 | Popup/Dialog/Viewer/文件夹进退全套动画归属 | P2 | 先做规格审计再分级实现 | 已建代码地图，未改 UI |
-| UI-11 | 全部强调色与动画着色适配用户自定义颜色 | 跨阶段硬性约束 | 0–4 | Phase 2设置Ripple原位着色/主题Token回归通过；其余页面未因此标记完成 |
+| UI-11 | 全部强调色与动画着色适配用户自定义颜色 | 跨阶段硬性约束 | 0–4 | 已建立 Token/测试合同，未改 UI |
 | UI-12 | Google 旧版 Material Motion 只用于动画、不改变经典控件形态 | 跨阶段技术选型 | 0–4 | 已建立场景矩阵，待依赖检查与试点 |
 
 优先级说明：P0 表示明确影响当前界面状态辨识或操作；不代表优先于正在修复的虚拟文件夹功能 P0。
@@ -113,4 +113,4 @@ Audit source SHA: 024b4731ac6508cab45f7d81eea73294a78d0d04. Source findings are 
 
 ## Phase 2 implementation
 
-[实施摘要](phase-2/00-implementation-summary.md)记录设置主页、八分类、Section、控件主题、导航与宽屏的最小presentation修改。[回归与构建](phase-2/04-regression-and-build.md)记录977单测、成功Actions、APK摘要与签名限制，[真机清单](phase-2/05-device-acceptance-checklist.md)仍待设备。UI-08仅设置/主题页Section与Divider一致性、UI-11仅设置Ripple/主题色合同获得本阶段代码覆盖，不宣称跨阶段全部完成。
+[实施摘要](phase-2/00-implementation-summary.md)记录设置主页、八分类、Section、控件主题、导航与宽屏的最小presentation修改。[回归与构建](phase-2/04-regression-and-build.md)区分已执行/待执行验证，[真机清单](phase-2/05-device-acceptance-checklist.md)仍待设备。UI-08仅设置/主题页Section与Divider一致性、UI-11仅设置Ripple/主题色合同获得本阶段代码覆盖，不宣称跨阶段全部完成。

@@ -139,7 +139,7 @@ class OxygenThemeActivity : SimpleActivity() {
             (if (scroll.layoutDirection == View.LAYOUT_DIRECTION_RTL) -1 else 1)
         val distance = dp(OxygenClassicMotion.SETTINGS_DISTANCE_DP).toFloat() * direction
         scroll.translationX = distance
-        scroll.alpha = OxygenClassicMotion.SETTINGS_CONTENT_ALPHA
+        scroll.alpha = 1f
         scroll.animate().translationX(0f).alpha(1f)
             .setDuration(OxygenClassicMotion.SETTINGS_ENTER_MS)
             .setInterpolator(OxygenClassicMotion.easing()).start()

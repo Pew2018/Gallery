@@ -21,5 +21,3 @@ SettingsActivity 复用同一NestedScrollView，hub与分类是同一holder内�
 原有即时buildPage后仅enter的结构保留；共享alpha0.72/8dp/enter100ms/easing，RTL反转，cancel后新导航可立即执行；0x直接终态，销毁取消归位。没有为统一exit而重构主题页面。
 
 这些时间/alpha是Gallery工程候选，不是旧ROM实测。SettingsPageMotionTest测方向/可见alpha floor/最终态/中断/销毁/0x；SettingsPhaseTwoTest测滚动恢复、重进与Activity状态。真实帧、系统返回手势和旋转窗口几何在05中待设备。
-
-最终Run42188141776已再次从解析transform日志确认Material1.14.0 / Transition1.5.0 / Commons7.1.3；对应977测试和Release/R8构建成功。该证据不意味着本阶段接入了Material Motion。

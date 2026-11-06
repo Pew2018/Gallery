@@ -20,9 +20,7 @@ object OxygenClassicMotion {
     const val SWITCH_MS = 180L
     const val TOGGLE_CHECKBOX_MS = 200L
     const val LIST_MOVE_MS = 170L
-    const val SETTINGS_EXIT_MS = 80L
-    const val SETTINGS_ENTER_MS = 100L
-    const val SETTINGS_CONTENT_ALPHA = 0.72f
+    const val SETTINGS_ENTER_MS = 150L
     const val SETTINGS_DISTANCE_DP = 8
 
     fun enabled(context: Context): Boolean = runCatching {

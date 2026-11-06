@@ -34,8 +34,7 @@ class OxygenClassicMotionTest {
         assertTrue(OxygenClassicMotion.SWITCH_MS in 180L..200L)
         assertTrue(OxygenClassicMotion.TOGGLE_CHECKBOX_MS in 180L..200L)
         assertTrue(OxygenClassicMotion.LIST_MOVE_MS in 160L..180L)
-        assertTrue((OxygenClassicMotion.SETTINGS_EXIT_MS +
-            OxygenClassicMotion.SETTINGS_ENTER_MS) in 160L..200L)
+        assertTrue(OxygenClassicMotion.SETTINGS_ENTER_MS in 140L..160L)
     }
 
     private fun image(drawable: Drawable): IntArray {
