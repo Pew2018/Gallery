@@ -28,3 +28,7 @@
 签名优先repo release secrets，否则每次run生成temporary CI key，不保证覆盖安装兼容。最终签名模式、Artifact ID、APK摘要、数量/结果必须从实际run日志/产物读取。
 
 代码/CI/真机是三个独立状态。没有真实WindowManager、GPU、TalkBack或系统授权prompt自动化证据，不能用Robolectric替代05。
+
+## 首轮验证与纠正
+
+应用源码186cf1d9在[Run42186070437](https://github.com/Pew2018/Gallery/actions/runs/42186070437)编译成功；新增测试的`RippleDrawable.color`无公开getter，导致test Kotlin编译失败，未执行单测/assemble。纠正为公开可验证的Ripple身份和pressed状态断言，不通过反射私有framework字段制造颜色getter；实际GPU着色保持真机待验收。并补充360dp同宽12/13sp Native候选渲染，不影响应用副标题13sp。

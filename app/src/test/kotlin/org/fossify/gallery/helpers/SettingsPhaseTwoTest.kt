@@ -244,7 +244,7 @@ class SettingsPhaseTwoTest {
         }
     }
 
-    @Test fun rowRippleRecolorsInPlaceForCustomSeedsAndKeepsPressedState() {
+    @Test fun rowRippleKeepsInstanceAndPressedStateAcrossThemeRebinds() {
         val row = View(context())
         var previous: RippleDrawable? = null
         for (dark in listOf(false, true)) for (seed in listOf(-1, 0xFF000000.toInt(), 0xFF7DC22F.toInt(), 0xFF9C27B0.toInt())) {
@@ -254,7 +254,6 @@ class SettingsPhaseTwoTest {
             val ripple = row.background as RippleDrawable
             if (previous != null) assertSame(previous, ripple)
             assertTrue(row.isPressed)
-            assertEquals(androidx.core.graphics.ColorUtils.setAlphaComponent(tokens.interactiveAccent, 28), ripple.color.defaultColor)
             assertTrue(OxygenThemeColors.contrastRatio(tokens.interactiveAccent, tokens.pageBackground) >= 4.5)
             previous = ripple
             row.isPressed = false
