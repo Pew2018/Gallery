@@ -129,6 +129,26 @@ class SettingsPageMotionTest {
         }
     }
 
+    @Test fun themeAndIconEntryDispatchOnceWithExplicitSession() {
+        for (icon in listOf(false, true)) {
+            val controller = Robolectric.buildActivity(SettingsActivity::class.java).setup()
+            val activity = controller.get()
+            val row = activity.findViewById<View>(if (icon) R.id.settings_app_icon_holder
+                else R.id.settings_color_customization_holder)
+            val shadow = org.robolectric.Shadows.shadowOf(activity)
+            while (shadow.nextStartedActivity != null) { /* discard unrelated startup intents */ }
+            row.performClick()
+            row.performClick()
+            val launched = requireNotNull(shadow.nextStartedActivity)
+            assertEquals(OxygenThemeActivity::class.java.name, launched.component?.className)
+            assertEquals(icon, launched.getBooleanExtra(OxygenThemeActivity.EXTRA_ICON_COLORS, false))
+            assertNotNull(launched.getStringExtra(ClassicSettingsActivityTransition.EXTRA_SESSION))
+            assertNull("Repeated tap must not launch a second Activity", shadow.nextStartedActivity)
+            ClassicSettingsActivityTransition.clear()
+            controller.pause().stop().destroy()
+        }
+    }
+
     @Test fun themeColorSubpageKeepsItsIndependentNavigationAndScrollMotion() {
         val controller = Robolectric.buildActivity(OxygenThemeActivity::class.java).setup().visible()
         val activity = controller.get()
@@ -147,31 +167,35 @@ class SettingsPageMotionTest {
         val body = bodyField.get(activity) as View
         val navigate = activity.javaClass.getDeclaredMethod("navigateColors", Boolean::class.javaPrimitiveType)
             .apply { isAccessible = true }
+        val title = activity.javaClass.getDeclaredField("titleText").apply { isAccessible = true }
+            .get(activity) as android.widget.TextView
         try {
-            navigate.invoke(activity, true)
-            assertTrue("theme scroll must be attached", scroll.isAttachedToWindow)
-            assertTrue("theme scroll must have a laid out viewport", scroll.width > 0 && scroll.height > 0)
-            scroll.viewTreeObserver.dispatchOnPreDraw()
-            ClassicSettingsPageTransition.applyProgressForTest(scroll, 0.25f)
-            assertTrue(activity.javaClass.getDeclaredField("moreColors").apply { isAccessible = true }
-                .getBoolean(activity))
-            assertEquals(1f, body.alpha, 0f)
-            assertTrue(body.translationX != 0f)
-            ClassicSettingsPageTransition.applyProgressForTest(scroll, 1f)
-            assertEquals(0f, body.translationX, 0f)
-            assertEquals(1f, body.alpha, 0f)
-            ClassicSettingsPageTransition.cancel(scroll, body)
-
-            navigate.invoke(activity, false)
-            scroll.viewTreeObserver.dispatchOnPreDraw()
-            ClassicSettingsPageTransition.applyProgressForTest(scroll, 0.25f)
-            assertTrue("return motion should start toward the opposite side", body.translationX != 0f)
-            ClassicSettingsPageTransition.applyProgressForTest(scroll, 1f)
-            assertFalse(activity.javaClass.getDeclaredField("moreColors").apply { isAccessible = true }
-                .getBoolean(activity))
-            assertEquals(1f, body.alpha, 0f)
-            assertEquals(0f, body.translationX, 0f)
-            ClassicSettingsPageTransition.cancel(scroll, body)
+            for (rtl in listOf(false, true)) for (enabled in listOf(true, false)) {
+                Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, if (enabled) 1f else 0f)
+                scroll.layoutDirection = if (rtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+                for (forward in listOf(true, false)) {
+                    val oldTitle = title.text.toString()
+                    navigate.invoke(activity, forward)
+                    assertTrue("theme scroll must be attached", scroll.isAttachedToWindow)
+                    assertTrue("theme scroll must be laid out", scroll.width > 0 && scroll.height > 0)
+                    scroll.viewTreeObserver.dispatchOnPreDraw()
+                    ClassicSettingsPageTransition.applyProgressForTest(scroll, 0.25f)
+                    assertEquals(forward, activity.javaClass.getDeclaredField("moreColors").apply { isAccessible = true }
+                        .getBoolean(activity))
+                    assertEquals(1f, body.alpha, 0f)
+                    if (enabled) {
+                        val sign = (if (forward) 1 else -1) * (if (rtl) -1 else 1)
+                        assertTrue("More colors has the same physical direction as cross-Activity pages", body.translationX * sign > 0f)
+                        assertEquals("Keep source title while source content dominates", oldTitle, title.text.toString())
+                    } else {
+                        assertEquals(0f, body.translationX, 0f)
+                    }
+                    ClassicSettingsPageTransition.applyProgressForTest(scroll, 1f)
+                    assertEquals(activity.getString(if (forward) R.string.classic_more_colors else R.string.classic_theme_title), title.text)
+                    ClassicSettingsPageTransition.cancel(scroll, body)
+                    assertEquals(0f, body.translationX, 0f)
+                }
+            }
         } finally {
             Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, prior)
             activity.windowManager.removeViewImmediate(scroll)

@@ -48,6 +48,8 @@ class SettingsActivity : SimpleActivity() {
     private var restoreOperation: GalleryRestoreOperation? = null
     private var mRecycleBinContentSize = 0L
     private val binding by viewBinding(ActivitySettingsBinding::inflate)
+    private var themeNavigationStarted = false
+    private var themeTransitionSession = java.util.UUID.randomUUID().toString()
     private var activeSettingsCategory: String? = null
     private val settingsPageViews = mutableListOf<View>()
     private val settingsPageInitialVisibility = mutableListOf<Int>()
@@ -137,6 +139,7 @@ class SettingsActivity : SimpleActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
+        themeTransitionSession = savedInstanceState?.getString("theme_transition_session") ?: themeTransitionSession
         activeSettingsCategory = savedInstanceState?.getString("settings_category")
             ?.takeIf { id -> settingsCategories.any { it.id == id } }
         savedInstanceState?.getBundle("settings_scroll_positions")?.let { positions ->
@@ -167,8 +170,14 @@ class SettingsActivity : SimpleActivity() {
         super.onDestroy()
     }
 
+    override fun onPause() {
+        ClassicSettingsPageTransition.cancel(binding.settingsNestedScrollview, binding.settingsHolder)
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
+        themeNavigationStarted = false
         // All ordinary toolbars share the user's chosen surface, even on light themes.
         setupTopAppBar(binding.settingsAppbar, NavigationIcon.Arrow,
             topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
@@ -194,6 +203,15 @@ class SettingsActivity : SimpleActivity() {
         }
         binding.settingsToolbar.setNavigationOnClickListener {
             if (!navigateSettingsBack()) finish()
+        }
+        // Keep an explicit return frame through resource recreation; the new instance
+        // consumes it only after it has inflated the current appearance.
+        if (!refreshThemeIfNeeded()) {
+            ClassicSettingsActivityTransition.receive(
+                "settings:$themeTransitionSession", binding.settingsNestedScrollview, binding.settingsHolder,
+                OxygenClassicMotion.enabled(this), { binding.settingsToolbar.title = it },
+                binding.settingsToolbar.title ?: ""
+            )
         }
     }
 
@@ -253,8 +271,7 @@ class SettingsActivity : SimpleActivity() {
 
     private fun animateSettingsPageChange(forward: Boolean, changePage: () -> Unit) {
         val epoch = ++settingsTransitionEpoch
-        val rtl = binding.settingsNestedScrollview.layoutDirection == View.LAYOUT_DIRECTION_RTL
-        val direction = (if (forward) 1 else -1) * (if (rtl) -1 else 1)
+        val direction = ClassicSettingsPageTransition.direction(forward, binding.settingsNestedScrollview)
         ClassicSettingsPageTransition.run(
             container = binding.settingsNestedScrollview,
             incoming = binding.settingsHolder,
@@ -357,6 +374,7 @@ class SettingsActivity : SimpleActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         rememberSettingsScroll()
+        outState.putString("theme_transition_session", themeTransitionSession)
         outState.putString("settings_category", activeSettingsCategory)
         outState.putBundle("settings_scroll_positions", Bundle().apply {
             settingsScrollPositions.forEach { (key, y) -> putInt(key, y) }
@@ -515,17 +533,36 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
+    private fun openThemeSettings(iconColors: Boolean) {
+        if (themeNavigationStarted || isFinishing || isDestroyed) return
+        themeNavigationStarted = true
+        ClassicSettingsPageTransition.cancel(binding.settingsNestedScrollview, binding.settingsHolder)
+        rememberSettingsScroll()
+        ClassicSettingsActivityTransition.stage(
+            "theme:$themeTransitionSession", binding.settingsNestedScrollview,
+            binding.settingsToolbar.title ?: "", true, OxygenClassicMotion.enabled(this)
+        )
+        try {
+            startActivity(Intent(this, OxygenThemeActivity::class.java)
+                .putExtra(OxygenThemeActivity.EXTRA_ICON_COLORS, iconColors)
+                .putExtra(ClassicSettingsActivityTransition.EXTRA_SESSION, themeTransitionSession),
+                android.app.ActivityOptions.makeCustomAnimation(this, 0, 0).toBundle())
+        } catch (failure: RuntimeException) {
+            themeNavigationStarted = false
+            ClassicSettingsActivityTransition.clear()
+            throw failure
+        }
+    }
+
     private fun setupCustomizeColors() {
         binding.settingsColorCustomizationHolder.setOnClickListener {
-            startActivity(Intent(this, OxygenThemeActivity::class.java))
+            openThemeSettings(iconColors = false)
         }
     }
 
     private fun setupAppIcon() {
         binding.settingsAppIconHolder.setOnClickListener {
-            startActivity(Intent(this, OxygenThemeActivity::class.java).putExtra(
-                OxygenThemeActivity.EXTRA_ICON_COLORS, true
-            ))
+            openThemeSettings(iconColors = true)
         }
     }
 

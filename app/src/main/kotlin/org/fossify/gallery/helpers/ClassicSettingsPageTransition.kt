@@ -5,20 +5,43 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.view.View
 import android.view.ViewTreeObserver
-import android.view.animation.PathInterpolator
 import java.util.WeakHashMap
 
 /** One visual snapshot plus the existing, interactive settings views. */
 object ClassicSettingsPageTransition {
     const val DURATION_MS = 180L
     const val DISTANCE_DP = 8
+
+    /** A single-owner viewport image; never captures a Toolbar or system bar. */
+    class Snapshot internal constructor(internal val bitmap: Bitmap) {
+        fun dispose() { if (!bitmap.isRecycled) bitmap.recycle() }
+    }
+
+    fun direction(forward: Boolean, view: View): Int =
+        (if (forward) 1 else -1) * (if ((if (view.isLayoutDirectionResolved) view.layoutDirection
+            else view.resources.configuration.layoutDirection) == View.LAYOUT_DIRECTION_RTL) -1 else 1)
+
+    fun capture(container: View): Snapshot? {
+        if (!container.isAttachedToWindow || container.width <= 0 || container.height <= 0) return null
+        var bitmap: Bitmap? = null
+        return try {
+            bitmap = Bitmap.createBitmap(container.width, container.height, Bitmap.Config.ARGB_8888)
+            container.draw(Canvas(bitmap))
+            Snapshot(bitmap)
+        } catch (_: RuntimeException) {
+            bitmap?.recycle()
+            null
+        } catch (_: OutOfMemoryError) {
+            bitmap?.recycle()
+            null
+        }
+    }
 
     private data class Run(
         val incoming: View,
@@ -28,7 +51,8 @@ object ClassicSettingsPageTransition {
         var animator: ValueAnimator? = null,
         var preDrawListener: ViewTreeObserver.OnPreDrawListener? = null,
         var titleCommitted: Boolean = false,
-        var distance: Float = 0f
+        var distance: Float = 0f,
+        var detachListener: View.OnAttachStateChangeListener? = null
     )
 
     private val runs = WeakHashMap<View, Run>()
@@ -58,41 +82,37 @@ object ClassicSettingsPageTransition {
         animationsEnabled: Boolean,
         prepareTarget: () -> Unit,
         onTitleCommit: () -> Unit = {},
-        onFinished: () -> Unit = {}
+        onFinished: () -> Unit = {},
+        snapshot: Snapshot? = null
     ) {
         cancel(container, incoming)
         incoming.alpha = 1f
         incoming.translationX = 0f
-        if (!animationsEnabled || !container.isAttachedToWindow || container.width <= 0 || container.height <= 0) {
-            prepareTarget()
-            incoming.alpha = 1f
-            incoming.translationX = 0f
-            onTitleCommit()
-            onFinished()
-            return
-        }
-
-        // ARGB_8888 costs width * height * 4 bytes: at 1080 x 2000 this is ~8.2 MiB.
-        // Allocate only one viewport snapshot per transition and release it on every exit path.
-        val bitmap = try {
-            Bitmap.createBitmap(container.width, container.height, Bitmap.Config.ARGB_8888).also {
-                container.draw(Canvas(it))
-            }
-        } catch (_: RuntimeException) {
-            prepareTarget()
-            onTitleCommit()
-            onFinished()
-            return
-        } catch (_: OutOfMemoryError) {
+        if (!animationsEnabled || (snapshot == null &&
+                (!container.isAttachedToWindow || container.width <= 0 || container.height <= 0))) {
+            snapshot?.dispose()
             prepareTarget()
             onTitleCommit()
             onFinished()
             return
         }
+        // A transferred snapshot may arrive before the destination's first layout.
+        val image = snapshot ?: capture(container)
+        if (image == null) {
+            prepareTarget()
+            onTitleCommit()
+            onFinished()
+            return
+        }
+        val bitmap = image.bitmap
         val outgoing = SnapshotDrawable(bitmap).apply { setBounds(0, 0, container.width, container.height) }
         val run = Run(incoming, outgoing, onTitleCommit, onFinished)
         container.overlay.add(outgoing)
         runs[container] = run
+        run.detachListener = object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(view: View) = Unit
+            override fun onViewDetachedFromWindow(view: View) { cancel(container, incoming) }
+        }.also { container.addOnAttachStateChangeListener(it) }
 
         try {
             prepareTarget()
@@ -108,6 +128,7 @@ object ClassicSettingsPageTransition {
                         finishRun(container, run, commitTitle = true, invokeFinished = true)
                         return true
                     }
+                    outgoing.setBounds(0, 0, container.width, container.height)
                     start(container, run, incomingDirection)
                     return true
                 }
@@ -137,7 +158,7 @@ object ClassicSettingsPageTransition {
         run.incoming.translationX = distance
         val animator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = DURATION_MS
-            interpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
+            interpolator = OxygenClassicMotion.easing()
             addUpdateListener { frame ->
                 applyProgress(container, run, frame.animatedValue as Float)
             }
@@ -183,6 +204,8 @@ object ClassicSettingsPageTransition {
     }
 
     private fun finishRun(container: View, run: Run, commitTitle: Boolean, invokeFinished: Boolean) {
+        run.detachListener?.let { container.removeOnAttachStateChangeListener(it) }
+        run.detachListener = null
         run.preDrawListener?.let { listener ->
             val observer = container.viewTreeObserver
             if (observer.isAlive) observer.removeOnPreDrawListener(listener)

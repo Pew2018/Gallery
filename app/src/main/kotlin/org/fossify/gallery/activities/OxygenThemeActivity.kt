@@ -13,6 +13,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.AppCompatRadioButton
 import androidx.core.graphics.ColorUtils
+import androidx.core.view.doOnLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.doAfterTextChanged
@@ -27,6 +28,9 @@ class OxygenThemeActivity : SimpleActivity() {
         const val EXTRA_ICON_COLORS = "org.fossify.gallery.extra.ICON_COLORS"
     }
 
+    private var initialNavigation = false
+    private var returningToSettings = false
+    private val transitionSession get() = intent.getStringExtra(ClassicSettingsActivityTransition.EXTRA_SESSION)
     private var iconColorPage = false
     private lateinit var root: LinearLayout
     private lateinit var titleBar: LinearLayout
@@ -71,6 +75,8 @@ class OxygenThemeActivity : SimpleActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        initialNavigation = savedInstanceState == null
+        if (transitionSession != null) ClassicSettingsActivityTransition.suppressWindowAnimation(this)
         iconColorPage = intent.getBooleanExtra(EXTRA_ICON_COLORS, false)
         moreColors = savedInstanceState?.getBoolean("theme_more") ?: false
         mainScroll = savedInstanceState?.getInt("theme_main_scroll") ?: 0
@@ -112,18 +118,29 @@ class OxygenThemeActivity : SimpleActivity() {
         })
         buildPage()
         val y = savedInstanceState?.getInt("classic_theme_scroll") ?: 0
-        scroll.post { scroll.scrollTo(0, y) }
+        scroll.doOnLayout { scroll.scrollTo(0, y) }
     }
 
     private fun goBack() {
-        if (!moreColors) { finish(); return }
+        if (returningToSettings) return
+        if (!moreColors) {
+            returningToSettings = true
+            ClassicSettingsPageTransition.cancel(scroll, body)
+            transitionSession?.let { session ->
+                ClassicSettingsActivityTransition.stage(
+                    "settings:$session", scroll, titleText.text, false, OxygenClassicMotion.enabled(this)
+                )
+            }
+            finish()
+            if (transitionSession != null) ClassicSettingsActivityTransition.suppressWindowAnimation(this)
+            return
+        }
         navigateColors(false)
     }
 
     private fun navigateColors(open: Boolean) {
-        if (moreColors == open) return
-        val direction = (if (open) 1 else -1) *
-            (if (scroll.layoutDirection == View.LAYOUT_DIRECTION_RTL) -1 else 1)
+        if (moreColors == open || returningToSettings) return
+        val direction = ClassicSettingsPageTransition.direction(open, scroll)
         ClassicSettingsPageTransition.run(
             container = scroll,
             incoming = body,
@@ -132,10 +149,16 @@ class OxygenThemeActivity : SimpleActivity() {
             prepareTarget = {
                 if (open) mainScroll = scroll.scrollY
                 moreColors = open
-                buildPage()
-                scroll.scrollTo(0, if (open) 0 else mainScroll)
-            }
+                buildPage(updateTitle = false)
+                scroll.doOnLayout { scroll.scrollTo(0, if (open) 0 else mainScroll) }
+            },
+            onTitleCommit = { updatePageTitle() }
         )
+    }
+
+    override fun onPause() {
+        ClassicSettingsPageTransition.cancel(scroll, body)
+        super.onPause()
     }
 
     override fun onDestroy() {
@@ -155,6 +178,15 @@ class OxygenThemeActivity : SimpleActivity() {
     override fun onResume() {
         super.onResume()
         if (::root.isInitialized) bindPage()
+        if (initialNavigation) {
+            initialNavigation = false
+            transitionSession?.let { session ->
+                ClassicSettingsActivityTransition.receive(
+                    "theme:$session", scroll, body, OxygenClassicMotion.enabled(this),
+                    { titleText.text = it }, titleText.text
+                )
+            }
+        }
     }
 
     private fun change(action: () -> Unit) {
@@ -295,14 +327,18 @@ class OxygenThemeActivity : SimpleActivity() {
         }
     }
 
-    private fun buildPage() {
-        binders.clear()
-        body.removeAllViews()
+    private fun updatePageTitle() {
         titleText.setText(when {
             iconColorPage -> R.string.classic_app_icon
             moreColors -> R.string.classic_more_colors
             else -> R.string.classic_theme_title
         })
+    }
+
+    private fun buildPage(updateTitle: Boolean = true) {
+        binders.clear()
+        body.removeAllViews()
+        if (updateTitle) updatePageTitle()
         if (iconColorPage) {
             buildIconColorPage()
         } else if (moreColors) {
