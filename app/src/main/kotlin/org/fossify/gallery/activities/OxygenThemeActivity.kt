@@ -33,7 +33,7 @@ class OxygenThemeActivity : SimpleActivity() {
     private lateinit var backIcon: ImageView
     private lateinit var titleText: TextView
     private lateinit var scroll: ScrollView
-    private lateinit var body: LinearLayout
+    private lateinit var body: org.fossify.gallery.views.TiebaSettingsContainer
     private val binders = mutableListOf<() -> Unit>()
     private var moreColors = false
     private var mainScroll = 0
@@ -122,34 +122,25 @@ class OxygenThemeActivity : SimpleActivity() {
 
     private fun navigateColors(open: Boolean) {
         if (moreColors == open) return
-        // Back must be available even while the entrance animation is running.
-        scroll.animate().cancel()
-        if (open) mainScroll = scroll.scrollY
-        moreColors = open
-        buildPage()
-        scroll.scrollTo(0, if (open) 0 else mainScroll)
-        // A short content transition keeps the toolbar fixed and respects disabled animations.
-        val animationsEnabled = OxygenClassicMotion.enabled(this)
-        if (!animationsEnabled) {
-            scroll.translationX = 0f
-            scroll.alpha = 1f
-            return
-        }
         val direction = (if (open) 1 else -1) *
             (if (scroll.layoutDirection == View.LAYOUT_DIRECTION_RTL) -1 else 1)
-        val distance = dp(OxygenClassicMotion.SETTINGS_DISTANCE_DP).toFloat() * direction
-        scroll.translationX = distance
-        scroll.alpha = 1f
-        scroll.animate().translationX(0f).alpha(1f)
-            .setDuration(OxygenClassicMotion.SETTINGS_ENTER_MS)
-            .setInterpolator(OxygenClassicMotion.easing()).start()
+        ClassicSettingsPageTransition.run(
+            container = scroll,
+            incoming = body,
+            incomingDirection = direction,
+            animationsEnabled = OxygenClassicMotion.enabled(this),
+            prepareTarget = {
+                if (open) mainScroll = scroll.scrollY
+                moreColors = open
+                buildPage()
+                scroll.scrollTo(0, if (open) 0 else mainScroll)
+            }
+        )
     }
 
     override fun onDestroy() {
         if (::scroll.isInitialized) {
-            scroll.animate().cancel()
-            scroll.alpha = 1f
-            scroll.translationX = 0f
+            ClassicSettingsPageTransition.cancel(scroll, body)
         }
         super.onDestroy()
     }
@@ -188,12 +179,6 @@ class OxygenThemeActivity : SimpleActivity() {
         }
         body.addView(label, LinearLayout.LayoutParams(-1, -2))
         binders.add { label.setTextColor(colors.interactiveAccent) }
-    }
-
-    private fun divider() {
-        val line = View(this)
-        body.addView(line, LinearLayout.LayoutParams(-1, dp(1)))
-        binders.add { line.setBackgroundColor(OxygenThemeColors.blend(colors.pageBackground, colors.primaryText, 0.10)) }
     }
 
     /** A masked, bounded ripple: never an unbounded halo behind color swatches. */
@@ -323,7 +308,6 @@ class OxygenThemeActivity : SimpleActivity() {
         } else if (moreColors) {
             section(R.string.classic_palette_classic)
             colorGrid(OxygenThemePresets.group("classic"))
-            divider()
             section(R.string.classic_palette_material)
             colorGrid(OxygenThemePresets.group("material"))
         } else {
@@ -335,10 +319,8 @@ class OxygenThemeActivity : SimpleActivity() {
                     change { config.oxygenAppearanceMode = mode; config.oxygenThemeActivated = true }
                 }
             }
-            divider()
             section(R.string.classic_accent)
             colorGrid(OxygenThemePresets.featured, showCurrentColor = true)
-            divider()
             section(R.string.classic_other)
             actionRow(R.string.classic_more_colors) { navigateColors(true) }
             actionRow(R.string.classic_custom_color) { chooseColor() }
@@ -435,6 +417,7 @@ class OxygenThemeActivity : SimpleActivity() {
         val tokens = colors
         root.setBackgroundColor(tokens.pageBackground)
         body.setBackgroundColor(tokens.pageBackground)
+        body.setSettingsDividerColor(OxygenThemeColors.blend(tokens.pageBackground, tokens.primaryText, 0.10))
         OxygenToolbarStyle.applyStandaloneToolbar(this, titleBar, backIcon, titleText)
         binders.forEach { it() }
         OxygenClassicControls.applySwitches(body, tokens)

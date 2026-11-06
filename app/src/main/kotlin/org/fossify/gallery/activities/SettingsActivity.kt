@@ -160,9 +160,7 @@ class SettingsActivity : SimpleActivity() {
 
     override fun onDestroy() {
         settingsTransitionEpoch++
-        binding.settingsNestedScrollview.animate().cancel()
-        binding.settingsNestedScrollview.alpha = 1f
-        binding.settingsNestedScrollview.translationX = 0f
+        ClassicSettingsPageTransition.cancel(binding.settingsNestedScrollview, binding.settingsHolder)
         if (restoreOperation != null) PhotoAuthentication.requests.cancelOwner(this)
         restoreOperation?.close()
         restoreOperation = null
@@ -178,9 +176,7 @@ class SettingsActivity : SimpleActivity() {
         OxygenSystemBars.apply(this)
         // A resume rebind must not let a delayed navigation overwrite refreshed content.
         settingsTransitionEpoch++
-        binding.settingsNestedScrollview.animate().cancel()
-        binding.settingsNestedScrollview.alpha = 1f
-        binding.settingsNestedScrollview.translationX = 0f
+        ClassicSettingsPageTransition.cancel(binding.settingsNestedScrollview, binding.settingsHolder)
         pendingSettingsCategory = null
         val resumeY = if (::settingsHub.isInitialized) binding.settingsNestedScrollview.scrollY
             else settingsScrollPositions[settingsPageKey()] ?: 0
@@ -232,6 +228,9 @@ class SettingsActivity : SimpleActivity() {
         settingsHubDividers.forEach {
             it.setBackgroundColor(OxygenThemeColors.blend(colors.pageBackground, colors.primaryText, 0.10))
         }
+        binding.settingsHolder.setSettingsDividerColor(
+            OxygenThemeColors.blend(colors.pageBackground, colors.primaryText, 0.10)
+        )
         settingsPageViews.filter { it.id !in settingsSectionRows && it.hasOnClickListeners() }
             .forEach { ClassicSettingsPresentation.rowRipple(it, colors) }
         renderSettingsPage()
@@ -254,32 +253,21 @@ class SettingsActivity : SimpleActivity() {
     }
 
     private fun animateSettingsPageChange(forward: Boolean, changePage: () -> Unit) {
-        val content = binding.settingsNestedScrollview
         val epoch = ++settingsTransitionEpoch
-        content.animate().cancel()
-        if (!OxygenClassicMotion.enabled(this)) {
-            changePage()
-            content.alpha = 1f
-            content.translationX = 0f
-            return
-        }
-        // Swap content before motion, then move the new page as one continuous scene.
-        content.alpha = 1f
-        content.translationX = 0f
-        val direction = (if (forward) 1 else -1) *
-            (if (content.layoutDirection == View.LAYOUT_DIRECTION_RTL) -1 else 1)
-        changePage()
-        content.post {
-            if (settingsTransitionEpoch != epoch || isFinishing || isDestroyed) return@post
-            content.alpha = 1f
-            content.translationX = dp(OxygenClassicMotion.SETTINGS_DISTANCE_DP).toFloat() * direction
-            content.animate().alpha(1f).translationX(0f)
-                .setDuration(OxygenClassicMotion.SETTINGS_ENTER_MS)
-                .setInterpolator(OxygenClassicMotion.easing())
-                .withEndAction {
-                    if (settingsTransitionEpoch == epoch) content.translationX = 0f
-                }.start()
-        }
+        val rtl = binding.settingsNestedScrollview.layoutDirection == View.LAYOUT_DIRECTION_RTL
+        val direction = (if (forward) 1 else -1) * (if (rtl) -1 else 1)
+        ClassicSettingsPageTransition.run(
+            container = binding.settingsNestedScrollview,
+            incoming = binding.settingsHolder,
+            incomingDirection = direction,
+            animationsEnabled = OxygenClassicMotion.enabled(this),
+            prepareTarget = changePage,
+            onFinished = {
+                if (settingsTransitionEpoch == epoch && !isDestroyed) {
+                    binding.settingsHolder.invalidate()
+                }
+            }
+        )
     }
 
     // Resolve conditional rows from live configuration rather than the first
@@ -324,6 +312,7 @@ class SettingsActivity : SimpleActivity() {
                 View.GONE
             }
         }
+        binding.settingsHolder.invalidate()
         binding.settingsToolbar.title = getString(selected?.title ?: org.fossify.commons.R.string.settings)
     }
 

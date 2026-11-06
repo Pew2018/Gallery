@@ -35,11 +35,16 @@ class SettingsPageMotionTest {
             val first = hub.getChildAt(0)
             assertTrue(first.performClick())
             val scroll = activity.findViewById<View>(R.id.settings_nested_scrollview)
+            val page = activity.findViewById<View>(R.id.settings_holder)
             assertEquals(1f, scroll.alpha, 0f)
             assertEquals(0f, scroll.translationX, 0f)
+            assertEquals(1f, page.alpha, 0f)
+            assertEquals(0f, page.translationX, 0f)
             activity.onBackPressedDispatcher.onBackPressed()
             assertEquals(1f, scroll.alpha, 0f)
             assertEquals(0f, scroll.translationX, 0f)
+            assertEquals(1f, page.alpha, 0f)
+            assertEquals(0f, page.translationX, 0f)
             assertEquals(View.VISIBLE, hub.visibility)
             controller.pause().stop().destroy()
         } finally {
@@ -57,6 +62,7 @@ class SettingsPageMotionTest {
         val transition = activity.javaClass.getDeclaredMethod("animateSettingsPageChange",
             Boolean::class.javaPrimitiveType, kotlin.jvm.functions.Function0::class.java).apply { isAccessible = true }
         val scroll = activity.findViewById<View>(R.id.settings_nested_scrollview)
+        val page = activity.findViewById<View>(R.id.settings_holder)
         var obsolete = 0
         var current = 0
         val old: () -> Unit = { obsolete++ }
@@ -70,12 +76,16 @@ class SettingsPageMotionTest {
             assertEquals(1, current)
             assertEquals(1f, scroll.alpha, 0f)
             assertEquals(0f, scroll.translationX, 0f)
+            assertEquals(1f, page.alpha, 0f)
+            assertEquals(0f, page.translationX, 0f)
             transition.invoke(activity, true, old)
             controller.pause().stop().destroy()
             repeat(20) { clock.idleFor(16, java.util.concurrent.TimeUnit.MILLISECONDS) }
             assertEquals(2, obsolete) // Destroy cancels motion after the synchronous page swap.
             assertEquals(1f, scroll.alpha, 0f)
             assertEquals(0f, scroll.translationX, 0f)
+            assertEquals(1f, page.alpha, 0f)
+            assertEquals(0f, page.translationX, 0f)
         } finally {
             Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, prior)
         }
@@ -91,6 +101,7 @@ class SettingsPageMotionTest {
         val transition = activity.javaClass.getDeclaredMethod("animateSettingsPageChange",
             Boolean::class.javaPrimitiveType, kotlin.jvm.functions.Function0::class.java).apply { isAccessible = true }
         val scroll = activity.findViewById<View>(R.id.settings_nested_scrollview)
+        val page = activity.findViewById<View>(R.id.settings_holder)
         try {
             for (rtl in listOf(false, true)) for (forward in listOf(false, true)) {
                 scroll.layoutDirection = if (rtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
@@ -99,7 +110,8 @@ class SettingsPageMotionTest {
                 transition.invoke(activity, forward, commit)
                 repeat(3) { clock.idleFor(16, java.util.concurrent.TimeUnit.MILLISECONDS) }
                 val enterSign = (if (forward) 1 else -1) * (if (rtl) -1 else 1)
-                assertTrue(scroll.translationX * enterSign >= 0f)
+                assertTrue(page.translationX * enterSign >= 0f)
+                assertTrue(page.alpha >= ClassicSettingsPageTransition.PAGE_ALPHA_FLOOR)
                 repeat(20) {
                     clock.idleFor(16, java.util.concurrent.TimeUnit.MILLISECONDS)
                     assertEquals("Page should remain fully visible", 1f, scroll.alpha, 0f)
@@ -107,6 +119,8 @@ class SettingsPageMotionTest {
                 assertEquals(1, commits)
                 assertEquals(1f, scroll.alpha, 0f)
                 assertEquals(0f, scroll.translationX, 0f)
+                assertEquals(1f, page.alpha, 0f)
+                assertEquals(0f, page.translationX, 0f)
             }
         } finally {
             controller.pause().stop().destroy()

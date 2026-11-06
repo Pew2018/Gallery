@@ -1,5 +1,7 @@
 # Phase 2 · 03 — 页面运动与状态
 
+> 历史记录：Phase 3 已由 [`phase-3-settings-system-audit.md`](../phase-3-settings-system-audit.md) 取代本页的单容器单阶段转场方案；当前共享控制器使用旧帧快照与同步双向运动。下文记录 Phase 2 当时的证据与实现，不代表当前动画参数。
+
 ## 选型与依赖证据
 
 SettingsActivity 复用同一NestedScrollView，hub与分类是同一holder内的显隐集合，没有稳定独立的outgoing/incoming双页。因此保留ViewPropertyAnimator，不接入MaterialSharedAxis/Fade/FadeThrough，不改Activity/navigation所有权，不增加依赖。Google easing仍为PathInterpolator(0.4,0,0.2,1)。
