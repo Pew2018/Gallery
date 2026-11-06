@@ -89,3 +89,20 @@
 3. **先补齐 Phase 0 的真机截图/尺寸/行为基线；** 禁止靠“看上去差不多”批量硬编码宽高。
 4. 严格按阶段推进，每阶段有代码审计、确定性测试、CI 构建、真机回归与结果记录。
 5. 每次完成一个阶段，更新本文状态和相关证据，不能直接将“计划”改为“已验证”。
+
+## Phase 0 audit package
+
+**2026-11-06 — Static audit and patch plan completed; device/dependency baseline pending.** This phase did not modify Gallery app code.
+
+| Document | Coverage |
+|---|---|
+| [00-baseline-and-environment.md](phase-0/00-baseline-and-environment.md) | Remote HEAD, parallel-change risk, tools, and verification blockers |
+| [01-menu-dialog-settings-inventory.md](phase-0/01-menu-dialog-settings-inventory.md) | Menus/popups, favorite action text, settings, dialog ownership |
+| [02-bottom-bar-search-ime-and-edge-effect.md](phase-0/02-bottom-bar-search-ime-and-edge-effect.md) | Bottom bar, search/IME, FAB, overscroll |
+| [03-viewer-navigation-and-transition-risks.md](phase-0/03-viewer-navigation-and-transition-risks.md) | Viewer paths, back ownership, transition risk |
+| [04-material-motion-dependency-and-selection.md](phase-0/04-material-motion-dependency-and-selection.md) | Declared vs resolved dependencies, API evidence, selection |
+| [05-accent-color-contract-audit.md](phase-0/05-accent-color-contract-audit.md) | User theme tokens, neutral literals, remaining risks |
+| [06-reproducible-verification-baseline.md](phase-0/06-reproducible-verification-baseline.md) | Commands/results, evidence limits, device template |
+| [07-phase-1-readiness-and-patch-plan.md](phase-0/07-phase-1-readiness-and-patch-plan.md) | Prioritized minimum fixes and safety rails |
+
+Audit source SHA: 024b4731ac6508cab45f7d81eea73294a78d0d04. Source findings are separated from executed tests and device measurements. No APK was built and no UI was declared fixed.
