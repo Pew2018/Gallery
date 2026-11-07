@@ -142,7 +142,7 @@ class ThemeDialogTest {
             assertEquals(0, host.resources.getIdentifier("settings_refresh_diagnostics_holder", "id", host.packageName))
         } finally { controller.pause().stop().destroy() }
     }
-    @Test @Config(sdk = [25, 31], qualifiers = "w360dp-h640dp")
+    @Test @Config(sdk = [26, 31], qualifiers = "w360dp-h640dp")
     fun themeDialogsHaveOwnWidthProfileAndRenderWithoutOverscrollInBothModes() {
         val controller = Robolectric.buildActivity(OxygenThemeActivity::class.java).setup()
         val host = controller.get()

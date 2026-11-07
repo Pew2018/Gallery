@@ -105,7 +105,7 @@ with privacy and retained execution/error-propagation coverage.
 - Icon selection now changes a StateListDrawable inside the existing bounded
   RippleDrawable, retaining its press/release animation rather than replacing it.
   A test verifies drawable identity across selections.
-- Added API 25/31 light/dark geometry and PNG renders under
+- Added API 26/31 light/dark geometry and PNG renders under
   `build/reports/ui-regression/theme-dialogs`, plus unchanged compact width checks.
 - Local Gradle attempt stopped before compilation: distribution download failed
   with `Network is unreachable`; this is not a passing test result.
@@ -126,3 +126,15 @@ TalkBack names/states, retained diagnostics record/copy/export and unchanged
 folder refresh/count/cache behavior. Compare deletion, security/PIN/pattern,
 file picker, bottom actions and toolbar dialogs for unchanged geometry.
 Automated hooks/measurements do not establish device visual acceptance.
+
+### Minimum Android version evidence
+
+The existing project declares `minSdk = 26` in `app/build.gradle.kts`; this task
+preserves that SDK/dependency boundary. Run `42375908285` compiled and executed
+1,018 tests: the five initial failures were fixed, and the only remaining failure
+was the new API 25 render case, rejected by Android's package parser before app
+initialization because the package requires API 26. The render regression now
+uses API 26 (Android 8.0) and API 31. This is not evidence of an API 25 UI failure,
+but also does not establish APK compatibility with Android 7.1.1. OxygenOS 7.1.1
+is the visual baseline; the current APK requires Android 8.0 or later. Lowering
+minSdk and auditing dependencies would be a separate compatibility task.
