@@ -287,6 +287,60 @@ class GalleryBottomBarRippleTest {
         activity.finish()
     }
 
+    @Test fun longPressDoesNotNavigateUntilTheNormalReleaseEvent() {
+        var visits = 0
+        val (activity, bar) = fixture(onNavigate = { visits++ })
+        val item = items(bar)[1]
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        item.layout(0, 0, 100, 56)
+        val now = android.os.SystemClock.uptimeMillis()
+        val down = android.view.MotionEvent.obtain(now, now,
+            android.view.MotionEvent.ACTION_DOWN, 50f, 28f, 0)
+        item.dispatchTouchEvent(down)
+        down.recycle()
+
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(
+            android.view.ViewConfiguration.getLongPressTimeout().toLong() + 1, TimeUnit.MILLISECONDS)
+        assertEquals("pressing alone must not navigate", 0, visits)
+        assertTrue("native pressed state remains owned by View until release", item.isPressed)
+
+        val upTime = android.os.SystemClock.uptimeMillis()
+        val up = android.view.MotionEvent.obtain(now, upTime,
+            android.view.MotionEvent.ACTION_UP, 50f, 28f, 0)
+        item.dispatchTouchEvent(up)
+        up.recycle()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertTrue("release clears pressed state", !item.isPressed)
+        GalleryBottomBar.dispose(activity)
+        activity.finish()
+    }
+
+    @Test fun movingOutsideTheItemBeforeReleaseCancelsNavigation() {
+        var visits = 0
+        val (activity, bar) = fixture(onNavigate = { visits++ })
+        val item = items(bar)[1]
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        item.layout(0, 0, 100, 56)
+        val now = android.os.SystemClock.uptimeMillis()
+        val down = android.view.MotionEvent.obtain(now, now,
+            android.view.MotionEvent.ACTION_DOWN, 50f, 28f, 0)
+        item.dispatchTouchEvent(down)
+        down.recycle()
+        val move = android.view.MotionEvent.obtain(now, now + 20,
+            android.view.MotionEvent.ACTION_MOVE, 120f, 28f, 0)
+        item.dispatchTouchEvent(move)
+        move.recycle()
+        val up = android.view.MotionEvent.obtain(now, now + 30,
+            android.view.MotionEvent.ACTION_UP, 120f, 28f, 0)
+        item.dispatchTouchEvent(up)
+        up.recycle()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(0, visits)
+        assertFalse(item.isPressed)
+        GalleryBottomBar.dispose(activity)
+        activity.finish()
+    }
+
     @Test fun labelsFitAtLargeFontScaleAndEqualWidthsRemainInRtl() {
         val (activity, bar) = fixture()
         val configuration = activity.resources.configuration

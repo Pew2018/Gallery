@@ -75,7 +75,7 @@ This is a whole-window cross-fade. It includes toolbar and bottom bar; the cross
 
 ## Automated verification
 
-Robolectric coverage checks bottom-bar sizing, six custom orders, ripple identity across recoloring, immediate pressed state, normal release/cancel, rapid navigation gating, failed-launch selection rollback, an immediately drawable loading frame, source retention through the remaining window transition, zero window-animation scale, and bounded startup fallback. Updated transition tests assert that paired root window animations are requested and that the content is not independently zeroed.
+Robolectric coverage checks bottom-bar sizing, six custom orders, ripple identity across recoloring, immediate pressed state, normal release/cancel, no navigation before long-press release, drag-out cancellation, rapid navigation gating, failed-launch selection rollback, an immediately drawable loading frame, source retention through the remaining window transition, zero window-animation scale, and bounded startup fallback. Updated transition tests assert that paired root window animations are requested and that the content is not independently zeroed.
 
 These tests do not render Android's actual Activity Surface composition, GPU alpha blending, native RippleDrawable release curve, gesture navigation, or three-button navigation Insets. A passing unit test is not a visual acceptance result.
 
