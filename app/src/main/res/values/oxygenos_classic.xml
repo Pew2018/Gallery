@@ -22,6 +22,11 @@
     <dimen name="oxygen_classic_switch_width">48dp</dimen>
     <dimen name="oxygen_classic_switch_thumb_size">24dp</dimen>
 
+    <!-- Window animation values are resource tokens because Android's WindowManager loads them from XML. -->
+    <integer name="oxygen_classic_dialog_enter_duration_ms">170</integer>
+    <integer name="oxygen_classic_dialog_exit_duration_ms">130</integer>
+    <dimen name="oxygen_classic_dialog_motion_distance">6dp</dimen>
+
     <!-- Screenshot-fit/application tokens, not extracted OxygenOS ROM resources. -->
     <dimen name="oxygen_classic_settings_summary">13sp</dimen>
     <dimen name="oxygen_classic_settings_section">48dp</dimen>

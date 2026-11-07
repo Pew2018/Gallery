@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <set xmlns:android="http://schemas.android.com/apk/res/android"
     android:interpolator="@android:interpolator/fast_out_slow_in">
-    <alpha android:fromAlpha="0.0" android:toAlpha="1.0" android:duration="170" />
+    <alpha android:fromAlpha="0.0" android:toAlpha="1.0" android:duration="@integer/oxygen_classic_dialog_enter_duration_ms" />
     <translate android:fromYDelta="6dp" android:toYDelta="0dp" android:duration="170" />
 </set>
