@@ -5,7 +5,7 @@
 - Repository: `Pew2018/Gallery`
 - Base branch: `refactor/media-pipeline-stability`
 - Work branch: `refactor/oxygenos-classic-bottom-bar-material-motion`
-- Audited remote baseline for this repair: `ef8e9eb82c2f15fd6a09a62fc5ad9795f7298c4e`
+- Audited remote baseline for this repair: `ef8e9eb82c2f15fd6a09a62fc5ad9795f7298c4e`; local implementation commit: `73423df00` plus the follow-up first-frame correction described below.
 - Scope: bottom-bar ripple dispatch, root Activity window handoff, deterministic tests, and this report.
 - No media scanning, indexing, Room, sorting, search, Viewer, deletion, or file-operation logic is in scope.
 
@@ -41,8 +41,8 @@ Repaired sequence:
 2. `ACTION_UP` still navigates immediately. The source selection updates on the click frame.
 3. `GalleryBottomBar.open()` starts the destination immediately and requests paired 180ms alpha window animations (`oxygen_classic_root_enter` / `oxygen_classic_root_exit`).
 4. The outgoing opaque Activity surface remains underneath the entering window during the system window transition. The ripple release therefore recedes as its owning source surface fades, instead of being cut off by a zero-duration handoff.
-5. The destination's first-draw gate continues to require committed visible rows, a confirmed empty state, or the existing bounded themed loading frame. It no longer forces content alpha to zero.
-6. After a real draw acknowledgement, source finish is scheduled for the remainder of the 180ms window transition. A 530ms startup fallback remains for a destination that never acknowledges a draw. Navigation itself is not delayed.
+5. The destination is allowed to draw its initial loading, empty, or authorization state immediately. It no longer blocks `OnPreDraw` waiting for adapter rows or a content-ready marker, and it does not set the content container to alpha 0.
+6. After the first actual draw acknowledgement, source finish is scheduled for the remainder of the 180ms window transition. The existing 250ms loading-indicator reveal and 530ms startup fallback remain bounded. Navigation itself is not delayed.
 
 This is a whole-window cross-fade. It includes toolbar and bottom bar; the cross-Activity architecture cannot keep the bar as one shared View. The motion is short and stationary, without translation or scale. It provides a genuine visible window handoff but is not a content-only cross-fade and must not be described as one. A single stable host could avoid cross-fading the bar, but would require substantial lifecycle, security, saved-state, and loading changes across MainActivity and MediaActivity. That risk is out of scope for this focused P0 repair.
 
@@ -56,15 +56,17 @@ This is a whole-window cross-fade. It includes toolbar and bottom bar; the cross
 
 ## Lifecycle, loading, and cleanup
 
-- The target first-draw listener still releases only after an actual draw, not merely a pre-draw pass.
-- Empty, authorization, failed, or loading states still use the existing content-ready markers and themed fallback.
+- The target listener observes a real draw but never blocks it. If the Activity never draws, the 530ms fallback releases the source; the 250ms callback may reveal its existing loading indicator.
+- Empty, authorization, failed, and loading states use their existing Activity UI. No content-ready markers are needed for navigation.
 - `dispose()` removes root listeners and callbacks. Pending roots use weak references to the source Activity; failed launch removes its pending timeout.
-- System window-animation scale 0 is owned by Android's WindowManager and should snap the XML window transition. The property animator scale no longer controls root navigation, because this transition is a WindowManager animation.
+- The system **window animation** scale controls this WindowManager transition. When it is 0, the source is released after the first drawn target frame without holding it for the 180ms motion interval. The unrelated property animator scale does not control root navigation.
 - No screenshot/cached-content overlay is created. Protected content continues to be rendered by its destination Activity under existing access checks.
 
 ## Changed files
 
 - `app/src/main/kotlin/org/fossify/gallery/helpers/GalleryBottomBar.kt`
+- `app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt`
+- `app/src/main/kotlin/org/fossify/gallery/activities/MediaActivity.kt`
 - `app/src/main/res/anim/oxygen_classic_root_enter.xml`
 - `app/src/main/res/anim/oxygen_classic_root_exit.xml`
 - `app/src/test/kotlin/org/fossify/gallery/helpers/GalleryBottomBarRippleTest.kt`
@@ -73,7 +75,7 @@ This is a whole-window cross-fade. It includes toolbar and bottom bar; the cross
 
 ## Automated verification
 
-Robolectric coverage checks bottom-bar sizing, six custom orders, ripple identity across recoloring, immediate pressed state, normal release/cancel, rapid navigation gating, failed-launch selection rollback, source retention until actual target draw, and bounded startup fallback. Updated transition tests assert that the paired root window animation is requested, content is not independently zeroed, and source Activity cleanup waits for the window transition after draw acknowledgement.
+Robolectric coverage checks bottom-bar sizing, six custom orders, ripple identity across recoloring, immediate pressed state, normal release/cancel, rapid navigation gating, failed-launch selection rollback, an immediately drawable loading frame, source retention through the remaining window transition, zero window-animation scale, and bounded startup fallback. Updated transition tests assert that paired root window animations are requested and that the content is not independently zeroed.
 
 These tests do not render Android's actual Activity Surface composition, GPU alpha blending, native RippleDrawable release curve, gesture navigation, or three-button navigation Insets. A passing unit test is not a visual acceptance result.
 

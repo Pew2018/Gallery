@@ -203,7 +203,6 @@ class GalleryBottomBarRippleTest {
 
         try {
             GalleryBottomBar.coordinateFirstDraw(destination, root)
-            GalleryBottomBar.markRootContentReady(destination, GalleryBottomBar.RootContent.EMPTY)
             Shadows.shadowOf(Looper.getMainLooper()).idleFor(
                 GalleryBottomBar.FIRST_DRAW_LIMIT_MS, TimeUnit.MILLISECONDS)
             root.viewTreeObserver.dispatchOnPreDraw()
