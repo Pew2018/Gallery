@@ -71,6 +71,12 @@ object DialogOverscrollPolicy {
     }
 
     /** Public presentation boundaries also cover plain Dialog and DialogFragment. */
+    @JvmStatic fun showPlatformBuilder(builder: android.app.AlertDialog.Builder): android.app.AlertDialog {
+        val dialog = builder.create()
+        protectDialog(dialog)
+        dialog.show()
+        return dialog
+    }
     @JvmStatic fun protectDialog(dialog: Dialog) {
         dialog.create()
         dialog.window?.decorView?.let(::protect)

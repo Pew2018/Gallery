@@ -21,21 +21,31 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
             || data.getClassName().startsWith("org.fossify.gallery.");
     }
 
+    private static boolean extendsType(ClassContext context, String owner, String type) {
+        String className = owner.replace('/', '.');
+        if (className.equals(type)) return true;
+        ClassData data = context.loadClassData(className);
+        return data != null && data.getSuperClasses().contains(type);
+    }
+
     @Override public ClassVisitor createClassVisitor(ClassContext context, ClassVisitor next) {
-        return visitor(context.getCurrentClassData().getClassName(), next, owner -> {
-            if (owner.equals("android/app/Dialog")) return true;
-            ClassData data = context.loadClassData(owner.replace('/', '.'));
-            return data != null && data.getSuperClasses().contains("android.app.Dialog");
-        });
+        return visitor(context.getCurrentClassData().getClassName(), next,
+            owner -> extendsType(context, owner, "android.app.Dialog"),
+            owner -> extendsType(context, owner, "androidx.appcompat.app.AlertDialog$Builder"),
+            owner -> extendsType(context, owner, "android.app.AlertDialog$Builder"));
     }
 
     public static ClassVisitor visitor(String name, ClassVisitor next) {
         return visitor(name, next, owner -> owner.equals("android/app/Dialog")
             || owner.equals("androidx/appcompat/app/AppCompatDialog")
-            || owner.equals("androidx/appcompat/app/AlertDialog") || owner.equals("android/app/AlertDialog"));
+            || owner.equals("androidx/appcompat/app/AlertDialog") || owner.equals("android/app/AlertDialog"),
+            owner -> owner.equals("androidx/appcompat/app/AlertDialog$Builder")
+                || owner.equals("com/google/android/material/dialog/MaterialAlertDialogBuilder"),
+            owner -> owner.equals("android/app/AlertDialog$Builder"));
     }
 
-    private static ClassVisitor visitor(String name, ClassVisitor next, java.util.function.Predicate<String> dialogType) {
+    private static ClassVisitor visitor(String name, ClassVisitor next, java.util.function.Predicate<String> dialogType,
+        java.util.function.Predicate<String> supportBuilderType, java.util.function.Predicate<String> platformBuilderType) {
         return new ClassVisitor(Opcodes.ASM9, next) {
             private int shows = 0;
             private int beforeShows = 0;
@@ -171,8 +181,12 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
                 }
                 if (!activity && !breadcrumbs) return new MethodVisitor(Opcodes.ASM9, target) {
                     @Override public void visitMethodInsn(int opcode, String owner, String called, String descriptor, boolean itf) {
-                        if (opcode == Opcodes.INVOKEVIRTUAL && owner.equals("androidx/appcompat/app/AlertDialog$Builder")
-                            && called.equals("show") && descriptor.equals("()Landroidx/appcompat/app/AlertDialog;")) {
+                        if (opcode == Opcodes.INVOKEVIRTUAL && called.equals("show")
+                            && descriptor.equals("()Landroid/app/AlertDialog;") && platformBuilderType.test(owner)) {
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, policy, "showPlatformBuilder",
+                                "(Landroid/app/AlertDialog$Builder;)Landroid/app/AlertDialog;", false);
+                        } else if (opcode == Opcodes.INVOKEVIRTUAL && called.equals("show")
+                            && descriptor.equals("()Landroidx/appcompat/app/AlertDialog;") && supportBuilderType.test(owner)) {
                             // The receiver becomes the static wrapper's argument. No post-show resize.
                             super.visitMethodInsn(Opcodes.INVOKESTATIC, hook, "showClassicBuilder",
                                 "(Landroidx/appcompat/app/AlertDialog$Builder;)Landroidx/appcompat/app/AlertDialog;", false);

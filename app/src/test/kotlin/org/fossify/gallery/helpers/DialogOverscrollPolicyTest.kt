@@ -34,6 +34,12 @@ class DialogOverscrollPolicyTest {
     }
     @Test fun plainPlatformDialogAndAlertDialogUseTheNoEffectBoundary() {
         val activity = activity()
+        val directlyShown = DialogOverscrollPolicy.showPlatformBuilder(android.app.AlertDialog.Builder(activity)
+            .setItems(Array(100) { "Item $it" }, null))
+        assertNone(directlyShown.window!!.decorView)
+        OxygenClassicEdgeGlow.install(directlyShown.window!!.decorView)
+        assertNone(directlyShown.window!!.decorView)
+        directlyShown.dismiss()
         for (dialog in listOf(Dialog(activity), android.app.AlertDialog.Builder(activity)
             .setItems(Array(100) { "Item $it" }, null).create())) {
             DialogOverscrollPolicy.protectDialog(dialog)

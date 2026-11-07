@@ -23,7 +23,7 @@ Fossify Gallery 所有已有及未来新增的弹窗永久禁止 Edge Glow 和 S
 - `ClassicDialogScrollView` 仅负责正常滚动和 IME/窗口高度约束，完全不持有 Glow、Animator、绘制或越界触发代码。
 - `ClassicDialogPickerLayout` 在初始化及附着后的原有回调声明禁用；原有快滚条触摸、FAB、Insets 不变。
 - `ClassicCommonsHooks.beforeDialogShow`、`OxygenClassicDialog.apply` 覆盖 Gallery 与 Commons 7.1.3 的公开初始化边界。
-- `ClassicCommonsVisitorFactory` 以 AGP ClassData 父类信息识别 Dialog 子类型的 show 调用；将此边界、AndroidX DialogFragment 的 onStart、AppCompat ListPopupWindow 的 buildDropDown 连接到禁用边界。菜单列表在返回测量高度前即禁用；使用公开 listView API，无反射。弹窗/菜单主题也默认 `android:overScrollMode=never`。
+- `ClassicCommonsVisitorFactory` 以 AGP ClassData 父类信息识别 Dialog 子类型的 show 调用；将此边界、AndroidX DialogFragment 的 onStart、AppCompat ListPopupWindow 的 buildDropDown 连接到禁用边界。平台 AlertDialog.Builder.show() 使用 showPlatformBuilder 先 create/protect 再 show；AppCompat/Material Builder 子类型按父类信息进入共享包装器，避免系统内部 show 绕过保护。菜单列表在返回测量高度前即禁用；使用公开 listView API，无反射。弹窗/菜单主题也默认 `android:overScrollMode=never`。
 - `ClassicSecurityScrollView`、`ClassicSecurityViewPager` 自身初始化即禁用。无安全输入或验证逻辑改动。
 
 ## 普通页面规范

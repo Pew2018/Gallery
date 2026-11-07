@@ -61,3 +61,5 @@
 同步复查补强：所有 RecyclerView Factory（含默认系统/外部 Factory）在禁用边界均替换成同一个 NoGlowFactory，清除 RecyclerView 缓存的旧系统效果；增加幂等/外部 Factory 回归。Dialog 子类型的 show 调用由 AGP ClassData 父类信息识别，不依赖具体类名白名单。嵌套禁用根避免重复布局扫描，处理浮动 ViewTreeObserver 在 attach 时合并造成的重复注册，重新独立附着恢复监听；增加重附着动态内容及长弹窗仍可滚动测试。普通页面反向离开边缘时开始释放。以上为首轮后独立补修提交的原因，非改动其他 UI 功能。
 
 第二轮补修 `3e2c19f657cf4517b3a586c1925feb5b09fb926c` 的 [Run 42369027524](https://github.com/Pew2018/Gallery/actions/runs/42369027524) 完成 1013 tests，1 failed。前一轮自动消散用例及新增 Factory/重附着用例通过；新增 `longDialogStillScrollsAfterOverscrollIsDisabled` 的空 View 没有固有内容高度，不能用其 LayoutParams 高度模拟 ScrollView 长内容。再次补修仅将夹具改为 60 行有最小行高的真实文本，先断言内容高于视口，再断言滚动位置大于零，未更改生产实现或放宽滚动断言。最终构建结果仍以交付报告中绑定最终提交的 Run 为准。
+
+最终入口复核另行补齐平台 `android.app.AlertDialog.Builder.show()`：此 API 在系统内部创建并 show，无法仅依赖应用中的 Dialog.show 注入保护。因此增加 `showPlatformBuilder` 的 create/protect/show 包装及实际列表回归；AppCompat/Material Builder 子类型按 ClassData 父类信息进入共享包装器。此补强针对未来弹窗默认禁用，作为单独的覆盖修复提交披露。提交 `5ab7b052a7e1853113536db5fcdd6f5d2b36198e` 的 Run 42369541522 被最终覆盖修复构建取代，不作为最终 APK 验收依据；最终测试与构建结果由最终提交对应 Run 报告。
