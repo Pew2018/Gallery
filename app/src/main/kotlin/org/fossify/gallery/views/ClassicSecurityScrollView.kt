@@ -8,6 +8,8 @@ import org.fossify.gallery.helpers.OxygenClassicDialog
 
 /** Only security content scrolls; AlertDialog actions remain outside. */
 class ClassicSecurityScrollView(context: Context, attrs: AttributeSet) : MyScrollView(context, attrs) {
+    init { org.fossify.gallery.helpers.DialogOverscrollPolicy.protect(this) }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         var owner = context
         while (owner is android.content.ContextWrapper && owner !is android.app.Activity) {

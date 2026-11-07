@@ -17,15 +17,19 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import org.fossify.gallery.extensions.config
 import java.util.WeakHashMap
-import kotlin.math.max
+import android.content.ContextWrapper
+import org.fossify.commons.extensions.getProperBackgroundColor
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 
 /** Installs themed, non-stretch classic edge feedback without touching scroll or touch listeners. */
 object OxygenClassicEdgeGlow {
     private const val SCROLL_RELEASE_MS = OxygenClassicMotion.EDGE_GLOW_RELEASE_MS
     private const val SCROLL_APPEAR_MS = OxygenClassicMotion.EDGE_GLOW_APPEAR_MS
-    const val DIALOG_INTENSITY_SCALE = 0.42f
 
     fun install(root: View, context: Context = root.context, intensityScale: Float = 1f) {
+        if (DialogOverscrollPolicy.isForbidden(root)) { DialogOverscrollPolicy.protect(root); return }
         if (root is RecyclerView) install(root, context, intensityScale)
         if (root is ViewGroup) for (index in 0 until root.childCount) {
             install(root.getChildAt(index), context, intensityScale)
@@ -33,6 +37,7 @@ object OxygenClassicEdgeGlow {
     }
 
     fun install(recycler: RecyclerView, context: Context = recycler.context, intensityScale: Float = 1f) {
+        if (DialogOverscrollPolicy.isForbidden(recycler)) { remove(recycler); return }
         val manager = recycler.layoutManager as? LinearLayoutManager
         val vertical = manager?.orientation == RecyclerView.VERTICAL
         val refreshing = hasRefreshParent(recycler)
@@ -42,15 +47,35 @@ object OxygenClassicEdgeGlow {
             installed.intensityScale == scale) return
         installed?.dispose(recycler)
         val factory = ClassicFactory(
-            accent = { OxygenThemeEngine.snapshot(context, context.config).interactiveAccent },
+            accent = { edgeGlowTint(context) },
             vertical = vertical,
             suppressTop = refreshing,
             intensityScale = scale
         )
         recycler.edgeEffectFactory = factory
-        recycler.overScrollMode = View.OVER_SCROLL_ALWAYS
+        recycler.overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
         recycler.setTag(org.fossify.gallery.R.id.oxygen_edge_effect_factory, factory)
         factory.bind(recycler)
+    }
+
+    /** Dispose only our listeners/effects. Adapter, scrolling and touch listeners stay intact. */
+    fun remove(recycler: RecyclerView) {
+        val installed = recycler.getTag(org.fossify.gallery.R.id.oxygen_edge_effect_factory) as? ClassicFactory
+        (installed ?: (recycler.edgeEffectFactory as? ClassicFactory))?.dispose(recycler)
+        if (installed != null || recycler.edgeEffectFactory is ClassicFactory) {
+            recycler.edgeEffectFactory = object : RecyclerView.EdgeEffectFactory() {
+                override fun createEdgeEffect(view: RecyclerView, direction: Int): EdgeEffect = NoGlowEdgeEffect(view.context)
+            }
+            recycler.setTag(org.fossify.gallery.R.id.oxygen_edge_effect_factory, null)
+        }
+        recycler.overScrollMode = View.OVER_SCROLL_NEVER
+    }
+
+    /** Accent hue with a modest surface blend; opacity is independently bounded by the painter. */
+    internal fun edgeGlowTint(context: Context): Int {
+        val accent = OxygenThemeEngine.snapshot(context, context.config).interactiveAccent
+        val surface = context.getProperBackgroundColor()
+        return ColorUtils.blendARGB(accent, surface, if (ColorUtils.calculateLuminance(surface) < 0.5) 0.12f else 0.20f)
     }
 
     internal fun hasRefreshParent(view: View): Boolean {
@@ -69,6 +94,10 @@ object OxygenClassicEdgeGlow {
         internal val intensityScale: Float
     ) : RecyclerView.EdgeEffectFactory() {
         private val effects = WeakHashMap<ClassicEdgeEffect, Unit>()
+        private var lifecycle: Lifecycle? = null
+        private val pauseObserver = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_DESTROY) finishEffects()
+        }
         private var detachListener: View.OnAttachStateChangeListener? = null
         private var layoutListener: ViewTreeObserver.OnGlobalLayoutListener? = null
 
@@ -77,17 +106,23 @@ object OxygenClassicEdgeGlow {
             layoutListener?.let { if (recycler.viewTreeObserver.isAlive) recycler.viewTreeObserver.removeOnGlobalLayoutListener(it) }
             val listener = object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(view: View) {
+                    if (DialogOverscrollPolicy.isForbidden(view)) { remove(recycler); return }
+                    bindLifecycle(recycler)
                     layoutListener?.let { if (view.viewTreeObserver.isAlive) view.viewTreeObserver.addOnGlobalLayoutListener(it) }
                 }
                 override fun onViewDetachedFromWindow(view: View) {
                     layoutListener?.let { if (view.viewTreeObserver.isAlive) view.viewTreeObserver.removeOnGlobalLayoutListener(it) }
                     finishEffects()
+                    lifecycle?.removeObserver(pauseObserver)
+                    lifecycle = null
                 }
             }
             detachListener = listener
             recycler.addOnAttachStateChangeListener(listener)
+            if (recycler.isAttachedToWindow) bindLifecycle(recycler)
             val layoutObserver = ViewTreeObserver.OnGlobalLayoutListener {
                 val current = recycler
+                if (DialogOverscrollPolicy.isForbidden(current)) { remove(current); return@OnGlobalLayoutListener }
                 val orientation = (current.layoutManager as? LinearLayoutManager)?.orientation == RecyclerView.VERTICAL
                 val refreshParent = hasRefreshParent(current)
                 val active = current.getTag(org.fossify.gallery.R.id.oxygen_edge_effect_factory) as? ClassicFactory
@@ -99,23 +134,37 @@ object OxygenClassicEdgeGlow {
             recycler.viewTreeObserver.addOnGlobalLayoutListener(layoutObserver)
         }
 
+        private fun bindLifecycle(view: View) {
+            var context = view.context
+            while (context is ContextWrapper && context !is LifecycleOwner) {
+                val base = context.baseContext
+                if (base === context) break
+                context = base
+            }
+            lifecycle?.removeObserver(pauseObserver)
+            lifecycle = (context as? LifecycleOwner)?.lifecycle
+            lifecycle?.addObserver(pauseObserver)
+        }
+
         fun dispose(recycler: RecyclerView) {
+            lifecycle?.removeObserver(pauseObserver)
+            lifecycle = null
             detachListener?.let(recycler::removeOnAttachStateChangeListener)
             detachListener = null
             layoutListener?.let { if (recycler.viewTreeObserver.isAlive) recycler.viewTreeObserver.removeOnGlobalLayoutListener(it) }
             layoutListener = null
             finishEffects()
+            effects.clear()
         }
 
         private fun finishEffects() {
             effects.keys.toList().forEach(ClassicEdgeEffect::finish)
-            effects.clear()
         }
 
-        override fun createEdgeEffect(view: RecyclerView, direction: Int): EdgeEffect {
-            if (suppressEdge(vertical, suppressTop, direction)) return NoGlowEdgeEffect(view.context)
+        public override fun createEdgeEffect(view: RecyclerView, direction: Int): EdgeEffect {
+            if (DialogOverscrollPolicy.isForbidden(view) || suppressEdge(vertical, suppressTop, direction)) return NoGlowEdgeEffect(view.context)
             return ClassicEdgeEffect(view.context, view, accent, intensityScale) {
-                (view.adapter?.itemCount ?: 0) > 0 &&
+                !DialogOverscrollPolicy.isForbidden(view) && (view.adapter?.itemCount ?: 0) > 0 &&
                     (view.canScrollVertically(-1) || view.canScrollVertically(1))
             }.also { effects[it] = Unit }
         }
@@ -126,6 +175,8 @@ object OxygenClassicEdgeGlow {
         override fun onPull(deltaDistance: Float, displacement: Float) = Unit
         @androidx.annotation.RequiresApi(31)
         override fun onPullDistance(deltaDistance: Float, displacement: Float): Float = 0f
+        @androidx.annotation.RequiresApi(31)
+        override fun getDistance() = 0f
         override fun onAbsorb(velocity: Int) = Unit
         override fun onRelease() = Unit
         override fun finish() = Unit
@@ -146,154 +197,196 @@ object OxygenClassicEdgeGlow {
         private val density = context.resources.displayMetrics.density
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private var pull = 0f
-        private var intensity = 0f
         private var displacement = 0.5f
-        private var animator: ValueAnimator? = null
+        private var effectWidth = 0
+        private var effectHeight = 0
+        private val motion = ClassicGlowAnimation(owner)
+        private val releaseAfterAbsorb = Runnable { onRelease() }
+
+        override fun setSize(width: Int, height: Int) {
+            super.setSize(width, height)
+            effectWidth = width
+            effectHeight = height
+        }
 
         override fun onPull(deltaDistance: Float) = onPull(deltaDistance, displacement)
-
         override fun onPull(deltaDistance: Float, displacement: Float) {
-            if (!canScroll()) return
-            this.displacement = displacement.coerceIn(0f, 1f)
-            pull = (pull + deltaDistance.coerceAtLeast(0f)).coerceIn(0f, 0.62f)
-            animateTo((0.20f + pull * 0.72f).coerceAtMost(0.62f), SCROLL_APPEAR_MS)
+            updatePull(deltaDistance, displacement)
         }
-
+        private fun updatePull(delta: Float, position: Float): Float {
+            owner.removeCallbacks(releaseAfterAbsorb)
+            if (!canScroll()) { finish(); return 0f }
+            displacement = position.coerceIn(0f, 1f)
+            val previous = pull
+            pull = (pull + delta).coerceIn(0f, 1f)
+            motion.animateTo(if (pull == 0f) 0f else (0.25f + pull).coerceAtMost(1f), SCROLL_APPEAR_MS)
+            return pull - previous
+        }
         @androidx.annotation.RequiresApi(31)
-        override fun onPullDistance(deltaDistance: Float, displacement: Float): Float {
-            if (!canScroll()) return 0f
-            this.displacement = displacement.coerceIn(0f, 1f)
-            val old = pull
-            pull = (pull + deltaDistance).coerceIn(0f, 0.62f)
-            animateTo(if (pull == 0f) 0f else (0.20f + pull * 0.72f).coerceAtMost(0.62f), SCROLL_APPEAR_MS)
-            return pull - old
-        }
+        override fun onPullDistance(deltaDistance: Float, displacement: Float): Float = updatePull(deltaDistance, displacement)
+        @androidx.annotation.RequiresApi(31)
+        override fun getDistance(): Float = pull
 
         override fun onAbsorb(velocity: Int) {
-            if (!canScroll()) return
-            pull = (velocity / 12000f).coerceIn(0.18f, 0.62f)
-            animateTo(pull, SCROLL_APPEAR_MS)
-            owner.postOnAnimation {
-                if (intensity > 0f) onRelease()
-            }
+            if (!canScroll()) { finish(); return }
+            owner.removeCallbacks(releaseAfterAbsorb)
+            pull = 0f
+            motion.animateTo((kotlin.math.abs(velocity.toLong()) / 12000f).coerceIn(0.3f, 1f), SCROLL_APPEAR_MS)
+            owner.postDelayed(releaseAfterAbsorb, SCROLL_APPEAR_MS)
         }
-
         override fun onRelease() {
+            owner.removeCallbacks(releaseAfterAbsorb)
             pull = 0f
-            animateTo(0f, SCROLL_RELEASE_MS)
+            motion.animateTo(0f, SCROLL_RELEASE_MS)
         }
-
         override fun finish() {
-            animator?.cancel()
-            animator = null
+            owner.removeCallbacks(releaseAfterAbsorb)
             pull = 0f
-            intensity = 0f
-            owner.invalidate()
+            motion.finish()
         }
-
-        override fun isFinished(): Boolean = intensity <= 0.001f && (animator?.isRunning != true)
-
+        override fun isFinished(): Boolean = motion.isFinished && pull == 0f
         override fun draw(canvas: Canvas): Boolean {
-            ClassicGlowPainter.draw(canvas, paint, accent(), intensity * intensityScale, displacement, density)
-            return animator?.isRunning == true
-        }
-
-        private fun animateTo(target: Float, duration: Long) {
-            animator?.cancel()
-            val start = intensity
-            if (duration == 0L || !OxygenClassicMotion.enabled(owner.context)) {
-                intensity = target
-                animator = null
-                owner.invalidate()
-                return
-            }
-            animator = ValueAnimator.ofFloat(start, target).apply {
-                this.duration = duration
-                interpolator = OxygenClassicMotion.easing()
-                addUpdateListener {
-                    intensity = it.animatedValue as Float
-                    owner.postInvalidateOnAnimation()
-                }
-                start()
-            }
+            if (!canScroll() || (owner.isAttachedToWindow && owner.windowVisibility != View.VISIBLE)) { finish(); return false }
+            ClassicGlowPainter.draw(canvas, paint, accent(), motion.intensity * intensityScale, displacement, density,
+                effectWidth.toFloat(), effectHeight.toFloat())
+            return !motion.isFinished
         }
     }
 }
 
-/** Shared classic soft arc used by RecyclerView EdgeEffects and legacy scroll containers. */
+/** Elliptical radial support ends at transparent BEFORE the 48dp viewport cap.
+ * Scaling a unit circle, instead of clipping a large circular gradient, keeps both
+ * horizontal ends and the inward arc soft on phones, narrow lists and tablets.
+ */
 internal object ClassicGlowPainter {
-    fun draw(canvas: Canvas, paint: Paint, color: Int, intensity: Float, displacement: Float, density: Float) {
-        val width = canvas.width.toFloat()
-        val height = canvas.height.toFloat()
-        if (width <= 0f || height <= 0f || intensity <= 0.001f) return
-        val alpha = (Color.alpha(color) * intensity * 0.72f).toInt().coerceIn(0, 160)
-        val centerX = (width * displacement).coerceIn(0f, width)
-        val extent = minOf(height, max(32f * density, height * 0.24f))
-        paint.shader = RadialGradient(
-            centerX, 0f, max(width * 0.78f, extent),
-            intArrayOf(ColorUtils.setAlphaComponent(color, alpha),
-                ColorUtils.setAlphaComponent(color, alpha / 3), ColorUtils.setAlphaComponent(color, 0)),
-            floatArrayOf(0f, 0.50f, 1f), Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(0f, 0f, width, extent, paint)
-        paint.shader = null
+    private val stops = floatArrayOf(0f, 0.25f, 0.65f, 1f)
+    fun draw(canvas: Canvas, paint: Paint, color: Int, intensity: Float, displacement: Float, density: Float,
+        viewportWidth: Float = canvas.width.toFloat(), viewportHeight: Float = canvas.height.toFloat()) {
+        val width = viewportWidth
+        val height = viewportHeight
+        if (width <= 0f || height <= 0f || density <= 0f || intensity <= 0.001f) return
+        val alpha = (32 * intensity.coerceIn(0f, 1f)).toInt()
+        if (alpha == 0) return
+        val extent = minOf(height, 48f * density, width * 0.22f)
+        val centerX = width * displacement.coerceIn(0.35f, 0.65f)
+        val save = canvas.save()
+        try {
+            canvas.clipRect(0f, 0f, width, extent)
+            canvas.translate(centerX, -extent * 0.12f)
+            canvas.scale(width * 0.62f, extent)
+            paint.shader = RadialGradient(0f, 0f, 1f,
+                intArrayOf(ColorUtils.setAlphaComponent(color, alpha), ColorUtils.setAlphaComponent(color, alpha * 2 / 3),
+                    ColorUtils.setAlphaComponent(color, alpha / 6), Color.TRANSPARENT), stops, Shader.TileMode.CLAMP)
+            canvas.drawCircle(0f, 0f, 1f, paint)
+        } finally {
+            paint.shader = null
+            canvas.restoreToCount(save)
+        }
+    }
+}
+
+/** One animator per effect. Repeated pulls update a live target instead of restarting every frame. */
+internal class ClassicGlowAnimation(private val owner: View,
+    private val animationsEnabled: () -> Boolean = { OxygenClassicMotion.enabled(owner.context) }) {
+    var intensity = 0f
+        private set
+    private var target = 0f
+    private var origin = 0f
+    private val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+        interpolator = OxygenClassicMotion.easing()
+        addUpdateListener {
+            intensity = origin + (target - origin) * (it.animatedValue as Float)
+            owner.postInvalidateOnAnimation()
+        }
+    }
+    val isFinished: Boolean get() = intensity <= 0.001f && !animator.isRunning
+    fun animateTo(value: Float, duration: Long) {
+        val next = value.coerceIn(0f, 1f)
+        if (next == target && (animator.isRunning || intensity == next)) return
+        if (next > 0f && target > 0f && animator.isRunning && animationsEnabled()) { target = next; return }
+        animator.cancel()
+        origin = intensity
+        target = next
+        if (duration == 0L || !animationsEnabled()) {
+            intensity = next
+            owner.invalidate()
+        } else {
+            animator.duration = duration
+            animator.start()
+        }
+    }
+    fun finish() {
+        animator.cancel()
+        target = 0f
+        intensity = 0f
+        owner.invalidate()
     }
 }
 
 internal class ClassicGlowPulse(
     private val owner: View,
     private val accent: () -> Int,
-    private val maxIntensity: Float = 0.55f,
-    private val animationsEnabled: () -> Boolean = { OxygenClassicMotion.enabled(owner.context) }
+    private val maxIntensity: Float = 1f,
+    animationsEnabled: () -> Boolean = { OxygenClassicMotion.enabled(owner.context) }
 ) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val density = owner.resources.displayMetrics.density
-    private var intensity = 0f
-    private var animator: ValueAnimator? = null
+    private val motion = ClassicGlowAnimation(owner, animationsEnabled)
     private var bottom = false
-
+    private val decay = Runnable { release() }
+    private var lifecycle: Lifecycle? = null
+    private val pauseObserver = LifecycleEventObserver { _, event ->
+        if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_DESTROY) finish()
+    }
+    fun attach() {
+        var context = owner.context
+        while (context is ContextWrapper && context !is LifecycleOwner) {
+            val base = context.baseContext
+            if (base === context) break
+            context = base
+        }
+        lifecycle?.removeObserver(pauseObserver)
+        lifecycle = (context as? LifecycleOwner)?.lifecycle
+        lifecycle?.addObserver(pauseObserver)
+    }
+    fun detach() {
+        finish()
+        lifecycle?.removeObserver(pauseObserver)
+        lifecycle = null
+    }
     fun pulse(atBottom: Boolean) {
+        if (DialogOverscrollPolicy.isForbidden(owner) || (!atBottom && OxygenClassicEdgeGlow.hasRefreshParent(owner))) {
+            finish(); return
+        }
+        if (bottom != atBottom) motion.finish()
         bottom = atBottom
-        animateTo(maxIntensity.coerceIn(0f, 1f), OxygenClassicMotion.EDGE_GLOW_APPEAR_MS)
+        motion.animateTo(maxIntensity, OxygenClassicMotion.EDGE_GLOW_APPEAR_MS)
+        // Fling can hit an edge AFTER ACTION_UP; every pulse must expire on its own.
+        owner.removeCallbacks(decay)
+        owner.postDelayed(decay, OxygenClassicMotion.EDGE_GLOW_APPEAR_MS + 20L)
     }
-
-    fun release() = animateTo(0f, OxygenClassicMotion.EDGE_GLOW_RELEASE_MS)
-
+    fun release() {
+        owner.removeCallbacks(decay)
+        motion.animateTo(0f, OxygenClassicMotion.EDGE_GLOW_RELEASE_MS)
+    }
     fun finish() {
-        animator?.cancel()
-        animator = null
-        intensity = 0f
-        owner.invalidate()
+        owner.removeCallbacks(decay)
+        motion.finish()
     }
-
     fun draw(canvas: Canvas) {
-        if (intensity <= 0.001f) return
+        if (DialogOverscrollPolicy.isForbidden(owner) || (owner.isAttachedToWindow && owner.windowVisibility != View.VISIBLE)) {
+            finish(); return
+        }
+        if (motion.isFinished) return
         val save = canvas.save()
-        if (bottom) {
-            canvas.translate(canvas.width.toFloat(), canvas.height.toFloat())
-            canvas.rotate(180f)
-        }
-        ClassicGlowPainter.draw(canvas, paint, accent(), intensity, 0.5f, density)
-        canvas.restoreToCount(save)
-    }
-
-    private fun animateTo(target: Float, duration: Long) {
-        animator?.cancel()
-        val start = intensity
-        if (duration == 0L || !animationsEnabled()) {
-            intensity = target
-            animator = null
-            owner.invalidate()
-            return
-        }
-        animator = ValueAnimator.ofFloat(start, target).apply {
-            this.duration = duration
-            interpolator = OxygenClassicMotion.easing()
-            addUpdateListener {
-                intensity = it.animatedValue as Float
-                owner.postInvalidateOnAnimation()
+        try {
+            canvas.translate(owner.scrollX.toFloat(), owner.scrollY.toFloat())
+            if (bottom) {
+                canvas.translate(owner.width.toFloat(), owner.height.toFloat())
+                canvas.rotate(180f)
             }
-            start()
-        }
+            ClassicGlowPainter.draw(canvas, paint, accent(), motion.intensity, 0.5f, density,
+                owner.width.toFloat(), owner.height.toFloat())
+        } finally { canvas.restoreToCount(save) }
     }
 }

@@ -393,6 +393,8 @@ object OxygenClassicDialog {
     }
 
     fun apply(activity: Activity, dialog: AlertDialog, content: View): StyleResult {
+        DialogOverscrollPolicy.protect(dialog.window?.decorView ?: content)
+        DialogOverscrollPolicy.protect(content)
         val dp = activity.resources.displayMetrics.density
         val background = activity.getProperBackgroundColor()
         val accent = activity.getProperPrimaryColor()
@@ -416,24 +418,6 @@ object OxygenClassicDialog {
 
         // Preserve semantic, disabled, link and hint text: only skin actual controls.
         fun visit(v: View) {
-            // Keep in-window content on the shared theme-aware edge treatment.
-            // Dialog surfaces use a lower intensity than full-page lists.
-            when (v) {
-                is org.fossify.gallery.views.ClassicSecurityScrollView -> Unit
-                is android.widget.ScrollView -> if (v !is ClassicDialogScrollView) {
-                    v.overScrollMode = View.OVER_SCROLL_NEVER
-                }
-                is androidx.core.widget.NestedScrollView -> v.overScrollMode = View.OVER_SCROLL_NEVER
-                is android.widget.AbsListView -> v.overScrollMode = View.OVER_SCROLL_NEVER
-                is RecyclerView -> {
-                    val layout = v.layoutManager as? LinearLayoutManager
-                    if (layout?.orientation == RecyclerView.VERTICAL) {
-                        OxygenClassicEdgeGlow.install(v, activity, OxygenClassicEdgeGlow.DIALOG_INTENSITY_SCALE)
-                    } else {
-                        v.overScrollMode = View.OVER_SCROLL_NEVER
-                    }
-                }
-            }
             val needsStyle = v.getTag(R.id.classic_control_styled) != palette
             if (needsStyle) {
                 v.setTag(R.id.classic_control_styled, palette)

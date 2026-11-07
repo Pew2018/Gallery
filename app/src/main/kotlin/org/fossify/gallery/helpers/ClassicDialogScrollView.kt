@@ -9,51 +9,16 @@ import android.view.WindowManager
 import androidx.core.view.ViewCompat
 import android.util.AttributeSet
 import android.view.View
-import android.view.MotionEvent
-import android.graphics.Canvas
 import android.widget.ScrollView
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import org.fossify.gallery.R
-import org.fossify.gallery.extensions.config
-import org.fossify.gallery.helpers.ClassicGlowPulse
 import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 
 /** Bounds only the scrolling content, leaving title/actions available at large font scales. */
 class ClassicDialogScrollView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) :
     ScrollView(context, attrs) {
-    private val glow = ClassicGlowPulse(this, accent = {
-        OxygenThemeEngine.snapshot(context, context.config).interactiveAccent
-    }, maxIntensity = 0.28f)
-
     init {
-        overScrollMode = View.OVER_SCROLL_NEVER
-    }
-
-    override fun onOverScrolled(scrollX: Int, scrollY: Int, clampedX: Boolean, clampedY: Boolean) {
-        super.onOverScrolled(scrollX, scrollY, clampedX, clampedY)
-        if (clampedY && computeVerticalScrollRange() > height) {
-            val end = (computeVerticalScrollRange() - height).coerceAtLeast(0)
-            when {
-                scrollY <= 0 -> glow.pulse(atBottom = false)
-                scrollY >= end -> glow.pulse(atBottom = true)
-            }
-        }
-    }
-
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        val handled = super.onTouchEvent(event)
-        if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) glow.release()
-        return handled
-    }
-
-    override fun draw(canvas: Canvas) {
-        super.draw(canvas)
-        glow.draw(canvas)
-    }
-
-    override fun onDetachedFromWindow() {
-        glow.finish()
-        super.onDetachedFromWindow()
+        DialogOverscrollPolicy.protect(this)
     }
 
     private fun hostActivity(): Activity? {
@@ -90,6 +55,8 @@ class ClassicDialogPickerLayout @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : CoordinatorLayout(context, attrs) {
     private fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
+    init { DialogOverscrollPolicy.protect(this) }
+
     private var imeVisible = false
     private var normalViewportHeight = 0
 
@@ -135,7 +102,7 @@ class ClassicDialogPickerLayout @JvmOverloads constructor(
         // original touch listeners, without replacing those listeners.
         post {
             if (!isAttachedToWindow) return@post
-            OxygenClassicEdgeGlow.install(this, context, OxygenClassicEdgeGlow.DIALOG_INTENSITY_SCALE)
+            DialogOverscrollPolicy.protect(this)
             val scroller = findViewById<RecyclerViewFastScroller>(org.fossify.commons.R.id.filepicker_fastscroller)
             val list = findViewById<androidx.recyclerview.widget.RecyclerView>(org.fossify.commons.R.id.filepicker_list)
             if (scroller != null && list != null) {

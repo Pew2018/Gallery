@@ -17,6 +17,7 @@ class ClassicSecurityViewPager : MyDialogViewPager {
     constructor(context: Context, attrs: AttributeSet) : super(context, attrs) { monitorPage() }
 
     private fun monitorPage() {
+        org.fossify.gallery.helpers.DialogOverscrollPolicy.protect(this)
         addOnPageChangeListener(object : ViewPager.SimpleOnPageChangeListener() {
             override fun onPageSelected(position: Int) {
                 requestLayout()

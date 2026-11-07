@@ -173,12 +173,14 @@
         <item name="cornerSize">4dp</item>
     </style>
     <style name="OxygenClassicMaterialDialog.Light" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="android:overScrollMode">never</item>
         <item name="colorSurface">@color/oxygen_classic_surface</item>
         <item name="colorOnSurface">@color/oxygen_classic_on_light</item>
         <item name="shapeAppearance">@style/OxygenClassicDialogShape</item>
         <item name="materialAlertDialogTitleTextStyle">@style/OxygenClassicDialogTitle.Light</item>
     </style>
     <style name="OxygenClassicMaterialDialog.Dark" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="android:overScrollMode">never</item>
         <item name="colorSurface">@color/oxygen_classic_dialog_dark</item>
         <item name="colorOnSurface">@color/oxygen_classic_on_dark</item>
         <item name="shapeAppearance">@style/OxygenClassicDialogShape</item>
@@ -193,11 +195,13 @@
         <item name="android:textSize">20sp</item>
     </style>
     <style name="OxygenClassicAlertDialog.Light" parent="Theme.AppCompat.Light.Dialog.Alert">
+        <item name="android:overScrollMode">never</item>
         <item name="android:textColorPrimary">@color/oxygen_classic_on_light</item>
         <item name="android:textColorHint">#757575</item>
         <item name="android:windowBackground">@drawable/oxygen_classic_popup_light</item>
     </style>
     <style name="OxygenClassicAlertDialog.Dark" parent="Theme.AppCompat.Dialog.Alert">
+        <item name="android:overScrollMode">never</item>
         <item name="android:textColorPrimary">@color/oxygen_classic_on_dark</item>
         <item name="android:textColorHint">#BDBDBD</item>
         <item name="android:windowBackground">@drawable/oxygen_classic_popup_dark</item>
@@ -219,6 +223,7 @@
 
     <!-- Keep menus on a neutral surface, never the user's accent color. -->
     <style name="OxygenClassicPopupTheme.Light" parent="ThemeOverlay.AppCompat.Light">
+        <item name="android:overScrollMode">never</item>
         <item name="android:textColorPrimary">@color/oxygen_classic_menu_text_light</item>
         <item name="android:textColorSecondary">@color/oxygen_classic_menu_text_light</item>
         <item name="android:textColor">@color/oxygen_classic_menu_text_light</item>
@@ -242,6 +247,7 @@
         <item name="listMenuViewStyle">@style/OxygenClassicMenuList</item>
     </style>
     <style name="OxygenClassicPopupTheme.Dark" parent="ThemeOverlay.AppCompat.Dark">
+        <item name="android:overScrollMode">never</item>
         <item name="android:textColorPrimary">@color/oxygen_classic_menu_text_dark</item>
         <item name="android:textColorSecondary">@color/oxygen_classic_menu_text_dark</item>
         <item name="android:textColor">@color/oxygen_classic_menu_text_dark</item>
@@ -299,6 +305,7 @@
 
     <!-- Native menu dispatch, checkbox state, submenus and window clipping stay AppCompat-owned. -->
     <style name="OxygenClassicMenuList" parent="Widget.AppCompat.ListView.Menu">
+        <item name="android:overScrollMode">never</item>
         <item name="android:divider">@null</item>
         <item name="android:dividerHeight">0dp</item>
     </style>

@@ -130,3 +130,7 @@ Audit source SHA: 024b4731ac6508cab45f7d81eea73294a78d0d04. Source findings are 
 
 阶段 D 详情见 [phase-dialog-picker-window-motion.md](phase-dialog-picker-window-motion.md)。
 阶段 E 详情见 [phase-folder-viewer-navigation-motion.md](phase-folder-viewer-navigation-motion.md)。
+
+## Edge Glow 永久约束（2026-11-07）
+
+当前 [永久契约](EDGE_GLOW_PERMANENT_CONTRACT.md) 优先：所有弹窗及弹出菜单永久禁用 Glow/Stretch，含横向列表与安全容器；普通页面保留受限经典 Glow。历史低强度弹窗方案已作废。验证状态见 [本轮审计与验收](edge-glow-repair-audit-2026-11-07.md)。

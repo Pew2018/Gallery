@@ -7,16 +7,15 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.ScrollView
 import androidx.core.widget.NestedScrollView
-import org.fossify.gallery.extensions.config
 import org.fossify.gallery.helpers.ClassicGlowPulse
-import org.fossify.gallery.helpers.OxygenThemeEngine
+import org.fossify.gallery.helpers.ClassicGlowHost
 
 /** ScrollView variant with a bounded theme-aware glow instead of platform stretch. */
 open class ClassicGlowScrollView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = android.R.attr.scrollViewStyle
-) : ScrollView(context, attrs, defStyleAttr) {
+) : ScrollView(context, attrs, defStyleAttr), ClassicGlowHost {
     private val glow = ClassicGlowPulse(this, accent = {
-        OxygenThemeEngine.snapshot(context, context.config).interactiveAccent
+        org.fossify.gallery.helpers.OxygenClassicEdgeGlow.edgeGlowTint(context)
     })
 
     init { overScrollMode = View.OVER_SCROLL_NEVER }
@@ -43,8 +42,21 @@ open class ClassicGlowScrollView @JvmOverloads constructor(
         glow.draw(canvas)
     }
 
+    override fun stopEdgeGlow() { glow.finish() }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        glow.attach()
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        // The callback can arrive from the base constructor before glow initializes.
+        if (visibility != View.VISIBLE) glow?.finish()
+    }
+
     override fun onDetachedFromWindow() {
-        glow.finish()
+        glow.detach()
         super.onDetachedFromWindow()
     }
 }
@@ -52,9 +64,9 @@ open class ClassicGlowScrollView @JvmOverloads constructor(
 /** NestedScrollView variant matching the same bounded classic edge feedback. */
 class ClassicGlowNestedScrollView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
-) : NestedScrollView(context, attrs, defStyleAttr) {
+) : NestedScrollView(context, attrs, defStyleAttr), ClassicGlowHost {
     private val glow = ClassicGlowPulse(this, accent = {
-        OxygenThemeEngine.snapshot(context, context.config).interactiveAccent
+        org.fossify.gallery.helpers.OxygenClassicEdgeGlow.edgeGlowTint(context)
     })
 
     init { overScrollMode = View.OVER_SCROLL_NEVER }
@@ -81,8 +93,21 @@ class ClassicGlowNestedScrollView @JvmOverloads constructor(
         glow.draw(canvas)
     }
 
+    override fun stopEdgeGlow() { glow.finish() }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        glow.attach()
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        // The callback can arrive from the base constructor before glow initializes.
+        if (visibility != View.VISIBLE) glow?.finish()
+    }
+
     override fun onDetachedFromWindow() {
-        glow.finish()
+        glow.detach()
         super.onDetachedFromWindow()
     }
 }

@@ -58,6 +58,8 @@ object ClassicCommonsHooks {
         // Public Dialog.create() initializes AlertController before WindowManager.addView.
         // show() subsequently reuses that initialized content and its original callbacks.
         dialog.create()
+        DialogOverscrollPolicy.protect(dialog.window!!.decorView)
+        content?.let(DialogOverscrollPolicy::protect)
         ClassicBiometricPresentation.register(activity, dialog)
         OxygenClassicDialog.prepareWindow(activity, dialog)
         installFirstDrawGuard(activity, dialog)

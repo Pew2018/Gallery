@@ -6,8 +6,8 @@
 - Added one shared RecyclerView edge-effect factory. It draws a short, soft classic edge glow from the current `OxygenThemeEngine.snapshot(...).interactiveAccent`; the color is resolved while drawing so a theme change does not leave a cached blue glow.
 - Vertical RecyclerViews under `SwipeRefreshLayout` suppress only their top edge. The factory does not inspect `isEnabled`, so search mode cannot unexpectedly replace the refresh affordance with a top glow. Bottom feedback remains enabled. Horizontal RecyclerViews suppress vertical-style effects.
 - Empty and non-scrollable RecyclerViews do not draw a glow. `RecyclerView` retains its built-in scroll and fast-scroll touch handling; no scroll listeners, touch dispatch, adapter order, or position restoration are replaced.
-- Added shared classic-glow ScrollView and NestedScrollView subclasses for Settings, diagnostics, Theme, Photo Profile Edit, and long Gallery dialog content. They disable platform stretch and draw the shared bounded glow only when content can scroll. Security input uses its existing dedicated scroll view and remains untouched.
-- Directory/media Pickers use the same RecyclerView factory through the fast-scroller styling entry point. Commons FilePicker lists are covered when the shared picker layout attaches. Dialog RecyclerViews are covered through the existing dialog styling path.
+- Added shared classic-glow ScrollView and NestedScrollView subclasses for Settings, diagnostics, Theme, Photo Profile Edit, only. Page containers disable platform stretch and draw the shared bounded glow when content can scroll. All dialog content now follows the permanent NONE contract, including security input.
+- All Directory/media/Commons FilePicker and dialog lists now use the permanent NONE policy. Fast-scroller styling has no Glow installation side effect.
 - No media scan, query, adapter publication, sorting, delete recovery, Viewer neighbor, permission, or photo-profile loading code changed.
 
 ## Files changed
@@ -37,14 +37,8 @@
 
 The custom glow geometry and timing are engineering approximations based on the static OxygenOS reference, not measured OEM animation values. Runtime verification is required on Android 7.1 through Android 16, including gesture cancellation and nested scrolling.
 
-## 2026-11-07 app-wide coverage follow-up
+## 2026-11-07 永久契约修正
 
-The subsequent dialog-only removal commit (`5100d4f`) closed all overscroll in dialogs, including the two media Pickers. The current app-wide pass restores a separate, restrained in-window treatment in response to the broader coverage requirement:
+历史 app-wide follow-up 重新为弹窗接入了低强度效果，这是错误的工程契约，现已删除。弹窗不允许以低强度/低透明度替代彻底禁用。
 
-- `OxygenClassicEdgeGlow` now accepts a bounded intensity scale. Full-page RecyclerViews retain the existing strength; ordinary dialog RecyclerViews and Commons file-picker lists use `DIALOG_INTENSITY_SCALE` (`0.42`).
-- `ClassicDialogScrollView` draws the same live theme-accent arc at a lower cap (`0.28`) while keeping platform Stretch disabled. The long storage-permission message now uses this shared scroll view. `ClassicSecurityScrollView` and system authentication are unchanged.
-- Dialog traversal keeps generic platform/NestedScroll/AbsListView overscroll disabled, enables the shared factory for vertical RecyclerViews, and excludes horizontal ones. This prevents dialog Glow from inheriting full-page intensity or changing picker touch listeners.
-- A RecyclerView layout observer refreshes the factory after its orientation or SwipeRefresh parent policy changes. This covers preference-driven horizontal/vertical changes after initial Activity setup. Repeated installs with the same orientation, refresh policy, and intensity keep the existing factory.
-- Added deterministic checks for factory idempotence, reduced dialog intensity, and horizontal exclusion. The existing tests continue to cover refresh-parent detection independent of `isEnabled`, top suppression, bottom preservation, live accent lookup, and disabled-motion release.
-
-This follow-up has not been visually verified on-device. Picker/Dialog boundary strength, touch handling beside quick-scrollers, no-scroll and short content, search-mode refresh gestures, Android 12+ Stretch suppression, and dynamic theme changes remain on the Pixel 8 Pro verification list.
+当前实现及测试以 [EDGE_GLOW_PERMANENT_CONTRACT.md](EDGE_GLOW_PERMANENT_CONTRACT.md) 和 [修复审计/设备验收表](edge-glow-repair-audit-2026-11-07.md) 为准。上面的 Phase C 实施说明与旧 Actions 结果仅为历史记录，不代表本轮提交的验证结果。

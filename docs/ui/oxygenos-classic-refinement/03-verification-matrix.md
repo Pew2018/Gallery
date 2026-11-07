@@ -101,3 +101,8 @@ Actions Workflow run URL、job、APK 名称与 SHA：
 ```
 
 **不可跳过的区分**：静态源码正确 ≠ 控件可见；自动化通过 ≠ 真机动画自然；下载 APK 成功 ≠ 权限/鉴权场景验证通过。
+
+
+## Edge Glow 永久约束（2026-11-07）
+
+当前 [永久契约](EDGE_GLOW_PERMANENT_CONTRACT.md) 优先：所有弹窗及弹出菜单永久禁用 Glow/Stretch，含横向列表与安全容器；普通页面保留受限经典 Glow。历史低强度弹窗方案已作废。验证状态见 [本轮审计与验收](edge-glow-repair-audit-2026-11-07.md)。

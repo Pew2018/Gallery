@@ -39,3 +39,8 @@ Phase 1 建议：去除 IME→GONE；FAB 始终可见。先测 adjustResize 对 
 
 以上处理覆盖复用 `ClassicDialogScrollView` 的 XML/动态长内容弹窗、AppCompat/Commons 列表弹窗，以及目录、媒体和文件 Picker 的纵向列表。横向 RecyclerView 不会被统一设置为禁用；主页面 Glow 和 `SwipeRefreshLayout` 下拉刷新保持原行为。源码复核确认弹窗调用链不再安装自定义 Glow，并且常规纵向 overscroll 已关闭；未做真机录屏验收。
   
+
+
+## Edge Glow 永久约束（2026-11-07）
+
+当前 [永久契约](../EDGE_GLOW_PERMANENT_CONTRACT.md) 优先：所有弹窗及弹出菜单永久禁用 Glow/Stretch，含横向列表与安全容器；普通页面保留受限经典 Glow。历史低强度弹窗方案已作废。验证状态见 [本轮审计与验收](../edge-glow-repair-audit-2026-11-07.md)。

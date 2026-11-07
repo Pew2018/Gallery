@@ -15,6 +15,9 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
         return data.getClassName().equals("org.fossify.commons.views.BiometricIdTab")
             || data.getClassName().equals("org.fossify.commons.extensions.ActivityKt")
             || data.getClassName().equals("org.fossify.commons.views.Breadcrumbs")
+            || data.getClassName().equals("androidx.fragment.app.DialogFragment")
+            || data.getClassName().equals("androidx.appcompat.widget.ListPopupWindow")
+            || data.getClassName().startsWith("org.fossify.commons.dialogs.")
             || data.getClassName().startsWith("org.fossify.gallery.");
     }
 
@@ -33,6 +36,31 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
             private final String hook = "org/fossify/gallery/helpers/ClassicCommonsHooks";
             @Override public MethodVisitor visitMethod(int access, String method, String desc, String signature, String[] exceptions) {
                 MethodVisitor target = super.visitMethod(access, method, desc, signature, exceptions);
+                final String policy = "org/fossify/gallery/helpers/DialogOverscrollPolicy";
+                if (name.equals("androidx.appcompat.widget.ListPopupWindow") && method.equals("buildDropDown") && desc.equals("()I")) {
+                    methods++;
+                    return new MethodVisitor(Opcodes.ASM9, target) {
+                        @Override public void visitInsn(int opcode) {
+                            if (opcode == Opcodes.IRETURN) {
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, policy, "protectPopup",
+                                    "(Landroidx/appcompat/widget/ListPopupWindow;)V", false);
+                            }
+                            super.visitInsn(opcode);
+                        }
+                    };
+                }
+                if (name.equals("androidx.fragment.app.DialogFragment") && method.equals("onStart") && desc.equals("()V")) {
+                    methods++;
+                    return new MethodVisitor(Opcodes.ASM9, target) {
+                        @Override public void visitCode() {
+                            super.visitCode();
+                            super.visitVarInsn(Opcodes.ALOAD, 0);
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, policy, "protectFragment",
+                                "(Landroidx/fragment/app/DialogFragment;)V", false);
+                        }
+                    };
+                }
                 if (activity && method.equals("getAlertDialogBuilder") && desc.equals("(Landroid/app/Activity;)Landroidx/appcompat/app/AlertDialog$Builder;")) {
                     methods++;
                     return new MethodVisitor(Opcodes.ASM9, target) {
@@ -139,6 +167,12 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
                             super.visitMethodInsn(Opcodes.INVOKESTATIC, hook, "showClassicBuilder",
                                 "(Landroidx/appcompat/app/AlertDialog$Builder;)Landroidx/appcompat/app/AlertDialog;", false);
                         } else {
+                            if (opcode == Opcodes.INVOKEVIRTUAL && called.equals("show") && descriptor.equals("()V")
+                                && (owner.equals("android/app/Dialog") || owner.equals("androidx/appcompat/app/AppCompatDialog")
+                                    || owner.equals("androidx/appcompat/app/AlertDialog") || owner.equals("android/app/AlertDialog"))) {
+                                super.visitInsn(Opcodes.DUP);
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, policy, "protectDialog", "(Landroid/app/Dialog;)V", false);
+                            }
                             super.visitMethodInsn(opcode, owner, called, descriptor, itf);
                         }
                     }
@@ -147,7 +181,7 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
             }
             @Override public void visitEnd() {
                 // Fail closed if a future Commons update changes the patched structure.
-                if ((name.equals("org.fossify.commons.views.BiometricIdTab") && methods != 1) || (activity && (methods != 2 || shows != 2 || beforeShows != 2 || afterShows != 2)) || (breadcrumbs && methods != 5)) {
+                if (((name.equals("androidx.appcompat.widget.ListPopupWindow") || name.equals("androidx.fragment.app.DialogFragment")) && methods != 1) || (name.equals("org.fossify.commons.views.BiometricIdTab") && methods != 1) || (activity && (methods != 2 || shows != 2 || beforeShows != 2 || afterShows != 2)) || (breadcrumbs && methods != 5)) {
                     throw new IllegalStateException("Commons 7.1.3 classic patch mismatch: " + name + " methods=" + methods + " shows=" + shows);
                 }
                 super.visitEnd();

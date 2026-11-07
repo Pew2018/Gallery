@@ -1,4 +1,6 @@
 <resources>
+    <item type="id" name="dialog_no_edge_glow" />
+    <item type="id" name="dialog_overscroll_observer" />
     <item type="id" name="classic_control_skin" />
     <item type="id" name="classic_fast_scroll_observer" />
     <item type="id" name="oxygen_edge_effect_factory" />
