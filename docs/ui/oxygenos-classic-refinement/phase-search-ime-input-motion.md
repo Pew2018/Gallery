@@ -1,0 +1,31 @@
+# Phase B — Search, text inputs and IME motion
+
+## Baseline and implementation
+
+- Baseline: remote `a6fa1b04e8ae1a04d5ee037f520b18352929dbb6`, following Phase A.
+- The three `MySearchMenu` hosts and `PickDirectoryDialog` retain Commons 7.1.3 as the owner of search focus, text change delivery, keyboard requests and result filtering.
+- `OxygenToolbarStyle` now animates only the existing search field's measured width/alpha and the title/action alpha. The field is not replaced; search callbacks remain immediate. It uses a 160ms value from `OxygenClassicMotion`, and cancels an in-flight animator on a reversed open/close request or when the toolbar detaches.
+- Width is interpolated only when the toolbar has been measured and system animations are enabled. The final states remain the existing collapsed `1dp` field and expanded `MATCH_PARENT` field; no delayed query or adapter publication was added.
+- Ordinary Dialog inputs continue through `OxygenClassicDialog.styleInput()`; page input colors continue through `OxygenClassicPageInput`. Input validation and keyboard ownership were not changed.
+- `PhotoProfileEditActivity` already keeps its source FAB visible and follows IME insets via `PhotoProfileFabImePosition`/`WindowInsetsAnimationCompat`. This phase leaves that behavior intact and does not add a second keyboard-height compensation.
+
+## Files changed
+
+- `app/src/main/kotlin/org/fossify/gallery/helpers/OxygenClassicMotion.kt`
+- `app/src/main/kotlin/org/fossify/gallery/helpers/OxygenToolbarStyle.kt`
+- `app/src/test/kotlin/org/fossify/gallery/helpers/ClassicToolbarLayoutTest.kt`
+- `docs/ui/oxygenos-classic-refinement/phase-search-ime-input-motion.md`
+
+No Picker selection, filtering, permissions, source configuration, media loading, sorting, Viewer, or database code was changed.
+
+## Tests and build
+
+- Added `searchExpansionPreservesTheExistingInputAndRestoresToolbarState`. It opens and closes the real Commons search view with animator scale set to zero, confirms the EditText identity and immediate query value, and checks the final action/title/width/focus state.
+- Existing Photo Profile FAB/insets and dialog-input tests remain part of the Release unit test suite.
+- Local Gradle verification is blocked before task execution: the wrapper requires Gradle 9.5.1 from `services.gradle.org`, which this environment cannot reach. The phase must not be described as locally test-passing.
+- GitHub Actions run and outcome: pending this phase's branch update.
+- Pixel 8 Pro input/IME checks are **待真机验收**: first-key entry during expansion; quick open/close/reversal; system Back with keyboard visible; Gboard geometry; Dialog fields; FAB reachability; rotation and navigation modes.
+
+## Limits
+
+The 160ms duration is an engineering starting value, not a measured OxygenOS ROM duration. The system owns the IME animation; no fixed delay synchronizes it with the search transition.

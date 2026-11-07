@@ -1,6 +1,9 @@
 package org.fossify.gallery.helpers
 
 import android.app.Activity
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.os.Build
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -30,7 +33,13 @@ import java.util.WeakHashMap
 object OxygenToolbarStyle {
     private const val TITLE_TAG = "oxygen_classic_toolbar_title"
     private const val BACK_TAG = "oxygen_classic_toolbar_back"
-    private class State(var title: String, var back: Boolean, var showSearch: Boolean = true)
+    private class State(
+        var title: String,
+        var back: Boolean,
+        var showSearch: Boolean = true,
+        var renderedOpen: Boolean? = null,
+        var transition: Animator? = null
+    )
     private val hooked = WeakHashMap<MySearchMenu, State>()
 
     /** Set the ActionMenuPresenter popup theme before the menu is inflated. */
@@ -63,6 +72,15 @@ object OxygenToolbarStyle {
             render(searchMenu, state)
         }
         hooked[searchMenu] = state
+        searchMenu.binding.toolbarContainer.addOnAttachStateChangeListener(
+            object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(view: View) = Unit
+                override fun onViewDetachedFromWindow(view: View) {
+                    state.transition?.cancel()
+                    state.transition = null
+                }
+            }
+        )
         render(searchMenu, state)
     }
 
@@ -81,8 +99,17 @@ object OxygenToolbarStyle {
         val density = activity.resources.displayMetrics.density
         fun dp(value: Int) = (value * density + 0.5f).toInt()
         val opened = menu.isSearchOpen
-        val foreground = OxygenThemeEngine.toolbarForeground(activity, activity.config)
         val container = menu.binding.toolbarContainer
+        val wasOpen = state.renderedOpen
+        val shouldAnimate = wasOpen != null && wasOpen != opened &&
+            container.width > 0 && OxygenClassicMotion.enabled(activity)
+        val transitionAlreadyRunning = state.transition?.isRunning == true && wasOpen == opened
+        if (wasOpen != null && wasOpen != opened) {
+            state.transition?.cancel()
+            state.transition = null
+        }
+        state.renderedOpen = opened
+        val foreground = OxygenThemeEngine.toolbarForeground(activity, activity.config)
         val icon = menu.binding.topToolbarSearchIcon
         val input = menu.binding.topToolbarSearch
         val actions = menu.binding.topToolbar
@@ -109,7 +136,6 @@ object OxygenToolbarStyle {
             marginStart = 0
             marginEnd = 0
         }
-        actions.visibility = if (opened) View.GONE else View.VISIBLE
         menu.minimumHeight = rowHeight
         applyToolbar(activity, actions)
         // Commons uses ImageView.setColorFilter(), which takes precedence over imageTintList.
@@ -147,17 +173,16 @@ object OxygenToolbarStyle {
             removeRule(RelativeLayout.ALIGN_PARENT_END)
             removeRule(RelativeLayout.ALIGN_PARENT_START)
             if (opened) {
-                width = ViewGroup.LayoutParams.MATCH_PARENT
+                width = if (shouldAnimate) dp(1) else ViewGroup.LayoutParams.MATCH_PARENT
                 addRule(RelativeLayout.END_OF, icon.id)
                 addRule(RelativeLayout.ALIGN_PARENT_END)
                 marginEnd = dp(16)
             } else {
-                width = dp(1)
+                width = if (shouldAnimate) input.width.coerceAtLeast(dp(1)) else dp(1)
                 addRule(RelativeLayout.ALIGN_PARENT_START)
                 marginEnd = 0
             }
         }
-        input.alpha = if (opened) 1f else 0f
         input.isClickable = opened
         input.importantForAccessibility = if (opened)
             View.IMPORTANT_FOR_ACCESSIBILITY_AUTO else View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -208,7 +233,6 @@ object OxygenToolbarStyle {
         }
         heading.text = state.title
         heading.setTextColor(foreground)
-        heading.visibility = if (opened) View.GONE else View.VISIBLE
         heading.layoutParams = RelativeLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
         ).apply {
@@ -218,6 +242,90 @@ object OxygenToolbarStyle {
             marginEnd = dp(8)
         }
 
+        // Commons owns focus, query delivery and IME timing. This presentation
+        // animation only interpolates the existing input View's width/alpha and
+        // fades the title/actions; it never delays input or replaces the field.
+        if (!transitionAlreadyRunning) {
+            if (!shouldAnimate) {
+                actions.visibility = if (opened) View.GONE else View.VISIBLE
+                actions.alpha = 1f
+                heading.visibility = if (opened) View.GONE else View.VISIBLE
+                heading.alpha = 1f
+                input.layoutParams = (input.layoutParams as RelativeLayout.LayoutParams).apply {
+                    width = if (opened) ViewGroup.LayoutParams.MATCH_PARENT else dp(1)
+                }
+                input.alpha = if (opened) 1f else 0f
+            } else {
+                animateSearchPresentation(
+                    state, container, input, heading, actions, opened,
+                    dp(1), dp(48), dp(16), activity
+                )
+            }
+        }
+
+    }
+
+    private fun animateSearchPresentation(
+        state: State,
+        container: View,
+        input: View,
+        heading: View,
+        actions: View,
+        opening: Boolean,
+        collapsedWidth: Int,
+        leadingWidth: Int,
+        endInset: Int,
+        activity: Activity
+    ) {
+        val inputParams = input.layoutParams as RelativeLayout.LayoutParams
+        val fullWidth = (container.width - leadingWidth - endInset).coerceAtLeast(collapsedWidth)
+        val startWidth = if (opening) collapsedWidth else input.width.coerceAtLeast(collapsedWidth)
+        val targetWidth = if (opening) fullWidth else collapsedWidth
+        val startInputAlpha = input.alpha
+        val startActionsAlpha = actions.alpha
+        val startHeadingAlpha = heading.alpha
+        val endInputAlpha = if (opening) 1f else 0f
+        val endChromeAlpha = if (opening) 0f else 1f
+        // Keep the system IME's immediately focused input usable throughout the
+        // opening animation. On close, the existing focus/query owner clears it.
+        actions.visibility = View.VISIBLE
+        heading.visibility = View.VISIBLE
+        input.layoutParams = inputParams.apply {
+            width = startWidth
+            if (opening) marginEnd = endInset
+        }
+        val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = OxygenClassicMotion.SEARCH_MS
+            interpolator = OxygenClassicMotion.easing()
+            addUpdateListener { value ->
+                val fraction = value.animatedValue as Float
+                val width = (startWidth + (targetWidth - startWidth) * fraction).toInt()
+                input.layoutParams = (input.layoutParams as RelativeLayout.LayoutParams).apply {
+                    this.width = width
+                }
+                input.alpha = startInputAlpha + (endInputAlpha - startInputAlpha) * fraction
+                actions.alpha = startActionsAlpha + (endChromeAlpha - startActionsAlpha) * fraction
+                heading.alpha = startHeadingAlpha + (endChromeAlpha - startHeadingAlpha) * fraction
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                private var cancelled = false
+                override fun onAnimationCancel(animation: Animator) { cancelled = true }
+                override fun onAnimationEnd(animation: Animator) {
+                    if (cancelled) return
+                    input.layoutParams = (input.layoutParams as RelativeLayout.LayoutParams).apply {
+                        width = if (opening) ViewGroup.LayoutParams.MATCH_PARENT else collapsedWidth
+                    }
+                    input.alpha = if (opening) 1f else 0f
+                    actions.alpha = 1f
+                    actions.visibility = if (opening) View.GONE else View.VISIBLE
+                    heading.alpha = 1f
+                    heading.visibility = if (opening) View.GONE else View.VISIBLE
+                    if (state.transition === animation) state.transition = null
+                }
+            })
+        }
+        state.transition = animator
+        animator.start()
     }
 
     /** Final styling boundary after Commons setupTopAppBar/updateColors/menu mutations. */
