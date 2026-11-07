@@ -15,9 +15,9 @@ import org.fossify.gallery.helpers.OxygenThemeEngine
 open class ClassicGlowScrollView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = android.R.attr.scrollViewStyle
 ) : ScrollView(context, attrs, defStyleAttr) {
-    private val glow = ClassicGlowPulse(this) {
+    private val glow = ClassicGlowPulse(this, accent = {
         OxygenThemeEngine.snapshot(context, context.config).interactiveAccent
-    }
+    })
 
     init { overScrollMode = View.OVER_SCROLL_NEVER }
 
@@ -53,9 +53,9 @@ open class ClassicGlowScrollView @JvmOverloads constructor(
 class ClassicGlowNestedScrollView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 ) : NestedScrollView(context, attrs, defStyleAttr) {
-    private val glow = ClassicGlowPulse(this) {
+    private val glow = ClassicGlowPulse(this, accent = {
         OxygenThemeEngine.snapshot(context, context.config).interactiveAccent
-    }
+    })
 
     init { overScrollMode = View.OVER_SCROLL_NEVER }
 
