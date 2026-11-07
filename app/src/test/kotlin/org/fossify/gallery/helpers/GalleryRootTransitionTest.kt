@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit
 @LooperMode(LooperMode.Mode.PAUSED)
 class GalleryRootTransitionTest {
     @Test fun rootWindowAnimationsArePairedShortAlphaCrossFade() {
-        val context = RuntimeEnvironment.getApplication<Application>()
+        val context = RuntimeEnvironment.getApplication()
         val enter = AnimationUtils.loadAnimation(context, R.anim.oxygen_classic_root_enter) as AlphaAnimation
         val exit = AnimationUtils.loadAnimation(context, R.anim.oxygen_classic_root_exit) as AlphaAnimation
         assertEquals(GalleryBottomBar.ROOT_ENTER_DURATION_MS, enter.duration)
