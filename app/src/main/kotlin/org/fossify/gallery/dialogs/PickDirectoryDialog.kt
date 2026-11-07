@@ -170,12 +170,13 @@ class PickDirectoryDialog(
                     }
                 }
                 alertDialog.setOnDismissListener {
-                    searchView.searchEditText.clearFocus()
+                    val searchInput = searchView.binding.topToolbarSearch
+                    searchInput.clearFocus()
                     alertDialog.window?.let { window ->
-                        WindowInsetsControllerCompat(window, searchView.searchEditText)
+                        WindowInsetsControllerCompat(window, searchInput)
                             .hide(WindowInsetsCompat.Type.ime())
                     }
-                    activity.hideKeyboard(searchView.searchEditText)
+                    activity.hideKeyboard(searchInput)
                     if (sourceSelection != null && !sourceSelectionConfirmed) {
                         sourceSelection.onCancelled()
                     }
