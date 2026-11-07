@@ -9,13 +9,18 @@ import android.view.WindowManager
 import androidx.core.view.ViewCompat
 import android.util.AttributeSet
 import android.view.View
+import android.widget.ScrollView
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import org.fossify.gallery.R
 import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 
 /** Bounds only the scrolling content, leaving title/actions available at large font scales. */
 class ClassicDialogScrollView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) :
-    org.fossify.gallery.views.ClassicGlowScrollView(context, attrs) {
+    ScrollView(context, attrs) {
+    init {
+        overScrollMode = View.OVER_SCROLL_NEVER
+    }
+
     private fun hostActivity(): Activity? {
         var owner = context
         while (owner is ContextWrapper && owner !is Activity) {
@@ -90,7 +95,6 @@ class ClassicDialogPickerLayout @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         ViewCompat.requestApplyInsets(this)
-        OxygenClassicEdgeGlow.install(this, context)
         // Commons' FilePickerDialog doesn't call Gallery's shared scroller skin.
         // Install the same thumb hit target after Commons has attached its
         // original touch listeners, without replacing those listeners.

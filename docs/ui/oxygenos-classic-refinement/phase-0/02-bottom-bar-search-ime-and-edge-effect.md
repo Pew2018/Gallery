@@ -25,4 +25,17 @@ Phase 1 建议：去除 IME→GONE；FAB 始终可见。先测 adjustResize 对 
 目标源码未发现统一的 Gallery 主题化 EdgeEffect 工厂；这不能证明所有列表都是 Glow、Stretch 或关闭。RecyclerView、NestedScrollView、SwipeRefreshLayout、Picker 与 ViewPager 受 Android API、AndroidX widget、style 与 SwipeRefresh touch consumption 共同影响。本轮未逐一安装、滚动或录屏，因此不能把某一种结果写成当前体验。
 
 后续逐页面清点 overScrollMode、自定义 EdgeEffectFactory、SwipeRefresh 下拉消费和 API 31+ Stretch。若做经典弧形 Glow，可对适用 RecyclerView 使用 edge effect 专用工厂/自绘反馈，强调色按当前页面 surface + 用户 token 计算，主题变化更新；保持 Glow 形态与动态颜色分离，禁止固定蓝。先证明不会抢 SwipeRefresh 手势，并以 Android 26–36 实机看弧形、颜色、cancel与low/high contrast。
+
+### 2026-11-07 弹窗 Glow 审计与移除
+
+复核远端最新代码后，确认**曾经给弹窗接入上下 Glow**，来源是 2026-11-07 合入的共享经典 EdgeGlow，而非 `OxygenClassicDialog` 自己绘制。弹窗调用链上的位置如下：
+
+| 位置 | 原行为 | 处理 |
+|---|---|---|
+| `helpers/OxygenClassicDialog.kt`：`apply()` | 对整个弹窗 View 树调用 `OxygenClassicEdgeGlow.install(content, activity)`，为其中 RecyclerView 安装自定义上下 EdgeEffect | 删除安装调用；统一遍历时把 `ScrollView`、`NestedScrollView`、`AbsListView` 和纵向 `RecyclerView` 设为 `OVER_SCROLL_NEVER` |
+| `helpers/ClassicDialogScrollView.kt`：`ClassicDialogScrollView` 基类 | 继承 `views.ClassicGlowScrollView`，在触顶/触底时通过 Canvas 画自定义 glow | 改回普通 `ScrollView`，并在初始化时关闭 overscroll |
+| `helpers/ClassicDialogScrollView.kt`：`ClassicDialogPickerLayout.onAttachedToWindow()` | 对 Picker 对话框的子 View 树再次调用 `OxygenClassicEdgeGlow.install()` | 删除安装调用 |
+| `helpers/OxygenFastScroller.kt`：`OxygenFastScroller.apply()` | 无条件给快速滚动列表安装 Glow；`PickDirectoryDialog` 和 `PickMediumDialog` 也经过此入口 | 删除该副作用。主页、媒体页、搜索和文件夹 Activity 各自仍通过 Activity 根 View 安装器保留其页面 Glow |
+
+以上处理覆盖复用 `ClassicDialogScrollView` 的 XML/动态长内容弹窗、AppCompat/Commons 列表弹窗，以及目录、媒体和文件 Picker 的纵向列表。横向 RecyclerView 不会被统一设置为禁用；主页面 Glow 和 `SwipeRefreshLayout` 下拉刷新保持原行为。源码复核确认弹窗调用链不再安装自定义 Glow，并且常规纵向 overscroll 已关闭；未做真机录屏验收。
   

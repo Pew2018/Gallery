@@ -22,6 +22,8 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.graphics.ColorUtils
 import androidx.core.widget.CompoundButtonCompat
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import androidx.appcompat.content.res.AppCompatResources
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.shape.RelativeCornerSize
@@ -391,7 +393,6 @@ object OxygenClassicDialog {
     }
 
     fun apply(activity: Activity, dialog: AlertDialog, content: View): StyleResult {
-        OxygenClassicEdgeGlow.install(content, activity)
         val dp = activity.resources.displayMetrics.density
         val background = activity.getProperBackgroundColor()
         val accent = activity.getProperPrimaryColor()
@@ -415,6 +416,19 @@ object OxygenClassicDialog {
 
         // Preserve semantic, disabled, link and hint text: only skin actual controls.
         fun visit(v: View) {
+            // Dialog scroll containers never show edge feedback. This also
+            // covers platform/AppCompat list scrollers that are not Gallery views.
+            when (v) {
+                is android.widget.ScrollView,
+                is androidx.core.widget.NestedScrollView,
+                is android.widget.AbsListView -> v.overScrollMode = View.OVER_SCROLL_NEVER
+                is RecyclerView -> {
+                    val layout = v.layoutManager as? LinearLayoutManager
+                    if (layout?.orientation == RecyclerView.VERTICAL) {
+                        v.overScrollMode = View.OVER_SCROLL_NEVER
+                    }
+                }
+            }
             val needsStyle = v.getTag(R.id.classic_control_styled) != palette
             if (needsStyle) {
                 v.setTag(R.id.classic_control_styled, palette)
