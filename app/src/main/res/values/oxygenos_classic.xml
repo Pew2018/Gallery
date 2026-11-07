@@ -35,8 +35,6 @@
     <style name="OxygenClassicPageWindow">
         <item name="android:windowEnterAnimation">@anim/oxygen_classic_page_open_enter</item>
         <item name="android:windowExitAnimation">@anim/oxygen_classic_page_open_exit</item>
-        <item name="android:windowCloseEnterAnimation">@anim/oxygen_classic_page_close_enter</item>
-        <item name="android:windowCloseExitAnimation">@anim/oxygen_classic_page_close_exit</item>
     </style>
 
     <!-- Screenshot-fit/application tokens, not extracted OxygenOS ROM resources. -->

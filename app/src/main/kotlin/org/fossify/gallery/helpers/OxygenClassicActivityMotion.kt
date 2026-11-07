@@ -8,4 +8,11 @@ object OxygenClassicActivityMotion {
     fun install(activity: Activity) {
         activity.window.setWindowAnimations(R.style.OxygenClassicPageWindow)
     }
+
+    fun applyClose(activity: Activity) {
+        activity.overridePendingTransition(
+            R.anim.oxygen_classic_page_close_enter,
+            R.anim.oxygen_classic_page_close_exit
+        )
+    }
 }

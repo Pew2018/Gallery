@@ -19,6 +19,11 @@ abstract class BaseViewerActivity : SimpleActivity() {
     abstract val contentHolder: View
     abstract val appBarLayout: AppBarLayout
 
+    override fun finish() {
+        super.finish()
+        OxygenClassicActivityMotion.applyClose(this)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         OxygenClassicActivityMotion.install(this)

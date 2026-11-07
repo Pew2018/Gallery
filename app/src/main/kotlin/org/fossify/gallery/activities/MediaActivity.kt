@@ -708,6 +708,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
     }
 
+    override fun finish() {
+        super.finish()
+        OxygenClassicActivityMotion.applyClose(this)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         OxygenClassicActivityMotion.install(this)
