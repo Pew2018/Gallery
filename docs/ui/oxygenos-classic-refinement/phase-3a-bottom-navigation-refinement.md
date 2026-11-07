@@ -1,5 +1,10 @@
 # Phase 3A · OxygenOS Classic bottom navigation refinement
 
+Phase 3B continues the bottom-navigation motion audit from the latest shared
+branch baseline. Its branch-specific findings, Ripple contrast adjustment,
+window handoff analysis, tests, and acceptance checklist are recorded in
+[`phase-3b-bottom-navigation-material-motion.md`](phase-3b-bottom-navigation-material-motion.md).
+
 ## Scope and baseline
 
 - Branch: `refactor/media-pipeline-stability`

@@ -32,6 +32,7 @@ object GalleryBottomBar {
     internal const val ROOT_ENTER_DURATION_MS = 0L
     internal const val FIRST_DRAW_LIMIT_MS = 250L
     internal const val ROOT_FINISH_FALLBACK_MS = FIRST_DRAW_LIMIT_MS + 280L
+    internal const val CONTENT_ENTER_DURATION_MS = 180L
     private const val EXTRA_ROOT_TOKEN = "org.fossify.gallery.ROOT_TRANSITION_TOKEN"
     private data class PendingRoot(val source: java.lang.ref.WeakReference<Activity>, val timeout: Runnable,
         var acknowledged: Boolean = false)
@@ -39,6 +40,7 @@ object GalleryBottomBar {
     enum class RootContent { LOADING, CONTENT, EMPTY, AUTHORIZATION, FAILED }
     private val readyRoots = java.util.WeakHashMap<Activity, RootContent>()
     private val rootCleanups = java.util.WeakHashMap<Activity, () -> Unit>()
+    private val rootContentViews = java.util.WeakHashMap<Activity, java.lang.ref.WeakReference<android.view.View>>()
     internal val pendingRootCount: Int get() = pendingRoots.size
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -66,6 +68,10 @@ object GalleryBottomBar {
     /** Activity teardown cancels callbacks rather than leaving a retained window/view. */
     fun dispose(activity: Activity) {
         rootCleanups.remove(activity)?.invoke()
+        rootContentViews.remove(activity)?.get()?.let { content ->
+            content.animate().cancel()
+            content.alpha = 1f
+        }
         readyRoots.remove(activity)
         bars.remove(activity)?.get()?.let { bar ->
             for (i in 0 until bar.childCount) {
@@ -97,9 +103,11 @@ object GalleryBottomBar {
     internal fun rippleColor(accent: Int, surface: Int): Int {
         val contrast = OxygenThemeColors.contrastRatio(accent, surface)
         val alpha = when {
-            contrast >= 10.0 -> 24
-            contrast >= 7.0 -> 28
-            else -> 32
+            // Keep even very legible accents perceptible on a quick tap. Softer
+            // contrast receives a little more opacity while staying below 16%.
+            contrast >= 10.0 -> 32
+            contrast >= 7.0 -> 36
+            else -> 40
         }
         return Color.argb(alpha, Color.red(accent), Color.green(accent), Color.blue(accent))
     }
@@ -229,6 +237,10 @@ object GalleryBottomBar {
         loadingFrame: () -> Unit = {}) {
         if (!activity.intent.getBooleanExtra(EXTRA_ROOT_TRANSITION, false)) return
         rootCleanups.remove(activity)?.invoke()
+        rootContentViews.remove(activity)?.get()?.let { content ->
+            content.animate().cancel()
+            content.alpha = 1f
+        }
         activity.intent.removeExtra(EXTRA_ROOT_TRANSITION)
         val token = activity.intent.getStringExtra(EXTRA_ROOT_TOKEN)
         activity.intent.removeExtra(EXTRA_ROOT_TOKEN)
@@ -238,6 +250,9 @@ object GalleryBottomBar {
         var acknowledged = false
         var waitingForDraw = false
         var fallbackPrepared = false
+        var contentPreparedForEnter = false
+        val contentView = parent.findViewById<android.view.View>(R.id.directories_holder)
+            ?: parent.findViewById(R.id.media_holder)
         lateinit var cleanup: () -> Unit
         lateinit var preDraw: android.view.ViewTreeObserver.OnPreDrawListener
         lateinit var drawn: android.view.ViewTreeObserver.OnDrawListener
@@ -248,6 +263,19 @@ object GalleryBottomBar {
             cleanup()
             rootCleanups.remove(activity)
             finishOutgoing(token)
+            if (contentPreparedForEnter && contentView != null) {
+                if (OxygenClassicMotion.enabled(activity)) {
+                    contentView.animate()
+                        .alpha(1f)
+                        .setDuration(CONTENT_ENTER_DURATION_MS)
+                        .setInterpolator(OxygenClassicMotion.easing())
+                        .withEndAction { rootContentViews.remove(activity) }
+                        .start()
+                } else {
+                    contentView.alpha = 1f
+                    rootContentViews.remove(activity)
+                }
+            }
         }
         drawn = android.view.ViewTreeObserver.OnDrawListener {
             // A pre-draw pass can still be cancelled by another listener. Acknowledge
@@ -289,6 +317,13 @@ object GalleryBottomBar {
                     parent.setBackgroundColor(surface)
                     loadingFrame()
                 }
+                if (!contentPreparedForEnter && contentView != null) {
+                    contentPreparedForEnter = true
+                    if (OxygenClassicMotion.enabled(activity)) {
+                        contentView.alpha = 0f
+                        rootContentViews[activity] = java.lang.ref.WeakReference(contentView)
+                    }
+                }
                 if (!waitingForDraw) {
                     waitingForDraw = true
                     parent.viewTreeObserver.addOnDrawListener(drawn)
@@ -301,6 +336,10 @@ object GalleryBottomBar {
             override fun onViewDetachedFromWindow(view: android.view.View) {
                 cleanup()
                 rootCleanups.remove(activity)
+                rootContentViews.remove(activity)?.get()?.let { content ->
+                    content.animate().cancel()
+                    content.alpha = 1f
+                }
                 // The tracked source timeout still bounds failed destination startup.
             }
         }

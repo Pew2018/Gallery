@@ -78,14 +78,14 @@ class GalleryBottomBarRippleTest {
         val highContrast = OxygenThemeEngine.snapshot(activity, activity.config)
         assertEquals(GalleryBottomBar.rippleColor(highContrast.interactiveAccent, highContrast.pageBackground),
             GalleryBottomBar.currentRippleColor(item))
-        assertEquals(24, Color.alpha(GalleryBottomBar.currentRippleColor(item)!!))
+        assertEquals(32, Color.alpha(GalleryBottomBar.currentRippleColor(item)!!))
 
         val paleAccent = Color.rgb(255, 245, 220)
         activity.config.oxygenCustomAccent = paleAccent
         GalleryBottomBar.recolor(activity)
         val lightSurface = OxygenThemeEngine.snapshot(activity, activity.config)
         assertNotEquals(paleAccent, lightSurface.interactiveAccent)
-        assertEquals(32, Color.alpha(GalleryBottomBar.currentRippleColor(item)!!))
+        assertEquals(40, Color.alpha(GalleryBottomBar.currentRippleColor(item)!!))
         assertEquals(GalleryBottomBar.rippleColor(lightSurface.interactiveAccent, lightSurface.pageBackground),
             GalleryBottomBar.currentRippleColor(item))
 
@@ -95,6 +95,13 @@ class GalleryBottomBarRippleTest {
         assertEquals(GalleryBottomBar.rippleColor(darkSurface.interactiveAccent, darkSurface.pageBackground),
             GalleryBottomBar.currentRippleColor(item))
         activity.finish()
+    }
+
+    @Test fun rippleOpacityUsesBalancedContrastBands() {
+        val surface = Color.WHITE
+        assertEquals(32, Color.alpha(GalleryBottomBar.rippleColor(Color.BLACK, surface)))
+        assertEquals(36, Color.alpha(GalleryBottomBar.rippleColor(Color.rgb(80, 80, 80), surface)))
+        assertEquals(40, Color.alpha(GalleryBottomBar.rippleColor(Color.rgb(102, 102, 102), surface)))
     }
 
     @Test fun rapidTapsOnlyNavigateOnceAndSelectionUsesClassicColorAndTypeface() {
@@ -135,6 +142,35 @@ class GalleryBottomBarRippleTest {
         activity.finish()
     }
 
+    @Test fun failedNavigationRestoresSelectionAndAllowsRetry() {
+        var shouldFail = true
+        var attempts = 0
+        val (activity, bar) = fixture(onNavigate = {
+            attempts++
+            if (shouldFail) throw IllegalStateException("simulated Activity launch failure")
+        })
+        val tabs = items(bar)
+        try {
+            try {
+                tabs[1].performClick()
+                fail("first navigation attempt should fail")
+            } catch (_: IllegalStateException) {
+                // The tab selection must roll back with the failed launch.
+            }
+            assertTrue(tabs[0].isSelected)
+            assertFalse(tabs[1].isSelected)
+
+            shouldFail = false
+            tabs[1].performClick()
+            assertEquals(2, attempts)
+            assertFalse(tabs[0].isSelected)
+            assertTrue(tabs[1].isSelected)
+        } finally {
+            GalleryBottomBar.dispose(activity)
+            activity.finish()
+        }
+    }
+
     @Test fun navigationStartsNowButFinishesOutgoingActivityAfterWindowHold() {
         val (activity, _) = fixture()
         GalleryBottomBar.open(activity, Intent(activity, android.app.Activity::class.java), finishCurrent = true)
@@ -145,6 +181,49 @@ class GalleryBottomBarRippleTest {
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(
             GalleryBottomBar.ROOT_FINISH_FALLBACK_MS - 160L, TimeUnit.MILLISECONDS)
         assertTrue("unresponsive target must not retain source indefinitely", activity.isFinishing)
+    }
+
+    @Test fun destinationContentFadesAfterFirstDrawWithoutFadingBottomBar() {
+        val (source, _) = fixture()
+        val destinationIntent = Intent(source, android.app.Activity::class.java)
+        GalleryBottomBar.open(source, destinationIntent)
+        val destination = Robolectric.buildActivity(android.app.Activity::class.java, destinationIntent)
+            .setup().get()
+        val resolver = destination.contentResolver
+        val priorScale = android.provider.Settings.Global.getFloat(resolver,
+            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        android.provider.Settings.Global.putFloat(resolver,
+            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val root = CoordinatorLayout(destination)
+        val content = View(destination).apply { id = R.id.directories_holder }
+        root.addView(content, CoordinatorLayout.LayoutParams(100, 100))
+        destination.setContentView(root)
+        val bar = LinearLayout(destination)
+        root.addView(bar, CoordinatorLayout.LayoutParams(100, 56))
+
+        try {
+            GalleryBottomBar.coordinateFirstDraw(destination, root)
+            GalleryBottomBar.markRootContentReady(destination, GalleryBottomBar.RootContent.EMPTY)
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(
+                GalleryBottomBar.FIRST_DRAW_LIMIT_MS, TimeUnit.MILLISECONDS)
+            root.viewTreeObserver.dispatchOnPreDraw()
+            assertEquals("root content starts transparent only after it is ready", 0f, content.alpha)
+            assertEquals(1f, bar.alpha)
+
+            root.viewTreeObserver.dispatchOnDraw()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(
+                GalleryBottomBar.CONTENT_ENTER_DURATION_MS + 20L, TimeUnit.MILLISECONDS)
+            assertEquals(1f, content.alpha)
+            assertEquals(1f, bar.alpha)
+        } finally {
+            GalleryBottomBar.dispose(destination)
+            GalleryBottomBar.dispose(source)
+            destination.finish()
+            source.finish()
+            android.provider.Settings.Global.putFloat(resolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, priorScale)
+        }
     }
 
     @Test fun unchangedOrderRefreshDoesNotDetachItemsOrResetRipple() {
@@ -266,6 +345,8 @@ class GalleryBottomBarRippleTest {
             val down = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, 50f, 28f, 0)
             item.dispatchTouchEvent(down)
             down.recycle()
+            assertTrue("pressed feedback must start on ACTION_DOWN", item.isPressed)
+            assertSame(ripple, item.background)
             // ViewGroup may defer pressed feedback until tap timeout.
             Shadows.shadowOf(Looper.getMainLooper()).idleFor(
                 android.view.ViewConfiguration.getTapTimeout().toLong() + 1, TimeUnit.MILLISECONDS)
