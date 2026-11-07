@@ -1,6 +1,6 @@
 # OxygenOS 7.1.1 Classic — Gallery UI 精修项目总纲
 
-> 状态（2026-11-07）：**阶段 A–D 已完成代码审计/实现并通过 CI；阶段 E 待实施；所有阶段均待 Pixel 8 Pro 真机视觉验收与用户验收**。历史阶段记录保留在下方，不能视为当前 UI 完成状态。
+> 状态（2026-11-07）：**阶段 A–E 已完成代码审计/实现并通过 CI；所有阶段均待 Pixel 8 Pro 真机视觉验收与用户验收**。历史阶段记录保留在下方，不能视为当前 UI 完成状态。
 > 源码审计基线：`refactor/media-pipeline-stability` @ `b7175e8fa0411d8ff600366e316777efb28bb8f3`。
 > 该 SHA 仅为审计证据锚点；**实际开发前重新读取远程分支 HEAD，禁止重置到此提交**。
 > 本轮任务 **仅新增 `docs/` 文档，不修改应用代码、资源、构建配置、测试或其他目录**。
@@ -124,8 +124,9 @@ Audit source SHA: 024b4731ac6508cab45f7d81eea73294a78d0d04. Source findings are 
 | B — 搜索、普通输入与 IME | 已实现共享搜索展开/收起动画，Commons 输入和 FAB IME 行为保留 | #595 完整单元测试与 ARM64 Release 通过 | 待真机验收 | 待用户验收 |
 | C — Classic Edge Glow | 已实现主题色纵向 Glow、刷新顶部抑制、滚动容器共用实现 | #602 完整单元测试、ARM64 APK 构建与校验通过 | 待真机验收 | 待用户验收 |
 | D — Dialog / Picker / Popup | 已实现统一 Window 进退场；Popup 保留 AppCompat 原生锚点与呈现 | #605 全套单元测试、ARM64 APK 构建与校验通过 | 待真机验收 | 待用户验收 |
-| E — 文件夹 / Viewer 转场 | 待实施 | 待执行 | 待真机验收 | 待用户验收 |
+| E — 文件夹 / Viewer 转场 | 已实现 Window 层打开与 finish 返回方向动画；根页面 0ms 保护未改 | #609 全套单元测试、ARM64 APK 构建与校验通过 | 待真机验收 | 待用户验收 |
 
 当前 C 阶段远程 HEAD：`a12910b7ef2f8f72f048889d3d56d552e652d366`。阶段详情见 [phase-accent-completeness.md](phase-accent-completeness.md)、[phase-search-ime-input-motion.md](phase-search-ime-input-motion.md)、[phase-classic-edge-glow.md](phase-classic-edge-glow.md)。
 
 阶段 D 详情见 [phase-dialog-picker-window-motion.md](phase-dialog-picker-window-motion.md)。
+阶段 E 详情见 [phase-folder-viewer-navigation-motion.md](phase-folder-viewer-navigation-motion.md)。
