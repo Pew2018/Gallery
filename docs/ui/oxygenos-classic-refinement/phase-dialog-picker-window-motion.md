@@ -23,7 +23,7 @@
 
 - Added a stateful Robolectric check that runs the shared prepare-window path, verifies the public window-animation style is assigned, confirms `FLAG_SECURE` is retained, shows and dismisses the dialog, and observes exactly one dismissal callback.
 - The first complete Actions run for the code change, [#603](https://github.com/Pew2018/Gallery/actions/runs/42341992732), passed the full FOSS Release unit-test suite, ARM64 Release assembly, package/signature/ABI checks, and APK upload.
-- This follow-up centralizes timing values as XML tokens and is awaiting its own full CI result.
+- Follow-up commit `bb0fc0c69e977bee1b306c183fc21ebc1b65bd42` centralized the 170ms/130ms durations and 6dp offset as XML motion resource tokens. Actions run [#605](https://github.com/Pew2018/Gallery/actions/runs/42342717922) passed the complete FOSS Release unit-test suite, ARM64 Release assembly, package/signature/ABI checks, and APK upload. Artifact ID: `13562472662`; SHA-256: `058e5391701d0e98f865abfeed87a176064cfc7f20c5910a98fdb0be5759290b`.
 - No Pixel 8 Pro/Android 16 visual execution is available: **待真机验收** for Picker scrolling and IME, rapid open/close, cancel/back/outside-tap, security confirmation and dialog motion direction.
 
 ## Limits
