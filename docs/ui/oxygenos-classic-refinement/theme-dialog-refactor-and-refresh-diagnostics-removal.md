@@ -184,3 +184,30 @@ missing `mAttachInfo`. API 31 native captures passed the nonblank-pixel check.
 API 26 continues to execute the dialog geometry, width-profile and no-overscroll
 checks; only PNG drawing is limited to API 31. No production behavior is changed
 or test class disabled for this Robolectric drawing limitation.
+
+## Final verified delivery
+
+- APK source commit: `2ff0b82c8485742116eea13c483a46cc5b7f24f5`.
+- Workflow: **Arm64 FOSS Release APK (non-publishing)**.
+- [Run 42377032763 — success](https://github.com/Pew2018/Gallery/actions/runs/42377032763).
+- Complete FOSS Release suite: **1,018 tests, 0 failures, 0 errors, 0 skipped**;
+  independently checked 145 JUnit XML reports from the uploaded report archive.
+- API 26/31 geometry/overscroll checks passed. All six API 31 native PNGs passed
+  nonblank pixel assertions and were visually inspected in both light and dark
+  modes. These are Robolectric captures, not Pixel 8 Pro screenshots.
+- ARM64 FOSS Release assembly succeeded. APK package `org.fossify.gallery`,
+  version `1.14.1` / code `32`; signature verification passed and native libraries
+  are strictly `arm64-v8a`.
+- [APK artifact: gallery-foss-arm64-v8a-release](https://github.com/Pew2018/Gallery/actions/runs/42377032763/artifacts/13575922689)
+  contains `gallery-foss-arm64-v8a-release.apk`. Artifact retention ends
+  2026-11-21; the downloadable artifact is a ZIP containing the APK.
+- APK SHA-256: `9c0fcefc90a6bb75679c10b4c52c9b1d8da0b69159083c045956ec0bced6c5cd`.
+- Actual signing mode: **temporary-CI-not-upgrade-compatible**. It is an
+  installable test build, but its temporary signature differs from existing
+  releases/other CI runs. Back up settings before any uninstall needed to install
+  this build; no launcher restart/cache clearing logic was added.
+- [Test reports and render artifact](https://github.com/Pew2018/Gallery/actions/runs/42377032763/artifacts/13575953960).
+
+This final evidence update changes documentation only. The APK remains tied to
+its exact source SHA above; no extra build is necessary for a documentation-only
+commit. Pixel 8 Pro acceptance items above remain unverified on a physical device.
