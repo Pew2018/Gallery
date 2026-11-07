@@ -129,7 +129,8 @@ Automated hooks/measurements do not establish device visual acceptance.
 
 ### Minimum Android version evidence
 
-The existing project declares `minSdk = 26` in `app/build.gradle.kts`; this task
+The existing project resolves `minSdk` in `app/build.gradle.kts` from
+`gradle/libs.versions.toml` (`app-build-minimumSDK = "26"`); this task
 preserves that SDK/dependency boundary. Run `42375908285` compiled and executed
 1,018 tests: the five initial failures were fixed, and the only remaining failure
 was the new API 25 render case, rejected by Android's package parser before app
@@ -138,3 +139,7 @@ uses API 26 (Android 8.0) and API 31. This is not evidence of an API 25 UI failu
 but also does not establish APK compatibility with Android 7.1.1. OxygenOS 7.1.1
 is the visual baseline; the current APK requires Android 8.0 or later. Lowering
 minSdk and auditing dependencies would be a separate compatibility task.
+
+The first API 31 PNG artifacts used Robolectric's legacy graphics mode and were
+blank on inspection; they are not visual evidence. The render test now explicitly
+uses native graphics, verifies nonblank rendered pixels and exports actual UI.

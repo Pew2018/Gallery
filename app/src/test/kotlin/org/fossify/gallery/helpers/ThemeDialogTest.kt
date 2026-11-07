@@ -142,6 +142,7 @@ class ThemeDialogTest {
             assertEquals(0, host.resources.getIdentifier("settings_refresh_diagnostics_holder", "id", host.packageName))
         } finally { controller.pause().stop().destroy() }
     }
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
     @Test @Config(sdk = [26, 31], qualifiers = "w360dp-h640dp")
     fun themeDialogsHaveOwnWidthProfileAndRenderWithoutOverscrollInBothModes() {
         val controller = Robolectric.buildActivity(OxygenThemeActivity::class.java).setup()
@@ -171,6 +172,9 @@ class ThemeDialogTest {
                     assertTrue(content(dialog).height > 0)
                     val bitmap = android.graphics.Bitmap.createBitmap(decor.width, decor.height, android.graphics.Bitmap.Config.ARGB_8888)
                     decor.draw(android.graphics.Canvas(bitmap))
+                    val pixels = IntArray(bitmap.width * bitmap.height)
+                    bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                    assertTrue("Preview must contain real rendered UI pixels", pixels.toSet().size > 5)
                     val output = java.io.File("build/reports/ui-regression/theme-dialogs").apply { mkdirs() }
                     java.io.File(output, "theme-$index-$mode-${android.os.Build.VERSION.SDK_INT}.png").outputStream().use {
                         bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
