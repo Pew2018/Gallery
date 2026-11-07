@@ -17,6 +17,7 @@ on:
       - feature/oxygen-classic-ui-polish
       - feature/oxygenos-ui-animation-consistency
       - fix/bottom-bar-tap-ripple
+      - fix/photo-profile-toolbar-stability
     paths:
       - "app/**"
       - "buildSrc/**"
