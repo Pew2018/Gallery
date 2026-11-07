@@ -21,9 +21,12 @@ No Picker selection, filtering, permissions, source configuration, media loading
 ## Tests and build
 
 - Added `searchExpansionPreservesTheExistingInputAndRestoresToolbarState`. It opens and closes the real Commons search view with animator scale set to zero, confirms the EditText identity and immediate query value, and checks the final action/title/width/focus state.
+- The Robolectric test drains the main looper after `MySearchMenu.setupMenu()` because Commons posts its search listeners; it also restores the previous animator scale in `finally`.
 - Existing Photo Profile FAB/insets and dialog-input tests remain part of the Release unit test suite.
 - Local Gradle verification is blocked before task execution: the wrapper requires Gradle 9.5.1 from `services.gradle.org`, which this environment cannot reach. The phase must not be described as locally test-passing.
-- GitHub Actions run and outcome: pending this phase's branch update.
+- Phase implementation commit: `1130bd768597dd932ac7bc422239a3f351d3b7d0`.
+- Test-harness correction commit: `bfcf8a68770396989b0b3f16ac55702577c1b6ad`.
+- GitHub Actions run [#595](https://github.com/Pew2018/Gallery/actions/runs/42337154798) passed: full FOSS Release unit test suite, ARM64 Release assembly, APK validation, and artifact upload. ARM64 APK artifact: [gallery-foss-arm64-v8a-release](https://github.com/Pew2018/Gallery/actions/runs/42337154798/artifacts/13559807074).
 - Pixel 8 Pro input/IME checks are **待真机验收**: first-key entry during expansion; quick open/close/reversal; system Back with keyboard visible; Gboard geometry; Dialog fields; FAB reachability; rotation and navigation modes.
 
 ## Limits

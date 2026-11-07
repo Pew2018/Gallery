@@ -3,7 +3,7 @@
 ## Baseline and source findings
 
 - Remote baseline: `185dd236ca41722dc17826cbfa725ec5a46c9c55` (`refactor/media-pipeline-stability`), fetched before this phase.
-- The supplied entry atlas `Gallery_UI_Interaction_Entry_Atlas_2026-11-07.md` was not present in the repository or attached scratch files. The checked-in UI atlas and source were used instead.
+- The entry atlas `Gallery_UI_Interaction_Entry_Atlas_2026-11-07.md` is not checked into this repository. It was located in the project's Library and reviewed after the initial source audit. It confirms the audited shared entry points and additionally helps delimit horizontal lists, dialog lists, security input, and system-owned permission surfaces; no new Phase A color gap was found.
 - `OxygenThemeEngine.snapshot(context, config)` is the runtime source of `rawAccent`, `interactiveAccent`, surfaces and text tokens. The checked-in helpers do not maintain a second accent cache.
 - Runtime surfaces inspected: `OxygenToolbarStyle`, `OxygenClassicPageInput`, `OxygenClassicDialog`, `ClassicCommonsHooks`, `OxygenClassicMenus`, `OxygenFastScroller`, `OxygenProgressStyle`, `OxygenClassicControls`, `OxygenSelectionMode`, `GalleryBottomBar`, `PhotoProfileEditActivity`, and `OxygenThemeActivity`.
 - These entry points already derive their interactive colors from the current theme snapshot or the Commons primary color synchronized by `OxygenThemeEngine.apply()`. Switch thumb/track colors intentionally use `switchPalette(rawAccent)`; readable text, dialog actions, page selection and fast-scroller handles use surface-aware semantic colors. The FAB keeps the existing raw accent plus contrast-selected foreground.
@@ -23,4 +23,4 @@ No Kotlin or resource change was justified by this audit. Replacing the current 
 
 ## Limits
 
-This phase is a source audit, not a claim that every Android widget on every OEM/API level was inspected at runtime. Static defaults and contrast behavior still need device screenshots and interaction checks. The supplied UI interaction entry atlas was not available in this workspace.
+This phase is a source audit, not a claim that every Android widget on every OEM/API level was inspected at runtime. Static defaults and contrast behavior still need device screenshots and interaction checks. The interaction atlas was reviewed from the project Library, but was not available as a repository file.
