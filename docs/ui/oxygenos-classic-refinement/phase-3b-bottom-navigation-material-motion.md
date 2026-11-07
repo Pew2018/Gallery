@@ -39,6 +39,8 @@ No existing motion constants, Activity lifecycle paths, media adapters, or page 
 
 `GalleryBottomBarRippleTest` now checks the balanced contrast bands, pressed state on the `ACTION_DOWN` dispatch, stable native Drawable identity, pressed-state preservation through recoloring, cancel behavior, failed-navigation rollback/retry, rapid single navigation, all six user orders, equal widths, RTL, large font scale, existing first-draw fallback timing, and that only the destination content container fades after its first draw. Existing `GalleryNavigationTest` and `GalleryNavigationPersistenceTest` cover navigation semantics and order persistence.
 
+The ARM64 workflow already supports `workflow_dispatch`, but the connected GitHub interface cannot dispatch it and the browser sign-in flow could not be completed. To ensure this isolated branch can run the required FOSS checks and APK build, the branch was added to the workflow's existing push branch filter. This adds only this branch and leaves all existing triggers unchanged.
+
 The targeted command attempted locally:
 
 ```text
