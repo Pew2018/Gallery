@@ -280,9 +280,16 @@ class ClassicSettingsControlsTest {
         field.setText("#INVALID")
         dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).performClick()
         assertTrue(dialog.isShowing)
-        assertNotNull(field.error)
+        assertNull("Platform error popup must stay removed", field.error)
+        val error = children(dialog.window!!.decorView).filterIsInstance<TextView>().single {
+            it.text == activity.getString(R.string.classic_invalid_color)
+        }
+        assertEquals(View.VISIBLE, error.visibility)
+        assertFalse(dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).isEnabled)
         assertEquals("material_red", config.oxygenThemePresetId)
         field.setText("#123456")
+        assertEquals(View.INVISIBLE, error.visibility)
+        assertTrue(dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).isEnabled)
         dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).performClick()
         assertFalse(dialog.isShowing)
         assertEquals("custom", config.oxygenThemePresetId)
