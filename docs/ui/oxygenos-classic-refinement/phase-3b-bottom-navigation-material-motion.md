@@ -1,74 +1,86 @@
-# Phase 3B · OxygenOS Classic bottom navigation Material Motion
+# Phase 3C · Bottom navigation window handoff repair
 
-## Baseline and scope
+## Scope and baseline
 
 - Repository: `Pew2018/Gallery`
 - Base branch: `refactor/media-pipeline-stability`
-- Fetched base SHA: `6a44b51ca525a356f14a229004f2690cfc5b5f67`
 - Work branch: `refactor/oxygenos-classic-bottom-bar-material-motion`
-- Initial work-branch SHA: `6a44b51ca525a356f14a229004f2690cfc5b5f67`
-- Scope: native bottom-bar ripple visibility, selected-state handoff, Activity window timing, regression tests, and this document.
-- No media scanning, indexing, Room, sorting, search, Viewer, deletion, or file-operation logic is modified.
+- Audited remote baseline for this repair: `ef8e9eb82c2f15fd6a09a62fc5ad9795f7298c4e`
+- Scope: bottom-bar ripple dispatch, root Activity window handoff, deterministic tests, and this report.
+- No media scanning, indexing, Room, sorting, search, Viewer, deletion, or file-operation logic is in scope.
 
-## Source audit and event sequence
+## Findings and evidence labels
 
-The item is a full-size clickable and focusable `LinearLayout` with a native `RippleDrawable` background. The CI regression test confirmed that the root `CoordinatorLayout` can defer its child's pressed state on `ACTION_DOWN` while it decides whether the gesture belongs to a scrolling parent. This delayed the first visible ripple. The item now updates its native drawable hotspot and pressed state immediately on `ACTION_DOWN`, then returns the event to the normal `View` touch handler. Android still owns Ripple rendering and `ACTION_UP`, `ACTION_CANCEL`, click, and long-press handling. The click listener synchronously updates source tab selection, then invokes the Activity navigation callback. `GalleryBottomBar.open()` calls `startActivity()` immediately and requests a zero-duration window transition. The destination prepares an opaque, theme-colored root surface, gates its first content draw for at most 250ms, acknowledges a real draw, and only then finishes the source Activity. A separate fallback finishes the source after 530ms if the destination never acknowledges.
+| Finding | Evidence |
+|---|---|
+| The root click path synchronously changes source selection, then calls `startActivity()`; navigation is not delayed by a ripple timer. | `CONFIRMED_BY_CODE` |
+| The bottom-bar item sets its hotspot and pressed state on `ACTION_DOWN`, then returns `false` so the regular View touch handler owns release, cancel, click, and long-press behavior. Existing Robolectric coverage dispatches down/up and cancel. | `CONFIRMED_BY_CODE`, `CONFIRMED_BY_TEST` |
+| The previous launch explicitly requested `overridePendingTransition(0, 0)`, so no root-window transition could be seen. | `CONFIRMED_BY_CODE` |
+| The previous destination set its content container alpha to zero immediately before its first draw; after that draw it released the source and only then faded content in. This could expose the destination's themed background while the source was gone. | `CONFIRMED_BY_CODE` |
+| Each Activity has its own bar View and RippleDrawable. The system does not transfer the source drawable's in-progress native ripple to the destination Activity. | `CONFIRMED_BY_CODE` |
+| Exact ripple clipping, release tail, Surface ordering, and perceived transition quality on Pixel 8 Pro / Android 16. | `DEVICE_VERIFICATION_REQUIRED` |
 
-This yields two different visual lifetimes:
+The code establishes the lifecycle ordering above. It does not establish which exact GPU frame first covered the source ripple on a Pixel device; that remains a device-capture question.
 
-1. The native ripple begins from the touched item while the source window receives `ACTION_DOWN`. The normal click callback happens on `ACTION_UP`; it does not wait for an animation timer.
-2. The ripple remains owned by the source View and Drawable. The new Activity has a distinct window and Drawable instance. Its opaque background can cover the source window as soon as the destination is presented, even though the source Activity is kept alive until the destination draw acknowledgement.
+## Previous and repaired sequence
 
-The code and CI test prove the delayed pressed-state cause and its immediate-state repair, native Drawable ownership, destination opacity, zero-duration Activity transition, and bounded source lifetime. They do not prove the exact Pixel GPU frame at which the ripple becomes obscured; that needs device capture. The remaining cross-Activity limitation is therefore a source-backed inference, not a claimed device observation. Native ripple animation cannot be shared automatically between the two Activity windows.
+Previous sequence:
 
-The current code does not rebuild item backgrounds during ordinary recoloring: `updateRipple()` only calls `RippleDrawable.setColor()` when the semantic color changes. `refreshAll()` retains item Views and their Drawable instances when ordering is unchanged and reuses both when the user changes the order. The bar is disposed from both root Activity `onDestroy()` paths; root draw listeners and callbacks are removed by their cleanup closure.
+1. `ACTION_DOWN` updates the source item hotspot and pressed state.
+2. `ACTION_UP` invokes the click listener; source tab tint updates synchronously.
+3. `GalleryBottomBar.open()` starts the destination and requests a zero-duration window transition.
+4. The destination's opaque surface can cover the source RippleDrawable.
+5. The destination first-draw gate sets its content container to alpha 0, draws, and releases the source.
+6. A separate 180ms property animation fades the destination content over its background.
 
-## Changes in this phase
+The gap was structural: there was no window animation linking steps 3–6, and the target content began transparent. The source ripple belonged to the source window, so increasing its color alpha or waiting before `startActivity()` would not create a continuous cross-Activity ripple.
 
-The prior tint used alpha values 24/255, 28/255, and 32/255 (about 9.4%, 11.0%, and 12.5%). This phase raises the three contrast bands to 32/255, 36/255, and 40/255 (about 12.5%, 14.1%, and 15.7%). Higher contrast accents keep the lower opacity; less contrasting accents receive the upper value. Color still comes from `OxygenThemeEngine.snapshot().interactiveAccent` and the page surface, and updates preserve the existing RippleDrawable.
+Repaired sequence:
 
-The Classic shape is unchanged: a rectangular ripple, 3dp horizontal and 2dp vertical mask insets, 2dp corner radius, and the existing full-size touch target. Bottom bar size remains 56dp; items 52dp; icons 24dp; labels 12sp with 2dp gap; three equal-width items, always-visible labels, flat background, zero elevation, and persisted user ordering remain intact.
+1. `ACTION_DOWN` still sets the native ripple hotspot/pressed state immediately; the normal View machinery continues to handle release/cancel/click.
+2. `ACTION_UP` still navigates immediately. The source selection updates on the click frame.
+3. `GalleryBottomBar.open()` starts the destination immediately and requests paired 180ms alpha window animations (`oxygen_classic_root_enter` / `oxygen_classic_root_exit`).
+4. The outgoing opaque Activity surface remains underneath the entering window during the system window transition. The ripple release therefore recedes as its owning source surface fades, instead of being cut off by a zero-duration handoff.
+5. The destination's first-draw gate continues to require committed visible rows, a confirmed empty state, or the existing bounded themed loading frame. It no longer forces content alpha to zero.
+6. After a real draw acknowledgement, source finish is scheduled for the remainder of the 180ms window transition. A 530ms startup fallback remains for a destination that never acknowledges a draw. Navigation itself is not delayed.
 
-The selected tint remains synchronous. A 120–160ms color animator on the source Activity would run underneath a newly presented opaque destination window and could not produce reliable cross-Activity continuity. Delaying `startActivity()` would add click latency. The destination instead fades only its `directories_holder` or `media_holder` content container from alpha 0 to 1 over 180ms, after the existing first-draw gate releases it. The toolbar, system bars, bottom bar, and full-screen background do not fade. The target container includes its existing list and empty/loading placeholders; it does not alter their data or wait for media scanning. Animator scale 0 uses Android's immediate property-animation behavior. `dispose()` cancels and restores any still-running content animation.
+This is a whole-window cross-fade. It includes toolbar and bottom bar; the cross-Activity architecture cannot keep the bar as one shared View. The motion is short and stationary, without translation or scale. It provides a genuine visible window handoff but is not a content-only cross-fade and must not be described as one. A single stable host could avoid cross-fading the bar, but would require substantial lifecycle, security, saved-state, and loading changes across MainActivity and MediaActivity. That risk is out of scope for this focused P0 repair.
 
-Material Design's classic bottom-navigation guidance recommends an in-place cross-fade between destinations; the 180ms duration and ripple opacity bands above are project-selected experiment values, not Material-mandated numbers. Android's `RippleDrawable` documentation assigns pressed-state and hotspot animation to the native drawable, while the property-animation API provides the content alpha transition.
+## Ripple and selection behavior
 
-No existing motion constants, Activity lifecycle paths, media adapters, or page state transitions were changed. Animator scale 0 continues to use immediate state; no custom Animator was added, so there is no new animation listener or per-Activity Animator to leak.
+- The native RippleDrawable remains a low-contrast rectangular mask with the current 3dp horizontal / 2dp vertical inset and 2dp corner radius. The full clickable 52dp item remains intact.
+- Ripple colors remain derived from OxygenThemeEngine's semantic accent and page surface. `setColor()` updates the existing drawable and does not replace it during theme recoloring.
+- Immediate press state remains on `ACTION_DOWN`; release, cancel, and click stay with standard View dispatch. No timer or delayed navigation was added.
+- Selected tint and accessibility state remain synchronous. No icon movement, scale, pill, or extra selection animator was added.
+- Quick repeated clicks remain guarded by the per-bar navigation latch; launch exceptions restore the previous selected tab.
 
-## Automated coverage
+## Lifecycle, loading, and cleanup
 
-`GalleryBottomBarRippleTest` checks the balanced contrast bands, immediate pressed state on the `ACTION_DOWN` dispatch, stable native Drawable identity, pressed-state preservation through recoloring, cancel behavior, failed-navigation rollback/retry, rapid single navigation, all six user orders, equal widths, RTL, large font scale, existing first-draw fallback timing, and that only the destination content container fades after its first draw. The first full CI run found the deferred pressed state and a nullable missing-content lookup in older transition fixtures; both were fixed in the follow-up. Existing `GalleryNavigationTest` and `GalleryNavigationPersistenceTest` cover navigation semantics and order persistence.
+- The target first-draw listener still releases only after an actual draw, not merely a pre-draw pass.
+- Empty, authorization, failed, or loading states still use the existing content-ready markers and themed fallback.
+- `dispose()` removes root listeners and callbacks. Pending roots use weak references to the source Activity; failed launch removes its pending timeout.
+- System window-animation scale 0 is owned by Android's WindowManager and should snap the XML window transition. The property animator scale no longer controls root navigation, because this transition is a WindowManager animation.
+- No screenshot/cached-content overlay is created. Protected content continues to be rendered by its destination Activity under existing access checks.
 
-The ARM64 workflow already supports `workflow_dispatch`, but the connected GitHub interface cannot dispatch it and the browser sign-in flow could not be completed. The branch was added to the existing push branch filter, and this phase report was added to the path filter so a report with final verification results also triggers the same checks. Existing branch triggers remain unchanged.
+## Changed files
 
-The targeted command attempted locally:
+- `app/src/main/kotlin/org/fossify/gallery/helpers/GalleryBottomBar.kt`
+- `app/src/main/res/anim/oxygen_classic_root_enter.xml`
+- `app/src/main/res/anim/oxygen_classic_root_exit.xml`
+- `app/src/test/kotlin/org/fossify/gallery/helpers/GalleryBottomBarRippleTest.kt`
+- `app/src/test/kotlin/org/fossify/gallery/helpers/GalleryRootTransitionTest.kt`
+- `docs/ui/oxygenos-classic-refinement/phase-3b-bottom-navigation-material-motion.md`
 
-```text
-./gradlew :app:testFossDebugUnitTest --tests org.fossify.gallery.helpers.GalleryBottomBarRippleTest --tests org.fossify.gallery.helpers.GalleryNavigationTest --tests org.fossify.gallery.helpers.GalleryNavigationPersistenceTest
-```
+## Automated verification
 
-It could not start because Gradle 9.5.1 was not cached and `services.gradle.org` is unreachable from this environment. No local test pass or Pixel hardware result is claimed.
+Robolectric coverage checks bottom-bar sizing, six custom orders, ripple identity across recoloring, immediate pressed state, normal release/cancel, rapid navigation gating, failed-launch selection rollback, source retention until actual target draw, and bounded startup fallback. Updated transition tests assert that the paired root window animation is requested, content is not independently zeroed, and source Activity cleanup waits for the window transition after draw acknowledgement.
 
-GitHub Actions Run [#631](https://github.com/Pew2018/Gallery/actions/runs/42384359687) verified source commit `90dc32fb4fbb5ea1efc4a30c653d02d59f4f0616`: 1,021 FOSS Release unit tests passed, with 0 failures, 0 errors, and 0 skipped. The ARM64 release APK was assembled and validated for package name, signature, and ABI. APK SHA-256: `8f131f1510b8c182860d252c6c3d1ef9a540855716f89334aefa2c21365abe50`.
+These tests do not render Android's actual Activity Surface composition, GPU alpha blending, native RippleDrawable release curve, gesture navigation, or three-button navigation Insets. A passing unit test is not a visual acceptance result.
 
-Artifact: [gallery-foss-arm64-v8a-release](https://api.github.com/repos/Pew2018/Gallery/actions/artifacts/13578269432/zip) (expires 2026-11-21). The workflow used its temporary CI signing key because repository signing secrets were unavailable; this APK is suitable for fresh-install device testing but is not upgrade-compatible with an APK signed by the repository release key.
+Prior build evidence (before this repair): GitHub Actions Run [#631](https://github.com/Pew2018/Gallery/actions/runs/42384359687) passed 1,021 FOSS Release unit tests and produced an ARM64 APK for commit `90dc32fb4fbb5ea1efc4a30c653d02d59f4f0616`. SHA-256: `8f131f1510b8c182860d252c6c3d1ef9a540855716f89334aefa2c21365abe50`. Artifact: [gallery-foss-arm64-v8a-release](https://api.github.com/repos/Pew2018/Gallery/actions/artifacts/13578269432/zip), with temporary CI signing; that APK may not install over a build signed by the repository release key. This is historical evidence and does not verify the current repair.
 
-## Pixel 8 Pro / Android 16 acceptance still required
+## Pixel 8 Pro / Android 16 device acceptance required
 
-- Light and dark themes; pale and dark custom accents.
-- Single quick tap, long press/release, and press then drag outside the item.
-- Rapid tab switching and immediate Back after navigation.
-- First bottom-bar tap after cold launch.
-- Animator scale 0x and 1x; gesture and three-button system navigation.
-- Empty Favorites, a loading photo profile, and an album with many media items.
-- Confirm ripple visibility on the press frame and whether the destination window covers its release tail.
-- Confirm all six user-defined tab orders retain the correct destination and selected state.
+Record 60fps or higher video and inspect press-down, ripple spread/release, window handoff, first visible destination content, end of transition, and bottom-bar selected tint. Cover quick tap; long press; press then drag outside; rapid switching; all six direction pairs; empty Favorites; photo profiles loading; large lists; light/dark/custom accents; window-animation scale 0 and 1; immediate Back; and gesture plus three-button system navigation. Verify there is no white/black gap, double-selected ghosting, or bar layout jump.
 
-Robolectric assertions, Actions results, and device/GPU acceptance are separate verification categories.
-
-## References
-
-- [Material Design 2: Bottom navigation, transitions](https://m2.material.io/components/bottom-navigation/)
-- [Android API: `RippleDrawable`](https://developer.android.com/reference/android/graphics/drawable/RippleDrawable)
-- [Android API: View drawable hotspot state](https://developer.android.com/reference/android/view/View#drawableHotspotChanged(float,%20float))
-- [Android: Property animation overview](https://developer.android.com/develop/ui/views/animations/prop-animation)
+Status: **not device-verified in this change** until a Pixel 8 Pro / Android 16 recording is reviewed.

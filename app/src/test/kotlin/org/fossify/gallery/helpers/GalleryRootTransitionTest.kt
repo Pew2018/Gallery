@@ -3,6 +3,7 @@ package org.fossify.gallery.helpers
 import android.app.Application
 import android.graphics.drawable.ColorDrawable
 import androidx.coordinatorlayout.widget.CoordinatorLayout
+import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
 import org.junit.Assert.*
 import org.junit.Test
@@ -17,6 +18,20 @@ import org.robolectric.annotation.LooperMode
 @Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 @LooperMode(LooperMode.Mode.PAUSED)
 class GalleryRootTransitionTest {
+    @Test fun rootWindowAnimationsArePairedShortAlphaCrossFade() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication<android.app.Application>()
+        val enter = android.view.animation.AnimationUtils.loadAnimation(
+            context, R.anim.oxygen_classic_root_enter) as android.view.animation.AlphaAnimation
+        val exit = android.view.animation.AnimationUtils.loadAnimation(
+            context, R.anim.oxygen_classic_root_exit) as android.view.animation.AlphaAnimation
+        assertEquals(0f, enter.fromAlpha, 0.001f)
+        assertEquals(1f, enter.toAlpha, 0.001f)
+        assertEquals(1f, exit.fromAlpha, 0.001f)
+        assertEquals(0f, exit.toAlpha, 0.001f)
+        assertEquals(GalleryBottomBar.ROOT_ENTER_DURATION_MS, enter.duration)
+        assertEquals(GalleryBottomBar.ROOT_ENTER_DURATION_MS, exit.duration)
+    }
+
     @Test fun contentProofBeatsArbitraryRecyclerChildrenAndTimeoutIsBounded() {
         assertFalse(GalleryBottomBar.mayDrawRoot(false, true, false, 0L))
         assertFalse(GalleryBottomBar.mayDrawRoot(false, false, true, 120L))
@@ -24,7 +39,7 @@ class GalleryRootTransitionTest {
         assertTrue(GalleryBottomBar.mayDrawRoot(true, false, true, 35L))
         assertFalse(GalleryBottomBar.mayDrawRoot(true, false, false, 249L))
         assertTrue(GalleryBottomBar.mayDrawRoot(false, false, false, 250L))
-        assertEquals(0L, GalleryBottomBar.ROOT_ENTER_DURATION_MS)
+        assertEquals(180L, GalleryBottomBar.ROOT_ENTER_DURATION_MS)
         assertTrue(GalleryBottomBar.ROOT_FINISH_FALLBACK_MS >=
             GalleryBottomBar.FIRST_DRAW_LIMIT_MS + GalleryBottomBar.ROOT_ENTER_DURATION_MS)
     }
@@ -105,7 +120,10 @@ class GalleryRootTransitionTest {
             assertFalse("pre-draw is not a drawn frame", source.isFinishing)
             root.viewTreeObserver.dispatchOnDraw()
             clock.idle()
-            assertTrue("draw acknowledgement finishes without another animation timer", source.isFinishing)
+            assertFalse("the window handoff keeps the source until its transition ends", source.isFinishing)
+            clock.idleFor(GalleryBottomBar.ROOT_ENTER_DURATION_MS,
+                java.util.concurrent.TimeUnit.MILLISECONDS)
+            assertTrue("source is released after the entering window transition", source.isFinishing)
             assertEquals(0, GalleryBottomBar.pendingRootCount)
             GalleryBottomBar.dispose(target)
             GalleryBottomBar.dispose(source)
@@ -142,7 +160,7 @@ class GalleryRootTransitionTest {
         controller.pause().stop().destroy()
     }
 
-    @Test fun disabledAnimationsStillWaitForDrawButDoNotDelaySourceFinish() {
+    @Test fun zeroAnimatorScaleDoesNotLeaveContentTransparentAfterWindowDraw() {
         val source = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
         val resolver = source.contentResolver
         val prior = android.provider.Settings.Global.getFloat(resolver,
@@ -162,6 +180,10 @@ class GalleryRootTransitionTest {
             assertFalse(source.isFinishing)
             root.viewTreeObserver.dispatchOnDraw()
             org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            assertFalse("window transition has its own duration setting", source.isFinishing)
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(
+                GalleryBottomBar.ROOT_ENTER_DURATION_MS,
+                java.util.concurrent.TimeUnit.MILLISECONDS)
             assertTrue(source.isFinishing)
             assertEquals(0, GalleryBottomBar.pendingRootCount)
             GalleryBottomBar.dispose(target)
@@ -215,14 +237,14 @@ class GalleryRootTransitionTest {
         }
     }
 
-    @Test fun rootStartAndDeferredFinishNeverRequestASecondWindowAnimation() {
+    @Test fun rootStartRequestsPairedWindowTransitionAndFinishAddsNoSecondAnimation() {
         val clock = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
         for (scale in listOf(0f, 1f)) {
             val source = Robolectric.buildActivity(TransitionRecordingActivity::class.java).setup().get()
             android.provider.Settings.Global.putFloat(source.contentResolver,
                 android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, scale)
             GalleryBottomBar.open(source, android.content.Intent(source, android.app.Activity::class.java), true)
-            assertEquals(listOf(0 to 0), source.transitions)
+            assertEquals(listOf(R.anim.oxygen_classic_root_enter to R.anim.oxygen_classic_root_exit), source.transitions)
             val intent = org.robolectric.Shadows.shadowOf(source).nextStartedActivity
             val target = Robolectric.buildActivity(android.app.Activity::class.java, intent).setup().get()
             val root = CoordinatorLayout(target)
@@ -232,8 +254,10 @@ class GalleryRootTransitionTest {
             assertFalse(source.isFinishing)
             root.viewTreeObserver.dispatchOnDraw()
             clock.idle()
+            assertFalse(source.isFinishing)
+            clock.idleFor(GalleryBottomBar.ROOT_ENTER_DURATION_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
             assertTrue(source.isFinishing)
-            assertEquals(listOf(0 to 0, 0 to 0), source.transitions)
+            assertEquals(listOf(R.anim.oxygen_classic_root_enter to R.anim.oxygen_classic_root_exit), source.transitions)
             GalleryBottomBar.dispose(source)
             GalleryBottomBar.dispose(target)
             target.finish()

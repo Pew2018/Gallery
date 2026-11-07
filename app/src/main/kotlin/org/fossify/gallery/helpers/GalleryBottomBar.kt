@@ -28,19 +28,22 @@ import org.fossify.gallery.R
  */
 object GalleryBottomBar {
     private val bars = java.util.WeakHashMap<Activity, java.lang.ref.WeakReference<LinearLayout>>()
-    // Root handoff has no window animation; native press ripples remain unchanged.
-    internal const val ROOT_ENTER_DURATION_MS = 0L
+    // WindowManager owns the cross-Activity handoff so the old opaque root remains
+    // visible underneath the incoming surface while its alpha is animated.
+    internal const val ROOT_ENTER_DURATION_MS = 180L
     internal const val FIRST_DRAW_LIMIT_MS = 250L
     internal const val ROOT_FINISH_FALLBACK_MS = FIRST_DRAW_LIMIT_MS + 280L
-    internal const val CONTENT_ENTER_DURATION_MS = 180L
     private const val EXTRA_ROOT_TOKEN = "org.fossify.gallery.ROOT_TRANSITION_TOKEN"
-    private data class PendingRoot(val source: java.lang.ref.WeakReference<Activity>, val timeout: Runnable,
-        var acknowledged: Boolean = false)
+    private data class PendingRoot(
+        val source: java.lang.ref.WeakReference<Activity>,
+        val startedAt: Long,
+        val timeout: Runnable,
+        var acknowledged: Boolean = false
+    )
     private val pendingRoots = mutableMapOf<String, PendingRoot>()
     enum class RootContent { LOADING, CONTENT, EMPTY, AUTHORIZATION, FAILED }
     private val readyRoots = java.util.WeakHashMap<Activity, RootContent>()
     private val rootCleanups = java.util.WeakHashMap<Activity, () -> Unit>()
-    private val rootContentViews = java.util.WeakHashMap<Activity, java.lang.ref.WeakReference<android.view.View>>()
     internal val pendingRootCount: Int get() = pendingRoots.size
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -68,10 +71,6 @@ object GalleryBottomBar {
     /** Activity teardown cancels callbacks rather than leaving a retained window/view. */
     fun dispose(activity: Activity) {
         rootCleanups.remove(activity)?.invoke()
-        rootContentViews.remove(activity)?.get()?.let { content ->
-            content.animate().cancel()
-            content.alpha = 1f
-        }
         readyRoots.remove(activity)
         bars.remove(activity)?.get()?.let { bar ->
             for (i in 0 until bar.childCount) {
@@ -91,8 +90,10 @@ object GalleryBottomBar {
         if (pending.acknowledged) return
         pending.acknowledged = true
         mainHandler.removeCallbacks(pending.timeout)
-        // Keep the same tracked callback until it runs, including after acknowledgement.
-        mainHandler.post(pending.timeout)
+        // Keep the source alive beneath the incoming window until the WindowManager
+        // cross-fade has had its full duration. Navigation itself is never delayed.
+        val elapsed = android.os.SystemClock.uptimeMillis() - pending.startedAt
+        mainHandler.postDelayed(pending.timeout, (ROOT_ENTER_DURATION_MS - elapsed).coerceAtLeast(0L))
     }
 
     /**
@@ -209,22 +210,24 @@ object GalleryBottomBar {
         val token = if (finishCurrent) java.util.UUID.randomUUID().toString() else null
         if (token != null) {
             intent.putExtra(EXTRA_ROOT_TOKEN, token)
+            val startedAt = android.os.SystemClock.uptimeMillis()
             val timeout = Runnable {
                 pendingRoots.remove(token)?.source?.get()?.let {
                     if (!it.isFinishing && !it.isDestroyed) {
                         it.finish()
-                        @Suppress("DEPRECATION")
-                        it.overridePendingTransition(0, 0)
                     }
                 }
             }
-            pendingRoots[token] = PendingRoot(java.lang.ref.WeakReference(activity), timeout)
+            pendingRoots[token] = PendingRoot(java.lang.ref.WeakReference(activity), startedAt, timeout)
             mainHandler.postDelayed(timeout, ROOT_FINISH_FALLBACK_MS)
         }
         try {
             activity.startActivity(intent)
-            // Root tabs replace a stable surface; neither window should animate.
-            activity.overridePendingTransition(0, 0)
+            // The opaque outgoing surface remains underneath the incoming one. A
+            // paired WindowManager alpha transition makes the page handoff visible
+            // without setting the destination's first content frame to alpha=0.
+            activity.overridePendingTransition(R.anim.oxygen_classic_root_enter,
+                R.anim.oxygen_classic_root_exit)
         } catch (error: RuntimeException) {
             token?.let { pendingRoots.remove(it)?.let { pending -> mainHandler.removeCallbacks(pending.timeout) } }
             throw error
@@ -237,10 +240,6 @@ object GalleryBottomBar {
         loadingFrame: () -> Unit = {}) {
         if (!activity.intent.getBooleanExtra(EXTRA_ROOT_TRANSITION, false)) return
         rootCleanups.remove(activity)?.invoke()
-        rootContentViews.remove(activity)?.get()?.let { content ->
-            content.animate().cancel()
-            content.alpha = 1f
-        }
         activity.intent.removeExtra(EXTRA_ROOT_TRANSITION)
         val token = activity.intent.getStringExtra(EXTRA_ROOT_TOKEN)
         activity.intent.removeExtra(EXTRA_ROOT_TOKEN)
@@ -250,10 +249,6 @@ object GalleryBottomBar {
         var acknowledged = false
         var waitingForDraw = false
         var fallbackPrepared = false
-        var contentPreparedForEnter = false
-        val directoryContent = parent.findViewById<android.view.View>(R.id.directories_holder) as? android.view.View
-        val contentView: android.view.View? = directoryContent
-            ?: (parent.findViewById<android.view.View>(R.id.media_holder) as? android.view.View)
         lateinit var cleanup: () -> Unit
         lateinit var preDraw: android.view.ViewTreeObserver.OnPreDrawListener
         lateinit var drawn: android.view.ViewTreeObserver.OnDrawListener
@@ -264,19 +259,6 @@ object GalleryBottomBar {
             cleanup()
             rootCleanups.remove(activity)
             finishOutgoing(token)
-            if (contentPreparedForEnter && contentView != null) {
-                if (OxygenClassicMotion.enabled(activity)) {
-                    contentView.animate()
-                        .alpha(1f)
-                        .setDuration(CONTENT_ENTER_DURATION_MS)
-                        .setInterpolator(OxygenClassicMotion.easing())
-                        .withEndAction { rootContentViews.remove(activity) }
-                        .start()
-                } else {
-                    contentView.alpha = 1f
-                    rootContentViews.remove(activity)
-                }
-            }
         }
         drawn = android.view.ViewTreeObserver.OnDrawListener {
             // A pre-draw pass can still be cancelled by another listener. Acknowledge
@@ -318,13 +300,6 @@ object GalleryBottomBar {
                     parent.setBackgroundColor(surface)
                     loadingFrame()
                 }
-                if (!contentPreparedForEnter && contentView != null) {
-                    contentPreparedForEnter = true
-                    if (OxygenClassicMotion.enabled(activity)) {
-                        contentView.alpha = 0f
-                        rootContentViews[activity] = java.lang.ref.WeakReference(contentView)
-                    }
-                }
                 if (!waitingForDraw) {
                     waitingForDraw = true
                     parent.viewTreeObserver.addOnDrawListener(drawn)
@@ -337,10 +312,6 @@ object GalleryBottomBar {
             override fun onViewDetachedFromWindow(view: android.view.View) {
                 cleanup()
                 rootCleanups.remove(activity)
-                rootContentViews.remove(activity)?.get()?.let { content ->
-                    content.animate().cancel()
-                    content.alpha = 1f
-                }
                 // The tracked source timeout still bounds failed destination startup.
             }
         }

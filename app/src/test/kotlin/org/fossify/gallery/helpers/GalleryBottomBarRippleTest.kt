@@ -171,19 +171,19 @@ class GalleryBottomBarRippleTest {
         }
     }
 
-    @Test fun navigationStartsNowButFinishesOutgoingActivityAfterWindowHold() {
+    @Test fun navigationStartsImmediatelyAndUnresponsiveTargetUsesBoundedFallback() {
         val (activity, _) = fixture()
         GalleryBottomBar.open(activity, Intent(activity, android.app.Activity::class.java), finishCurrent = true)
         assertNotNull(Shadows.shadowOf(activity).nextStartedActivity)
         assertFalse("navigation must not finish the ripple host on the click frame", activity.isFinishing)
-        Shadows.shadowOf(Looper.getMainLooper()).idleFor(160, TimeUnit.MILLISECONDS)
-        assertFalse("no first-frame acknowledgement yet", activity.isFinishing)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(
-            GalleryBottomBar.ROOT_FINISH_FALLBACK_MS - 160L, TimeUnit.MILLISECONDS)
+            GalleryBottomBar.ROOT_FINISH_FALLBACK_MS - 1, TimeUnit.MILLISECONDS)
+        assertFalse("unresponsive target remains bounded by the fallback", activity.isFinishing)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(2, TimeUnit.MILLISECONDS)
         assertTrue("unresponsive target must not retain source indefinitely", activity.isFinishing)
     }
 
-    @Test fun destinationContentFadesAfterFirstDrawWithoutFadingBottomBar() {
+    @Test fun destinationFirstFrameRemainsOpaqueAndDoesNotStartASeparateContentFade() {
         val (source, _) = fixture()
         val destinationIntent = Intent(source, android.app.Activity::class.java)
         GalleryBottomBar.open(source, destinationIntent)
@@ -207,13 +207,11 @@ class GalleryBottomBarRippleTest {
             Shadows.shadowOf(Looper.getMainLooper()).idleFor(
                 GalleryBottomBar.FIRST_DRAW_LIMIT_MS, TimeUnit.MILLISECONDS)
             root.viewTreeObserver.dispatchOnPreDraw()
-            assertEquals("root content starts transparent only after it is ready", 0f, content.alpha)
+            assertEquals("content must not be zeroed for a second independent fade", 1f, content.alpha)
             assertEquals(1f, bar.alpha)
 
             root.viewTreeObserver.dispatchOnDraw()
             Shadows.shadowOf(Looper.getMainLooper()).idle()
-            Shadows.shadowOf(Looper.getMainLooper()).idleFor(
-                GalleryBottomBar.CONTENT_ENTER_DURATION_MS + 20L, TimeUnit.MILLISECONDS)
             assertEquals(1f, content.alpha)
             assertEquals(1f, bar.alpha)
         } finally {
