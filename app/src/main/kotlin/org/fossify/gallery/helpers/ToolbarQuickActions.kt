@@ -78,6 +78,41 @@ object ToolbarQuickActions {
         return ((widthDp - reservedDp) / 48f).toInt().coerceIn(0, slots.size)
     }
 
+    /**
+     * Share folder-toolbar eligibility between physical albums and photo profiles.
+     * The photo-profile toolbar must honor the saved FOLDER selection and order:
+     * a profile-specific filter must never silently pull later actions forward.
+     * Its slideshow slot remains reserved during partial/empty media publication.
+     */
+    fun supportsFolderAction(
+        action: String,
+        grid: Boolean,
+        horizontal: Boolean,
+        hasPlayableMedia: Boolean,
+        photoProfile: Boolean
+    ): Boolean = when (action) {
+        COLUMNS, FILENAME -> grid
+        GROUP -> !horizontal
+        SLIDESHOW -> photoProfile || hasPlayableMedia
+        else -> true
+    }
+
+    /**
+     * Photo-profile grids currently publish their validated media without group
+     * headers. Retain a configured GROUP icon in its stable slot, but do not
+     * offer a grouping command that cannot affect that virtual grid.
+     */
+    fun folderActionEnabled(
+        action: String,
+        photoProfile: Boolean,
+        hasPlayableMedia: Boolean,
+        needsUnlock: Boolean
+    ): Boolean = when (action) {
+        GROUP -> !photoProfile
+        SLIDESHOW -> PhotoPlaybackPolicy.slideshowEnabled(hasPlayableMedia, needsUnlock)
+        else -> true
+    }
+
     /** A page-level action outside the customizable quick-action catalogue. */
     fun photoProfileManageVisible(isPhotoProfiles: Boolean, isPicker: Boolean, isRecycleBin: Boolean): Boolean =
         isPhotoProfiles && !isPicker && !isRecycleBin

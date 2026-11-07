@@ -132,6 +132,80 @@ class ToolbarQuickActionsTest {
         assertFalse(ToolbarQuickActions.photoProfileManageVisible(true, false, true))
     }
 
+    @Test fun profileUsesSavedFolderActionsIncludingHiddenAndGroupInOriginalOrder() {
+        val home = listOf(ToolbarQuickActions.SEARCH, ToolbarQuickActions.VIEW)
+        val folder = listOf(ToolbarQuickActions.SEARCH, ToolbarQuickActions.HIDDEN,
+            ToolbarQuickActions.GROUP, ToolbarQuickActions.SORT, ToolbarQuickActions.FILTER)
+        val expected = listOf(ToolbarQuickActions.HIDDEN, ToolbarQuickActions.GROUP,
+            ToolbarQuickActions.SORT, ToolbarQuickActions.FILTER)
+
+        for (width in listOf(320, 360, 393, 480)) {
+            val profileSlots = ToolbarQuickActions.availableSlots(
+                widthDp = width, hasBack = false, showSearch = true, fixedActionCount = 1
+            )
+            val physicalSlots = ToolbarQuickActions.availableSlots(
+                widthDp = width, hasBack = true, showSearch = true
+            )
+            val profile = ToolbarQuickActions.plan(
+                ToolbarQuickScope.FOLDER, folder, profileSlots
+            ) { action ->
+                ToolbarQuickActions.supportsFolderAction(
+                    action, grid = true, horizontal = false,
+                    hasPlayableMedia = false, photoProfile = true
+                )
+            }
+            val physical = ToolbarQuickActions.plan(
+                ToolbarQuickScope.FOLDER, folder, physicalSlots
+            ) { action ->
+                ToolbarQuickActions.supportsFolderAction(
+                    action, grid = true, horizontal = false,
+                    hasPlayableMedia = false, photoProfile = false
+                )
+            }
+            assertEquals(expected.take(profileSlots), profile)
+            assertEquals(expected.take(physicalSlots), physical)
+            assertEquals(physical.take(profileSlots), profile)
+            assertFalse(profile == ToolbarQuickActions.plan(
+                ToolbarQuickScope.HOME, home, profileSlots
+            ))
+        }
+        assertTrue(ToolbarQuickActions.folderActionEnabled(
+            ToolbarQuickActions.HIDDEN, true, false, false
+        ))
+        assertFalse(ToolbarQuickActions.folderActionEnabled(
+            ToolbarQuickActions.GROUP, true, true, false
+        ))
+        assertTrue(ToolbarQuickActions.folderActionEnabled(
+            ToolbarQuickActions.GROUP, false, true, false
+        ))
+    }
+
+    @Test fun sharedFolderEligibilityStillRespectsGridAndHorizontalMode() {
+        assertFalse(ToolbarQuickActions.supportsFolderAction(
+            ToolbarQuickActions.GROUP, grid = true, horizontal = true,
+            hasPlayableMedia = true, photoProfile = true
+        ))
+        for (action in listOf(ToolbarQuickActions.COLUMNS, ToolbarQuickActions.FILENAME)) {
+            assertFalse(ToolbarQuickActions.supportsFolderAction(
+                action, grid = false, horizontal = false,
+                hasPlayableMedia = true, photoProfile = true
+            ))
+        }
+        // A profile's slideshow remains visible while loading; only its
+        // enabled state changes. Physical folders retain their current policy.
+        assertTrue(ToolbarQuickActions.supportsFolderAction(
+            ToolbarQuickActions.SLIDESHOW, grid = true, horizontal = false,
+            hasPlayableMedia = false, photoProfile = true
+        ))
+        assertFalse(ToolbarQuickActions.supportsFolderAction(
+            ToolbarQuickActions.SLIDESHOW, grid = true, horizontal = false,
+            hasPlayableMedia = false, photoProfile = false
+        ))
+        assertFalse(ToolbarQuickActions.folderActionEnabled(
+            ToolbarQuickActions.SLIDESHOW, true, true, true
+        ))
+    }
+
     @Test fun photoProfileLayoutPlanDoesNotDependOnMediaAvailability() {
         val selected = listOf(ToolbarQuickActions.SEARCH, ToolbarQuickActions.FILTER,
             ToolbarQuickActions.SLIDESHOW, ToolbarQuickActions.SORT)

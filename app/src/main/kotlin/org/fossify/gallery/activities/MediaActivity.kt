@@ -1468,6 +1468,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             // refresh publications must never switch its saved action family.
             val isHome = mPath.isEmpty()
             val viewType = config.getFolderViewType(if (isHome && !isPhotoProfiles) SHOW_ALL else mPath)
+            val playable = hasPlayableMedia()
             org.fossify.gallery.helpers.ToolbarQuickActions.apply(
                 this, binding.mediaMenu,
                 if (isHome) org.fossify.gallery.helpers.ToolbarQuickScope.HOME
@@ -1476,22 +1477,17 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 hasBack = !isHome && !isPhotoProfiles,
                 fixedActionCount = (if (hasFixedBrowseSwitch) 1 else 0) + (if (isPhotoProfiles) 1 else 0),
                 supported = { action ->
-                    if (isPhotoProfiles && action in listOf(
-                        org.fossify.gallery.helpers.ToolbarQuickActions.HIDDEN,
-                        org.fossify.gallery.helpers.ToolbarQuickActions.EXCLUDED,
-                        org.fossify.gallery.helpers.ToolbarQuickActions.GROUP)) false else when (action) {
-                        org.fossify.gallery.helpers.ToolbarQuickActions.COLUMNS,
-                        org.fossify.gallery.helpers.ToolbarQuickActions.FILENAME -> viewType == VIEW_TYPE_GRID
-                        org.fossify.gallery.helpers.ToolbarQuickActions.GROUP -> !config.scrollHorizontally
-                        org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW ->
-                            isPhotoProfiles || hasPlayableMedia()
-                        else -> true
-                    }
+                    org.fossify.gallery.helpers.ToolbarQuickActions.supportsFolderAction(
+                        action, grid = viewType == VIEW_TYPE_GRID,
+                        horizontal = config.scrollHorizontally,
+                        hasPlayableMedia = playable, photoProfile = isPhotoProfiles
+                    )
                 },
                 enabled = { action ->
-                    action != org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW ||
-                        org.fossify.gallery.helpers.PhotoPlaybackPolicy
-                            .slideshowEnabled(hasPlayableMedia(), photoNeedsUnlock)
+                    org.fossify.gallery.helpers.ToolbarQuickActions.folderActionEnabled(
+                        action, photoProfile = isPhotoProfiles,
+                        hasPlayableMedia = playable, needsUnlock = photoNeedsUnlock
+                    )
                 }
             )
         }

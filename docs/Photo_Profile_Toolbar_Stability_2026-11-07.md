@@ -63,3 +63,13 @@ Pixel 8 Pro / Android 16 在自定义照片配置浏览首次进入、下拉刷�
 Pixel 8 Pro / Android 16 真机反馈：浅色模式仅搜索、溢出（三点）按钮为白色，其余快捷按钮及管理配置按钮为黑色；深色模式正常。Commons 7.1.3 的 `MySearchMenu.updateColors()` 通过 `EdgeToEdgeActivity.updateTopBarColors()` 在已存在 Drawable 上直接调用 `setTint(contrastColor)`；Gallery 原 `tintMenu()` 的缓存只验证 MenuItem/Drawable 身份及上次目标前景色，在浅色模式刷新后可能跳过恢复白色。
 
 补修仅在 `MediaActivity.updateMenuColors()` 的原有菜单绑定完成后调用 `OxygenToolbarStyle.reassertActionTints()`，直接恢复现有顶栏操作 Drawable 的白色/禁用态 ColorStateList；不重新赋值 MenuItem.icon、不变更 MenuItem 可见性、启用状态、动作规划或 48dp 占位。搜索与三点菜单既有专用白色 Tint 保持不变；弹出菜单不在该恢复操作范围内。复用 `tintMenu()` 的状态色定义，新增 Robolectric Tint 调用追踪及 Drawable 身份回归测试 `OxygenToolbarActionTintTest`；不依赖 Robolectric 对 ColorDrawable Tint 的不稳定像素栅格化。真机仍须验证首次进入、下拉刷新、渐进加载、锁定态及主题切换无颜色和布局回归。
+
+## 2026-11-07：自定义照片配置与普通相册快捷操作配置一致性补修
+
+真机验收 Actions #42385600406 后确认：照片配置页的顶栏快捷图标没有按普通相册文件夹的已保存配置完整显示。复核发现：`MediaActivity.updateMenuColors()` 虽然已经采用 `ToolbarQuickScope.FOLDER` 和 `config.toolbarFolderActions`，但原先的 `supported` 判断额外屏蔽了 `HIDDEN` 与 `GROUP`，使被保存的操作从计划中消失，后续操作提前补位，视觉上与普通文件夹不一致。
+
+本次引入 `ToolbarQuickActions.supportsFolderAction()` 共用文件夹快捷操作可用性策略：普通文件夹与自定义照片配置均保留 `HIDDEN` / `GROUP` 的原配置顺序；`COLUMNS` / `FILENAME` 继续只在网格视图显示；横向滚动时仍不展示 `GROUP`；照片配置 `SLIDESHOW` 槽位在渐进加载期间持续保留，而可播放和权限状态仅改变 `isEnabled`。 `EXCLUDED` 从来不属于 FOLDER 配置选项，继续由 `normalize(FOLDER,...)` 过滤。共享选项列表与 HOME 配置仍彼此独立。
+
+照片配置的显示发布流程尚不实现分组标题，因此 `GROUP` 图标按 FOLDER 保存顺序占位，但禁用（不可执行无效果的分组操作）；其余安全有效的快捷操作使用原有点击逻辑。固定管理按钮仍保留并占用一个 48dp 位置，实际可见数量以真正可用宽度为准，不挤压标题和触控区域，也不变更之前的防闪烁与 Tint 修复。不调整扫描、分组、搜索或访问权限实现。
+
+增加 `ToolbarQuickActionsTest.profileUsesSavedFolderActionsIncludingHiddenAndGroupInOriginalOrder` 和 `sharedFolderEligibilityStillRespectsGridAndHorizontalMode`，覆盖 HOME/FOLDER 区分、宽度下稳定前缀、横向/列表模式、锁定态与幻灯片占位。更新 `PhotoProfileEnhancementsTest.photoProfileToolbarUsesFolderPlanAcrossEveryPublicationStage` 覆盖加载、刷新及空列表时的 FOLDER 快捷计划稳定性。

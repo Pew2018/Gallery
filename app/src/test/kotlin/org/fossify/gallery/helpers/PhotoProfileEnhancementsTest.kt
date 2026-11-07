@@ -101,20 +101,26 @@ class PhotoProfileEnhancementsTest {
     }
     @Test fun photoProfileToolbarUsesFolderPlanAcrossEveryPublicationStage() {
         val savedHome = listOf(ToolbarQuickActions.SEARCH, ToolbarQuickActions.VIEW)
-        val savedFolder = listOf(ToolbarQuickActions.SEARCH, ToolbarQuickActions.FILTER,
-            ToolbarQuickActions.SLIDESHOW, ToolbarQuickActions.SORT)
+        val savedFolder = listOf(ToolbarQuickActions.SEARCH, ToolbarQuickActions.HIDDEN,
+            ToolbarQuickActions.GROUP, ToolbarQuickActions.SLIDESHOW, ToolbarQuickActions.SORT)
         val stages = listOf(
             "INITIAL" to false, "PARTIAL" to true, "COMPLETE" to true,
             "REFRESH_PARTIAL" to false, "EMPTY" to false
         )
         val plans = stages.map { (_, hasPlayableMedia) ->
             ToolbarQuickActions.plan(ToolbarQuickScope.FOLDER, savedFolder, 4) { action ->
-                action != ToolbarQuickActions.HIDDEN && action != ToolbarQuickActions.GROUP &&
-                    action != ToolbarQuickActions.EXCLUDED
+                ToolbarQuickActions.supportsFolderAction(
+                    action, grid = true, horizontal = false,
+                    hasPlayableMedia = hasPlayableMedia, photoProfile = true
+                )
             }
         }
-        assertEquals(listOf(ToolbarQuickActions.FILTER, ToolbarQuickActions.SLIDESHOW,
-            ToolbarQuickActions.SORT), plans.first())
+        assertEquals(listOf(ToolbarQuickActions.HIDDEN, ToolbarQuickActions.GROUP,
+            ToolbarQuickActions.SLIDESHOW, ToolbarQuickActions.SORT), plans.first())
+        assertFalse(ToolbarQuickActions.folderActionEnabled(
+            ToolbarQuickActions.GROUP, photoProfile = true,
+            hasPlayableMedia = true, needsUnlock = false
+        ))
         assertTrue(plans.all { it == plans.first() })
         assertEquals(listOf(false, true, true, false, false), stages.map { (_, hasMedia) ->
             PhotoPlaybackPolicy.slideshowEnabled(hasMedia, needsUnlock = false)
