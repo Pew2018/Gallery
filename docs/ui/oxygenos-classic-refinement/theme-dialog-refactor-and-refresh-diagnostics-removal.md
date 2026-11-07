@@ -105,7 +105,7 @@ with privacy and retained execution/error-propagation coverage.
 - Icon selection now changes a StateListDrawable inside the existing bounded
   RippleDrawable, retaining its press/release animation rather than replacing it.
   A test verifies drawable identity across selections.
-- Added API 26/31 light/dark geometry and PNG renders under
+- Added API 26/31 light/dark geometry and API 31 native PNG renders under
   `build/reports/ui-regression/theme-dialogs`, plus unchanged compact width checks.
 - Local Gradle attempt stopped before compilation: distribution download failed
   with `Network is unreachable`; this is not a passing test result.
@@ -143,3 +143,44 @@ minSdk and auditing dependencies would be a separate compatibility task.
 The first API 31 PNG artifacts used Robolectric's legacy graphics mode and were
 blank on inspection; they are not visual evidence. The render test now explicitly
 uses native graphics, verifies nonblank rendered pixels and exports actual UI.
+
+## Final file inventory
+
+28 files changed; the preset production table, launcher resources/manifest,
+Room schema, media decisions and common logger implementation are unchanged.
+
+- `app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt`
+- `app/src/main/kotlin/org/fossify/gallery/activities/MediaActivity.kt`
+- `app/src/main/kotlin/org/fossify/gallery/activities/OxygenThemeActivity.kt`
+- `app/src/main/kotlin/org/fossify/gallery/activities/SettingsActivity.kt`
+- `app/src/main/kotlin/org/fossify/gallery/asynctasks/GetMediaAsynctask.kt`
+- `app/src/main/kotlin/org/fossify/gallery/helpers/AppIconPickerDialog.kt`
+- `app/src/main/kotlin/org/fossify/gallery/helpers/CategorizedFolderScanner.kt`
+- `app/src/main/kotlin/org/fossify/gallery/helpers/ClassicCustomColorDialog.kt`
+- `app/src/main/kotlin/org/fossify/gallery/helpers/ClassicThemeDialog.kt`
+- `app/src/main/kotlin/org/fossify/gallery/helpers/DirectoryMetadataRepository.kt`
+- `app/src/main/kotlin/org/fossify/gallery/helpers/FolderMediaReadResult.kt`
+- `app/src/main/kotlin/org/fossify/gallery/helpers/FolderRefreshDiagnostics.kt`
+- `app/src/main/kotlin/org/fossify/gallery/helpers/MaterialColorPickerDialog.kt`
+- `app/src/main/kotlin/org/fossify/gallery/helpers/MediaFetcher.kt`
+- `app/src/main/kotlin/org/fossify/gallery/helpers/OxygenClassicDialog.kt`
+- `app/src/main/res/layout/activity_settings.xml`
+- `app/src/main/res/values-zh-rCN/refresh_reliability.xml`
+- `app/src/main/res/values-zh-rCN/theme_dialog.xml`
+- `app/src/main/res/values/classic_ids.xml`
+- `app/src/main/res/values/refresh_reliability.xml`
+- `app/src/main/res/values/theme_dialog.xml`
+- `app/src/test/kotlin/org/fossify/gallery/helpers/ClassicSettingsControlsTest.kt`
+- `app/src/test/kotlin/org/fossify/gallery/helpers/OxygenThemePresetsTest.kt`
+- `app/src/test/kotlin/org/fossify/gallery/helpers/Phase15GridEvidenceTest.kt`
+- `app/src/test/kotlin/org/fossify/gallery/helpers/RefreshReliabilityTest.kt`
+- `app/src/test/kotlin/org/fossify/gallery/helpers/SettingsPageMotionTest.kt`
+- `app/src/test/kotlin/org/fossify/gallery/helpers/ThemeDialogTest.kt`
+- `docs/ui/oxygenos-classic-refinement/theme-dialog-refactor-and-refresh-diagnostics-removal.md`
+
+Run `42376525765` ran 1,018 tests with one failure isolated to API 26's offscreen
+native bitmap draw: framework `ScrollView.onDrawScrollIndicators` dereferenced
+missing `mAttachInfo`. API 31 native captures passed the nonblank-pixel check.
+API 26 continues to execute the dialog geometry, width-profile and no-overscroll
+checks; only PNG drawing is limited to API 31. No production behavior is changed
+or test class disabled for this Robolectric drawing limitation.
