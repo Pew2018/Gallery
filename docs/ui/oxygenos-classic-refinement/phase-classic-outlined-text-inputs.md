@@ -47,11 +47,13 @@ Local command attempted:
 
 It did not start because Gradle 9.5.1 was not cached and the environment could not reach `services.gradle.org` (`Network is unreachable`). `git diff --check` passed before the Gradle invocation. Robolectric tests and device-only rendering/IME behavior remain unverified locally until CI can run.
 
-First remote run (`42381146294`) reached `:app:compileFossReleaseKotlin` and found two Kotlin errors: the dynamic fields used inaccessible synthetic property `hintEnabled`. Both call sites now use the public `setHintEnabled(false)` API. The corrected source is being committed and the workflow rerun; the first run did not reach unit tests or APK assembly.
+First remote run (`42381146294`) reached `:app:compileFossReleaseKotlin` and found two Kotlin errors: the dynamic fields used inaccessible synthetic property `hintEnabled`. Both call sites were changed to the public `setHintEnabled(false)` API in repair commit `7e94a850ccb732d16e4e5871ed28b7081b51a5c3` (the original run did not reach unit tests or APK assembly).
+
+Corrected run `42381432692` completed successfully. Full `:app:testFossReleaseUnitTest`: **1,020 tests, 0 failures, 0 errors, 0 skipped**. Kotlin compilation, resource processing, ARM64 Release assembly, APK package/signature/ABI validation and artifact upload all passed. The APK was confirmed to contain only `arm64-v8a` native libraries. APK SHA-256: `2d0bb278b30430414fbb61692a44bea9fdbb570f9f6bf414f194297c08c91b1f`.
 
 ## Delivery tracking
 
-- Commit SHA: `c8089b98e3e693b0ade91e2f462315ea29684b25` (source tree matches local commit `0101f73d8ef354ffe2eca5a81d5f760d6ae22016`)
-- GitHub Actions run: [42381146294](https://github.com/Pew2018/Gallery/actions/runs/42381146294) — failed at Kotlin compilation; correction in progress
-- ARM64 FOSS Release APK artifact: pending
+- Source commit SHA: `7e94a850ccb732d16e4e5871ed28b7081b51a5c3` (includes the public setter repair; parent source commit `c8089b98e3e693b0ade91e2f462315ea29684b25`)
+- GitHub Actions run: [42381432692](https://github.com/Pew2018/Gallery/actions/runs/42381432692) — success. Initial run [42381146294](https://github.com/Pew2018/Gallery/actions/runs/42381146294) failed at compile and was corrected.
+- ARM64 FOSS Release artifact: `gallery-foss-arm64-v8a-release`, artifact ID `13577808932`, ZIP size 10,500,680 bytes, SHA-256 `a68ee601ef2300a0ae5e6af8447a8ad21ec036ccd8531a876b19218470d85a31`. [Open/download the Actions artifact](https://github.com/Pew2018/Gallery/actions/runs/42381432692/artifacts/13577808932). It expires 2026-11-21.
 - Pixel 8 Pro verification: pending. Validate light/dark themes, bright and dark custom accents, 1.5x font, portrait/landscape, both navigation modes, Chinese/English IMEs, focus/selection retention, and folder search filtering.
