@@ -47,9 +47,11 @@ Local command attempted:
 
 It did not start because Gradle 9.5.1 was not cached and the environment could not reach `services.gradle.org` (`Network is unreachable`). `git diff --check` passed before the Gradle invocation. Robolectric tests and device-only rendering/IME behavior remain unverified locally until CI can run.
 
+First remote run (`42381146294`) reached `:app:compileFossReleaseKotlin` and found two Kotlin errors: the dynamic fields used inaccessible synthetic property `hintEnabled`. Both call sites now use the public `setHintEnabled(false)` API. The corrected source is being committed and the workflow rerun; the first run did not reach unit tests or APK assembly.
+
 ## Delivery tracking
 
-- Commit SHA: pending
-- GitHub Actions run: pending
+- Commit SHA: `c8089b98e3e693b0ade91e2f462315ea29684b25` (source tree matches local commit `0101f73d8ef354ffe2eca5a81d5f760d6ae22016`)
+- GitHub Actions run: [42381146294](https://github.com/Pew2018/Gallery/actions/runs/42381146294) — failed at Kotlin compilation; correction in progress
 - ARM64 FOSS Release APK artifact: pending
 - Pixel 8 Pro verification: pending. Validate light/dark themes, bright and dark custom accents, 1.5x font, portrait/landscape, both navigation modes, Chinese/English IMEs, focus/selection retention, and folder search filtering.

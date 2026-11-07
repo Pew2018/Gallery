@@ -205,7 +205,7 @@ class PhotoProfileManageActivity : SimpleActivity() {
         }
         val input = TextInputLayout(context).apply {
             id = R.id.classic_input_dialog_holder
-            hintEnabled = false
+            setHintEnabled(false)
         }
         val tokens = OxygenThemeEngine.snapshot(this, config).let {
             it.copy(pageBackground = it.dialogBackground,

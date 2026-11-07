@@ -50,7 +50,7 @@ internal object ClassicCustomColorDialog {
             setPadding(0, ClassicThemeDialog.dp(host, 20), 0, ClassicThemeDialog.dp(host, 4))
         }
         body.addView(label)
-        val input = TextInputLayout(host).apply { hintEnabled = false }
+        val input = TextInputLayout(host).apply { setHintEnabled(false) }
         val field = TextInputEditText(host).apply {
             id = View.generateViewId()
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
