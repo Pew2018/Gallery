@@ -131,4 +131,33 @@ class ToolbarQuickActionsTest {
         assertFalse(ToolbarQuickActions.photoProfileManageVisible(true, true, false))
         assertFalse(ToolbarQuickActions.photoProfileManageVisible(true, false, true))
     }
+
+    @Test fun photoProfileLayoutPlanDoesNotDependOnMediaAvailability() {
+        val selected = listOf(ToolbarQuickActions.SEARCH, ToolbarQuickActions.FILTER,
+            ToolbarQuickActions.SLIDESHOW, ToolbarQuickActions.SORT)
+        listOf(320, 360, 393, 480).forEach { width ->
+            val slots = ToolbarQuickActions.availableSlots(width, hasBack = false,
+                showSearch = true, fixedActionCount = 1)
+            val beforeLoad = ToolbarQuickActions.plan(ToolbarQuickScope.FOLDER, selected, slots) { true }
+            val afterLoad = ToolbarQuickActions.plan(ToolbarQuickScope.FOLDER, selected, slots) { true }
+            assertEquals(beforeLoad, afterLoad)
+        }
+    }
+
+    @Test fun unchangedSlotBindingIsSkippedButReinflatedItemsAreInitialized() {
+        assertFalse(ToolbarQuickActions.shouldBindSlot("sort", sameMenuItem = true, action = "sort"))
+        assertTrue(ToolbarQuickActions.shouldBindSlot("sort", sameMenuItem = false, action = "sort"))
+        assertTrue(ToolbarQuickActions.shouldBindSlot("sort", sameMenuItem = true, action = "filter"))
+        assertFalse(ToolbarQuickActions.shouldBindSlot("sort", sameMenuItem = true, action = null))
+    }
+
+    @Test fun slideshowAvailabilityChangesEnabledStateWithoutChangingThePlan() {
+        val selected = listOf(ToolbarQuickActions.SLIDESHOW, ToolbarQuickActions.SORT)
+        val plan = ToolbarQuickActions.plan(ToolbarQuickScope.FOLDER, selected, 3)
+        assertEquals(listOf(ToolbarQuickActions.SLIDESHOW, ToolbarQuickActions.SORT), plan)
+        assertFalse(PhotoPlaybackPolicy.slideshowEnabled(hasPlayableMedia = false, needsUnlock = false))
+        assertTrue(PhotoPlaybackPolicy.slideshowEnabled(hasPlayableMedia = true, needsUnlock = false))
+        assertFalse(PhotoPlaybackPolicy.slideshowEnabled(hasPlayableMedia = true, needsUnlock = true))
+        assertEquals(plan, ToolbarQuickActions.plan(ToolbarQuickScope.FOLDER, selected, 3))
+    }
 }

@@ -6,6 +6,7 @@ internal object PhotoPlaybackPolicy {
         type and (TYPE_IMAGES or TYPE_PORTRAITS) != 0 ||
             (videos && type and TYPE_VIDEOS != 0) || (gifs && type and TYPE_GIFS != 0)
 
-    fun toolbarScope(hasPublishedContent: Boolean): ToolbarQuickScope =
-        if (hasPublishedContent) ToolbarQuickScope.FOLDER else ToolbarQuickScope.HOME
+    fun slideshowEnabled(hasPlayableMedia: Boolean, needsUnlock: Boolean): Boolean =
+        hasPlayableMedia && !needsUnlock
+
 }

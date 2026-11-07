@@ -99,13 +99,27 @@ class PhotoProfileEnhancementsTest {
         assertFalse(PhotoPlaybackPolicy.canPlay(TYPE_RAWS, true, true))
         assertFalse(PhotoPlaybackPolicy.canPlay(TYPE_SVGS, true, true))
     }
-    @Test fun photoScopeChangesOnlyWithPublishedContent() {
-        assertEquals(ToolbarQuickScope.HOME, PhotoPlaybackPolicy.toolbarScope(false))
-        assertEquals(ToolbarQuickScope.FOLDER, PhotoPlaybackPolicy.toolbarScope(true))
-        val saved = listOf(ToolbarQuickActions.FILTER, ToolbarQuickActions.SORT, ToolbarQuickActions.HIDDEN)
-        assertEquals(listOf(ToolbarQuickActions.FILTER, ToolbarQuickActions.SORT),
-            ToolbarQuickActions.plan(ToolbarQuickScope.FOLDER, saved, 5) { it != ToolbarQuickActions.HIDDEN })
-        assertEquals(3, saved.size)
+    @Test fun photoProfileToolbarUsesFolderPlanAcrossEveryPublicationStage() {
+        val savedHome = listOf(ToolbarQuickActions.SEARCH, ToolbarQuickActions.VIEW)
+        val savedFolder = listOf(ToolbarQuickActions.SEARCH, ToolbarQuickActions.FILTER,
+            ToolbarQuickActions.SLIDESHOW, ToolbarQuickActions.SORT)
+        val stages = listOf(
+            "INITIAL" to false, "PARTIAL" to true, "COMPLETE" to true,
+            "REFRESH_PARTIAL" to false, "EMPTY" to false
+        )
+        val plans = stages.map { (_, hasPlayableMedia) ->
+            ToolbarQuickActions.plan(ToolbarQuickScope.FOLDER, savedFolder, 4) { action ->
+                action != ToolbarQuickActions.HIDDEN && action != ToolbarQuickActions.GROUP &&
+                    action != ToolbarQuickActions.EXCLUDED
+            }
+        }
+        assertEquals(listOf(ToolbarQuickActions.FILTER, ToolbarQuickActions.SLIDESHOW,
+            ToolbarQuickActions.SORT), plans.first())
+        assertTrue(plans.all { it == plans.first() })
+        assertEquals(listOf(false, true, true, false, false), stages.map { (_, hasMedia) ->
+            PhotoPlaybackPolicy.slideshowEnabled(hasMedia, needsUnlock = false)
+        })
+        assertFalse(plans.first() == ToolbarQuickActions.plan(ToolbarQuickScope.HOME, savedHome, 4))
     }
     @Test fun mixedMediaSourcesRemainDirectAndDeduplicated() {
         val paths = listOf("/Camera/a.jpg", "/Camera/b.mp4", "/Other/fav.mp4", "/Camera/Sub/no.mp4", "/Other/unselected.jpg", "/Camera/b.mp4")

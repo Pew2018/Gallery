@@ -9,6 +9,7 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.view.Menu
+import android.view.MenuItem
 import com.google.android.material.appbar.MaterialToolbar
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.RippleDrawable
@@ -24,6 +25,7 @@ import androidx.activity.ComponentActivity
 import androidx.core.graphics.ColorUtils
 import org.fossify.commons.views.MySearchMenu
 import org.fossify.gallery.extensions.config
+import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 
 /**
@@ -41,6 +43,11 @@ object OxygenToolbarStyle {
         var transition: Animator? = null
     )
     private val hooked = WeakHashMap<MySearchMenu, State>()
+    private data class TintedIcon(
+        val drawable: WeakReference<android.graphics.drawable.Drawable>?,
+        val foreground: Int
+    )
+    private val tintedIcons = WeakHashMap<MenuItem, TintedIcon>()
 
     /** Set the ActionMenuPresenter popup theme before the menu is inflated. */
     fun preparePopup(activity: Activity, searchMenu: MySearchMenu) {
@@ -429,12 +436,19 @@ object OxygenToolbarStyle {
         )
         for (i in 0 until menu.size()) {
             val item = menu.getItem(i)
-            // MenuItem tint survives ActionMenuPresenter rebinding and icon replacement.
-            item.iconTintList = colors
-            item.icon = item.icon?.mutate()?.also {
-                it.clearColorFilter()
-                it.setTintList(colors)
-                it.alpha = 255
+            val currentIcon = item.icon
+            val previous = tintedIcons[item]
+            val tintIsCurrent = previous != null && previous.drawable?.get() === currentIcon &&
+                previous.foreground == foreground
+            if (!tintIsCurrent) {
+                // MenuItem tint survives ActionMenuPresenter rebinding and icon replacement.
+                item.iconTintList = colors
+                item.icon = currentIcon?.mutate()?.also {
+                    it.clearColorFilter()
+                    it.setTintList(colors)
+                    it.alpha = 255
+                }
+                tintedIcons[item] = TintedIcon(item.icon?.let { WeakReference(it) }, foreground)
             }
             tintMenu(item.subMenu, foreground)
         }
