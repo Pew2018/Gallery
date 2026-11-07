@@ -126,13 +126,21 @@ class DialogOverscrollPolicyTest {
     @Test fun longDialogStillScrollsAfterOverscrollIsDisabled() {
         val activity = activity()
         val content = ClassicDialogScrollView(activity)
-        content.addView(View(activity), ViewGroup.LayoutParams(360, 2000))
+        val rows = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        repeat(60) { index -> rows.addView(TextView(activity).apply {
+            text = "Scrollable dialog row $index"
+            minimumHeight = 56
+        }) }
+        // ScrollView measures content with UNSPECIFIED height. Use real intrinsic
+        // rows; a plain View's requested LayoutParams height alone is not content.
+        content.addView(rows)
         DialogOverscrollPolicy.protect(content)
         content.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY))
         content.layout(0, 0, content.measuredWidth, content.measuredHeight)
+        assertTrue("Long content must exceed the viewport", rows.height > content.height)
         content.scrollTo(0, 800)
-        assertTrue(content.scrollY > 0)
+        assertTrue("Normal scrolling must remain available", content.scrollY > 0)
         assertEquals(View.OVER_SCROLL_NEVER, content.overScrollMode)
         activity.finish()
     }
