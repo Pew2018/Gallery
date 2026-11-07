@@ -437,6 +437,7 @@ object OxygenToolbarStyle {
     )
 
     private val actionIconIds = intArrayOf(
+        org.fossify.gallery.R.id.show_all,
         org.fossify.gallery.R.id.folder_view,
         org.fossify.gallery.R.id.photo_profiles_manage,
         org.fossify.gallery.R.id.quick_toolbar_slot_0,

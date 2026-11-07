@@ -972,6 +972,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 }
             )
         }
+        // Commons can reset existing toolbar drawables to its content contrast
+        // color during updateColors(). Restore the visible primary actions after
+        // quick-action binding, matching the folder toolbar's final tint pass.
+        OxygenToolbarStyle.reassertActionTints(
+            binding.mainMenu.requireToolbar().menu,
+            OxygenThemeEngine.toolbarForeground(this, config)
+        )
     }
 
     private fun getRecyclerAdapter() = binding.directoriesGrid.adapter as? DirectoryAdapter
