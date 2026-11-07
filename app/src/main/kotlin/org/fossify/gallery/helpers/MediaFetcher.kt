@@ -30,7 +30,6 @@ class MediaFetcher(
     private val discoverUnindexedFolders: Boolean = false,
     private val showDotFiles: Boolean? = null
 ) {
-    init { FolderRefreshTrace.configure(context) }
     internal var noMediaSnapshot = NoMediaSnapshot()
     internal var folderFileAccess: FolderFileAccess = DeviceFolderFileAccess(context)
     internal var traceRequest = 0L
@@ -72,7 +71,7 @@ class MediaFetcher(
             else if (error is SecurityException) FolderReadStatus.ACCESS_REQUIRED else FolderReadStatus.FAILED
         } else if (observation.status == FolderReadStatus.PARTIAL && media.isEmpty() &&
             "limited_visibility" in observation.reasons) FolderReadStatus.ACCESS_REQUIRED else observation.status
-        FolderRefreshTrace.event(traceRequest, "read_result", media.map { it.path },
+        FolderRefreshDiagnostics.event(traceRequest, "read_result", media.map { it.path },
             "method=${observation.method} nomedia=${noMediaSnapshot.contains(path)} status=$status enumerated=${observation.enumerated} reasons=${observation.reasons}")
         pipelineDiagnostics?.apply {
             add("candidateCount", media.size.toLong())
@@ -499,7 +498,7 @@ class MediaFetcher(
             RECYCLE_BIN -> deletedMedia.map { File(it.path) }
             else -> try {
                 val enumerationStarted = if (pipelineDiagnostics != null) android.os.SystemClock.elapsedRealtime() else 0L
-                val enumeration = FolderRefreshTrace.measure(traceRequest, "directory_enumeration") { folderFileAccess.enumerate(folder) }
+                val enumeration = FolderRefreshDiagnostics.measure(traceRequest, "directory_enumeration") { folderFileAccess.enumerate(folder) }
                 pipelineDiagnostics?.apply {
                     add("diskEnumerateCount")
                     add("diskEnumerateMs", (android.os.SystemClock.elapsedRealtime() - enumerationStarted).coerceAtLeast(0L))
@@ -556,7 +555,7 @@ class MediaFetcher(
         for (curFile in orderedFiles) {
             var file = curFile
             if (shouldStop) throw java.util.concurrent.CancellationException()
-            FolderRefreshTrace.event(traceRequest, "enumerated", listOf(file.path))
+
             var path = file.absolutePath
             var isPortrait = false
             val isImage = path.isImageFast()
@@ -605,10 +604,9 @@ class MediaFetcher(
                 continue
             }
 
-            FolderRefreshTrace.event(traceRequest, "type_passed", listOf(path))
             val metadata = if (physical) try {
                 val metadataStarted = if (pipelineDiagnostics != null) android.os.SystemClock.elapsedRealtime() else 0L
-                FolderRefreshTrace.measure(traceRequest, "file_metadata") { folderFileAccess.metadata(file) }.also {
+                FolderRefreshDiagnostics.measure(traceRequest, "file_metadata") { folderFileAccess.metadata(file) }.also {
                     pipelineDiagnostics?.apply {
                         add("metadataReadCount")
                         add("metadataReadMs", (android.os.SystemClock.elapsedRealtime() - metadataStarted).coerceAtLeast(0L))
@@ -632,7 +630,7 @@ class MediaFetcher(
                 if ((checkProperFileSize || checkFileExistence) && size <= 0L) continue
                 if (checkFileExistence && (!file.exists() || !file.isFile)) continue
             }
-            FolderRefreshTrace.event(traceRequest, "metadata_passed", listOf(path))
+
             if (indexed != null && !isPortrait) {
                 media.add(indexed.copy(isFavorite = path in favoritePathSet))
                 publishScanProgress()
@@ -688,7 +686,7 @@ class MediaFetcher(
 
         if (shouldStop) throw java.util.concurrent.CancellationException()
         publishCandidates(force = true)
-        FolderRefreshTrace.event(traceRequest, "scan_output", media.map { it.path },
+        FolderRefreshDiagnostics.event(traceRequest, "scan_output", media.map { it.path },
             "method=${observation?.method} status=${observation?.status} enumerated=${observation?.enumerated} reasons=${observation?.reasons}")
         return media
     }
@@ -1148,7 +1146,7 @@ class MediaFetcher(
             add("sortInputItems", media.size.toLong())
             set("sortMode", sorting.toLong())
         }
-        try { FolderRefreshTrace.measure(traceRequest, "sorting") {
+        try { FolderRefreshDiagnostics.measure(traceRequest, "sorting") {
         if (sorting and SORT_BY_RANDOM != 0) {
             media.shuffle()
             return

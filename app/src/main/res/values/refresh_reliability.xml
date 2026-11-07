@@ -1,10 +1,4 @@
 <resources>
     <string name="folder_refresh_timeout">Refresh did not finish within 45 seconds. Available content has been kept; refresh again to retry.</string>
     <string name="folder_refresh_busy">Media readers are busy. Available content has been kept; try refreshing again.</string>
-    <string name="folder_diagnostics">Refresh diagnostics</string>
-    <string name="folder_diagnostics_description">Record anonymous refresh stages and timings on this device. Enable, reproduce the problem, then return here to copy the diagnostics. File names and full paths are not logged. The optional target path is stored only as a hash.</string>
-    <string name="folder_diagnostics_target">Optional: full path of the new file</string>
-    <string name="folder_diagnostics_enable">Enable</string>
-    <string name="folder_diagnostics_disable">Disable</string>
-    <string name="folder_diagnostics_copy">Copy diagnostics</string>
 </resources>

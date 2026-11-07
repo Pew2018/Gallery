@@ -156,11 +156,11 @@ internal object DirectoryMetadataRepository {
                 }
             } catch (error: Exception) {
                 pending.add(path)
-                Log.w("GalleryDirs", "Directory metadata commit failed (id=${FolderRefreshTrace.pathId(path)})", error)
+                Log.w("GalleryDirs", "Directory metadata commit failed (id=${GalleryDiagnosticLogger.anonymousId(path)})", error)
             }
         }
         if (changed && accepted) {
-            FolderRefreshTrace.event(version, "directory_metadata_committed", listOf(path), "count=${calculated.mediaCnt}")
+            FolderRefreshDiagnostics.event(version, "directory_metadata_committed", listOf(path), "count=${calculated.mediaCnt}")
             if (snapshot.notifyObservers) recipients.forEach { observer ->
                 try { observer(path) } catch (error: Exception) {
                     Log.w("GalleryDirs", "Directory metadata observer failed", error)
@@ -201,7 +201,7 @@ internal object DirectoryMetadataRepository {
                                     read.media.map { it.copy() }))
                             } catch (error: Exception) {
                                 defer(path, version)
-                                Log.w("GalleryDirs", "Deferred directory scan failed (id=${FolderRefreshTrace.pathId(path)})", error)
+                                Log.w("GalleryDirs", "Deferred directory scan failed (id=${GalleryDiagnosticLogger.anonymousId(path)})", error)
                             }
                         } finally { pending.failed(path) }
                     }

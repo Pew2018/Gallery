@@ -157,20 +157,11 @@ class RefreshReliabilityTest {
             assertEquals(0, published.get())
         } finally { release.countDown(); executor.shutdownNow() }
     }
-    @Test fun enabledDiagnosticsHaveAnonymousIdentityAndDoNotWritePrivatePaths() {
-        val context = RuntimeEnvironment.getApplication()
+    @Test fun retainedRefreshLogIdentityDoesNotExposePaths() {
         val path = "/storage/emulated/0/private/new.jpg"
-        context.getSharedPrefs().edit().putBoolean(FolderRefreshTrace.ENABLED_KEY, true)
-            .putString(FolderRefreshTrace.TARGET_KEY, FolderRefreshTrace.pathId(path)).commit()
-        try {
-            FolderRefreshTrace.configure(context); FolderRefreshTrace.clear()
-            FolderRefreshTrace.measure(42, "read") { FolderRefreshTrace.event(42, "enumerated", listOf(path)) }
-            val log = FolderRefreshTrace.dump()
-            assertTrue(log.contains("request=42")); assertTrue(log.contains("target=true"))
-            assertTrue(log.contains("elapsedMs=")); assertFalse(log.contains(path)); assertFalse(log.contains("new.jpg"))
-        } finally {
-            context.getSharedPrefs().edit().remove(FolderRefreshTrace.ENABLED_KEY).remove(FolderRefreshTrace.TARGET_KEY).commit()
-            FolderRefreshTrace.configure(context); FolderRefreshTrace.clear()
-        }
+        val id = GalleryDiagnosticLogger.anonymousId(path)
+        assertFalse(id.contains(path))
+        assertFalse(id.contains("new.jpg"))
+        assertEquals(id, GalleryDiagnosticLogger.anonymousId(path))
     }
 }

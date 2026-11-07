@@ -259,25 +259,21 @@ class ClassicSettingsControlsTest {
         color.performClick()
         assertEquals("oxygen_jade_green", config.oxygenThemePresetId)
         assertSame(original, label(R.string.classic_more_colors))
-        assertEquals(3 + OxygenThemePresets.featured.size, children(root).filterIsInstance<RadioButton>().size)
+        assertEquals(3 + OxygenThemePresets.group("classic").size, children(root).filterIsInstance<RadioButton>().size)
         label(R.string.classic_more_colors).performClick()
-        // Each TiebaLite preset row has one passive trailing radio.
-        val palette = children(root).filterIsInstance<LinearLayout>().filter {
+        val materialDialog = org.robolectric.shadows.ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog
+        val palette = children(materialDialog.window!!.decorView).filterIsInstance<LinearLayout>().filter {
             it.isClickable && it.contentDescription != null
         }
-        assertEquals(23, palette.size)
-        assertEquals(23, children(root).filterIsInstance<RadioButton>().size)
-        assertEquals(1, palette.count { it.isSelected })
-        assertEquals(activity.getString(R.string.theme_oxygen_jade_green),
-            palette.single { it.isSelected }.contentDescription.toString())
+        assertEquals(12, palette.size)
+        assertEquals(12, children(materialDialog.window!!.decorView).filterIsInstance<RadioButton>().size)
+        assertEquals(0, palette.count { it.isSelected })
         palette.single {
             it.contentDescription.toString() == activity.getString(R.string.theme_material_red)
         }.performClick()
         assertEquals("material_red", config.oxygenThemePresetId)
-        assertEquals(1, palette.count { it.isSelected })
-        assertEquals(activity.getString(R.string.theme_material_red),
-            palette.single { it.isSelected }.contentDescription.toString())
-        activity.onBackPressedDispatcher.onBackPressed()
+        assertFalse(materialDialog.isShowing)
+        assertFalse(activity.isFinishing)
         label(R.string.classic_custom_color).performClick()
         val dialog = org.robolectric.shadows.ShadowDialog.getLatestDialog() as androidx.appcompat.app.AlertDialog
         val field = children(dialog.window!!.decorView).filterIsInstance<EditText>().single()

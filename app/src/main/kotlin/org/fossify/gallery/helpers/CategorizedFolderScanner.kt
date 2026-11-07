@@ -129,11 +129,11 @@ internal object CategorizedFolderScanner {
             addAll(cached.map { it.path }); addAll(cfg.everShownFolders)
             addAll(policy.includedRoots); addAll(policy.excludedRoots)
         }
-        FolderRefreshTrace.measure(fetcher.traceRequest, "known_albums") {
+        FolderRefreshDiagnostics.measure(fetcher.traceRequest, "known_albums") {
             seeds.forEach { scanPath(it); publish() }
             publish(force = true)
         }
-        FolderRefreshTrace.measure(fetcher.traceRequest, "album_discovery") {
+        FolderRefreshDiagnostics.measure(fetcher.traceRequest, "album_discovery") {
             val hints = context.getNoMediaFoldersSync(seeds, fetcher.cancellationSignal)
             markers.seedMarkerFolders(hints)
             seeds.addAll(hints)

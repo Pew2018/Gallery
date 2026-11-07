@@ -89,7 +89,7 @@ object OxygenClassicDialog {
 
     /** Classify dialog widths by their content and scrolling needs. */
     private enum class WidthProfile(val maxDp: Int) {
-        COMPACT(278), CONFIRM(320), REORDER(340), OPTIONS(360), SECURITY_MANAGEMENT(380), SECURITY_CHOICE(380), SECURITY(380), TOOLBAR_CONFIG(400), INPUT(400), FORM(400), BACKUP(400), DETAILS(480), PICKER(560)
+        THEME(400), COMPACT(278), CONFIRM(320), REORDER(340), OPTIONS(360), SECURITY_MANAGEMENT(380), SECURITY_CHOICE(380), SECURITY(380), TOOLBAR_CONFIG(400), INPUT(400), FORM(400), BACKUP(400), DETAILS(480), PICKER(560)
     }
 
     internal fun widthForContent(availableWidth: Int, density: Float, maxWidthDp: Int): Int =
@@ -101,6 +101,7 @@ object OxygenClassicDialog {
     private fun widthProfile(dialog: AlertDialog): WidthProfile {
         fun has(vararg ids: Int) = ids.any { dialog.findViewById<View>(it) != null }
         return when {
+            has(R.id.classic_theme_dialog_content) -> WidthProfile.THEME
             dialog.window?.decorView?.getTag(R.id.classic_dialog_security_management) == true -> WidthProfile.SECURITY_MANAGEMENT
             has(R.id.full_backup_preview) -> WidthProfile.BACKUP
 
@@ -231,7 +232,11 @@ object OxygenClassicDialog {
             child = parent
             parent = parent.parent as? ViewGroup
         }
-        return (available - reserve).coerceAtLeast(1)
+        val themeContent = view.id == R.id.classic_theme_dialog_content ||
+            generateSequence(view.parent as? View) { it.parent as? View }
+                .any { it.id == R.id.classic_theme_dialog_content }
+        val height = if (themeContent) (available * 0.8f).toInt() else available
+        return (height - reserve).coerceAtLeast(1)
     }
 
     /** Called before WindowManager.addView; later only for actual host geometry changes. */

@@ -563,7 +563,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mediaRefreshWatchdog.stop()
         mediaRefreshWatchdog.arm {
             if (isDestroyed || isFinishing || !mediaLoadRequests.isCurrent(request)) return@arm
-            org.fossify.gallery.helpers.FolderRefreshTrace.event(
+            org.fossify.gallery.helpers.FolderRefreshDiagnostics.event(
                 request, if (mShowAll) "all_files_timeout" else "folder_timeout"
             )
             // A deadline may only retire the request when it wins the terminal gate.
@@ -2636,7 +2636,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     mediaScanOutcome = scanTask?.scanResult ?: org.fossify.gallery.helpers.GalleryScanResult(org.fossify.gallery.helpers.GalleryScanState.FAILED)
                     folderReadRequest = request
                     folderReadResult = scanTask?.folderReadResult
-                    org.fossify.gallery.helpers.FolderRefreshTrace.event(request, "publication_candidate",
+                    org.fossify.gallery.helpers.FolderRefreshDiagnostics.event(request, "publication_candidate",
                         scannedMedia.filterIsInstance<Medium>().map { it.path }, "status=${folderReadResult?.status}")
                     gotMedia(scannedMedia, false, request)
                     if (metadataVersion != 0L) {
@@ -2709,7 +2709,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val task = scanTask ?: return
         mCurrAsyncTask = task
         try {
-            org.fossify.gallery.helpers.FolderRefreshTrace.event(request, "folder_queued")
+            org.fossify.gallery.helpers.FolderRefreshDiagnostics.event(request, "folder_queued")
             task.executeOnExecutor(org.fossify.gallery.helpers.GalleryMediaScanExecutor)
         } catch (error: java.util.concurrent.RejectedExecutionException) {
             // No worker callback is guaranteed after an executor rejection.
@@ -3560,7 +3560,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return@setupAdapter
                     if (!isFromCache) setMediaLoading(false)
                     displayedMediaIsFinal = !isFromCache && outcome.complete
-                    org.fossify.gallery.helpers.FolderRefreshTrace.event(request, "adapter_committed",
+                    org.fossify.gallery.helpers.FolderRefreshDiagnostics.event(request, "adapter_committed",
                         getMediaAdapter()?.media.orEmpty().filterIsInstance<Medium>().map { it.path }, "final=$displayedMediaIsFinal")
                     if (isFromCache && media.isNotEmpty() && completedMediaRequest != request) setMediaLoading(true)
                     GalleryBottomBar.markRootContentReady(this)

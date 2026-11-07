@@ -433,9 +433,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private val directoryRefreshWatchdog = org.fossify.gallery.helpers.RefreshWatchdog()
     private fun setDirectoryLoading(loading: Boolean) {
         val update = {
-            if (loading) org.fossify.gallery.helpers.FolderRefreshTrace.configure(applicationContext)
             if (loading) directoryRefreshWatchdog.arm {
-                org.fossify.gallery.helpers.FolderRefreshTrace.event(directoryTraceRequest, "album_timeout")
+                org.fossify.gallery.helpers.FolderRefreshDiagnostics.event(directoryTraceRequest, "album_timeout")
                 val request = directoryScanEpoch.currentVersion()
                 if (isCurrentDirectoryScan(request) && !mShowingFolderFavorites && !categorizedLoadActive) {
                     finishDirectoryScan(request, GalleryScanResult(GalleryScanState.TIMED_OUT))
@@ -1109,7 +1108,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         activeHomeScanDiagnostics = diagnostics
         var queuedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
         directoryTraceRequest = scanRequest
-        org.fossify.gallery.helpers.FolderRefreshTrace.event(scanRequest, "album_queued")
+        org.fossify.gallery.helpers.FolderRefreshDiagnostics.event(scanRequest, "album_queued")
         mShouldStopFetching = false
         mIsGettingDirs = true
         setDirectoryLoading(true)
@@ -1523,7 +1522,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         setDirectoryLoading(true)
         val requestVersion = ++categorizedLoadVersion
         directoryTraceRequest = requestVersion
-        org.fossify.gallery.helpers.FolderRefreshTrace.event(requestVersion, "album_queued")
+        org.fossify.gallery.helpers.FolderRefreshDiagnostics.event(requestVersion, "album_queued")
         categorizedLoadActive = true
         categorizedReloadPending = false
         val requestedVisibility = mFolderVisibility.copyOf()
@@ -1578,7 +1577,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                         fetcher.traceRequest = requestVersion
                         fetcher.pipelineDiagnostics = diagnostics
                         workerStartedElapsedMs = android.os.SystemClock.elapsedRealtime()
-                        org.fossify.gallery.helpers.FolderRefreshTrace.event(requestVersion, "album_worker_started")
+                        org.fossify.gallery.helpers.FolderRefreshDiagnostics.event(requestVersion, "album_worker_started")
                         runOnUiThread { if (current()) mLastMediaFetcher = fetcher else fetcher.shouldStop = true }
                     }, onMetadata = { snapshot ->
                         org.fossify.gallery.helpers.DirectoryMetadataRepository.commit(applicationContext, snapshot)

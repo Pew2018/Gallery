@@ -113,8 +113,8 @@ internal class GetMediaAsynctask(
     }
     override fun doInBackground(vararg params: Void): ArrayList<ThumbnailItem> {
         workerStartedElapsedMs = android.os.SystemClock.elapsedRealtime()
-        FolderRefreshTrace.event(requestId, "scan_started", detail = "source=${if (photoProfileId != null) "photo_profile" else if (showAll) "all_media" else if (mPath == FAVORITES) "favorites" else "folder"}")
-        FolderRefreshTrace.event(requestId, "worker_started")
+        FolderRefreshDiagnostics.event(requestId, "scan_started", detail = "source=${if (photoProfileId != null) "photo_profile" else if (showAll) "all_media" else if (mPath == FAVORITES) "favorites" else "folder"}")
+        FolderRefreshDiagnostics.event(requestId, "worker_started")
         return try {
         val noMediaFolder = !showAll && mPath.startsWith('/') && photoProfileId == null &&
             mPath != PhotoProfileMediaLoader.PATH && mediaFetcher.noMediaSnapshot.contains(mPath)
@@ -150,7 +150,7 @@ internal class GetMediaAsynctask(
             folderGrouping and GROUP_BY_LAST_MODIFIED_MONTHLY != 0
 
         val getProperFileSize = physicalSortMetadata || folderSorting and SORT_BY_SIZE != 0
-        val savedFavorites = FolderRefreshTrace.measure(requestId, "favorite_relationships") { context.getFavoritePaths() }
+        val savedFavorites = FolderRefreshDiagnostics.measure(requestId, "favorite_relationships") { context.getFavoritePaths() }
         if (mPath == FAVORITES) favoriteRelationshipSnapshot = savedFavorites.toSet()
         val favoritePaths = if (mPath == FAVORITES) {
             val allowed = if (favoriteSessionId != null) {
@@ -327,7 +327,7 @@ internal class GetMediaAsynctask(
                 else mediaFetcher.sortMedia(media, latestSorting)
             }
         }
-        val result = FolderRefreshTrace.measure(requestId, "grouping") { mediaFetcher.groupMedia(media, pathToUse) }
+        val result = FolderRefreshDiagnostics.measure(requestId, "grouping") { mediaFetcher.groupMedia(media, pathToUse) }
         val safeResult = if (mPath == FAVORITES && favoriteSessionId != null) {
             // Revalidate the complete captured snapshot once after scanning,
             // then use the returned capability set for a pure in-memory filter.
@@ -387,23 +387,23 @@ internal class GetMediaAsynctask(
     override fun onPostExecute(media: ArrayList<ThumbnailItem>) {
         super.onPostExecute(media)
         if (isCancelled || scanResult.state == GalleryScanState.CANCELLED) {
-            FolderRefreshTrace.event(requestId, "scan_cancelled")
+            FolderRefreshDiagnostics.event(requestId, "scan_cancelled")
             finishPipelineDiagnostics("CANCELLED", media)
             return
         }
         val error = scanFailure ?: if (scanResult.state == GalleryScanState.FAILED)
             scanResult.cause ?: java.io.IOException("Media scan has no reliable source") else null
         if (error != null) {
-            FolderRefreshTrace.event(requestId, "scan_failed", detail = "type=${error.javaClass.simpleName}")
+            FolderRefreshDiagnostics.event(requestId, "scan_failed", detail = "type=${error.javaClass.simpleName}")
             finishPipelineDiagnostics(if (error is SecurityException) "ACCESS_REQUIRED" else "FAILED", media)
             onFailure(error)
             return
         }
-        FolderRefreshTrace.event(requestId, "scan_completed", detail = "count=${media.size} state=${scanResult.state.name}")
+        FolderRefreshDiagnostics.event(requestId, "scan_completed", detail = "count=${media.size} state=${scanResult.state.name}")
         val result = profileResult
         if (result != null) {
             if (!result.context.isCurrent(context)) {
-                FolderRefreshTrace.event(requestId, "scan_failed", detail = "type=PhotoLoadInvalidatedException")
+                FolderRefreshDiagnostics.event(requestId, "scan_failed", detail = "type=PhotoLoadInvalidatedException")
                 finishPipelineDiagnostics("FAILED", media)
                 onFailure(PhotoLoadInvalidatedException())
                 return
@@ -414,7 +414,7 @@ internal class GetMediaAsynctask(
             if (folderFailures.isNotEmpty()) onPartialFailure(folderFailures)
             finishPipelineDiagnostics(scanResult.state.name, media)
             if (sortingMetadataRefreshRequired) {
-                FolderRefreshTrace.event(requestId, "sorting_refresh_required", detail = "metadata_not_loaded")
+                FolderRefreshDiagnostics.event(requestId, "sorting_refresh_required", detail = "metadata_not_loaded")
                 onSortingMetadataRefreshRequired?.invoke()
                 return
             }
@@ -430,7 +430,7 @@ internal class GetMediaAsynctask(
                 VideoDurationEnricher.enrich(base,
                     current = { !isCancelled && !mediaFetcher.shouldStop && read.accessCurrent() },
                     read = { path ->
-                        if (!folderAllowed(path)) 0 else FolderRefreshTrace.measure(requestId, "video_duration") {
+                        if (!folderAllowed(path)) 0 else FolderRefreshDiagnostics.measure(requestId, "video_duration") {
                             durationReader(path)
                         }
                     }, publish = { enriched ->
@@ -476,7 +476,7 @@ internal class GetMediaAsynctask(
 
     fun stopFetching() {
         scanResult = GalleryScanResult(GalleryScanState.CANCELLED)
-        FolderRefreshTrace.event(requestId, "scan_cancelled", detail = "reason=stop_fetching")
+        FolderRefreshDiagnostics.event(requestId, "scan_cancelled", detail = "reason=stop_fetching")
         mediaFetcher.shouldStop = true
         cancel(true)
         delivery.removeCallbacksAndMessages(null)

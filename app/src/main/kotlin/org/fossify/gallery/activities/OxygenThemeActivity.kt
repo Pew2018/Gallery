@@ -1,22 +1,16 @@
 package org.fossify.gallery.activities
 
-import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.RippleDrawable
 import android.os.Bundle
-import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.widget.*
 import androidx.activity.OnBackPressedCallback
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.AppCompatRadioButton
-import androidx.core.graphics.ColorUtils
 import androidx.core.view.doOnLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.widget.doAfterTextChanged
 import org.fossify.commons.extensions.*
 import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
@@ -24,14 +18,9 @@ import org.fossify.gallery.helpers.*
 
 /** Flat classic settings. Rebind colors/selection in place; rebuild only on page navigation. */
 class OxygenThemeActivity : SimpleActivity() {
-    companion object {
-        const val EXTRA_ICON_COLORS = "org.fossify.gallery.extra.ICON_COLORS"
-    }
-
     private var initialNavigation = false
     private var returningToSettings = false
     private val transitionSession get() = intent.getStringExtra(ClassicSettingsActivityTransition.EXTRA_SESSION)
-    private var iconColorPage = false
     private lateinit var root: LinearLayout
     private lateinit var titleBar: LinearLayout
     private lateinit var backIcon: ImageView
@@ -39,8 +28,6 @@ class OxygenThemeActivity : SimpleActivity() {
     private lateinit var scroll: ScrollView
     private lateinit var body: org.fossify.gallery.views.TiebaSettingsContainer
     private val binders = mutableListOf<() -> Unit>()
-    private var moreColors = false
-    private var mainScroll = 0
     private val colors get() = OxygenThemeEngine.snapshot(this, config)
     private fun dp(n: Int) = (resources.displayMetrics.density * n + 0.5f).toInt()
     private fun label(preset: OxygenPreset): String {
@@ -77,9 +64,6 @@ class OxygenThemeActivity : SimpleActivity() {
         super.onCreate(savedInstanceState)
         initialNavigation = savedInstanceState == null
         if (transitionSession != null) ClassicSettingsActivityTransition.suppressWindowAnimation(this)
-        iconColorPage = intent.getBooleanExtra(EXTRA_ICON_COLORS, false)
-        moreColors = savedInstanceState?.getBoolean("theme_more") ?: false
-        mainScroll = savedInstanceState?.getInt("theme_main_scroll") ?: 0
         root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         titleBar = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         backIcon = ImageView(this).apply {
@@ -123,37 +107,15 @@ class OxygenThemeActivity : SimpleActivity() {
 
     private fun goBack() {
         if (returningToSettings) return
-        if (!moreColors) {
-            returningToSettings = true
-            ClassicSettingsPageTransition.cancel(scroll, body)
-            transitionSession?.let { session ->
-                ClassicSettingsActivityTransition.stage(
-                    "settings:$session", scroll, titleText.text, false, OxygenClassicMotion.enabled(this)
-                )
-            }
-            finish()
-            if (transitionSession != null) ClassicSettingsActivityTransition.suppressWindowAnimation(this)
-            return
+        returningToSettings = true
+        ClassicSettingsPageTransition.cancel(scroll, body)
+        transitionSession?.let { session ->
+            ClassicSettingsActivityTransition.stage(
+                "settings:$session", scroll, titleText.text, false, OxygenClassicMotion.enabled(this)
+            )
         }
-        navigateColors(false)
-    }
-
-    private fun navigateColors(open: Boolean) {
-        if (moreColors == open || returningToSettings) return
-        val direction = ClassicSettingsPageTransition.direction(open, scroll)
-        ClassicSettingsPageTransition.run(
-            container = scroll,
-            incoming = body,
-            incomingDirection = direction,
-            animationsEnabled = OxygenClassicMotion.enabled(this),
-            prepareTarget = {
-                if (open) mainScroll = scroll.scrollY
-                moreColors = open
-                buildPage(updateTitle = false)
-                scroll.doOnLayout { scroll.scrollTo(0, if (open) 0 else mainScroll) }
-            },
-            onTitleCommit = { updatePageTitle() }
-        )
+        finish()
+        if (transitionSession != null) ClassicSettingsActivityTransition.suppressWindowAnimation(this)
     }
 
     override fun onPause() {
@@ -169,8 +131,6 @@ class OxygenThemeActivity : SimpleActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putBoolean("theme_more", moreColors)
-        outState.putInt("theme_main_scroll", mainScroll)
         outState.putInt("classic_theme_scroll", scroll.scrollY)
         super.onSaveInstanceState(outState)
     }
@@ -328,125 +288,32 @@ class OxygenThemeActivity : SimpleActivity() {
     }
 
     private fun updatePageTitle() {
-        titleText.setText(when {
-            iconColorPage -> R.string.classic_app_icon
-            moreColors -> R.string.classic_more_colors
-            else -> R.string.classic_theme_title
-        })
+        titleText.setText(R.string.classic_theme_title)
     }
 
-    private fun buildPage(updateTitle: Boolean = true) {
+    private fun buildPage() {
         binders.clear()
         body.removeAllViews()
-        if (updateTitle) updatePageTitle()
-        if (iconColorPage) {
-            buildIconColorPage()
-        } else if (moreColors) {
-            section(R.string.classic_palette_classic)
-            colorGrid(OxygenThemePresets.group("classic"))
-            section(R.string.classic_palette_material)
-            colorGrid(OxygenThemePresets.group("material"))
-        } else {
-            section(R.string.classic_appearance)
-            listOf("system" to R.string.classic_system, "light" to R.string.classic_light,
-                "dark" to R.string.classic_dark).forEach { (mode, id) ->
-                radioRow(getString(id), { config.oxygenThemeActivated &&
-                    config.oxygenAppearanceMode == mode }) {
-                    change { config.oxygenAppearanceMode = mode; config.oxygenThemeActivated = true }
-                }
+        updatePageTitle()
+        section(R.string.classic_appearance)
+        listOf("system" to R.string.classic_system, "light" to R.string.classic_light,
+            "dark" to R.string.classic_dark).forEach { (mode, id) ->
+            radioRow(getString(id), { config.oxygenThemeActivated &&
+                config.oxygenAppearanceMode == mode }) {
+                change { config.oxygenAppearanceMode = mode; config.oxygenThemeActivated = true }
             }
-            section(R.string.classic_accent)
-            colorGrid(OxygenThemePresets.featured, showCurrentColor = true)
-            section(R.string.classic_other)
-            actionRow(R.string.classic_more_colors) { navigateColors(true) }
-            actionRow(R.string.classic_custom_color) { chooseColor() }
-            actionRow(R.string.classic_restore_default) {
-                activatePreset(OxygenThemePresets.byId.getValue(OxygenThemePresets.DEFAULT_ID))
-            }
+        }
+        section(R.string.classic_accent)
+        colorGrid(OxygenThemePresets.group("classic"), showCurrentColor = true)
+        section(R.string.classic_other)
+        actionRow(R.string.classic_more_colors) {
+            MaterialColorPickerDialog.show(this, ::label, ::activatePreset)
+        }
+        actionRow(R.string.classic_custom_color) { chooseColor() }
+        actionRow(R.string.classic_restore_default) {
+            activatePreset(OxygenThemePresets.byId.getValue(OxygenThemePresets.DEFAULT_ID))
         }
         bindPage()
-    }
-
-    private fun buildIconColorPage() {
-        section(R.string.classic_app_icon)
-
-        val iconIds = getAppIconIDs()
-        val iconColors = getAppIconColors()
-        val currentIndex = iconColors.indexOf(config.appIconColor).coerceAtLeast(0)
-        val preview = ImageView(this).apply {
-            setImageResource(iconIds.getOrElse(currentIndex) { iconIds.first() })
-            contentDescription = getString(R.string.classic_app_icon)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-        }
-        body.addView(preview, LinearLayout.LayoutParams(dp(64), dp(64)).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            topMargin = dp(8)
-        })
-
-        val hex = text(OxygenThemeEngine.formatHex(config.appIconColor), 12f).apply {
-            gravity = Gravity.CENTER
-            setPadding(dp(16), dp(4), dp(16), dp(12))
-        }
-        body.addView(hex, LinearLayout.LayoutParams(-1, -2))
-        binders.add { hex.setTextColor(colors.secondaryText) }
-
-        val columns = ((resources.configuration.screenWidthDp - 48) / 68).coerceIn(3, 5)
-        val grid = GridLayout(this).apply {
-            columnCount = columns
-            setPadding(dp(16), 0, dp(16), dp(8))
-        }
-        iconIds.forEachIndexed { index, iconId ->
-            val color = iconColors.getOrNull(index) ?: return@forEachIndexed
-            val cell = FrameLayout(this).apply {
-                isClickable = true
-                isFocusable = true
-                contentDescription = getString(R.string.classic_icon_option, index + 1)
-                setOnClickListener {
-                    config.appIconColor = color
-                    checkAppIconColor()
-                    buildPage()
-                }
-            }
-            val icon = ImageView(this).apply {
-                setImageResource(iconId)
-                contentDescription = null
-                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                scaleType = ImageView.ScaleType.FIT_CENTER
-            }
-            cell.addView(icon, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER))
-            grid.addView(cell, GridLayout.LayoutParams(
-                GridLayout.spec(index / columns), GridLayout.spec(index % columns, 1f)
-            ).apply {
-                width = 0
-                height = dp(64)
-                setMargins(dp(2), dp(2), dp(2), dp(2))
-                setGravity(Gravity.FILL)
-            })
-            binders.add {
-                val tokens = colors
-                val selected = config.appIconColor == color
-                cell.isSelected = selected
-                ViewCompat.setStateDescription(cell, getString(
-                    if (selected) R.string.classic_selected else R.string.classic_not_selected
-                ))
-                cell.background = GradientDrawable().apply {
-                    setColor(if (selected) OxygenThemeColors.blend(
-                        tokens.pageBackground, tokens.interactiveAccent, 0.08
-                    ) else tokens.pageBackground)
-                    cornerRadius = dp(3).toFloat()
-                    if (selected) setStroke(dp(2), tokens.interactiveAccent)
-                }
-                cell.foreground = RippleDrawable(
-                    ColorStateList.valueOf(ColorUtils.setAlphaComponent(tokens.interactiveAccent, 28)),
-                    null,
-                    GradientDrawable().apply {
-                        setColor(android.graphics.Color.WHITE)
-                        cornerRadius = dp(3).toFloat()
-                    }
-                )
-            }
-        }
-        body.addView(grid, LinearLayout.LayoutParams(-1, -2))
     }
 
     private fun bindPage() {
@@ -461,43 +328,12 @@ class OxygenThemeActivity : SimpleActivity() {
     }
 
     private fun chooseColor() {
-        val tokens = colors
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(24), dp(8), dp(24), dp(8))
-        }
-        val preview = View(this)
-        val field = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
-            setSingleLine(true)
-            hint = "#RRGGBB"
-            contentDescription = getString(R.string.classic_custom_color)
-            setText(OxygenThemeEngine.formatHex(config.oxygenCustomAccent)); selectAll()
-            setTextColor(tokens.primaryText); setHintTextColor(tokens.secondaryText)
-            backgroundTintList = ColorStateList.valueOf(tokens.interactiveAccent)
-        }
-        container.addView(preview, LinearLayout.LayoutParams(-1, dp(32)))
-        container.addView(field, LinearLayout.LayoutParams(-1, -2))
-        preview.setBackgroundColor(config.oxygenCustomAccent)
-        field.doAfterTextChanged {
-            OxygenThemeEngine.parseHex(it.toString().trim())?.let { color -> preview.setBackgroundColor(color) }
-        }
-        val builder = OxygenClassicDialog.builder(this, getString(R.string.classic_custom_color))
-            .setView(container).setNegativeButton(R.string.classic_cancel, null)
-            .setPositiveButton(R.string.classic_save, null).setNeutralButton(R.string.classic_restore_default, null)
-        val dialog = OxygenClassicDialog.show(this, builder, container)
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            val parsed = OxygenThemeEngine.parseHex(field.text.toString().trim())
-            if (parsed == null) field.error = getString(R.string.classic_invalid_color)
-            else {
-                change {
-                    config.oxygenCustomAccent = parsed; config.oxygenThemePresetId = "custom"
-                    config.oxygenThemeActivated = true
-                }
-                dialog.dismiss()
+        ClassicCustomColorDialog.show(this) { parsed ->
+            change {
+                config.oxygenCustomAccent = parsed
+                config.oxygenThemePresetId = "custom"
+                config.oxygenThemeActivated = true
             }
-        }
-        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-            field.setText(OxygenThemePresets.byId.getValue(OxygenThemePresets.DEFAULT_ID).hex); field.selectAll()
         }
     }
 }

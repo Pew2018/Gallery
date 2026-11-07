@@ -6,6 +6,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OxygenThemePresetsTest {
+    @Test fun materialPaletteKeepsExactStableIdentityNameHexAndOrder() {
+        val expected = listOf(
+            Triple("material_blue", "蓝", "#2196F3"), Triple("material_teal", "青绿", "#009688"),
+            Triple("material_green", "绿", "#4CAF50"), Triple("material_red", "红", "#F44336"),
+            Triple("material_orange", "橙", "#FF9800"), Triple("material_purple", "紫", "#9C27B0"),
+            Triple("material_cyan", "青", "#00BCD4"), Triple("material_indigo", "靛蓝", "#3F51B5"),
+            Triple("material_pink", "粉", "#E91E63"), Triple("material_blue_grey", "蓝灰", "#607D8B"),
+            Triple("material_deep_orange", "深橙", "#FF5722"), Triple("material_light_green", "浅绿", "#8BC34A"))
+        assertEquals(expected, OxygenThemePresets.group("material").map { Triple(it.id, it.label, it.hex) })
+    }
+
     @Test fun all23PresetsHaveStableUniqueIds() {
         assertEquals(23, OxygenThemePresets.all.size)
         assertEquals(23, OxygenThemePresets.byId.size)

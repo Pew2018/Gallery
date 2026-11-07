@@ -1,0 +1,6 @@
+<resources>
+    <string name="theme_dialog_apply">Apply</string>
+    <string name="theme_dialog_current">Current color</string>
+    <string name="theme_dialog_preview">New color preview</string>
+    <string name="theme_dialog_hex">Hexadecimal color code</string>
+</resources>

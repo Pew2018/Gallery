@@ -70,22 +70,13 @@ class Phase15GridEvidenceTest {
     }
 
     @Test fun diagnosticsOffStillExecutesEveryMetadataReadAndPropagatesFailure() {
-        FolderRefreshTrace.enabled = false
         var reads = 0
-        repeat(100) { FolderRefreshTrace.measure(1, "file_metadata") { reads++ } }
+        repeat(100) { FolderRefreshDiagnostics.measure(1, "file_metadata") { reads++ } }
         assertEquals(100, reads)
         try {
-            FolderRefreshTrace.measure(1, "file_metadata") { throw java.io.IOException("unreadable") }
+            FolderRefreshDiagnostics.measure(1, "file_metadata") { throw java.io.IOException("unreadable") }
             fail("Exception must propagate")
         } catch (_: java.io.IOException) { }
     }
 
-    @Test fun diagnosticsOnDoesNotCreateTwoRecordsPerFile() {
-        FolderRefreshTrace.enabled = true
-        FolderRefreshTrace.clear()
-        try {
-            repeat(100) { FolderRefreshTrace.measure(1, "file_metadata") { it } }
-            assertEquals("", FolderRefreshTrace.dump())
-        } finally { FolderRefreshTrace.enabled = false }
-    }
 }
