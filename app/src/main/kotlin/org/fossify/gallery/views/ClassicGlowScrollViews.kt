@@ -12,7 +12,7 @@ import org.fossify.gallery.helpers.ClassicGlowPulse
 import org.fossify.gallery.helpers.OxygenThemeEngine
 
 /** ScrollView variant with a bounded theme-aware glow instead of platform stretch. */
-class ClassicGlowScrollView @JvmOverloads constructor(
+open class ClassicGlowScrollView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = android.R.attr.scrollViewStyle
 ) : ScrollView(context, attrs, defStyleAttr) {
     private val glow = ClassicGlowPulse(this) {

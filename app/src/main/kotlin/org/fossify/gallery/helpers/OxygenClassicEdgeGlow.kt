@@ -3,6 +3,7 @@ package org.fossify.gallery.helpers
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RadialGradient
 import android.graphics.Shader
@@ -198,7 +199,7 @@ internal object ClassicGlowPainter {
         val width = canvas.width.toFloat()
         val height = canvas.height.toFloat()
         if (width <= 0f || height <= 0f || intensity <= 0.001f) return
-        val alpha = (ColorUtils.alpha(color) * intensity * 0.72f).toInt().coerceIn(0, 160)
+        val alpha = (Color.alpha(color) * intensity * 0.72f).toInt().coerceIn(0, 160)
         val centerX = (width * displacement).coerceIn(0f, width)
         val extent = minOf(height, max(32f * density, height * 0.24f))
         paint.shader = RadialGradient(
