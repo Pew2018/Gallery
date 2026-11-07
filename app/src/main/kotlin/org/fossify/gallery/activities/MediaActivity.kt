@@ -1,5 +1,7 @@
 package org.fossify.gallery.activities
 
+import org.fossify.gallery.helpers.OxygenClassicActivityMotion
+
 import org.fossify.gallery.helpers.PhotoProfileAccessSessionManager
 import org.fossify.gallery.helpers.PhotoAccessEvent
 import org.fossify.gallery.helpers.mustClearProtectedMedia

@@ -1,5 +1,7 @@
 package org.fossify.gallery.activities
 
+import org.fossify.gallery.helpers.OxygenClassicActivityMotion
+
 import android.os.Bundle
 import android.view.View
 import androidx.core.view.ViewCompat
