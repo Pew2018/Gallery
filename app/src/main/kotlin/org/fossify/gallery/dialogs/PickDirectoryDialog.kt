@@ -15,6 +15,8 @@ import java.io.File
 import org.fossify.gallery.helpers.OxygenThemeEngine
 import androidx.activity.addCallback
 import androidx.appcompat.app.AlertDialog
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.dialogs.FilePickerDialog
@@ -166,8 +168,16 @@ class PickDirectoryDialog(
                         }
                         alertDialog.dismiss()
                     }
-                    alertDialog.setOnDismissListener {
-                        if (!sourceSelectionConfirmed) sourceSelection.onCancelled()
+                }
+                alertDialog.setOnDismissListener {
+                    searchView.searchEditText.clearFocus()
+                    alertDialog.window?.let { window ->
+                        WindowInsetsControllerCompat(window, searchView.searchEditText)
+                            .hide(WindowInsetsCompat.Type.ime())
+                    }
+                    activity.hideKeyboard(searchView.searchEditText)
+                    if (sourceSelection != null && !sourceSelectionConfirmed) {
+                        sourceSelection.onCancelled()
                     }
                 }
                 binding.directoriesCurrentPath.setTextColor(if (sourceSelection != null)

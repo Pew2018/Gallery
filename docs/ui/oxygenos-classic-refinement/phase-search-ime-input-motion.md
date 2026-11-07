@@ -32,3 +32,14 @@ No Picker selection, filtering, permissions, source configuration, media loading
 ## Limits
 
 The 160ms duration is an engineering starting value, not a measured OxygenOS ROM duration. The system owns the IME animation; no fixed delay synchronizes it with the search transition.
+
+## Search and IME lifecycle follow-up — 2026-11-07
+
+Audited again on `refactor/media-pipeline-stability` at `5100d4f574d67cc754ab7c69c8a41695184150f0`. Commons `MySearchMenu` 7.1.3 remains responsible for inline search focus and text delivery; Gallery keeps the existing EditText instances and does not delay query callbacks.
+
+- Main and media list refresh is disabled for the entire expanded-search state, including an empty query, and returns only after the search is closed and its query is cleared. `SearchRefreshPolicyTest` covers the open/closed and empty/non-empty transitions.
+- Root-tab navigation closes an expanded inline search before leaving the current host, clearing focus and the IME through the existing Commons close callback.
+- The dedicated SearchActivity explicitly requests the IME after Commons focus, clears focus/hides IME when it stops, and preserves the adapter's current scroll anchor during result publication.
+- PickDirectoryDialog clears the Commons search field focus and hides the IME on dismissal, including when dismissed while search is active; its source-selection cancellation callback remains unchanged.
+- Insets audit: SearchActivity applies IME/system-bar bottom insets to the grid through Commons `setupEdgeToEdge`; the directory picker remeasures its bounded list viewport on IME visibility changes through `ClassicDialogPickerLayout`.
+- Local focused test execution was blocked before Gradle configuration because wrapper distribution `gradle-9.5.1` could not be downloaded in this environment. The branch Actions build remains the required compile and test verification.

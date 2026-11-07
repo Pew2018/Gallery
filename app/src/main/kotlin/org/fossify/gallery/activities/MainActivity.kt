@@ -860,7 +860,15 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         binding.mainMenu.toggleHideOnScroll(!config.scrollHorizontally)
         binding.mainMenu.setupMenu()
 
+        binding.mainMenu.onSearchClosedListener = {
+            binding.directoriesRefreshLayout.isEnabled =
+                org.fossify.gallery.helpers.SearchRefreshPolicy.isRefreshEnabled(
+                    binding.mainMenu.isSearchOpen, binding.mainMenu.getCurrentQuery()
+                )
+        }
+
         binding.mainMenu.onSearchOpenListener = {
+            binding.directoriesRefreshLayout.isEnabled = false
             // Favorites always searches its own folder scope; never silently
             // switch to the global all-files search Activity.
             if (config.searchAllFilesByDefault && !mShowingFolderFavorites) {
@@ -870,7 +878,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         binding.mainMenu.onSearchTextChangedListener = { text ->
             setupAdapter(mDirsIgnoringSearch, text)
-            binding.directoriesRefreshLayout.isEnabled = text.isEmpty()
+            binding.directoriesRefreshLayout.isEnabled =
+                org.fossify.gallery.helpers.SearchRefreshPolicy.isRefreshEnabled(
+                    binding.mainMenu.isSearchOpen, text
+                )
             binding.directoriesSwitchSearching.beVisibleIf(text.isNotEmpty())
         }
 
@@ -1651,6 +1662,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 .putExtra(EXTRA_FOLDER_FAVORITES, screen.section == GallerySection.FAVORITES)
         }
         destination.putExtra(GalleryNavigation.EXTRA_SECTION, screen.section.name)
+        if (binding.mainMenu.isSearchOpen) {
+            OxygenSearchNavigation.closeInlineSearch(this, binding.mainMenu)
+        }
         hideKeyboard()
         GalleryBottomBar.open(this, destination, finishCurrent = true)
     }

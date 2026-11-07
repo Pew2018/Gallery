@@ -14,6 +14,7 @@ import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.view.menu.MenuAdapter
 import androidx.appcompat.view.menu.MenuBuilder
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.appbar.MaterialToolbar
 import org.fossify.commons.views.MySearchMenu
 import org.fossify.gallery.R
@@ -80,6 +81,46 @@ class ClassicToolbarLayoutTest {
             )
             activity.finish()
         }
+    }
+
+    @Test fun listRefreshStaysDisabledUntilInlineSearchIsClosedAndCleared() {
+        val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
+        val page = LayoutInflater.from(activity).inflate(R.layout.activity_media, null)
+        activity.setContentView(page)
+        val menu = page.findViewById<MySearchMenu>(R.id.media_menu)
+        val refresh = page.findViewById<SwipeRefreshLayout>(R.id.media_refresh_layout)
+        menu.requireToolbar().inflateMenu(R.menu.menu_media)
+        menu.setupMenu()
+        menu.onSearchOpenListener = {
+            refresh.isEnabled = SearchRefreshPolicy.isRefreshEnabled(menu.isSearchOpen, menu.getCurrentQuery())
+        }
+        menu.onSearchClosedListener = {
+            refresh.isEnabled = SearchRefreshPolicy.isRefreshEnabled(menu.isSearchOpen, menu.getCurrentQuery())
+        }
+        menu.onSearchTextChangedListener = { query ->
+            refresh.isEnabled = SearchRefreshPolicy.isRefreshEnabled(menu.isSearchOpen, query)
+        }
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        OxygenToolbarStyle.apply(activity, menu, "Folder", backButton = true)
+        page.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY))
+        page.layout(0, 0, 360, 720)
+
+        assertTrue(refresh.isEnabled)
+        menu.binding.topToolbarSearchIcon.performClick()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(menu.isSearchOpen)
+        assertFalse("An empty but expanded search must not allow pull-to-refresh", refresh.isEnabled)
+
+        menu.binding.topToolbarSearch.setText("photo")
+        assertFalse(refresh.isEnabled)
+        menu.closeSearch()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(menu.isSearchOpen)
+        assertEquals("", menu.getCurrentQuery())
+        assertFalse(menu.binding.topToolbarSearch.hasFocus())
+        assertTrue("Refresh returns after close has cleared the query", refresh.isEnabled)
+        activity.finish()
     }
 
     @Test fun folderToolbarHasOneActiveBackTargetAfterRepeatedRebinds() {

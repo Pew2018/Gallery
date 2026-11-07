@@ -42,7 +42,10 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
     private val binding by viewBinding(ActivitySearchBinding::inflate)
     private val exitGate = SearchExitGate()
     private val initialFocusRequest = Runnable {
-        if (!exitGate.exiting && !isFinishing && !isDestroyed) binding.searchMenu.focusView()
+        if (!exitGate.exiting && !isFinishing && !isDestroyed) {
+            binding.searchMenu.focusView()
+            showKeyboard(binding.searchMenu.binding.topToolbarSearch)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,6 +71,7 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun onStop() {
         binding.searchMenu.removeCallbacks(initialFocusRequest)
+        OxygenSearchNavigation.hideImeAndClearFocus(this, binding.searchMenu)
         super.onStop()
     }
 
@@ -138,7 +142,7 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
                         binding.searchEmptyTextPlaceholder.beGone()
                     }
 
-                    getMediaAdapter()?.updateMedia(grouped, preserveScroll = false, isCurrent = {
+                    getMediaAdapter()?.updateMedia(grouped, preserveScroll = true, isCurrent = {
                         !exitGate.exiting && !isFinishing && !isDestroyed &&
                             text == mLastSearchedText && source === mAllMedia
                     })

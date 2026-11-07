@@ -1352,10 +1352,23 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         binding.mediaMenu.toggleHideOnScroll(!config.scrollHorizontally)
         binding.mediaMenu.setupMenu()
 
+        binding.mediaMenu.onSearchOpenListener = {
+            binding.mediaRefreshLayout.isEnabled = false
+        }
+        binding.mediaMenu.onSearchClosedListener = {
+            binding.mediaRefreshLayout.isEnabled =
+                org.fossify.gallery.helpers.SearchRefreshPolicy.isRefreshEnabled(
+                    binding.mediaMenu.isSearchOpen, binding.mediaMenu.getCurrentQuery()
+                )
+        }
+
         binding.mediaMenu.onSearchTextChangedListener = { text ->
             mLastSearchedText = text
             searchQueryChanged(text)
-            binding.mediaRefreshLayout.isEnabled = text.isEmpty()
+            binding.mediaRefreshLayout.isEnabled =
+                org.fossify.gallery.helpers.SearchRefreshPolicy.isRefreshEnabled(
+                    binding.mediaMenu.isSearchOpen, text
+                )
         }
 
         binding.mediaMenu.requireToolbar().setOnMenuItemClickListener { menuItem ->
@@ -2364,6 +2377,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 .putExtra(MainActivity.EXTRA_FOLDER_FAVORITES, screen.section == GallerySection.FAVORITES)
         }
         destination.putExtra(GalleryNavigation.EXTRA_SECTION, screen.section.name)
+        if (binding.mediaMenu.isSearchOpen) {
+            OxygenSearchNavigation.closeInlineSearch(this, binding.mediaMenu)
+        }
         hideKeyboard()
         GalleryBottomBar.open(this, destination, finishCurrent = true)
     }
