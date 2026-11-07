@@ -33,37 +33,48 @@ class ClassicToolbarLayoutTest {
 
     @Test fun searchExpansionPreservesTheExistingInputAndRestoresToolbarState() {
         val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
-        android.provider.Settings.Global.putFloat(
-            activity.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 0f
+        val resolver = activity.contentResolver
+        val priorScale = android.provider.Settings.Global.getFloat(
+            resolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f
         )
-        val page = LayoutInflater.from(activity).inflate(R.layout.activity_media, null)
-        activity.setContentView(page)
-        val menu = page.findViewById<MySearchMenu>(R.id.media_menu)
-        menu.requireToolbar().inflateMenu(R.menu.menu_media)
-        menu.setupMenu()
-        OxygenToolbarStyle.apply(activity, menu, "Folder", backButton = true)
-        page.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY))
-        page.layout(0, 0, 360, 720)
+        try {
+            android.provider.Settings.Global.putFloat(
+                resolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 0f
+            )
+            val page = LayoutInflater.from(activity).inflate(R.layout.activity_media, null)
+            activity.setContentView(page)
+            val menu = page.findViewById<MySearchMenu>(R.id.media_menu)
+            menu.requireToolbar().inflateMenu(R.menu.menu_media)
+            menu.setupMenu()
+            OxygenToolbarStyle.apply(activity, menu, "Folder", backButton = true)
+            page.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY))
+            page.layout(0, 0, 360, 720)
 
-        val input = menu.binding.topToolbarSearch
-        menu.binding.topToolbarSearchIcon.performClick()
-        assertTrue(menu.isSearchOpen)
-        assertSame("Search animation must retain the Commons EditText instance", input,
-            menu.binding.topToolbarSearch)
-        input.setText("instant")
-        assertEquals("instant", menu.getCurrentQuery())
-        assertEquals(View.VISIBLE, menu.binding.topToolbarSearchIcon.visibility)
-        assertEquals(View.GONE, menu.binding.topToolbar.visibility)
+            val input = menu.binding.topToolbarSearch
+            menu.binding.topToolbarSearchIcon.performClick()
+            assertTrue(menu.isSearchOpen)
+            assertSame("Search animation must retain the Commons EditText instance", input,
+                menu.binding.topToolbarSearch)
+            input.setText("instant")
+            assertEquals("instant", menu.getCurrentQuery())
+            assertEquals(View.VISIBLE, menu.binding.topToolbarSearchIcon.visibility)
+            assertEquals(View.GONE, menu.binding.topToolbar.visibility)
 
-        menu.closeSearch()
-        assertFalse(menu.isSearchOpen)
-        assertFalse(input.hasFocus())
-        assertEquals(View.VISIBLE, menu.binding.topToolbar.visibility)
-        assertEquals("Folder", descendants(menu.binding.toolbarContainer)
-            .filterIsInstance<TextView>().single { it.tag == "oxygen_classic_toolbar_title" }.text)
-        assertTrue((input.layoutParams as android.widget.RelativeLayout.LayoutParams).width <=
-            (activity.resources.displayMetrics.density + 1f).toInt())
+            menu.closeSearch()
+            assertFalse(menu.isSearchOpen)
+            assertFalse(input.hasFocus())
+            assertEquals(View.VISIBLE, menu.binding.topToolbar.visibility)
+            assertEquals("Folder", descendants(menu.binding.toolbarContainer)
+                .filterIsInstance<TextView>().single { it.tag == "oxygen_classic_toolbar_title" }.text)
+            assertTrue((input.layoutParams as android.widget.RelativeLayout.LayoutParams).width <=
+                (activity.resources.displayMetrics.density + 1f).toInt())
+        } finally {
+            android.provider.Settings.Global.putFloat(
+                resolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, priorScale
+            )
+            activity.finish()
+        }
     }
 
     @Test fun folderToolbarHasOneActiveBackTargetAfterRepeatedRebinds() {
