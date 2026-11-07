@@ -204,12 +204,14 @@
     </style>
     <style name="OxygenClassicOverflow.Light" parent="OxygenClassicPopupMenu.Light">
         <!-- Keep the panel below the Toolbar action row, as in OxygenOS Classic. -->
+        <item name="android:popupAnimationStyle">@style/OxygenClassicPopupWindowAnimation</item>
         <item name="overlapAnchor">false</item>
         <item name="android:dropDownHorizontalOffset">@dimen/oxygen_classic_overflow_horizontal_offset</item>
         <item name="android:dropDownVerticalOffset">12dp</item>
     </style>
     <style name="OxygenClassicOverflow.Dark" parent="OxygenClassicPopupMenu.Dark">
         <!-- Keep the panel below the Toolbar action row, as in OxygenOS Classic. -->
+        <item name="android:popupAnimationStyle">@style/OxygenClassicPopupWindowAnimation</item>
         <item name="overlapAnchor">false</item>
         <item name="android:dropDownHorizontalOffset">@dimen/oxygen_classic_overflow_horizontal_offset</item>
         <item name="android:dropDownVerticalOffset">12dp</item>
@@ -263,10 +265,12 @@
         <item name="listMenuViewStyle">@style/OxygenClassicMenuList</item>
     </style>
     <style name="OxygenClassicPopupMenu.Light" parent="Widget.AppCompat.PopupMenu">
+        <item name="android:popupAnimationStyle">@style/OxygenClassicPopupWindowAnimation</item>
         <item name="android:popupBackground">@drawable/oxygen_classic_menu_light</item>
         <item name="android:popupElevation">8dp</item>
     </style>
     <style name="OxygenClassicPopupMenu.Dark" parent="Widget.AppCompat.PopupMenu">
+        <item name="android:popupAnimationStyle">@style/OxygenClassicPopupWindowAnimation</item>
         <item name="android:popupBackground">@drawable/oxygen_classic_menu_dark</item>
         <item name="android:popupElevation">8dp</item>
     </style>

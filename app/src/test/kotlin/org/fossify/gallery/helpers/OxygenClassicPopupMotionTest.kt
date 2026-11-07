@@ -20,6 +20,24 @@ class OxygenClassicPopupMotionTest {
         val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
         listOf(R.style.OxygenClassicPopupTheme_Light, R.style.OxygenClassicPopupTheme_Dark).forEach { themeId ->
             val popupContext = ContextThemeWrapper(activity, themeId)
+            listOf(
+                androidx.appcompat.R.attr.popupMenuStyle,
+                androidx.appcompat.R.attr.actionOverflowMenuStyle
+            ).forEach { menuStyleAttr ->
+                val menuStyle = TypedValue()
+                assertTrue(popupContext.theme.resolveAttribute(menuStyleAttr, menuStyle, true))
+                val menuAttrs = popupContext.obtainStyledAttributes(
+                    menuStyle.resourceId, intArrayOf(android.R.attr.popupAnimationStyle)
+                )
+                try {
+                    assertEquals(
+                        R.style.OxygenClassicPopupWindowAnimation,
+                        menuAttrs.getResourceId(0, 0)
+                    )
+                } finally {
+                    menuAttrs.recycle()
+                }
+            }
             val popupWindow = TypedValue()
             assertTrue(popupContext.theme.resolveAttribute(
                 androidx.appcompat.R.attr.popupWindowStyle, popupWindow, true
