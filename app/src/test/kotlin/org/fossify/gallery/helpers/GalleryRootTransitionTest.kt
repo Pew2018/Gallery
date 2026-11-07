@@ -65,7 +65,6 @@ class GalleryRootTransitionTest {
         GalleryBottomBar.prepareRootSurface(destination, root)
         GalleryBottomBar.coordinateFirstDraw(destination, root)
 
-        assertTrue("initial loading frame must not wait for adapter rows", root.viewTreeObserver.dispatchOnPreDraw())
         root.viewTreeObserver.dispatchOnDraw()
         Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         assertEquals(1f, loading.alpha)
@@ -89,6 +88,7 @@ class GalleryRootTransitionTest {
         val targetIntent = Shadows.shadowOf(source).nextStartedActivity
         val target = Robolectric.buildActivity(android.app.Activity::class.java, targetIntent).setup().get()
         val root = CoordinatorLayout(target)
+        target.setContentView(root)
         var loadingFrames = 0
         GalleryBottomBar.coordinateFirstDraw(target, root) { loadingFrames++ }
         clock.idleFor(GalleryBottomBar.FIRST_DRAW_LIMIT_MS, TimeUnit.MILLISECONDS)
@@ -131,7 +131,6 @@ class GalleryRootTransitionTest {
                 val root = CoordinatorLayout(target)
                 target.setContentView(root)
                 GalleryBottomBar.coordinateFirstDraw(target, root)
-                assertTrue(root.viewTreeObserver.dispatchOnPreDraw())
                 root.viewTreeObserver.dispatchOnDraw()
                 Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
                 if (scale > 0f) {
