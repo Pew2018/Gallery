@@ -235,6 +235,11 @@ object OxygenClassicDialog {
     /** Called before WindowManager.addView; later only for actual host geometry changes. */
     fun prepareWindow(activity: Activity, dialog: AlertDialog): WindowPreparation {
         val window = requireNotNull(dialog.window)
+        // Use one small public Window animation contract for Gallery and Commons dialogs.
+        // Window owns cancellation and applies the system animator-duration scale.
+        if (window.attributes.windowAnimations != R.style.OxygenClassicDialogWindow) {
+            window.setWindowAnimations(R.style.OxygenClassicDialogWindow)
+        }
         val softInput = window.attributes.softInputMode
         if (softInput and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST != WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE) {
             window.setSoftInputMode((softInput and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or

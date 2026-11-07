@@ -271,6 +271,11 @@
         <item name="android:dividerHeight">0dp</item>
     </style>
 
+    <style name="OxygenClassicDialogWindow">
+        <item name="android:windowEnterAnimation">@anim/oxygen_classic_dialog_enter</item>
+        <item name="android:windowExitAnimation">@anim/oxygen_classic_dialog_exit</item>
+    </style>
+
     <style name="OxygenClassicDialogButton" parent="Widget.AppCompat.Button.Borderless.Colored">
         <item name="android:minHeight">48dp</item>
         <item name="android:textAllCaps">false</item>

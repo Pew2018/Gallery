@@ -37,6 +37,23 @@ class ClassicDialogTest {
         activity.baseConfig.primaryColor = Color.YELLOW
     }
 
+    @Test fun sharedWindowMotionKeepsSecureFlagAndDismissesOnce() {
+        val dialog = AlertDialog.Builder(activity).setMessage("Message").create()
+        dialog.create()
+        dialog.window!!.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        OxygenClassicDialog.prepareWindow(activity, dialog)
+        assertEquals(R.style.OxygenClassicDialogWindow, dialog.window!!.attributes.windowAnimations)
+        assertTrue(dialog.window!!.attributes.flags and
+            android.view.WindowManager.LayoutParams.FLAG_SECURE != 0)
+
+        var dismissCount = 0
+        dialog.setOnDismissListener { dismissCount++ }
+        dialog.show()
+        dialog.dismiss()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(1, dismissCount)
+    }
+
     @Test fun materialBuilderInsetsMatchTheFinalClassicTouchBounds() {
         activity.setTheme(com.google.android.material.R.style.Theme_Material3_Light_NoActionBar)
         val builder = com.google.android.material.dialog.MaterialAlertDialogBuilder(activity)
