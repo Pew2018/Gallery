@@ -57,3 +57,9 @@ Pixel 8 Pro / Android 16 在自定义照片配置浏览首次进入、下拉刷�
 自定义配置浏览的 Toolbar Scope 和按钮布局不得由媒体扫描进度、当前列表是否为空或阶段性发布结果决定。以后调整加载、刷新和性能流程时必须维持此约束。
 
 代码层回归测试只能证明覆盖的决策规则和绑定策略；无闪烁、首次布局视觉稳定、搜索动画和实际色彩仍需上述真机验收确认。
+
+## 2026-11-07：浅色模式顶栏操作图标 Tint 定点补修
+
+Pixel 8 Pro / Android 16 真机反馈：浅色模式仅搜索、溢出（三点）按钮为白色，其余快捷按钮及管理配置按钮为黑色；深色模式正常。Commons 7.1.3 的 `MySearchMenu.updateColors()` 通过 `EdgeToEdgeActivity.updateTopBarColors()` 在已存在 Drawable 上直接调用 `setTint(contrastColor)`；Gallery 原 `tintMenu()` 的缓存只验证 MenuItem/Drawable 身份及上次目标前景色，在浅色模式刷新后可能跳过恢复白色。
+
+补修仅在 `MediaActivity.updateMenuColors()` 的原有菜单绑定完成后调用 `OxygenToolbarStyle.reassertActionTints()`，直接恢复现有顶栏操作 Drawable 的白色/禁用态 ColorStateList；不重新赋值 MenuItem.icon、不变更 MenuItem 可见性、启用状态、动作规划或 48dp 占位。搜索与三点菜单既有专用白色 Tint 保持不变；弹出菜单不在该恢复操作范围内。复用 `tintMenu()` 的状态色定义，新增 Robolectric 像素和 Drawable 身份回归测试 `OxygenToolbarActionTintTest`。真机仍须验证首次进入、下拉刷新、渐进加载、锁定态及主题切换无颜色和布局回归。

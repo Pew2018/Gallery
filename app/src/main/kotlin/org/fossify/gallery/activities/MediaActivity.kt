@@ -1495,6 +1495,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 }
             )
         }
+        // Commons can overwrite existing MenuItem drawables with the page's
+        // black-on-light contrast tint. Reassert only their presentation color
+        // after all action bindings, without changing the stable toolbar plan.
+        OxygenToolbarStyle.reassertActionTints(
+            binding.mediaMenu.requireToolbar().menu,
+            OxygenThemeEngine.toolbarForeground(this, config)
+        )
     }
 
     private fun hasPlayableMedia(): Boolean = mMedia.filterIsInstance<Medium>().any {

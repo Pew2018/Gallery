@@ -428,12 +428,47 @@ object OxygenToolbarStyle {
         title.setTextColor(colors.toolbarForeground)
     }
 
+    // Commons' MySearchMenu.updateColors() can directly call setTint() on the
+    // same Drawable after MenuItem's color list was installed. Cache only icon
+    // binding; the color-only final pass below must be allowed to run again.
+    private fun actionIconTint(foreground: Int): ColorStateList = ColorStateList(
+        arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
+        intArrayOf(ColorUtils.setAlphaComponent(foreground, 110), foreground)
+    )
+
+    private val actionIconIds = intArrayOf(
+        org.fossify.gallery.R.id.folder_view,
+        org.fossify.gallery.R.id.photo_profiles_manage,
+        org.fossify.gallery.R.id.quick_toolbar_slot_0,
+        org.fossify.gallery.R.id.quick_toolbar_slot_1,
+        org.fossify.gallery.R.id.quick_toolbar_slot_2,
+        org.fossify.gallery.R.id.quick_toolbar_slot_3,
+        org.fossify.gallery.R.id.quick_toolbar_slot_4
+    )
+
+    /**
+     * Restore action icon colors after Commons and ToolbarQuickActions have run.
+     * Commons changes tint in place, so cached MenuItem/Drawable identity cannot
+     * prove the live drawable still uses the white-on-toolbar foreground.
+     *
+     * Do not change MenuItem icons, titles, enabled/visible states or layout:
+     * stable photo-profile actions must not be rebound during media publication.
+     */
+    fun reassertActionTints(menu: Menu, foreground: Int) {
+        val tint = actionIconTint(foreground)
+        actionIconIds.forEach { id ->
+            val item = menu.findItem(id) ?: return@forEach
+            if (!item.isVisible) return@forEach
+            item.icon?.mutate()?.apply {
+                clearColorFilter()
+                setTintList(tint)
+            }
+        }
+    }
+
     fun tintMenu(menu: Menu?, foreground: Int = Color.WHITE) {
         if (menu == null) return
-        val colors = ColorStateList(
-            arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
-            intArrayOf(ColorUtils.setAlphaComponent(foreground, 110), foreground)
-        )
+        val colors = actionIconTint(foreground)
         for (i in 0 until menu.size()) {
             val item = menu.getItem(i)
             val currentIcon = item.icon
