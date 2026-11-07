@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 37956)
-Total output lines: 3154
-
 package org.fossify.gallery.activities
 
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
@@ -1259,7 +1256,662 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun loadFavoriteFoldersWithOverrides(force: Boolean = false) {
         val hiddenProtected = config.isHiddenPasswordProtectionOn
         val excludedProtected = config.isExcludedPasswordProtectionOn
-        val showHidden = (config.favoriteSh…7956 tokens truncated…e, true) {
+        val showHidden = (config.favoriteShowHidden || config.temporarilyShowHidden) &&
+            (!hiddenProtected || mFavoriteHiddenAuthorized)
+        val showExcluded = (config.favoriteShowExcluded || config.temporarilyShowExcluded) &&
+            (!excludedProtected || mFavoriteExcludedAuthorized)
+        val authorizationPending = ((config.favoriteShowHidden || config.temporarilyShowHidden) &&
+                hiddenProtected && !mFavoriteHiddenAuthorized) ||
+            ((config.favoriteShowExcluded || config.temporarilyShowExcluded) &&
+                excludedProtected && !mFavoriteExcludedAuthorized)
+        val excludedRoots = config.excludedFolders.toSet()
+        val request = favoriteLoad.begin(
+            FavoriteFolderLoadKey(showHidden, showExcluded, authorizationPending, excludedRoots),
+            force
+        ) ?: return
+        mIsGettingDirs = true
+        setDirectoryLoading(true)
+
+        ensureBackgroundThread {
+            try {
+                // The favorite relationship is authoritative. Do not call
+                // getCachedDirectories(): it filters .nomedia and may swallow
+                // Room errors or run unrelated cache cleanup.
+                val paths = favoriteFoldersDB.getPaths().filter { it.startsWith('/') }
+                    .distinctBy(FavoriteFolderRules::normalizedPath)
+                val cachedByPath = try {
+                    paths.chunked(250).flatMap { directoryDB.getByPaths(it) }
+                        .associateBy { FavoriteFolderRules.normalizedPath(it.path) }
+                } catch (cacheError: Exception) {
+                    android.util.Log.w("GalleryFavorites", "Directory metadata unavailable", cacheError)
+                    emptyMap()
+                }
+                val selected = ArrayList<Directory>(paths.size)
+                val accessiblePaths = HashSet<String>()
+                fun protected(path: String) = FolderUnlockSessionManager.findProtectedAncestor(
+                    path, config::isFolderProtected) != null
+                // Classification uses only bounded path/ancestor checks. No child
+                // enumeration, media query or date lookup precedes the manifest.
+                for (path in paths) {
+                    if (!favoriteLoad.isCurrent(request)) return@ensureBackgroundThread
+                    val file = File(path)
+                    val accessible = file.isDirectory && file.canRead()
+                    if (accessible) accessiblePaths.add(path)
+                    val hidden = FavoriteFolderRules.isDotHidden(path) ||
+                        FavoriteFolderRules.hasNoMediaAncestor(path) || (!accessible && hiddenProtected)
+                    val excluded = FavoriteFolderRules.isExcluded(path, excludedRoots)
+                    if (!FavoriteFolderRules.shouldShow(hidden, excluded, showHidden, showExcluded)) continue
+                    val cached = cachedByPath[FavoriteFolderRules.normalizedPath(path)]
+                    val item = if (!protected(path) && accessible && cached != null) cached.snapshot()
+                    else Directory().apply {
+                        this.path = path
+                        name = file.name.ifBlank { path }
+                        location = LOCATION_INTERNAL
+                    }
+                    selected.add(item)
+                }
+                fun publish(complete: Boolean, failed: Boolean = false) {
+                    val snapshot = selected.mapTo(ArrayList()) { it.snapshot() }
+                    runOnUiThread {
+                        if (!favoriteViewForeground || isFinishing || isDestroyed ||
+                            !mShowingFolderFavorites || !favoriteLoad.isCurrent(request)) return@runOnUiThread
+                        if (complete && !(if (failed) favoriteLoad.fail(request)
+                            else favoriteLoad.complete(request, snapshot.size, authorizationPending))) return@runOnUiThread
+                        if (!complete) favoriteLoad.visible(request)
+                        mFavoriteFolderPaths = paths.toSet()
+                        mLoadedInitialPhotos = true
+                        mIsGettingDirs = !complete
+                        // This indicator means first usable content, not authoritative
+                        // metadata completion (which remains owned by favoriteLoad).
+                        setDirectoryLoading(false)
+                        binding.directoriesRefreshLayout.isRefreshing = false
+                        setupAdapter(snapshot, presentationIsCurrent = {
+                            favoriteViewForeground && mShowingFolderFavorites && favoriteLoad.isCurrent(request)
+                        })
+                        if (snapshot.isEmpty() && authorizationPending) {
+                            binding.directoriesEmptyPlaceholder.setText(R.string.favorite_folders_auth_required)
+                            binding.directoriesEmptyPlaceholder2.beGone()
+                        }
+                    }
+                }
+                publish(complete = false)
+                GalleryPerfTrace.event("favorite_manifest_ready", selected.size)
+
+                val fetcher = MediaFetcher(applicationContext, cancelled = { !favoriteLoad.isCurrent(request) },
+                    reportReadFailures = true)
+                val favorites = getFavoritePaths()
+                val noMedia = getNoMediaFoldersSync()
+                val covers = config.parseAlbumCovers()
+                val dates = fetcher.getSelectedFolderDateOverrides(selected.map { it.path }.filterNot(::protected))
+                var lastPublished = android.os.SystemClock.elapsedRealtime()
+                var changedCards = 0
+                var metadataFailed = false
+                for (index in selected.indices) {
+                    if (!favoriteLoad.isCurrent(request)) return@ensureBackgroundThread
+                    val path = selected[index].path
+                    if (protected(path)) continue
+                    try {
+                        val read = fetcher.readFolder(path, false, false, true, true,
+                            true, favorites, false, HashMap(), dates, null)
+                        if (read.status != FolderReadStatus.COMPLETE || !read.accessCurrent())
+                            throw read.error ?: java.io.IOException("Incomplete favorite metadata")
+                        val media = read.media
+                        if (!favoriteLoad.isCurrent(request)) return@ensureBackgroundThread
+                        val fresh = if (media.isNotEmpty()) {
+                            createDirectoryFromMedia(path, media, covers, getString(R.string.hidden),
+                                config.includedFolders, true, noMedia)
+                        } else if (path in accessiblePaths) Directory().apply {
+                            this.path = path
+                            name = File(path).name.ifBlank { path }
+                            location = LOCATION_INTERNAL
+                        } else selected[index].snapshot().apply {
+                            name += getString(R.string.folder_unavailable_suffix)
+                        }
+                        // A lock applied while the worker was reading must never
+                        // leak a late cover/count, even before the next reload.
+                        if (!protected(path)) selected[index] = fresh
+                        changedCards++
+                    } catch (error: Exception) {
+                        metadataFailed = true
+                        // An unreadable source is not an empty or deleted favorite.
+                        android.util.Log.w("GalleryFavorites", "Favorite metadata unavailable", error)
+                    }
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (changedCards >= 8 && now - lastPublished >= 250L) {
+                        publish(complete = false)
+                        changedCards = 0
+                        lastPublished = now
+                    }
+                }
+                publish(complete = true, failed = metadataFailed)
+                GalleryPerfTrace.event(if (metadataFailed) "favorite_metadata_partial" else "favorite_metadata_finished", selected.size)
+            } catch (error: Exception) {
+                android.util.Log.e("GalleryFavorites", "Could not load favorite directories", error)
+                runOnUiThread {
+                    if (!favoriteViewForeground || isFinishing || isDestroyed ||
+                        !favoriteLoad.fail(request)) return@runOnUiThread
+                    mIsGettingDirs = false
+                    setDirectoryLoading(false)
+                    binding.directoriesRefreshLayout.isRefreshing = false
+                    android.widget.Toast.makeText(this,
+                        getString(R.string.favorite_folders_load_failed), android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun launchSearchActivity() {
+        hideKeyboard()
+        Intent(this, SearchActivity::class.java).apply {
+            startActivity(this)
+        }
+
+        // Close only after Commons finishes its opening callback, without a timer.
+        binding.mainMenu.post {
+            if (!isFinishing && !isDestroyed && binding.mainMenu.isSearchOpen) {
+                OxygenSearchNavigation.closeInlineSearch(this, binding.mainMenu)
+            }
+        }
+    }
+
+    /** The catalog contains physical children too; adapter rows may be searched/grouped. */
+    private fun refreshDirectoryPresentation() {
+        if (mShowingFolderFavorites) {
+            getDirectories(forceFavoriteReload = true)
+            return
+        }
+        // Keep an active scan alive so sorting a partial cache cannot lose unseen albums.
+        setupAdapter(mDirs)
+    }
+
+    private fun resumeCategorizedLoadIfNeeded() {
+        if (categorizedReloadPending && !mShowingFolderFavorites && isSpecialFolderFilterActive() && !mIsGettingDirs) {
+            loadCategorizedFolders()
+        }
+    }
+
+    private fun showSortingDialog() {
+        ChangeSortingDialog(this, true, false) {
+            directorySortStartedNanos = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+            directorySortRequestedMode = config.directorySorting
+            org.fossify.gallery.helpers.GalleryPerfTrace.event(
+                "album_sort_requested", revision = directorySortRequestedMode.toLong()
+            )
+            directoryRandomOrder.clear()
+            if (config.directorySorting and SORT_BY_DATE_MODIFIED != 0 || config.directorySorting and SORT_BY_DATE_TAKEN != 0 ||
+                config.directorySorting and SORT_BY_SIZE != 0) {
+                retireDirectoryScan()
+                getDirectories()
+            } else {
+                refreshDirectoryPresentation()
+            }
+
+            getRecyclerAdapter()?.directorySorting = config.directorySorting
+        }
+    }
+
+    private fun manageUnavailableFolderFavorites() {
+        ensureBackgroundThread {
+            val unavailable = favoriteFoldersDB.getPaths().filter { path ->
+                !getDoesFilePathExist(path, config.OTGPath)
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (unavailable.isEmpty()) {
+                    toast(R.string.favorite_folders_none_unavailable)
+                    return@runOnUiThread
+                }
+                OxygenClassicDialog.show(this,
+                    OxygenClassicDialog.builder(this, getString(R.string.favorite_folders_cleanup_title))
+                    .setMessage(
+                        getString(R.string.favorite_folders_cleanup_message, unavailable.size,
+                            unavailable.take(8).joinToString("\n") +
+                                if (unavailable.size > 8) "\n…" else "")
+                    )
+                    .setNegativeButton(R.string.favorite_folders_keep, null)
+                    .setPositiveButton(R.string.favorite_folders_cleanup_action) { _, _ ->
+                        ensureBackgroundThread {
+                            unavailable.forEach { favoriteFoldersDB.delete(it) }
+                            runOnUiThread { if (!isFinishing && !isDestroyed) getDirectories() }
+                        }
+                    })
+            }
+        }
+    }
+
+    private fun showFolderVisibilityDialog() {
+        val labels = arrayOf(
+            getString(R.string.folder_filter_hidden),
+            getString(R.string.folder_filter_excluded),
+            getString(R.string.folder_filter_nomedia),
+            getString(R.string.folder_filter_protected)
+        )
+        val checked = mFolderVisibility.copyOf()
+        OxygenClassicDialog.show(this,
+            OxygenClassicDialog.builder(this, getString(R.string.folder_filter_title))
+            .setMultiChoiceItems(labels, checked) { _, index, value -> checked[index] = value }
+            .setNegativeButton(org.fossify.commons.R.string.cancel, null)
+            .setPositiveButton(R.string.folder_filter_apply) { _, _ ->
+                val apply = {
+                    mFolderVisibility = checked
+                    retireDirectoryScan()
+                    binding.directoriesGrid.adapter = null
+                    getDirectories()
+                }
+                val verifyExcluded = {
+                    if (checked[1] && !mFolderVisibility[1]) {
+                        handleExcludedFolderPasswordProtection { apply() }
+                    } else {
+                        apply()
+                    }
+                }
+                if ((checked[0] || checked[2]) && !(mFolderVisibility[0] || mFolderVisibility[2])) {
+                    handleHiddenFolderPasswordProtection { verifyExcluded() }
+                } else {
+                    verifyExcluded()
+                }
+            })
+    }
+
+    private fun loadCategorizedFolders() {
+        if (mIsGettingDirs) return
+        // Category results must supersede an older normal album scan, not just
+        // stop its fetcher while leaving its cache/UI callbacks eligible to publish.
+        retireDirectoryScan()
+        mIsGettingDirs = true
+        setDirectoryLoading(true)
+        val requestVersion = ++categorizedLoadVersion
+        directoryTraceRequest = requestVersion
+        org.fossify.gallery.helpers.FolderRefreshDiagnostics.event(requestVersion, "album_queued")
+        categorizedLoadActive = true
+        categorizedReloadPending = false
+        val requestedVisibility = mFolderVisibility.copyOf()
+        val diagnostics = if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+            org.fossify.gallery.helpers.MediaPipelineDiagnostics.create(
+                requestedVisibility.contentToString(), "CATEGORIZED", "INITIAL", requestVersion
+            ) else null
+        activeCategoryScanDiagnostics = diagnostics
+        var queuedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
+        var workerStartedElapsedMs = queuedAtElapsedMs
+        var workerFinishedElapsedMs = queuedAtElapsedMs
+        mLastMediaFetcher?.shouldStop = true
+        val retained = mDirsIgnoringSearch.mapTo(ArrayList()) { it.snapshot() }
+        val failed: (Exception) -> Unit = { error ->
+            android.util.Log.e("GalleryFolders", "Folder category scan failed", error)
+            val finishedAt = android.os.SystemClock.elapsedRealtime()
+            runOnUiThread {
+                val stillCurrent = !isFinishing && !isDestroyed && requestVersion == categorizedLoadVersion &&
+                    requestedVisibility.contentEquals(mFolderVisibility)
+                diagnostics?.finishIfOpen(if (stillCurrent) "FAILED" else "CANCELLED",
+                    (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
+                    (workerFinishedElapsedMs - workerStartedElapsedMs).coerceAtLeast(0L),
+                    (finishedAt - workerFinishedElapsedMs).coerceAtLeast(0L), -1L, -1L)
+                if (activeCategoryScanDiagnostics === diagnostics) activeCategoryScanDiagnostics = null
+                if (stillCurrent) {
+                    categorizedLoadActive = false
+                    mIsGettingDirs = false
+                    setDirectoryLoading(false)
+                    binding.directoriesRefreshLayout.isRefreshing = false
+                    toast(R.string.folder_load_failed)
+                }
+            }
+        }
+        fun current() = !isFinishing && !isDestroyed && requestVersion == categorizedLoadVersion &&
+            requestedVisibility.contentEquals(mFolderVisibility)
+        getCachedDirectories(forceShowHidden = true, forceShowExcluded = true, onFailure = failed,
+            executor = org.fossify.gallery.helpers.GalleryAlbumScanExecutor, isCurrent = { current() },
+            readCache = {
+                try {
+                    directoryCacheReader()
+                } catch (error: Exception) {
+                    if (error is java.util.concurrent.CancellationException ||
+                        error is android.os.OperationCanceledException) throw error
+                    android.util.Log.w("GalleryFolders", "Category cache unavailable; continuing scan")
+                    retained
+                }
+            }) { cached ->
+            try {
+                queuedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
+                val scanned = org.fossify.gallery.helpers.CategorizedFolderScanner.scan(
+                    applicationContext, cached, requestedVisibility, cancelled = { !current() }, onFetcher = { fetcher ->
+                        fetcher.traceRequest = requestVersion
+                        fetcher.pipelineDiagnostics = diagnostics
+                        workerStartedElapsedMs = android.os.SystemClock.elapsedRealtime()
+                        org.fossify.gallery.helpers.FolderRefreshDiagnostics.event(requestVersion, "album_worker_started")
+                        runOnUiThread { if (current()) mLastMediaFetcher = fetcher else fetcher.shouldStop = true }
+                    }, onMetadata = { snapshot ->
+                        org.fossify.gallery.helpers.DirectoryMetadataRepository.commit(applicationContext, snapshot)
+                    }, onProgress = { partial ->
+                        diagnostics?.apply { add("stageCount"); add("stagePublishCount") }
+                        runOnUiThread {
+                            if (current()) {
+                                mDirs = partial.directories
+                                mDirsIgnoringSearch = ArrayList(partial.directories)
+                                setupAdapter(partial.directories, presentationIsCurrent = { current() })
+                                checkPlaceholderVisibility(partial.directories)
+                            }
+                        }
+                    })
+                workerFinishedElapsedMs = android.os.SystemClock.elapsedRealtime()
+                val visible = scanned.directories
+                runOnUiThread {
+                    if (!current()) {
+                        diagnostics?.finishIfOpen("CANCELLED", -1L, -1L, -1L, -1L, -1L)
+                        return@runOnUiThread
+                    }
+                    categorizedLoadActive = false
+                    mDirs = visible
+                    mDirsIgnoringSearch = ArrayList(visible)
+                    mLoadedInitialPhotos = true
+                    mIsGettingDirs = false
+                    setDirectoryLoading(false)
+                    setupAdapter(visible, presentationIsCurrent = { current() }, onCommitted = {
+                        val finishedAt = android.os.SystemClock.elapsedRealtime()
+                        diagnostics?.finishIfOpen(if (scanned.failures.isEmpty()) "COMPLETE" else "PARTIAL",
+                            (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
+                            (workerFinishedElapsedMs - workerStartedElapsedMs).coerceAtLeast(0L),
+                            (finishedAt - workerFinishedElapsedMs).coerceAtLeast(0L),
+                            visible.size.toLong(), visible.size.toLong())
+                        if (activeCategoryScanDiagnostics === diagnostics) activeCategoryScanDiagnostics = null
+                    }, onDiscarded = {
+                        diagnostics?.finishIfOpen("CANCELLED", -1L, -1L, -1L, -1L, -1L)
+                        if (activeCategoryScanDiagnostics === diagnostics) activeCategoryScanDiagnostics = null
+                    })
+                    checkPlaceholderVisibility(visible)
+                    binding.directoriesRefreshLayout.isRefreshing = false
+                    if (scanned.failures.isNotEmpty()) toast(R.string.media_load_partial_error)
+                }
+            } catch (error: Exception) {
+                if (current()) failed(error)
+                else {
+                    val finishedAt = android.os.SystemClock.elapsedRealtime()
+                    diagnostics?.finishIfOpen("CANCELLED", (workerStartedElapsedMs - queuedAtElapsedMs).coerceAtLeast(0L),
+                        (finishedAt - workerStartedElapsedMs).coerceAtLeast(0L), 0L, -1L, -1L)
+                }
+            }
+        }
+    }
+
+    private fun showFilterMediaDialog() {
+        FilterMediaDialog(this) {
+            retireDirectoryScan()
+            binding.directoriesRefreshLayout.isRefreshing = true
+            binding.directoriesGrid.adapter = null
+            getDirectories()
+        }
+    }
+
+    /** Called only by root navigation; leave third-party picker contracts untouched. */
+    private fun openGalleryRoot(screen: GalleryScreen) {
+        if (screen.section == GallerySection.ALL) {
+            config.lastMainViewAll = screen.view == GalleryContentView.FILES
+        }
+        // The pinned favorite-files album must not change the saved favorite-folder tab.
+        // Retain the legacy flag for older callers, but the destination owns scope.
+        config.showAll = screen.isAllFiles
+        val destination = if (screen.section == GallerySection.PHOTOS) {
+            Intent(this, MediaActivity::class.java).putExtra(DIRECTORY, PhotoProfileMediaLoader.PATH)
+        } else if (screen.view == GalleryContentView.FILES) {
+            Intent(this, MediaActivity::class.java).putExtra(
+                DIRECTORY, if (screen.isFavoriteFiles) FAVORITES else ""
+            )
+        } else {
+            Intent(this, MainActivity::class.java)
+                .putExtra(EXTRA_SHOW_FOLDERS, true)
+                .putExtra(EXTRA_FOLDER_FAVORITES, screen.section == GallerySection.FAVORITES)
+        }
+        destination.putExtra(GalleryNavigation.EXTRA_SECTION, screen.section.name)
+        if (binding.mainMenu.isSearchOpen) {
+            OxygenSearchNavigation.closeInlineSearch(this, binding.mainMenu)
+        }
+        hideKeyboard()
+        GalleryBottomBar.open(this, destination, finishCurrent = true)
+    }
+
+    private fun showAllMedia() {
+        if (!mIsThirdPartyIntent) {
+            openGalleryRoot(GalleryScreen(mGallerySection, GalleryContentView.FILES))
+            return
+        }
+        // Legacy chooser/wallpaper flow: no bottom navigation or remembered tab.
+        config.showAll = true
+        Intent(this, MediaActivity::class.java).apply {
+            putExtra(DIRECTORY, "")
+            handleMediaIntent(this)
+        }
+    }
+
+    private fun changeViewType() {
+        ChangeViewTypeDialog(this, true) {
+            refreshMenuItems()
+            setupLayoutManager()
+            binding.directoriesGrid.adapter = null
+            setupAdapter(getRecyclerAdapter()?.dirs ?: mDirs)
+        }
+    }
+
+    private fun tryToggleTemporarilyShowHidden() {
+        if (config.temporarilyShowHidden) {
+            toggleTemporarilyShowHidden(false)
+        } else {
+            if (isRPlus() && !isExternalStorageManager()) {
+                GrantAllFilesDialog(this)
+            } else {
+                handleHiddenFolderPasswordProtection {
+                    toggleTemporarilyShowHidden(true)
+                }
+            }
+        }
+    }
+
+    private fun toggleTemporarilyShowHidden(show: Boolean) {
+        mLoadedInitialPhotos = false
+        config.temporarilyShowHidden = show
+        if (mShowingFolderFavorites) {
+            if (show) mFavoriteHiddenAuthorized = true
+            else if (!config.favoriteShowHidden) mFavoriteHiddenAuthorized = false
+            clearFavoriteDirectoryViews()
+            getDirectories(forceFavoriteReload = true)
+        } else {
+            retireDirectoryScan()
+            binding.directoriesGrid.adapter = null
+            getDirectories()
+        }
+        refreshMenuItems()
+    }
+
+    private fun tryToggleTemporarilyShowExcluded() {
+        if (config.temporarilyShowExcluded) {
+            toggleTemporarilyShowExcluded(false)
+        } else {
+            handleExcludedFolderPasswordProtection {
+                toggleTemporarilyShowExcluded(true)
+            }
+        }
+    }
+
+    private fun toggleTemporarilyShowExcluded(show: Boolean) {
+        mLoadedInitialPhotos = false
+        config.temporarilyShowExcluded = show
+        if (mShowingFolderFavorites) {
+            if (show) mFavoriteExcludedAuthorized = true
+            else if (!config.favoriteShowExcluded) mFavoriteExcludedAuthorized = false
+            clearFavoriteDirectoryViews()
+            getDirectories(forceFavoriteReload = true)
+        } else {
+            retireDirectoryScan()
+            binding.directoriesGrid.adapter = null
+            getDirectories()
+        }
+        refreshMenuItems()
+    }
+
+    override fun deleteFolders(folders: ArrayList<File>) {
+        val fileDirItems = folders
+            .asSequence()
+            .filter { it.isDirectory }
+            .map { FileDirItem(it.absolutePath, it.name, true) }
+            .toMutableList() as ArrayList<FileDirItem>
+
+        when {
+            fileDirItems.isEmpty() -> return
+            fileDirItems.size == 1 -> {
+                try {
+                    toast(
+                        String.format(
+                            getString(org.fossify.commons.R.string.deleting_folder),
+                            fileDirItems.first().name
+                        )
+                    )
+                } catch (e: Exception) {
+                    showErrorToast(e)
+                }
+            }
+
+            else -> {
+                val baseString = if (config.useRecycleBin && !config.tempSkipRecycleBin) {
+                    org.fossify.commons.R.plurals.moving_items_into_bin
+                } else {
+                    org.fossify.commons.R.plurals.delete_items
+                }
+
+                toast(
+                    msg = resources.getQuantityString(
+                        baseString, fileDirItems.size, fileDirItems.size
+                    )
+                )
+            }
+        }
+
+        val itemsToDelete = ArrayList<FileDirItem>()
+        val filter = config.filterMedia
+        val showHidden = config.shouldShowHidden
+        fileDirItems.filter { it.isDirectory }.forEach {
+            val files = File(it.path).listFiles()
+            files?.filter {
+                it.absolutePath.isMediaFile()
+                        && (showHidden || !it.name.startsWith('.'))
+                        && ((it.isImageFast() && filter and TYPE_IMAGES != 0)
+                        || (it.isVideoFast() && filter and TYPE_VIDEOS != 0)
+                        || (it.isGif() && filter and TYPE_GIFS != 0)
+                        || (it.isRawFast() && filter and TYPE_RAWS != 0)
+                        || (it.isSvg() && filter and TYPE_SVGS != 0))
+            }?.mapTo(itemsToDelete) { it.toFileDirItem(applicationContext) }
+        }
+
+        if (config.useRecycleBin && !config.tempSkipRecycleBin) {
+            val pathsToDelete = ArrayList<String>()
+            itemsToDelete.mapTo(pathsToDelete) { it.path }
+
+            movePathsInRecycleBin(pathsToDelete) {
+                if (it) {
+                    deleteFilteredFileDirItems(itemsToDelete, folders)
+                } else {
+                    toast(org.fossify.commons.R.string.unknown_error_occurred)
+                }
+            }
+        } else {
+            deleteFilteredFileDirItems(itemsToDelete, folders)
+        }
+    }
+
+    private fun deleteFilteredFileDirItems(
+        fileDirItems: ArrayList<FileDirItem>,
+        folders: ArrayList<File>
+    ) {
+        val OTGPath = config.OTGPath
+        deleteFiles(fileDirItems) {
+            runOnUiThread {
+                refreshItems()
+            }
+
+            ensureBackgroundThread {
+                folders.filter { !getDoesFilePathExist(it.absolutePath, OTGPath) }.forEach {
+                    directoryDB.deleteDirPath(it.absolutePath)
+                }
+
+                if (config.deleteEmptyFolders) {
+                    folders.filter {
+                        !it.absolutePath.isDownloadsFolder()
+                                && it.isDirectory
+                                && it.toFileDirItem(this).getProperFileCount(this, true) == 0
+                    }
+                        .forEach {
+                            tryDeleteFileDirItem(it.toFileDirItem(this), true, true)
+                        }
+                }
+            }
+        }
+    }
+
+    private fun setupLayoutManager() {
+        if (config.viewTypeFolders == VIEW_TYPE_GRID) {
+            setupGridLayoutManager()
+        } else {
+            setupListLayoutManager()
+        }
+
+        (binding.directoriesRefreshLayout.layoutParams as RelativeLayout.LayoutParams)
+            .addRule(RelativeLayout.BELOW, R.id.directories_switch_searching)
+    }
+
+    private fun setupGridLayoutManager() {
+        val layoutManager = binding.directoriesGrid.layoutManager as MyGridLayoutManager
+        if (config.scrollHorizontally) {
+            layoutManager.orientation = RecyclerView.HORIZONTAL
+            binding.directoriesRefreshLayout.layoutParams =
+                RelativeLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+        } else {
+            layoutManager.orientation = RecyclerView.VERTICAL
+            binding.directoriesRefreshLayout.layoutParams =
+                RelativeLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+        }
+
+        layoutManager.spanCount = config.dirColumnCnt
+    }
+
+    private fun setupListLayoutManager() {
+        val layoutManager = binding.directoriesGrid.layoutManager as MyGridLayoutManager
+        layoutManager.spanCount = 1
+        layoutManager.orientation = RecyclerView.VERTICAL
+        binding.directoriesRefreshLayout.layoutParams = RelativeLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        mZoomListener = null
+    }
+
+    private fun initZoomListener() {
+        if (config.viewTypeFolders == VIEW_TYPE_GRID) {
+            val layoutManager = binding.directoriesGrid.layoutManager as MyGridLayoutManager
+            mZoomListener = object : MyRecyclerView.MyZoomListener {
+                override fun zoomIn() {
+                    if (layoutManager.spanCount > 1) {
+                        reduceColumnCount()
+                        getRecyclerAdapter()?.finishActMode()
+                    }
+                }
+
+                override fun zoomOut() {
+                    if (layoutManager.spanCount < MAX_COLUMN_COUNT) {
+                        increaseColumnCount()
+                        getRecyclerAdapter()?.finishActMode()
+                    }
+                }
+            }
+        } else {
+            mZoomListener = null
+        }
+    }
+
+    private fun createNewFolder() {
+        FilePickerDialog(this, internalStoragePath, false, config.shouldShowHidden, false, true) {
             CreateNewFolderDialog(this, it) {
                 config.tempFolderPath = it
                 retireDirectoryScan()

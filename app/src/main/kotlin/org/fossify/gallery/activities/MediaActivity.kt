@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 51448)
-Total output lines: 3809
-
 package org.fossify.gallery.activities
 
 import org.fossify.gallery.helpers.OxygenClassicActivityMotion
@@ -1168,7 +1165,1501 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             favoritesReturnCover?.reveal { isFavoritesReturnCurrent(request, token) &&
                                 binding.mediaGrid.adapter === adapter }
                         FavoritesScrollRestorer.RestoreResult.EMPTY ->
-        …21448 tokens truncated…int != null && !mShowAll && requestedFolder.isNotEmpty() &&
+                            favoritesReturnCover?.revealAfterLayout { isFavoritesReturnCurrent(request, token) }
+                        FavoritesScrollRestorer.RestoreResult.UNCONFIRMED ->
+                            favoritesReturnCover?.showError(::retryFavoritesReturn)
+                    }
+                }
+            }, isCurrent = { isFavoritesReturnCurrent(request, token) })
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (mPath == FAVORITES) {
+            rememberFavoritesScrollAnchor()
+            favoritesScroll.save(outState)
+            outState.putBoolean("favoritesReturnPending", favoritesReturnCover?.covering == true)
+        }
+        if (isPhotoProfiles && photoToken() == null) {
+            rememberPhotoScrollAnchor()
+            photoScroll.save(outState)
+        }
+        outState.putString("favoriteOwnerId", favoriteOwnerId)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun finish() {
+        favoritesReturnCover?.dismiss()
+        favoritesScroll.clear()
+        photoScroll.clear()
+        favoriteAuthGeneration++
+        folderAuthGeneration++
+        favoritePublicationGeneration++
+        ViewerAccessCoordinator.cancel(favoritePublicationTask)
+        val revoked = favoriteSessionId
+        favoriteSessionId = null
+        FavoriteAccessSessionManager.revokeSession(revoked)
+        super.finish()
+        OxygenClassicActivityMotion.applyClose(this)
+    }
+
+    override fun onDestroy() {
+        photoFastScrollActive = false
+        photoGridPublication.clear()
+        mediaRefreshWatchdog.stop()
+        GalleryBottomBar.dispose(this)
+        mediaHeaderProgress?.let(OxygenProgressStyle::dispose)
+        OxygenProgressStyle.dispose(binding.loadingIndicator)
+        PhotoProfileAccessSessionManager.removeListener(favoriteListenerId)
+        favoritesReturnCover?.let {
+            it.dismiss()
+            binding.mediaCoordinator.removeView(it)
+        }
+        favoritesReturnCover = null
+        favoritesScroll.cancelLayout()
+        photoScroll.cancelLayout()
+        mediaSearchGeneration++
+        favoriteAuthGeneration++
+        folderAuthGeneration++
+        favoritePublicationGeneration++
+        ViewerAccessCoordinator.cancel(favoritePublicationTask)
+        FavoriteAccessSessionManager.removeRevocationListener(favoriteListenerId)
+        getSharedPrefs().unregisterOnSharedPreferenceChangeListener(favoriteProtectionListener)
+        if (mPath == FAVORITES) {
+            favoriteObserverDisposed = true
+            ensureBackgroundThread {
+                synchronized(favoriteObserverLock) {
+                    favoriteObservedTracker?.removeObserver(favoriteDatabaseObserver)
+                    favoriteObservedTracker = null
+                }
+            }
+        }
+        if (isFinishing && !isChangingConfigurations) {
+            FavoriteAccessSessionManager.revokeSession(favoriteSessionId)
+        }
+        if (isFinishing && !isChangingConfigurations) {
+            FolderUnlockSessionManager.revokeSession(folderUnlockSessionId)
+        }
+        super.onDestroy()
+        if (mShowAll && !isChangingConfigurations) {
+            config.temporarilyShowHidden = false
+            unregisterFileUpdateListener()
+            // The application database outlives pages and their background workers.
+        }
+
+        mTempShowHiddenHandler.removeCallbacksAndMessages(null)
+    }
+
+    override fun onBackPressedCompat(): Boolean {
+        return if (binding.mediaMenu.isSearchOpen) {
+            OxygenSearchNavigation.closeInlineSearch(this, binding.mediaMenu)
+            true
+        } else {
+            if (mGallerySection != null && mPath != FAVORITES) {
+                appLockManager.lock()
+            }
+            if (mPath == FAVORITES) {
+                favoriteAuthGeneration++
+                FavoriteAccessSessionManager.revokeSession(favoriteSessionId)
+            }
+
+            false
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, resultData: Intent?) {
+        if (requestCode == REQUEST_EDIT_IMAGE) {
+            if (resultCode == RESULT_OK && resultData != null) {
+                mMedia.clear()
+                refreshItems()
+            }
+        }
+        super.onActivityResult(requestCode, resultCode, resultData)
+        if (requestCode == PhotoProfileEditActivity.REQUEST_CODE && resultCode == RESULT_OK && !isFinishing) {
+            reloadPhotoProfile()
+        }
+        if (requestCode == PhotoProfileManageActivity.REQUEST_CODE && resultCode == RESULT_OK && !isFinishing) {
+            when {
+                resultData?.getBooleanExtra(PhotoProfileManageActivity.EXTRA_RELOAD_MEDIA, false) == true ->
+                    reloadPhotoProfile()
+                resultData?.getBooleanExtra(PhotoProfileManageActivity.EXTRA_REFRESH_CURRENT_DISPLAY, false) == true ->
+                    refreshPhotoProfileDisplay()
+            }
+        }
+    }
+
+    private fun refreshPhotoProfileDisplay() {
+        if (!isPhotoProfiles) return
+        updateMenuColors()
+        binding.mediaMenu.updateHintText(
+            getString(org.fossify.commons.R.string.search_in_placeholder, getString(R.string.gallery_nav_photos))
+        )
+    }
+
+    private fun refreshMenuItems() {
+        val isDefaultFolder = !config.defaultFolder.isEmpty()
+                && File(config.defaultFolder).compareTo(File(mPath)) == 0
+
+        binding.mediaMenu.requireToolbar().menu.apply {
+            findItem(R.id.group).isVisible = !config.scrollHorizontally
+
+            findItem(R.id.empty_recycle_bin).isVisible = mPath == RECYCLE_BIN
+            findItem(R.id.empty_disable_recycle_bin).isVisible = mPath == RECYCLE_BIN
+            findItem(R.id.restore_all_files).isVisible = mPath == RECYCLE_BIN
+            val isPicker = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent || isSetWallpaperIntent()
+            findItem(R.id.photo_profiles_manage).isVisible =
+                org.fossify.gallery.helpers.ToolbarQuickActions.photoProfileManageVisible(
+                    isPhotoProfiles, isPicker, mPath == RECYCLE_BIN
+                )
+            findItem(R.id.photo_profiles_unlock).isVisible = isPhotoProfiles && photoNeedsUnlock && photoProfileId != null
+            findItem(R.id.photo_profiles_lock).isVisible = isPhotoProfiles && photoToken() != null
+
+            findItem(R.id.folder_view).isVisible = hasFixedBrowseSwitch
+            findItem(R.id.open_camera).isVisible = mShowAll
+            findItem(R.id.about).isVisible = mShowAll
+            findItem(R.id.create_new_folder).isVisible =
+                !mShowAll && mPath != RECYCLE_BIN && mPath != FAVORITES
+            findItem(R.id.open_recycle_bin).isVisible = config.useRecycleBin && mPath != RECYCLE_BIN
+
+            findItem(R.id.temporarily_show_excluded).isVisible =
+                mPath.isEmpty() && !config.temporarilyShowExcluded
+            findItem(R.id.stop_showing_excluded).isVisible =
+                mPath.isEmpty() && config.temporarilyShowExcluded
+
+            findItem(R.id.temporarily_show_hidden).isVisible = !config.shouldShowHidden
+            findItem(R.id.stop_showing_hidden).isVisible =
+                (!isRPlus() || isExternalStorageManager()) && config.temporarilyShowHidden
+
+            findItem(R.id.set_as_default_folder).isVisible = !isDefaultFolder
+            findItem(R.id.unset_as_default_folder).isVisible = isDefaultFolder
+
+            val viewType = config.getFolderViewType(if (mShowAll) SHOW_ALL else mPath)
+            findItem(R.id.column_count).isVisible = viewType == VIEW_TYPE_GRID
+            findItem(R.id.toggle_filename).isVisible = viewType == VIEW_TYPE_GRID
+            if (isPhotoProfiles) {
+                listOf(R.id.group, R.id.create_new_folder, R.id.set_as_default_folder,
+                    R.id.unset_as_default_folder, R.id.temporarily_show_hidden, R.id.stop_showing_hidden,
+                    R.id.temporarily_show_excluded, R.id.stop_showing_excluded).forEach { findItem(it)?.isVisible = false }
+                findItem(R.id.slideshow).isVisible = mMedia.filterIsInstance<Medium>().any { org.fossify.gallery.helpers.PhotoPlaybackPolicy.canPlay(it.type, config.slideshowIncludeVideos, config.slideshowIncludeGIFs) }
+            }
+        }
+        updateMenuColors()
+    }
+
+    private fun setupOptionsMenu() {
+        OxygenToolbarStyle.preparePopup(this, binding.mediaMenu)
+        binding.mediaMenu.requireToolbar().inflateMenu(R.menu.menu_media)
+        binding.mediaMenu.toggleHideOnScroll(!config.scrollHorizontally)
+        binding.mediaMenu.setupMenu()
+
+        binding.mediaMenu.onSearchOpenListener = {
+            binding.mediaRefreshLayout.isEnabled = false
+        }
+        binding.mediaMenu.onSearchClosedListener = {
+            binding.mediaRefreshLayout.isEnabled =
+                org.fossify.gallery.helpers.SearchRefreshPolicy.isRefreshEnabled(
+                    binding.mediaMenu.isSearchOpen, binding.mediaMenu.getCurrentQuery()
+                )
+        }
+
+        binding.mediaMenu.onSearchTextChangedListener = { text ->
+            mLastSearchedText = text
+            searchQueryChanged(text)
+            binding.mediaRefreshLayout.isEnabled =
+                org.fossify.gallery.helpers.SearchRefreshPolicy.isRefreshEnabled(
+                    binding.mediaMenu.isSearchOpen, text
+                )
+        }
+
+        binding.mediaMenu.requireToolbar().setOnMenuItemClickListener { menuItem ->
+            if (org.fossify.gallery.helpers.ToolbarQuickActions.isSlot(menuItem.itemId)) {
+                when (org.fossify.gallery.helpers.ToolbarQuickActions.actionForSlot(binding.mediaMenu, menuItem.itemId)) {
+                    org.fossify.gallery.helpers.ToolbarQuickActions.SORT -> showSortingDialog()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.FILTER -> showFilterMediaDialog()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.VIEW -> changeViewType()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.COLUMNS -> changeColumnCount()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.HIDDEN -> tryToggleTemporarilyShowHidden()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.EXCLUDED -> tryToggleTemporarilyShowExcluded()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW -> startSlideshow()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.GROUP -> showGroupByDialog()
+                    org.fossify.gallery.helpers.ToolbarQuickActions.FILENAME -> toggleFilenameVisibility()
+                    else -> return@setOnMenuItemClickListener false
+                }
+                return@setOnMenuItemClickListener true
+            }
+            when (menuItem.itemId) {
+                R.id.quick_toolbar_search_overflow -> {
+                    binding.mediaMenu.focusView()
+                    showKeyboard(binding.mediaMenu.binding.topToolbarSearch)
+                }
+                R.id.photo_profiles_manage -> PhotoProfileManageActivity.launch(this)
+                R.id.photo_profiles_unlock -> unlockPhotoSources()
+                R.id.photo_profiles_lock -> PhotoProfileAccessSessionManager.revokeAll("user_locked_photo_sources")
+                R.id.sort -> showSortingDialog()
+                R.id.filter -> showFilterMediaDialog()
+                R.id.empty_recycle_bin -> emptyRecycleBin()
+                R.id.empty_disable_recycle_bin -> emptyAndDisableRecycleBin()
+                R.id.restore_all_files -> restoreAllFiles()
+                R.id.toggle_filename -> toggleFilenameVisibility()
+                R.id.open_camera -> launchCamera()
+                R.id.folder_view -> switchToFolderView()
+                R.id.change_view_type -> changeViewType()
+                R.id.group -> showGroupByDialog()
+                R.id.create_new_folder -> createNewFolder()
+                R.id.open_recycle_bin -> openRecycleBin()
+                R.id.temporarily_show_excluded -> tryToggleTemporarilyShowExcluded()
+                R.id.stop_showing_excluded -> tryToggleTemporarilyShowExcluded()
+                R.id.temporarily_show_hidden -> tryToggleTemporarilyShowHidden()
+                R.id.stop_showing_hidden -> tryToggleTemporarilyShowHidden()
+                R.id.column_count -> changeColumnCount()
+                R.id.set_as_default_folder -> setAsDefaultFolder()
+                R.id.unset_as_default_folder -> unsetAsDefaultFolder()
+                R.id.slideshow -> startSlideshow()
+                R.id.settings -> launchSettings()
+                R.id.about -> launchAbout()
+                else -> return@setOnMenuItemClickListener false
+            }
+            return@setOnMenuItemClickListener true
+        }
+    }
+
+    private fun startSlideshow() {
+        if (mMedia.isNotEmpty()) {
+            hideKeyboard()
+            Intent(this, ViewPagerActivity::class.java).apply {
+                val item = mMedia.firstOrNull { it is Medium } as? Medium ?: return
+                if (mPath == FAVORITES) {
+                    if (!FavoriteAccessSessionManager.isCapturedPath(favoriteSessionId, item.path)) { finish(); return }
+                    putExtra(FAVORITE_ACCESS_SESSION, favoriteSessionId)
+                    putExtra(SHOW_FAVORITES, true)
+                }
+                folderUnlockSessionId?.let { putExtra(FOLDER_UNLOCK_SESSION, it) }
+                putExtra(IS_FROM_GALLERY, true)
+                putExtra(PATH, item.path)
+                if (isPhotoProfiles) {
+                    putExtra(PhotoProfileMediaLoader.EXTRA_ID, photoProfileId)
+                    putExtra(PhotoProfileAccessSessionManager.EXTRA_SESSION, photoToken())
+                }
+                putExtra(SHOW_ALL, mShowAll)
+                putExtra(SLIDESHOW_START_ON_ENTER, true)
+                startActivity(this)
+            }
+        }
+    }
+
+    private fun updateMenuColors() {
+        binding.mediaMenu.updateColors()
+        OxygenSystemBars.apply(this)
+        val picker = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent || isSetWallpaperIntent()
+        OxygenToolbarStyle.apply(
+            this, binding.mediaMenu,
+            when {
+                isPhotoProfiles -> getString(R.string.gallery_nav_photos)
+                picker -> getString(R.string.app_launcher_name)
+                mShowAll || mPath.isEmpty() -> getString(R.string.gallery_nav_albums)
+                mPath == FAVORITES -> getString(org.fossify.commons.R.string.favorites)
+                mPath == RECYCLE_BIN -> getString(org.fossify.commons.R.string.recycle_bin)
+                else -> getHumanizedFilename(mPath)
+            },
+            backButton = mPath == FAVORITES || (mGallerySection == null && !mShowAll),
+        )
+        if (!picker && mPath != RECYCLE_BIN) {
+            val isHome = mPath.isEmpty() || (isPhotoProfiles && org.fossify.gallery.helpers.PhotoPlaybackPolicy.toolbarScope(photoHasContent) == org.fossify.gallery.helpers.ToolbarQuickScope.HOME)
+            val viewType = config.getFolderViewType(if (isHome && !isPhotoProfiles) SHOW_ALL else mPath)
+            org.fossify.gallery.helpers.ToolbarQuickActions.apply(
+                this, binding.mediaMenu,
+                if (isHome) org.fossify.gallery.helpers.ToolbarQuickScope.HOME
+                    else org.fossify.gallery.helpers.ToolbarQuickScope.FOLDER,
+                if (isHome) config.toolbarHomeActions else config.toolbarFolderActions,
+                hasBack = !isHome && !isPhotoProfiles,
+                fixedActionCount = (if (hasFixedBrowseSwitch) 1 else 0) + (if (isPhotoProfiles) 1 else 0),
+                supported = { action ->
+                    if (isPhotoProfiles && action in listOf(
+                        org.fossify.gallery.helpers.ToolbarQuickActions.HIDDEN,
+                        org.fossify.gallery.helpers.ToolbarQuickActions.EXCLUDED,
+                        org.fossify.gallery.helpers.ToolbarQuickActions.GROUP)) false else when (action) {
+                        org.fossify.gallery.helpers.ToolbarQuickActions.COLUMNS,
+                        org.fossify.gallery.helpers.ToolbarQuickActions.FILENAME -> viewType == VIEW_TYPE_GRID
+                        org.fossify.gallery.helpers.ToolbarQuickActions.GROUP -> !config.scrollHorizontally
+                        org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW ->
+                            mMedia.filterIsInstance<Medium>().any { org.fossify.gallery.helpers.PhotoPlaybackPolicy.canPlay(it.type, config.slideshowIncludeVideos, config.slideshowIncludeGIFs) }
+                        else -> true
+                    }
+                }
+            )
+        }
+    }
+
+    private fun storeStateVariables() {
+        mStoredTextColor = getProperTextColor()
+        mStoredPrimaryColor = getProperPrimaryColor()
+        config.apply {
+            mStoredAnimateGifs = animateGifs
+            mStoredCropThumbnails = cropThumbnails
+            mStoredScrollHorizontally = scrollHorizontally
+            mStoredShowFileTypes = showThumbnailFileTypes
+            mStoredMarkFavoriteItems = markFavoriteItems
+            mStoredThumbnailSpacing = thumbnailSpacing
+            mStoredRoundedCorners = fileRoundedCorners
+            mShowAll = mPath.isEmpty() && (showAll || mGallerySection == GallerySection.ALL)
+        }
+    }
+
+    private enum class SearchTrigger { USER_INPUT, MEDIA_SNAPSHOT }
+
+    private fun searchQueryChanged(
+        text: String,
+        onCommitted: () -> Unit = {},
+        trigger: SearchTrigger = SearchTrigger.USER_INPUT
+    ) {
+        val searchStartedAt = android.os.SystemClock.elapsedRealtime()
+        val searchGeneration = ++mediaSearchGeneration
+        val request = displayedMediaRequest
+        val finalResult = completedMediaRequest == request &&
+            (isPhotoProfiles || (mediaScanOutcomeRequest == request && mediaScanOutcome.complete))
+        val dataStage = when {
+            request < 0 -> "UNKNOWN"
+            finalResult -> "COMPLETE"
+            else -> "PARTIAL"
+        }
+        val sourceVersion = displayedSourceVersion
+        val searchSorting = config.getFolderSorting(if (mShowAll) SHOW_ALL else mPath)
+        val sourceMedia = ArrayList(mMedia)
+        val favoriteSnapshot = favoriteInteractiveSnapshot
+        val searchFavoriteToken = favoriteSessionId
+        if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                org.fossify.gallery.helpers.DiagnosticLevel.INFO, "MediaSearch",
+                if (trigger == SearchTrigger.USER_INPUT) "search_text_changed" else "search_snapshot_reapplied",
+                request, mapOf("generation" to searchGeneration, "queryLength" to text.length,
+                    "trigger" to trigger.name, "scanRequest" to mediaRefreshRequest,
+                    "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath))
+            )
+        if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaSearch", "search_snapshot_captured",
+                request, mapOf("generation" to searchGeneration, "queryLength" to text.length,
+                    "inputCount" to sourceMedia.count { it is Medium }, "complete" to finalResult,
+                    "dataStage" to dataStage, "sourceVersion" to sourceVersion,
+                    "cacheAuthorized" to (favoriteSnapshot?.isCurrent(request, searchFavoriteToken,
+                        favoriteRelationshipRevision.get()) == true),
+                    "scanRequest" to mediaRefreshRequest, "trigger" to trigger.name,
+                    "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath))
+            )
+        ensureBackgroundThread {
+            try {
+                val filtered = sourceMedia
+                    .filter { it is Medium && it.name.contains(text, true) } as ArrayList
+                filtered.sortBy { it is Medium && !it.name.startsWith(text, true) }
+                val grouped = if (isPhotoProfiles) filtered.toCollection(ArrayList<ThumbnailItem>()) else MediaFetcher(applicationContext).groupMedia(
+                    media = filtered as ArrayList<Medium>, path = mPath
+                )
+                val safeGrouped = if (mPath == FAVORITES) {
+                    // Check Room on the worker as well as the observer epoch. A delayed
+                    // observer must not let a removed favorite survive a search.
+                    if (favoriteSnapshot != null &&
+                        applicationContext.getFavoritePaths().toSet() != favoriteSnapshot.relationships) {
+                        logFavoriteSearchRejected(request, searchGeneration, "relationship_changed")
+                        return@ensureBackgroundThread
+                    }
+                    val batch = FavoriteAccessPolicy.validateItems(searchFavoriteToken, grouped, pathOf = { (it as? Medium)?.path })
+                        ?: run {
+                            logFavoriteSearchRejected(request, searchGeneration, "access_revoked")
+                            return@ensureBackgroundThread
+                        }
+                    if (!FavoriteAccessSessionManager.isPublicationCurrent(batch.validation)) return@ensureBackgroundThread
+                    batch.items
+                } else grouped
+                runOnUiThread {
+                    // An earlier background search must not overwrite a newer query.
+                    if (isFinishing || isDestroyed || mLastSearchedText != text ||
+                        searchGeneration != mediaSearchGeneration || sourceVersion != displayedSourceVersion ||
+                        searchSorting != config.getFolderSorting(if (mShowAll) SHOW_ALL else mPath) ||
+                        !isSearchSnapshotCurrent(request)) {
+                        if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+                            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                                org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaSearch", "search_stale_drop",
+                                request, mapOf("generation" to searchGeneration, "queryLength" to text.length,
+                                    "displayedRequest" to displayedMediaRequest, "reason" to when {
+                                        isFinishing || isDestroyed -> "activity"
+                                        searchGeneration != mediaSearchGeneration || mLastSearchedText != text -> "query"
+                                        else -> "snapshot_or_access"
+                                    }, "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath))
+                            )
+                        return@runOnUiThread
+                    }
+                    // A PARTIAL snapshot without matches is provisional; later scan
+                    // publications rerun this query against their newer media snapshot.
+                    if (org.fossify.gallery.helpers.MediaSearchPublicationPolicy.showNoResults(
+                            safeGrouped.isEmpty(), finalResult)) {
+                        binding.mediaEmptyTextPlaceholder.text =
+                            getString(org.fossify.commons.R.string.no_items_found)
+                        binding.mediaEmptyTextPlaceholder.beVisible()
+                        if (isPhotoProfiles) updatePhotoEmptyState(searchEmpty = true)
+                        else binding.mediaEmptyDescription.beGone()
+                        binding.mediaFastscroller.beGone()
+                    } else {
+                        binding.mediaEmptyTextPlaceholder.beGone()
+                        binding.mediaEmptyDescription.beGone()
+                        binding.mediaEmptyTextPlaceholder2.beGone()
+                        binding.mediaFastscroller.beVisibleIf(safeGrouped.isNotEmpty())
+                    }
+
+                    val searchAdapter = getMediaAdapter()
+                    if (searchAdapter == null) {
+                        if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+                            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                                org.fossify.gallery.helpers.DiagnosticLevel.WARN, "MediaSearch", "search_ui_unavailable",
+                                request, mapOf("generation" to searchGeneration, "queryLength" to text.length,
+                                    "reason" to "adapter_missing", "dataStage" to dataStage,
+                                    "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath))
+                            )
+                        return@runOnUiThread
+                    }
+                    searchAdapter.updateMedia(safeGrouped, preserveScroll = false, isCurrent = {
+                        searchGeneration == mediaSearchGeneration && mLastSearchedText == text &&
+                            sourceVersion == displayedSourceVersion &&
+                            searchSorting == config.getFolderSorting(if (mShowAll) SHOW_ALL else mPath) &&
+                            isSearchSnapshotCurrent(request)
+                    }, onCommitted = {
+                        logSearchCommit(request, searchGeneration, text.length, sourceMedia.count { it is Medium },
+                            safeGrouped.count { it is Medium }, finalResult, dataStage, searchStartedAt)
+                        if (searchGeneration == mediaSearchGeneration && mLastSearchedText == text) {
+                            mCommittedSearchText = text
+                        }
+                        if (finalResult && mediaLoadRequests.isCurrent(request)) setMediaLoading(false)
+                        displayedMediaIsFinal = finalResult
+                        restoreFavoritesScrollAnchor(request, finalResult)
+                        onCommitted()
+                    }, diagnosticRequestId = request, updateReason = MediaUpdateReason.USER_SEARCH,
+                        effectiveSorting = searchSorting, diagnosticSnapshotVersion = sourceVersion,
+                        diagnosticSnapshotStage = displayedFolderSnapshot?.stage?.name ?: dataStage)
+                }
+            } catch (error: Exception) {
+                if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+                    org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                        org.fossify.gallery.helpers.DiagnosticLevel.WARN, "MediaSearch", "search_failed",
+                        request, mapOf("generation" to searchGeneration, "queryLength" to text.length,
+                            "errorType" to error.javaClass.simpleName,
+                            "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath))
+                    )
+            }
+        }
+    }
+
+    private fun logFavoriteSearchRejected(request: Long, generation: Long, reason: String) {
+        if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaSearch", "cache_search_rejected",
+                request, mapOf("generation" to generation, "reason" to reason))
+    }
+
+    private fun logSearchCommit(request: Long, searchGeneration: Long, queryLength: Int,
+                                inputCount: Int, matchCount: Int, finalResult: Boolean,
+                                dataStage: String, searchStartedAt: Long) {
+        if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                org.fossify.gallery.helpers.DiagnosticLevel.INFO, "MediaSearch", "search_results_committed",
+                request, mapOf("generation" to searchGeneration, "queryLength" to queryLength,
+                    "inputCount" to inputCount,
+                    "matchCount" to matchCount, "complete" to finalResult,
+                    "dataStage" to dataStage,
+                    "scanRequest" to mediaRefreshRequest,
+                    "adapterVersion" to (getMediaAdapter()?.committedVersion ?: -1L),
+                    "adapterId" to (getMediaAdapter()?.let { System.identityHashCode(it) } ?: -1),
+                    "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath),
+                    "elapsedMs" to (android.os.SystemClock.elapsedRealtime() - searchStartedAt))
+            )
+    }
+
+    /** A refresh can be scanning while the still-current displayed snapshot remains searchable. */
+    private fun isSearchSnapshotCurrent(request: Long): Boolean {
+        val accessCurrent = when {
+            isPhotoProfiles -> mediaLoadRequests.isCurrent(request)
+            mPath == FAVORITES -> favoriteInteractiveSnapshot?.isCurrent(
+                request, favoriteSessionId, favoriteRelationshipRevision.get()
+            ) ?: (FavoriteAccessSessionManager.getCapturedPaths(favoriteSessionId) != null &&
+                displayedMediaIsFinal && displayedFavoriteRelationshipRevision == favoriteRelationshipRevision.get())
+            mPath == RECYCLE_BIN -> displayedRecycleBinRevision ==
+                org.fossify.gallery.helpers.RecycleBinMembershipRevision.current()
+            mPath.startsWith('/') && mPath != RECYCLE_BIN && !mShowAll ->
+                displayedFolderSnapshot?.takeIf { it.request == request }?.accessCurrent?.invoke() == true
+            else -> true
+        }
+        return org.fossify.gallery.helpers.MediaSearchRequestPolicy.canPublish(
+            snapshotRequest = request,
+            displayedRequest = displayedMediaRequest,
+            activityCurrent = !isFinishing && !isDestroyed && searchGenerationIsActive(),
+            accessCurrent = accessCurrent
+        )
+    }
+
+    private fun searchGenerationIsActive(): Boolean = lifecycle.currentState.isAtLeast(
+        androidx.lifecycle.Lifecycle.State.STARTED
+    )
+
+    private fun tryLoadGallery() {
+        requestMediaPermissions {
+            val dirName = when (mPath) {
+                PhotoProfileMediaLoader.PATH -> getString(R.string.gallery_nav_photos)
+                FAVORITES -> getString(org.fossify.commons.R.string.favorites)
+                RECYCLE_BIN -> getString(org.fossify.commons.R.string.recycle_bin)
+                config.OTGPath -> getString(org.fossify.commons.R.string.usb)
+                else -> getHumanizedFilename(mPath)
+            }
+
+            val searchHint = if (mShowAll) {
+                getString(org.fossify.commons.R.string.search_files)
+            } else {
+                getString(org.fossify.commons.R.string.search_in_placeholder, dirName)
+            }
+
+            binding.mediaMenu.updateHintText(searchHint)
+            if ((mGallerySection == null || mPath == FAVORITES) && !mShowAll) {
+                // OxygenToolbarStyle owns the single closed-search back control.
+                // Commons owns the search arrow only while search is expanded.
+                binding.mediaMenu.onNavigateBackClickListener = {
+                    OxygenSearchNavigation.hideImeAndClearFocus(this, binding.mediaMenu)
+                    performDefaultBack()
+                }
+            }
+
+            if (mShowLoadingIndicator) {
+                setMediaLoading(true)
+                mShowLoadingIndicator = false
+            }
+
+            getMedia()
+            setupLayoutManager()
+        }
+    }
+
+    private fun getMediaAdapter() = binding.mediaGrid.adapter as? MediaAdapter
+
+    private fun setupAdapter(updateReason: MediaUpdateReason = MediaUpdateReason.SCAN,
+                             onCommitted: () -> Unit = {}) {
+        if (mPath == FAVORITES) {
+            if (!FavoriteAccessSessionManager.isActive(favoriteSessionId)) return
+        }
+        if (!mShowAll && isDirEmpty()) {
+            return
+        }
+
+        val currAdapter = binding.mediaGrid.adapter
+        if (currAdapter == null) {
+            initZoomListener()
+            MediaAdapter(
+                activity = this,
+                media = mMedia.clone() as ArrayList<ThumbnailItem>,
+                listener = this,
+                isAGetIntent = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent,
+                allowMultiplePicks = mAllowPickingMultiple,
+                path = mPath,
+                recyclerView = binding.mediaGrid
+            ) {
+                if (it is Medium && !isFinishing) {
+                    itemClicked(it.path)
+                }
+            }.apply {
+                sorting = config.getFolderSorting(if (mShowAll) SHOW_ALL else mPath)
+                setupZoomListener(mZoomListener)
+                binding.mediaGrid.adapter = this
+            }
+
+            val viewType = config.getFolderViewType(if (mShowAll) SHOW_ALL else mPath)
+            val returningToFavorites = mPath == FAVORITES && favoritesReturnCover?.covering == true
+            if (returningToFavorites) binding.mediaGrid.clearAnimation()
+            if (viewType == VIEW_TYPE_LIST && areSystemAnimationsEnabled && !returningToFavorites) {
+                binding.mediaGrid.scheduleLayoutAnimation()
+            }
+
+            setupLayoutManager()
+            handleGridSpacing()
+            if (mLastSearchedText.isNotEmpty()) searchQueryChanged(
+                mLastSearchedText, onCommitted, SearchTrigger.MEDIA_SNAPSHOT
+            )
+            else onCommitted()
+        } else if (mLastSearchedText.isEmpty()) {
+            val request = displayedMediaRequest
+            val read = folderReadResult.takeIf { folderReadRequest == request }
+            val searchGeneration = mediaSearchGeneration
+            val sourceVersion = displayedSourceVersion
+            val effectiveSorting = config.getFolderSorting(if (mShowAll) SHOW_ALL else mPath)
+            val folderToken = folderUnlockSessionId
+            (currAdapter as MediaAdapter).updateMedia(mMedia, isCurrent = {
+                isSearchSnapshotCurrent(request) && searchGeneration == mediaSearchGeneration &&
+                    sourceVersion == displayedSourceVersion &&
+                    effectiveSorting == config.getFolderSorting(if (mShowAll) SHOW_ALL else mPath) &&
+                    !isFinishing && !isDestroyed &&
+                    (mPath != FAVORITES || FavoriteAccessSessionManager.isActive(favoriteSessionId)) &&
+                    read?.accessCurrent?.invoke() != false &&
+                    folderToken == folderUnlockSessionId &&
+                    (folderToken == null || FolderUnlockSessionManager.isActive(folderToken))
+            }, onCommitted = {
+                handleGridSpacing(currAdapter.media)
+                if (completedMediaRequest == request && !mIsGettingMedia) setMediaLoading(false)
+                onCommitted()
+            }, diagnosticRequestId = request, updateReason = updateReason, effectiveSorting = effectiveSorting,
+                diagnosticSnapshotVersion = sourceVersion,
+                diagnosticSnapshotStage = displayedFolderSnapshot?.stage?.name)
+        } else {
+            searchQueryChanged(mLastSearchedText, onCommitted, SearchTrigger.MEDIA_SNAPSHOT)
+        }
+
+        setupScrollDirection()
+    }
+
+    private fun setupScrollDirection() {
+        val viewType = config.getFolderViewType(if (mShowAll) SHOW_ALL else mPath)
+        val scrollHorizontally = config.scrollHorizontally && viewType == VIEW_TYPE_GRID
+        binding.mediaFastscroller.setScrollVertically(!scrollHorizontally)
+        styleFastScroller()
+    }
+
+    private fun styleFastScroller() {
+        binding.mediaFastscroller.setHandleStateListener(
+            object : com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller.HandleStateListener {
+                override fun onEngaged() = onPhotoFastScrollStateChanged(true)
+                override fun onReleased() = onPhotoFastScrollStateChanged(false)
+            }
+        )
+        OxygenFastScroller.apply(binding.mediaFastscroller, binding.mediaGrid,
+            OxygenThemeEngine.snapshot(this, config),
+            if (mGallerySection == null) 0 else resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height))
+    }
+
+    private var mediaPollScheduled = false
+    private var mediaPollInFlight = false
+    private var mediaPollGeneration = 0L
+    private val mediaChangeGate = org.fossify.gallery.helpers.MediaChangeRetryGate()
+
+    private fun pollAllowed(): Boolean = !isPhotoProfiles && !isDestroyed && !isFinishing &&
+        config.getFolderSorting(mPath) and SORT_BY_RANDOM == 0 &&
+        lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+
+    private fun checkLastMediaChanged() {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            runOnUiThread { checkLastMediaChanged() }
+            return
+        }
+        if (!pollAllowed() || mediaPollScheduled || mediaPollInFlight) return
+        mediaPollScheduled = true
+        val generation = mediaPollGeneration
+        mLastMediaHandler.postDelayed({
+            mediaPollScheduled = false
+            if (generation != mediaPollGeneration || !pollAllowed()) return@postDelayed
+            mediaPollInFlight = true
+            ensureBackgroundThread {
+                val latest = runCatching { getLatestMediaId() to getLatestMediaByDateId() }
+                    .onFailure { android.util.Log.w("GalleryMedia", "MediaStore poll failed", it) }.getOrNull()
+                runOnUiThread {
+                    if (generation != mediaPollGeneration) return@runOnUiThread
+                    mediaPollInFlight = false
+                    if (!pollAllowed()) return@runOnUiThread
+                    if (latest != null && (mLatestMediaId != latest.first ||
+                            mLatestMediaDateId != latest.second)) {
+                        mLatestMediaId = latest.first
+                        mLatestMediaDateId = latest.second
+                        if (mIsGettingMedia) mediaChangeGate.mediaChangedDuringScan()
+                        else getMedia()
+                    }
+                    checkLastMediaChanged()
+                }
+            }
+        }, LAST_MEDIA_CHECK_PERIOD)
+    }
+
+    private fun showSortingDialog() {
+        ChangeSortingDialog(this, false, true, mPath) {
+            val sortOperation = mediaSortOperations.begin()
+            val startedAt = android.os.SystemClock.elapsedRealtime()
+            val visibleRead = folderReadResult.takeIf { folderReadRequest == displayedMediaRequest }
+            if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+                org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                    org.fossify.gallery.helpers.DiagnosticLevel.INFO, "MediaSort", "sort_action_requested",
+                    displayedMediaRequest, mapOf("generation" to sortOperation,
+                        "sorting" to config.getFolderSorting(mPath), "itemCount" to mMedia.count { it is Medium },
+                        "partial" to when (visibleRead?.status) {
+                            org.fossify.gallery.helpers.FolderReadStatus.PARTIAL -> true
+                            org.fossify.gallery.helpers.FolderReadStatus.COMPLETE -> false
+                            else -> -1
+                        },
+                        "dataStage" to (displayedFolderSnapshot?.stage?.name ?: visibleRead?.status?.name ?: "UNKNOWN"),
+                        "scanRequest" to mediaRefreshRequest,
+                        "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath))
+                )
+            if (tryResortVirtualMediaSnapshot(sortOperation, startedAt)) return@ChangeSortingDialog
+            if (resortCompletedPhysicalFolder(sortOperation, startedAt)) return@ChangeSortingDialog
+            if (previewSortDuringFolderScan(sortOperation, startedAt)) return@ChangeSortingDialog
+            // An active request will apply the latest sorting when it publishes.
+            // Restarting it here canceled useful work and repeatedly invalidated
+            // Adapter diffs during ordinary refreshes.
+            if (!mIsGettingMedia) getMedia(reason = "sort_snapshot_unavailable")
+            else if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
+                val activeRead = folderReadResult.takeIf { folderReadRequest == displayedMediaRequest }
+                val deferredReason = when {
+                    isPhotoProfiles || mShowAll || mPath == FAVORITES || mPath == RECYCLE_BIN || !mPath.startsWith('/') ->
+                        "special_source"
+                    getMediaAdapter() == null -> "adapter_unavailable"
+                    mMedia.any { it !is Medium } -> "grouped_rows"
+                    displayedFolderSnapshot?.accessCurrent?.invoke() != true -> "display_capability_unavailable"
+                    activeRead?.status != org.fossify.gallery.helpers.FolderReadStatus.PARTIAL &&
+                        activeRead?.status != org.fossify.gallery.helpers.FolderReadStatus.COMPLETE -> "snapshot_incomplete"
+                    else -> "preview_ineligible"
+                }
+                org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                    org.fossify.gallery.helpers.DiagnosticLevel.INFO, "MediaSort", "sort_action_deferred",
+                    displayedMediaRequest, mapOf("generation" to sortOperation,
+                        "sorting" to config.getFolderSorting(mPath), "scanRequest" to mediaRefreshRequest,
+                        "dataStage" to activeRead?.status?.name.orEmpty(),
+                        "itemCount" to mMedia.count { it is Medium }, "reason" to deferredReason,
+                        "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath))
+                )
+            }
+        }
+    }
+
+    /** Sorts a verified display snapshot independently of the source scan terminal state. */
+    private fun tryResortVirtualMediaSnapshot(sortOperation: Long, startedAt: Long): Boolean {
+        val sourceKind = when (mPath) {
+            FAVORITES -> "FAVORITES"
+            RECYCLE_BIN -> "RECYCLE_BIN"
+            else -> return false
+        }
+        val sourcePath = mPath
+        val request = displayedMediaRequest
+        val sourceVersion = displayedSourceVersion
+        val scanInProgress = mIsGettingMedia
+        val scanRequest = mediaRefreshRequest
+        val sorting = config.getFolderSorting(sourcePath)
+        val grouping = config.getFolderGrouping(sourcePath)
+        val adapter = getMediaAdapter()
+        val snapshot = mMedia.filterIsInstance<Medium>().map { it.copy() }
+        val mediaPaths = snapshot.mapTo(LinkedHashSet()) { it.path }
+        val favoriteRelationships = favoriteCatalogRelationshipPaths
+        val favoriteToken = favoriteSessionId
+        val favoriteRevision = favoriteRelationshipRevision.get()
+        val interactiveFavorite = sourceKind == "FAVORITES" && favoriteInteractiveSnapshot?.isCurrent(
+            request, favoriteToken, favoriteRevision) == true
+        val recycleRevision = org.fossify.gallery.helpers.RecycleBinMembershipRevision.current()
+        val activityCurrent = !isFinishing && !isDestroyed &&
+            lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+        val complete = displayedMediaIsFinal && request >= 0 &&
+            completedMediaRequest == request && mediaScanOutcomeRequest == request && mediaScanOutcome.complete
+        val requestCurrent = if (scanInProgress) mediaLoadRequests.isCurrent(scanRequest) else mediaLoadRequests.isCurrent(request)
+        val supportedRows = mMedia.all { it is Medium || it is ThumbnailSection } &&
+            adapter?.media?.all { it is Medium || it is ThumbnailSection } == true
+        val adapterMatches = adapter != null && adapter.path == sourcePath &&
+            binding.mediaGrid.adapter === adapter && supportedRows
+        val capturedFavoritePaths = if (sourceKind == "FAVORITES")
+            FavoriteAccessSessionManager.getCapturedPaths(favoriteToken) else null
+        val accessCurrent = when (sourceKind) {
+            "FAVORITES" -> capturedFavoritePaths?.containsAll(mediaPaths) == true
+            else -> true
+        }
+        val displayedMembersCurrent = when (sourceKind) {
+            "FAVORITES" -> favoriteRelationships != null &&
+                displayedFavoriteRelationshipRevision == favoriteRevision &&
+                (interactiveFavorite || capturedFavoritePaths?.containsAll(favoriteRelationships) == true)
+            else -> displayedRecycleBinRevision == recycleRevision
+        }
+        // Cache numeric fields have no load provenance. Repair requested fields on
+        // the worker; a nonzero cached date may itself be a modified-date fallback.
+        val identifiersPresent = snapshot.all { it.path.isNotBlank() && it.name.isNotBlank() }
+        val needsMetadataRead = interactiveFavorite && !complete &&
+            org.fossify.gallery.helpers.FavoriteSortMetadata.requiresRead(sorting, grouping)
+        val metadataPresent = identifiersPresent && !needsMetadataRead
+        val decision = org.fossify.gallery.helpers.VirtualMediaSortPolicy.decide(
+            source = sourcePath,
+            activityCurrent = activityCurrent,
+            adapterMatchesSource = adapterMatches,
+            displayedSnapshotComplete = complete,
+            requestCurrent = requestCurrent,
+            accessCurrent = accessCurrent,
+            // The relationship/Room snapshot is checked off the UI thread immediately
+            // before sorting and again before publishing the result.
+            membersCurrent = if (displayedMembersCurrent) null else false,
+            requiredSortMetadataPresent = metadataPresent,
+            scanInProgress = scanInProgress,
+            interactiveCacheVerified = interactiveFavorite
+        )
+        if (decision == org.fossify.gallery.helpers.VirtualMediaSortDecision.ACCESS_INVALID) {
+            if (sourceKind == "FAVORITES") finish()
+            return true
+        }
+        if (decision == org.fossify.gallery.helpers.VirtualMediaSortDecision.WAIT_FOR_ACTIVE_REFRESH) {
+            logVirtualSortDecision(sortOperation, sourceKind, sorting, snapshot.size, "wait_for_scan")
+            return true
+        }
+        if (decision != org.fossify.gallery.helpers.VirtualMediaSortDecision.VERIFY_MEMBERS &&
+            decision != org.fossify.gallery.helpers.VirtualMediaSortDecision.PREVIEW_COMPLETE_DURING_REFRESH &&
+            decision != org.fossify.gallery.helpers.VirtualMediaSortDecision.PREVIEW_VERIFIED_CACHE) {
+            logVirtualSortDecision(sortOperation, sourceKind, sorting, snapshot.size, "controlled_reload")
+            if (!scanInProgress) getMedia(reason = "virtual_sort_snapshot_unavailable")
+            return true
+        }
+
+        logVirtualSortDecision(sortOperation, sourceKind, sorting, snapshot.size,
+            if (interactiveFavorite && !complete) "cache_preview_sort" else if (scanInProgress) "reuse_complete_during_refresh" else "reuse_complete")
+        ensureBackgroundThread {
+            fun membershipSnapshot(): Set<String>? {
+                return when (sourceKind) {
+                    "FAVORITES" -> {
+                        if (favoriteRevision != favoriteRelationshipRevision.get()) return null
+                        val captured = FavoriteAccessSessionManager.getCapturedPaths(favoriteToken)
+                        if (captured == null || (!interactiveFavorite && !captured.containsAll(favoriteRelationships.orEmpty())) ||
+                            !captured.containsAll(mediaPaths)) null
+                        else applicationContext.getFavoritePaths().toSet().takeIf {
+                            it == favoriteRelationships && favoriteRevision == favoriteRelationshipRevision.get()
+                        }
+                    }
+                    else -> {
+                        if (recycleRevision != org.fossify.gallery.helpers.RecycleBinMembershipRevision.current()) return null
+                        val filter = config.filterMedia
+                        applicationContext.getUpdatedDeletedMedia().asSequence()
+                            .filter { config.shouldShowHidden || !File(it.path).name.startsWith('.') }
+                            .filter { it.type and filter != 0 }
+                            .map { it.path }
+                            .toCollection(LinkedHashSet())
+                            .takeIf { recycleRevision == org.fossify.gallery.helpers.RecycleBinMembershipRevision.current() }
+                    }
+                }
+            }
+
+            try {
+                val membersBefore = membershipSnapshot()
+                val favoritesChanged = sourceKind == "FAVORITES" && membersBefore != favoriteRelationships
+                if (membersBefore == null || favoritesChanged || !membersBefore.containsAll(mediaPaths)) {
+                    runOnUiThread {
+                        if (mediaSortOperations.isCurrent(sortOperation) && displayedMediaRequest == request &&
+                            scanInProgress && mIsGettingMedia && mediaLoadRequests.isCurrent(scanRequest)) {
+                            logVirtualSortDecision(sortOperation, sourceKind, sorting, snapshot.size, "members_changed_wait")
+                        } else if (scanInProgress && !mIsGettingMedia && !isFinishing && !isDestroyed &&
+                            mPath == sourcePath && mediaSortOperations.isCurrent(sortOperation)) {
+                            tryResortVirtualMediaSnapshot(sortOperation, startedAt)
+                        } else if (!scanInProgress && !isFinishing && !isDestroyed && mPath == sourcePath) {
+                            getMedia(reason = "virtual_sort_members_changed")
+                        }
+                    }
+                    return@ensureBackgroundThread
+                }
+                val sorted = if (interactiveFavorite && !complete) {
+                    logVirtualSortDecision(sortOperation, sourceKind, sorting, snapshot.size, "cache_metadata_validation")
+                    org.fossify.gallery.helpers.FavoriteSortMetadata.prepare(applicationContext, snapshot, sorting, grouping) {
+                        mediaSortOperations.isCurrent(sortOperation) &&
+                            favoriteInteractiveSnapshot?.isCurrent(request, favoriteToken, favoriteRevision) == true
+                    } ?: return@ensureBackgroundThread
+                } else ArrayList(snapshot)
+                val verifiedDecision = org.fossify.gallery.helpers.VirtualMediaSortPolicy.decide(
+                    source = sourcePath,
+                    activityCurrent = activityCurrent,
+                    adapterMatchesSource = adapterMatches,
+                    displayedSnapshotComplete = complete,
+                    requestCurrent = requestCurrent,
+                    accessCurrent = (sourceKind != "FAVORITES" ||
+                        FavoriteAccessSessionManager.getCapturedPaths(favoriteToken)?.containsAll(mediaPaths) == true) &&
+                        (sourceKind != "RECYCLE_BIN" ||
+                            recycleRevision == org.fossify.gallery.helpers.RecycleBinMembershipRevision.current()),
+                    membersCurrent = true,
+                    requiredSortMetadataPresent = identifiersPresent,
+                    scanInProgress = scanInProgress,
+                    interactiveCacheVerified = interactiveFavorite
+                )
+                if (verifiedDecision != org.fossify.gallery.helpers.VirtualMediaSortDecision.REUSE_COMPLETE &&
+                    verifiedDecision != org.fossify.gallery.helpers.VirtualMediaSortDecision.PREVIEW_COMPLETE_DURING_REFRESH &&
+                    verifiedDecision != org.fossify.gallery.helpers.VirtualMediaSortDecision.PREVIEW_VERIFIED_CACHE) {
+                    runOnUiThread {
+                        if (scanInProgress && !mIsGettingMedia && !isFinishing && !isDestroyed &&
+                            mPath == sourcePath && mediaSortOperations.isCurrent(sortOperation)) {
+                            tryResortVirtualMediaSnapshot(sortOperation, startedAt)
+                        } else if (!scanInProgress && !isFinishing && !isDestroyed &&
+                            mPath == sourcePath && mediaSortOperations.isCurrent(sortOperation)) {
+                            getMedia(reason = "virtual_sort_membership_invalid")
+                        }
+                    }
+                    return@ensureBackgroundThread
+                }
+                MediaFetcher(applicationContext).sortMedia(sorted, sorting)
+                val grouped = MediaFetcher(applicationContext).groupMedia(sorted, sourcePath)
+                val membersAfter = membershipSnapshot()
+                val sortValidation = if (interactiveFavorite && !complete)
+                    FavoriteAccessSessionManager.validatePaths(favoriteToken, mediaPaths) ?: return@ensureBackgroundThread
+                    else null
+                runOnUiThread {
+                    val stillCurrent = !isFinishing && !isDestroyed && mPath == sourcePath &&
+                        (sortValidation == null || FavoriteAccessSessionManager.isPublicationCurrent(sortValidation)) &&
+                        mediaSortOperations.isCurrent(sortOperation) && displayedMediaRequest == request &&
+                        displayedSourceVersion == sourceVersion && binding.mediaGrid.adapter === adapter &&
+                        config.getFolderSorting(sourcePath) == sorting && config.getFolderGrouping(sourcePath) == grouping &&
+                        (sourceKind != "FAVORITES" ||
+                            FavoriteAccessSessionManager.getCapturedPaths(favoriteToken)?.let {
+                                it.containsAll(mediaPaths) && (interactiveFavorite || it.containsAll(favoriteRelationships.orEmpty()))
+                            } == true) &&
+                        (sourceKind != "FAVORITES" ||
+                            (displayedFavoriteRelationshipRevision == favoriteRevision &&
+                                favoriteRevision == favoriteRelationshipRevision.get())) &&
+                        (!scanInProgress || (mediaRefreshRequest == scanRequest &&
+                            mediaLoadRequests.isCurrent(scanRequest))) &&
+                        (scanInProgress || mediaLoadRequests.isCurrent(request)) &&
+                        membersAfter == membersBefore &&
+                        (sourceKind != "FAVORITES" || favoriteRevision == favoriteRelationshipRevision.get()) &&
+                        (sourceKind != "RECYCLE_BIN" ||
+                            recycleRevision == org.fossify.gallery.helpers.RecycleBinMembershipRevision.current())
+                    if (!stillCurrent) {
+                        logSortStaleDrop(sortOperation, request, sorting, "virtual_source_or_members_changed")
+                        if (scanInProgress && !mIsGettingMedia && !isFinishing && !isDestroyed &&
+                            mPath == sourcePath && mediaSortOperations.isCurrent(sortOperation)) {
+                            tryResortVirtualMediaSnapshot(sortOperation, startedAt)
+                        }
+                        return@runOnUiThread
+                    }
+                    mediaSearchGeneration++
+                    displayedSourceVersion++
+                    mMedia = ArrayList(grouped)
+                    setupAdapter(MediaUpdateReason.USER_SORT) {
+                        // A user sort can replace a pending final SCAN diff. Keep
+                        // the real terminal state even if that diff's callback is dropped.
+                        if (completedMediaRequest == request && mediaScanOutcomeRequest == request &&
+                            mediaScanOutcome.complete && !mIsGettingMedia) displayedMediaIsFinal = true
+                        logSortCommit("virtual_sort_snapshot_committed", sortOperation, request, sorting,
+                            scanInProgress, startedAt, sorted.size, getMediaAdapter()?.committedVersion ?: -1L)
+                    }
+                }
+            } catch (error: Exception) {
+                if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+                    org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                        org.fossify.gallery.helpers.DiagnosticLevel.WARN, "MediaSort", "virtual_sort_failed",
+                        request, mapOf("generation" to sortOperation, "source" to sourceKind,
+                            "errorType" to error.javaClass.simpleName)
+                    )
+                runOnUiThread {
+                    if (!scanInProgress && !isFinishing && !isDestroyed && mPath == sourcePath &&
+                        mediaSortOperations.isCurrent(sortOperation)) getMedia(reason = "virtual_sort_failed")
+                }
+            }
+        }
+        return true
+    }
+
+    private fun logVirtualSortDecision(generation: Long, source: String, sorting: Int,
+                                       itemCount: Int, decision: String) {
+        if (!org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) return
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaSort", "virtual_sort_decision",
+            displayedMediaRequest, mapOf("generation" to generation, "source" to source,
+                "sorting" to sorting, "itemCount" to itemCount, "decision" to decision,
+                "scanRequest" to mediaRefreshRequest,
+                "sourceVersion" to displayedSourceVersion,
+                "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath))
+        )
+    }
+
+    /** Display-only sort of already published rows while an ordinary folder scan continues. */
+    private fun previewSortDuringFolderScan(sortOperation: Long, startedAt: Long): Boolean {
+        val request = displayedMediaRequest
+        val scanRequest = mediaRefreshRequest
+        val read = folderReadResult.takeIf { folderReadRequest == request }
+        val snapshot = displayedFolderSnapshot?.takeIf { it.request == request }
+        val sourceVersion = displayedSourceVersion
+        val adapter = getMediaAdapter() ?: return false
+        val source = ArrayList(mMedia)
+        val sourcePaths = source.filterIsInstance<Medium>().mapTo(HashSet()) { it.path }
+        val adapterMatches = adapter.media.filterIsInstance<Medium>().all { it.path in sourcePaths }
+        val token = folderUnlockSessionId
+        val eligible = org.fossify.gallery.helpers.MediaSortPreviewPolicy.canPreview(
+            physicalFolder = !isPhotoProfiles && !mShowAll && mPath.startsWith('/') && mPath != RECYCLE_BIN,
+            ordinarySource = mPath != FAVORITES,
+            scanInProgress = mIsGettingMedia,
+            snapshotValid = snapshot != null,
+            requestCurrent = request >= 0 && displayedMediaRequest == request && scanRequest >= 0 &&
+                mediaLoadRequests.isCurrent(scanRequest),
+            accessCurrent = snapshot?.accessCurrent?.invoke() == true &&
+                (token == null || FolderUnlockSessionManager.isActive(token)),
+            adapterMatchesSource = adapterMatches,
+            rows = source
+        )
+        if (!eligible) return false
+
+        val folder = mPath
+        val sorting = config.getFolderSorting(folder)
+        logSortSnapshotSelected(sortOperation, request, sorting,
+            snapshot?.stage?.name ?: "UNKNOWN", source.size)
+        ensureBackgroundThread {
+            try {
+                val sorted = ArrayList(source.filterIsInstance<Medium>().map { it.copy() })
+                MediaFetcher(applicationContext).sortMedia(sorted, sorting)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed || !mediaSortOperations.isCurrent(sortOperation) ||
+                        displayedMediaRequest != request || !mediaLoadRequests.isCurrent(scanRequest) ||
+                        mPath != folder || folderUnlockSessionId != token ||
+                        config.getFolderSorting(folder) != sorting || sourceVersion != displayedSourceVersion ||
+                        snapshot?.accessCurrent?.invoke() != true ||
+                        (token != null && !FolderUnlockSessionManager.isActive(token))) {
+                        logSortStaleDrop(sortOperation, request, sorting, "preview_snapshot_or_access_changed")
+                        return@runOnUiThread
+                    }
+                    mMedia = ArrayList(sorted)
+                    setupAdapter(MediaUpdateReason.USER_SORT) {
+                        val sourceIsPartial = read?.status != org.fossify.gallery.helpers.FolderReadStatus.COMPLETE
+                        logSortCommit("sort_preview_committed", sortOperation, request, sorting, sourceIsPartial,
+                            startedAt, sorted.size, getMediaAdapter()?.committedVersion ?: -1L)
+                    }
+                }
+            } catch (error: Exception) {
+                if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+                    org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                        org.fossify.gallery.helpers.DiagnosticLevel.WARN, "MediaSort", "sort_action_failed",
+                        request, mapOf("generation" to sortOperation, "sorting" to sorting,
+                            "reason" to (error::class.java.simpleName.takeIf { it.isNotBlank() } ?: "unknown"),
+                            "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(folder)))
+                android.util.Log.w("GalleryMedia", "Partial folder sort preview failed", error)
+            }
+        }
+        return true
+    }
+
+    /** Reuse a complete physical-folder snapshot; incomplete or protected sources still reload. */
+    private fun resortCompletedPhysicalFolder(sortOperation: Long, startedAt: Long): Boolean {
+        val request = displayedMediaRequest
+        val read = folderReadResult.takeIf { folderReadRequest == request }
+        val canReuse = org.fossify.gallery.helpers.MediaSortReusePolicy.canReuse(
+            photoProfile = isPhotoProfiles,
+            showAll = mShowAll,
+            physicalFolder = mPath.startsWith('/'),
+            recycleBin = mPath == RECYCLE_BIN,
+            scanInProgress = mIsGettingMedia,
+            requestCurrent = request >= 0 && completedMediaRequest == request && mediaLoadRequests.isCurrent(request),
+            scanComplete = mediaScanOutcomeRequest == request && mediaScanOutcome.complete,
+            snapshotComplete = read?.status == org.fossify.gallery.helpers.FolderReadStatus.COMPLETE,
+            accessCurrent = read?.accessCurrent?.invoke() == true,
+            simpleMediaRows = mMedia.isNotEmpty() && mMedia.all { it is Medium }
+        )
+        if (!canReuse || read == null) return false
+
+        val folder = mPath
+        val folderToken = folderUnlockSessionId
+        val sorting = config.getFolderSorting(folder)
+        val sourceVersion = displayedSourceVersion
+        val snapshot = mMedia.filterIsInstance<Medium>().map { it.copy() }
+        logSortSnapshotSelected(sortOperation, request, sorting, "COMPLETE", snapshot.size)
+        fun recoverFromSortFailure(error: Exception) {
+            android.util.Log.w("GalleryMedia", "Background folder sort failed; retrying through scan path", error)
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed && mediaSortOperations.isCurrent(sortOperation) &&
+                    mediaLoadRequests.isCurrent(request) && mPath == folder &&
+                    config.getFolderSorting(folder) == sorting) getMedia()
+            }
+        }
+        try {
+            ensureBackgroundThread {
+                try {
+                    val sorted = ArrayList(snapshot)
+                    MediaFetcher(applicationContext).sortMedia(sorted, sorting)
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed || !mediaSortOperations.isCurrent(sortOperation) ||
+                            !mediaLoadRequests.isCurrent(request) || completedMediaRequest != request ||
+                            mIsGettingMedia || sourceVersion != displayedSourceVersion || mPath != folder ||
+                            folderUnlockSessionId != folderToken ||
+                            config.getFolderSorting(folder) != sorting ||
+                            (folderToken != null && !FolderUnlockSessionManager.isActive(folderToken))) {
+                            logSortStaleDrop(sortOperation, request, sorting, "complete_snapshot_or_access_changed")
+                            return@runOnUiThread
+                        }
+                        val latestRead = folderReadResult.takeIf { folderReadRequest == request }
+                        if (latestRead?.let {
+                                it.status == org.fossify.gallery.helpers.FolderReadStatus.COMPLETE && it.accessCurrent()
+                            } != true) {
+                            logSortStaleDrop(sortOperation, request, sorting, "complete_authorization_expired")
+                            return@runOnUiThread
+                        }
+                        mMedia = ArrayList(sorted)
+                        setupAdapter(MediaUpdateReason.USER_SORT) {
+                            logSortCommit("sort_final_committed", sortOperation, request, sorting, false,
+                                startedAt, sorted.size, getMediaAdapter()?.committedVersion ?: -1L)
+                        }
+                    }
+                } catch (error: Exception) {
+                    recoverFromSortFailure(error)
+                }
+            }
+        } catch (error: java.util.concurrent.RejectedExecutionException) {
+            recoverFromSortFailure(error)
+        }
+        return true
+    }
+
+    private fun logSortSnapshotSelected(generation: Long, request: Long, sorting: Int,
+                                        dataStage: String, itemCount: Int) {
+        if (!org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) return
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaSort", "sort_snapshot_selected", request,
+            mapOf("generation" to generation, "sorting" to sorting, "dataStage" to dataStage,
+                "scanRequest" to mediaRefreshRequest, "itemCount" to itemCount,
+                "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath))
+        )
+    }
+
+    private fun logSortStaleDrop(generation: Long, request: Long, sorting: Int, reason: String) {
+        if (!org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) return
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaSort", "sort_stale_drop", request,
+            mapOf("generation" to generation, "sorting" to sorting, "reason" to reason,
+                "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath))
+        )
+    }
+
+    private fun logSortCommit(event: String, generation: Long, request: Long, sorting: Int,
+                              partial: Boolean, startedAt: Long, itemCount: Int, adapterVersion: Long) {
+        if (!org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) return
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.INFO, "MediaSort", event, request,
+            mapOf("generation" to generation, "sorting" to sorting, "itemCount" to itemCount,
+                "partial" to partial, "elapsedMs" to (android.os.SystemClock.elapsedRealtime() - startedAt),
+                "adapterVersion" to adapterVersion,
+                "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath))
+        )
+    }
+
+    private fun showFilterMediaDialog() {
+        FilterMediaDialog(this, photoProfile = isPhotoProfiles) {
+            mLoadedInitialPhotos = false
+            binding.mediaRefreshLayout.isRefreshing = true
+            binding.mediaGrid.adapter = null
+            getMedia()
+        }
+    }
+
+    private fun emptyRecycleBin() {
+        showRecycleBinEmptyingDialog {
+            emptyTheRecycleBin {
+                finish()
+            }
+        }
+    }
+
+    private fun emptyAndDisableRecycleBin() {
+        showRecycleBinEmptyingDialog {
+            emptyAndDisableTheRecycleBin {
+                finish()
+            }
+        }
+    }
+
+    private fun restoreAllFiles() {
+        val paths = mMedia.filter { it is Medium }.map { (it as Medium).path } as ArrayList<String>
+        showRestoreConfirmationDialog(paths.size) {
+            restoreRecycleBinPaths(paths) {
+                ensureBackgroundThread {
+                    directoryDB.deleteDirPath(RECYCLE_BIN)
+                }
+                finish()
+            }
+        }
+    }
+
+    private fun toggleFilenameVisibility() {
+        config.displayFileNames = !config.displayFileNames
+        getMediaAdapter()?.updateDisplayFilenames(config.displayFileNames)
+    }
+
+    private fun openGalleryRoot(section: GallerySection) {
+        favoriteAuthGeneration++
+        FavoriteAccessSessionManager.revokeSession(favoriteSessionId)
+        val screen = GalleryNavigation.bottomDestination(section, config.lastMainViewAll)
+        config.showAll = screen.isAllFiles
+        val destination = if (screen.section == GallerySection.PHOTOS) {
+            Intent(this, MediaActivity::class.java).putExtra(DIRECTORY, PhotoProfileMediaLoader.PATH)
+        } else if (screen.isAllFiles) {
+            Intent(this, MediaActivity::class.java).putExtra(DIRECTORY, "")
+        } else {
+            Intent(this, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true)
+                .putExtra(MainActivity.EXTRA_FOLDER_FAVORITES, screen.section == GallerySection.FAVORITES)
+        }
+        destination.putExtra(GalleryNavigation.EXTRA_SECTION, screen.section.name)
+        if (binding.mediaMenu.isSearchOpen) {
+            OxygenSearchNavigation.closeInlineSearch(this, binding.mediaMenu)
+        }
+        hideKeyboard()
+        GalleryBottomBar.open(this, destination, finishCurrent = true)
+    }
+
+    private fun switchToFolderView() {
+        val section = mGallerySection
+        if (section == null) {
+            // Keep the legacy chooser's folder-switch action functional; it is
+            // not part of the remembered bottom navigation state.
+            hideKeyboard()
+            config.lastMainViewAll = false
+            config.showAll = false
+            GalleryBottomBar.open(this, Intent(this, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true), finishCurrent = true)
+            return
+        }
+        if (section == GallerySection.ALL) config.lastMainViewAll = false
+        else config.lastFavoritesViewFiles = false
+        openGalleryRoot(section)
+    }
+
+    private fun changeViewType() {
+        ChangeViewTypeDialog(this, false, mPath) {
+            refreshMenuItems()
+            setupLayoutManager()
+            binding.mediaGrid.adapter = null
+            setupAdapter()
+        }
+    }
+
+    private fun showGroupByDialog() {
+        ChangeGroupingDialog(this, mPath) {
+            mLoadedInitialPhotos = false
+            binding.mediaGrid.adapter = null
+            getMedia()
+        }
+    }
+
+    private fun deleteDirectoryIfEmpty() {
+        if (config.deleteEmptyFolders) {
+            val fileDirItem = FileDirItem(mPath, mPath.getFilenameFromPath(), true)
+            if (!fileDirItem.isDownloadsFolder() && fileDirItem.isDirectory) {
+                ensureBackgroundThread {
+                    if (fileDirItem.getProperFileCount(this, true) == 0) {
+                        tryDeleteFileDirItem(fileDirItem, true, true)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun getMedia(manualRefresh: Boolean = false, reason: String = "source_refresh") {
+        if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaPipeline",
+                "scan_restart_requested", mediaRefreshRequest,
+                mapOf("reason" to reason, "scanInProgress" to mIsGettingMedia,
+                    "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath)))
+        mediaSortOperations.invalidate()
+        if (isPhotoProfiles) { getPhotoProfileMedia(); return }
+        if (mPath == FAVORITES && favoriteSessionId != null) {
+            favoriteAccessPaths = FavoriteAccessSessionManager.getCapturedPaths(favoriteSessionId)
+            if (favoriteAccessPaths == null) { finish(); return }
+        }
+        if (mPath == FAVORITES && favoriteAccessPaths == null) {
+            resolveFavoriteAccess { allowedPaths ->
+                favoriteAccessPaths = allowedPaths
+                if (!isFinishing && !isDestroyed) getMedia()
+            }
+            return
+        }
+        // Every refresh has a separate request identity, including the cache step.
+        // A late cache response must never launch an older scan or replace new UI.
+        mediaRefreshWatchdog.stop()
+        mediaChangeGate.scanStarted()
+        val request = mediaLoadRequests.begin()
+        mediaRefreshRequest = request
+        if (mPath == FAVORITES) favoriteLoadRevision = favoriteRelationshipRevision.get()
+        if (mPath == RECYCLE_BIN) recycleBinLoadRevision =
+            org.fossify.gallery.helpers.RecycleBinMembershipRevision.current()
+        mediaScanTerminals.begin(request)
+        if (mPath == FAVORITES && favoritesReturnCover?.covering == true) {
+            val token = favoriteSessionId
+            favoritesReturnCover?.pause()
+            favoritesReturnCover?.armTimeout({ isFavoritesReturnCurrent(request, token) }, ::retryFavoritesReturn)
+        }
+        mCurrAsyncTask?.stopFetching()
+        mIsGettingMedia = true
+        setMediaLoading(true)
+        armMediaRefreshDeadline(request)
+        binding.mediaEmptyTextPlaceholder.beGone()
+        binding.mediaEmptyDescription.beGone()
+        binding.mediaEmptyTextPlaceholder2.beGone()
+        binding.mediaEmptyTextPlaceholder2.setText(R.string.change_filters_underlined)
+        binding.mediaEmptyTextPlaceholder2.setOnClickListener { showFilterMediaDialog() }
+        if (mPath == FAVORITES) {
+            binding.mediaEmptyTextPlaceholder.beGone()
+            binding.mediaEmptyDescription.beGone()
+            binding.mediaEmptyTextPlaceholder2.beGone()
+        }
+        val sortingPath = if (mShowAll) SHOW_ALL else mPath
+        val sortingBySize = config.getFolderSorting(sortingPath) and SORT_BY_SIZE != 0
+
+        if (mLoadedInitialPhotos) {
+            startAsyncTask(request, manualRefresh)
+        } else {
+            getCachedMedia(
+                mPath,
+                mIsGetVideoIntent && !mIsGetImageIntent,
+                mIsGetImageIntent && !mIsGetVideoIntent,
+                allowedFavoritePaths = favoriteAccessPaths
+            ) { cached ->
+                // Cache callbacks run on workers; AsyncTask and preview UI start on main.
+                runOnUiThread {
+                    if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return@runOnUiThread
+                    if (cached.isEmpty()) {
+                        binding.mediaRefreshLayout.isRefreshing = true
+                    } else {
+                        val cachedHasUnknownSize = cached.asSequence()
+                            .filterIsInstance<Medium>()
+                            .any { it.size <= 0L }
+                        if (!sortingBySize || !cachedHasUnknownSize) {
+                            gotMedia(cached, true, request)
+                        }
+                    }
+                    startAsyncTask(request, manualRefresh, cached.filterIsInstance<Medium>())
+                }
+            }
+        }
+
+        mLoadedInitialPhotos = true
+    }
+
+    private var mediaScanOutcomeRequest = -1L
+    private var mediaScanOutcome = org.fossify.gallery.helpers.GalleryScanResult(org.fossify.gallery.helpers.GalleryScanState.CANCELLED)
+    private val mediaScanTerminals = org.fossify.gallery.helpers.GalleryScanTerminalGate()
+    private var folderReadRequest = -1L
+    private var folderReadResult: org.fossify.gallery.helpers.FolderMediaReadResult? = null
+    private var folderStatsRequestVersion = 0L
+    private var displayedSourceVersion = 0L
+    private var displayedFolderSnapshot: DisplayedFolderSnapshot? = null
+    private var displayedRecycleBinRevision = -1L
+    private var recycleBinLoadRevision = -1L
+
+    private val folderPublicationVersion = java.util.concurrent.atomic.AtomicLong()
+    private fun folderPublicationAllowed(path: String, token: String? = folderUnlockSessionId): Boolean {
+        val parent = File(path).parent ?: return false
+        return FolderUnlockSessionManager.findProtectedAncestor(parent, config::isFolderProtected) == null ||
+            FolderUnlockSessionManager.isMediaAuthorized(token, path, config::isFolderProtected)
+    }
+
+    private fun startAsyncTask(request: Long, manualRefresh: Boolean = false,
+        retainedMedia: List<Medium> = mMedia.filterIsInstance<Medium>()) {
+        if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return
+        // A canceled or superseded scan must not change the visible list or cached data.
+        val scanGeneration = ++mediaScanGeneration
+        mCurrAsyncTask?.stopFetching()
+        val requestedFolder = mPath
+        val metadataScope = org.fossify.gallery.helpers.DirectoryScanScope(
+            config.filterMedia, config.shouldShowHidden,
+            mIsGetImageIntent && !mIsGetVideoIntent,
+            mIsGetVideoIntent && !mIsGetImageIntent
+        )
+        val metadataVersion = if (!mShowAll && !isPhotoProfiles && requestedFolder.startsWith('/') &&
+            requestedFolder != RECYCLE_BIN && metadataScope.matches(applicationContext))
+            org.fossify.gallery.helpers.DirectoryMetadataRepository.begin(requestedFolder) else 0L
+        folderStatsRequestVersion = metadataVersion
+        val metadataSession = folderUnlockSessionId
+        var scanTask: GetMediaAsynctask? = null
+        scanTask = GetMediaAsynctask(
+            context = applicationContext,
+            manualRefresh = manualRefresh,
+            mPath = mPath,
+            isPickImage = mIsGetImageIntent && !mIsGetVideoIntent,
+            isPickVideo = mIsGetVideoIntent && !mIsGetImageIntent,
+            showAll = mShowAll,
+            cachedMediaFallback = retainedMedia.map { it.copy() },
+            folderSessionId = folderUnlockSessionId,
+            requestId = request,
+            retainSortMetadata = true,
+            onFolderPreview = { read, partial ->
+                if (scanGeneration == mediaScanGeneration && mediaLoadRequests.isCurrent(request) &&
+                    requestedFolder == mPath && !isFinishing && !isDestroyed) {
+                    folderReadRequest = request
+                    folderReadResult = read
+                    gotMedia(partial, true, request)
+                }
+            },
+            onSortingMetadataRefreshRequired = {
+                if (mediaLoadRequests.isCurrent(request) && scanGeneration == mediaScanGeneration &&
+                    requestedFolder == mPath && !isFinishing && !isDestroyed) getMedia(reason = "sort_metadata_missing")
+            },
+            onFolderDetails = { details ->
+                if (scanGeneration == mediaScanGeneration && mediaLoadRequests.isCurrent(request) &&
+                    requestedFolder == mPath && !isFinishing && !isDestroyed) {
+                    // Notify before mutating mMedia: initial adapter rows may share its objects.
+                    getMediaAdapter()?.updateVideoDurations(details)
+                    val byPath = details.associateBy { it.path }
+                    mMedia.filterIsInstance<Medium>().forEach { item ->
+                        byPath[item.path]?.takeIf { it.modified == item.modified && it.size == item.size }
+                            ?.let { item.videoDuration = it.videoDuration }
+                    }
+                }
+            },
+            // Completeness and feedback are rendered once by publishMedia from scanResult.
+            onPartialFailure = {},
+            favoritePathsOverride = if (mPath == FAVORITES)
+                favoriteAccessPaths?.toCollection(ArrayList()) else null,
+            favoriteSessionId = if (mPath == FAVORITES) favoriteSessionId else null,
+            onFailure = { error ->
+                android.util.Log.e("GalleryMedia", "Media scan failed", error)
+                runOnUiThread {
+                    if (mediaLoadRequests.isCurrent(request) && scanGeneration == mediaScanGeneration &&
+                        requestedFolder == mPath && !isFinishing && !isDestroyed) {
+                        if (error is SecurityException && !mShowAll && mPath.startsWith('/')) {
+                            mMedia.clear()
+                            binding.mediaGrid.adapter = null
+                        }
+                        if (!renderMediaScanState(request, org.fossify.gallery.helpers.GalleryScanResult(
+                            org.fossify.gallery.helpers.GalleryScanState.FAILED, cause = error))) return@runOnUiThread
+                        mediaChangeGate.scanFinished(success = false)
+                        binding.mediaRefreshLayout.isRefreshing = false
+                        if (mPath == FAVORITES) {
+                            // The album is cleared while its viewer is open. Make a
+                            // failed return scan visible and let pull-to-refresh retry.
+                            binding.mediaEmptyTextPlaceholder.text = getString(R.string.failed_to_load_media)
+                            binding.mediaEmptyTextPlaceholder.beVisible()
+                            binding.mediaEmptyTextPlaceholder2.beGone()
+                            binding.mediaFastscroller.beGone()
+                            favoritesReturnCover?.showError(::retryFavoritesReturn)
+                        } else {
+                            val hasContent = getMediaAdapter()?.media?.any { it is Medium } == true
+                            org.fossify.gallery.helpers.MediaLoadFailure.present(
+                                this, binding.mediaEmptyTextPlaceholder, binding.mediaEmptyDescription,
+                                binding.mediaEmptyTextPlaceholder2, hasContent, error
+                            ) { getMedia() }
+                            if (!hasContent) binding.mediaFastscroller.beGone()
+                        }
+                    }
+                }
+            }
+        ) { scannedMedia ->
+            // Capture the current grid snapshot on the callback (main) thread.
+            // Reconciliation must not iterate mMedia while a newer scan replaces it.
+            val oldMedia = mMedia.filterIsInstance<Medium>().map { it.copy() }
+            ensureBackgroundThread {
+                if (scanGeneration != mediaScanGeneration || !mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) {
+                    return@ensureBackgroundThread
+                }
+                try {
+                    val newPaths = scannedMedia.filterIsInstance<Medium>().mapTo(HashSet()) { it.path }
+                    if (requestedFolder != mPath) return@ensureBackgroundThread
+                    mediaScanOutcomeRequest = request
+                    mediaScanOutcome = scanTask?.scanResult ?: org.fossify.gallery.helpers.GalleryScanResult(org.fossify.gallery.helpers.GalleryScanState.FAILED)
+                    folderReadRequest = request
+                    folderReadResult = scanTask?.folderReadResult
+                    org.fossify.gallery.helpers.FolderRefreshDiagnostics.event(request, "publication_candidate",
+                        scannedMedia.filterIsInstance<Medium>().map { it.path }, "status=${folderReadResult?.status}")
+                    gotMedia(scannedMedia, false, request)
+                    if (metadataVersion != 0L) {
+                        val read = scanTask?.folderReadResult
+                        if (read != null) {
+                            org.fossify.gallery.helpers.DirectoryMetadataRepository.commit(
+                                applicationContext,
+                                org.fossify.gallery.helpers.DirectoryScanSnapshot(
+                                    requestedFolder, metadataVersion, metadataScope, read,
+                                    scanTask?.folderStatsMediaSnapshot.orEmpty(),
+                                    metadataSession,
+                                    isCurrent = {
+                                        scanGeneration == mediaScanGeneration &&
+                                            mediaLoadRequests.isCurrent(request) &&
+                                            requestedFolder == mPath && !isFinishing && !isDestroyed
+                                    }
+                                )
+                            )
+                        } else {
+                            org.fossify.gallery.helpers.DirectoryMetadataRepository.defer(requestedFolder, metadataVersion)
+                        }
+                    }
+                    val folderCheckpoint = scanTask?.folderCatalogCheckpoint
+                    if (folderCheckpoint != null && !mShowAll && requestedFolder.isNotEmpty() &&
                         requestedFolder != FAVORITES && requestedFolder != RECYCLE_BIN) {
                         val catalogStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
                         org.fossify.gallery.helpers.FolderViewerSnapshotStore.prepare(
