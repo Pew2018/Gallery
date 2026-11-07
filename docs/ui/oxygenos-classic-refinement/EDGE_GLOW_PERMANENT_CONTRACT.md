@@ -16,14 +16,14 @@ Fossify Gallery 所有已有及未来新增的弹窗永久禁止 Edge Glow 和 S
 
 - `DialogOverscrollPolicy.protect(root)`：内容尚未挂接时就声明永久禁用；窗口 decor 在 show 前也声明禁用。Tag 随 View 存续，不依赖 Activity 主题猜测弹窗身份。
 - 所有后代 `overScrollMode = OVER_SCROLL_NEVER`；包含横向容器、安全容器和任何普通 View。根节点的全局布局观察器处理动态内容；不替换 OnHierarchyChangeListener、触摸、滚动或刷新监听器。
-- 观察器在 detach 时移除 ViewTreeObserver 注册，在重附着时恢复；只在布局事件扫描，无逐帧扫描、全局强引用或定时轮询。重复 protect 复用 root observer。
+- 观察器在 detach 时移除 ViewTreeObserver 注册，在重附着时恢复；只在布局事件扫描，无逐帧扫描、全局强引用或定时轮询。重复 protect 复用 root observer；嵌套根只由外层扫描，独立重附着时恢复自己的观察。attach 合并浮动 ViewTreeObserver 时会去重注册。
 - `OxygenClassicEdgeGlow.install()` 两个重载都检查禁用标识/父链；已有 Factory 的 attach/layout/create/draw 路径再次检查。尚未 parenting 的早期安装在弹窗初始化或 attach/layout 时被卸载，绘制前亦会拒绝。
-- `remove(recycler)` 终止已创建效果/动画及吸收回调，移除本组件的 attach/layout/lifecycle 监听，清除 Factory Tag，替换成无效果 Factory，再关闭系统 overscroll。Adapter、LayoutManager 和业务监听器保持不变。
+- `remove(recycler)` 终止已创建效果/动画及吸收回调，移除本组件的 attach/layout/lifecycle 监听，清除 Factory Tag，替换成共享无效果 Factory（包含原有系统/外部 Factory，以清除 RecyclerView 缓存效果），再关闭系统 overscroll。Adapter、LayoutManager 和业务监听器保持不变。
 - 自绘页面容器实现 `ClassicGlowHost`，禁用策略立即结束其动画；`ClassicGlowPulse` 在输入/绘制时再次检查策略。
 - `ClassicDialogScrollView` 仅负责正常滚动和 IME/窗口高度约束，完全不持有 Glow、Animator、绘制或越界触发代码。
 - `ClassicDialogPickerLayout` 在初始化及附着后的原有回调声明禁用；原有快滚条触摸、FAB、Insets 不变。
 - `ClassicCommonsHooks.beforeDialogShow`、`OxygenClassicDialog.apply` 覆盖 Gallery 与 Commons 7.1.3 的公开初始化边界。
-- `ClassicCommonsVisitorFactory` 将普通 Dialog 的 show、AndroidX DialogFragment 的 onStart、AppCompat ListPopupWindow 的 buildDropDown 连接到禁用边界。菜单列表在返回测量高度前即禁用；使用公开 listView API，无反射。弹窗/菜单主题也默认 `android:overScrollMode=never`。
+- `ClassicCommonsVisitorFactory` 以 AGP ClassData 父类信息识别 Dialog 子类型的 show 调用；将此边界、AndroidX DialogFragment 的 onStart、AppCompat ListPopupWindow 的 buildDropDown 连接到禁用边界。菜单列表在返回测量高度前即禁用；使用公开 listView API，无反射。弹窗/菜单主题也默认 `android:overScrollMode=never`。
 - `ClassicSecurityScrollView`、`ClassicSecurityViewPager` 自身初始化即禁用。无安全输入或验证逻辑改动。
 
 ## 普通页面规范

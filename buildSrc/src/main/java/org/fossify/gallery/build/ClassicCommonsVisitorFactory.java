@@ -22,10 +22,20 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
     }
 
     @Override public ClassVisitor createClassVisitor(ClassContext context, ClassVisitor next) {
-        return visitor(context.getCurrentClassData().getClassName(), next);
+        return visitor(context.getCurrentClassData().getClassName(), next, owner -> {
+            if (owner.equals("android/app/Dialog")) return true;
+            ClassData data = context.loadClassData(owner.replace('/', '.'));
+            return data != null && data.getSuperClasses().contains("android.app.Dialog");
+        });
     }
 
     public static ClassVisitor visitor(String name, ClassVisitor next) {
+        return visitor(name, next, owner -> owner.equals("android/app/Dialog")
+            || owner.equals("androidx/appcompat/app/AppCompatDialog")
+            || owner.equals("androidx/appcompat/app/AlertDialog") || owner.equals("android/app/AlertDialog"));
+    }
+
+    private static ClassVisitor visitor(String name, ClassVisitor next, java.util.function.Predicate<String> dialogType) {
         return new ClassVisitor(Opcodes.ASM9, next) {
             private int shows = 0;
             private int beforeShows = 0;
@@ -168,8 +178,7 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
                                 "(Landroidx/appcompat/app/AlertDialog$Builder;)Landroidx/appcompat/app/AlertDialog;", false);
                         } else {
                             if (opcode == Opcodes.INVOKEVIRTUAL && called.equals("show") && descriptor.equals("()V")
-                                && (owner.equals("android/app/Dialog") || owner.equals("androidx/appcompat/app/AppCompatDialog")
-                                    || owner.equals("androidx/appcompat/app/AlertDialog") || owner.equals("android/app/AlertDialog"))) {
+                                && dialogType.test(owner)) {
                                 super.visitInsn(Opcodes.DUP);
                                 super.visitMethodInsn(Opcodes.INVOKESTATIC, policy, "protectDialog", "(Landroid/app/Dialog;)V", false);
                             }

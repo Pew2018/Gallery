@@ -46,17 +46,26 @@ object DialogOverscrollPolicy {
         ViewTreeObserver.OnGlobalLayoutListener {
         private var tree: ViewTreeObserver? = null
         fun observe() {
+            // The outermost declared root owns traversal. Nested picker/security
+            // roots keep their reattach guard but need no duplicate layout scan.
+            if ((root.parent as? View)?.let(::isForbidden) == true) { unobserve(); return }
             val next = root.viewTreeObserver
             if (tree === next) return
             unobserve()
+            // A floating observer is merged into the window observer on attach.
+            next.removeOnGlobalLayoutListener(this)
             next.addOnGlobalLayoutListener(this)
             tree = next
         }
         private fun unobserve() {
+            val current = root.viewTreeObserver
+            if (current !== tree && current.isAlive) current.removeOnGlobalLayoutListener(this)
             tree?.takeIf { it.isAlive }?.removeOnGlobalLayoutListener(this)
             tree = null
         }
-        override fun onGlobalLayout() = disableTree(root)
+        override fun onGlobalLayout() {
+            if ((root.parent as? View)?.let(::isForbidden) == true) unobserve() else disableTree(root)
+        }
         override fun onViewAttachedToWindow(v: View) { disableTree(root); observe() }
         override fun onViewDetachedFromWindow(v: View) { unobserve() }
     }

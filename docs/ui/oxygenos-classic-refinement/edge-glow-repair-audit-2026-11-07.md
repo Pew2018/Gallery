@@ -53,3 +53,9 @@
 | 以上所有类别 | 切换浅/深主题/强调色；动画比例 0/0.5/1/2；退后台/前台 | 页面使用当前色、无旧色/残留；弹窗永久禁用 | 待真机 |
 
 未来新增弹窗必须通过永久禁用回归测试。任何结构升级不可引用历史“低强度”说明绕开永久契约。
+
+## 首轮 Actions 结果与补修原因
+
+首轮提交 `5fefddd8e2e65cfc421a2d96f102d912bdb83af9` 的 [Run 42368505072](https://github.com/Pew2018/Gallery/actions/runs/42368505072) 完成 Kotlin 编译，执行 1010 tests，1 failed。失败为 `pulseUsesCurrentAccentAndDisabledAnimationsReleaseImmediately` 自动消散用例：测试 View 未附着，View.postDelayed 仍在待附着 RunQueue，主 Looper idle 无法执行它。补修将测试 View 放入真实 Robolectric Activity 窗口，保留原生位图透明断言；同时增加附着后的 fling 自动释放检查，没有恢复旧 Glow 契约或放宽像素断言。
+
+同步复查补强：所有 RecyclerView Factory（含默认系统/外部 Factory）在禁用边界均替换成同一个 NoGlowFactory，清除 RecyclerView 缓存的旧系统效果；增加幂等/外部 Factory 回归。Dialog 子类型的 show 调用由 AGP ClassData 父类信息识别，不依赖具体类名白名单。嵌套禁用根避免重复布局扫描，处理浮动 ViewTreeObserver 在 attach 时合并造成的重复注册，重新独立附着恢复监听；增加重附着动态内容及长弹窗仍可滚动测试。普通页面反向离开边缘时开始释放。以上为首轮后独立补修提交的原因，非改动其他 UI 功能。

@@ -102,6 +102,41 @@ class DialogOverscrollPolicyTest {
         assertNone(pager)
         activity.finish()
     }
+    @Test fun nestedPolicyRootsRestoreDynamicCoverageAfterIndependentReattach() {
+        val activity = activity()
+        val outer = FrameLayout(activity)
+        val inner = FrameLayout(activity)
+        DialogOverscrollPolicy.protect(inner)
+        DialogOverscrollPolicy.protect(outer)
+        outer.addView(inner)
+        activity.setContentView(outer)
+        outer.viewTreeObserver.dispatchOnGlobalLayout()
+        outer.removeView(inner)
+        val nextHost = FrameLayout(activity)
+        nextHost.addView(inner)
+        activity.setContentView(nextHost)
+        val late = RecyclerView(activity)
+        inner.addView(late)
+        inner.viewTreeObserver.dispatchOnGlobalLayout()
+        assertNone(inner)
+        assertTrue(DialogOverscrollPolicy.isForbidden(late))
+        activity.finish()
+    }
+
+    @Test fun longDialogStillScrollsAfterOverscrollIsDisabled() {
+        val activity = activity()
+        val content = ClassicDialogScrollView(activity)
+        content.addView(View(activity), ViewGroup.LayoutParams(360, 2000))
+        DialogOverscrollPolicy.protect(content)
+        content.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY))
+        content.layout(0, 0, content.measuredWidth, content.measuredHeight)
+        content.scrollTo(0, 800)
+        assertTrue(content.scrollY > 0)
+        assertEquals(View.OVER_SCROLL_NEVER, content.overScrollMode)
+        activity.finish()
+    }
+
     class PlainFragment : DialogFragment() {
         override fun onCreateDialog(savedInstanceState: android.os.Bundle?): Dialog = Dialog(requireContext()).apply {
             setContentView(ScrollView(context).apply { addView(TextView(context).apply { text = "Long\n".repeat(200) }) })

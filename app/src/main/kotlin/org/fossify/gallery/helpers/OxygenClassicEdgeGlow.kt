@@ -62,12 +62,10 @@ object OxygenClassicEdgeGlow {
     fun remove(recycler: RecyclerView) {
         val installed = recycler.getTag(org.fossify.gallery.R.id.oxygen_edge_effect_factory) as? ClassicFactory
         (installed ?: (recycler.edgeEffectFactory as? ClassicFactory))?.dispose(recycler)
-        if (installed != null || recycler.edgeEffectFactory is ClassicFactory) {
-            recycler.edgeEffectFactory = object : RecyclerView.EdgeEffectFactory() {
-                override fun createEdgeEffect(view: RecyclerView, direction: Int): EdgeEffect = NoGlowEdgeEffect(view.context)
-            }
-            recycler.setTag(org.fossify.gallery.R.id.oxygen_edge_effect_factory, null)
-        }
+        // Changing factories also invalidates RecyclerView's cached platform effects.
+        // Merely setting OVER_SCROLL_NEVER can leave an already-active system glow.
+        if (recycler.edgeEffectFactory !== NoGlowFactory) recycler.edgeEffectFactory = NoGlowFactory
+        recycler.setTag(org.fossify.gallery.R.id.oxygen_edge_effect_factory, null)
         recycler.overScrollMode = View.OVER_SCROLL_NEVER
     }
 
@@ -108,7 +106,13 @@ object OxygenClassicEdgeGlow {
                 override fun onViewAttachedToWindow(view: View) {
                     if (DialogOverscrollPolicy.isForbidden(view)) { remove(recycler); return }
                     bindLifecycle(recycler)
-                    layoutListener?.let { if (view.viewTreeObserver.isAlive) view.viewTreeObserver.addOnGlobalLayoutListener(it) }
+                    layoutListener?.let {
+                        if (view.viewTreeObserver.isAlive) {
+                            // Attachment merges floating listeners; replace our own registration once.
+                            view.viewTreeObserver.removeOnGlobalLayoutListener(it)
+                            view.viewTreeObserver.addOnGlobalLayoutListener(it)
+                        }
+                    }
                 }
                 override fun onViewDetachedFromWindow(view: View) {
                     layoutListener?.let { if (view.viewTreeObserver.isAlive) view.viewTreeObserver.removeOnGlobalLayoutListener(it) }
@@ -168,6 +172,10 @@ object OxygenClassicEdgeGlow {
                     (view.canScrollVertically(-1) || view.canScrollVertically(1))
             }.also { effects[it] = Unit }
         }
+    }
+
+    private object NoGlowFactory : RecyclerView.EdgeEffectFactory() {
+        override fun createEdgeEffect(view: RecyclerView, direction: Int): EdgeEffect = NoGlowEdgeEffect(view.context)
     }
 
     private class NoGlowEdgeEffect(context: Context) : EdgeEffect(context) {

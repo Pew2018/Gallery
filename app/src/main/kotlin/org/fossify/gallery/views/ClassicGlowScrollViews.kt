@@ -22,6 +22,7 @@ open class ClassicGlowScrollView @JvmOverloads constructor(
 
     override fun onOverScrolled(scrollX: Int, scrollY: Int, clampedX: Boolean, clampedY: Boolean) {
         super.onOverScrolled(scrollX, scrollY, clampedX, clampedY)
+        if (!clampedY) glow.release()
         if (clampedY && computeVerticalScrollRange() > height) {
             val end = (computeVerticalScrollRange() - height).coerceAtLeast(0)
             when {
@@ -73,6 +74,7 @@ class ClassicGlowNestedScrollView @JvmOverloads constructor(
 
     override fun onOverScrolled(scrollX: Int, scrollY: Int, clampedX: Boolean, clampedY: Boolean) {
         super.onOverScrolled(scrollX, scrollY, clampedX, clampedY)
+        if (!clampedY) glow.release()
         if (clampedY && computeVerticalScrollRange() > height) {
             val end = (computeVerticalScrollRange() - height).coerceAtLeast(0)
             when {

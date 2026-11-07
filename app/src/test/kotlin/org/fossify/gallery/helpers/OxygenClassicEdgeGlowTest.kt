@@ -113,6 +113,10 @@ class OxygenClassicEdgeGlowTest {
         assertEquals(0f, effect.distance, 0f)
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
         assertTrue(effect.isFinished)
+        activity.setContentView(recycler)
+        effect.onAbsorb(12000)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        assertTrue(effect.isFinished) // Attached fling absorption must decay without ACTION_UP.
         effect.onAbsorb(12000)
         DialogOverscrollPolicy.protect(recycler)
         assertTrue(effect.isFinished)
@@ -133,6 +137,22 @@ class OxygenClassicEdgeGlowTest {
         assertEquals(0f, effect.onPullDistance(0.8f, 0.5f), 0f)
         effect.onAbsorb(20000)
         assertTrue(effect.isFinished)
+        activity.finish()
+    }
+
+    @Test fun dialogAlsoReplacesPlatformAndForeignFactoriesIdempotently() {
+        val activity = activity()
+        val recycler = list(activity)
+        val platformFactory = recycler.edgeEffectFactory
+        DialogOverscrollPolicy.protect(recycler)
+        val none = recycler.edgeEffectFactory
+        assertNotSame(platformFactory, none)
+        DialogOverscrollPolicy.protect(recycler)
+        assertSame(none, recycler.edgeEffectFactory)
+        recycler.edgeEffectFactory = object : RecyclerView.EdgeEffectFactory() {}
+        recycler.viewTreeObserver.dispatchOnGlobalLayout()
+        assertSame(none, recycler.edgeEffectFactory)
+        assertEquals(View.OVER_SCROLL_NEVER, recycler.overScrollMode)
         activity.finish()
     }
 
@@ -179,7 +199,11 @@ class OxygenClassicEdgeGlowTest {
 
     @Test fun pulseUsesCurrentAccentAndDisabledAnimationsReleaseImmediately() {
         val activity = activity()
-        val view = View(activity).apply { layout(0, 0, 360, 500) }
+        val view = View(activity)
+        // View.postDelayed belongs to the attached window; an unattached fixture
+        // keeps its decay in View's pending RunQueue instead of the main Looper.
+        activity.setContentView(view, FrameLayout.LayoutParams(360, 500))
+        view.layout(0, 0, 360, 500)
         var accent = Color.GREEN
         val pulse = ClassicGlowPulse(view, { accent }, animationsEnabled = { false })
         fun render(): Bitmap = Bitmap.createBitmap(360, 500, Bitmap.Config.ARGB_8888).also { pulse.draw(Canvas(it)) }
