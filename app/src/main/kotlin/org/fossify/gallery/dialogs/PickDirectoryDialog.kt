@@ -51,7 +51,7 @@ import org.fossify.gallery.extensions.getSortedDirectories
 import org.fossify.gallery.models.Directory
 import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.helpers.OxygenClassicPalette
-import org.fossify.gallery.helpers.OxygenThemeColors
+import org.fossify.gallery.helpers.OxygenClassicPageInput
 import org.fossify.gallery.helpers.photoSourceCandidates
 import org.fossify.gallery.helpers.PhotoSourceSelectionDraft
 import org.fossify.gallery.helpers.photoSourceSearchMatches
@@ -276,7 +276,8 @@ class PickDirectoryDialog(
         val surface = tokens.dialogBackground
         val primaryText = tokens.primaryText
         val secondaryText = tokens.secondaryText
-        val neutral = OxygenThemeColors.readableAccent(tokens.secondaryText, surface)
+        val readableText = OxygenClassicPageInput.readableTextColor(primaryText, tokens.copy(pageBackground = surface))
+        val neutral = OxygenClassicPageInput.idleStrokeColor(surface, readableText)
         val accent = OxygenClassicPalette.readableAccent(tokens.interactiveAccent, surface)
         searchEditText.background = ColorDrawable(Color.TRANSPARENT)
         searchEditText.backgroundTintList = null

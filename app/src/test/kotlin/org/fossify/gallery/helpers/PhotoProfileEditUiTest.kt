@@ -68,6 +68,17 @@ class PhotoProfileEditUiTest {
         }
     }
 
+    @Test fun idleOutlineIsThemeRelativeAndLessProminentThanActiveText() {
+        val surfaces = listOf(Color.WHITE to Color.rgb(33, 33, 33), Color.rgb(48, 48, 48) to Color.WHITE)
+        for ((surface, text) in surfaces) {
+            val idle = OxygenClassicPageInput.idleStrokeColor(surface, text)
+            assertEquals(OxygenThemeColors.blend(surface, text, 0.46), idle)
+            val contrast = OxygenThemeColors.contrastRatio(idle, surface)
+            assertTrue("Idle stroke stays discernible", contrast >= 2.4)
+            assertTrue("Idle stroke must not compete with primary text", contrast < 4.5)
+        }
+    }
+
     @Test fun legacyThemeTextIsAdjustedOnlyWhenThePagePairLacksContrast() {
         val context = ContextThemeWrapper(RuntimeEnvironment.getApplication(), R.style.AppTheme)
         val field = EditText(context)

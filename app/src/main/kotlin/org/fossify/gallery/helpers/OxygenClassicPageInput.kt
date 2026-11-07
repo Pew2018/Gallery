@@ -20,11 +20,15 @@ object OxygenClassicPageInput {
         }
     }
 
+    /** Idle outlines are visible without competing with text or an active accent. */
+    internal fun idleStrokeColor(surface: Int, readableText: Int): Int =
+        OxygenThemeColors.blend(surface, readableText, 0.46)
+
     fun style(layout: TextInputLayout, tokens: OxygenThemeTokens, surface: Int = tokens.pageBackground) {
         val dp = layout.resources.displayMetrics.density
         val text = readableTextColor(tokens.primaryText, tokens.copy(pageBackground = surface))
         val secondary = readableTextColor(tokens.secondaryText, tokens.copy(pageBackground = surface))
-        val neutral = OxygenThemeColors.readableAccent(secondary, surface)
+        val neutral = idleStrokeColor(surface, text)
         val disabled = OxygenThemeColors.blend(surface, text, 0.24)
         val accent = OxygenThemeColors.readableAccent(tokens.interactiveAccent, surface)
         val focused = intArrayOf(android.R.attr.state_focused, android.R.attr.state_enabled)

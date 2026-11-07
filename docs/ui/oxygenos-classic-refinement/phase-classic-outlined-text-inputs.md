@@ -35,6 +35,8 @@ This phase standardizes editable form fields as Material Components (Material 2)
 
 `OxygenClassicPageInput` now styles `TextInputLayout` with Material's public outlined mode: 4dp corners, 1dp idle and 2dp focused strokes, semantic neutral/accent/disabled colors, readable hint/text colors, cursor tint and 56dp minimum field height. Dialogs resolve tokens against the dialog surface. TextInputLayout owns its child EditText background; `OxygenClassicDialog.apply()` no longer places the platform underline beneath it. Plain EditTexts continue through the legacy path only when they are not children of an outlined TextInputLayout. `ClassicSettingsText` follows the same distinction.
 
+Follow-up (2026-11-07): the unfocused/idle outline is now a surface-relative 46% blend toward readable primary text, rather than promoting the secondary-text color to 4.5:1 contrast. Both standard TextInputLayout forms and the folder-picker's independently drawn search outline share that token. Focused accent, error/disabled states, stroke thickness, 4dp corners, field height, text and hint color, IME behavior and existing listeners remain unchanged.
+
 ## Tests
 
 Added/updated Robolectric coverage in `PhotoProfileEditUiTest`, `ThemeDialogTest`, and `ClassicDialogLayoutRegressionTest`. It checks the preserved binding ID, page field hint/height, outlined mode, stroke widths, absence of the child EditText background, dynamic HEX validation and all nine existing form layouts.
