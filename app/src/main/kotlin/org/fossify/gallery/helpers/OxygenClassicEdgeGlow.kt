@@ -213,7 +213,11 @@ internal object ClassicGlowPainter {
     }
 }
 
-internal class ClassicGlowPulse(private val owner: View, private val accent: () -> Int) {
+internal class ClassicGlowPulse(
+    private val owner: View,
+    private val accent: () -> Int,
+    private val animationsEnabled: () -> Boolean = { OxygenClassicMotion.enabled(owner.context) }
+) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val density = owner.resources.displayMetrics.density
     private var intensity = 0f
@@ -248,7 +252,7 @@ internal class ClassicGlowPulse(private val owner: View, private val accent: () 
     private fun animateTo(target: Float, duration: Long) {
         animator?.cancel()
         val start = intensity
-        if (duration == 0L || !OxygenClassicMotion.enabled(owner.context)) {
+        if (duration == 0L || !animationsEnabled()) {
             intensity = target
             animator = null
             owner.invalidate()
