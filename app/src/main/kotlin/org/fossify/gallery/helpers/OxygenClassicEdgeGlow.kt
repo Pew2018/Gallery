@@ -9,6 +9,7 @@ import android.graphics.RadialGradient
 import android.graphics.Shader
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.widget.EdgeEffect
 import androidx.core.graphics.ColorUtils
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -22,25 +23,29 @@ import kotlin.math.max
 object OxygenClassicEdgeGlow {
     private const val SCROLL_RELEASE_MS = OxygenClassicMotion.EDGE_GLOW_RELEASE_MS
     private const val SCROLL_APPEAR_MS = OxygenClassicMotion.EDGE_GLOW_APPEAR_MS
+    const val DIALOG_INTENSITY_SCALE = 0.42f
 
-    fun install(root: View, context: Context = root.context) {
-        if (root is RecyclerView) install(root, context)
+    fun install(root: View, context: Context = root.context, intensityScale: Float = 1f) {
+        if (root is RecyclerView) install(root, context, intensityScale)
         if (root is ViewGroup) for (index in 0 until root.childCount) {
-            install(root.getChildAt(index), context)
+            install(root.getChildAt(index), context, intensityScale)
         }
     }
 
-    fun install(recycler: RecyclerView, context: Context = recycler.context) {
+    fun install(recycler: RecyclerView, context: Context = recycler.context, intensityScale: Float = 1f) {
         val manager = recycler.layoutManager as? LinearLayoutManager
         val vertical = manager?.orientation == RecyclerView.VERTICAL
         val refreshing = hasRefreshParent(recycler)
         val installed = recycler.getTag(org.fossify.gallery.R.id.oxygen_edge_effect_factory) as? ClassicFactory
-        if (installed?.vertical == vertical && installed.suppressTop == refreshing) return
+        val scale = intensityScale.coerceIn(0f, 1f)
+        if (installed?.vertical == vertical && installed.suppressTop == refreshing &&
+            installed.intensityScale == scale) return
         installed?.dispose(recycler)
         val factory = ClassicFactory(
             accent = { OxygenThemeEngine.snapshot(context, context.config).interactiveAccent },
             vertical = vertical,
-            suppressTop = refreshing
+            suppressTop = refreshing,
+            intensityScale = scale
         )
         recycler.edgeEffectFactory = factory
         recycler.overScrollMode = View.OVER_SCROLL_ALWAYS
@@ -60,24 +65,45 @@ object OxygenClassicEdgeGlow {
     internal class ClassicFactory(
         private val accent: () -> Int,
         internal val vertical: Boolean,
-        internal val suppressTop: Boolean
+        internal val suppressTop: Boolean,
+        internal val intensityScale: Float
     ) : RecyclerView.EdgeEffectFactory() {
         private val effects = WeakHashMap<ClassicEdgeEffect, Unit>()
         private var detachListener: View.OnAttachStateChangeListener? = null
+        private var layoutListener: ViewTreeObserver.OnGlobalLayoutListener? = null
 
         fun bind(recycler: RecyclerView) {
             detachListener?.let(recycler::removeOnAttachStateChangeListener)
+            layoutListener?.let { if (recycler.viewTreeObserver.isAlive) recycler.viewTreeObserver.removeOnGlobalLayoutListener(it) }
             val listener = object : View.OnAttachStateChangeListener {
-                override fun onViewAttachedToWindow(view: View) = Unit
-                override fun onViewDetachedFromWindow(view: View) = finishEffects()
+                override fun onViewAttachedToWindow(view: View) {
+                    layoutListener?.let { if (view.viewTreeObserver.isAlive) view.viewTreeObserver.addOnGlobalLayoutListener(it) }
+                }
+                override fun onViewDetachedFromWindow(view: View) {
+                    layoutListener?.let { if (view.viewTreeObserver.isAlive) view.viewTreeObserver.removeOnGlobalLayoutListener(it) }
+                    finishEffects()
+                }
             }
             detachListener = listener
             recycler.addOnAttachStateChangeListener(listener)
+            val layoutObserver = ViewTreeObserver.OnGlobalLayoutListener {
+                val current = recycler
+                val orientation = (current.layoutManager as? LinearLayoutManager)?.orientation == RecyclerView.VERTICAL
+                val refreshParent = hasRefreshParent(current)
+                val active = current.getTag(org.fossify.gallery.R.id.oxygen_edge_effect_factory) as? ClassicFactory
+                if (active === this && (orientation != vertical || refreshParent != suppressTop)) {
+                    current.post { if (current.isAttachedToWindow) install(current, current.context, intensityScale) }
+                }
+            }
+            layoutListener = layoutObserver
+            recycler.viewTreeObserver.addOnGlobalLayoutListener(layoutObserver)
         }
 
         fun dispose(recycler: RecyclerView) {
             detachListener?.let(recycler::removeOnAttachStateChangeListener)
             detachListener = null
+            layoutListener?.let { if (recycler.viewTreeObserver.isAlive) recycler.viewTreeObserver.removeOnGlobalLayoutListener(it) }
+            layoutListener = null
             finishEffects()
         }
 
@@ -88,7 +114,7 @@ object OxygenClassicEdgeGlow {
 
         override fun createEdgeEffect(view: RecyclerView, direction: Int): EdgeEffect {
             if (suppressEdge(vertical, suppressTop, direction)) return NoGlowEdgeEffect(view.context)
-            return ClassicEdgeEffect(view.context, view, accent) {
+            return ClassicEdgeEffect(view.context, view, accent, intensityScale) {
                 (view.adapter?.itemCount ?: 0) > 0 &&
                     (view.canScrollVertically(-1) || view.canScrollVertically(1))
             }.also { effects[it] = Unit }
@@ -114,6 +140,7 @@ object OxygenClassicEdgeGlow {
         context: Context,
         private val owner: View,
         private val accent: () -> Int,
+        private val intensityScale: Float,
         private val canScroll: () -> Boolean
     ) : EdgeEffect(context) {
         private val density = context.resources.displayMetrics.density
@@ -167,7 +194,7 @@ object OxygenClassicEdgeGlow {
         override fun isFinished(): Boolean = intensity <= 0.001f && (animator?.isRunning != true)
 
         override fun draw(canvas: Canvas): Boolean {
-            ClassicGlowPainter.draw(canvas, paint, accent(), intensity, displacement, density)
+            ClassicGlowPainter.draw(canvas, paint, accent(), intensity * intensityScale, displacement, density)
             return animator?.isRunning == true
         }
 
@@ -216,6 +243,7 @@ internal object ClassicGlowPainter {
 internal class ClassicGlowPulse(
     private val owner: View,
     private val accent: () -> Int,
+    private val maxIntensity: Float = 0.55f,
     private val animationsEnabled: () -> Boolean = { OxygenClassicMotion.enabled(owner.context) }
 ) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -226,7 +254,7 @@ internal class ClassicGlowPulse(
 
     fun pulse(atBottom: Boolean) {
         bottom = atBottom
-        animateTo(0.55f, OxygenClassicMotion.EDGE_GLOW_APPEAR_MS)
+        animateTo(maxIntensity.coerceIn(0f, 1f), OxygenClassicMotion.EDGE_GLOW_APPEAR_MS)
     }
 
     fun release() = animateTo(0f, OxygenClassicMotion.EDGE_GLOW_RELEASE_MS)

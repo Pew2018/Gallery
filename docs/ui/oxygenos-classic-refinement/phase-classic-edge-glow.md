@@ -36,3 +36,15 @@
 ## Limits
 
 The custom glow geometry and timing are engineering approximations based on the static OxygenOS reference, not measured OEM animation values. Runtime verification is required on Android 7.1 through Android 16, including gesture cancellation and nested scrolling.
+
+## 2026-11-07 app-wide coverage follow-up
+
+The subsequent dialog-only removal commit (`5100d4f`) closed all overscroll in dialogs, including the two media Pickers. The current app-wide pass restores a separate, restrained in-window treatment in response to the broader coverage requirement:
+
+- `OxygenClassicEdgeGlow` now accepts a bounded intensity scale. Full-page RecyclerViews retain the existing strength; ordinary dialog RecyclerViews and Commons file-picker lists use `DIALOG_INTENSITY_SCALE` (`0.42`).
+- `ClassicDialogScrollView` draws the same live theme-accent arc at a lower cap (`0.28`) while keeping platform Stretch disabled. The long storage-permission message now uses this shared scroll view. `ClassicSecurityScrollView` and system authentication are unchanged.
+- Dialog traversal keeps generic platform/NestedScroll/AbsListView overscroll disabled, enables the shared factory for vertical RecyclerViews, and excludes horizontal ones. This prevents dialog Glow from inheriting full-page intensity or changing picker touch listeners.
+- A RecyclerView layout observer refreshes the factory after its orientation or SwipeRefresh parent policy changes. This covers preference-driven horizontal/vertical changes after initial Activity setup. Repeated installs with the same orientation, refresh policy, and intensity keep the existing factory.
+- Added deterministic checks for factory idempotence, reduced dialog intensity, and horizontal exclusion. The existing tests continue to cover refresh-parent detection independent of `isEnabled`, top suppression, bottom preservation, live accent lookup, and disabled-motion release.
+
+This follow-up has not been visually verified on-device. Picker/Dialog boundary strength, touch handling beside quick-scrollers, no-scroll and short content, search-mode refresh gestures, Android 12+ Stretch suppression, and dynamic theme changes remain on the Pixel 8 Pro verification list.

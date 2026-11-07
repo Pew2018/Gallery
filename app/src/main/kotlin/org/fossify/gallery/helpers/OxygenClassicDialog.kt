@@ -416,15 +416,20 @@ object OxygenClassicDialog {
 
         // Preserve semantic, disabled, link and hint text: only skin actual controls.
         fun visit(v: View) {
-            // Dialog scroll containers never show edge feedback. This also
-            // covers platform/AppCompat list scrollers that are not Gallery views.
+            // Keep in-window content on the shared theme-aware edge treatment.
+            // Dialog surfaces use a lower intensity than full-page lists.
             when (v) {
-                is android.widget.ScrollView,
-                is androidx.core.widget.NestedScrollView,
+                is org.fossify.gallery.views.ClassicSecurityScrollView -> Unit
+                is android.widget.ScrollView -> if (v !is ClassicDialogScrollView) {
+                    v.overScrollMode = View.OVER_SCROLL_NEVER
+                }
+                is androidx.core.widget.NestedScrollView -> v.overScrollMode = View.OVER_SCROLL_NEVER
                 is android.widget.AbsListView -> v.overScrollMode = View.OVER_SCROLL_NEVER
                 is RecyclerView -> {
                     val layout = v.layoutManager as? LinearLayoutManager
                     if (layout?.orientation == RecyclerView.VERTICAL) {
+                        OxygenClassicEdgeGlow.install(v, activity, OxygenClassicEdgeGlow.DIALOG_INTENSITY_SCALE)
+                    } else {
                         v.overScrollMode = View.OVER_SCROLL_NEVER
                     }
                 }
