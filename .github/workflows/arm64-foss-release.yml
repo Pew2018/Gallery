@@ -24,6 +24,7 @@ on:
       - "gradle/**"
       - "gradle.properties"
       - ".github/workflows/arm64-foss-release.yml"
+      - "docs/ui/oxygenos-classic-refinement/phase-3b-bottom-navigation-material-motion.md"
 
 permissions:
   contents: read

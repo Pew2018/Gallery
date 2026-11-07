@@ -39,7 +39,7 @@ No existing motion constants, Activity lifecycle paths, media adapters, or page 
 
 `GalleryBottomBarRippleTest` checks the balanced contrast bands, immediate pressed state on the `ACTION_DOWN` dispatch, stable native Drawable identity, pressed-state preservation through recoloring, cancel behavior, failed-navigation rollback/retry, rapid single navigation, all six user orders, equal widths, RTL, large font scale, existing first-draw fallback timing, and that only the destination content container fades after its first draw. The first full CI run found the deferred pressed state and a nullable missing-content lookup in older transition fixtures; both were fixed in the follow-up. Existing `GalleryNavigationTest` and `GalleryNavigationPersistenceTest` cover navigation semantics and order persistence.
 
-The ARM64 workflow already supports `workflow_dispatch`, but the connected GitHub interface cannot dispatch it and the browser sign-in flow could not be completed. To ensure this isolated branch can run the required FOSS checks and APK build, the branch was added to the workflow's existing push branch filter. This adds only this branch and leaves all existing triggers unchanged.
+The ARM64 workflow already supports `workflow_dispatch`, but the connected GitHub interface cannot dispatch it and the browser sign-in flow could not be completed. The branch was added to the existing push branch filter, and this phase report was added to the path filter so a report with final verification results also triggers the same checks. Existing branch triggers remain unchanged.
 
 The targeted command attempted locally:
 
@@ -47,7 +47,11 @@ The targeted command attempted locally:
 ./gradlew :app:testFossDebugUnitTest --tests org.fossify.gallery.helpers.GalleryBottomBarRippleTest --tests org.fossify.gallery.helpers.GalleryNavigationTest --tests org.fossify.gallery.helpers.GalleryNavigationPersistenceTest
 ```
 
-It could not start because Gradle 9.5.1 was not cached and `services.gradle.org` is unreachable from this environment. No local test pass or Pixel hardware result is claimed. GitHub Actions and APK details will be added after the branch commit is pushed and the workflow is run.
+It could not start because Gradle 9.5.1 was not cached and `services.gradle.org` is unreachable from this environment. No local test pass or Pixel hardware result is claimed.
+
+GitHub Actions Run [#631](https://github.com/Pew2018/Gallery/actions/runs/42384359687) verified source commit `90dc32fb4fbb5ea1efc4a30c653d02d59f4f0616`: 1,021 FOSS Release unit tests passed, with 0 failures, 0 errors, and 0 skipped. The ARM64 release APK was assembled and validated for package name, signature, and ABI. APK SHA-256: `8f131f1510b8c182860d252c6c3d1ef9a540855716f89334aefa2c21365abe50`.
+
+Artifact: [gallery-foss-arm64-v8a-release](https://api.github.com/repos/Pew2018/Gallery/actions/artifacts/13578269432/zip) (expires 2026-11-21). The workflow used its temporary CI signing key because repository signing secrets were unavailable; this APK is suitable for fresh-install device testing but is not upgrade-compatible with an APK signed by the repository release key.
 
 ## Pixel 8 Pro / Android 16 acceptance still required
 
