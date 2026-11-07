@@ -102,7 +102,7 @@ class OxygenThemeActivity : SimpleActivity() {
             marginStart = dp(16); marginEnd = dp(16)
         })
         root.addView(titleBar, LinearLayout.LayoutParams(-1, dp(56)))
-        scroll = ScrollView(this).apply { isFillViewport = true }
+        scroll = org.fossify.gallery.views.ClassicGlowScrollView(this).apply { isFillViewport = true }
         body = org.fossify.gallery.views.TiebaSettingsContainer(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, dp(16)) }
         scroll.addView(body, android.widget.FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_HORIZONTAL))
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))

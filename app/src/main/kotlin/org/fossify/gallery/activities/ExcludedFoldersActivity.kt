@@ -20,6 +20,7 @@ class ExcludedFoldersActivity : SimpleActivity(), RefreshRecyclerViewListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
+        org.fossify.gallery.helpers.OxygenClassicEdgeGlow.install(binding.root, this)
         updateFolders()
         setupOptionsMenu()
         binding.manageFoldersToolbar.title = getString(org.fossify.commons.R.string.excluded_folders)

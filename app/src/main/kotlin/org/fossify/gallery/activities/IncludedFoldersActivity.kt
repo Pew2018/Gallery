@@ -20,6 +20,7 @@ class IncludedFoldersActivity : SimpleActivity(), RefreshRecyclerViewListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
+        org.fossify.gallery.helpers.OxygenClassicEdgeGlow.install(binding.root, this)
         updateFolders()
         setupOptionsMenu()
         binding.manageFoldersToolbar.title = getString(R.string.include_folders)

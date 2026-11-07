@@ -17,6 +17,8 @@ object OxygenClassicMotion {
 
     const val CHECKBOX_MS = 140L
     const val SEARCH_MS = 160L
+    const val EDGE_GLOW_APPEAR_MS = 70L
+    const val EDGE_GLOW_RELEASE_MS = 420L
     const val TAB_MS = 150L
     const val SWITCH_MS = 180L
     const val TOGGLE_CHECKBOX_MS = 200L

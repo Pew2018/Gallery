@@ -52,6 +52,7 @@ class PhotoProfileManageActivity : SimpleActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
+        org.fossify.gallery.helpers.OxygenClassicEdgeGlow.install(binding.root, this)
         entryState = savedInstanceState?.getString(STATE_ENTRY)?.let {
             runCatching { PhotoProfileCodec.decode(it) }.getOrNull()
         } ?: store.state()

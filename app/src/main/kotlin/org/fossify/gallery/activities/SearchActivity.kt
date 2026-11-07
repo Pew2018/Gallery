@@ -48,6 +48,7 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
+        org.fossify.gallery.helpers.OxygenClassicEdgeGlow.install(binding.root, this)
         setupOptionsMenu()
         setupEdgeToEdge(
             padTopSystem = listOf(binding.searchMenu),

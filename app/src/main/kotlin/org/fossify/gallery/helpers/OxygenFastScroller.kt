@@ -32,6 +32,7 @@ object OxygenFastScroller {
         tokens: OxygenThemeTokens,
         bottomBar: Int = 0
     ) {
+        OxygenClassicEdgeGlow.install(recycler, scroller.context)
         val density = scroller.resources.displayMetrics.density
         fun dp(value: Int) = (value * density + 0.5f).toInt()
 

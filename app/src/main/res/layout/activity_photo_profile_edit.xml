@@ -10,7 +10,7 @@
             android:layout_width="match_parent" android:layout_height="56dp"
             app:title="@string/photo_profiles_edit" />
     </org.fossify.commons.views.MyAppBarLayout>
-    <ScrollView android:id="@+id/photo_profile_edit_scroll"
+    <org.fossify.gallery.views.ClassicGlowScrollView android:id="@+id/photo_profile_edit_scroll"
         android:layout_width="match_parent" android:layout_height="match_parent"
         android:fillViewport="true" android:clipToPadding="false"
         android:paddingBottom="16dp" app:layout_behavior="@string/appbar_scrolling_view_behavior">
@@ -45,7 +45,7 @@
                 android:visibility="gone" android:text="@string/photo_profiles_source_required"
                 android:textSize="13sp" />
         </LinearLayout>
-    </ScrollView>
+    </org.fossify.gallery.views.ClassicGlowScrollView>
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/photo_profile_edit_add_source"
         android:layout_width="56dp" android:layout_height="56dp"

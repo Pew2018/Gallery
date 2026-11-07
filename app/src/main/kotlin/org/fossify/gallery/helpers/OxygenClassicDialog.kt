@@ -386,6 +386,7 @@ object OxygenClassicDialog {
     }
 
     fun apply(activity: Activity, dialog: AlertDialog, content: View): StyleResult {
+        OxygenClassicEdgeGlow.install(content, activity)
         val dp = activity.resources.displayMetrics.density
         val background = activity.getProperBackgroundColor()
         val accent = activity.getProperPrimaryColor()

@@ -17,7 +17,7 @@
             app:title="@string/diagnostics_title" />
     </org.fossify.commons.views.MyAppBarLayout>
 
-    <androidx.core.widget.NestedScrollView
+    <org.fossify.gallery.views.ClassicGlowNestedScrollView
         android:id="@+id/diagnostics_scroll"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -83,5 +83,5 @@
                 android:paddingEnd="16dp"
                 android:paddingBottom="16dp" />
         </LinearLayout>
-    </androidx.core.widget.NestedScrollView>
+    </org.fossify.gallery.views.ClassicGlowNestedScrollView>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
