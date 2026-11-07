@@ -29,7 +29,8 @@
 - `git diff --check`: passed.
 - Local Gradle test command could not start because Gradle 9.5.1 could not be downloaded from `services.gradle.org` (`Network is unreachable`).
 - First GitHub Actions run [#596](https://github.com/Pew2018/Gallery/actions/runs/42338816430) failed during Android resource parsing, before Kotlin compilation or APK assembly. The large Settings layout had an output-truncation banner prepended while it was transferred. The complete, well-formed workspace file is being restored in a follow-up commit; this was not a source-layout syntax error.
-- Follow-up Actions result: pending.
+- The resource fix allowed Kotlin compilation to start, but follow-up run [#597](https://github.com/Pew2018/Gallery/actions/runs/42339079383) then found the same transfer-truncation issue in the two large activity source files. Their complete workspace versions are being restored in a second follow-up commit.
+- Passing follow-up Actions result: pending.
 - Pixel 8 Pro Android 16 verification is **待真机验收**: refresh-vs-top-glow gesture, bottom and top release curves, API 31+ stretch absence, color changes during glow, orientation changes, empty/short lists, Picker scrolling, and Settings/Dialog content.
 
 ## Limits
