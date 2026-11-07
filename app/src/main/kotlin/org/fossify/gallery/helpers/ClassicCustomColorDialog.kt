@@ -8,6 +8,9 @@ import android.view.WindowManager
 import android.widget.EditText
 import android.widget.LinearLayout
 import androidx.appcompat.app.AlertDialog
+import androidx.core.view.AccessibilityDelegateCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import androidx.core.widget.doAfterTextChanged
 import org.fossify.gallery.R
 import org.fossify.gallery.activities.SimpleActivity
@@ -59,6 +62,24 @@ internal object ClassicCustomColorDialog {
         }
         label.labelFor = field.id
         body.addView(field, LinearLayout.LayoutParams(-1, -2))
+        // Inline Material supporting text, rather than EditText's floating error popup.
+        // Reserve its line so validation does not move the preview or dialog buttons.
+        val errorColor = photoDialogColors(host).error
+        val errorText = ClassicThemeDialog.text(host, host.getString(R.string.classic_invalid_color), 12f).apply {
+            labelFor = field.id
+            setTextColor(errorColor)
+            setPadding(field.paddingLeft, ClassicThemeDialog.dp(host, 4), field.paddingRight, 0)
+            visibility = View.INVISIBLE
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        body.addView(errorText, LinearLayout.LayoutParams(-1, -2))
+        ViewCompat.setAccessibilityDelegate(field, object : AccessibilityDelegateCompat() {
+            override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfoCompat) {
+                super.onInitializeAccessibilityNodeInfo(host, info)
+                info.isContentInvalid = errorText.visibility == View.VISIBLE
+                info.error = if (info.isContentInvalid) errorText.text else null
+            }
+        })
         // The container takes initial focus; entering the dialog never opens the keyboard.
         body.isFocusableInTouchMode = true
         body.requestFocus()
@@ -71,7 +92,8 @@ internal object ClassicCustomColorDialog {
         fun validate(): Int? {
             val color = OxygenThemeEngine.parseHex(field.text.toString().trim())
             save.isEnabled = color != null
-            field.error = if (color == null) host.getString(R.string.classic_invalid_color) else null
+            errorText.visibility = if (color == null) View.VISIBLE else View.INVISIBLE
+            field.backgroundTintList = ColorStateList.valueOf(if (color == null) errorColor else tokens.interactiveAccent)
             paint(fresh.first, color ?: OxygenThemeColors.blend(tokens.dialogBackground, tokens.secondaryText, .12))
             fresh.second.text = color?.let(OxygenThemeEngine::formatHex) ?: "—"
             return color

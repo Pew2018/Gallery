@@ -211,3 +211,18 @@ or test class disabled for this Robolectric drawing limitation.
 This final evidence update changes documentation only. The APK remains tied to
 its exact source SHA above; no extra build is necessary for a documentation-only
 commit. Pixel 8 Pro acceptance items above remain unverified on a physical device.
+
+### Custom hex field inline validation (2026-11-07)
+
+`ClassicCustomColorDialog` now uses 12sp supporting error text below the hex
+field instead of `EditText.error` (the platform icon and floating popup). The
+error line reserves its height, wraps with font scaling, uses the existing
+classic dialog semantic error palette, and tints the underline on invalid input.
+A polite accessibility live region and input node error/content-invalid state
+expose validation to screen readers. Valid input clears the message, restores
+the accent underline and re-enables Save; preview and commit rules are unchanged.
+
+The existing `ThemeDialogTest` checks invalid-to-valid transitions, inline
+visibility, absence of a platform popup, accessibility state and commit gating.
+Local execution was blocked downloading Gradle 9.5.1 (`Network is unreachable`);
+the push-triggered ARM64 workflow runs the full FOSS Release test suite.

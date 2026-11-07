@@ -107,7 +107,13 @@ class ThemeDialogTest {
                 for (invalid in listOf("", "#", "#12345", "#GGGGGG", "#12345678", "123456", "#fff")) {
                     field.setText(invalid)
                     assertFalse(save.isEnabled)
-                    assertNotNull(field.error)
+                    assertNull("No platform error popup", field.error)
+                    val error = all.filterIsInstance<TextView>().single { it.text == host.getString(R.string.classic_invalid_color) }
+                    assertEquals(View.VISIBLE, error.visibility)
+                    assertEquals(View.ACCESSIBILITY_LIVE_REGION_POLITE, error.accessibilityLiveRegion)
+                    val info = androidx.core.view.accessibility.AccessibilityNodeInfoCompat.wrap(field.createAccessibilityNodeInfo())
+                    assertTrue(info.isContentInvalid)
+                    assertEquals(error.text, info.error)
                     save.performClick()
                     assertNull(saved)
                     assertEquals(OxygenThemeEngine.formatHex(effective), currentHex.text)
@@ -116,6 +122,9 @@ class ThemeDialogTest {
                 field.setText("  #aBc123  ")
                 assertTrue(save.isEnabled)
                 assertNull(field.error)
+                val error = all.filterIsInstance<TextView>().single { it.text == host.getString(R.string.classic_invalid_color) }
+                assertEquals(View.INVISIBLE, error.visibility)
+                assertFalse(androidx.core.view.accessibility.AccessibilityNodeInfoCompat.wrap(field.createAccessibilityNodeInfo()).isContentInvalid)
                 assertTrue(all.filterIsInstance<TextView>().any { it.text == "#ABC123" })
                 assertEquals(OxygenThemeEngine.formatHex(effective), currentHex.text)
                 save.performClick(); save.performClick()
