@@ -28,7 +28,8 @@
 - Added deterministic tests for refresh top suppression, bottom glow preservation, horizontal-list exclusion, refresh-parent detection while refresh is disabled, custom accent rendering, and immediate animation-scale-zero completion.
 - `git diff --check`: passed.
 - Local Gradle test command could not start because Gradle 9.5.1 could not be downloaded from `services.gradle.org` (`Network is unreachable`).
-- GitHub Actions Release unit test/build result: pending this phase's branch update.
+- First GitHub Actions run [#596](https://github.com/Pew2018/Gallery/actions/runs/42338816430) failed during Android resource parsing, before Kotlin compilation or APK assembly. The large Settings layout had an output-truncation banner prepended while it was transferred. The complete, well-formed workspace file is being restored in a follow-up commit; this was not a source-layout syntax error.
+- Follow-up Actions result: pending.
 - Pixel 8 Pro Android 16 verification is **待真机验收**: refresh-vs-top-glow gesture, bottom and top release curves, API 31+ stretch absence, color changes during glow, orientation changes, empty/short lists, Picker scrolling, and Settings/Dialog content.
 
 ## Limits
