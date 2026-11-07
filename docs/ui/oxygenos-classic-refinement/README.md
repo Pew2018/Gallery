@@ -1,6 +1,6 @@
 # OxygenOS 7.1.1 Classic — Gallery UI 精修项目总纲
 
-> 状态：**Phase 2 设置精修源码/测试已准备；完整自动化与 Actions 验证待执行，真机视觉待验收**。首次审计：2026-11-06。
+> 状态（2026-11-07）：**阶段 A–C 已完成代码审计/实现并通过 CI；阶段 D–E 待实施；所有阶段均待 Pixel 8 Pro 真机视觉验收与用户验收**。历史阶段记录保留在下方，不能视为当前 UI 完成状态。
 > 源码审计基线：`refactor/media-pipeline-stability` @ `b7175e8fa0411d8ff600366e316777efb28bb8f3`。
 > 该 SHA 仅为审计证据锚点；**实际开发前重新读取远程分支 HEAD，禁止重置到此提交**。
 > 本轮任务 **仅新增 `docs/` 文档，不修改应用代码、资源、构建配置、测试或其他目录**。
@@ -114,3 +114,16 @@ Audit source SHA: 024b4731ac6508cab45f7d81eea73294a78d0d04. Source findings are 
 ## Phase 2 implementation
 
 [实施摘要](phase-2/00-implementation-summary.md)记录设置主页、八分类、Section、控件主题、导航与宽屏的最小presentation修改。[回归与构建](phase-2/04-regression-and-build.md)区分已执行/待执行验证，[真机清单](phase-2/05-device-acceptance-checklist.md)仍待设备。UI-08仅设置/主题页Section与Divider一致性、UI-11仅设置Ripple/主题色合同获得本阶段代码覆盖，不宣称跨阶段全部完成。
+
+
+## 2026-11-07 execution ledger
+
+| 阶段 | 代码状态 | CI 状态 | Pixel 8 Pro 视觉 | 用户验收 |
+|---|---|---|---|---|
+| A — 动态强调色 | 已审计；无需重复改造，语义异常例外有记录 | 随后续 FOSS Release 测试通过 | 待真机验收 | 待用户验收 |
+| B — 搜索、普通输入与 IME | 已实现共享搜索展开/收起动画，Commons 输入和 FAB IME 行为保留 | #595 完整单元测试与 ARM64 Release 通过 | 待真机验收 | 待用户验收 |
+| C — Classic Edge Glow | 已实现主题色纵向 Glow、刷新顶部抑制、滚动容器共用实现 | #602 完整单元测试、ARM64 APK 构建与校验通过 | 待真机验收 | 待用户验收 |
+| D — Dialog / Picker / Popup | 待实施 | 待执行 | 待真机验收 | 待用户验收 |
+| E — 文件夹 / Viewer 转场 | 待实施 | 待执行 | 待真机验收 | 待用户验收 |
+
+当前 C 阶段远程 HEAD：`a12910b7ef2f8f72f048889d3d56d552e652d366`。阶段详情见 [phase-accent-completeness.md](phase-accent-completeness.md)、[phase-search-ime-input-motion.md](phase-search-ime-input-motion.md)、[phase-classic-edge-glow.md](phase-classic-edge-glow.md)。
