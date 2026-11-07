@@ -6,13 +6,10 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.InsetDrawable
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import org.fossify.gallery.extensions.config
-import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.ImageView
@@ -29,45 +26,49 @@ import org.fossify.gallery.R
  */
 object GalleryBottomBar {
     private val bars = java.util.WeakHashMap<Activity, java.lang.ref.WeakReference<LinearLayout>>()
-    // WindowManager owns the cross-Activity handoff so the old opaque root remains
-    // visible underneath the incoming surface while its alpha is animated.
-    internal const val ROOT_ENTER_DURATION_MS = 180L
+    // Root windows stay opaque. Feedback continues using a value-only clock snapshot.
     internal const val FIRST_DRAW_LIMIT_MS = 250L
-    internal const val ROOT_FINISH_FALLBACK_MS = FIRST_DRAW_LIMIT_MS + 280L
+    internal const val ROOT_FINISH_FALLBACK_MS = 5_000L
     private const val EXTRA_ROOT_TOKEN = "org.fossify.gallery.ROOT_TRANSITION_TOKEN"
     private data class PendingRoot(
         val source: java.lang.ref.WeakReference<Activity>,
-        val startedAt: Long,
+        val feedback: Map<String, NavigationRippleDrawable.Pulse>,
         val timeout: Runnable,
         var acknowledged: Boolean = false
     )
     private val pendingRoots = mutableMapOf<String, PendingRoot>()
+    private val navigationResets = java.util.WeakHashMap<Activity, () -> Unit>()
     private val rootCleanups = java.util.WeakHashMap<Activity, () -> Unit>()
     internal val pendingRootCount: Int get() = pendingRoots.size
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    internal fun windowMotionEnabled(activity: Activity): Boolean = runCatching {
-        Settings.Global.getFloat(
-            activity.contentResolver, Settings.Global.WINDOW_ANIMATION_SCALE, 1f
-        ) > 0f
-    }.getOrDefault(true)
-
     private val rippleColors = java.util.WeakHashMap<LinearLayout, Int>()
 
-    /** The public RippleDrawable API is write-only; track our last applied tint. */
+    /** Track the resolved theme tint without replacing feedback drawables. */
     internal fun currentRippleColor(item: LinearLayout): Int? = rippleColors[item]
 
     fun prepareRootSurface(activity: Activity, parent: CoordinatorLayout) {
         if (!activity.intent.getBooleanExtra(EXTRA_ROOT_TRANSITION, false)) return
         val surface = OxygenThemeEngine.snapshot(activity, activity.config).pageBackground
+        disableRootWindowMotion(activity)
         activity.window.setBackgroundDrawable(ColorDrawable(surface))
         parent.setBackgroundColor(surface)
         OxygenSystemBars.apply(activity)
     }
 
+    @Suppress("DEPRECATION")
+    private fun disableRootWindowMotion(activity: Activity) {
+        activity.window.setWindowAnimations(0)
+        if (android.os.Build.VERSION.SDK_INT >= 34) {
+            activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_OPEN, 0, 0)
+            activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        }
+    }
+
     /** Activity teardown cancels callbacks rather than leaving a retained window/view. */
     fun dispose(activity: Activity) {
         rootCleanups.remove(activity)?.invoke()
+        navigationResets.remove(activity)
         bars.remove(activity)?.get()?.let { bar ->
             for (i in 0 until bar.childCount) {
                 val item = bar.getChildAt(i) as? LinearLayout ?: continue
@@ -80,24 +81,26 @@ object GalleryBottomBar {
             }
     }
 
-    private fun finishOutgoing(token: String?) {
-        if (token == null) return
-        val pending = pendingRoots[token] ?: return
+    @Suppress("DEPRECATION")
+    private fun finishOutgoing(token: String?, captured: PendingRoot?) {
+        val pending = pendingRoots[token] ?: captured ?: return
         if (pending.acknowledged) return
         pending.acknowledged = true
         mainHandler.removeCallbacks(pending.timeout)
-        // Keep the source alive beneath the incoming window until the WindowManager
-        // cross-fade has had its full duration. Navigation itself is never delayed.
-        val elapsed = android.os.SystemClock.uptimeMillis() - pending.startedAt
-        val remaining = if (pending.source.get()?.let(::windowMotionEnabled) == true)
-            (ROOT_ENTER_DURATION_MS - elapsed).coerceAtLeast(0L) else 0L
-        mainHandler.postDelayed(pending.timeout, remaining)
+        if (token != null) pendingRoots.remove(token)
+        val source = pending.source.get() ?: return
+        // A late frame after the watchdog must not retire the source of a newer request.
+        if (pendingRoots.values.any { it.source.get() === source }) return
+        if (!source.isFinishing && !source.isDestroyed) {
+            source.finish()
+            source.overridePendingTransition(0, 0)
+        }
     }
 
     /**
      * Keep the pressed tint semantic and legible on the current surface. Strong,
      * already-readable accents use a lighter touch; borderline accents get a
-     * little more opacity so the native ripple remains visible in both themes.
+     * little more opacity so the circular ripple remains visible in both themes.
      */
     internal fun rippleColor(accent: Int, surface: Int): Int {
         val contrast = OxygenThemeColors.contrastRatio(accent, surface)
@@ -111,34 +114,26 @@ object GalleryBottomBar {
         return Color.argb(alpha, Color.red(accent), Color.green(accent), Color.blue(accent))
     }
 
-    /**
-     * RippleDrawable owns its pressed/released animation. Replacing its background
-     * (even with the same color) cancels that native state and cuts off its fade.
-     */
     private fun updateRipple(item: LinearLayout, colors: OxygenThemeTokens) {
         val color = rippleColor(colors.interactiveAccent, colors.pageBackground)
-        val ripple = item.background as? RippleDrawable
+        val ripple = item.background as? NavigationRippleDrawable
+        val scale = animationScale(item)
         if (ripple == null) {
-            val mask = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                setColor(Color.WHITE)
-                cornerRadius = item.resources.getDimension(R.dimen.oxygen_bottom_bar_ripple_corner_radius)
-            }
-            item.background = RippleDrawable(
-                ColorStateList.valueOf(color),
-                ColorDrawable(Color.TRANSPARENT),
-                InsetDrawable(mask,
-                    item.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_ripple_inset_horizontal),
-                    item.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_ripple_inset_vertical),
-                    item.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_ripple_inset_horizontal),
-                    item.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_ripple_inset_vertical)
-                )
-            )
+            item.background = NavigationRippleDrawable(color,
+                item.resources.getDimension(R.dimen.oxygen_bottom_bar_ripple_radius),
+                scale)
         } else if (rippleColors[item] != color) {
-            ripple.setColor(ColorStateList.valueOf(color))
+            ripple.color = color
+            ripple.invalidateSelf()
         }
+        (item.background as? NavigationRippleDrawable)?.durationScale = scale
         rippleColors[item] = color
     }
+
+    private fun animationScale(item: LinearLayout): Float = runCatching {
+        Settings.Global.getFloat(item.context.contentResolver,
+            Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+    }.getOrDefault(1f)
 
     /** Both windows use the same final tab colors, without competing tint timelines. */
     private fun updateTint(item: LinearLayout, tint: Int) {
@@ -146,23 +141,6 @@ object GalleryBottomBar {
         val label = item.getChildAt(1) as? TextView ?: return
         if (icon.imageTintList?.defaultColor != tint) icon.imageTintList = ColorStateList.valueOf(tint)
         if (label.currentTextColor != tint) label.setTextColor(tint)
-    }
-
-    private fun selectTab(activity: Activity, bar: LinearLayout, tab: Tab) {
-        val colors = OxygenThemeEngine.snapshot(activity, activity.config)
-        for (i in 0 until bar.childCount) {
-            val item = bar.getChildAt(i) as? LinearLayout ?: continue
-            val selected = item.tag == tab.name
-            if (item.isSelected == selected) continue
-            item.isSelected = selected
-            val label = item.getChildAt(1) as? TextView ?: continue
-            label.typeface = Typeface.create(
-                if (selected) "sans-serif-medium" else "sans-serif", Typeface.NORMAL
-            )
-            item.contentDescription = if (selected) "${label.text}, ${activity.getString(R.string.classic_selected)}"
-                else label.text.toString()
-            updateTint(item, if (selected) colors.interactiveAccent else colors.secondaryText)
-        }
     }
 
     fun refreshAll() {
@@ -193,7 +171,7 @@ object GalleryBottomBar {
         for (i in 0 until bar.childCount) {
             val item = bar.getChildAt(i) as? LinearLayout ?: continue
             updateTint(item, if (item.isSelected) selected else quiet)
-            // setColor() preserves the same Drawable and any in-flight pressed ripple.
+            // Preserve the same Drawable and any in-flight pressed ripple.
             updateRipple(item, tokens)
         }
     }
@@ -208,27 +186,28 @@ object GalleryBottomBar {
         val token = if (finishCurrent) java.util.UUID.randomUUID().toString() else null
         if (token != null) {
             intent.putExtra(EXTRA_ROOT_TOKEN, token)
-            val startedAt = android.os.SystemClock.uptimeMillis()
+            val feedback = bars[activity]?.get()?.let { bar ->
+                (0 until bar.childCount).mapNotNull { index ->
+                    val item = bar.getChildAt(index)
+                    val pulse = (item.background as? NavigationRippleDrawable)?.pulse ?: return@mapNotNull null
+                    // Snapshot release even if View posts its unset-pressed callback after click.
+                    item.tag.toString() to pulse.copy(releasedAt = pulse.releasedAt
+                        ?: android.os.SystemClock.uptimeMillis())
+                }.toMap()
+            }.orEmpty()
             val timeout = Runnable {
-                pendingRoots.remove(token)?.source?.get()?.let {
-                    if (!it.isFinishing && !it.isDestroyed) {
-                        it.finish()
-                        // The requested Activity-open cross-fade has already run;
-                        // suppress a second, unrelated Activity-close animation.
-                        it.overridePendingTransition(0, 0)
-                    }
-                }
+                val pending = pendingRoots.remove(token) ?: return@Runnable
+                // A deadline cannot prove a destination frame. Release the request
+                // lock; a later frame may still retire this weakly held source.
+                pending.source.get()?.let { navigationResets[it]?.invoke() }
             }
-            pendingRoots[token] = PendingRoot(java.lang.ref.WeakReference(activity), startedAt, timeout)
+            pendingRoots[token] = PendingRoot(java.lang.ref.WeakReference(activity), feedback, timeout)
             mainHandler.postDelayed(timeout, ROOT_FINISH_FALLBACK_MS)
         }
         try {
+            disableRootWindowMotion(activity)
             activity.startActivity(intent)
-            // The opaque outgoing surface remains underneath the incoming one. A
-            // paired WindowManager alpha transition makes the page handoff visible
-            // without setting the destination's first content frame to alpha=0.
-            activity.overridePendingTransition(R.anim.oxygen_classic_root_enter,
-                R.anim.oxygen_classic_root_exit)
+            activity.overridePendingTransition(0, 0)
         } catch (error: RuntimeException) {
             token?.let { pendingRoots.remove(it)?.let { pending -> mainHandler.removeCallbacks(pending.timeout) } }
             throw error
@@ -243,6 +222,7 @@ object GalleryBottomBar {
         rootCleanups.remove(activity)?.invoke()
         activity.intent.removeExtra(EXTRA_ROOT_TRANSITION)
         val token = activity.intent.getStringExtra(EXTRA_ROOT_TOKEN)
+        val captured = pendingRoots[token]
         activity.intent.removeExtra(EXTRA_ROOT_TOKEN)
         var acknowledged = false
         lateinit var cleanup: () -> Unit
@@ -253,17 +233,34 @@ object GalleryBottomBar {
             acknowledged = true
             cleanup()
             rootCleanups.remove(activity)
-            finishOutgoing(token)
+            finishOutgoing(token, captured)
         }
         val revealLoading = Runnable { if (!acknowledged) loadingFrame() }
+        var commitRequested = false
         drawn = android.view.ViewTreeObserver.OnDrawListener {
-            // Show the real initial loading, empty, or authorization UI in the
-            // incoming window transition. Never wait for adapter publication.
-            mainHandler.post(afterDraw)
+            if (!commitRequested) {
+                commitRequested = true
+                if (android.os.Build.VERSION.SDK_INT >= 29 && parent.isHardwareAccelerated) {
+                    parent.viewTreeObserver.registerFrameCommitCallback(afterDraw)
+                } else {
+                    // Compatibility approximation; OnDraw alone is not an on-screen proof.
+                    parent.postOnAnimation(afterDraw)
+                }
+            }
         }
         cleanup = {
+            if (!acknowledged && token != null) {
+                pendingRoots.remove(token)?.let { pending ->
+                    mainHandler.removeCallbacks(pending.timeout)
+                    pending.source.get()?.let { navigationResets[it]?.invoke() }
+                }
+            }
             if (parent.viewTreeObserver.isAlive) parent.viewTreeObserver.removeOnDrawListener(drawn)
             mainHandler.removeCallbacks(afterDraw)
+            parent.removeCallbacks(afterDraw)
+            if (android.os.Build.VERSION.SDK_INT >= 29 && parent.viewTreeObserver.isAlive) {
+                parent.viewTreeObserver.unregisterFrameCommitCallback(afterDraw)
+            }
             parent.removeCallbacks(revealLoading)
             parent.removeOnAttachStateChangeListener(attachment)
         }
@@ -288,11 +285,12 @@ object GalleryBottomBar {
         loadingFrame: () -> Unit = {},
         navigate: (Tab) -> Unit
     ) {
+        val feedback = pendingRoots[activity.intent.getStringExtra(EXTRA_ROOT_TOKEN)]?.feedback.orEmpty()
         coordinateFirstDraw(activity, parent, loadingFrame)
         val density = activity.resources.displayMetrics.density
         fun dp(value: Int) = (value * density + 0.5f).toInt()
         val tokens = OxygenThemeEngine.snapshot(activity, activity.config)
-        val background = tokens.pageBackground
+        val surfaceColor = tokens.pageBackground
         val primary = tokens
         val selectedText = tokens.interactiveAccent
         val quiet = tokens.secondaryText
@@ -300,6 +298,7 @@ object GalleryBottomBar {
         // Reattaching after a configuration-driven rebuild must not duplicate the bar.
         parent.findViewWithTag<android.view.View>("oxygen_classic_bottom_bar")?.let(parent::removeView)
         var navigating = false
+        navigationResets[activity] = { navigating = false }
         val barHeight = activity.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height)
         val itemHeight = activity.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_item_height)
         val iconSize = activity.resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_icon_size)
@@ -307,7 +306,7 @@ object GalleryBottomBar {
             tag = "oxygen_classic_bottom_bar"
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(background)
+            setBackgroundColor(surfaceColor)
             elevation = 0f
             setPadding(dp(6), dp(2), dp(6), 0)
         }
@@ -334,8 +333,9 @@ object GalleryBottomBar {
                     if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
                         // CoordinatorLayout can defer child pressed feedback while
                         // deciding whether a gesture belongs to a scrolling parent.
-                        // Set the native Drawable state immediately; leave click,
+                        // Set the Drawable state immediately; leave click,
                         // release, cancel, and long-press handling to the View.
+                        (view.background as? NavigationRippleDrawable)?.durationScale = animationScale(this)
                         view.drawableHotspotChanged(event.x, event.y)
                         view.isPressed = true
                     }
@@ -345,16 +345,16 @@ object GalleryBottomBar {
                 contentDescription = if (selected) "$accessibilityLabel, ${activity.getString(R.string.classic_selected)}"
                     else accessibilityLabel
                 updateRipple(this, primary)
+                (this.background as? NavigationRippleDrawable)?.continuePulse(feedback[tab.name])
                 setOnClickListener {
                     if (tab != active && !navigating) {
                         navigating = true
-                        // Match the destination initial state without a second color animation.
-                        selectTab(activity, bar, tab)
+                        // Keep outgoing selection aligned with outgoing content. Destination
+                        // attach applies its own selection on the same frame as its content.
                         try {
                             navigate(tab)
                         } catch (error: RuntimeException) {
                             navigating = false
-                            selectTab(activity, bar, active)
                             throw error
                         }
                     }

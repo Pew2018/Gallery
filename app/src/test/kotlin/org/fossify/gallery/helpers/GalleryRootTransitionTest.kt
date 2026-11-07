@@ -24,12 +24,17 @@ import java.util.concurrent.TimeUnit
 @Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 @LooperMode(LooperMode.Mode.PAUSED)
 class GalleryRootTransitionTest {
-    @Test fun rootWindowAnimationsArePairedShortAlphaCrossFade() {
+    @Test fun legacyRootAnimationResourcesCannotFadeEitherWindow() {
         val context = RuntimeEnvironment.getApplication()
         val enter = AnimationUtils.loadAnimation(context, R.anim.oxygen_classic_root_enter) as AlphaAnimation
         val exit = AnimationUtils.loadAnimation(context, R.anim.oxygen_classic_root_exit) as AlphaAnimation
-        assertEquals(GalleryBottomBar.ROOT_ENTER_DURATION_MS, enter.duration)
-        assertEquals(GalleryBottomBar.ROOT_ENTER_DURATION_MS, exit.duration)
+        assertEquals(0L, enter.duration)
+        assertEquals(0L, exit.duration)
+        val transform = android.view.animation.Transformation()
+        enter.getTransformation(0L, transform)
+        assertEquals(1f, transform.alpha)
+        exit.getTransformation(0L, transform)
+        assertEquals(1f, transform.alpha)
     }
 
     @Test fun allSectionPairsKeepDestinationSelectionIndependentOfWindowMotion() {
@@ -71,9 +76,7 @@ class GalleryRootTransitionTest {
         val expected = OxygenThemeEngine.snapshot(destination, destination.config).pageBackground
         assertEquals(expected, (root.background as ColorDrawable).color)
         assertEquals(expected, (destination.window.decorView.background as ColorDrawable).color)
-        assertFalse("source is held only through the remainder of the 180ms window transition", source.isFinishing)
-        Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(
-            GalleryBottomBar.ROOT_ENTER_DURATION_MS, TimeUnit.MILLISECONDS)
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(32, TimeUnit.MILLISECONDS)
         assertTrue(source.isFinishing)
         GalleryBottomBar.dispose(destination)
         GalleryBottomBar.dispose(source)
@@ -97,11 +100,35 @@ class GalleryRootTransitionTest {
         GalleryBottomBar.dispose(target)
         root.viewTreeObserver.dispatchOnDraw()
         clock.idleFor(GalleryBottomBar.ROOT_FINISH_FALLBACK_MS, TimeUnit.MILLISECONDS)
-        assertTrue(source.isFinishing)
+        assertFalse("disposed destination never committed a frame", source.isFinishing)
         assertEquals(0, GalleryBottomBar.pendingRootCount)
         GalleryBottomBar.dispose(source)
         target.finish()
         source.finish()
+    }
+
+    @Test fun frameArrivingAfterWatchdogStillRetiresItsOwnSource() {
+        val clock = Shadows.shadowOf(android.os.Looper.getMainLooper())
+        val source = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        val intent = Intent(source, android.app.Activity::class.java)
+        GalleryBottomBar.open(source, intent, finishCurrent = true)
+        val target = Robolectric.buildActivity(android.app.Activity::class.java, intent).setup().get()
+        val root = CoordinatorLayout(target)
+        target.setContentView(root)
+        GalleryBottomBar.coordinateFirstDraw(target, root)
+        try {
+            clock.idleFor(GalleryBottomBar.ROOT_FINISH_FALLBACK_MS, TimeUnit.MILLISECONDS)
+            assertFalse(source.isFinishing)
+            assertEquals(0, GalleryBottomBar.pendingRootCount)
+            root.viewTreeObserver.dispatchOnDraw()
+            clock.idleFor(32, TimeUnit.MILLISECONDS)
+            assertTrue(source.isFinishing)
+        } finally {
+            GalleryBottomBar.dispose(source)
+            GalleryBottomBar.dispose(target)
+            source.finish()
+            target.finish()
+        }
     }
 
     class TransitionRecordingActivity : android.app.Activity() {
@@ -113,8 +140,8 @@ class GalleryRootTransitionTest {
         }
     }
 
-    @Test fun startRequestsWindowCrossFadeAndDoesNotAddASecondFinishTransition() {
-        val expected = R.anim.oxygen_classic_root_enter to R.anim.oxygen_classic_root_exit
+    @Test fun startAndFinishNeverRequestWindowFadesAtEitherAnimationScale() {
+        val expected = 0 to 0
         for (scale in listOf(0f, 1f)) {
             val source = Robolectric.buildActivity(TransitionRecordingActivity::class.java).setup().get()
             val resolver = source.contentResolver
@@ -123,7 +150,6 @@ class GalleryRootTransitionTest {
             android.provider.Settings.Global.putFloat(resolver,
                 android.provider.Settings.Global.WINDOW_ANIMATION_SCALE, scale)
             try {
-                assertEquals(scale > 0f, GalleryBottomBar.windowMotionEnabled(source))
                 GalleryBottomBar.open(source, Intent(source, android.app.Activity::class.java), finishCurrent = true)
                 assertEquals(listOf(expected), source.transitions)
                 val targetIntent = Shadows.shadowOf(source).nextStartedActivity
@@ -133,11 +159,7 @@ class GalleryRootTransitionTest {
                 GalleryBottomBar.coordinateFirstDraw(target, root)
                 root.viewTreeObserver.dispatchOnDraw()
                 Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
-                if (scale > 0f) {
-                    assertFalse("source remains only for the visible window motion", source.isFinishing)
-                    Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(
-                        GalleryBottomBar.ROOT_ENTER_DURATION_MS, TimeUnit.MILLISECONDS)
-                }
+                Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(32, TimeUnit.MILLISECONDS)
                 assertTrue(source.isFinishing)
                 assertEquals(listOf(expected, 0 to 0), source.transitions)
                 GalleryBottomBar.dispose(source)

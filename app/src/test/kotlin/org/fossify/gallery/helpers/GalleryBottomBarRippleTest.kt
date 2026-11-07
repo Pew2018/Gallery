@@ -4,7 +4,6 @@ import android.app.Application
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.RippleDrawable
 import android.os.Looper
 import android.view.View
 import android.widget.ImageView
@@ -50,7 +49,7 @@ class GalleryBottomBarRippleTest {
     @Test fun recolorPreservesAllThreeRippleInstancesAcrossIdenticalAndChangedThemes() {
         val (activity, bar) = fixture()
         val tabs = items(bar)
-        val ripples = tabs.map { it.background as RippleDrawable }
+        val ripples = tabs.map { it.background as NavigationRippleDrawable }
         val firstColor = GalleryBottomBar.currentRippleColor(tabs[0])
         tabs[1].isPressed = true
         repeat(4) { GalleryBottomBar.recolor(activity) }
@@ -104,7 +103,7 @@ class GalleryBottomBarRippleTest {
         assertEquals(40, Color.alpha(GalleryBottomBar.rippleColor(Color.rgb(102, 102, 102), surface)))
     }
 
-    @Test fun rapidTapsOnlyNavigateOnceAndSelectionUsesClassicColorAndTypeface() {
+    @Test fun rapidTapsOnlyNavigateOnceAndOutgoingSelectionStillMatchesOutgoingContent() {
         val visited = mutableListOf<GalleryBottomBar.Tab>()
         val (activity, bar) = fixture(onNavigate = { visited.add(it) })
         val tabs = items(bar)
@@ -121,24 +120,23 @@ class GalleryBottomBarRippleTest {
         assertTrue(tabs.all { it.getChildAt(1).layoutParams.height == -2 })
         assertEquals(2f, activity.resources.getDimension(R.dimen.oxygen_bottom_bar_label_gap) /
             activity.resources.displayMetrics.density, 0.01f)
-        assertTrue(tabs.all { it.background is RippleDrawable })
-        assertTrue(tabs.all { (it.background as RippleDrawable).getDrawable(1) is android.graphics.drawable.InsetDrawable })
+        assertTrue(tabs.all { it.background is NavigationRippleDrawable })
         tabs[1].performClick()
         tabs[2].performClick()
         tabs[1].performClick()
         assertEquals(listOf(GalleryBottomBar.Tab.FAVORITES), visited)
-        assertFalse(tabs[0].isSelected)
-        assertTrue(tabs[1].isSelected)
+        assertTrue(tabs[0].isSelected)
+        assertFalse(tabs[1].isSelected)
         assertFalse(tabs[2].isSelected)
         // Medium (500) is not Typeface.BOLD (700); test the actual family.
         assertEquals(Typeface.create("sans-serif-medium", Typeface.NORMAL),
-            (tabs[1].getChildAt(1) as TextView).typeface)
-        assertEquals(Typeface.create("sans-serif", Typeface.NORMAL),
             (tabs[0].getChildAt(1) as TextView).typeface)
-        // The outgoing window must already match the destination on the click frame.
+        assertEquals(Typeface.create("sans-serif", Typeface.NORMAL),
+            (tabs[1].getChildAt(1) as TextView).typeface)
+        // Selection changes with destination content, never ahead of it.
         val colors = OxygenThemeEngine.snapshot(activity, activity.config)
-        assertEquals(colors.interactiveAccent, (tabs[1].getChildAt(0) as ImageView).imageTintList!!.defaultColor)
-        assertEquals(colors.secondaryText, (tabs[0].getChildAt(1) as TextView).currentTextColor)
+        assertEquals(colors.interactiveAccent, (tabs[0].getChildAt(0) as ImageView).imageTintList!!.defaultColor)
+        assertEquals(colors.secondaryText, (tabs[1].getChildAt(1) as TextView).currentTextColor)
         activity.finish()
     }
 
@@ -163,15 +161,15 @@ class GalleryBottomBarRippleTest {
             shouldFail = false
             tabs[1].performClick()
             assertEquals(2, attempts)
-            assertFalse(tabs[0].isSelected)
-            assertTrue(tabs[1].isSelected)
+            assertTrue(tabs[0].isSelected)
+            assertFalse(tabs[1].isSelected)
         } finally {
             GalleryBottomBar.dispose(activity)
             activity.finish()
         }
     }
 
-    @Test fun navigationStartsImmediatelyAndUnresponsiveTargetUsesBoundedFallback() {
+    @Test fun navigationStartsImmediatelyAndUnresponsiveTargetCannotFinishUnconfirmedSource() {
         val (activity, _) = fixture()
         GalleryBottomBar.open(activity, Intent(activity, android.app.Activity::class.java), finishCurrent = true)
         assertNotNull(Shadows.shadowOf(activity).nextStartedActivity)
@@ -180,7 +178,8 @@ class GalleryBottomBarRippleTest {
             GalleryBottomBar.ROOT_FINISH_FALLBACK_MS - 1, TimeUnit.MILLISECONDS)
         assertFalse("unresponsive target remains bounded by the fallback", activity.isFinishing)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(2, TimeUnit.MILLISECONDS)
-        assertTrue("unresponsive target must not retain source indefinitely", activity.isFinishing)
+        assertFalse("timeout cannot prove a frame or finish the recoverable source", activity.isFinishing)
+        assertEquals(0, GalleryBottomBar.pendingRootCount)
     }
 
     @Test fun destinationFirstFrameRemainsOpaqueAndDoesNotStartASeparateContentFade() {
@@ -260,9 +259,48 @@ class GalleryBottomBarRippleTest {
             val tabs = items(bar)
             assertEquals(order, tabs.map { it.tag })
             assertTrue(tabs.all { (it.layoutParams as LinearLayout.LayoutParams).weight == 1f })
-            assertTrue(tabs.all { (it.background as RippleDrawable).getDrawable(1) is android.graphics.drawable.InsetDrawable })
             GalleryBottomBar.dispose(activity)
             activity.finish()
+        }
+    }
+
+    @Test fun rootHandoffCarriesFeedbackClockAndOnlyDestinationSelectsTarget() {
+        val (source, sourceBar) = fixture()
+        val sourceItem = items(sourceBar).first { it.tag == GalleryBottomBar.Tab.FAVORITES.name }
+        val ripple = sourceItem.background as NavigationRippleDrawable
+        val now = android.os.SystemClock.uptimeMillis()
+        ripple.continuePulse(NavigationRippleDrawable.Pulse(now - 60, 0.3f, 0.7f, now - 10))
+        val intent = Intent(source, android.app.Activity::class.java)
+        GalleryBottomBar.open(source, intent, finishCurrent = true)
+        assertTrue(items(sourceBar)[0].isSelected)
+        val token = intent.getStringExtra("org.fossify.gallery.ROOT_TRANSITION_TOKEN")
+        assertNotNull("launch must carry a transaction token", token)
+        assertEquals(0, Shadows.shadowOf(source).pendingTransitionEnterAnimationResourceId)
+        assertEquals(0, Shadows.shadowOf(source).pendingTransitionExitAnimationResourceId)
+        val destination = Robolectric.buildActivity(android.app.Activity::class.java, intent).setup().get()
+        val root = CoordinatorLayout(destination)
+        destination.setContentView(root)
+        try {
+            assertEquals("destination must retain launch token", token,
+                destination.intent.getStringExtra("org.fossify.gallery.ROOT_TRANSITION_TOKEN"))
+            GalleryBottomBar.prepareRootSurface(destination, root)
+            GalleryBottomBar.attach(destination, root, GalleryBottomBar.Tab.FAVORITES, navigate = {})
+            val bar = root.findViewWithTag<LinearLayout>("oxygen_classic_bottom_bar")
+            val targetItem = items(bar).first { it.tag == GalleryBottomBar.Tab.FAVORITES.name }
+            val continued = targetItem.background as NavigationRippleDrawable
+            assertEquals("feedback tags=" + items(bar).map { it.tag } +
+                " pending=" + GalleryBottomBar.pendingRootCount + " at=" + android.os.SystemClock.uptimeMillis(),
+                ripple.pulse, continued.pulse)
+            assertEquals(ripple.progress(now), continued.progress(now))
+            assertTrue(targetItem.isSelected)
+            assertFalse(items(bar).first { it.tag == GalleryBottomBar.Tab.ALL.name }.isSelected)
+            assertEquals(1f, bar.alpha)
+            assertEquals(0, destination.window.attributes.windowAnimations)
+        } finally {
+            GalleryBottomBar.dispose(destination)
+            GalleryBottomBar.dispose(source)
+            destination.finish()
+            source.finish()
         }
     }
 
@@ -321,7 +359,7 @@ class GalleryBottomBarRippleTest {
         }
     }
 
-    @Test fun actualDownUpKeepsRippleAndAnimationsOffSnapsSelectedTint() {
+    @Test fun actualDownUpKeepsFeedbackAndDoesNotSelectAheadOfContent() {
         var visits = 0
         val (activity, bar) = fixture(onNavigate = { visits++ })
         val tabs = items(bar)
@@ -355,9 +393,9 @@ class GalleryBottomBarRippleTest {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             assertEquals(1, visits)
             assertSame(ripple, item.background)
-            assertTrue(item.isSelected)
+            assertFalse(item.isSelected)
             val tokens = OxygenThemeEngine.snapshot(activity, activity.config)
-            assertEquals(tokens.interactiveAccent, (item.getChildAt(1) as TextView).currentTextColor)
+            assertEquals(tokens.secondaryText, (item.getChildAt(1) as TextView).currentTextColor)
         } finally {
             GalleryBottomBar.dispose(activity)
             android.provider.Settings.Global.putFloat(resolver,

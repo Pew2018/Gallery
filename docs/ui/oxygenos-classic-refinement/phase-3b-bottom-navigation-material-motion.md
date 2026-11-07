@@ -1,3 +1,5 @@
+> Superseded root-window and ripple behavior: see [root-navigation-feedback-followup.md](root-navigation-feedback-followup.md). The paired 180ms window cross-fade described below is historical and has been removed.
+
 # Phase 3C · Bottom navigation window handoff repair
 
 ## Scope and baseline
