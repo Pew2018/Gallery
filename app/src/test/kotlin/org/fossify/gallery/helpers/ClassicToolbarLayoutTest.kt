@@ -2,6 +2,7 @@ package org.fossify.gallery.helpers
 
 import android.app.Application
 import android.graphics.Rect
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -22,6 +23,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -46,6 +48,8 @@ class ClassicToolbarLayoutTest {
             val menu = page.findViewById<MySearchMenu>(R.id.media_menu)
             menu.requireToolbar().inflateMenu(R.menu.menu_media)
             menu.setupMenu()
+            // Commons posts its search focus and click listeners from setupMenu().
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
             OxygenToolbarStyle.apply(activity, menu, "Folder", backButton = true)
             page.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY))
@@ -53,6 +57,7 @@ class ClassicToolbarLayoutTest {
 
             val input = menu.binding.topToolbarSearch
             menu.binding.topToolbarSearchIcon.performClick()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
             assertTrue(menu.isSearchOpen)
             assertSame("Search animation must retain the Commons EditText instance", input,
                 menu.binding.topToolbarSearch)
