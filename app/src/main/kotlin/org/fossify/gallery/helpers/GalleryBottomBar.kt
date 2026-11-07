@@ -251,8 +251,9 @@ object GalleryBottomBar {
         var waitingForDraw = false
         var fallbackPrepared = false
         var contentPreparedForEnter = false
-        val contentView = parent.findViewById<android.view.View>(R.id.directories_holder)
-            ?: parent.findViewById(R.id.media_holder)
+        val directoryContent = parent.findViewById<android.view.View>(R.id.directories_holder) as? android.view.View
+        val contentView: android.view.View? = directoryContent
+            ?: (parent.findViewById<android.view.View>(R.id.media_holder) as? android.view.View)
         lateinit var cleanup: () -> Unit
         lateinit var preDraw: android.view.ViewTreeObserver.OnPreDrawListener
         lateinit var drawn: android.view.ViewTreeObserver.OnDrawListener
@@ -398,6 +399,17 @@ object GalleryBottomBar {
                 isClickable = true
                 isFocusable = true
                 isSelected = selected
+                setOnTouchListener { view, event ->
+                    if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+                        // CoordinatorLayout can defer child pressed feedback while
+                        // deciding whether a gesture belongs to a scrolling parent.
+                        // Set the native Drawable state immediately; leave click,
+                        // release, cancel, and long-press handling to the View.
+                        view.drawableHotspotChanged(event.x, event.y)
+                        view.isPressed = true
+                    }
+                    false
+                }
                 val accessibilityLabel = label
                 contentDescription = if (selected) "$accessibilityLabel, ${activity.getString(R.string.classic_selected)}"
                     else accessibilityLabel
