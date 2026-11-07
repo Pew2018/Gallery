@@ -119,7 +119,7 @@ object OxygenClassicDialog {
             // Use the actual form roots, not the presence of an arbitrary EditText
             // (pickers and security pages also contain inputs).
             has(R.id.export_favorites_wrapper, org.fossify.commons.R.id.export_settings_wrapper,
-                R.id.save_as_holder, R.id.folder_path_hint) -> WidthProfile.INPUT
+                R.id.save_as_holder, R.id.folder_path_hint, R.id.classic_input_dialog_holder) -> WidthProfile.INPUT
 
             has(R.id.classic_dialog_security_choice) -> WidthProfile.SECURITY_CHOICE
             has(R.id.classic_dialog_toolbar_content) -> WidthProfile.TOOLBAR_CONFIG
@@ -442,25 +442,29 @@ object OxygenClassicDialog {
                     )
                 }
                 if (v is TextInputLayout) {
-                    // Preserve MyTextInputLayout's public API and error/validation behavior.
-                    v.boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-                    v.setBoxCornerRadii(4 * dp, 4 * dp, 4 * dp, 4 * dp)
-                    v.boxStrokeWidth = dp.toInt().coerceAtLeast(1)
-                    v.boxStrokeWidthFocused = (2 * dp).toInt()
-                    v.boxStrokeColor = readableAccent
-                    v.defaultHintTextColor = ColorStateList.valueOf(inactive)
-                    v.hintTextColor = ColorStateList.valueOf(readableAccent)
+                    // TextInputLayout owns the outline. Never apply the legacy EditText
+                    // underline beneath a Material field or replace its error state.
+                    val tokens = OxygenThemeEngine.snapshot(activity, activity.config).copy(
+                        pageBackground = surface,
+                        primaryText = dialogText,
+                        secondaryText = inactive,
+                        disabledText = disabled,
+                        interactiveAccent = readableAccent
+                    )
+                    OxygenClassicPageInput.style(v, tokens, surface)
                 }
                 if (v is EditText && v.id != org.fossify.commons.R.id.top_toolbar_search) {
-                    // The picker search owns a single OxygenOS underline; the
-                    // global EditText skin would paint a second, competing rule.
-                    v.background = AppCompatResources.getDrawable(v.context, androidx.appcompat.R.drawable.abc_edit_text_material)
-                    styleInput(activity, v)
                     v.textSize = 16f
-                    val input = (v.parent as? View)?.parent as? TextInputLayout
+                    val input = v.parent as? TextInputLayout ?: (v.parent as? View)?.parent as? TextInputLayout
                     if (input != null) {
                         v.background = null
                         v.minimumHeight = (56 * dp).toInt()
+                        v.setTextColor(dialogText)
+                        v.setHintTextColor(inactive)
+                        if (Build.VERSION.SDK_INT >= 29) v.textCursorDrawable?.mutate()?.setTint(readableAccent)
+                    } else {
+                        v.background = AppCompatResources.getDrawable(v.context, androidx.appcompat.R.drawable.abc_edit_text_material)
+                        styleInput(activity, v)
                     }
                 }
                 if (v is android.widget.SeekBar && v.id == R.id.dialog_file_style_spacing_slider) {

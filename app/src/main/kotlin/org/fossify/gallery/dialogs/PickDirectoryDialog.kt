@@ -3,10 +3,8 @@ package org.fossify.gallery.dialogs
 import org.fossify.gallery.helpers.OxygenClassicMenus
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.LayerDrawable
+import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
-import androidx.core.graphics.ColorUtils
-import android.view.Gravity
 import android.content.res.ColorStateList
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
@@ -53,6 +51,7 @@ import org.fossify.gallery.extensions.getSortedDirectories
 import org.fossify.gallery.models.Directory
 import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.helpers.OxygenClassicPalette
+import org.fossify.gallery.helpers.OxygenThemeColors
 import org.fossify.gallery.helpers.photoSourceCandidates
 import org.fossify.gallery.helpers.PhotoSourceSelectionDraft
 import org.fossify.gallery.helpers.photoSourceSearchMatches
@@ -116,6 +115,7 @@ class PickDirectoryDialog(
     private val searchView = binding.folderSearchView
     private val searchEditText = searchView.binding.topToolbarSearch
     private val searchBarContainer = searchView.binding.searchBarContainer
+    private var searchFocusListenerInstalled = false
 
     init {
         (binding.directoriesGrid.layoutManager as MyGridLayoutManager).apply {
@@ -269,35 +269,42 @@ class PickDirectoryDialog(
         setBackgroundColor(Color.TRANSPARENT)
         searchBarContainer.setBackgroundColor(Color.TRANSPARENT)
 
-        // Commons 7.1.3 paints the *inner* toolbar_container with an accent
-        // color-filtered M3 pill. Reset that layer, not just the outer wrapper.
-        // OxygenOS 7.1.1 uses a quiet rectangular search field and 1dp rule.
+        // Commons 7.1.3 paints the inner toolbar_container as an M3 pill. Reset
+        // that layer and own one classic outline around the search controls.
         val dp = resources.displayMetrics.density
-        val light = ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
-        val surface = if (light) Color.WHITE else Color.rgb(48, 48, 48)
-        val primaryText = if (light) Color.rgb(33, 33, 33) else Color.rgb(250, 250, 250)
-        val secondaryText = if (light) Color.rgb(117, 117, 117) else Color.rgb(189, 189, 189)
-        val underline = if (light) Color.rgb(189, 189, 189) else Color.rgb(117, 117, 117)
+        val tokens = OxygenThemeEngine.snapshot(activity, activity.config)
+        val surface = tokens.dialogBackground
+        val primaryText = tokens.primaryText
+        val secondaryText = tokens.secondaryText
+        val neutral = OxygenThemeColors.readableAccent(tokens.secondaryText, surface)
+        val accent = OxygenClassicPalette.readableAccent(tokens.interactiveAccent, surface)
         searchEditText.background = ColorDrawable(Color.TRANSPARENT)
         searchEditText.backgroundTintList = null
-        fun paintUnderline(focused: Boolean) {
-            val stroke = if (focused)
-                OxygenClassicPalette.readableAccent(activity.getProperPrimaryColor(), surface)
-                else underline
-            val height = ((if (focused) 2f else 1f) * dp + 0.5f).toInt().coerceAtLeast(1)
-            binding.toolbarContainer.background = LayerDrawable(
-                arrayOf(ColorDrawable(surface), ColorDrawable(stroke))
-            ).apply {
-                setLayerGravity(1, Gravity.BOTTOM)
-                setLayerHeight(1, height)
+        fun paintOutline(focused: Boolean) {
+            val stroke = if (focused) accent else neutral
+            val width = ((if (focused) 2f else 1f) * dp + 0.5f).toInt().coerceAtLeast(1)
+            binding.toolbarContainer.background = GradientDrawable().apply {
+                cornerRadius = 4f * dp
+                setColor(surface)
+                setStroke(width, stroke)
             }
         }
-        val originalFocusListener = searchEditText.onFocusChangeListener
-        searchEditText.onFocusChangeListener = android.view.View.OnFocusChangeListener { v, focused ->
-            originalFocusListener?.onFocusChange(v, focused)
-            paintUnderline(focused)
+        if (!searchFocusListenerInstalled) {
+            // MySearchMenu.setupMenu() installs its own listener with post{}.
+            // Wrap that listener after it lands so search-open behavior remains first.
+            searchEditText.post {
+                if (!searchFocusListenerInstalled) {
+                    val originalFocusListener = searchEditText.onFocusChangeListener
+                    searchEditText.onFocusChangeListener = android.view.View.OnFocusChangeListener { v, focused ->
+                        originalFocusListener?.onFocusChange(v, focused)
+                        paintOutline(focused)
+                    }
+                    searchFocusListenerInstalled = true
+                    paintOutline(searchEditText.hasFocus())
+                }
+            }
         }
-        paintUnderline(searchEditText.hasFocus())
+        paintOutline(searchEditText.hasFocus())
         binding.topToolbarSearchIcon.setColorFilter(primaryText)
         searchEditText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
         searchEditText.setTextColor(primaryText)

@@ -4,8 +4,9 @@ import org.fossify.gallery.helpers.OxygenClassicMenus
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
-import android.widget.EditText
 import android.widget.LinearLayout
+import com.google.android.material.textfield.TextInputLayout
+import com.google.android.material.textfield.TextInputEditText
 import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.LinearLayoutManager
 import org.fossify.commons.extensions.beVisibleIf
@@ -17,6 +18,8 @@ import org.fossify.gallery.adapters.PhotoProfileManageRow
 import org.fossify.gallery.databinding.ActivityPhotoProfileManageBinding
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.helpers.OxygenClassicDialog
+import org.fossify.gallery.helpers.OxygenClassicPageInput
+import org.fossify.gallery.helpers.OxygenClassicPalette
 import org.fossify.gallery.helpers.OxygenSystemBars
 import org.fossify.gallery.helpers.OxygenThemeEngine
 import org.fossify.gallery.helpers.OxygenThemeColors
@@ -200,13 +203,23 @@ class PhotoProfileManageActivity : SimpleActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(8), dp(24), dp(8))
         }
-        val field = EditText(context).apply {
+        val input = TextInputLayout(context).apply {
+            id = R.id.classic_input_dialog_holder
+            hintEnabled = false
+        }
+        val tokens = OxygenThemeEngine.snapshot(this, config).let {
+            it.copy(pageBackground = it.dialogBackground,
+                interactiveAccent = OxygenClassicPalette.readableAccent(it.interactiveAccent, it.dialogBackground))
+        }
+        val field = TextInputEditText(context).apply {
             setText(profile.name)
+            setSelection(text?.length ?: 0)
             setSingleLine()
             hint = getString(R.string.photo_profiles_name)
         }
-        OxygenClassicDialog.styleInput(this, field)
-        body.addView(field, LinearLayout.LayoutParams(-1, -2))
+        input.addView(field, LinearLayout.LayoutParams(-1, -2))
+        OxygenClassicPageInput.style(input, tokens)
+        body.addView(input, LinearLayout.LayoutParams(-1, -2))
         val dialog = OxygenClassicDialog.show(
             this,
             OxygenClassicDialog.builder(this, getString(R.string.photo_profiles_rename))
@@ -218,18 +231,19 @@ class PhotoProfileManageActivity : SimpleActivity() {
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val name = field.text.toString().trim()
             if (name.isEmpty()) {
-                field.error = getString(R.string.photo_profiles_name_required)
+                input.error = getString(R.string.photo_profiles_name_required)
                 return@setOnClickListener
             }
+            input.error = null
             val latest = latestProfile(profile.id)
             if (latest == null) {
-                field.error = getString(R.string.photo_profiles_edit_target_missing)
+                input.error = getString(R.string.photo_profiles_edit_target_missing)
                 refreshProfiles()
                 return@setOnClickListener
             }
             val update = runCatching { store.updateExisting(latest.copy(name = name)) }
             if (update.isFailure) {
-                field.error = getString(R.string.photo_profiles_edit_target_missing)
+                input.error = getString(R.string.photo_profiles_edit_target_missing)
                 refreshProfiles()
                 return@setOnClickListener
             }

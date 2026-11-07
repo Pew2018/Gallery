@@ -21,6 +21,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import com.google.android.material.textfield.TextInputLayout
 import org.fossify.gallery.R
 
 @RunWith(RobolectricTestRunner::class)
@@ -34,9 +35,11 @@ class PhotoProfileEditUiTest {
         )
         val label = root.findViewById<TextView>(R.id.photo_profile_edit_name_label)
         val field = root.findViewById<EditText>(R.id.photo_profile_edit_name)
+        val input = root.findViewById<TextInputLayout>(R.id.photo_profile_edit_name_input)
         val scroll = root.findViewById<ScrollView>(R.id.photo_profile_edit_scroll)
         assertNotNull(label)
         assertNotNull(field)
+        assertNotNull(input)
         assertNotNull(scroll)
         assertEquals(12f, label.textSize / context.resources.displayMetrics.scaledDensity, 0.1f)
 
@@ -51,19 +54,17 @@ class PhotoProfileEditUiTest {
                 legacyText = Color.BLACK
             )
             label.setTextColor(tokens.secondaryText)
+            OxygenClassicPageInput.style(input, tokens)
             OxygenClassicPageInput.style(field, tokens)
             assertEquals(tokens.primaryText, field.currentTextColor)
             assertEquals(tokens.secondaryText, field.currentHintTextColor)
-            val tint = field.backgroundTintList!!
-            val focusUnderline = tint.getColorForState(
-                intArrayOf(android.R.attr.state_enabled, android.R.attr.state_focused), tint.defaultColor
-            )
-            val idleUnderline = tint.defaultColor
-            assertEquals(tokens.interactiveAccent, focusUnderline)
+            assertEquals(TextInputLayout.BOX_BACKGROUND_OUTLINE, input.boxBackgroundMode)
+            assertEquals((1 * context.resources.displayMetrics.density).toInt().coerceAtLeast(1), input.boxStrokeWidth)
+            assertEquals((2 * context.resources.displayMetrics.density).toInt().coerceAtLeast(2), input.boxStrokeWidthFocused)
+            assertEquals(null, field.background)
             assertTrue(OxygenThemeColors.contrastRatio(field.currentTextColor, tokens.pageBackground) >= 4.5)
             assertTrue(OxygenThemeColors.contrastRatio(field.currentHintTextColor, tokens.pageBackground) >= 4.5)
-            assertTrue(OxygenThemeColors.contrastRatio(focusUnderline, tokens.pageBackground) >= 3.0)
-            assertTrue(OxygenThemeColors.contrastRatio(idleUnderline, tokens.pageBackground) >= 3.0)
+            assertTrue(OxygenThemeColors.contrastRatio(tokens.interactiveAccent, tokens.pageBackground) >= 3.0)
         }
     }
 
@@ -96,12 +97,12 @@ class PhotoProfileEditUiTest {
         val addSource = root.findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.photo_profile_edit_add_source)
         val sources = root.findViewById<android.widget.LinearLayout>(R.id.photo_profile_edit_sources)
         assertEquals(1, field.maxLines)
-        assertEquals((52 * context.resources.displayMetrics.density).toInt(), field.minimumHeight)
+        assertEquals((56 * context.resources.displayMetrics.density).toInt(), field.minimumHeight)
         assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, label.layoutParams.height)
         assertNotNull(root.findViewById<TextView>(R.id.photo_profile_edit_sources_title))
         assertEquals(0, (sources.layoutParams as ViewGroup.MarginLayoutParams).topMargin)
         assertEquals((56 * context.resources.displayMetrics.density).toInt(), addSource.layoutParams.height)
-        assertTrue(field.hint.isNullOrEmpty())
+        assertEquals(context.getString(R.string.photo_profiles_enter_name), field.hint.toString())
         assertNotNull(addSource.drawable)
         assertTrue(root.findViewById<ScrollView>(R.id.photo_profile_edit_scroll).isFillViewport)
     }
