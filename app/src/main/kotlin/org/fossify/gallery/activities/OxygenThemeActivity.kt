@@ -16,7 +16,7 @@ import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.helpers.*
 
-/** Flat classic settings. Rebind colors/selection in place; rebuild only on page navigation. */
+/** Flat classic theme page. Color edits rebind in place; additional editors use shared dialogs. */
 class OxygenThemeActivity : SimpleActivity() {
     private var initialNavigation = false
     private var returningToSettings = false

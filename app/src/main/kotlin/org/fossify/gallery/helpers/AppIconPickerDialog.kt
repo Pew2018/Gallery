@@ -37,11 +37,11 @@ internal object AppIconPickerDialog {
             hex.text = OxygenThemeEngine.formatHex(colors[selected])
             cells.forEachIndexed { index, cell ->
                 ClassicThemeDialog.selection(host, cell, index == selected)
-                cell.background = ClassicThemeDialog.cellBackground(host, index == selected)
             }
         }
         ids.forEachIndexed { index, resource ->
             val cell = FrameLayout(host).apply {
+                background = ClassicThemeDialog.iconCellBackground(host)
                 isFocusable = true
                 contentDescription = host.getString(R.string.classic_icon_option, index + 1) + ", " + OxygenThemeEngine.formatHex(colors[index])
                 setOnClickListener { selected = index; bind() }

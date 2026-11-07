@@ -2,7 +2,6 @@ package org.fossify.gallery.helpers
 
 import android.app.Application
 import android.os.Looper
-import org.fossify.commons.extensions.getSharedPrefs
 import org.fossify.gallery.models.Medium
 import org.junit.Assert.*
 import org.junit.Test

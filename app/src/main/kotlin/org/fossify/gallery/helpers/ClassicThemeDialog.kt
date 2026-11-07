@@ -19,7 +19,7 @@ import org.fossify.gallery.extensions.config
 internal object ClassicThemeDialog {
     fun dp(host: SimpleActivity, value: Int) = (host.resources.displayMetrics.density * value + .5f).toInt()
     fun canOpen(host: SimpleActivity): Boolean = !host.isFinishing && !host.isDestroyed &&
-        host.window.decorView.getTag(R.id.classic_theme_dialog_active) == null
+        (host.window.decorView.getTag(R.id.classic_theme_dialog_active) as? AlertDialog)?.isShowing != true
 
     fun body(host: SimpleActivity, padding: Int = 24) = LinearLayout(host).apply {
         orientation = LinearLayout.VERTICAL
@@ -55,6 +55,25 @@ internal object ClassicThemeDialog {
             else tokens.dialogBackground).apply { if (selected) setStroke(dp(host, 2), tokens.interactiveAccent) }
         return RippleDrawable(ColorStateList.valueOf(ColorUtils.setAlphaComponent(tokens.interactiveAccent, 28)),
             base, shape(android.graphics.Color.WHITE))
+    }
+
+    /** State changes retain the same ripple instance and its release animation. */
+    fun iconCellBackground(host: SimpleActivity): RippleDrawable {
+        val tokens = OxygenThemeEngine.snapshot(host, host.config)
+        fun shape(selected: Boolean) = GradientDrawable().apply {
+            cornerRadius = dp(host, 4).toFloat()
+            setColor(if (selected) OxygenThemeColors.blend(tokens.dialogBackground, tokens.interactiveAccent, .08)
+                else tokens.dialogBackground)
+            if (selected) setStroke(dp(host, 2), tokens.interactiveAccent)
+        }
+        val states = android.graphics.drawable.StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_selected), shape(true))
+            addState(intArrayOf(), shape(false))
+        }
+        val mask = GradientDrawable().apply {
+            cornerRadius = dp(host, 4).toFloat(); setColor(android.graphics.Color.WHITE)
+        }
+        return RippleDrawable(ColorStateList.valueOf(ColorUtils.setAlphaComponent(tokens.interactiveAccent, 28)), states, mask)
     }
 
     fun show(host: SimpleActivity, builder: AlertDialog.Builder, content: View): AlertDialog {

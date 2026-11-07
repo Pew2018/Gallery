@@ -66,7 +66,9 @@ class ThemeDialogTest {
             val dialog = AppIconPickerDialog.show(host)!!
             assertEquals(host.getAppIconIDs().size, rows(dialog).size)
             noGlow(dialog)
+            val ripple = rows(dialog)[1].background
             rows(dialog)[1].performClick(); rows(dialog)[2].performClick()
+            assertSame("Selection must retain the running bounded ripple", ripple, rows(dialog)[1].background)
             assertEquals(colors[0], host.config.appIconColor)
             assertTrue(descendants(content(dialog)).filterIsInstance<TextView>().any { it.text == OxygenThemeEngine.formatHex(colors[2]) })
             dialog.cancel()
@@ -140,4 +142,48 @@ class ThemeDialogTest {
             assertEquals(0, host.resources.getIdentifier("settings_refresh_diagnostics_holder", "id", host.packageName))
         } finally { controller.pause().stop().destroy() }
     }
+    @Test @Config(sdk = [25, 31], qualifiers = "w360dp-h640dp")
+    fun themeDialogsHaveOwnWidthProfileAndRenderWithoutOverscrollInBothModes() {
+        val controller = Robolectric.buildActivity(OxygenThemeActivity::class.java).setup()
+        val host = controller.get()
+        try {
+            for (mode in listOf("light", "dark")) {
+                host.config.oxygenThemeActivated = true
+                host.config.oxygenAppearanceMode = mode
+                OxygenThemeEngine.apply(host, host.config)
+                val factories = listOf<() -> AlertDialog>(
+                    { MaterialColorPickerDialog.show(host, { it.label }) { }!! },
+                    { AppIconPickerDialog.show(host)!! },
+                    { ClassicCustomColorDialog.show(host) { }!! })
+                factories.forEachIndexed { index, open ->
+                    val dialog = open()
+                    val decor = dialog.window!!.decorView
+                    val width = OxygenClassicDialog.widthForContent(OxygenClassicDialog.availableWidth(host),
+                        host.resources.displayMetrics.density, 400)
+                    assertEquals(width, OxygenClassicDialog.prepareWindow(host, dialog).width)
+                    val height = OxygenClassicDialog.availableHeight(host)
+                    repeat(2) {
+                        decor.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.AT_MOST))
+                        decor.layout(0, 0, decor.measuredWidth, decor.measuredHeight)
+                    }
+                    noGlow(dialog)
+                    assertTrue(content(dialog).height > 0)
+                    val bitmap = android.graphics.Bitmap.createBitmap(decor.width, decor.height, android.graphics.Bitmap.Config.ARGB_8888)
+                    decor.draw(android.graphics.Canvas(bitmap))
+                    val output = java.io.File("build/reports/ui-regression/theme-dialogs").apply { mkdirs() }
+                    java.io.File(output, "theme-$index-$mode-${android.os.Build.VERSION.SDK_INT}.png").outputStream().use {
+                        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                    }
+                    bitmap.recycle()
+                    dialog.dismiss()
+                }
+                val compact = OxygenClassicDialog.show(host, OxygenClassicDialog.builder(host, "Existing compact"))
+                assertEquals(OxygenClassicDialog.widthFor(OxygenClassicDialog.availableWidth(host), host.resources.displayMetrics.density),
+                    OxygenClassicDialog.prepareWindow(host, compact).width)
+                compact.dismiss()
+            }
+        } finally { controller.pause().stop().destroy() }
+    }
+
 }

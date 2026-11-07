@@ -97,6 +97,16 @@ with privacy and retained execution/error-propagation coverage.
 - Added exact Material ID/name/HEX/order fixture to `OxygenThemePresetsTest`.
 - Updated `ClassicSettingsControlsTest` and `SettingsPageMotionTest` to the new
   dialog navigation boundary while retaining theme-page/return-motion checks.
+- Initial CI run `42375463869` compiled successfully, then ran 1,016 tests with
+  five failures. All failures were immediate reopen sequences: the asynchronous
+  dismiss listener retained the host tag briefly. `canOpen` now checks the tagged
+  window's actual `isShowing`, and the original callback only clears its own tag.
+  The same repeated-open tests remain to verify the correction.
+- Icon selection now changes a StateListDrawable inside the existing bounded
+  RippleDrawable, retaining its press/release animation rather than replacing it.
+  A test verifies drawable identity across selections.
+- Added API 25/31 light/dark geometry and PNG renders under
+  `build/reports/ui-regression/theme-dialogs`, plus unchanged compact width checks.
 - Local Gradle attempt stopped before compilation: distribution download failed
   with `Network is unreachable`; this is not a passing test result.
 - GitHub Actions runs the complete FOSS Release unit suite and ARM64 FOSS Release
