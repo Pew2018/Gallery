@@ -21,6 +21,7 @@ abstract class BaseViewerActivity : SimpleActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        OxygenClassicActivityMotion.install(this)
         val contentRoot = findViewById<View>(android.R.id.content)
         ViewCompat.setOnApplyWindowInsetsListener(contentRoot) { _, insets ->
             setupEdgeToEdge(insets)

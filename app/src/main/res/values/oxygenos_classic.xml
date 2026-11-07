@@ -27,6 +27,18 @@
     <integer name="oxygen_classic_dialog_exit_duration_ms">130</integer>
     <dimen name="oxygen_classic_dialog_motion_distance">6dp</dimen>
 
+    <!-- Activity Window motion tokens; kept in XML for WindowManager-owned transitions. -->
+    <integer name="oxygen_classic_page_enter_duration_ms">170</integer>
+    <integer name="oxygen_classic_page_exit_duration_ms">140</integer>
+    <dimen name="oxygen_classic_page_enter_offset">14dp</dimen>
+    <dimen name="oxygen_classic_page_return_offset">10dp</dimen>
+    <style name="OxygenClassicPageWindow">
+        <item name="android:windowEnterAnimation">@anim/oxygen_classic_page_open_enter</item>
+        <item name="android:windowExitAnimation">@anim/oxygen_classic_page_open_exit</item>
+        <item name="android:windowCloseEnterAnimation">@anim/oxygen_classic_page_close_enter</item>
+        <item name="android:windowCloseExitAnimation">@anim/oxygen_classic_page_close_exit</item>
+    </style>
+
     <!-- Screenshot-fit/application tokens, not extracted OxygenOS ROM resources. -->
     <dimen name="oxygen_classic_settings_summary">13sp</dimen>
     <dimen name="oxygen_classic_settings_section">48dp</dimen>
