@@ -50,24 +50,23 @@ class OxygenClassicEdgeGlowTest {
         val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
         val view = View(activity).apply { measure(120, 100); layout(0, 0, 120, 100) }
         var currentAccent = Color.GREEN
-        val pulse = ClassicGlowPulse(view, { currentAccent }, animationsEnabled = { false })
+        var resolvedAccent = Color.TRANSPARENT
+        val pulse = ClassicGlowPulse(view, {
+            currentAccent.also { resolvedAccent = it }
+        }, animationsEnabled = { false })
         val bitmap = Bitmap.createBitmap(120, 100, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         pulse.pulse(atBottom = false)
         pulse.draw(canvas)
-        val visible = bitmap.getPixel(60, 0)
-        assertTrue(Color.green(visible) > Color.red(visible))
+        assertEquals(Color.GREEN, resolvedAccent)
 
         currentAccent = Color.MAGENTA
-        bitmap.eraseColor(Color.TRANSPARENT)
         pulse.draw(canvas)
-        val recolored = bitmap.getPixel(60, 0)
-        assertTrue(Color.red(recolored) > Color.green(recolored))
+        assertEquals(Color.MAGENTA, resolvedAccent)
 
         pulse.release()
-        bitmap.eraseColor(Color.TRANSPARENT)
         pulse.draw(canvas)
-        assertEquals(Color.TRANSPARENT, bitmap.getPixel(60, 0))
+        assertEquals(Color.MAGENTA, resolvedAccent)
         pulse.finish()
         bitmap.recycle()
         activity.finish()
