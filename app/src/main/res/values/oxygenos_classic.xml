@@ -230,6 +230,8 @@
         <item name="textAppearanceSmallPopupMenu">@style/OxygenClassicPopupText.Light</item>
         <item name="popupMenuStyle">@style/OxygenClassicPopupMenu.Light</item>
         <item name="android:popupMenuStyle">@style/OxygenClassicPopupMenu.Light</item>
+        <item name="popupWindowStyle">@style/OxygenClassicPopupWindow</item>
+        <item name="android:popupWindowStyle">@style/OxygenClassicPopupWindow</item>
         <item name="actionOverflowMenuStyle">@style/OxygenClassicOverflow.Light</item>
         <item name="listPreferredItemHeightSmall">48dp</item>
         <item name="dropdownListPreferredItemHeight">48dp</item>
@@ -251,6 +253,8 @@
         <item name="textAppearanceSmallPopupMenu">@style/OxygenClassicPopupText.Dark</item>
         <item name="popupMenuStyle">@style/OxygenClassicPopupMenu.Dark</item>
         <item name="android:popupMenuStyle">@style/OxygenClassicPopupMenu.Dark</item>
+        <item name="popupWindowStyle">@style/OxygenClassicPopupWindow</item>
+        <item name="android:popupWindowStyle">@style/OxygenClassicPopupWindow</item>
         <item name="actionOverflowMenuStyle">@style/OxygenClassicOverflow.Dark</item>
         <item name="listPreferredItemHeightSmall">48dp</item>
         <item name="dropdownListPreferredItemHeight">48dp</item>
@@ -265,6 +269,15 @@
     <style name="OxygenClassicPopupMenu.Dark" parent="Widget.AppCompat.PopupMenu">
         <item name="android:popupBackground">@drawable/oxygen_classic_menu_dark</item>
         <item name="android:popupElevation">8dp</item>
+    </style>
+
+    <!-- AppCompat PopupMenu and Toolbar overflow share their own Window path. -->
+    <style name="OxygenClassicPopupWindow" parent="Widget.AppCompat.PopupWindow">
+        <item name="android:popupAnimationStyle">@style/OxygenClassicPopupWindowAnimation</item>
+    </style>
+    <style name="OxygenClassicPopupWindowAnimation">
+        <item name="android:windowEnterAnimation">@anim/oxygen_classic_popup_enter</item>
+        <item name="android:windowExitAnimation">@anim/oxygen_classic_popup_exit</item>
     </style>
 
     <style name="OxygenClassicPopupText.Light" parent="TextAppearance.AppCompat.Widget.PopupMenu.Large">

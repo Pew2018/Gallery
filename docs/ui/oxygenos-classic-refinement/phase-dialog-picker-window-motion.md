@@ -29,3 +29,13 @@
 ## Limits
 
 The system owns Window animation cancellation and scaling; this phase does not implement predictive-back progress. AppCompat Popup behavior is intentionally retained where a shared public Window contract does not apply.
+
+## PopupMenu / Toolbar overflow follow-up — 2026-11-07
+
+The earlier Dialog window pass left AppCompat PopupMenu and Toolbar overflow on their default presentation. This follow-up applies a separate popup-window style through the existing shared `OxygenClassicMenus` theme boundary and the Toolbar popup theme:
+
+- Light and dark classic popup themes now resolve to `OxygenClassicPopupWindow`, which assigns `OxygenClassicPopupWindowAnimation` through the public `android:popupAnimationStyle` attribute.
+- Popup enter is a 140ms alpha fade with a 3dp upward settle; exit is a 110ms alpha fade with a 2dp upward retreat. These values are tuning estimates, and Android's animation-duration scale remains authoritative.
+- The change covers anchored menus created through `OxygenClassicMenus.createPopup()` and AppCompat Toolbar overflow/submenus that use `OxygenToolbarStyle.preparePopup()`. It does not alter menu anchors, item layout, panel geometry, action callbacks, or native PopupWindow clipping.
+- Dialog and DialogFragment windows continue to use the pre-show `OxygenClassicDialog.prepareWindow()` contract. `PlaybackSpeedFragment` calls `ClassicCommonsHooks.beforeDialogShow()` before returning its dialog, then applies the shared style in `onStart()`; system permission, SAF, and biometric windows remain platform-owned.
+- Added a deterministic resource-resolution test for both light and dark popup themes. It checks that AppCompat's popup window style resolves to the new animation style. Runtime animation timing, rapid re-open, outside dismissal, and bottom-edge anchor behavior remain device checks.
