@@ -173,11 +173,20 @@ class DialogUiRepairTest {
                         val colorCounts = (0 until pixels.height).flatMap { y ->
                             (0 until pixels.width).map { x -> pixels.getPixel(x, y) }
                         }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(8)
+                        val privateField = { name: String ->
+                            runCatching {
+                                renderableMark.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(renderableMark)
+                            }.getOrNull()
+                        }
+                        val paintInfo = (privateField("paint") as? android.graphics.Paint)?.let {
+                            "paint(color=${it.color.toUInt().toString(16)},alpha=${it.alpha},filter=${it.colorFilter})"
+                        }
                         assertEquals("rendered mark agrees with isChecked; accent=${accent.toUInt().toString(16)} " +
                             "view=${check.drawableState.contentToString()} outer=${mark.state.contentToString()} " +
                             "inner=${insetChild?.state?.contentToString()} outerBounds=${mark.bounds} " +
                             "innerType=${insetChild?.javaClass?.name} innerAlpha=${insetChild?.alpha} " +
-                            "innerVisible=${insetChild?.isVisible} viewAlpha=${check.alpha} pixels=$colorCounts",
+                            "innerVisible=${insetChild?.isVisible} viewAlpha=${check.alpha} " +
+                            "kind=${privateField("kind")} progress=${privateField("selectionProgress")} $paintInfo pixels=$colorCounts",
                             check.isChecked, containsAccent)
                     }
                     val ripple = row.background as RippleDrawable
