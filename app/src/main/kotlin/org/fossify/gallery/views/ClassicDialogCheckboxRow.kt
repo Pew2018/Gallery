@@ -11,6 +11,11 @@ import android.widget.FrameLayout
 class ClassicDialogCheckboxRow @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null
 ) : FrameLayout(context, attrs) {
+    override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight)
+        background?.setBounds(0, 0, width, height)
+    }
+
     override fun onFinishInflate() {
         super.onFinishInflate()
         val checkbox = getChildAt(0) as CheckBox
