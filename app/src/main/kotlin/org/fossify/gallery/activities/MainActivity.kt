@@ -1494,13 +1494,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     private fun showFolderVisibilityDialog() {
-        val binding = org.fossify.gallery.databinding.DialogFolderVisibilityBinding.inflate(layoutInflater)
+        val folderVisibilityBinding = org.fossify.gallery.datafolderVisibilityBinding.DialogFolderVisibilityBinding.inflate(layoutInflater)
         val checked = mFolderVisibility.copyOf()
         listOf(
-            binding.folderVisibilityHidden,
-            binding.folderVisibilityExcluded,
-            binding.folderVisibilityNomedia,
-            binding.folderVisibilityProtected
+            folderVisibilityBinding.folderVisibilityHidden,
+            folderVisibilityBinding.folderVisibilityExcluded,
+            folderVisibilityBinding.folderVisibilityNomedia,
+            folderVisibilityBinding.folderVisibilityProtected
         ).forEachIndexed { index, checkbox ->
             checkbox.isChecked = checked[index]
             checkbox.setOnCheckedChangeListener { _, isChecked -> checked[index] = isChecked }
@@ -1508,7 +1508,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
         OxygenClassicDialog.show(this,
             OxygenClassicDialog.builder(this, getString(R.string.folder_filter_title))
-                .setView(binding.root)
+                .setView(folderVisibilityBinding.root)
                 .setNegativeButton(org.fossify.commons.R.string.cancel, null)
                 .setPositiveButton(R.string.folder_filter_apply) { _, _ ->
                     val apply = {
@@ -1529,7 +1529,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     } else {
                         verifyExcluded()
                     }
-                }, binding.root)
+                }, folderVisibilityBinding.root)
     }
 
     private fun loadCategorizedFolders() {
