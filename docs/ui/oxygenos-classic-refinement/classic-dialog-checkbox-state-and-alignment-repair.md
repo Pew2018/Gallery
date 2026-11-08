@@ -22,7 +22,7 @@
 2. The view-type supplemental Checkbox IDs were absent from the trailing-mark set. They now use the same relative-end compound-mark treatment as grouping and sorting.
 3. After moving a trailing mark to a compound drawable, the old non-trailing branch could still wrap the now-null `buttonDrawable` in an `InsetDrawable`. That retained an empty leading button slot beside the new right mark, contributing to the excessive text gap. The leading inset path now runs only for non-trailing controls that still have a button drawable.
 4. `CheckedTextView` styling treated every choice mode other than SINGLE as multiple. That included `CHOICE_MODE_NONE`. Styling now explicitly handles NONE, SINGLE, MULTIPLE, and MULTIPLE_MODAL; NONE clears the check mark.
-5. `ClassicDialogCheckboxRow` already owns the touch target and rectangular ripple, and clears the child Checkbox background. The row continues to call `checkbox.performClick()` once. The existing binding IDs and business listeners remain attached to the Checkbox.
+5. `ClassicDialogCheckboxRow` owns the touch target and rectangular ripple, and clears the child Checkbox background. The row continues to call `checkbox.performClick()` once. It now resynchronizes its RippleDrawable bounds to the full row rectangle when the row size changes, covering delayed dialog measurement. The existing binding IDs and business listeners remain attached to the Checkbox.
 
 ### Not established as the sole cause
 
@@ -44,15 +44,14 @@ No project-local `setMultiChoiceItems()` or `setSingleChoiceItems()` call was fo
 
 ### Automated coverage added
 
-- `ClassicDialogCheckboxStateRegressionTest`: Native Graphics bitmap assertions for checked and unchecked pixels, six dark/light and accent combinations, repeated reversals, settled animator output, `jumpToCurrentState()`, disabled checked/unchecked separation, and a real CheckBox wrapped in `InsetDrawable` with animation disabled.
 - `DialogUiRepairTest`: all six filter and four folder-visibility rows exercise the one-click row path, exactly-once callback, View/InsetDrawable/inner Drawable checked-state propagation, and bounded row ripple. Grouping, sorting, and view-type layouts inspect the actual trailing compound marks, absence of a second button mark, and stable end padding after repeated styling.
 - `ClassicDialogCheckboxStateRegressionTest`: Native Graphics tests draw the actual selection Drawable and a real CheckBox with a nonzero `InsetDrawable`; assert final bitmap pixels through repeated reversals and verify the checked state propagated by the View.
 - Existing targeted contrast, motion, dialog layout, and delete-confirmation ripple tests remain part of the validation run.
 
 ### Results
 
-- Local targeted Gradle test run: **blocked before Gradle started**. The wrapper distribution `gradle-9.5.1` was not installed in this environment and downloading it from `services.gradle.org` failed with `Network is unreachable`.
-- GitHub Actions ARM64 FOSS Release run: earlier runs exposed an unreliable direct test-harness draw of an AppCompat-installed inner Drawable in `DialogUiRepairTest` (transparent Canvas output despite the View, wrapper state, Drawable state, animation progress, and paint all being correct). That assertion was removed from the interaction test; real Drawable pixel assertions remain in `ClassicDialogCheckboxStateRegressionTest`. Record the follow-up run and artifact here after completion.
+- GitHub Actions run [686](https://github.com/Pew2018/Gallery/actions/runs/42462548272): **success** on source commit `b43ad43338e95bdd4834dceb654ecf4aa3ecd68c`. The full FOSS Release unit test suite passed: 1,062 tests, 0 failures, 0 errors, 0 skipped. ARM64 FOSS Release assembly, package-name, v2 signature, arm64-only ABI validation, and Artifact upload all passed.
+- APK Artifact: `gallery-foss-arm64-v8a-release` (Artifact ID `13609544682`, ZIP SHA-256 `33c0fbf0196567aa041eb4429b432eb2986b343a6487238238343165ddc03689`). The APK SHA-256 recorded by CI is `fd5430032bf2e785d37db1d8b8627a294487405dc8f6285ad7ec7d9621821a12`. CI used a temporary test signing key, so this build is for testing and is not upgrade-compatible with a production-signed installation.
 - Pixel 8 Pro / Android 16: still requires device verification. Robolectric bitmap and view tests do not count as a device acceptance result.
 
 ## Remaining device checks
