@@ -26,9 +26,9 @@ import java.util.concurrent.TimeUnit
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class ClassicDialogCheckboxStateRegressionTest {
-    private fun bitmap(drawable: Drawable): Bitmap {
-        val out = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888)
-        drawable.setBounds(0, 0, 24, 24)
+    private fun bitmap(drawable: Drawable, width: Int = 24, height: Int = 24): Bitmap {
+        val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        drawable.setBounds(0, 0, width, height)
         drawable.draw(Canvas(out))
         return out
     }
@@ -39,6 +39,14 @@ class ClassicDialogCheckboxStateRegressionTest {
         for (y in 0 until expected.height) for (x in 0 until expected.width) {
             assertEquals("$message at ($x,$y)", expected.getPixel(x, y), actual.getPixel(x, y))
         }
+    }
+
+    private fun assertDifferentPixels(message: String, first: Bitmap, second: Bitmap) {
+        assertEquals(message, first.width, second.width)
+        assertEquals(message, first.height, second.height)
+        assertTrue(message, (0 until first.height).any { y ->
+            (0 until first.width).any { x -> first.getPixel(x, y) != second.getPixel(x, y) }
+        })
     }
 
     private fun dialogTokens(activity: AppCompatActivity, dark: Boolean, seed: Int): OxygenThemeTokens {
@@ -97,10 +105,10 @@ class ClassicDialogCheckboxStateRegressionTest {
                 drawable.state = intArrayOf(android.R.attr.state_checked) // disabled + checked
                 drawable.jumpToCurrentState()
                 val disabledChecked = bitmap(drawable)
-                assertNotEquals("disabled checked remains distinct from unchecked", unchecked, disabledChecked)
+                assertDifferentPixels("disabled checked remains distinct from unchecked", unchecked, disabledChecked)
                 drawable.state = intArrayOf() // disabled + unchecked
                 drawable.jumpToCurrentState()
-                assertNotEquals("disabled unchecked remains distinct from enabled unchecked", unchecked, bitmap(drawable))
+                assertDifferentPixels("disabled unchecked remains distinct from enabled unchecked", unchecked, bitmap(drawable))
             }
         } finally {
             activity.finish()
@@ -114,16 +122,18 @@ class ClassicDialogCheckboxStateRegressionTest {
             val checkbox = CheckBox(activity)
             val wrapped = InsetDrawable(OxygenClassicControls.selectionDrawable(
                 false, 1f, tokens, surfaceAccent = true, animationsEnabled = false
-            ), 0)
+            ), 0, 0, 12, 0)
             checkbox.buttonDrawable = wrapped
             checkbox.isChecked = false
-            val first = bitmap(wrapped)
+            val first = bitmap(wrapped, width = 36)
             assertEquals(Color.TRANSPARENT, first.getPixel(12, 12))
 
             repeat(10) {
                 checkbox.performClick()
                 val expected = checkbox.isChecked
-                val pixels = bitmap(wrapped)
+                assertEquals("wrapped Drawable receives View checked state", expected,
+                    wrapped.state.contains(android.R.attr.state_checked))
+                val pixels = bitmap(wrapped, width = 36)
                 if (expected) {
                     assertEquals(tokens.interactiveAccent, pixels.getPixel(4, 4))
                     assertNotEquals(Color.TRANSPARENT, pixels.getPixel(16, 10))
