@@ -147,7 +147,14 @@ class DialogUiRepairTest {
                             assertEquals("other options stay unchanged", if (other === check) !before[otherIndex] else before[otherIndex], other.isChecked)
                         }
                         val mark = check.buttonDrawable!!
+                        assertTrue("checkbox View publishes checked drawable state",
+                            check.drawableState.contains(android.R.attr.state_checked) == check.isChecked)
+                        assertTrue("InsetDrawable publishes checked drawable state",
+                            mark.state.contains(android.R.attr.state_checked) == check.isChecked)
                         mark.jumpToCurrentState()
+                        val insetChild = (mark as? android.graphics.drawable.InsetDrawable)?.drawable
+                        assertTrue("wrapped selection drawable receives checked state",
+                            (insetChild?.state?.contains(android.R.attr.state_checked) ?: check.isChecked) == check.isChecked)
                         mark.setBounds(0, 0, 24, 24)
                         val pixels = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888)
                         mark.draw(Canvas(pixels))

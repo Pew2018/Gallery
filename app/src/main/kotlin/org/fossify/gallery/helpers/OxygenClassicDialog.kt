@@ -642,7 +642,7 @@ object OxygenClassicDialog {
                     // Keep this dialog's original content height while the row owns the touch ripple.
                     deleteConfirmationRow.background = ripple(readableAccent, dp)
                     button.background = null
-                } else button.background = ripple(dialogText, dp)
+                } else button.background = ripple(readableAccent, dp)
                 button.isAllCaps = false
                 button.minHeight = ((if (row != null) 56f else 48f) * dp).toInt()
                 button.gravity = Gravity.CENTER_VERTICAL or Gravity.START
