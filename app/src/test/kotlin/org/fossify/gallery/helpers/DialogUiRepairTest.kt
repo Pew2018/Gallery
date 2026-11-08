@@ -157,8 +157,10 @@ class DialogUiRepairTest {
                         val insetChild = (mark as? android.graphics.drawable.InsetDrawable)?.drawable
                         assertTrue("wrapped selection drawable receives checked state",
                             (insetChild?.state?.contains(android.R.attr.state_checked) ?: check.isChecked) == check.isChecked)
-                        mark.setBounds(0, 0, 24, 24)
-                        val pixels = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888)
+                        val markWidth = mark.intrinsicWidth.coerceAtLeast(24)
+                        val markHeight = mark.intrinsicHeight.coerceAtLeast(24)
+                        mark.setBounds(0, 0, markWidth, markHeight)
+                        val pixels = Bitmap.createBitmap(markWidth, markHeight, Bitmap.Config.ARGB_8888)
                         mark.draw(Canvas(pixels))
                         val surface = if (androidx.core.graphics.ColorUtils.calculateLuminance(
                                 activity.getProperBackgroundColor()) >= 0.5) Color.WHITE else Color.rgb(48, 48, 48)
@@ -171,7 +173,8 @@ class DialogUiRepairTest {
                         }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(8)
                         assertEquals("rendered mark agrees with isChecked; accent=${accent.toUInt().toString(16)} " +
                             "view=${check.drawableState.contentToString()} outer=${mark.state.contentToString()} " +
-                            "inner=${insetChild?.state?.contentToString()} pixels=$colorCounts",
+                            "inner=${insetChild?.state?.contentToString()} outerBounds=${mark.bounds} " +
+                            "innerBounds=${insetChild?.bounds} pixels=$colorCounts",
                             check.isChecked, containsAccent)
                     }
                     val ripple = row.background as RippleDrawable
