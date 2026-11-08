@@ -1,8 +1,6 @@
 package org.fossify.gallery.dialogs
 
 import org.fossify.commons.activities.BaseSimpleActivity
-import org.fossify.commons.extensions.getAlertDialogBuilder
-import org.fossify.commons.extensions.setupDialogStuff
 import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.DialogFilterMediaBinding
@@ -23,14 +21,14 @@ class FilterMediaDialog(val activity: BaseSimpleActivity, private val photoProfi
             filterMediaPortraits.isChecked = filterMedia and TYPE_PORTRAITS != 0
         }
 
-        activity.getAlertDialogBuilder()
-            .setPositiveButton(org.fossify.commons.R.string.ok) { dialog, which -> dialogConfirmed() }
-            .setNegativeButton(org.fossify.commons.R.string.cancel, null)
-            .apply {
-                activity.setupDialogStuff(binding.root, this, R.string.filter_media) { classicDialog ->
-                    OxygenClassicDialog.apply(activity, classicDialog, binding.root)
-                }
-            }
+        OxygenClassicDialog.show(
+            activity,
+            OxygenClassicDialog.builder(activity, activity.getString(R.string.filter_media))
+                .setView(binding.root)
+                .setPositiveButton(org.fossify.commons.R.string.ok) { _, _ -> dialogConfirmed() }
+                .setNegativeButton(org.fossify.commons.R.string.cancel, null),
+            binding.root
+        )
     }
 
     private fun dialogConfirmed() {

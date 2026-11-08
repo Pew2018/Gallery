@@ -10,6 +10,11 @@ import android.os.Looper
 import android.widget.CheckBox
 import androidx.appcompat.app.AppCompatActivity
 import org.fossify.gallery.extensions.config
+import org.fossify.gallery.R
+import org.fossify.gallery.databinding.DialogFilterMediaBinding
+import org.fossify.gallery.databinding.DialogFolderVisibilityBinding
+import org.fossify.gallery.views.ClassicDialogCheckbox
+import org.fossify.gallery.views.ClassicDialogCheckboxRow
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -141,6 +146,55 @@ class ClassicDialogCheckboxStateRegressionTest {
                     assertEquals(Color.TRANSPARENT, pixels.getPixel(12, 12))
                     assertEquals(Color.TRANSPARENT, pixels.getPixel(16, 10))
                 }
+            }
+        } finally {
+            activity.finish()
+        }
+    }
+
+    @Test fun filterAndFolderCheckboxMarksMatchTheSavedValueOnTheFirstFrame() {
+        val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
+        try {
+            val dialogs = listOf(
+                DialogFilterMediaBinding.inflate(activity.layoutInflater).root to listOf(
+                    R.id.filter_media_images, R.id.filter_media_videos, R.id.filter_media_gifs,
+                    R.id.filter_media_raws, R.id.filter_media_svgs, R.id.filter_media_portraits
+                ),
+                DialogFolderVisibilityBinding.inflate(activity.layoutInflater).root to listOf(
+                    R.id.folder_visibility_hidden, R.id.folder_visibility_excluded,
+                    R.id.folder_visibility_nomedia, R.id.folder_visibility_protected
+                )
+            )
+            for ((root, ids) in dialogs) {
+                val dialog = OxygenClassicDialog.show(
+                    activity, OxygenClassicDialog.builder(activity, "Options")
+                        .setView(root).setPositiveButton("Apply", null), root
+                )
+                for (id in ids) {
+                    val check = root.findViewById<ClassicDialogCheckbox>(id)
+                    val row = check.parent as ClassicDialogCheckboxRow
+                    check.isChecked = false
+                    val wrappedMark = check.buttonDrawable as InsetDrawable
+                    val mark = wrappedMark.drawable!!
+                    assertEquals(Color.TRANSPARENT, bitmap(mark).getPixel(12, 12))
+                    // No looper idle or animation wait: validate the first rendered state.
+                    repeat(4) { tap ->
+                        row.performClick()
+                        val expected = tap % 2 == 0
+                        assertEquals("one native toggle per row click", expected, check.isChecked)
+                        assertEquals("mark receives the native checked state", expected,
+                            mark.state.contains(android.R.attr.state_checked))
+                        val pixels = bitmap(mark)
+                        if (expected) {
+                            assertNotEquals("checked fill must be visible immediately",
+                                Color.TRANSPARENT, pixels.getPixel(12, 12))
+                        } else {
+                            assertEquals("unchecked center must be clear immediately",
+                                Color.TRANSPARENT, pixels.getPixel(12, 12))
+                        }
+                    }
+                }
+                dialog.dismiss()
             }
         } finally {
             activity.finish()

@@ -20,6 +20,7 @@ import org.fossify.gallery.databinding.DialogManageExtendedDetailsBinding
 import org.fossify.gallery.databinding.DialogFilterMediaBinding
 import org.fossify.gallery.databinding.DialogFolderVisibilityBinding
 import org.fossify.gallery.dialogs.ClassicPasswordMethodDialog
+import org.fossify.gallery.views.ClassicDialogCheckbox
 import org.fossify.gallery.views.ClassicDialogCheckboxRow
 import org.junit.Assert.*
 import org.junit.Test
@@ -122,6 +123,7 @@ class DialogUiRepairTest {
                 assertEquals(if (index == 0) 6 else 4, checks.size)
                 for (check in checks) {
                     val row = check.parent as ClassicDialogCheckboxRow
+                    assertTrue("both filter dialogs use the same immediate classic checkbox", check is ClassicDialogCheckbox)
                     assertNull("child control has no local ripple", check.background)
                     assertFalse("row is the only touch target", check.isClickable)
                     assertTrue("row exposes accessibility focus", row.isFocusable)
