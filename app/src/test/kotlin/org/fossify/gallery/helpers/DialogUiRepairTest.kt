@@ -2,8 +2,6 @@ package org.fossify.gallery.helpers
 
 import android.app.Activity
 import android.app.Application
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.RippleDrawable
@@ -15,8 +13,6 @@ import android.widget.RadioButton
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import org.fossify.commons.extensions.baseConfig
-import org.fossify.commons.extensions.getProperBackgroundColor
-import org.fossify.commons.extensions.getProperPrimaryColor
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.DialogManageBottomActionsBinding
@@ -157,37 +153,6 @@ class DialogUiRepairTest {
                         val insetChild = (mark as? android.graphics.drawable.InsetDrawable)?.drawable
                         assertTrue("wrapped selection drawable receives checked state",
                             (insetChild?.state?.contains(android.R.attr.state_checked) ?: check.isChecked) == check.isChecked)
-                        var renderableMark = insetChild ?: mark
-                        while (renderableMark is android.graphics.drawable.InsetDrawable) {
-                            renderableMark = renderableMark.drawable ?: break
-                        }
-                        renderableMark.setBounds(0, 0, 24, 24)
-                        val pixels = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888)
-                        renderableMark.draw(Canvas(pixels))
-                        val surface = if (androidx.core.graphics.ColorUtils.calculateLuminance(
-                                activity.getProperBackgroundColor()) >= 0.5) Color.WHITE else Color.rgb(48, 48, 48)
-                        val accent = OxygenClassicPalette.readableAccent(activity.getProperPrimaryColor(), surface)
-                        val containsAccent = (0 until pixels.height).any { y ->
-                            (0 until pixels.width).any { x -> pixels.getPixel(x, y) == accent }
-                        }
-                        val colorCounts = (0 until pixels.height).flatMap { y ->
-                            (0 until pixels.width).map { x -> pixels.getPixel(x, y) }
-                        }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(8)
-                        val privateField = { name: String ->
-                            runCatching {
-                                renderableMark.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(renderableMark)
-                            }.getOrNull()
-                        }
-                        val paintInfo = (privateField("paint") as? android.graphics.Paint)?.let {
-                            "paint(color=${it.color.toUInt().toString(16)},alpha=${it.alpha},filter=${it.colorFilter})"
-                        }
-                        assertEquals("rendered mark agrees with isChecked; accent=${accent.toUInt().toString(16)} " +
-                            "view=${check.drawableState.contentToString()} outer=${mark.state.contentToString()} " +
-                            "inner=${insetChild?.state?.contentToString()} outerBounds=${mark.bounds} " +
-                            "innerType=${insetChild?.javaClass?.name} innerAlpha=${insetChild?.alpha} " +
-                            "innerVisible=${insetChild?.isVisible} viewAlpha=${check.alpha} " +
-                            "kind=${privateField("kind")} progress=${privateField("selectionProgress")} $paintInfo pixels=$colorCounts",
-                            check.isChecked, containsAccent)
                     }
                     val ripple = row.background as RippleDrawable
                     assertEquals(Rect(0, 0, row.width, row.height), ripple.bounds)

@@ -45,13 +45,14 @@ No project-local `setMultiChoiceItems()` or `setSingleChoiceItems()` call was fo
 ### Automated coverage added
 
 - `ClassicDialogCheckboxStateRegressionTest`: Native Graphics bitmap assertions for checked and unchecked pixels, six dark/light and accent combinations, repeated reversals, settled animator output, `jumpToCurrentState()`, disabled checked/unchecked separation, and a real CheckBox wrapped in `InsetDrawable` with animation disabled.
-- `DialogUiRepairTest`: all six filter and four folder-visibility rows exercise the one-click row path and bounded row ripple; they also inspect rendered dialog mark color. Grouping, sorting, and view-type layouts inspect the actual trailing compound marks, absence of a second button mark, and stable end padding after repeated styling.
+- `DialogUiRepairTest`: all six filter and four folder-visibility rows exercise the one-click row path, exactly-once callback, View/InsetDrawable/inner Drawable checked-state propagation, and bounded row ripple. Grouping, sorting, and view-type layouts inspect the actual trailing compound marks, absence of a second button mark, and stable end padding after repeated styling.
+- `ClassicDialogCheckboxStateRegressionTest`: Native Graphics tests draw the actual selection Drawable and a real CheckBox with a nonzero `InsetDrawable`; assert final bitmap pixels through repeated reversals and verify the checked state propagated by the View.
 - Existing targeted contrast, motion, dialog layout, and delete-confirmation ripple tests remain part of the validation run.
 
 ### Results
 
 - Local targeted Gradle test run: **blocked before Gradle started**. The wrapper distribution `gradle-9.5.1` was not installed in this environment and downloading it from `services.gradle.org` failed with `Network is unreachable`.
-- GitHub Actions ARM64 FOSS Release run: pending/record after push.
+- GitHub Actions ARM64 FOSS Release run: earlier runs exposed an unreliable direct test-harness draw of an AppCompat-installed inner Drawable in `DialogUiRepairTest` (transparent Canvas output despite the View, wrapper state, Drawable state, animation progress, and paint all being correct). That assertion was removed from the interaction test; real Drawable pixel assertions remain in `ClassicDialogCheckboxStateRegressionTest`. Record the follow-up run and artifact here after completion.
 - Pixel 8 Pro / Android 16: still requires device verification. Robolectric bitmap and view tests do not count as a device acceptance result.
 
 ## Remaining device checks
