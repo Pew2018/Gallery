@@ -269,9 +269,13 @@ class EditorDrawCanvas(context: Context, attrs: AttributeSet) : View(context, at
     /** Export at the input image's dimensions; paths scale from the fitted preview coordinate space. */
     internal fun snapshotForExport(): List<EditorStroke> = strokes.map { it.copy(path = Path(it.path)) }
 
-    fun getBitmap(source: Bitmap? = backgroundBitmap, strokeSnapshot: List<EditorStroke>? = null): Bitmap {
+    fun getBitmap(): Bitmap = getBitmap(backgroundBitmap, snapshotForExport())
+
+    fun getBitmap(source: Bitmap): Bitmap = getBitmap(source, snapshotForExport())
+
+    internal fun getBitmap(source: Bitmap?, strokeSnapshot: List<EditorStroke>): Bitmap {
         requireNotNull(source) { "Editor background is not ready" }
-        return render(source, includeActive = false, strokeSnapshot = strokeSnapshot ?: snapshotForExport())
+        return render(source, includeActive = false, strokeSnapshot = strokeSnapshot)
     }
 
     fun undo() {

@@ -593,7 +593,7 @@ class EditActivity : BaseCropActivity() {
                 binding.editorDrawCanvas.isVisible() -> {
                     try {
                         val original = getOriginalBitmap()
-                        shareBitmap(binding.editorDrawCanvas.getBitmap(original, drawStrokeSnapshot))
+                        shareBitmap(binding.editorDrawCanvas.getBitmap(original, drawStrokeSnapshot.orEmpty()))
                     } catch (_: OutOfMemoryError) {
                         toast(org.fossify.commons.R.string.out_of_memory_error)
                     } catch (e: Exception) {
