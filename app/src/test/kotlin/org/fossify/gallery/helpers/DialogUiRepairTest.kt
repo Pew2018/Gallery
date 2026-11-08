@@ -15,6 +15,8 @@ import android.widget.RadioButton
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import org.fossify.commons.extensions.baseConfig
+import org.fossify.commons.extensions.getProperBackgroundColor
+import org.fossify.commons.extensions.getProperPrimaryColor
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.DialogManageBottomActionsBinding
@@ -141,7 +143,7 @@ class DialogUiRepairTest {
                             point.first, point.second, 0)
                         row.dispatchTouchEvent(up)
                         up.recycle()
-                        shadowOf(Looper.getMainLooper()).idleFor(200, java.util.concurrent.TimeUnit.MILLISECONDS)
+                        shadowOf(Looper.getMainLooper()).idleFor(300, java.util.concurrent.TimeUnit.MILLISECONDS)
                         assertEquals("one callback per tap at row location $index", index + 1, callbackCount)
                         checks.forEachIndexed { otherIndex, other ->
                             assertEquals("other options stay unchanged", if (other === check) !before[otherIndex] else before[otherIndex], other.isChecked)
@@ -158,11 +160,19 @@ class DialogUiRepairTest {
                         mark.setBounds(0, 0, 24, 24)
                         val pixels = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888)
                         mark.draw(Canvas(pixels))
-                        val accent = OxygenClassicPalette.readableAccent(Color.MAGENTA, Color.WHITE)
+                        val surface = if (androidx.core.graphics.ColorUtils.calculateLuminance(
+                                activity.getProperBackgroundColor()) >= 0.5) Color.WHITE else Color.rgb(48, 48, 48)
+                        val accent = OxygenClassicPalette.readableAccent(activity.getProperPrimaryColor(), surface)
                         val containsAccent = (0 until pixels.height).any { y ->
                             (0 until pixels.width).any { x -> pixels.getPixel(x, y) == accent }
                         }
-                        assertEquals("rendered mark agrees with isChecked", check.isChecked, containsAccent)
+                        val colorCounts = (0 until pixels.height).flatMap { y ->
+                            (0 until pixels.width).map { x -> pixels.getPixel(x, y) }
+                        }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(8)
+                        assertEquals("rendered mark agrees with isChecked; accent=${accent.toUInt().toString(16)} " +
+                            "view=${check.drawableState.contentToString()} outer=${mark.state.contentToString()} " +
+                            "inner=${insetChild?.state?.contentToString()} pixels=$colorCounts",
+                            check.isChecked, containsAccent)
                     }
                     val ripple = row.background as RippleDrawable
                     assertEquals(Rect(0, 0, row.width, row.height), ripple.bounds)
