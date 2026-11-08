@@ -1,35 +1,43 @@
 package org.fossify.gallery.helpers
 
 import android.app.Application
+import android.content.Intent
 import android.graphics.drawable.ColorDrawable
+import android.view.animation.AlphaAnimation
+import android.view.animation.AnimationUtils
 import androidx.coordinatorlayout.widget.CoordinatorLayout
+import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Robolectric
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
+import java.util.concurrent.TimeUnit
 
-/** Root-navigation contracts; frame-perfect rendering still needs a real device. */
+/** Root-window contracts; actual Surface blending still needs device capture. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 @LooperMode(LooperMode.Mode.PAUSED)
 class GalleryRootTransitionTest {
-    @Test fun contentProofBeatsArbitraryRecyclerChildrenAndTimeoutIsBounded() {
-        assertFalse(GalleryBottomBar.mayDrawRoot(false, true, false, 0L))
-        assertFalse(GalleryBottomBar.mayDrawRoot(false, false, true, 120L))
-        assertTrue(GalleryBottomBar.mayDrawRoot(true, true, false, 25L))
-        assertTrue(GalleryBottomBar.mayDrawRoot(true, false, true, 35L))
-        assertFalse(GalleryBottomBar.mayDrawRoot(true, false, false, 249L))
-        assertTrue(GalleryBottomBar.mayDrawRoot(false, false, false, 250L))
-        assertEquals(0L, GalleryBottomBar.ROOT_ENTER_DURATION_MS)
-        assertTrue(GalleryBottomBar.ROOT_FINISH_FALLBACK_MS >=
-            GalleryBottomBar.FIRST_DRAW_LIMIT_MS + GalleryBottomBar.ROOT_ENTER_DURATION_MS)
+    @Test fun legacyRootAnimationResourcesCannotFadeEitherWindow() {
+        val context = RuntimeEnvironment.getApplication()
+        val enter = AnimationUtils.loadAnimation(context, R.anim.oxygen_classic_root_enter) as AlphaAnimation
+        val exit = AnimationUtils.loadAnimation(context, R.anim.oxygen_classic_root_exit) as AlphaAnimation
+        assertEquals(0L, enter.duration)
+        assertEquals(0L, exit.duration)
+        val transform = android.view.animation.Transformation()
+        enter.getTransformation(0L, transform)
+        assertEquals(1f, transform.alpha)
+        exit.getTransformation(0L, transform)
+        assertEquals(1f, transform.alpha)
     }
 
-    @Test fun sixTransitionsRespectDestinationForColdCacheAndRapidEntry() {
+    @Test fun allSectionPairsKeepDestinationSelectionIndependentOfWindowMotion() {
         val flows = listOf(
             GallerySection.ALL to GallerySection.FAVORITES,
             GallerySection.FAVORITES to GallerySection.ALL,
@@ -38,172 +46,89 @@ class GalleryRootTransitionTest {
             GallerySection.FAVORITES to GallerySection.PHOTOS,
             GallerySection.PHOTOS to GallerySection.FAVORITES
         )
-        for (allFiles in listOf(false, true)) for (cacheHit in listOf(false, true)) {
-            flows.forEachIndexed { index, (from, to) ->
-                val destination = GalleryNavigation.bottomDestination(to, allFiles)
-                assertEquals("path $index from $from", to, destination.section)
-                assertEquals(to, destination.bottomSelection)
-                if (to == GallerySection.ALL) assertEquals(allFiles, destination.isAllFiles)
-                if (cacheHit) {
-                    assertTrue(GalleryBottomBar.mayDrawRoot(true, true, false, 0L))
-                } else {
-                    assertFalse(GalleryBottomBar.mayDrawRoot(false, false, false, 0L))
-                    assertTrue(GalleryBottomBar.mayDrawRoot(false, false, false, 250L))
-                }
-            }
+        for (allFiles in listOf(false, true)) flows.forEach { (from, to) ->
+            val destination = GalleryNavigation.bottomDestination(to, allFiles)
+            assertEquals(to, destination.section)
+            assertEquals(to, destination.bottomSelection)
+            if (to == GallerySection.ALL) assertEquals(allFiles, destination.isAllFiles)
+            assertNotEquals(from, to)
         }
     }
 
-    @Test fun destinationWindowAndLayoutUseOpaqueClassicThemeBeforeContent() {
-        val activity = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
-        activity.config.oxygenThemeActivated = true
-        activity.config.oxygenAppearanceMode = "dark"
-        val parent = CoordinatorLayout(activity)
-        activity.intent.putExtra("org.fossify.gallery.ROOT_TRANSITION", true)
-        activity.setContentView(parent)
-        GalleryBottomBar.prepareRootSurface(activity, parent)
-        val expected = OxygenThemeEngine.snapshot(activity, activity.config).pageBackground
-        assertEquals(expected, (parent.background as ColorDrawable).color)
-        // Window background should be opaque even when media has not published rows.
-        assertEquals(expected, (activity.window.decorView.background as ColorDrawable).color)
-        activity.finish()
-    }
-
-    @Test fun sourceWaitsForActualDrawAcrossAllSixDestinationsAndEmptyOrFailedLoads() {
-        val clock = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
-        val paths = listOf(false to GallerySection.PHOTOS, false to GallerySection.PHOTOS,
-            false to GallerySection.ALL, false to GallerySection.FAVORITES,
-            true to GallerySection.PHOTOS, true to GallerySection.ALL)
-        for ((allFiles, section) in paths) for (state in listOf(
-            GalleryBottomBar.RootContent.EMPTY, GalleryBottomBar.RootContent.FAILED,
-            GalleryBottomBar.RootContent.AUTHORIZATION)) {
-            val sourceController = Robolectric.buildActivity(android.app.Activity::class.java).setup()
-            val source = sourceController.get()
-            val destination = GalleryNavigation.bottomDestination(section, allFiles)
-            assertEquals(section, destination.bottomSelection)
-            GalleryBottomBar.open(source, android.content.Intent(source, android.app.Activity::class.java), true)
-            val intent = org.robolectric.Shadows.shadowOf(source).nextStartedActivity
-            sourceController.pause().stop()
-            val targetController = Robolectric.buildActivity(android.app.Activity::class.java, intent).setup()
-            val target = targetController.get()
-            val root = CoordinatorLayout(target)
-            val empty = android.widget.TextView(target).apply {
-                id = org.fossify.gallery.R.id.media_empty_text_placeholder
-                visibility = android.view.View.VISIBLE
-            }
-            val grid = androidx.recyclerview.widget.RecyclerView(target).apply {
-                id = org.fossify.gallery.R.id.media_grid
-            }
-            root.addView(grid)
-            root.addView(empty)
-            GalleryBottomBar.prepareRootSurface(target, root)
-            GalleryBottomBar.coordinateFirstDraw(target, root)
-            assertTrue(root.viewTreeObserver.dispatchOnPreDraw())
-            GalleryBottomBar.markRootContentReady(target, state)
-            assertFalse(root.viewTreeObserver.dispatchOnPreDraw())
-            clock.idleFor(20, java.util.concurrent.TimeUnit.MILLISECONDS)
-            assertFalse("pre-draw is not a drawn frame", source.isFinishing)
-            root.viewTreeObserver.dispatchOnDraw()
-            clock.idle()
-            assertTrue("draw acknowledgement finishes without another animation timer", source.isFinishing)
-            assertEquals(0, GalleryBottomBar.pendingRootCount)
-            GalleryBottomBar.dispose(target)
-            GalleryBottomBar.dispose(source)
-            targetController.pause().stop().destroy()
-            sourceController.destroy()
-        }
-    }
-
-    @Test fun timeoutRevealsThemedLoadingAndTeardownCancelsAcknowledgement() {
-        val clock = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+    @Test fun destinationKeepsOpaqueClassicThemeAndDrawsLoadingFrameWithoutWaitingForRows() {
         val source = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
-        GalleryBottomBar.open(source, android.content.Intent(source, android.app.Activity::class.java), true)
-        GalleryBottomBar.open(source, android.content.Intent(source, android.app.Activity::class.java), true)
-        assertEquals(1, GalleryBottomBar.pendingRootCount)
-        val intent = org.robolectric.Shadows.shadowOf(source).nextStartedActivity
-        val controller = Robolectric.buildActivity(android.app.Activity::class.java, intent).setup()
-        val target = controller.get()
+        source.config.oxygenThemeActivated = true
+        source.config.oxygenAppearanceMode = "dark"
+        val targetIntent = Intent(source, android.app.Activity::class.java)
+        GalleryBottomBar.open(source, targetIntent, finishCurrent = true)
+        val destination = Robolectric.buildActivity(android.app.Activity::class.java,
+            Shadows.shadowOf(source).nextStartedActivity).setup().get()
+        val root = CoordinatorLayout(destination)
+        val loading = android.widget.TextView(destination).apply { text = "Loading" }
+        root.addView(loading)
+        destination.setContentView(root)
+        GalleryBottomBar.prepareRootSurface(destination, root)
+        GalleryBottomBar.coordinateFirstDraw(destination, root, frameState = { "loading" })
+
+        root.viewTreeObserver.dispatchOnDraw()
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(1f, loading.alpha)
+        val expected = OxygenThemeEngine.snapshot(destination, destination.config).pageBackground
+        assertEquals(expected, (root.background as ColorDrawable).color)
+        assertEquals(expected, (destination.window.decorView.background as ColorDrawable).color)
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(32, TimeUnit.MILLISECONDS)
+        assertTrue(source.isFinishing)
+        GalleryBottomBar.dispose(destination)
+        GalleryBottomBar.dispose(source)
+        destination.finish()
+        source.finish()
+    }
+
+    @Test fun noDrawStartupUsesBoundedFallbackAndDisposalCancelsFrameCallbacks() {
+        val clock = Shadows.shadowOf(android.os.Looper.getMainLooper())
+        val source = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        GalleryBottomBar.open(source, Intent(source, android.app.Activity::class.java), finishCurrent = true)
+        val targetIntent = Shadows.shadowOf(source).nextStartedActivity
+        val target = Robolectric.buildActivity(android.app.Activity::class.java, targetIntent).setup().get()
         val root = CoordinatorLayout(target)
-        GalleryBottomBar.prepareRootSurface(target, root)
+        target.setContentView(root)
         var loadingFrames = 0
-        GalleryBottomBar.coordinateFirstDraw(target, root) { loadingFrames++ }
-        assertTrue(root.viewTreeObserver.dispatchOnPreDraw())
-        clock.idleFor(GalleryBottomBar.FIRST_DRAW_LIMIT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
-        assertFalse(root.viewTreeObserver.dispatchOnPreDraw())
+        GalleryBottomBar.coordinateFirstDraw(target, root, loadingFrame = { loadingFrames++ })
+        clock.idleFor(GalleryBottomBar.FIRST_DRAW_LIMIT_MS, TimeUnit.MILLISECONDS)
         assertEquals(1, loadingFrames)
-        assertEquals(255, android.graphics.Color.alpha((root.background as ColorDrawable).color))
+        assertFalse(source.isFinishing)
         GalleryBottomBar.dispose(target)
         root.viewTreeObserver.dispatchOnDraw()
-        clock.idleFor(GalleryBottomBar.ROOT_FINISH_FALLBACK_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
-        assertTrue(source.isFinishing)
+        clock.idleFor(GalleryBottomBar.ROOT_FINISH_FALLBACK_MS, TimeUnit.MILLISECONDS)
+        assertFalse("disposed destination never committed a frame", source.isFinishing)
         assertEquals(0, GalleryBottomBar.pendingRootCount)
-        assertEquals(1, loadingFrames)
         GalleryBottomBar.dispose(source)
-        controller.pause().stop().destroy()
+        target.finish()
+        source.finish()
     }
 
-    @Test fun disabledAnimationsStillWaitForDrawButDoNotDelaySourceFinish() {
+    @Test fun frameArrivingAfterWatchdogStillRetiresItsOwnSource() {
+        val clock = Shadows.shadowOf(android.os.Looper.getMainLooper())
         val source = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
-        val resolver = source.contentResolver
-        val prior = android.provider.Settings.Global.getFloat(resolver,
-            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
-        android.provider.Settings.Global.putFloat(resolver,
-            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
+        val intent = Intent(source, android.app.Activity::class.java)
+        GalleryBottomBar.open(source, intent, finishCurrent = true)
+        val target = Robolectric.buildActivity(android.app.Activity::class.java, intent).setup().get()
+        val root = CoordinatorLayout(target)
+        target.setContentView(root)
+        GalleryBottomBar.coordinateFirstDraw(target, root, frameState = { "content" })
         try {
-            GalleryBottomBar.open(source, android.content.Intent(source, android.app.Activity::class.java), true)
+            clock.idleFor(GalleryBottomBar.ROOT_FINISH_FALLBACK_MS, TimeUnit.MILLISECONDS)
             assertFalse(source.isFinishing)
-            val intent = org.robolectric.Shadows.shadowOf(source).nextStartedActivity
-            val target = Robolectric.buildActivity(android.app.Activity::class.java, intent).setup().get()
-            val root = CoordinatorLayout(target)
-            GalleryBottomBar.coordinateFirstDraw(target, root)
-            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(
-                GalleryBottomBar.FIRST_DRAW_LIMIT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
-            assertFalse(root.viewTreeObserver.dispatchOnPreDraw())
-            assertFalse(source.isFinishing)
-            root.viewTreeObserver.dispatchOnDraw()
-            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
-            assertTrue(source.isFinishing)
             assertEquals(0, GalleryBottomBar.pendingRootCount)
-            GalleryBottomBar.dispose(target)
-            target.finish()
+            root.viewTreeObserver.dispatchOnDraw()
+            clock.idleFor(32, TimeUnit.MILLISECONDS)
+            assertTrue(source.isFinishing)
         } finally {
             GalleryBottomBar.dispose(source)
-            android.provider.Settings.Global.putFloat(resolver,
-                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, prior)
+            GalleryBottomBar.dispose(target)
+            source.finish()
+            target.finish()
         }
-    }
-
-
-    @Test fun committedContentNeedsLayoutButDoesNotWaitForImageDecoding() {
-        val activity = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
-        activity.intent.putExtra("org.fossify.gallery.ROOT_TRANSITION", true)
-        val root = CoordinatorLayout(activity)
-        val grid = androidx.recyclerview.widget.RecyclerView(activity).apply {
-            id = org.fossify.gallery.R.id.media_grid
-            layoutManager = androidx.recyclerview.widget.LinearLayoutManager(activity)
-            adapter = object : androidx.recyclerview.widget.RecyclerView.Adapter<androidx.recyclerview.widget.RecyclerView.ViewHolder>() {
-                override fun getItemCount() = 1
-                override fun onCreateViewHolder(parent: android.view.ViewGroup, type: Int) =
-                    object : androidx.recyclerview.widget.RecyclerView.ViewHolder(android.widget.ImageView(parent.context).apply {
-                        layoutParams = androidx.recyclerview.widget.RecyclerView.LayoutParams(100, 100)
-                    }) {}
-                override fun onBindViewHolder(holder: androidx.recyclerview.widget.RecyclerView.ViewHolder, position: Int) = Unit
-            }
-        }
-        root.addView(grid)
-        GalleryBottomBar.coordinateFirstDraw(activity, root)
-        GalleryBottomBar.markRootContentReady(activity)
-        assertTrue("adapter itemCount alone cannot release the frame", root.viewTreeObserver.dispatchOnPreDraw())
-        root.measure(android.view.View.MeasureSpec.makeMeasureSpec(400, android.view.View.MeasureSpec.EXACTLY),
-            android.view.View.MeasureSpec.makeMeasureSpec(800, android.view.View.MeasureSpec.EXACTLY))
-        root.layout(0, 0, 400, 800)
-        assertTrue(grid.childCount > 0)
-        assertNull((grid.getChildAt(0) as android.widget.ImageView).drawable)
-        assertFalse("layout is ready even though thumbnail decode is pending", root.viewTreeObserver.dispatchOnPreDraw())
-        root.viewTreeObserver.dispatchOnDraw()
-        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
-        GalleryBottomBar.dispose(activity)
-        activity.finish()
     }
 
     class TransitionRecordingActivity : android.app.Activity() {
@@ -215,29 +140,144 @@ class GalleryRootTransitionTest {
         }
     }
 
-    @Test fun rootStartAndDeferredFinishNeverRequestASecondWindowAnimation() {
-        val clock = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+    @Test fun startAndFinishNeverRequestWindowFadesAtEitherAnimationScale() {
+        val expected = 0 to 0
         for (scale in listOf(0f, 1f)) {
             val source = Robolectric.buildActivity(TransitionRecordingActivity::class.java).setup().get()
-            android.provider.Settings.Global.putFloat(source.contentResolver,
-                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, scale)
-            GalleryBottomBar.open(source, android.content.Intent(source, android.app.Activity::class.java), true)
-            assertEquals(listOf(0 to 0), source.transitions)
-            val intent = org.robolectric.Shadows.shadowOf(source).nextStartedActivity
+            val resolver = source.contentResolver
+            val priorScale = android.provider.Settings.Global.getFloat(resolver,
+                android.provider.Settings.Global.WINDOW_ANIMATION_SCALE, 1f)
+            android.provider.Settings.Global.putFloat(resolver,
+                android.provider.Settings.Global.WINDOW_ANIMATION_SCALE, scale)
+            try {
+                GalleryBottomBar.open(source, Intent(source, android.app.Activity::class.java), finishCurrent = true)
+                assertEquals(listOf(expected), source.transitions)
+                val targetIntent = Shadows.shadowOf(source).nextStartedActivity
+                val target = Robolectric.buildActivity(android.app.Activity::class.java, targetIntent).setup().get()
+                val root = CoordinatorLayout(target)
+                target.setContentView(root)
+                GalleryBottomBar.coordinateFirstDraw(target, root, frameState = { "content" })
+                root.viewTreeObserver.dispatchOnDraw()
+                Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(32, TimeUnit.MILLISECONDS)
+                assertTrue(source.isFinishing)
+                assertEquals(listOf(expected, 0 to 0), source.transitions)
+                GalleryBottomBar.dispose(source)
+                GalleryBottomBar.dispose(target)
+                target.finish()
+            } finally {
+                GalleryBottomBar.dispose(source)
+                android.provider.Settings.Global.putFloat(resolver,
+                    android.provider.Settings.Global.WINDOW_ANIMATION_SCALE, priorScale)
+            }
+        }
+    }
+    @Test fun blankRootCannotRetireSourceAndLoadingOrEmptyFrameCan() {
+        for (state in listOf("content", "loading", "empty_or_error")) {
+            val source = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+            val intent = Intent(source, android.app.Activity::class.java)
+            GalleryBottomBar.open(source, intent, finishCurrent = true)
             val target = Robolectric.buildActivity(android.app.Activity::class.java, intent).setup().get()
             val root = CoordinatorLayout(target)
-            GalleryBottomBar.coordinateFirstDraw(target, root)
-            clock.idleFor(GalleryBottomBar.FIRST_DRAW_LIMIT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
-            assertFalse(root.viewTreeObserver.dispatchOnPreDraw())
-            assertFalse(source.isFinishing)
+            target.setContentView(root)
+            var published: String? = null
+            GalleryBottomBar.coordinateFirstDraw(target, root, frameState = { published })
+            val clock = Shadows.shadowOf(android.os.Looper.getMainLooper())
+            assertTrue("blank traversal must be cancelled", root.viewTreeObserver.dispatchOnPreDraw())
             root.viewTreeObserver.dispatchOnDraw()
-            clock.idle()
-            assertTrue(source.isFinishing)
-            assertEquals(listOf(0 to 0, 0 to 0), source.transitions)
+            clock.idleFor(32, TimeUnit.MILLISECONDS)
+            assertFalse("empty root must not acknowledge navigation", source.isFinishing)
+            published = state
+            assertFalse("valid traversal may draw", root.viewTreeObserver.dispatchOnPreDraw())
+            root.viewTreeObserver.dispatchOnDraw()
+            clock.idleFor(32, TimeUnit.MILLISECONDS)
+            assertTrue("valid $state frame retires source", source.isFinishing)
             GalleryBottomBar.dispose(source)
             GalleryBottomBar.dispose(target)
             target.finish()
         }
+    }
+
+    @Test fun runtimeSurfaceRestoresAfterThemeResumeForAllBackgroundModes() {
+        for (mode in listOf("light", "dark", "custom")) {
+            val source = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+            source.config.oxygenThemeActivated = mode != "custom"
+            source.config.oxygenAppearanceMode = mode
+            if (mode == "custom") source.config.backgroundColor = android.graphics.Color.rgb(58, 44, 70)
+            val intent = Intent(source, android.app.Activity::class.java)
+            GalleryBottomBar.open(source, intent, finishCurrent = true)
+            val target = Robolectric.buildActivity(android.app.Activity::class.java, intent).setup().get()
+            val root = CoordinatorLayout(target)
+            target.setContentView(root)
+            GalleryBottomBar.prepareRootSurface(target, root)
+            GalleryBottomBar.coordinateFirstDraw(target, root, frameState = { "loading" })
+            target.window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.MAGENTA))
+            target.window.setWindowAnimations(R.style.OxygenClassicPageWindow)
+            GalleryBottomBar.restoreRootWindow(target)
+            assertEquals(0, target.window.attributes.windowAnimations)
+            assertEquals(OxygenThemeEngine.snapshot(target, target.config).pageBackground,
+                (target.window.decorView.background as ColorDrawable).color)
+            GalleryBottomBar.dispose(source)
+            GalleryBottomBar.dispose(target)
+            source.finish()
+            target.finish()
+        }
+    }
+
+    @Test fun obsoleteLateFrameCannotFinishSourceAfterNewerRequestIsDisposed() {
+        val source = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        fun target(): Pair<android.app.Activity, CoordinatorLayout> {
+            val intent = Intent(source, android.app.Activity::class.java)
+            GalleryBottomBar.open(source, intent, finishCurrent = true)
+            val activity = Robolectric.buildActivity(android.app.Activity::class.java, intent).setup().get()
+            val root = CoordinatorLayout(activity)
+            activity.setContentView(root)
+            GalleryBottomBar.coordinateFirstDraw(activity, root, frameState = { "loading" })
+            return activity to root
+        }
+        val (old, oldRoot) = target()
+        val clock = Shadows.shadowOf(android.os.Looper.getMainLooper())
+        clock.idleFor(GalleryBottomBar.ROOT_FINISH_FALLBACK_MS, TimeUnit.MILLISECONDS)
+        val (newer, _) = target()
+        GalleryBottomBar.dispose(newer)
+        oldRoot.viewTreeObserver.dispatchOnDraw()
+        clock.idleFor(32, TimeUnit.MILLISECONDS)
+        assertFalse("old acknowledgement must stay obsolete even after newer teardown", source.isFinishing)
+        GalleryBottomBar.dispose(old)
+        GalleryBottomBar.dispose(source)
+        newer.finish()
+        old.finish()
+        source.finish()
+    }
+
+    @Test fun rootThemeDisablesInheritedDarkPreviewWithoutMakingWindowTranslucent() {
+        val context = RuntimeEnvironment.getApplication()
+        val theme = context.resources.newTheme().apply { applyStyle(R.style.OxygenClassicRootTheme, true) }
+        val value = android.util.TypedValue()
+        assertTrue(theme.resolveAttribute(android.R.attr.windowDisablePreview, value, true))
+        assertNotEquals(0, value.data)
+        assertTrue(theme.resolveAttribute(android.R.attr.windowIsTranslucent, value, true))
+        assertEquals(0, value.data)
+    }
+
+    @Test @Config(sdk = [36])
+    fun rootWindowContractSurvivesMediaMotionInstallAndFirstDrawCoordinationOnAndroid16() {
+        val source = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        val intent = Intent(source, android.app.Activity::class.java)
+        GalleryBottomBar.open(source, intent, finishCurrent = true)
+        val target = Robolectric.buildActivity(android.app.Activity::class.java, intent).setup().get()
+        val root = CoordinatorLayout(target)
+        target.setContentView(root)
+        GalleryBottomBar.prepareRootSurface(target, root)
+        GalleryBottomBar.coordinateFirstDraw(target, root, frameState = { "loading" })
+        OxygenClassicActivityMotion.install(target)
+        assertTrue(GalleryBottomBar.isRootTransition(target))
+        assertEquals(0, target.window.attributes.windowAnimations)
+        assertEquals(1f, target.window.attributes.alpha)
+        GalleryBottomBar.dispose(source)
+        GalleryBottomBar.dispose(target)
+        source.finish()
+        target.finish()
     }
 
 }

@@ -15,7 +15,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.content.res.AppCompatResources
+import com.google.android.material.textfield.TextInputLayout
 import org.fossify.commons.extensions.baseConfig
+import org.fossify.gallery.extensions.config
 import org.fossify.gallery.R
 import org.junit.Assert.*
 import org.junit.Test
@@ -43,6 +45,44 @@ class ClassicDialogLayoutRegressionTest {
         root.measure(View.MeasureSpec.makeMeasureSpec(dialog.window!!.attributes.width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(760, View.MeasureSpec.AT_MOST))
         root.layout(0, 0, root.measuredWidth, root.measuredHeight)
+    }
+
+    @Test fun existingTextInputFormsKeepOneClassicOutlineAcrossAllAuditedLayouts() {
+        val host = activity()
+        val tokens = OxygenThemeEngine.snapshot(host, host.config)
+        val layouts = listOf(
+            R.layout.dialog_create_new_folder,
+            R.layout.dialog_custom_aspect_ratio,
+            R.layout.dialog_export_favorites,
+            R.layout.dialog_export_settings,
+            R.layout.dialog_resize_image,
+            R.layout.dialog_resize_image_with_path,
+            R.layout.dialog_resize_multiple_images,
+            R.layout.dialog_save_as,
+            R.layout.dialog_slideshow
+        )
+        for (layoutId in layouts) {
+            val root = LayoutInflater.from(host).inflate(layoutId, null, false)
+            fun visit(view: View) {
+                if (view is TextInputLayout) {
+                    OxygenClassicPageInput.style(view, tokens, tokens.dialogBackground)
+                    assertEquals("layout $layoutId", TextInputLayout.BOX_BACKGROUND_OUTLINE, view.boxBackgroundMode)
+                    assertEquals("layout $layoutId", null, view.editText?.background)
+                    assertTrue("layout $layoutId", (view.editText?.minimumHeight ?: 0) >= 56)
+                }
+                if (view is ViewGroup) for (index in 0 until view.childCount) visit(view.getChildAt(index))
+            }
+            visit(root)
+            assertTrue("layout $layoutId contains at least one form field", root.findViewById<View>(R.id.folder_path_hint) != null ||
+                root.findViewById<View>(R.id.aspect_ratio_width_hint) != null ||
+                root.findViewById<View>(R.id.export_favorites_hint) != null ||
+                root.findViewById<View>(R.id.export_settings_hint) != null ||
+                root.findViewById<View>(R.id.resize_image_width_hint) != null ||
+                root.findViewById<View>(R.id.resize_factor_input_layout) != null ||
+                root.findViewById<View>(R.id.folder_hint) != null ||
+                root.findViewById<View>(R.id.interval_hint) != null)
+        }
+        host.finish()
     }
 
     @Test fun confirmationsKeepCallbacksAndATrailingAccessibleActionGroupAfterRepeatedStyling() {

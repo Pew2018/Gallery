@@ -199,11 +199,8 @@ class PhotoProfileEditActivity : SimpleActivity() {
         binding.photoProfileEditNameLabel.setTextColor(
             tokens.interactiveAccent
         )
+        OxygenClassicPageInput.style(binding.photoProfileEditNameInput, tokens)
         OxygenClassicPageInput.style(binding.photoProfileEditName, tokens)
-        // Align entered text with the label and dynamic source rows.
-        binding.photoProfileEditName.apply {
-            setPaddingRelative(0, paddingTop, 0, paddingBottom)
-        }
         binding.photoProfileEditSourcesTitle.setTextColor(tokens.interactiveAccent)
         binding.photoProfileEditEmpty.setTextColor(tokens.secondaryText)
         binding.photoProfileEditAddSource.apply {

@@ -1,11 +1,10 @@
 package org.fossify.gallery.helpers
 
-import android.content.res.ColorStateList
 import android.graphics.drawable.GradientDrawable
+import android.content.res.ColorStateList
 import android.text.InputType
 import android.view.View
 import android.view.WindowManager
-import android.widget.EditText
 import android.widget.LinearLayout
 import androidx.appcompat.app.AlertDialog
 import androidx.core.view.AccessibilityDelegateCompat
@@ -15,6 +14,8 @@ import androidx.core.widget.doAfterTextChanged
 import org.fossify.gallery.R
 import org.fossify.gallery.activities.SimpleActivity
 import org.fossify.gallery.extensions.config
+import com.google.android.material.textfield.TextInputLayout
+import com.google.android.material.textfield.TextInputEditText
 
 internal object ClassicCustomColorDialog {
     fun show(host: SimpleActivity, onSaved: (Int) -> Unit): AlertDialog? {
@@ -49,19 +50,24 @@ internal object ClassicCustomColorDialog {
             setPadding(0, ClassicThemeDialog.dp(host, 20), 0, ClassicThemeDialog.dp(host, 4))
         }
         body.addView(label)
-        val field = EditText(host).apply {
+        val input = TextInputLayout(host).apply { setHintEnabled(false) }
+        val field = TextInputEditText(host).apply {
             id = View.generateViewId()
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
             filters = arrayOf(android.text.InputFilter.AllCaps())
             isSingleLine = true
-            minimumHeight = ClassicThemeDialog.dp(host, 48)
             hint = "#RRGGBB"
             setTextColor(tokens.primaryText); setHintTextColor(tokens.secondaryText)
-            backgroundTintList = ColorStateList.valueOf(tokens.interactiveAccent)
             setText(OxygenThemeEngine.formatHex(current)); selectAll()
         }
+        input.addView(field, LinearLayout.LayoutParams(-1, -2))
+        val fieldTokens = tokens.copy(
+            pageBackground = tokens.dialogBackground,
+            interactiveAccent = OxygenClassicPalette.readableAccent(tokens.interactiveAccent, tokens.dialogBackground)
+        )
+        OxygenClassicPageInput.style(input, fieldTokens, tokens.dialogBackground)
         label.labelFor = field.id
-        body.addView(field, LinearLayout.LayoutParams(-1, -2))
+        body.addView(input, LinearLayout.LayoutParams(-1, -2))
         // Inline Material supporting text, rather than EditText's floating error popup.
         // Reserve its line so validation does not move the preview or dialog buttons.
         val errorColor = photoDialogColors(host).error
@@ -89,11 +95,25 @@ internal object ClassicCustomColorDialog {
             .setPositiveButton(R.string.classic_save, null), scroll)
         dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
         val save = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        var fieldWasInvalid: Boolean? = null
         fun validate(): Int? {
             val color = OxygenThemeEngine.parseHex(field.text.toString().trim())
             save.isEnabled = color != null
             errorText.visibility = if (color == null) View.VISIBLE else View.INVISIBLE
-            field.backgroundTintList = ColorStateList.valueOf(if (color == null) errorColor else tokens.interactiveAccent)
+            val invalid = color == null
+            if (fieldWasInvalid != invalid) {
+                if (invalid) {
+                    val focused = intArrayOf(android.R.attr.state_enabled, android.R.attr.state_focused)
+                    val enabled = intArrayOf(android.R.attr.state_enabled)
+                    input.setBoxStrokeColorStateList(ColorStateList(
+                        arrayOf(focused, enabled, intArrayOf()),
+                        intArrayOf(errorColor, errorColor, errorColor)
+                    ))
+                } else {
+                    OxygenClassicPageInput.style(input, fieldTokens, tokens.dialogBackground)
+                }
+                fieldWasInvalid = invalid
+            }
             paint(fresh.first, color ?: OxygenThemeColors.blend(tokens.dialogBackground, tokens.secondaryText, .12))
             fresh.second.text = color?.let(OxygenThemeEngine::formatHex) ?: "—"
             return color

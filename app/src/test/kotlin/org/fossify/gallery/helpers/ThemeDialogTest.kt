@@ -5,6 +5,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
+import com.google.android.material.textfield.TextInputLayout
 import org.fossify.commons.extensions.getAppIconColors
 import org.fossify.gallery.R
 import org.fossify.gallery.activities.OxygenThemeActivity
@@ -100,6 +101,11 @@ class ThemeDialogTest {
                 val dialog = ClassicCustomColorDialog.show(host) { saved = it }!!
                 val all = descendants(content(dialog))
                 val field = all.filterIsInstance<EditText>().single()
+                val input = all.filterIsInstance<TextInputLayout>().single()
+                assertEquals(TextInputLayout.BOX_BACKGROUND_OUTLINE, input.boxBackgroundMode)
+                assertEquals((1 * host.resources.displayMetrics.density).toInt().coerceAtLeast(1), input.boxStrokeWidth)
+                assertEquals((2 * host.resources.displayMetrics.density).toInt().coerceAtLeast(2), input.boxStrokeWidthFocused)
+                assertNull("TextInputLayout owns the only outline", field.background)
                 val currentHex = all.filterIsInstance<TextView>().first { it !== field && it.text == OxygenThemeEngine.formatHex(effective) }
                 assertEquals(OxygenThemeEngine.formatHex(effective), field.text.toString())
                 noGlow(dialog)

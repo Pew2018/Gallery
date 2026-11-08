@@ -1,9 +1,11 @@
 package org.fossify.gallery.helpers
 
 import android.app.Activity
+import android.view.MenuItem
 import org.fossify.commons.views.MySearchMenu
 import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
+import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 
 /** Two independent page families sharing one stable catalogue of quick actions. */
@@ -32,7 +34,14 @@ object ToolbarQuickActions {
         R.id.quick_toolbar_slot_3,
         R.id.quick_toolbar_slot_4
     )
-    private val displayed = WeakHashMap<MySearchMenu, Map<Int, String>>()
+    private data class AppliedSlot(val action: String, val item: WeakReference<MenuItem>)
+    private data class AppliedPlan(
+        val actions: List<String>,
+        val slots: Map<Int, AppliedSlot>,
+        val measuredWidthDp: Int,
+        val fixedActionCount: Int
+    )
+    private val displayed = WeakHashMap<MySearchMenu, AppliedPlan>()
 
     fun options(scope: ToolbarQuickScope): List<String> =
         if (scope == ToolbarQuickScope.HOME) homeOptions else folderOptions
@@ -69,6 +78,41 @@ object ToolbarQuickActions {
         return ((widthDp - reservedDp) / 48f).toInt().coerceIn(0, slots.size)
     }
 
+    /**
+     * Share folder-toolbar eligibility between physical albums and photo profiles.
+     * The photo-profile toolbar must honor the saved FOLDER selection and order:
+     * a profile-specific filter must never silently pull later actions forward.
+     * Its slideshow slot remains reserved during partial/empty media publication.
+     */
+    fun supportsFolderAction(
+        action: String,
+        grid: Boolean,
+        horizontal: Boolean,
+        hasPlayableMedia: Boolean,
+        photoProfile: Boolean
+    ): Boolean = when (action) {
+        COLUMNS, FILENAME -> grid
+        GROUP -> !horizontal
+        SLIDESHOW -> photoProfile || hasPlayableMedia
+        else -> true
+    }
+
+    /**
+     * Photo-profile grids currently publish their validated media without group
+     * headers. Retain a configured GROUP icon in its stable slot, but do not
+     * offer a grouping command that cannot affect that virtual grid.
+     */
+    fun folderActionEnabled(
+        action: String,
+        photoProfile: Boolean,
+        hasPlayableMedia: Boolean,
+        needsUnlock: Boolean
+    ): Boolean = when (action) {
+        GROUP -> !photoProfile
+        SLIDESHOW -> PhotoPlaybackPolicy.slideshowEnabled(hasPlayableMedia, needsUnlock)
+        else -> true
+    }
+
     /** A page-level action outside the customizable quick-action catalogue. */
     fun photoProfileManageVisible(isPhotoProfiles: Boolean, isPicker: Boolean, isRecycleBin: Boolean): Boolean =
         isPhotoProfiles && !isPicker && !isRecycleBin
@@ -101,9 +145,13 @@ object ToolbarQuickActions {
     }
 
     /** Menu slot indices, not action names, own visible ordering. */
-    fun actionForSlot(menu: MySearchMenu, itemId: Int): String? = displayed[menu]?.get(itemId)
+    fun actionForSlot(menu: MySearchMenu, itemId: Int): String? = displayed[menu]?.slots?.get(itemId)?.action
 
     fun isSlot(itemId: Int): Boolean = itemId in slots
+
+    /** Rebind an icon only when its action or the actual inflated item changed. */
+    fun shouldBindSlot(previousAction: String?, sameMenuItem: Boolean, action: String?): Boolean =
+        action != null && (previousAction != action || !sameMenuItem)
 
     /**
      * Preserve 48dp click targets, overflow, navigation and a 96dp title area.
@@ -117,32 +165,45 @@ object ToolbarQuickActions {
         selected: List<String>,
         hasBack: Boolean,
         fixedActionCount: Int = 0,
-        supported: (String) -> Boolean = { true }
+        supported: (String) -> Boolean = { true },
+        enabled: (String) -> Boolean = { true }
     ) {
         val chosen = normalize(scope, selected)
         val showSearch = SEARCH in chosen
         val menu = searchMenu.requireToolbar().menu
         val density = activity.resources.displayMetrics.density
-        val measuredDp = (searchMenu.width.takeIf { it > 0 }
-            ?: activity.resources.displayMetrics.widthPixels) / density
-        val count = availableSlots(measuredDp.toInt(), hasBack, showSearch, fixedActionCount)
+        // screenWidthDp is already expressed in the app's usable window width.
+        // It avoids planning from the physical display width before the toolbar
+        // is measured (which can include space lost to system/window insets).
+        val measuredDp = (searchMenu.width.takeIf { it > 0 }?.div(density)
+            ?: activity.resources.configuration.screenWidthDp.toFloat()).toInt()
+        val count = availableSlots(measuredDp, hasBack, showSearch, fixedActionCount)
         val actions = plan(scope, chosen, count, supported)
-
-        val activeSlots = mutableMapOf<Int, String>()
+        val previous = displayed[searchMenu]
+        val activeSlots = mutableMapOf<Int, AppliedSlot>()
         slots.forEachIndexed { index, id ->
-            menu.findItem(id)?.apply {
-                val action = actions.getOrNull(index)
-                isVisible = action != null
-                if (action != null) {
-                    setIcon(iconRes(action))
-                    setTitle(titleRes(action))
-                    activeSlots[id] = action
+            val item = menu.findItem(id) ?: return@forEachIndexed
+            val action = actions.getOrNull(index)
+            val priorSlot = previous?.slots?.get(id)
+            val visible = action != null
+            if (item.isVisible != visible) item.isVisible = visible
+            if (action != null) {
+                if (shouldBindSlot(priorSlot?.action, priorSlot?.item?.get() === item, action)) {
+                    item.setIcon(iconRes(action))
+                    item.setTitle(titleRes(action))
                 }
+                val shouldEnable = enabled(action)
+                if (item.isEnabled != shouldEnable) item.isEnabled = shouldEnable
+                activeSlots[id] = AppliedSlot(action, WeakReference(item))
             }
         }
-        displayed[searchMenu] = activeSlots
-        menu.findItem(R.id.quick_toolbar_search_overflow)?.isVisible = !showSearch
+        displayed[searchMenu] = AppliedPlan(actions, activeSlots, measuredDp, fixedActionCount)
+        menu.findItem(R.id.quick_toolbar_search_overflow)?.let {
+            if (it.isVisible == showSearch) it.isVisible = !showSearch
+        }
         OxygenToolbarStyle.setSearchActionVisible(searchMenu, showSearch)
+        // Tinting is independently cached by item identity and foreground so a
+        // content refresh does not replace otherwise unchanged drawables.
         OxygenToolbarStyle.tintMenu(menu, OxygenThemeEngine.toolbarForeground(activity, activity.config))
     }
 }

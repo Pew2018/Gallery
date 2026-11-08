@@ -21,11 +21,18 @@
                 android:layout_marginTop="8dp" android:layout_marginBottom="4dp"
                 android:text="@string/photo_profiles_name"
                 android:fontFamily="sans-serif-medium" android:textSize="12sp" />
-            <EditText android:id="@+id/photo_profile_edit_name"
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/photo_profile_edit_name_input"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:minHeight="52dp" android:singleLine="true"
-                android:textSize="16sp"
-                android:inputType="textCapSentences" />
+                app:hintEnabled="false">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/photo_profile_edit_name"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:minHeight="56dp" android:singleLine="true"
+                    android:hint="@string/photo_profiles_enter_name"
+                    android:textSize="16sp"
+                    android:inputType="textCapSentences" />
+            </com.google.android.material.textfield.TextInputLayout>
             <TextView android:id="@+id/photo_profile_edit_sources_title"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="24dp" android:paddingBottom="8dp"

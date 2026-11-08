@@ -53,8 +53,11 @@ open class SimpleActivity : BaseSimpleActivity() {
             config.oxygenAppearanceMode == "light" -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO
             else -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
         }
+        org.fossify.gallery.helpers.GalleryBottomBar.traceWindow(this, "create_before_commons")
         super.onCreate(savedInstanceState)
         applyClassicOverlay()
+        org.fossify.gallery.helpers.GalleryBottomBar.restoreRootWindow(this)
+        org.fossify.gallery.helpers.GalleryBottomBar.traceWindow(this, "create_after_commons")
         inflatedTheme = OxygenThemeEngine.snapshot(this, config)
         inflatedAppearance = config.oxygenThemeActivated to config.oxygenAppearanceMode
         restoredThemeState = savedInstanceState
@@ -65,6 +68,8 @@ open class SimpleActivity : BaseSimpleActivity() {
         super.onResume()
         // Commons' onResume calls setTheme(); restore the overlay after that call.
         applyClassicOverlay()
+        org.fossify.gallery.helpers.GalleryBottomBar.restoreRootWindow(this)
+        org.fossify.gallery.helpers.GalleryBottomBar.traceWindow(this, "resume_after_commons")
     }
 
     override fun onPostResume() {

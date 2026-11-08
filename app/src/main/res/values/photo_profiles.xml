@@ -13,6 +13,7 @@
     <string name="photo_profiles_use">Use this profile</string>
     <string name="photo_profiles_save">Save</string>
     <string name="photo_profiles_name">Profile name</string>
+    <string name="photo_profiles_enter_name">Enter profile name</string>
     <string name="photo_profiles_name_required">Enter a profile name</string>
     <string name="photo_profiles_source_required">Select at least one media source</string>
     <string name="photo_profiles_add_source">Add media sources</string>

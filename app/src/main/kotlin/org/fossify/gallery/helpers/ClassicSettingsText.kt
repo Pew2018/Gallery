@@ -5,6 +5,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.TextView
+import com.google.android.material.textfield.TextInputLayout
 
 /** Finish after Commons' type-specific updateTextColors, including plain SwitchCompat text. */
 object ClassicSettingsText {
@@ -21,7 +22,7 @@ object ClassicSettingsText {
                     arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()),
                     intArrayOf(tokens.disabledText, normal)
                 ))
-                if (view is EditText) {
+                if (view is EditText && view.parent !is TextInputLayout && (view.parent as? View)?.parent !is TextInputLayout) {
                     view.setHintTextColor(tokens.secondaryText)
                     view.backgroundTintList = ColorStateList.valueOf(tokens.interactiveAccent)
                 }

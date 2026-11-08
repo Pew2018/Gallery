@@ -12,17 +12,21 @@ on:
       - feature/oxygenos-gallery-nav-vault-performance
       - fix/20261030-size-bubble-favorites-menu
       - refactor/media-pipeline-stability
+      - refactor/oxygenos-classic-bottom-bar-material-motion
+      - refactor/oxygenos-classic-outlined-inputs
       - feature/customizable-toolbar-actions
       - feature/oxygen-theme
       - feature/oxygen-classic-ui-polish
       - feature/oxygenos-ui-animation-consistency
       - fix/bottom-bar-tap-ripple
+      - fix/photo-profile-toolbar-stability
     paths:
       - "app/**"
       - "buildSrc/**"
       - "gradle/**"
       - "gradle.properties"
       - ".github/workflows/arm64-foss-release.yml"
+      - "docs/ui/oxygenos-classic-refinement/phase-3b-bottom-navigation-material-motion.md"
 
 permissions:
   contents: read

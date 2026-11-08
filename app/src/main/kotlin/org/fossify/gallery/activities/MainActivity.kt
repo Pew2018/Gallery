@@ -514,7 +514,16 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         if (!mIsThirdPartyIntent) {
             GalleryBottomBar.attach(this, binding.root,
                 if (mShowingFolderFavorites) GalleryBottomBar.Tab.FAVORITES else GalleryBottomBar.Tab.ALL,
-                loadingFrame = { directoryHeaderProgress?.let(OxygenProgressStyle::revealPending) }
+                loadingFrame = { directoryHeaderProgress?.let { indicator ->
+                    OxygenProgressStyle.setLoading(indicator, true)
+                    OxygenProgressStyle.revealPending(indicator)
+                } },
+                frameState = { when {
+                    binding.directoriesGrid.isShown && binding.directoriesGrid.childCount > 0 -> "content"
+                    binding.directoriesEmptyPlaceholder.isShown -> "empty_or_error"
+                    directoryHeaderProgress?.isShown == true -> "loading"
+                    else -> null
+                } }
             ) { tab ->
                 getRecyclerAdapter()?.finishActMode()
                 val section = GallerySection.valueOf(tab.name)
@@ -972,6 +981,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 }
             )
         }
+        // Commons can reset existing toolbar drawables to its content contrast
+        // color during updateColors(). Restore the visible primary actions after
+        // quick-action binding, matching the folder toolbar's final tint pass.
+        OxygenToolbarStyle.reassertActionTints(
+            binding.mainMenu.requireToolbar().menu,
+            OxygenThemeEngine.toolbarForeground(this, config)
+        )
     }
 
     private fun getRecyclerAdapter() = binding.directoriesGrid.adapter as? DirectoryAdapter
@@ -2807,8 +2823,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     // Only an in-progress scan can publish an unconfirmed empty cache.
                     if (scanRequest == null || visible.isNotEmpty() || scanComplete) {
                         checkPlaceholderVisibility(visible)
-                        GalleryBottomBar.markRootContentReady(this@MainActivity, if (visible.isEmpty())
-                            GalleryBottomBar.RootContent.EMPTY else GalleryBottomBar.RootContent.CONTENT)
                     }
                     if (scanRequest != null && org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
                         org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(

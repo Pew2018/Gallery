@@ -1,0 +1,61 @@
+# OxygenOS Classic outlined text fields
+
+## Baseline and scope
+
+- Base branch: `refactor/media-pipeline-stability`
+- Base remote HEAD used to create this branch: `6a44b51ca525a356f14a229004f2690cfc5b5f67`
+- Work branch: `refactor/oxygenos-classic-outlined-inputs`
+- Historical prompt SHA `faf38ceabc1d01bf570faa682ca25c9d972cec25` was not used as a checkout baseline.
+- The parallel checkout at `/workspace/scratch/dc5b5fd1c84e/Gallery` contained two unrelated uncommitted files and was left untouched. This implementation uses a clean checkout.
+
+This phase standardizes editable form fields as Material Components (Material 2) outlined fields. It leaves password/PIN/pattern/biometric UI, the top toolbar's collapsing search mode, and standard read-only text displays outside the migration.
+
+## Input audit
+
+| Entry | Baseline structure | Change / disposition |
+|---|---|---|
+| Photo profile create/edit name | Plain `EditText` with a tinted platform underline and a separate label | Wrapped in `TextInputLayout` + `TextInputEditText`, preserving `photo_profile_edit_name`; outline hint is `Enter profile name`, with the existing external label retained and duplicate floating hint disabled. |
+| Photo profile rename | Programmatic plain `EditText`, previously styled as an underline | Uses `TextInputLayout` + `TextInputEditText`, prefilled value and end selection retained, with inline component error state. |
+| Custom theme HEX value | Programmatic `EditText` with direct accent `backgroundTintList` | Uses an outlined `TextInputLayout`; HEX preview, parsing, all-caps filtering, select-all behavior and existing inline accessible error text are retained. Invalid values change the outline to semantic error red. |
+| Folder picker search | Commons `MySearchMenu` is a `MyAppBarLayout` with `searchBarContainer` → `toolbarContainer` → leading icon, search `EditText`, and an internal `MaterialToolbar`; the picker's 48dp overflow control is a sibling in `dialog_directory_picker.xml`. `setupMenu()` posts its focus listener. | Kept Commons search and its EditText instance. The inner search-control container receives one 4dp outlined `GradientDrawable`; the picker overflow action remains outside the outline. The Gallery focus listener is posted after Commons' listener, wraps it, and is installed once so opening/closing/search callbacks remain intact. |
+| `dialog_create_new_folder.xml` | Two Commons `MyTextInputLayout` fields | Preserved. The path remains read-only/selectable; the name remains editable. Dialog styling now delegates to the shared outline helper. |
+| `dialog_custom_aspect_ratio.xml` | Two outlined numeric fields, 100dp each | Preserved compact paired geometry and validation. Shared radius, focus/idle stroke and field-background ownership now apply. |
+| `dialog_export_favorites.xml` | One outlined filename field | Preserved dynamic extension hint and filename behavior. |
+| `dialog_export_settings.xml` | Outlined read-only path plus filename | Preserved path read-only behavior and filename hint. |
+| `dialog_resize_image.xml` | Two outlined numeric fields, 100dp each | Preserved integer and aspect-ratio behavior. |
+| `dialog_resize_image_with_path.xml` | Outlined numeric, path, filename and extension fields | Preserved numeric validation and read-only path style. |
+| `dialog_resize_multiple_images.xml` | Outlined percentage field with helper/error text | Preserved suffix, helper/error text and resize-factor validation. |
+| `dialog_save_as.xml` | Outlined path, filename and extension fields | Preserved read-only path and file operation semantics. |
+| `dialog_slideshow.xml` | Outlined interval field | Preserved numeric input, interval label and validation. |
+| Collapsing toolbar search in Main/Media/Search activities | Commons toolbar search | Excluded from form migration; it is a distinct compact toolbar interaction. The dialog-wide styling excludes its search EditText. |
+| `SettingsActivity.setupRefreshDiagnostics()` dynamic field | No matching current implementation found in the full Gallery Kotlin/XML search. | No migration; the previously removed diagnostics flow was not restored. |
+| Widget configure tint, switch/slider drawables, shortcut drawable layers | Search terms matched non-input controls. | Excluded as unrelated visual tint/drawable code. |
+
+## Shared implementation
+
+`OxygenClassicPageInput` now styles `TextInputLayout` with Material's public outlined mode: 4dp corners, 1dp idle and 2dp focused strokes, semantic neutral/accent/disabled colors, readable hint/text colors, cursor tint and 56dp minimum field height. Dialogs resolve tokens against the dialog surface. TextInputLayout owns its child EditText background; `OxygenClassicDialog.apply()` no longer places the platform underline beneath it. Plain EditTexts continue through the legacy path only when they are not children of an outlined TextInputLayout. `ClassicSettingsText` follows the same distinction.
+
+Follow-up (2026-11-07): the unfocused/idle outline is now a surface-relative 46% blend toward readable primary text, rather than promoting the secondary-text color to 4.5:1 contrast. Both standard TextInputLayout forms and the folder-picker's independently drawn search outline share that token. Focused accent, error/disabled states, stroke thickness, 4dp corners, field height, text and hint color, IME behavior and existing listeners remain unchanged.
+
+## Tests
+
+Added/updated Robolectric coverage in `PhotoProfileEditUiTest`, `ThemeDialogTest`, and `ClassicDialogLayoutRegressionTest`. It checks the preserved binding ID, page field hint/height, outlined mode, stroke widths, absence of the child EditText background, dynamic HEX validation and all nine existing form layouts.
+
+Local command attempted:
+
+```text
+./gradlew :app:compileFossReleaseKotlin :app:processFossReleaseResources --stacktrace
+```
+
+It did not start because Gradle 9.5.1 was not cached and the environment could not reach `services.gradle.org` (`Network is unreachable`). `git diff --check` passed before the Gradle invocation. Robolectric tests and device-only rendering/IME behavior remain unverified locally until CI can run.
+
+First remote run (`42381146294`) reached `:app:compileFossReleaseKotlin` and found two Kotlin errors: the dynamic fields used inaccessible synthetic property `hintEnabled`. Both call sites were changed to the public `setHintEnabled(false)` API in repair commit `7e94a850ccb732d16e4e5871ed28b7081b51a5c3` (the original run did not reach unit tests or APK assembly).
+
+Corrected run `42381432692` completed successfully. Full `:app:testFossReleaseUnitTest`: **1,020 tests, 0 failures, 0 errors, 0 skipped**. Kotlin compilation, resource processing, ARM64 Release assembly, APK package/signature/ABI validation and artifact upload all passed. The APK was confirmed to contain only `arm64-v8a` native libraries. APK SHA-256: `2d0bb278b30430414fbb61692a44bea9fdbb570f9f6bf414f194297c08c91b1f`.
+
+## Delivery tracking
+
+- Source commit SHA: `7e94a850ccb732d16e4e5871ed28b7081b51a5c3` (includes the public setter repair; parent source commit `c8089b98e3e693b0ade91e2f462315ea29684b25`)
+- GitHub Actions run: [42381432692](https://github.com/Pew2018/Gallery/actions/runs/42381432692) — success. Initial run [42381146294](https://github.com/Pew2018/Gallery/actions/runs/42381146294) failed at compile and was corrected.
+- ARM64 FOSS Release artifact: `gallery-foss-arm64-v8a-release`, artifact ID `13577808932`, ZIP size 10,500,680 bytes, SHA-256 `a68ee601ef2300a0ae5e6af8447a8ad21ec036ccd8531a876b19218470d85a31`. [Open/download the Actions artifact](https://github.com/Pew2018/Gallery/actions/runs/42381432692/artifacts/13577808932). It expires 2026-11-21.
+- Pixel 8 Pro verification: pending. Validate light/dark themes, bright and dark custom accents, 1.5x font, portrait/landscape, both navigation modes, Chinese/English IMEs, focus/selection retention, and folder search filtering.

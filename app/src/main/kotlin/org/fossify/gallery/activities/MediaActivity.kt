@@ -177,7 +177,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mPath = ""
     private val isPhotoProfiles get() = mPath == PhotoProfileMediaLoader.PATH
     private var photoProfileId: String? = null
-    private var photoHasContent = false
     private var photoNeedsUnlock = false
     private var photoViewerTransition = false
     private var photoReturnProbeGeneration = 0L
@@ -309,7 +308,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             org.fossify.gallery.helpers.PhotoProfileMediaCache.invalidate()
             org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.invalidate()
             clearPhotoDisplayState()
-            photoHasContent = false
             if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) getMedia()
         }
     }
@@ -324,7 +322,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (!sameAuthorizedScope) {
             // A changed source, preference, or access capability must drop old thumbnails.
             clearPhotoDisplayState()
-            photoHasContent = false
         } else rememberPhotoScrollAnchor()
         mediaSearchGeneration++
         mLastSearchedText = ""
@@ -365,7 +362,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             binding.mediaGrid.adapter = null
             mMedia = ArrayList()
             photoLoadedKey = null
-            photoHasContent = false
         }
         photoLoadCompleted = false
         // A viewer opened during refresh must not consume the previous final snapshot.
@@ -388,7 +384,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             binding.mediaEmptyTextPlaceholder.beVisible()
             binding.mediaEmptyTextPlaceholder2.beGone()
             binding.mediaFastscroller.beGone()
-            GalleryBottomBar.markRootContentReady(this, GalleryBottomBar.RootContent.EMPTY)
             return
         }
         val requestedToken = photoToken()
@@ -472,7 +467,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             if (accessChanged) refreshMenuItems()
             if (!complete) {
                 photoLoadedKey = requestedKey
-                photoHasContent = result.media.isNotEmpty()
                 mIsGettingMedia = true
                 setMediaLoading(true)
             }
@@ -842,7 +836,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (mGallerySection != null) {
             GalleryBottomBar.attach(this, binding.root,
                 GalleryBottomBar.Tab.valueOf(mGallerySection!!.name),
-                loadingFrame = { mediaHeaderProgress?.let(OxygenProgressStyle::revealPending) }
+                loadingFrame = { mediaHeaderProgress?.let { indicator ->
+                    OxygenProgressStyle.setLoading(indicator, true)
+                    OxygenProgressStyle.revealPending(indicator)
+                } },
+                frameState = { when {
+                    binding.mediaGrid.isShown && binding.mediaGrid.childCount > 0 -> "content"
+                    binding.mediaEmptyTextPlaceholder.isShown -> "empty_or_error"
+                    mediaHeaderProgress?.isShown == true -> "loading"
+                    else -> null
+                } }
             ) { tab ->
                 getMediaAdapter()?.finishActMode()
                 val section = GallerySection.valueOf(tab.name)
@@ -1301,46 +1304,51 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 && File(config.defaultFolder).compareTo(File(mPath)) == 0
 
         binding.mediaMenu.requireToolbar().menu.apply {
-            findItem(R.id.group).isVisible = !config.scrollHorizontally
+            fun setVisibleIfChanged(id: Int, visible: Boolean) {
+                findItem(id)?.let { if (it.isVisible != visible) it.isVisible = visible }
+            }
+            setVisibleIfChanged(R.id.group, !config.scrollHorizontally)
 
-            findItem(R.id.empty_recycle_bin).isVisible = mPath == RECYCLE_BIN
-            findItem(R.id.empty_disable_recycle_bin).isVisible = mPath == RECYCLE_BIN
-            findItem(R.id.restore_all_files).isVisible = mPath == RECYCLE_BIN
+            setVisibleIfChanged(R.id.empty_recycle_bin, mPath == RECYCLE_BIN)
+            setVisibleIfChanged(R.id.empty_disable_recycle_bin, mPath == RECYCLE_BIN)
+            setVisibleIfChanged(R.id.restore_all_files, mPath == RECYCLE_BIN)
             val isPicker = mIsGetImageIntent || mIsGetVideoIntent || mIsGetAnyIntent || isSetWallpaperIntent()
-            findItem(R.id.photo_profiles_manage).isVisible =
+            setVisibleIfChanged(R.id.photo_profiles_manage,
                 org.fossify.gallery.helpers.ToolbarQuickActions.photoProfileManageVisible(
                     isPhotoProfiles, isPicker, mPath == RECYCLE_BIN
-                )
-            findItem(R.id.photo_profiles_unlock).isVisible = isPhotoProfiles && photoNeedsUnlock && photoProfileId != null
-            findItem(R.id.photo_profiles_lock).isVisible = isPhotoProfiles && photoToken() != null
+                ))
+            setVisibleIfChanged(R.id.photo_profiles_unlock, isPhotoProfiles && photoNeedsUnlock && photoProfileId != null)
+            setVisibleIfChanged(R.id.photo_profiles_lock, isPhotoProfiles && photoToken() != null)
 
-            findItem(R.id.folder_view).isVisible = hasFixedBrowseSwitch
-            findItem(R.id.open_camera).isVisible = mShowAll
-            findItem(R.id.about).isVisible = mShowAll
-            findItem(R.id.create_new_folder).isVisible =
-                !mShowAll && mPath != RECYCLE_BIN && mPath != FAVORITES
-            findItem(R.id.open_recycle_bin).isVisible = config.useRecycleBin && mPath != RECYCLE_BIN
+            setVisibleIfChanged(R.id.folder_view, hasFixedBrowseSwitch)
+            setVisibleIfChanged(R.id.open_camera, mShowAll)
+            setVisibleIfChanged(R.id.about, mShowAll)
+            setVisibleIfChanged(R.id.create_new_folder, !mShowAll && mPath != RECYCLE_BIN && mPath != FAVORITES)
+            setVisibleIfChanged(R.id.open_recycle_bin, config.useRecycleBin && mPath != RECYCLE_BIN)
 
-            findItem(R.id.temporarily_show_excluded).isVisible =
-                mPath.isEmpty() && !config.temporarilyShowExcluded
-            findItem(R.id.stop_showing_excluded).isVisible =
-                mPath.isEmpty() && config.temporarilyShowExcluded
+            setVisibleIfChanged(R.id.temporarily_show_excluded, mPath.isEmpty() && !config.temporarilyShowExcluded)
+            setVisibleIfChanged(R.id.stop_showing_excluded, mPath.isEmpty() && config.temporarilyShowExcluded)
 
-            findItem(R.id.temporarily_show_hidden).isVisible = !config.shouldShowHidden
-            findItem(R.id.stop_showing_hidden).isVisible =
-                (!isRPlus() || isExternalStorageManager()) && config.temporarilyShowHidden
+            setVisibleIfChanged(R.id.temporarily_show_hidden, !config.shouldShowHidden)
+            setVisibleIfChanged(R.id.stop_showing_hidden,
+                (!isRPlus() || isExternalStorageManager()) && config.temporarilyShowHidden)
 
-            findItem(R.id.set_as_default_folder).isVisible = !isDefaultFolder
-            findItem(R.id.unset_as_default_folder).isVisible = isDefaultFolder
+            setVisibleIfChanged(R.id.set_as_default_folder, !isDefaultFolder)
+            setVisibleIfChanged(R.id.unset_as_default_folder, isDefaultFolder)
 
             val viewType = config.getFolderViewType(if (mShowAll) SHOW_ALL else mPath)
-            findItem(R.id.column_count).isVisible = viewType == VIEW_TYPE_GRID
-            findItem(R.id.toggle_filename).isVisible = viewType == VIEW_TYPE_GRID
+            setVisibleIfChanged(R.id.column_count, viewType == VIEW_TYPE_GRID)
+            setVisibleIfChanged(R.id.toggle_filename, viewType == VIEW_TYPE_GRID)
             if (isPhotoProfiles) {
                 listOf(R.id.group, R.id.create_new_folder, R.id.set_as_default_folder,
                     R.id.unset_as_default_folder, R.id.temporarily_show_hidden, R.id.stop_showing_hidden,
-                    R.id.temporarily_show_excluded, R.id.stop_showing_excluded).forEach { findItem(it)?.isVisible = false }
-                findItem(R.id.slideshow).isVisible = mMedia.filterIsInstance<Medium>().any { org.fossify.gallery.helpers.PhotoPlaybackPolicy.canPlay(it.type, config.slideshowIncludeVideos, config.slideshowIncludeGIFs) }
+                    R.id.temporarily_show_excluded, R.id.stop_showing_excluded).forEach { setVisibleIfChanged(it, false) }
+                setVisibleIfChanged(R.id.slideshow, hasPlayableMedia())
+                findItem(R.id.slideshow)?.let {
+                    val enabled = org.fossify.gallery.helpers.PhotoPlaybackPolicy
+                        .slideshowEnabled(hasPlayableMedia(), photoNeedsUnlock)
+                    if (it.isEnabled != enabled) it.isEnabled = enabled
+                }
             }
         }
         updateMenuColors()
@@ -1464,8 +1472,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             backButton = mPath == FAVORITES || (mGallerySection == null && !mShowAll),
         )
         if (!picker && mPath != RECYCLE_BIN) {
-            val isHome = mPath.isEmpty() || (isPhotoProfiles && org.fossify.gallery.helpers.PhotoPlaybackPolicy.toolbarScope(photoHasContent) == org.fossify.gallery.helpers.ToolbarQuickScope.HOME)
+            // Toolbar layout follows page identity. Photo profile loading and
+            // refresh publications must never switch its saved action family.
+            val isHome = mPath.isEmpty()
             val viewType = config.getFolderViewType(if (isHome && !isPhotoProfiles) SHOW_ALL else mPath)
+            val playable = hasPlayableMedia()
             org.fossify.gallery.helpers.ToolbarQuickActions.apply(
                 this, binding.mediaMenu,
                 if (isHome) org.fossify.gallery.helpers.ToolbarQuickScope.HOME
@@ -1474,20 +1485,33 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 hasBack = !isHome && !isPhotoProfiles,
                 fixedActionCount = (if (hasFixedBrowseSwitch) 1 else 0) + (if (isPhotoProfiles) 1 else 0),
                 supported = { action ->
-                    if (isPhotoProfiles && action in listOf(
-                        org.fossify.gallery.helpers.ToolbarQuickActions.HIDDEN,
-                        org.fossify.gallery.helpers.ToolbarQuickActions.EXCLUDED,
-                        org.fossify.gallery.helpers.ToolbarQuickActions.GROUP)) false else when (action) {
-                        org.fossify.gallery.helpers.ToolbarQuickActions.COLUMNS,
-                        org.fossify.gallery.helpers.ToolbarQuickActions.FILENAME -> viewType == VIEW_TYPE_GRID
-                        org.fossify.gallery.helpers.ToolbarQuickActions.GROUP -> !config.scrollHorizontally
-                        org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW ->
-                            mMedia.filterIsInstance<Medium>().any { org.fossify.gallery.helpers.PhotoPlaybackPolicy.canPlay(it.type, config.slideshowIncludeVideos, config.slideshowIncludeGIFs) }
-                        else -> true
-                    }
+                    org.fossify.gallery.helpers.ToolbarQuickActions.supportsFolderAction(
+                        action, grid = viewType == VIEW_TYPE_GRID,
+                        horizontal = config.scrollHorizontally,
+                        hasPlayableMedia = playable, photoProfile = isPhotoProfiles
+                    )
+                },
+                enabled = { action ->
+                    org.fossify.gallery.helpers.ToolbarQuickActions.folderActionEnabled(
+                        action, photoProfile = isPhotoProfiles,
+                        hasPlayableMedia = playable, needsUnlock = photoNeedsUnlock
+                    )
                 }
             )
         }
+        // Commons can overwrite existing MenuItem drawables with the page's
+        // black-on-light contrast tint. Reassert only their presentation color
+        // after all action bindings, without changing the stable toolbar plan.
+        OxygenToolbarStyle.reassertActionTints(
+            binding.mediaMenu.requireToolbar().menu,
+            OxygenThemeEngine.toolbarForeground(this, config)
+        )
+    }
+
+    private fun hasPlayableMedia(): Boolean = mMedia.filterIsInstance<Medium>().any {
+        org.fossify.gallery.helpers.PhotoPlaybackPolicy.canPlay(
+            it.type, config.slideshowIncludeVideos, config.slideshowIncludeGIFs
+        )
     }
 
     private fun storeStateVariables() {
@@ -3510,7 +3534,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             displayedSourceVersion++
             mMedia = ArrayList(media)
             if (isPhotoProfiles && !isFromCache) {
-                photoHasContent = media.any { it is Medium }
                 photoLoadCompleted = true
                 photoLoadedKey = photoDisplayKey()
                 photoLoadedRevision = org.fossify.gallery.helpers.PhotoContentRevision.current()
@@ -3563,7 +3586,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     org.fossify.gallery.helpers.FolderRefreshDiagnostics.event(request, "adapter_committed",
                         getMediaAdapter()?.media.orEmpty().filterIsInstance<Medium>().map { it.path }, "final=$displayedMediaIsFinal")
                     if (isFromCache && media.isNotEmpty() && completedMediaRequest != request) setMediaLoading(true)
-                    GalleryBottomBar.markRootContentReady(this)
                     if (mPath == FAVORITES && !isFromCache && media.isNotEmpty()) {
                         val committedItems = media
                         val token = favoriteSessionId
@@ -3616,10 +3638,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     binding.mediaEmptyTextPlaceholder2, media.any { it is Medium },
                     org.fossify.gallery.helpers.PartialMediaScanException(outcome.cause)
                 ) { getMedia(manualRefresh = true) }
-            }
-            if (!isFromCache && media.isEmpty()) {
-                GalleryBottomBar.markRootContentReady(this, if (photoNeedsUnlock)
-                    GalleryBottomBar.RootContent.AUTHORIZATION else GalleryBottomBar.RootContent.EMPTY)
             }
             if (mPath == FAVORITES && applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
                 android.util.Log.d("GalleryFavorites", "source=${if (isFromCache) "cache" else "scan"}, adapterMedia=${mMedia.count { it is Medium }}")

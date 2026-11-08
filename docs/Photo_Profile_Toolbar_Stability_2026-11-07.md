@@ -1,0 +1,75 @@
+# Photo Profile Toolbar Stability — 2026-11-07
+
+## 真机现象
+
+Pixel 8 Pro / Android 16 在自定义照片配置浏览首次进入、下拉刷新和渐进加载时，顶栏快捷图标会出现迟到、短暂消失或挪位。主页与普通文件夹没有同样的内容驱动切换。
+
+## 修复前的调用链与根因
+
+`MediaActivity.setupOptionsMenu()` 建立菜单后调用 `refreshMenuItems()` / `updateMenuColors()`。照片配置加载再经过 `getPhotoProfileMedia()`、阶段结果 `applyPhotoGridResult()` 和 `publishMedia()`，媒体集合变化时刷新菜单。
+
+旧的 `updateMenuColors()` 用 `PhotoPlaybackPolicy.toolbarScope(photoHasContent)` 决定照片配置的快捷动作作用域：空列表走 HOME，有内容走 FOLDER。HOME 与 FOLDER 使用不同的用户配置，故首次发布会重建动作计划；刷新中列表暂时清空时可能再次回到 HOME。旧代码还把“当前列表存在可播放媒体”作为幻灯片快捷动作的显示条件，空列表会移除该槽位并推动后续图标。`ToolbarQuickActions.apply()` 每次更新都会重设可见性、图标和标题；`OxygenToolbarStyle.tintMenu()` 也会遍历并重新赋值所有菜单图标。
+
+## 状态边界
+
+快捷动作布局由页面身份、用户保存配置、可用宽度和固定操作占位决定。扫描阶段、列表空暂态和渐进发布不参与布局决策。幻灯片槽位在照片配置页依照用户配置保留，只有当前媒体可播放且不处于锁定状态时才启用；溢出菜单中的幻灯片命令仍可按实际媒体隐藏。权限撤销仍沿用原有访问会话失效和媒体清除流程，锁定状态下幻灯片操作禁用。
+
+## 修改文件与行为
+
+- `MediaActivity.updateMenuColors()`：All Files 根页面仍使用 HOME，照片配置及普通文件夹使用 FOLDER。照片媒体状态不再参与 scope 判定。
+- `MediaActivity.refreshMenuItems()`：仅在可见性/启用状态确实变化时写入菜单；配置页溢出幻灯片仍按可播放媒体显示，快捷槽位则保持稳定。
+- `ToolbarQuickActions.apply()`：按实际 action 与 MenuItem 实例变化才重设图标和标题；可见性、启用状态均作差异更新。保存的 MenuItem 为弱引用，菜单重建后依据新实例执行完整初始化。实际宽度未测量时使用 `screenWidthDp`，测量后按布局宽度重新计算；现有尺寸变化监听负责窗口尺寸变化。
+- `OxygenToolbarStyle.tintMenu()`：按 MenuItem、Drawable 与前景色缓存 Tint，只在图标实例或主题前景变化时重新着色；缓存只保留弱引用。
+- `PhotoPlaybackPolicy.kt`：删除媒体内容决定 Toolbar Scope 的旧策略，增加纯函数判断幻灯片可执行状态。
+- XML 菜单保持不变：管理配置固定按钮和五个快捷槽位已存在，不需更改 ID 或布局尺寸。
+
+## 宽度与固定按钮
+
+管理配置图标仍为固定按钮，计入 `fixedActionCount`，不进入用户可配置的五个槽位。保留 48dp 操作触控区和现有 56dp Toolbar / 标题布局。现有宽度测试覆盖 320、360、393 和 480dp。首次未测量宽度采用窗口配置宽度，布局测量回调会在实际宽度变化时重新计算；需要真机确认 Pixel 8 Pro 首次显示是否存在窗口 inset 导致的槽位边界变化。
+
+## 回归测试
+
+- `PhotoProfileEnhancementsTest.photoProfileToolbarUsesFolderPlanAcrossEveryPublicationStage`：覆盖 INITIAL、PARTIAL、COMPLETE、刷新空暂态和最终空列表；动作计划保持 FOLDER 计划，幻灯片启用状态独立变化。
+- `ToolbarQuickActionsTest.photoProfileLayoutPlanDoesNotDependOnMediaAvailability`：覆盖四种宽度下稳定计划。
+- `ToolbarQuickActionsTest.unchangedSlotBindingIsSkippedButReinflatedItemsAreInitialized`：覆盖相同槽位跳过绑定、动作变化和重新 inflate 后重新初始化。
+- `ToolbarQuickActionsTest.slideshowAvailabilityChangesEnabledStateWithoutChangingThePlan`：覆盖空媒体、可播放媒体和需要解锁状态。
+- 原有 `fixedPhotoProfileActionIsReservedBeforeOptionalActionsAtTargetWidths` 继续验证固定管理按钮占位和 48dp 槽位预算。
+
+本地测试命令：`./gradlew :app:testFossReleaseUnitTest --tests org.fossify.gallery.helpers.ToolbarQuickActionsTest --tests org.fossify.gallery.helpers.PhotoProfileEnhancementsTest --stacktrace`。当前执行环境没有 Gradle 9.5.1 缓存，Wrapper 下载被网络策略阻断，因此本地测试尚未运行；需由目标分支 GitHub Actions 提供构建与单测结果。
+
+旧媒体请求仍由既有 `mediaLoadRequests.isCurrent(request)`、请求上下文与显示键校验拦截；本次没有改动请求代次和权限会话机制。
+
+## 真机验收步骤
+
+1. 冷启动后进入自定义配置浏览，观察首帧图标数量、顺序及管理配置按钮。
+2. 分别从主页和收藏页进入配置浏览。
+3. 连续下拉刷新三次，确认按钮没有消失、补入或换位。
+4. 在大量照片配置中观察渐进加载期间的按钮位置；在 `.nomedia` 来源配置复测。
+5. 测试无媒体配置：快捷布局不变，幻灯片按钮禁用；加载可播放照片后启用。
+6. 返回其他底栏页再进入配置浏览。
+7. 打开搜索、输入、关闭，确认经典搜索动画与点击目标正常。
+8. 修改快捷操作配置后重新进入，确认新顺序应用；确认管理配置按钮可用。
+9. 改变主题强调色，确认图标 Tint 正确，且下拉刷新不会重绑图标。
+10. 测试配置锁定、解锁和撤销媒体访问，确认无未授权操作或受保护媒体信息泄露。
+
+## 长期约束与待验收
+
+自定义配置浏览的 Toolbar Scope 和按钮布局不得由媒体扫描进度、当前列表是否为空或阶段性发布结果决定。以后调整加载、刷新和性能流程时必须维持此约束。
+
+代码层回归测试只能证明覆盖的决策规则和绑定策略；无闪烁、首次布局视觉稳定、搜索动画和实际色彩仍需上述真机验收确认。
+
+## 2026-11-07：浅色模式顶栏操作图标 Tint 定点补修
+
+Pixel 8 Pro / Android 16 真机反馈：浅色模式仅搜索、溢出（三点）按钮为白色，其余快捷按钮及管理配置按钮为黑色；深色模式正常。Commons 7.1.3 的 `MySearchMenu.updateColors()` 通过 `EdgeToEdgeActivity.updateTopBarColors()` 在已存在 Drawable 上直接调用 `setTint(contrastColor)`；Gallery 原 `tintMenu()` 的缓存只验证 MenuItem/Drawable 身份及上次目标前景色，在浅色模式刷新后可能跳过恢复白色。
+
+补修仅在 `MediaActivity.updateMenuColors()` 的原有菜单绑定完成后调用 `OxygenToolbarStyle.reassertActionTints()`，直接恢复现有顶栏操作 Drawable 的白色/禁用态 ColorStateList；不重新赋值 MenuItem.icon、不变更 MenuItem 可见性、启用状态、动作规划或 48dp 占位。搜索与三点菜单既有专用白色 Tint 保持不变；弹出菜单不在该恢复操作范围内。复用 `tintMenu()` 的状态色定义，新增 Robolectric Tint 调用追踪及 Drawable 身份回归测试 `OxygenToolbarActionTintTest`；不依赖 Robolectric 对 ColorDrawable Tint 的不稳定像素栅格化。真机仍须验证首次进入、下拉刷新、渐进加载、锁定态及主题切换无颜色和布局回归。
+
+## 2026-11-07：自定义照片配置与普通相册快捷操作配置一致性补修
+
+真机验收 Actions #42385600406 后确认：照片配置页的顶栏快捷图标没有按普通相册文件夹的已保存配置完整显示。复核发现：`MediaActivity.updateMenuColors()` 虽然已经采用 `ToolbarQuickScope.FOLDER` 和 `config.toolbarFolderActions`，但原先的 `supported` 判断额外屏蔽了 `HIDDEN` 与 `GROUP`，使被保存的操作从计划中消失，后续操作提前补位，视觉上与普通文件夹不一致。
+
+本次引入 `ToolbarQuickActions.supportsFolderAction()` 共用文件夹快捷操作可用性策略：普通文件夹与自定义照片配置均保留 `HIDDEN` / `GROUP` 的原配置顺序；`COLUMNS` / `FILENAME` 继续只在网格视图显示；横向滚动时仍不展示 `GROUP`；照片配置 `SLIDESHOW` 槽位在渐进加载期间持续保留，而可播放和权限状态仅改变 `isEnabled`。 `EXCLUDED` 从来不属于 FOLDER 配置选项，继续由 `normalize(FOLDER,...)` 过滤。共享选项列表与 HOME 配置仍彼此独立。
+
+照片配置的显示发布流程尚不实现分组标题，因此 `GROUP` 图标按 FOLDER 保存顺序占位，但禁用（不可执行无效果的分组操作）；其余安全有效的快捷操作使用原有点击逻辑。固定管理按钮仍保留并占用一个 48dp 位置，实际可见数量以真正可用宽度为准，不挤压标题和触控区域，也不变更之前的防闪烁与 Tint 修复。不调整扫描、分组、搜索或访问权限实现。
+
+增加 `ToolbarQuickActionsTest.profileUsesSavedFolderActionsIncludingHiddenAndGroupInOriginalOrder` 和 `sharedFolderEligibilityStillRespectsGridAndHorizontalMode`，覆盖 HOME/FOLDER 区分、宽度下稳定前缀、横向/列表模式、锁定态与幻灯片占位。更新 `PhotoProfileEnhancementsTest.photoProfileToolbarUsesFolderPlanAcrossEveryPublicationStage` 覆盖加载、刷新及空列表时的 FOLDER 快捷计划稳定性。
