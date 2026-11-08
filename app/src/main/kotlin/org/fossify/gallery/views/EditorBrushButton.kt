@@ -42,8 +42,11 @@ class EditorBrushButton @JvmOverloads constructor(
         val cy = height / 2f
         val radius = minOf(width, height) * 0.265f
         val iconBounds = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
+        val iconMask = android.graphics.Path().apply {
+            addCircle(cx, cy, radius, android.graphics.Path.Direction.CW)
+        }
         canvas.save()
-        canvas.clipOval(iconBounds)
+        canvas.clipPath(iconMask)
         when (brushMode) {
             EditorBrushMode.MOSAIC -> drawMosaic(canvas, iconBounds)
             EditorBrushMode.BLUR -> drawBlur(canvas, cx, cy, radius)
