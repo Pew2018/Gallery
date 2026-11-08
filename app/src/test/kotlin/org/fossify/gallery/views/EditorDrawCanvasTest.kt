@@ -13,9 +13,11 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class EditorDrawCanvasTest {
     @Test
     fun mosaicEditsOnlyTheStrokeAreaAndPreservesExportDimensions() {
