@@ -52,11 +52,6 @@ class EditorDrawCanvas(context: Context, attrs: AttributeSet) : View(context, at
     private var currentColor = context.getProperPrimaryColor()
     private var currentWidth = resources.getDimension(R.dimen.full_brush_size) * 0.5f
     var onUndoAvailabilityChanged: ((Boolean) -> Unit)? = null
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeJoin = Paint.Join.ROUND
-        strokeCap = Paint.Cap.ROUND
-    }
 
     fun setMode(newMode: EditorBrushMode) { mode = newMode }
     fun getMode(): EditorBrushMode = mode
@@ -171,10 +166,14 @@ class EditorDrawCanvas(context: Context, attrs: AttributeSet) : View(context, at
         val diameter = max(1f, stroke.width * (sx + sy) / 2f)
         when (stroke.mode) {
             EditorBrushMode.DRAW -> {
-                paint.xfermode = null
-                paint.color = stroke.color
-                paint.strokeWidth = diameter
-                canvas.drawPath(path, paint)
+                val drawPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.STROKE
+                    strokeJoin = Paint.Join.ROUND
+                    strokeCap = Paint.Cap.ROUND
+                    color = stroke.color
+                    strokeWidth = diameter
+                }
+                canvas.drawPath(path, drawPaint)
             }
             EditorBrushMode.MOSAIC -> {
                 val block = max(2, (stroke.mosaicBlockSize * (sx + sy) / 2f).roundToInt())
