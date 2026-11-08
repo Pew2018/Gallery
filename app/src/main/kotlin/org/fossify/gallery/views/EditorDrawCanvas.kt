@@ -95,7 +95,9 @@ class EditorDrawCanvas(context: Context, attrs: AttributeSet) : View(context, at
                 if (active && !rejectedGesture) {
                     addPoint(event.x, event.y)
                     if (activeStartX == event.x && activeStartY == event.y) {
-                        activePath.lineTo(event.x + 0.1f, event.y + 0.1f)
+                        // A sub-pixel zero-length contour can be dropped by Canvas. Give taps
+                        // a short segment so round caps reliably produce the expected dab.
+                        activePath.lineTo(event.x + max(1f, currentWidth * 0.1f), event.y)
                     }
                     strokes += EditorStroke(mode, Path(activePath), currentWidth, currentColor)
                     revision++

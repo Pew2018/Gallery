@@ -1,5 +1,6 @@
 package org.fossify.gallery.views
 
+import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.view.MotionEvent
@@ -14,7 +15,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33])
+@Config(sdk = [33], application = Application::class)
 class EditorDrawCanvasTest {
     @Test
     fun mosaicEditsOnlyTheStrokeAreaAndPreservesExportDimensions() {
