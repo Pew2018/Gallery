@@ -86,7 +86,7 @@ internal class NavigationRippleDrawable(var color: Int, var durationScale: Float
     override fun getOpacity() = PixelFormat.TRANSLUCENT
 
     companion object {
-        const val EXPAND_MS = 225L
-        const val RELEASE_MS = 180L
+        const val EXPAND_MS = 240L
+        const val RELEASE_MS = 150L
     }
 }

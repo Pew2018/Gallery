@@ -151,25 +151,12 @@ object GalleryBottomBar {
         }
     }
 
-    /**
-     * Keep the pressed tint semantic and legible on the current surface. Strong,
-     * already-readable accents use a lighter touch; borderline accents get a
-     * little more opacity so the circular ripple remains visible in both themes.
-     */
-    internal fun rippleColor(accent: Int, surface: Int): Int {
-        val contrast = OxygenThemeColors.contrastRatio(accent, surface)
-        val alpha = when {
-            // Keep even very legible accents perceptible on a quick tap. Softer
-            // contrast receives a little more opacity while staying below 16%.
-            contrast >= 10.0 -> 32
-            contrast >= 7.0 -> 36
-            else -> 40
-        }
-        return Color.argb(alpha, Color.red(accent), Color.green(accent), Color.blue(accent))
-    }
+    /** Use the resolved theme accent unchanged, with a consistent 8% ripple opacity. */
+    internal fun rippleColor(accent: Int): Int =
+        Color.argb(20, Color.red(accent), Color.green(accent), Color.blue(accent))
 
     private fun updateRipple(item: LinearLayout, colors: OxygenThemeTokens) {
-        val color = rippleColor(colors.interactiveAccent, colors.pageBackground)
+        val color = rippleColor(colors.interactiveAccent)
         val ripple = item.background as? NavigationRippleDrawable
         val scale = animationScale(item)
         if (ripple == null) {

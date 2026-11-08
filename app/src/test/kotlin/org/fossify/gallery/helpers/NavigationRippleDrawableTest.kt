@@ -87,4 +87,32 @@ class NavigationRippleDrawableTest {
         }
     }
 
+    @Test fun twentyAndFiftyMillisecondReleasesWaitForFullExpansionThenFadeForScaledDuration() {
+        for (scale in listOf(1f, 2f)) {
+            for (held in listOf(20L, 50L)) {
+                val start = android.os.SystemClock.uptimeMillis()
+                val ripple = NavigationRippleDrawable(Color.GREEN, scale)
+                ripple.continuePulse(NavigationRippleDrawable.Pulse(start, .3f, .7f, start + held))
+
+                val releaseTime = start + held
+                val released = ripple.progress(releaseTime)
+                assertNotNull("held=$held scale=$scale", released)
+                assertTrue("expansion is still running at release", released!!.first < 1f)
+                assertEquals("release does not begin fading during expansion", 1f, released.second)
+
+                val expandedAt = start + (NavigationRippleDrawable.EXPAND_MS * scale).toLong()
+                assertEquals(1f to 1f, ripple.progress(expandedAt))
+                assertNotNull("fade remains visible just before its end", ripple.progress(
+                    expandedAt + (NavigationRippleDrawable.RELEASE_MS * scale).toLong() - 1L))
+                assertNull(ripple.progress(expandedAt + (NavigationRippleDrawable.RELEASE_MS * scale).toLong()))
+            }
+        }
+    }
+
+    @Test fun rippleDurationsMatchTheRefinedMotionSpec() {
+        assertEquals(240L, NavigationRippleDrawable.EXPAND_MS)
+        assertEquals(150L, NavigationRippleDrawable.RELEASE_MS)
+        assertEquals(390L, NavigationRippleDrawable.EXPAND_MS + NavigationRippleDrawable.RELEASE_MS)
+    }
+
 }
