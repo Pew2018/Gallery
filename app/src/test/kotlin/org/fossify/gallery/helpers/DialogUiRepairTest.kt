@@ -2,6 +2,8 @@ package org.fossify.gallery.helpers
 
 import android.app.Activity
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.RippleDrawable
@@ -9,6 +11,7 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.CheckBox
+import android.widget.RadioButton
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import org.fossify.commons.extensions.baseConfig
@@ -16,6 +19,8 @@ import org.fossify.gallery.extensions.config
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.DialogManageBottomActionsBinding
 import org.fossify.gallery.databinding.DialogManageExtendedDetailsBinding
+import org.fossify.gallery.databinding.DialogFilterMediaBinding
+import org.fossify.gallery.databinding.DialogFolderVisibilityBinding
 import org.fossify.gallery.dialogs.ClassicPasswordMethodDialog
 import org.fossify.gallery.views.ClassicDialogCheckboxRow
 import org.junit.Assert.*
@@ -99,6 +104,69 @@ class DialogUiRepairTest {
         }
     }
 
+    @Test fun filterAndFolderVisibilityRowsUseOneFullRowRippleAndToggleOnce() {
+        val activity = host()
+        try {
+            val roots = listOf(
+                DialogFilterMediaBinding.inflate(activity.layoutInflater).root,
+                DialogFolderVisibilityBinding.inflate(activity.layoutInflater).root
+            )
+            for ((index, root) in roots.withIndex()) {
+                val dialog = OxygenClassicDialog.show(activity,
+                    OxygenClassicDialog.builder(activity, "Options").setView(root)
+                        .setNegativeButton("Cancel", null).setPositiveButton("Apply", null), root)
+                val checks = descendants(root).filterIsInstance<CheckBox>()
+                assertEquals(if (index == 0) 6 else 4, checks.size)
+                for (check in checks) {
+                    val row = check.parent as ClassicDialogCheckboxRow
+                    assertNull("child control has no local ripple", check.background)
+                    assertFalse("row is the only touch target", check.isClickable)
+                    assertTrue("row exposes accessibility focus", row.isFocusable)
+                    row.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+                    row.layout(0, 0, row.measuredWidth, row.measuredHeight)
+                    var callbackCount = 0
+                    check.setOnCheckedChangeListener { _, _ -> callbackCount++ }
+                    val points = listOf(12f to 28f, 120f to 28f, 318f to 28f,
+                        160f to (row.height - 1f), 160f to (row.height - 1f))
+                    for ((index, point) in points.withIndex()) {
+                        val before = checks.map { it.isChecked }
+                        val now = android.os.SystemClock.uptimeMillis()
+                        val down = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN,
+                            point.first, point.second, 0)
+                        row.dispatchTouchEvent(down)
+                        down.recycle()
+                        val upTime = android.os.SystemClock.uptimeMillis()
+                        val up = android.view.MotionEvent.obtain(now, upTime, android.view.MotionEvent.ACTION_UP,
+                            point.first, point.second, 0)
+                        row.dispatchTouchEvent(up)
+                        up.recycle()
+                        shadowOf(Looper.getMainLooper()).idleFor(200, java.util.concurrent.TimeUnit.MILLISECONDS)
+                        assertEquals("one callback per tap at row location $index", index + 1, callbackCount)
+                        checks.forEachIndexed { otherIndex, other ->
+                            assertEquals("other options stay unchanged", if (other === check) !before[otherIndex] else before[otherIndex], other.isChecked)
+                        }
+                        val mark = check.buttonDrawable!!
+                        mark.jumpToCurrentState()
+                        mark.setBounds(0, 0, 24, 24)
+                        val pixels = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888)
+                        mark.draw(Canvas(pixels))
+                        val accent = OxygenClassicPalette.readableAccent(Color.MAGENTA, Color.WHITE)
+                        val containsAccent = (0 until pixels.height).any { y ->
+                            (0 until pixels.width).any { x -> pixels.getPixel(x, y) == accent }
+                        }
+                        assertEquals("rendered mark agrees with isChecked", check.isChecked, containsAccent)
+                    }
+                    val ripple = row.background as RippleDrawable
+                    assertEquals(Rect(0, 0, row.width, row.height), ripple.bounds)
+                }
+                dialog.dismiss()
+            }
+        } finally {
+            activity.finish()
+        }
+    }
+
     @Test fun realDialogsSaveOriginalMasksAndCancelWithoutChangingPreferences() {
         val controller = Robolectric.buildActivity(org.fossify.gallery.activities.SimpleActivity::class.java).setup()
         val activity = controller.get()
@@ -140,6 +208,57 @@ class DialogUiRepairTest {
             assertEquals(BOTTOM_ACTION_SHARE or BOTTOM_ACTION_DELETE, result)
             assertEquals(result, activity.config.visibleBottomActions)
         } finally { controller.pause().stop().destroy() }
+    }
+
+    @Test fun groupingSortingAndViewTypeChoiceMarksShareMeasuredTrailingAlignment() {
+        val activity = host()
+        val layoutIds = listOf(
+            R.layout.dialog_change_grouping,
+            R.layout.dialog_change_sorting,
+            R.layout.dialog_change_view_type
+        )
+        try {
+            for (layoutId in layoutIds) {
+                val content = activity.layoutInflater.inflate(layoutId, null, false)
+                val dialog = OxygenClassicDialog.show(activity,
+                    OxygenClassicDialog.builder(activity, "Options").setView(content)
+                        .setNegativeButton("Cancel", null).setPositiveButton("Apply", null), content)
+                val decor = dialog.window!!.decorView
+                val width = (310 * activity.resources.displayMetrics.density).toInt()
+                decor.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(760, View.MeasureSpec.AT_MOST))
+                decor.layout(0, 0, decor.measuredWidth, decor.measuredHeight)
+
+                val radios = descendants(content).filterIsInstance<RadioButton>()
+                    .filter { it.visibility == View.VISIBLE }
+                val checks = descendants(content).filterIsInstance<CheckBox>()
+                    .filter { it.visibility == View.VISIBLE && it.text.isNotEmpty() }
+                assertTrue("layout $layoutId has single-choice rows", radios.isNotEmpty())
+                assertTrue("layout $layoutId has trailing checkbox rows", checks.isNotEmpty())
+                val radioEndMarks = radios.mapNotNull { it.compoundDrawablesRelative[2] }
+                assertEquals("layout $layoutId radio marks were placed at end", radios.size, radioEndMarks.size)
+                for (check in checks) {
+                    assertNull("layout $layoutId has no second button mark", check.buttonDrawable)
+                    assertNotNull("layout $layoutId checkbox mark is at end", check.compoundDrawablesRelative[2])
+                    assertNull("layout $layoutId has no leading checkbox mark", check.compoundDrawablesRelative[0])
+                    assertEquals("layout $layoutId uses classic 24dp end inset", 24,
+                        (check.paddingEnd / activity.resources.displayMetrics.density).toInt())
+                }
+                val allEndMarks = radioEndMarks + checks.mapNotNull { it.compoundDrawablesRelative[2] }
+                assertEquals("layout $layoutId all end marks use the same drawable size",
+                    1, allEndMarks.map { it.intrinsicWidth }.distinct().size)
+                assertTrue("layout $layoutId labels retain normal start alignment",
+                    (radios + checks).all { it.textDirection != View.TEXT_DIRECTION_RTL })
+                repeat(3) { OxygenClassicDialog.apply(activity, dialog, content) }
+                for (check in checks) {
+                    assertEquals("layout $layoutId style reapplication does not accumulate end padding", 24,
+                        (check.paddingEnd / activity.resources.displayMetrics.density).toInt())
+                }
+                dialog.dismiss()
+            }
+        } finally {
+            activity.finish()
+        }
     }
 
     @Test fun functionalWidthProfilesMeasureWindowsAndKeepActionsOutsideScrollAtEverySize() {

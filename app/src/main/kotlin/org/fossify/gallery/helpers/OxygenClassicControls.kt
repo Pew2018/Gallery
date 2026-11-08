@@ -155,6 +155,7 @@ object OxygenClassicControls {
                     selectionAnimator = null
                 }
                 if (shouldAnimate && previous != null) {
+                    var canceled = false
                     val animator = ValueAnimator.ofFloat(previous, target).apply {
                         duration = OxygenClassicMotion.CHECKBOX_MS
                         interpolator = OxygenClassicMotion.easing()
@@ -163,8 +164,20 @@ object OxygenClassicControls {
                             invalidateSelf()
                         }
                         addListener(object : AnimatorListenerAdapter() {
+                            override fun onAnimationCancel(animation: Animator) {
+                                canceled = true
+                            }
+
                             override fun onAnimationEnd(animation: Animator) {
-                                if (selectionAnimator === animation) selectionAnimator = null
+                                if (selectionAnimator === animation) {
+                                    // ValueAnimator may be canceled by a reversal, a disabled
+                                    // transition, or jumpToCurrentState(). Only a natural end
+                                    // owns the old target; cancellation must preserve the last
+                                    // rendered progress for the replacement transition.
+                                    if (!canceled) selectionProgress = target
+                                    selectionAnimator = null
+                                    invalidateSelf()
+                                }
                             }
                         })
                     }

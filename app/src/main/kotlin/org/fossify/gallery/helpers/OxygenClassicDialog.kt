@@ -541,12 +541,34 @@ object OxygenClassicDialog {
                 }
                 if (v is android.widget.CheckedTextView) {
                     val list = v.parent as? android.widget.AbsListView
-                    val multiple = list != null && list.choiceMode != android.widget.AbsListView.CHOICE_MODE_SINGLE
-                    val mark = if (multiple) OxygenClassicControls.selectionDrawable(false, dp, OxygenThemeEngine.snapshot(activity, activity.config),
-                        animationsEnabled = OxygenClassicMotion.enabled(activity))
-                        else AppCompatResources.getDrawable(v.context, R.drawable.tieba_choice_check)!!.mutate().apply { setTint(readableAccent) }
-                    v.checkMarkDrawable = mark
-                    v.checkMarkTintList = if (multiple) null else ColorStateList.valueOf(readableAccent)
+                    val mode = list?.choiceMode ?: android.widget.AbsListView.CHOICE_MODE_NONE
+                    val multiple = mode == android.widget.AbsListView.CHOICE_MODE_MULTIPLE ||
+                        mode == android.widget.AbsListView.CHOICE_MODE_MULTIPLE_MODAL
+                    val single = mode == android.widget.AbsListView.CHOICE_MODE_SINGLE
+                    when {
+                        multiple -> {
+                            v.checkMarkDrawable = OxygenClassicControls.selectionDrawable(
+                                false, dp, OxygenThemeEngine.snapshot(activity, activity.config).copy(
+                                    pageBackground = surface, rawAccent = readableAccent,
+                                    interactiveAccent = readableAccent
+                                ), surfaceAccent = true,
+                                animationsEnabled = OxygenClassicMotion.enabled(activity)
+                            )
+                            v.checkMarkTintList = null
+                        }
+                        single -> {
+                            v.checkMarkDrawable = AppCompatResources.getDrawable(
+                                v.context, R.drawable.tieba_choice_check
+                            )!!.mutate().apply { setTint(readableAccent) }
+                            v.checkMarkTintList = ColorStateList.valueOf(readableAccent)
+                        }
+                        else -> {
+                            // CHOICE_MODE_NONE has no selection mark. Do not turn an
+                            // ordinary CheckedTextView into a decorative multi-choice row.
+                            v.checkMarkDrawable = null
+                            v.checkMarkTintList = null
+                        }
+                    }
                     v.textSize = 16f
                     v.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
                     v.minHeight = (48 * dp).toInt()
@@ -563,7 +585,8 @@ object OxygenClassicDialog {
             if (needsStyle && (v is RadioButton || v is CheckBox) &&
                 v.id != R.id.classic_toolbar_action_checkbox) {
                 val button = v as android.widget.CompoundButton
-                val targeted = v.id in intArrayOf(R.id.sorting_dialog_numeric_sorting, R.id.sorting_dialog_use_for_this_folder,
+                val dialogCheckbox = v is CheckBox && v.id != R.id.classic_toolbar_action_checkbox
+                val targeted = dialogCheckbox || v.id in intArrayOf(R.id.sorting_dialog_numeric_sorting, R.id.sorting_dialog_use_for_this_folder,
                     R.id.change_date_time_dialog_24_hour, R.id.dialog_file_style_rounded_corners,
                     R.id.dialog_file_style_show_thumbnail_video_duration, R.id.dialog_file_style_show_thumbnail_file_types,
                     R.id.dialog_file_style_mark_favorite_items)
@@ -594,14 +617,17 @@ object OxygenClassicDialog {
                     R.id.sorting_dialog_numeric_sorting,
                     R.id.sorting_dialog_use_for_this_folder,
                     R.id.grouping_dialog_show_file_count,
-                    R.id.grouping_dialog_use_for_this_folder
+                    R.id.grouping_dialog_use_for_this_folder,
+                    R.id.change_view_type_dialog_group_direct_subfolders,
+                    R.id.change_view_type_dialog_use_for_this_folder
                 )
                 if (trailing) {
                     val mark = button.buttonDrawable
                     button.buttonDrawable = null
                     button.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, mark, null)
                     button.setPaddingRelative((24 * dp).toInt(), (8 * dp).toInt(), (24 * dp).toInt(), (8 * dp).toInt())
-                } else if (row == null && button.text.isNotEmpty() && v.layoutDirection != View.LAYOUT_DIRECTION_RTL) {
+                } else if (!trailing && row == null && button.buttonDrawable != null &&
+                    button.text.isNotEmpty() && v.layoutDirection != View.LAYOUT_DIRECTION_RTL) {
                     button.buttonDrawable = InsetDrawable(button.buttonDrawable, 0, 0, (12 * dp).toInt(), 0)
                 }
                 if (row != null) {
