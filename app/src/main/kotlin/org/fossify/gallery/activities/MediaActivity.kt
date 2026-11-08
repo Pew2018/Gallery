@@ -1338,7 +1338,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             setVisibleIfChanged(R.id.column_count, viewType == VIEW_TYPE_GRID)
             setVisibleIfChanged(R.id.toggle_filename, viewType == VIEW_TYPE_GRID)
             if (isPhotoProfiles) {
-                    R.id.unset_as_default_folder, R.id.temporarily_show_hidden, R.id.stop_showing_hidden,
+                listOf(R.id.group, R.id.set_as_default_folder, R.id.unset_as_default_folder,
+                    R.id.temporarily_show_hidden, R.id.stop_showing_hidden,
                     R.id.temporarily_show_excluded, R.id.stop_showing_excluded).forEach { setVisibleIfChanged(it, false) }
                 setVisibleIfChanged(R.id.slideshow, hasPlayableMedia())
                 findItem(R.id.slideshow)?.let {
