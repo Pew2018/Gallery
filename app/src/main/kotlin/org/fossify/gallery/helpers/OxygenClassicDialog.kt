@@ -47,7 +47,7 @@ object OxygenClassicDialog {
     private val dialogHosts = java.util.WeakHashMap<AlertDialog, java.lang.ref.WeakReference<Activity>>()
     /** Build a consistent small-radius MD1 dialog independently of Commons M3. */
     fun builder(activity: Activity, title: CharSequence): AlertDialog.Builder {
-        val light = !forceDark && ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
+        val light = ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
         val themeId = if (light) org.fossify.gallery.R.style.OxygenClassicAlertDialog_Light
             else org.fossify.gallery.R.style.OxygenClassicAlertDialog_Dark
         val context = ContextThemeWrapper(activity, themeId)
@@ -279,7 +279,7 @@ object OxygenClassicDialog {
             window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
         val decor = window.decorView
-        val light = ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
+        val light = !forceDark && ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
         val surface = if (light) Color.WHITE else Color.rgb(48, 48, 48)
         val accent = OxygenClassicPalette.readableAccent(activity.getProperPrimaryColor(), surface)
         val palette = listOf(surface, accent)
@@ -308,7 +308,7 @@ object OxygenClassicDialog {
     }
 
     fun styleInput(activity: Activity, field: EditText, forceDark: Boolean = false) {
-        val light = ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
+        val light = !forceDark && ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
         val surface = if (light) Color.WHITE else Color.rgb(48, 48, 48)
         val foreground = if (light) Color.rgb(33, 33, 33) else Color.WHITE
         val accent = OxygenClassicPalette.readableAccent(activity.getProperPrimaryColor(), surface)
