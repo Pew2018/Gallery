@@ -14,6 +14,24 @@ class OxygenThemeColorsTest {
         OxygenThemeColors.resolve(classic, mode, systemDark, seed,
             0xFFFAFAFA.toInt(), 0xFF212121.toInt())
 
+    @Test fun editorAccentFollowsUserThemeAndRemainsVisibleOnBlackCanvas() {
+        val colors = listOf("#2196F3", "#01998C", "#E91E63", "#FFF59D", "#111111")
+            .map { OxygenThemeEngine.parseHex(it)!! }
+        val editorAccents = colors.map { raw ->
+            val theme = resolve(raw, "dark", true)
+            assertEquals("editor must not mutate the saved theme accent", raw, theme.rawAccent)
+            OxygenThemeColors.readableAccent(theme.rawAccent, OxygenThemeColors.BLACK)
+        }
+
+        editorAccents.forEach {
+            assertTrue("editor selected state should remain visible on black",
+                OxygenThemeColors.contrastRatio(it, OxygenThemeColors.BLACK) >= 4.5)
+        }
+        assertEquals("teal must not fall back to fixed blue", colors[1], editorAccents[1])
+        assertEquals("pale accents should stay unchanged when readable", colors[3], editorAccents[3])
+        assertNotEquals("near-black accents need a visible rendering color", colors[4], editorAccents[4])
+    }
+
     @Test fun switchKnobPreservesOriginalThemeRgbAcrossPresetsAndCustomColors() {
         val accents = seeds + OxygenThemePresets.all.map { it.color } +
             listOf("#FFFFFF", "#000000", "#FFFF00", "#00FFFF", "#FF5722").map {

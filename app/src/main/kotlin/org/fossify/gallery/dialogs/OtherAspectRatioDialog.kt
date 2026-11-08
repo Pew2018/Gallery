@@ -10,6 +10,7 @@ import org.fossify.gallery.databinding.DialogOtherAspectRatioBinding
 class OtherAspectRatioDialog(
     val activity: BaseSimpleActivity,
     val lastOtherAspectRatio: Pair<Float, Float>?,
+    private val editorDark: Boolean = false,
     val callback: (aspectRatio: Pair<Float, Float>) -> Unit
 ) {
     private var dialog: AlertDialog? = null
@@ -62,14 +63,14 @@ class OtherAspectRatioDialog(
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
                 activity.setupDialogStuff(binding.root, this) { alertDialog ->
-                    OxygenClassicDialog.apply(activity, alertDialog, binding.root)
+                    OxygenClassicDialog.apply(activity, alertDialog, binding.root, forceDark = editorDark)
                     dialog = alertDialog
                 }
             }
     }
 
     private fun customRatioPicked() {
-        CustomAspectRatioDialog(activity, lastOtherAspectRatio) {
+        CustomAspectRatioDialog(activity, lastOtherAspectRatio, editorDark = editorDark) {
             callback(it)
             dialog?.dismiss()
         }

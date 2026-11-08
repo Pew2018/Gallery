@@ -12,6 +12,8 @@ import android.net.Uri
 import android.provider.MediaStore.Images
 import android.provider.MediaStore.Video
 import android.view.WindowManager
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import androidx.appcompat.app.AlertDialog
 import org.fossify.commons.activities.BaseSimpleActivity
 import org.fossify.commons.dialogs.FilePickerDialog
@@ -40,9 +42,13 @@ open class SimpleActivity : BaseSimpleActivity() {
             this is OxygenThemeActivity
 
     private val usesSharedToolbar: Boolean
-        get() = recreatesForTheme || this is EditActivity || this is SetWallpaperActivity
+        get() = recreatesForTheme || this is SetWallpaperActivity
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Viewer/editor starting windows share the same black media canvas as their roots.
+        if (this is EditActivity || this is ViewPagerActivity || this is PhotoVideoActivity) {
+            window.setBackgroundDrawable(ColorDrawable(Color.BLACK))
+        }
         // Commons resolves its base theme in super.onCreate(), before Gallery inflates controls.
         OxygenThemeEngine.apply(this, config)
         // AppCompat remembers localNightMode across recreate(). Explicitly clear it
@@ -55,6 +61,9 @@ open class SimpleActivity : BaseSimpleActivity() {
         }
         org.fossify.gallery.helpers.GalleryBottomBar.traceWindow(this, "create_before_commons")
         super.onCreate(savedInstanceState)
+        if (this is EditActivity || this is ViewPagerActivity || this is PhotoVideoActivity) {
+            window.setBackgroundDrawable(ColorDrawable(Color.BLACK))
+        }
         applyClassicOverlay()
         org.fossify.gallery.helpers.GalleryBottomBar.restoreRootWindow(this)
         org.fossify.gallery.helpers.GalleryBottomBar.traceWindow(this, "create_after_commons")

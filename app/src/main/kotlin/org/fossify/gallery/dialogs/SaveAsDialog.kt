@@ -24,6 +24,7 @@ class SaveAsDialog(
     val activity: BaseSimpleActivity,
     val path: String,
     val appendFilename: Boolean,
+    private val editorDark: Boolean = false,
     val cancelCallback: (() -> Unit)? = null,
     val callback: (savePath: String) -> Unit
 ) {
@@ -81,7 +82,7 @@ class SaveAsDialog(
                     dialog = this,
                     titleId = org.fossify.commons.R.string.save_as
                 ) { alertDialog ->
-                    OxygenClassicDialog.apply(activity, alertDialog, binding.root)
+                    OxygenClassicDialog.apply(activity, alertDialog, binding.root, forceDark = editorDark)
                     alertDialog.showKeyboard(binding.filenameValue)
                     alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         validateAndConfirmPath(alertDialog::dismiss)

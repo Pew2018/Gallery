@@ -81,6 +81,7 @@ import org.fossify.gallery.extensions.getFriendlyMessage
 import org.fossify.gallery.extensions.launchGesturePlayer
 import org.fossify.gallery.extensions.parseFileChannel
 import org.fossify.gallery.helpers.Config
+import org.fossify.gallery.helpers.OxygenThemeEngine
 import org.fossify.gallery.helpers.EXOPLAYER_MAX_BUFFER_MS
 import org.fossify.gallery.helpers.EXOPLAYER_MIN_BUFFER_MS
 import org.fossify.gallery.helpers.FAST_FORWARD_VIDEO_MS
@@ -216,9 +217,10 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             }
 
             mSeekBar = bottomVideoTimeHolder.videoSeekbar
-            mSeekBar.progressTintList = ColorStateList.valueOf(context.getColor(R.color.editor_accent))
+            val videoAccent = OxygenThemeEngine.snapshot(context, mConfig).interactiveAccent
+            mSeekBar.progressTintList = ColorStateList.valueOf(videoAccent)
             mSeekBar.progressBackgroundTintList = ColorStateList.valueOf(0x80FFFFFF.toInt())
-            mSeekBar.thumbTintList = ColorStateList.valueOf(context.getColor(R.color.editor_accent))
+            mSeekBar.thumbTintList = ColorStateList.valueOf(videoAccent)
             mPlaybackSpeedPill = playbackSpeedPill
             mSeekBar.setOnSeekBarChangeListener(this@VideoFragment)
             // adding an empty click listener just to avoid ripple animation at toggling fullscreen

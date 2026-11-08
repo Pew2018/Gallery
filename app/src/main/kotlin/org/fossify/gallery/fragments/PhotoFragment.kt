@@ -168,6 +168,12 @@ class PhotoFragment : ViewPagerFragment() {
 
         binding = PagerPhotoItemBinding.inflate(inflater, container, false)
         mView = binding.root
+        // Commons' reusable pager item does not declare a solid media surface. Keep
+        // transparent/letterboxed image regions black while preserving image pixels.
+        mView.setBackgroundColor(Color.BLACK)
+        binding.gesturesView.setBackgroundColor(Color.BLACK)
+        binding.subsamplingView.setBackgroundColor(Color.BLACK)
+        binding.gifViewFrame.setBackgroundColor(Color.BLACK)
         if (!arguments.getBoolean(SHOULD_INIT_FRAGMENT, true)) {
             return mView
         }

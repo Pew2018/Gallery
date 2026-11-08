@@ -9,7 +9,12 @@ import org.fossify.commons.extensions.*
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.DialogResizeImageBinding
 
-class ResizeDialog(val activity: BaseSimpleActivity, val size: Point, val callback: (newSize: Point) -> Unit) {
+class ResizeDialog(
+    val activity: BaseSimpleActivity,
+    val size: Point,
+    private val editorDark: Boolean = false,
+    val callback: (newSize: Point) -> Unit
+) {
     init {
         val binding = DialogResizeImageBinding.inflate(activity.layoutInflater)
         val widthView = binding.resizeImageWidth
@@ -53,7 +58,7 @@ class ResizeDialog(val activity: BaseSimpleActivity, val size: Point, val callba
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
                 activity.setupDialogStuff(binding.root, this, R.string.resize_and_save) { alertDialog ->
-            OxygenClassicDialog.apply(activity, alertDialog, binding.root)
+                    OxygenClassicDialog.apply(activity, alertDialog, binding.root, forceDark = editorDark)
                     alertDialog.showKeyboard(binding.resizeImageWidth)
                     alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         val width = getViewValue(widthView)

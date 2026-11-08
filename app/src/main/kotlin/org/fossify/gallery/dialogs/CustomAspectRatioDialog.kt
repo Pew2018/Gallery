@@ -11,7 +11,10 @@ import org.fossify.gallery.databinding.DialogCustomAspectRatioBinding
 import org.fossify.gallery.helpers.OxygenClassicDialog
 
 class CustomAspectRatioDialog(
-    val activity: BaseSimpleActivity, val defaultCustomAspectRatio: Pair<Float, Float>?, val callback: (aspectRatio: Pair<Float, Float>) -> Unit
+    val activity: BaseSimpleActivity,
+    val defaultCustomAspectRatio: Pair<Float, Float>?,
+    private val editorDark: Boolean = false,
+    val callback: (aspectRatio: Pair<Float, Float>) -> Unit
 ) {
     init {
         val binding = DialogCustomAspectRatioBinding.inflate(activity.layoutInflater).apply {
@@ -24,7 +27,7 @@ class CustomAspectRatioDialog(
             .setNegativeButton(org.fossify.commons.R.string.cancel, null)
             .apply {
                 activity.setupDialogStuff(binding.root, this) { alertDialog ->
-                    OxygenClassicDialog.apply(activity, alertDialog, binding.root)
+                    OxygenClassicDialog.apply(activity, alertDialog, binding.root, forceDark = editorDark)
                     alertDialog.showKeyboard(binding.aspectRatioWidth)
                     alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         val width = getViewValue(binding.aspectRatioWidth)
