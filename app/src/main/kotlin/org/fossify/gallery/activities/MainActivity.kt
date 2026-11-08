@@ -1494,7 +1494,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     private fun showFolderVisibilityDialog() {
-        val folderVisibilityBinding = org.fossify.gallery.datafolderVisibilityBinding.DialogFolderVisibilityBinding.inflate(layoutInflater)
+        val folderVisibilityBinding = org.fossify.gallery.databinding.DialogFolderVisibilityBinding.inflate(layoutInflater)
         val checked = mFolderVisibility.copyOf()
         listOf(
             folderVisibilityBinding.folderVisibilityHidden,
