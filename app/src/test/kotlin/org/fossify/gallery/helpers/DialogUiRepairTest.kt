@@ -157,7 +157,10 @@ class DialogUiRepairTest {
                         val insetChild = (mark as? android.graphics.drawable.InsetDrawable)?.drawable
                         assertTrue("wrapped selection drawable receives checked state",
                             (insetChild?.state?.contains(android.R.attr.state_checked) ?: check.isChecked) == check.isChecked)
-                        val renderableMark = insetChild ?: mark
+                        var renderableMark = insetChild ?: mark
+                        while (renderableMark is android.graphics.drawable.InsetDrawable) {
+                            renderableMark = renderableMark.drawable ?: break
+                        }
                         renderableMark.setBounds(0, 0, 24, 24)
                         val pixels = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888)
                         renderableMark.draw(Canvas(pixels))
@@ -173,7 +176,8 @@ class DialogUiRepairTest {
                         assertEquals("rendered mark agrees with isChecked; accent=${accent.toUInt().toString(16)} " +
                             "view=${check.drawableState.contentToString()} outer=${mark.state.contentToString()} " +
                             "inner=${insetChild?.state?.contentToString()} outerBounds=${mark.bounds} " +
-                            "innerBounds=${insetChild?.bounds} pixels=$colorCounts",
+                            "innerType=${insetChild?.javaClass?.name} innerAlpha=${insetChild?.alpha} " +
+                            "innerVisible=${insetChild?.isVisible} viewAlpha=${check.alpha} pixels=$colorCounts",
                             check.isChecked, containsAccent)
                     }
                     val ripple = row.background as RippleDrawable
