@@ -47,7 +47,7 @@ object OxygenClassicDialog {
     private val dialogHosts = java.util.WeakHashMap<AlertDialog, java.lang.ref.WeakReference<Activity>>()
     /** Build a consistent small-radius MD1 dialog independently of Commons M3. */
     fun builder(activity: Activity, title: CharSequence): AlertDialog.Builder {
-        val light = ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
+        val light = !forceDark && ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
         val themeId = if (light) org.fossify.gallery.R.style.OxygenClassicAlertDialog_Light
             else org.fossify.gallery.R.style.OxygenClassicAlertDialog_Dark
         val context = ContextThemeWrapper(activity, themeId)
@@ -263,7 +263,7 @@ object OxygenClassicDialog {
         return WindowPreparation(width, changed)
     }
 
-    private fun applySurface(activity: Activity, dialog: AlertDialog): Boolean {
+    private fun applySurface(activity: Activity, dialog: AlertDialog, forceDark: Boolean = false): Boolean {
         val window = dialog.window ?: return false
         val nested = nestedDialogs.getOrPut(dialog) {
             nestedDialogs.keys.any { it !== dialog && it.isShowing && dialogHosts[it]?.get() === activity }
@@ -307,7 +307,7 @@ object OxygenClassicDialog {
             shape(fill), shape(Color.WHITE))
     }
 
-    fun styleInput(activity: Activity, field: EditText) {
+    fun styleInput(activity: Activity, field: EditText, forceDark: Boolean = false) {
         val light = ColorUtils.calculateLuminance(activity.getProperBackgroundColor()) >= 0.5
         val surface = if (light) Color.WHITE else Color.rgb(48, 48, 48)
         val foreground = if (light) Color.rgb(33, 33, 33) else Color.WHITE
@@ -397,13 +397,13 @@ object OxygenClassicDialog {
         button.stateListAnimator = null
     }
 
-    fun apply(activity: Activity, dialog: AlertDialog, content: View): StyleResult {
+    fun apply(activity: Activity, dialog: AlertDialog, content: View, forceDark: Boolean = false): StyleResult {
         DialogOverscrollPolicy.protect(dialog.window?.decorView ?: content)
         DialogOverscrollPolicy.protect(content)
         val dp = activity.resources.displayMetrics.density
         val background = activity.getProperBackgroundColor()
         val accent = activity.getProperPrimaryColor()
-        val light = ColorUtils.calculateLuminance(background) >= 0.5
+        val light = !forceDark && ColorUtils.calculateLuminance(background) >= 0.5
         val surface = if (light) Color.WHITE else Color.rgb(48, 48, 48)
         val readableAccent = OxygenClassicPalette.readableAccent(accent, surface)
         val dialogText = if (light) Color.rgb(33, 33, 33) else Color.WHITE
@@ -418,7 +418,7 @@ object OxygenClassicDialog {
             intArrayOf(disabled, readableAccent, inactive)
         )
 
-        val windowChanged = applySurface(activity, dialog)
+        val windowChanged = applySurface(activity, dialog, forceDark)
         val palette = listOf(surface, readableAccent)
 
         // Preserve semantic, disabled, link and hint text: only skin actual controls.
@@ -464,7 +464,7 @@ object OxygenClassicDialog {
                         if (Build.VERSION.SDK_INT >= 29) v.textCursorDrawable?.mutate()?.setTint(readableAccent)
                     } else {
                         v.background = AppCompatResources.getDrawable(v.context, androidx.appcompat.R.drawable.abc_edit_text_material)
-                        styleInput(activity, v)
+                        styleInput(activity, v, forceDark)
                     }
                 }
                 if (v is android.widget.SeekBar && v.id == R.id.dialog_file_style_spacing_slider) {

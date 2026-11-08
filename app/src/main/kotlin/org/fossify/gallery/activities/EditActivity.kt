@@ -4,14 +4,19 @@ import org.fossify.gallery.helpers.OxygenToolbarStyle
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.graphics.Point
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.provider.MediaStore
+import android.view.View
+import android.view.ViewGroup
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.graphics.scale
 import androidx.core.net.toUri
+import androidx.core.view.WindowCompat
 import androidx.exifinterface.media.ExifInterface
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.bumptech.glide.Glide
@@ -36,9 +41,6 @@ import org.fossify.commons.extensions.checkAppSideloading
 import org.fossify.commons.extensions.getCompressionFormat
 import org.fossify.commons.extensions.getFileOutputStream
 import org.fossify.commons.extensions.getFilenameFromPath
-import org.fossify.commons.extensions.getProperBackgroundColor
-import org.fossify.commons.extensions.getProperPrimaryColor
-import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.commons.extensions.getRealPathFromURI
 import org.fossify.commons.extensions.isGone
 import org.fossify.commons.extensions.isPathOnOTG
@@ -79,10 +81,11 @@ import org.fossify.gallery.helpers.ASPECT_RATIO_OTHER
 import org.fossify.gallery.helpers.ASPECT_RATIO_SIXTEEN_NINE
 import org.fossify.gallery.helpers.ColorModeHelper
 import org.fossify.gallery.helpers.OxygenThemeEngine
-import org.fossify.gallery.helpers.OxygenSystemBars
+import org.fossify.gallery.helpers.OxygenThemeColors
 import org.fossify.gallery.helpers.FilterThumbnailsManager
 import org.fossify.gallery.helpers.getPermissionToRequest
 import org.fossify.gallery.models.FilterItem
+import org.fossify.gallery.views.EditorBrushMode
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
@@ -127,6 +130,7 @@ class EditActivity : BaseCropActivity() {
     private val binding by viewBinding(ActivityEditBinding::inflate)
 
     private var overwriteRequested = false
+    private var editorAccentColor = Color.WHITE
 
     override val cropImageView: CropImageView
         get() = binding.cropImageView
@@ -162,9 +166,8 @@ class EditActivity : BaseCropActivity() {
     override fun onResume() {
         super.onResume()
         isEditingWithThirdParty = false
-        binding.bottomEditorDrawActions.bottomDrawWidth.setColors(getProperTextColor(), getProperPrimaryColor(), getProperBackgroundColor())
         setupTopAppBar(binding.editorAppbar, NavigationIcon.Arrow,
-            topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
+            topBarColor = getColor(R.color.editor_toolbar_surface))
         val toolbarText = OxygenThemeEngine.toolbarForeground(this, config)
         binding.editorToolbar.setTitleTextColor(toolbarText)
         binding.editorToolbar.navigationIcon?.mutate()?.setTint(toolbarText)
@@ -172,7 +175,90 @@ class EditActivity : BaseCropActivity() {
         for (i in 0 until binding.editorToolbar.menu.size()) {
             binding.editorToolbar.menu.getItem(i).icon?.mutate()?.setTint(toolbarText)
         }
-        OxygenSystemBars.apply(this)
+        applyImmersiveEditorStyle()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyImmersiveEditorStyle()
+    }
+
+    private fun applyImmersiveEditorStyle() {
+        val theme = OxygenThemeEngine.snapshot(this, config)
+        // The editor stays neutral dark while its interactive accent tracks Gallery's
+        // selected theme. Resolve against the actual black media canvas for visibility.
+        editorAccentColor = OxygenThemeColors.readableAccent(theme.rawAccent, Color.BLACK)
+        binding.editorCoordinator.setBackgroundColor(Color.BLACK)
+        binding.editorAppbar.setBackgroundColor(getColor(R.color.editor_toolbar_surface))
+        binding.editorToolbar.setBackgroundColor(getColor(R.color.editor_toolbar_surface))
+        binding.editorToolbar.setPopupTheme(R.style.OxygenEditorPopupTheme)
+        binding.editorToolbar.setTitleTextColor(Color.WHITE)
+        binding.editorToolbar.navigationIcon?.mutate()?.setTint(Color.WHITE)
+        binding.editorToolbar.overflowIcon?.mutate()?.setTint(Color.WHITE)
+        for (index in 0 until binding.editorToolbar.menu.size()) {
+            binding.editorToolbar.menu.getItem(index).icon?.mutate()?.setTint(Color.WHITE)
+        }
+        binding.activityEditHolder.setBackgroundColor(Color.BLACK)
+        binding.defaultImageView.setBackgroundColor(Color.BLACK)
+        binding.cropImageView.setBackgroundColor(Color.BLACK)
+        binding.bottomEditorActionsBackground.setBackgroundColor(getColor(R.color.editor_panel_surface))
+        binding.bottomEditorPrimaryActions.root.setBackgroundColor(getColor(R.color.editor_panel_surface))
+        binding.bottomEditorCropRotateActions.root.setBackgroundColor(getColor(R.color.editor_panel_surface))
+        binding.bottomEditorFilterActions.root.setBackgroundColor(getColor(R.color.editor_panel_surface))
+        binding.bottomEditorFilterActions.bottomActionsFilterList.setBackgroundColor(getColor(R.color.editor_panel_surface))
+        binding.bottomEditorDrawActions.root.setBackgroundColor(getColor(R.color.editor_panel_surface))
+        binding.bottomAspectRatios.root.setBackgroundColor(getColor(R.color.editor_panel_surface))
+        binding.bottomEditorDrawActions.bottomDrawWidth.setColors(
+            Color.WHITE, editorAccentColor, getColor(R.color.editor_panel_surface)
+        )
+        applyEditorAccentToSelectedControls()
+        selectBrushMode(binding.editorDrawCanvas.getMode())
+
+        val decor = window.decorView
+        val bars = WindowCompat.getInsetsController(window, decor)
+        bars.isAppearanceLightStatusBars = false
+        bars.isAppearanceLightNavigationBars = false
+        if (android.os.Build.VERSION.SDK_INT < 35) {
+            @Suppress("DEPRECATION")
+            window.statusBarColor = getColor(R.color.viewer_status_surface)
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = Color.BLACK
+        } else {
+            (decor as? ViewGroup)?.findViewWithTag<View>("oxygen_classic_status_underlay")
+                ?.setBackgroundColor(getColor(R.color.viewer_status_surface))
+        }
+    }
+
+    private fun applyEditorAccentToSelectedControls() {
+        val activePrimaryAction = when (currPrimaryAction) {
+            PRIMARY_ACTION_FILTER -> binding.bottomEditorPrimaryActions.bottomPrimaryFilter
+            PRIMARY_ACTION_CROP_ROTATE -> binding.bottomEditorPrimaryActions.bottomPrimaryCropRotate
+            PRIMARY_ACTION_DRAW -> binding.bottomEditorPrimaryActions.bottomPrimaryDraw
+            else -> null
+        }
+        arrayOf(
+            binding.bottomEditorPrimaryActions.bottomPrimaryFilter,
+            binding.bottomEditorPrimaryActions.bottomPrimaryCropRotate,
+            binding.bottomEditorPrimaryActions.bottomPrimaryDraw
+        ).forEach { it.applyColorFilter(if (it === activePrimaryAction) editorAccentColor else Color.WHITE) }
+
+        val activeAspectRatio = when (currAspectRatio) {
+            ASPECT_RATIO_FREE -> binding.bottomAspectRatios.bottomAspectRatioFree
+            ASPECT_RATIO_ONE_ONE -> binding.bottomAspectRatios.bottomAspectRatioOneOne
+            ASPECT_RATIO_FOUR_THREE -> binding.bottomAspectRatios.bottomAspectRatioFourThree
+            ASPECT_RATIO_SIXTEEN_NINE -> binding.bottomAspectRatios.bottomAspectRatioSixteenNine
+            else -> binding.bottomAspectRatios.bottomAspectRatioOther
+        }
+        arrayOf(
+            binding.bottomAspectRatios.bottomAspectRatioFree,
+            binding.bottomAspectRatios.bottomAspectRatioOneOne,
+            binding.bottomAspectRatios.bottomAspectRatioFourThree,
+            binding.bottomAspectRatios.bottomAspectRatioSixteenNine,
+            binding.bottomAspectRatios.bottomAspectRatioOther
+        ).forEach { it.setTextColor(if (it === activeAspectRatio) editorAccentColor else Color.WHITE) }
+        binding.bottomEditorCropRotateActions.bottomAspectRatio.applyColorFilter(
+            if (currCropRotateAction == CROP_ROTATE_ASPECT_RATIO) editorAccentColor else Color.WHITE
+        )
     }
 
     override fun onStop() {
@@ -401,10 +487,18 @@ class EditActivity : BaseCropActivity() {
     }
 
     private fun saveDrawnImage() {
-        saveBitmap(
-            overwrite = overwriteRequested,
-            bitmap = binding.editorDrawCanvas.getBitmap()
-        )
+        val strokeSnapshot = binding.editorDrawCanvas.snapshotForExport()
+        ensureBackgroundThread {
+            try {
+                val source = getOriginalBitmap()
+                val rendered = binding.editorDrawCanvas.getBitmap(source, strokeSnapshot)
+                runOnUiThread { saveBitmap(overwriteRequested, rendered) }
+            } catch (_: OutOfMemoryError) {
+                toast(org.fossify.commons.R.string.out_of_memory_error)
+            } catch (e: Exception) {
+                showErrorToast(e)
+            }
+        }
     }
 
     override fun onImageCropped(bitmap: Bitmap?, error: Exception?) {
@@ -473,6 +567,9 @@ class EditActivity : BaseCropActivity() {
     }
 
     private fun shareImage() {
+        val drawStrokeSnapshot = if (binding.editorDrawCanvas.isVisible()) {
+            binding.editorDrawCanvas.snapshotForExport()
+        } else null
         ensureBackgroundThread {
             when {
                 binding.defaultImageView.isVisible() -> {
@@ -494,7 +591,16 @@ class EditActivity : BaseCropActivity() {
                     }
                 }
 
-                binding.editorDrawCanvas.isVisible() -> shareBitmap(binding.editorDrawCanvas.getBitmap())
+                binding.editorDrawCanvas.isVisible() -> {
+                    try {
+                        val original = getOriginalBitmap()
+                        shareBitmap(binding.editorDrawCanvas.getBitmap(original, drawStrokeSnapshot.orEmpty()))
+                    } catch (_: OutOfMemoryError) {
+                        toast(org.fossify.commons.R.string.out_of_memory_error)
+                    } catch (e: Exception) {
+                        showErrorToast(e)
+                    }
+                }
             }
         }
     }
@@ -628,7 +734,7 @@ class EditActivity : BaseCropActivity() {
         }
 
         binding.bottomAspectRatios.bottomAspectRatioOther.setOnClickListener {
-            OtherAspectRatioDialog(this, lastOtherAspectRatio) {
+            OtherAspectRatioDialog(this, lastOtherAspectRatio, editorDark = true) {
                 lastOtherAspectRatio = it
                 config.lastEditorCropOtherAspectRatioX = it.first
                 config.lastEditorCropOtherAspectRatioY = it.second
@@ -640,11 +746,18 @@ class EditActivity : BaseCropActivity() {
     }
 
     private fun setupDrawButtons() {
+        binding.bottomEditorDrawActions.bottomDrawMosaic.setBrushMode(
+            EditorBrushMode.MOSAIC, getString(R.string.mosaic_brush)
+        )
+        binding.bottomEditorDrawActions.bottomDrawBlur.setBrushMode(
+            EditorBrushMode.BLUR, getString(R.string.blur_brush)
+        )
         updateDrawColor(config.lastEditorDrawColor)
         binding.bottomEditorDrawActions.bottomDrawWidth.progress = config.lastEditorBrushSize
         updateBrushSize(config.lastEditorBrushSize)
 
         binding.bottomEditorDrawActions.bottomDrawColorClickable.setOnClickListener {
+            selectBrushMode(EditorBrushMode.DRAW)
             ColorPickerDialog(this, drawColor) { wasPositivePressed, color ->
                 if (wasPositivePressed) {
                     updateDrawColor(color)
@@ -660,6 +773,35 @@ class EditActivity : BaseCropActivity() {
         binding.bottomEditorDrawActions.bottomDrawUndo.setOnClickListener {
             binding.editorDrawCanvas.undo()
         }
+        binding.editorDrawCanvas.onUndoAvailabilityChanged = { canUndo ->
+            binding.bottomEditorDrawActions.bottomDrawUndo.isEnabled = canUndo
+            binding.bottomEditorDrawActions.bottomDrawUndo.alpha = if (canUndo) 1f else 0.4f
+        }
+        binding.bottomEditorDrawActions.bottomDrawUndo.isEnabled = binding.editorDrawCanvas.canUndo()
+        binding.bottomEditorDrawActions.bottomDrawUndo.alpha = if (binding.editorDrawCanvas.canUndo()) 1f else 0.4f
+        binding.bottomEditorDrawActions.bottomDrawMosaic.setOnClickListener {
+            selectBrushMode(EditorBrushMode.MOSAIC)
+        }
+        binding.bottomEditorDrawActions.bottomDrawBlur.setOnClickListener {
+            selectBrushMode(EditorBrushMode.BLUR)
+        }
+        selectBrushMode(EditorBrushMode.DRAW)
+    }
+
+    private fun selectBrushMode(mode: EditorBrushMode) {
+        binding.editorDrawCanvas.setMode(mode)
+        binding.bottomEditorDrawActions.bottomDrawColorClickable.isSelected = mode == EditorBrushMode.DRAW
+        binding.bottomEditorDrawActions.bottomDrawColor.foreground = if (mode == EditorBrushMode.DRAW) {
+            GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.TRANSPARENT)
+                setStroke((2f * resources.displayMetrics.density).toInt().coerceAtLeast(2), editorAccentColor)
+            }
+        } else null
+        binding.bottomEditorDrawActions.bottomDrawMosaic.isSelected = mode == EditorBrushMode.MOSAIC
+        binding.bottomEditorDrawActions.bottomDrawBlur.isSelected = mode == EditorBrushMode.BLUR
+        binding.bottomEditorDrawActions.bottomDrawMosaic.setAccentColor(editorAccentColor)
+        binding.bottomEditorDrawActions.bottomDrawBlur.setAccentColor(editorAccentColor)
     }
 
     private fun updateBrushSize(percent: Int) {
@@ -693,7 +835,8 @@ class EditActivity : BaseCropActivity() {
             else -> null
         }
 
-        currentPrimaryActionButton?.applyColorFilter(getProperPrimaryColor())
+        currentPrimaryActionButton?.applyColorFilter(editorAccentColor)
+        currentPrimaryActionButton?.isSelected = true
         binding.bottomEditorFilterActions.root.beVisibleIf(currPrimaryAction == PRIMARY_ACTION_FILTER)
         binding.bottomEditorCropRotateActions.root.beVisibleIf(currPrimaryAction == PRIMARY_ACTION_CROP_ROTATE)
         binding.bottomEditorDrawActions.root.beVisibleIf(currPrimaryAction == PRIMARY_ACTION_DRAW)
@@ -740,7 +883,7 @@ class EditActivity : BaseCropActivity() {
                     }
 
                     val filterItems = filterThumbnailsManager.processThumbs()
-                    val adapter = FiltersAdapter(applicationContext, filterItems) {
+                    val adapter = FiltersAdapter(applicationContext, filterItems, editorAccentColor) {
                         val layoutManager = binding.bottomEditorFilterActions.bottomActionsFilterList.layoutManager as LinearLayoutManager
                         applyFilter(filterItems[it])
 
@@ -809,7 +952,7 @@ class EditActivity : BaseCropActivity() {
             else -> binding.bottomAspectRatios.bottomAspectRatioOther
         }
 
-        currentAspectRatioButton.setTextColor(getProperPrimaryColor())
+        currentAspectRatioButton.setTextColor(editorAccentColor)
     }
 
     private fun updateCropRotateActionButtons() {
@@ -822,13 +965,13 @@ class EditActivity : BaseCropActivity() {
             else -> null
         }
 
-        primaryActionView?.applyColorFilter(getProperPrimaryColor())
+        primaryActionView?.applyColorFilter(editorAccentColor)
     }
 
     private fun updateDrawColor(color: Int) {
         drawColor = color
         binding.bottomEditorDrawActions.bottomDrawColor
-            .setFillWithStroke(color, getProperBackgroundColor())
+            .setFillWithStroke(color, getColor(R.color.editor_panel_surface))
         config.lastEditorDrawColor = color
         binding.editorDrawCanvas.updateColor(color)
     }
@@ -840,7 +983,7 @@ class EditActivity : BaseCropActivity() {
             return
         }
 
-        ResizeDialog(this, point) {
+        ResizeDialog(this, point, editorDark = true) {
             resizeWidth = it.x
             resizeHeight = it.y
             cropImage()
@@ -871,11 +1014,11 @@ class EditActivity : BaseCropActivity() {
             resolveUriScheme(
                 uri = saveUri,
                 onPath = {
-                    SaveAsDialog(this, it, true, callback = callback)
+                    SaveAsDialog(this, it, true, editorDark = true, callback = callback)
                 },
                 onContentUri = {
                     val (path, append) = proposeNewFilePath(it)
-                    SaveAsDialog(this, path, append, callback = callback)
+                    SaveAsDialog(this, path, append, editorDark = true, callback = callback)
                 }
             )
         }
@@ -980,7 +1123,7 @@ class EditActivity : BaseCropActivity() {
                 if (out == null) {
                     val (path, append) = proposeNewFilePath(uri)
                     runOnUiThread {
-                        SaveAsDialog(this, path, append) { path ->
+                        SaveAsDialog(this, path, append, editorDark = true) { path ->
                             saveBitmapToPath(bitmap, path, showSavingToast)
                         }
                     }

@@ -275,6 +275,14 @@
         <item name="listPreferredItemPaddingRight">16dp</item>
         <item name="listMenuViewStyle">@style/OxygenClassicMenuList</item>
     </style>
+    <!-- Editor popup controls inherit the current user's accent from the activity theme. -->
+    <style name="OxygenEditorPopupTheme" parent="ThemeOverlay.AppCompat.Dark">
+        <item name="colorControlActivated">?attr/colorAccent</item>
+        <item name="android:colorAccent">?attr/colorAccent</item>
+        <item name="colorSurface">@color/oxygen_classic_dialog_dark</item>
+        <item name="colorOnSurface">@color/oxygen_classic_on_dark</item>
+        <item name="android:textColorPrimary">@color/oxygen_classic_menu_text_dark</item>
+    </style>
     <style name="OxygenClassicPopupMenu.Light" parent="Widget.AppCompat.PopupMenu">
         <item name="android:popupAnimationStyle">@style/OxygenClassicPopupWindowAnimation</item>
         <item name="android:popupBackground">@drawable/oxygen_classic_menu_light</item>

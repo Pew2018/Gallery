@@ -36,7 +36,6 @@ import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.widget.Toast
-import androidx.core.graphics.drawable.toDrawable
 import androidx.exifinterface.media.ExifInterface
 import androidx.print.PrintHelper
 import androidx.viewpager.widget.ViewPager
@@ -65,7 +64,6 @@ import org.fossify.commons.extensions.getImageResolution
 import org.fossify.commons.extensions.getIsPathDirectory
 import org.fossify.commons.extensions.getParentPath
 import org.fossify.commons.extensions.getSharedPrefs
-import org.fossify.commons.extensions.getProperBackgroundColor
 import org.fossify.commons.extensions.getResolution
 import org.fossify.commons.extensions.getUriMimeType
 import org.fossify.commons.extensions.handleDeletePasswordProtection
@@ -127,7 +125,7 @@ import org.fossify.gallery.extensions.launchResizeImageDialog
 import org.fossify.gallery.extensions.launchSettings
 import org.fossify.gallery.extensions.mediaDB
 import org.fossify.gallery.extensions.movePathsInRecycleBin
-import org.fossify.gallery.extensions.openEditor
+import org.fossify.gallery.extensions.openGalleryBasicEditor
 import org.fossify.gallery.extensions.openPath
 import org.fossify.gallery.extensions.restoreRecycleBinPath
 import org.fossify.gallery.extensions.saveRotatedImageToFile
@@ -540,6 +538,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         super.onCreate(null)
         supportFragmentManager.registerFragmentLifecycleCallbacks(slideshowFragments, false)
         setContentView(binding.root)
+        // The media canvas must not inherit the app's light theme while pages load
+        // or the progressive adapter replaces deferred placeholders.
+        binding.root.setBackgroundColor(Color.BLACK)
+        binding.fragmentHolder.setBackgroundColor(Color.BLACK)
+        binding.viewPager.setBackgroundColor(Color.BLACK)
         org.fossify.gallery.helpers.OxygenProgressStyle.apply(this, config, binding.photoBoundaryLoading)
         binding.viewPager.onUnknownBoundary = { forward -> requestViewerBoundary(forward) }
         PhotoProfileAccessSessionManager.addListener(favoriteListenerId) { event ->
@@ -589,7 +592,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         setupOptionsMenu()
         refreshMenuItems()
 
-        window.decorView.setBackgroundColor(getProperBackgroundColor())
+        window.decorView.setBackgroundColor(Color.BLACK)
         // Internal gallery taps carry a bounded neighbor window; do not duplicate
         // the entire grid (which can contain tens of thousands of entries) here.
         if (!isPhotoProfile && !intent.getBooleanExtra(IS_FROM_GALLERY, false)) {
@@ -736,7 +739,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 findItem(R.id.menu_properties).isVisible = visibleBottomActions and BOTTOM_ACTION_PROPERTIES == 0
                 findItem(R.id.menu_delete).isVisible = visibleBottomActions and BOTTOM_ACTION_DELETE == 0
                 findItem(R.id.menu_share).isVisible = visibleBottomActions and BOTTOM_ACTION_SHARE == 0
-                findItem(R.id.menu_edit).isVisible = visibleBottomActions and BOTTOM_ACTION_EDIT == 0 && !currentMedium.isSVG()
+                findItem(R.id.menu_edit).isVisible = visibleBottomActions and BOTTOM_ACTION_EDIT == 0 && currentMedium.isImage() && !currentMedium.isSVG()
                 findItem(R.id.menu_rename).isVisible = visibleBottomActions and BOTTOM_ACTION_RENAME == 0 && !currentMedium.getIsInRecycleBin()
                 findItem(R.id.menu_rotate).isVisible = currentMedium.isImage() && visibleBottomActions and BOTTOM_ACTION_ROTATE == 0
                 findItem(R.id.menu_set_as).isVisible = visibleBottomActions and BOTTOM_ACTION_SET_AS == 0
@@ -803,7 +806,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 R.id.menu_delete -> checkDeleteConfirmation()
                 R.id.menu_rename -> checkMediaManagementAndRename()
                 R.id.menu_print -> printFile()
-                R.id.menu_edit -> openEditor(getCurrentPath())
+                R.id.menu_edit -> {
+                    val medium = getCurrentMedium()
+                    if (medium?.isImage() == true && !medium.isSVG()) openGalleryBasicEditor(getCurrentPath())
+                    else toast(R.string.editor_unsupported_media)
+                }
                 R.id.menu_properties -> showProperties()
                 R.id.menu_show_on_map -> showFileOnMap(getCurrentPath())
                 R.id.menu_rotate_right -> rotateImage(90)
@@ -2145,11 +2152,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (!isPhotoProfile && !initialPublicFolderSnapshot && !stagedInternalViewer) refreshViewPager(true)
         binding.viewPager.offscreenPageLimit = 2
 
-        if (config.blackBackground) {
-            binding.fragmentHolder.background = Color.BLACK.toDrawable()
-            binding.viewPager.background = Color.BLACK.toDrawable()
-        }
-
         if (config.hideSystemUI) {
             binding.viewPager.onGlobalLayout {
                 Handler().postDelayed({
@@ -2671,10 +2673,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             toggleFavorite()
         }
 
-        binding.bottomActions.bottomEdit.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_EDIT != 0 && currentMedium?.isSVG() == false)
+        binding.bottomActions.bottomEdit.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_EDIT != 0 && currentMedium?.isImage() == true && currentMedium.isSVG().not())
         binding.bottomActions.bottomEdit.setOnLongClickListener { toast(R.string.edit); true }
         binding.bottomActions.bottomEdit.setOnClickListener {
-            openEditor(getCurrentPath())
+            val medium = getCurrentMedium()
+            if (medium?.isImage() == true && !medium.isSVG()) openGalleryBasicEditor(getCurrentPath())
+            else toast(R.string.editor_unsupported_media)
         }
 
         binding.bottomActions.bottomShare.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_SHARE != 0)

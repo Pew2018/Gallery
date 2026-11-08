@@ -40,6 +40,7 @@ import org.fossify.commons.models.FileDirItem
 import org.fossify.gallery.BuildConfig
 import org.fossify.gallery.R
 import org.fossify.gallery.activities.MediaActivity
+import org.fossify.gallery.activities.EditActivity
 import org.fossify.gallery.activities.SettingsActivity
 import org.fossify.gallery.activities.SimpleActivity
 import org.fossify.gallery.activities.VideoPlayerActivity
@@ -110,6 +111,37 @@ fun Activity.launchGesturePlayer(
 fun Activity.openEditor(path: String, forceChooser: Boolean = false) {
     val newPath = path.removePrefix("file://")
     openEditorIntent(newPath, forceChooser, BuildConfig.APPLICATION_ID)
+}
+
+/** Launch Gallery's own image editor without asking Android to resolve ACTION_EDIT. */
+fun Activity.openGalleryBasicEditor(path: String) {
+    val editorPath = path.removePrefix("file://")
+    ensureBackgroundThread {
+        val mediaUri = getFinalUriFromPath(editorPath, BuildConfig.APPLICATION_ID)
+        if (mediaUri == null) {
+            toast(org.fossify.commons.R.string.unknown_error_occurred)
+            return@ensureBackgroundThread
+        }
+
+        val mimeType = getUriMimeType(editorPath, mediaUri)
+        runOnUiThread {
+            if (!mimeType.startsWith("image/", ignoreCase = true)) {
+                toast(R.string.editor_unsupported_media)
+                return@runOnUiThread
+            }
+
+            Intent(this, EditActivity::class.java).apply {
+                action = Intent.ACTION_EDIT
+                setDataAndType(mediaUri, mimeType)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                if (!isRPlus() || hasProperStoredDocumentUriSdk30(editorPath) || isExternalStorageManager()) {
+                    addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                }
+                putExtra(REAL_FILE_PATH, editorPath)
+                startActivityForResult(this, REQUEST_EDIT_IMAGE)
+            }
+        }
+    }
 }
 
 fun Activity.launchCamera() {

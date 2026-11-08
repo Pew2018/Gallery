@@ -4,16 +4,26 @@ import android.content.Context
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.EditorFilterItemBinding
 import org.fossify.gallery.models.FilterItem
 
-class FiltersAdapter(val context: Context, val filterItems: ArrayList<FilterItem>, val itemClick: (Int) -> Unit) :
+class FiltersAdapter(
+    val context: Context,
+    val filterItems: ArrayList<FilterItem>,
+    private val selectedAccent: Int,
+    val itemClick: (Int) -> Unit
+) :
     RecyclerView.Adapter<FiltersAdapter.ViewHolder>() {
 
     private var currentSelection = filterItems.first()
-    private var strokeBackground = context.resources.getDrawable(R.drawable.stroke_background)
+    private val strokeBackground = GradientDrawable().apply {
+        setColor(Color.TRANSPARENT)
+        setStroke((2 * context.resources.displayMetrics.density).toInt().coerceAtLeast(1), selectedAccent)
+    }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         holder.bindView(filterItems[position])
@@ -41,6 +51,7 @@ class FiltersAdapter(val context: Context, val filterItems: ArrayList<FilterItem
         fun bindView(filterItem: FilterItem): View {
             binding.apply {
                 editorFilterItemLabel.text = filterItem.filter.name
+                editorFilterItemLabel.setTextColor(if (getCurrentFilter() == filterItem) selectedAccent else Color.WHITE)
                 editorFilterItemThumbnail.setImageBitmap(filterItem.bitmap)
                 editorFilterItemThumbnail.background = if (getCurrentFilter() == filterItem) {
                     strokeBackground

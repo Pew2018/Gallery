@@ -5,7 +5,9 @@
     android:id="@+id/video_time_holder"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:paddingTop="@dimen/medium_margin">
+    android:background="@drawable/viewer_bottom_surface"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
 
     <TextView
         android:id="@+id/video_playback_speed"

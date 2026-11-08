@@ -50,7 +50,7 @@ import org.fossify.gallery.R
 import org.fossify.gallery.databinding.FragmentHolderBinding
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.hideSystemUI
-import org.fossify.gallery.extensions.openEditor
+import org.fossify.gallery.extensions.openGalleryBasicEditor
 import org.fossify.gallery.extensions.openPath
 import org.fossify.gallery.extensions.setAs
 import org.fossify.gallery.extensions.sharePath
@@ -133,7 +133,7 @@ open class PhotoVideoActivity : BaseViewerActivity(), ViewPagerFragment.Fragment
 
         binding.fragmentViewerToolbar.menu.apply {
             findItem(R.id.menu_set_as).isVisible = mMedium?.isImage() == true && visibleBottomActions and BOTTOM_ACTION_SET_AS == 0
-            findItem(R.id.menu_edit).isVisible = mMedium?.isImage() == true && mUri?.scheme == "file" && visibleBottomActions and BOTTOM_ACTION_EDIT == 0
+            findItem(R.id.menu_edit).isVisible = mMedium?.isImage() == true && mMedium?.isSVG() == false && mUri?.scheme == "file" && visibleBottomActions and BOTTOM_ACTION_EDIT == 0
             findItem(R.id.menu_properties).isVisible = mUri?.scheme == "file" && visibleBottomActions and BOTTOM_ACTION_PROPERTIES == 0
             findItem(R.id.menu_share).isVisible = visibleBottomActions and BOTTOM_ACTION_SHARE == 0
             findItem(R.id.menu_show_on_map).isVisible = visibleBottomActions and BOTTOM_ACTION_SHOW_ON_MAP == 0
@@ -158,7 +158,7 @@ open class PhotoVideoActivity : BaseViewerActivity(), ViewPagerFragment.Fragment
                 R.id.menu_set_as -> setAs(mUri!!.toString())
                 R.id.menu_open_with -> openPath(mUri!!.toString(), true)
                 R.id.menu_share -> sharePath(mUri!!.toString())
-                R.id.menu_edit -> openEditor(mUri!!.toString())
+                R.id.menu_edit -> openGalleryBasicEditor(mUri!!.toString())
                 R.id.menu_properties -> showProperties()
                 R.id.menu_show_on_map -> showFileOnMap(mUri!!.toString())
                 else -> return@setOnMenuItemClickListener false
@@ -394,10 +394,10 @@ open class PhotoVideoActivity : BaseViewerActivity(), ViewPagerFragment.Fragment
         }
 
         val visibleBottomActions = if (config.bottomActions) config.visibleBottomActions else 0
-        binding.bottomActions.bottomEdit.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_EDIT != 0 && mMedium?.isImage() == true)
+        binding.bottomActions.bottomEdit.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_EDIT != 0 && mMedium?.isImage() == true && mMedium?.isSVG() == false)
         binding.bottomActions.bottomEdit.setOnClickListener {
             if (mUri != null && binding.bottomActions.root.alpha == 1f) {
-                openEditor(mUri!!.toString())
+                openGalleryBasicEditor(mUri!!.toString())
             }
         }
 
