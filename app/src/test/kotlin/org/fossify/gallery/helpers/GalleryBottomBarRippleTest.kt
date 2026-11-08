@@ -406,7 +406,7 @@ class GalleryBottomBarRippleTest {
 
     @Test fun shortTapFinishesExpansionBeforeReleaseFade() {
         for (held in listOf(20L, 50L, 120L, 800L)) {
-            val ripple = NavigationRippleDrawable(Color.GREEN, 28f)
+            val ripple = NavigationRippleDrawable(Color.GREEN)
             val start = android.os.SystemClock.uptimeMillis()
             ripple.continuePulse(NavigationRippleDrawable.Pulse(start, .5f, .5f, start + held))
             val expanded = ripple.progress(start + maxOf(held, NavigationRippleDrawable.EXPAND_MS))
@@ -417,7 +417,7 @@ class GalleryBottomBarRippleTest {
     }
 
     @Test fun expiredSnapshotIsDiscardedInsteadOfBeingInstalled() {
-        val ripple = NavigationRippleDrawable(Color.GREEN, 28f)
+        val ripple = NavigationRippleDrawable(Color.GREEN)
         ripple.continuePulse(NavigationRippleDrawable.Pulse(
             android.os.SystemClock.uptimeMillis() - 2_000L, .5f, .5f,
             android.os.SystemClock.uptimeMillis() - 1_980L))

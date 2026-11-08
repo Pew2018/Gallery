@@ -9,7 +9,7 @@ import android.graphics.drawable.Drawable
 import android.os.SystemClock
 
 /** Clock-based feedback: only values cross windows, never a View, Context or Drawable callback. */
-internal class NavigationRippleDrawable(var color: Int, private val radius: Float, var durationScale: Float = 1f) : Drawable() {
+internal class NavigationRippleDrawable(var color: Int, var durationScale: Float = 1f) : Drawable() {
     data class Pulse(val startedAt: Long, val x: Float, val y: Float, var releasedAt: Long? = null)
     var pulse: Pulse? = null
         private set
@@ -21,8 +21,8 @@ internal class NavigationRippleDrawable(var color: Int, private val radius: Floa
     private val easing = android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)
 
     override fun setHotspot(x: Float, y: Float) {
-        hotspotX = if (bounds.width() > 0) (x / bounds.width()).coerceIn(0f, 1f) else 0.5f
-        hotspotY = if (bounds.height() > 0) (y / bounds.height()).coerceIn(0f, 1f) else 0.5f
+        hotspotX = if (bounds.width() > 0) ((x - bounds.left) / bounds.width()).coerceIn(0f, 1f) else 0.5f
+        hotspotY = if (bounds.height() > 0) ((y - bounds.top) / bounds.height()).coerceIn(0f, 1f) else 0.5f
     }
 
     override fun isStateful() = true
@@ -59,14 +59,23 @@ internal class NavigationRippleDrawable(var color: Int, private val radius: Floa
     }
 
     override fun draw(canvas: Canvas) {
+        drawAt(canvas, SystemClock.uptimeMillis())
+    }
+
+    /** Draw using the supplied clock so geometry and release behavior can be tested deterministically. */
+    internal fun drawAt(canvas: Canvas, now: Long) {
         val value = pulse ?: return
-        val (expansion, visibility) = progress(SystemClock.uptimeMillis()) ?: return
+        val (expansion, visibility) = progress(now) ?: return
         paint.color = color
         paint.alpha = (Color.alpha(color) * visibility * opacity / 255f).toInt()
+        val cx = bounds.left + value.x * bounds.width()
+        val cy = bounds.top + value.y * bounds.height()
+        val dx = maxOf(cx - bounds.left, bounds.right - cx)
+        val dy = maxOf(cy - bounds.top, bounds.bottom - cy)
+        val maximumRadius = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
         val saved = canvas.save()
         canvas.clipRect(bounds)
-        canvas.drawCircle(bounds.left + value.x * bounds.width(),
-            bounds.top + value.y * bounds.height(), radius * expansion, paint)
+        canvas.drawCircle(cx, cy, maximumRadius * expansion, paint)
         canvas.restoreToCount(saved)
         if (expansion < 1f || value.releasedAt != null) invalidateSelf()
     }

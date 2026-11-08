@@ -173,9 +173,7 @@ object GalleryBottomBar {
         val ripple = item.background as? NavigationRippleDrawable
         val scale = animationScale(item)
         if (ripple == null) {
-            item.background = NavigationRippleDrawable(color,
-                item.resources.getDimension(R.dimen.oxygen_bottom_bar_ripple_radius),
-                scale)
+            item.background = NavigationRippleDrawable(color, scale)
         } else if (rippleColors[item] != color) {
             ripple.color = color
             ripple.invalidateSelf()
