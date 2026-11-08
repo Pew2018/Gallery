@@ -12,53 +12,83 @@
         android:paddingTop="@dimen/activity_margin"
         android:paddingRight="@dimen/classic_dialog_content_padding">
 
-        <org.fossify.commons.views.MyAppCompatCheckbox
-            android:id="@+id/filter_media_images"
+        <org.fossify.gallery.views.ClassicDialogCheckboxRow
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingTop="@dimen/activity_margin"
-            android:paddingBottom="@dimen/activity_margin"
-            android:text="@string/images" />
+            android:layout_height="wrap_content">
 
-        <org.fossify.commons.views.MyAppCompatCheckbox
-            android:id="@+id/filter_media_videos"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingTop="@dimen/activity_margin"
-            android:paddingBottom="@dimen/activity_margin"
-            android:text="@string/videos" />
+            <org.fossify.commons.views.MyAppCompatCheckbox
+                android:id="@+id/filter_media_images"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="@dimen/activity_margin"
+                android:paddingBottom="@dimen/activity_margin"
+                android:text="@string/images" />
+        </org.fossify.gallery.views.ClassicDialogCheckboxRow>
 
-        <org.fossify.commons.views.MyAppCompatCheckbox
-            android:id="@+id/filter_media_gifs"
+        <org.fossify.gallery.views.ClassicDialogCheckboxRow
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingTop="@dimen/activity_margin"
-            android:paddingBottom="@dimen/activity_margin"
-            android:text="@string/gifs" />
+            android:layout_height="wrap_content">
 
-        <org.fossify.commons.views.MyAppCompatCheckbox
-            android:id="@+id/filter_media_raws"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingTop="@dimen/activity_margin"
-            android:paddingBottom="@dimen/activity_margin"
-            android:text="@string/raw_images" />
+            <org.fossify.commons.views.MyAppCompatCheckbox
+                android:id="@+id/filter_media_videos"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="@dimen/activity_margin"
+                android:paddingBottom="@dimen/activity_margin"
+                android:text="@string/videos" />
+        </org.fossify.gallery.views.ClassicDialogCheckboxRow>
 
-        <org.fossify.commons.views.MyAppCompatCheckbox
-            android:id="@+id/filter_media_svgs"
+        <org.fossify.gallery.views.ClassicDialogCheckboxRow
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingTop="@dimen/activity_margin"
-            android:paddingBottom="@dimen/activity_margin"
-            android:text="@string/svgs" />
+            android:layout_height="wrap_content">
 
-        <org.fossify.commons.views.MyAppCompatCheckbox
-            android:id="@+id/filter_media_portraits"
+            <org.fossify.commons.views.MyAppCompatCheckbox
+                android:id="@+id/filter_media_gifs"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="@dimen/activity_margin"
+                android:paddingBottom="@dimen/activity_margin"
+                android:text="@string/gifs" />
+        </org.fossify.gallery.views.ClassicDialogCheckboxRow>
+
+        <org.fossify.gallery.views.ClassicDialogCheckboxRow
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingTop="@dimen/activity_margin"
-            android:paddingBottom="@dimen/activity_margin"
-            android:text="@string/portraits" />
+            android:layout_height="wrap_content">
+
+            <org.fossify.commons.views.MyAppCompatCheckbox
+                android:id="@+id/filter_media_raws"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="@dimen/activity_margin"
+                android:paddingBottom="@dimen/activity_margin"
+                android:text="@string/raw_images" />
+        </org.fossify.gallery.views.ClassicDialogCheckboxRow>
+
+        <org.fossify.gallery.views.ClassicDialogCheckboxRow
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <org.fossify.commons.views.MyAppCompatCheckbox
+                android:id="@+id/filter_media_svgs"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="@dimen/activity_margin"
+                android:paddingBottom="@dimen/activity_margin"
+                android:text="@string/svgs" />
+        </org.fossify.gallery.views.ClassicDialogCheckboxRow>
+
+        <org.fossify.gallery.views.ClassicDialogCheckboxRow
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <org.fossify.commons.views.MyAppCompatCheckbox
+                android:id="@+id/filter_media_portraits"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="@dimen/activity_margin"
+                android:paddingBottom="@dimen/activity_margin"
+                android:text="@string/portraits" />
+        </org.fossify.gallery.views.ClassicDialogCheckboxRow>
 
     </LinearLayout>
 </org.fossify.gallery.helpers.ClassicDialogScrollView>

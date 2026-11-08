@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<org.fossify.gallery.helpers.ClassicDialogScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/folder_visibility_scrollview"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:id="@+id/folder_visibility_holder"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/classic_dialog_content_padding"
+        android:paddingTop="@dimen/activity_margin"
+        android:paddingEnd="@dimen/classic_dialog_content_padding">
+
+        <org.fossify.gallery.views.ClassicDialogCheckboxRow
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+            <org.fossify.commons.views.MyAppCompatCheckbox
+                android:id="@+id/folder_visibility_hidden"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/folder_filter_hidden" />
+        </org.fossify.gallery.views.ClassicDialogCheckboxRow>
+
+        <org.fossify.gallery.views.ClassicDialogCheckboxRow
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+            <org.fossify.commons.views.MyAppCompatCheckbox
+                android:id="@+id/folder_visibility_excluded"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/folder_filter_excluded" />
+        </org.fossify.gallery.views.ClassicDialogCheckboxRow>
+
+        <org.fossify.gallery.views.ClassicDialogCheckboxRow
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+            <org.fossify.commons.views.MyAppCompatCheckbox
+                android:id="@+id/folder_visibility_nomedia"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/folder_filter_nomedia" />
+        </org.fossify.gallery.views.ClassicDialogCheckboxRow>
+
+        <org.fossify.gallery.views.ClassicDialogCheckboxRow
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+            <org.fossify.commons.views.MyAppCompatCheckbox
+                android:id="@+id/folder_visibility_protected"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/folder_filter_protected" />
+        </org.fossify.gallery.views.ClassicDialogCheckboxRow>
+    </LinearLayout>
+</org.fossify.gallery.helpers.ClassicDialogScrollView>

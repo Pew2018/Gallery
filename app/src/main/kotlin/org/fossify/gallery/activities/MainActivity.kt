@@ -1494,37 +1494,42 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     private fun showFolderVisibilityDialog() {
-        val labels = arrayOf(
-            getString(R.string.folder_filter_hidden),
-            getString(R.string.folder_filter_excluded),
-            getString(R.string.folder_filter_nomedia),
-            getString(R.string.folder_filter_protected)
-        )
+        val binding = org.fossify.gallery.databinding.DialogFolderVisibilityBinding.inflate(layoutInflater)
         val checked = mFolderVisibility.copyOf()
+        listOf(
+            binding.folderVisibilityHidden,
+            binding.folderVisibilityExcluded,
+            binding.folderVisibilityNomedia,
+            binding.folderVisibilityProtected
+        ).forEachIndexed { index, checkbox ->
+            checkbox.isChecked = checked[index]
+            checkbox.setOnCheckedChangeListener { _, isChecked -> checked[index] = isChecked }
+        }
+
         OxygenClassicDialog.show(this,
             OxygenClassicDialog.builder(this, getString(R.string.folder_filter_title))
-            .setMultiChoiceItems(labels, checked) { _, index, value -> checked[index] = value }
-            .setNegativeButton(org.fossify.commons.R.string.cancel, null)
-            .setPositiveButton(R.string.folder_filter_apply) { _, _ ->
-                val apply = {
-                    mFolderVisibility = checked
-                    retireDirectoryScan()
-                    binding.directoriesGrid.adapter = null
-                    getDirectories()
-                }
-                val verifyExcluded = {
-                    if (checked[1] && !mFolderVisibility[1]) {
-                        handleExcludedFolderPasswordProtection { apply() }
-                    } else {
-                        apply()
+                .setView(binding.root)
+                .setNegativeButton(org.fossify.commons.R.string.cancel, null)
+                .setPositiveButton(R.string.folder_filter_apply) { _, _ ->
+                    val apply = {
+                        mFolderVisibility = checked.copyOf()
+                        retireDirectoryScan()
+                        binding.directoriesGrid.adapter = null
+                        getDirectories()
                     }
-                }
-                if ((checked[0] || checked[2]) && !(mFolderVisibility[0] || mFolderVisibility[2])) {
-                    handleHiddenFolderPasswordProtection { verifyExcluded() }
-                } else {
-                    verifyExcluded()
-                }
-            })
+                    val verifyExcluded = {
+                        if (checked[1] && !mFolderVisibility[1]) {
+                            handleExcludedFolderPasswordProtection { apply() }
+                        } else {
+                            apply()
+                        }
+                    }
+                    if ((checked[0] || checked[2]) && !(mFolderVisibility[0] || mFolderVisibility[2])) {
+                        handleHiddenFolderPasswordProtection { verifyExcluded() }
+                    } else {
+                        verifyExcluded()
+                    }
+                }, binding.root)
     }
 
     private fun loadCategorizedFolders() {

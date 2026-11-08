@@ -147,6 +147,7 @@ object OxygenClassicDialog {
                 R.id.change_date_time_dialog_scrollview,
                 R.id.change_view_type_dialog_scrollview,
                 R.id.other_aspect_ratio_dialog_scrollview,
+                R.id.folder_visibility_scrollview,
                 R.id.filter_media_dialog_holder,
                 R.id.manage_bottom_actions_scrollview,
                 R.id.manage_extended_details_scrollview
@@ -589,7 +590,12 @@ object OxygenClassicDialog {
                 )
                 val row = button.parent as? org.fossify.gallery.views.ClassicDialogCheckboxRow
                 val deleteConfirmationRow = button.parent as? DeleteConfirmationCheckboxRow
-                val trailing = v.id == R.id.sorting_dialog_numeric_sorting || v.id == R.id.sorting_dialog_use_for_this_folder
+                val trailing = v.id in intArrayOf(
+                    R.id.sorting_dialog_numeric_sorting,
+                    R.id.sorting_dialog_use_for_this_folder,
+                    R.id.grouping_dialog_show_file_count,
+                    R.id.grouping_dialog_use_for_this_folder
+                )
                 if (trailing) {
                     val mark = button.buttonDrawable
                     button.buttonDrawable = null
