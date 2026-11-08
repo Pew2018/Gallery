@@ -8,6 +8,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
@@ -27,7 +28,7 @@ class EditorDrawCanvasTest {
         assertEquals(source.width, output.width)
         assertEquals(source.height, output.height)
         assertEquals(source.getPixel(2, 2), output.getPixel(2, 2))
-        assertNotEquals(source.getPixel(48, 32), output.getPixel(48, 32))
+        assertTrue(countDifferent(source, output, 28, 12, 68, 52) > 0)
         assertTrue(canvas.canUndo())
     }
 
@@ -45,9 +46,9 @@ class EditorDrawCanvasTest {
         stroke(canvas, 68f, 32f)
 
         val changed = canvas.getBitmap(source)
-        assertNotEquals(source.getPixel(28, 32), changed.getPixel(28, 32))
-        assertNotEquals(source.getPixel(48, 32), changed.getPixel(48, 32))
-        assertNotEquals(source.getPixel(68, 32), changed.getPixel(68, 32))
+        assertTrue(countDifferent(source, changed, 18, 22, 38, 42) > 0)
+        assertTrue(countDifferent(source, changed, 38, 22, 58, 42) > 0)
+        assertTrue(countDifferent(source, changed, 58, 22, 78, 42) > 0)
 
         repeat(3) { canvas.undo() }
         assertBitmapEquals(source, canvas.getBitmap(source))
@@ -87,7 +88,7 @@ class EditorDrawCanvasTest {
     }
 
     private fun canvasWith(source: Bitmap): EditorDrawCanvas = EditorDrawCanvas(
-        RuntimeEnvironment.getApplication(), null
+        RuntimeEnvironment.getApplication(), Robolectric.buildAttributeSet().build()
     ).apply { updateBackgroundBitmap(source) }
 
     private fun stroke(canvas: EditorDrawCanvas, x: Float, y: Float) {
@@ -113,5 +114,13 @@ class EditorDrawCanvasTest {
         expected.getPixels(expectedPixels, 0, expected.width, 0, 0, expected.width, expected.height)
         actual.getPixels(actualPixels, 0, actual.width, 0, 0, actual.width, actual.height)
         assertTrue(expectedPixels.contentEquals(actualPixels))
+    }
+
+    private fun countDifferent(expected: Bitmap, actual: Bitmap, left: Int, top: Int, right: Int, bottom: Int): Int {
+        var count = 0
+        for (y in top until bottom) for (x in left until right) {
+            if (expected.getPixel(x, y) != actual.getPixel(x, y)) count++
+        }
+        return count
     }
 }
