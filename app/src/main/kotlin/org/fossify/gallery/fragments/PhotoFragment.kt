@@ -59,8 +59,6 @@ import org.fossify.commons.extensions.beVisible
 import org.fossify.commons.extensions.beVisibleIf
 import org.fossify.commons.extensions.fadeIn
 import org.fossify.commons.extensions.fadeOut
-import org.fossify.commons.extensions.getProperBackgroundColor
-import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.commons.extensions.getRealPathFromURI
 import org.fossify.commons.extensions.isExternalStorageManager
 import org.fossify.commons.extensions.isPathOnOTG
@@ -621,7 +619,7 @@ class PhotoFragment : ViewPagerFragment() {
                         // checkIfPanorama()
                     } else {
                         binding.errorMessageHolder.errorMessage.apply {
-                            setTextColor(if (context.config.blackBackground) Color.WHITE else context.getProperTextColor())
+                            setTextColor(Color.WHITE)
                             fadeIn()
                         }
                     }
@@ -808,13 +806,9 @@ class PhotoFragment : ViewPagerFragment() {
 
             onImageEventListener = object : SubsamplingScaleImageView.OnImageEventListener {
                 override fun onReady() {
-                    background = ColorDrawable(
-                        if (config.blackBackground) {
-                            Color.BLACK
-                        } else {
-                            context.getProperBackgroundColor()
-                        }
-                    )
+                    // Async decoder readiness must not overwrite the black letterbox
+                    // with the current (potentially light) gallery theme surface.
+                    background = ColorDrawable(Color.BLACK)
 
                     val useWidth = if (mImageOrientation == ORIENTATION_ROTATE_90 || mImageOrientation == ORIENTATION_ROTATE_270) sHeight else sWidth
                     val useHeight = if (mImageOrientation == ORIENTATION_ROTATE_90 || mImageOrientation == ORIENTATION_ROTATE_270) sWidth else sHeight

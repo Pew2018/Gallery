@@ -1,5 +1,6 @@
 package org.fossify.gallery.adapters
 
+import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -51,6 +52,7 @@ internal class MyPagerAdapter(
     private fun addDeferredPage(container: ViewGroup): View {
         hasDeferredPages = true
         return FrameLayout(container.context).also {
+            it.setBackgroundColor(Color.BLACK)
             it.isClickable = false
             container.addView(it, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }

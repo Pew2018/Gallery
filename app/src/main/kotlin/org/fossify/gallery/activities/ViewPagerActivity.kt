@@ -36,7 +36,6 @@ import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.widget.Toast
-import androidx.core.graphics.drawable.toDrawable
 import androidx.exifinterface.media.ExifInterface
 import androidx.print.PrintHelper
 import androidx.viewpager.widget.ViewPager
@@ -65,7 +64,6 @@ import org.fossify.commons.extensions.getImageResolution
 import org.fossify.commons.extensions.getIsPathDirectory
 import org.fossify.commons.extensions.getParentPath
 import org.fossify.commons.extensions.getSharedPrefs
-import org.fossify.commons.extensions.getProperBackgroundColor
 import org.fossify.commons.extensions.getResolution
 import org.fossify.commons.extensions.getUriMimeType
 import org.fossify.commons.extensions.handleDeletePasswordProtection
@@ -540,6 +538,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         super.onCreate(null)
         supportFragmentManager.registerFragmentLifecycleCallbacks(slideshowFragments, false)
         setContentView(binding.root)
+        // The media canvas must not inherit the app's light theme while pages load
+        // or the progressive adapter replaces deferred placeholders.
+        binding.root.setBackgroundColor(Color.BLACK)
+        binding.fragmentHolder.setBackgroundColor(Color.BLACK)
+        binding.viewPager.setBackgroundColor(Color.BLACK)
         org.fossify.gallery.helpers.OxygenProgressStyle.apply(this, config, binding.photoBoundaryLoading)
         binding.viewPager.onUnknownBoundary = { forward -> requestViewerBoundary(forward) }
         PhotoProfileAccessSessionManager.addListener(favoriteListenerId) { event ->
@@ -589,7 +592,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         setupOptionsMenu()
         refreshMenuItems()
 
-        window.decorView.setBackgroundColor(getProperBackgroundColor())
+        window.decorView.setBackgroundColor(Color.BLACK)
         // Internal gallery taps carry a bounded neighbor window; do not duplicate
         // the entire grid (which can contain tens of thousands of entries) here.
         if (!isPhotoProfile && !intent.getBooleanExtra(IS_FROM_GALLERY, false)) {
@@ -2148,11 +2151,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
         if (!isPhotoProfile && !initialPublicFolderSnapshot && !stagedInternalViewer) refreshViewPager(true)
         binding.viewPager.offscreenPageLimit = 2
-
-        if (config.blackBackground) {
-            binding.fragmentHolder.background = Color.BLACK.toDrawable()
-            binding.viewPager.background = Color.BLACK.toDrawable()
-        }
 
         if (config.hideSystemUI) {
             binding.viewPager.onGlobalLayout {
