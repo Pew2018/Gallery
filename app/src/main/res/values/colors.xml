@@ -2,4 +2,12 @@
 <resources>
     <color name="crop_image_view_background">#BB000000</color>
     <color name="circle_black_background">#66000000</color>
+    <color name="viewer_toolbar_surface">#212121</color>
+    <color name="viewer_status_surface">#1E1E1E</color>
+    <color name="viewer_control_surface">#0D0D0D</color>
+    <color name="viewer_control_divider">#292929</color>
+    <color name="editor_canvas_surface">#000000</color>
+    <color name="editor_toolbar_surface">#212121</color>
+    <color name="editor_panel_surface">#101010</color>
+    <color name="editor_accent">#2196F3</color>
 </resources>

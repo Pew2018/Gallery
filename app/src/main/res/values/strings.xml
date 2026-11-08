@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="editor_unsupported_media">This media type can’t be edited.</string>
+    <string name="play_video">Play video</string>
     <string name="app_launcher_name">Gallery</string>
     <string name="edit">Edit</string>
     <string name="open_camera">Open camera</string>

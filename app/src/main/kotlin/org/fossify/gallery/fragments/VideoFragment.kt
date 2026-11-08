@@ -4,6 +4,7 @@ package org.fossify.gallery.fragments
 
 import android.annotation.SuppressLint
 import android.content.res.Configuration
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Point
 import android.graphics.SurfaceTexture
@@ -215,6 +216,9 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             }
 
             mSeekBar = bottomVideoTimeHolder.videoSeekbar
+            mSeekBar.progressTintList = ColorStateList.valueOf(context.getColor(R.color.editor_accent))
+            mSeekBar.progressBackgroundTintList = ColorStateList.valueOf(0x80FFFFFF.toInt())
+            mSeekBar.thumbTintList = ColorStateList.valueOf(context.getColor(R.color.editor_accent))
             mPlaybackSpeedPill = playbackSpeedPill
             mSeekBar.setOnSeekBarChangeListener(this@VideoFragment)
             // adding an empty click listener just to avoid ripple animation at toggling fullscreen

@@ -3,7 +3,8 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/fragment_holder"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="@color/editor_canvas_surface">
 
     <org.fossify.gallery.views.ProgressivePhotoViewPager
         android:id="@+id/view_pager"
@@ -43,14 +44,16 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignParentTop="true"
-        android:background="@android:color/transparent"
+        android:background="@color/viewer_toolbar_surface"
         android:elevation="0dp"
         app:elevation="0dp">
 
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/medium_viewer_toolbar"
             android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
+            android:layout_height="@dimen/oxygen_classic_toolbar_height"
+            android:background="@color/viewer_toolbar_surface"
+            app:titleTextAppearance="@style/OxygenClassicToolbarTitle"
             app:navigationIcon="@drawable/ic_arrow_left_vector" />
 
     </com.google.android.material.appbar.AppBarLayout>

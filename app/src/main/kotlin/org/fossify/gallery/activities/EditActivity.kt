@@ -5,13 +5,17 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Point
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.provider.MediaStore
+import android.view.View
+import android.view.ViewGroup
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.graphics.scale
 import androidx.core.net.toUri
+import androidx.core.view.WindowCompat
 import androidx.exifinterface.media.ExifInterface
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.bumptech.glide.Glide
@@ -36,9 +40,6 @@ import org.fossify.commons.extensions.checkAppSideloading
 import org.fossify.commons.extensions.getCompressionFormat
 import org.fossify.commons.extensions.getFileOutputStream
 import org.fossify.commons.extensions.getFilenameFromPath
-import org.fossify.commons.extensions.getProperBackgroundColor
-import org.fossify.commons.extensions.getProperPrimaryColor
-import org.fossify.commons.extensions.getProperTextColor
 import org.fossify.commons.extensions.getRealPathFromURI
 import org.fossify.commons.extensions.isGone
 import org.fossify.commons.extensions.isPathOnOTG
@@ -79,7 +80,6 @@ import org.fossify.gallery.helpers.ASPECT_RATIO_OTHER
 import org.fossify.gallery.helpers.ASPECT_RATIO_SIXTEEN_NINE
 import org.fossify.gallery.helpers.ColorModeHelper
 import org.fossify.gallery.helpers.OxygenThemeEngine
-import org.fossify.gallery.helpers.OxygenSystemBars
 import org.fossify.gallery.helpers.FilterThumbnailsManager
 import org.fossify.gallery.helpers.getPermissionToRequest
 import org.fossify.gallery.models.FilterItem
@@ -106,6 +106,7 @@ class EditActivity : BaseCropActivity() {
 
         private const val CROP_ROTATE_NONE = 0
         private const val CROP_ROTATE_ASPECT_RATIO = 1
+        private const val EDITOR_ACCENT = 0xFF2196F3.toInt()
     }
 
     private lateinit var saveUri: Uri
@@ -162,7 +163,7 @@ class EditActivity : BaseCropActivity() {
     override fun onResume() {
         super.onResume()
         isEditingWithThirdParty = false
-        binding.bottomEditorDrawActions.bottomDrawWidth.setColors(getProperTextColor(), getProperPrimaryColor(), getProperBackgroundColor())
+        binding.bottomEditorDrawActions.bottomDrawWidth.setColors(Color.WHITE, EDITOR_ACCENT, getColor(R.color.editor_panel_surface))
         setupTopAppBar(binding.editorAppbar, NavigationIcon.Arrow,
             topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
         val toolbarText = OxygenThemeEngine.toolbarForeground(this, config)
@@ -172,7 +173,55 @@ class EditActivity : BaseCropActivity() {
         for (i in 0 until binding.editorToolbar.menu.size()) {
             binding.editorToolbar.menu.getItem(i).icon?.mutate()?.setTint(toolbarText)
         }
-        OxygenSystemBars.apply(this)
+        applyImmersiveEditorStyle()
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        applyImmersiveEditorStyle()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyImmersiveEditorStyle()
+    }
+
+    private fun applyImmersiveEditorStyle() {
+        theme.applyStyle(R.style.OxygenClassicActivityOverlay_Dark, true)
+        binding.editorCoordinator.setBackgroundColor(Color.BLACK)
+        binding.editorAppbar.setBackgroundColor(getColor(R.color.editor_toolbar_surface))
+        binding.editorToolbar.setBackgroundColor(getColor(R.color.editor_toolbar_surface))
+        binding.editorToolbar.setPopupTheme(R.style.OxygenClassicPopupTheme_Dark)
+        binding.editorToolbar.setTitleTextColor(Color.WHITE)
+        binding.editorToolbar.navigationIcon?.mutate()?.setTint(Color.WHITE)
+        binding.editorToolbar.overflowIcon?.mutate()?.setTint(Color.WHITE)
+        for (index in 0 until binding.editorToolbar.menu.size()) {
+            binding.editorToolbar.menu.getItem(index).icon?.mutate()?.setTint(Color.WHITE)
+        }
+        binding.activityEditHolder.setBackgroundColor(Color.BLACK)
+        binding.defaultImageView.setBackgroundColor(Color.BLACK)
+        binding.cropImageView.setBackgroundColor(Color.BLACK)
+        binding.bottomEditorActionsBackground.setBackgroundColor(getColor(R.color.editor_panel_surface))
+        binding.bottomEditorPrimaryActions.root.setBackgroundColor(getColor(R.color.editor_panel_surface))
+        binding.bottomEditorCropRotateActions.root.setBackgroundColor(getColor(R.color.editor_panel_surface))
+        binding.bottomEditorFilterActions.root.setBackgroundColor(getColor(R.color.editor_panel_surface))
+        binding.bottomEditorFilterActions.bottomActionsFilterList.setBackgroundColor(getColor(R.color.editor_panel_surface))
+        binding.bottomEditorDrawActions.root.setBackgroundColor(getColor(R.color.editor_panel_surface))
+        binding.bottomAspectRatios.root.setBackgroundColor(getColor(R.color.editor_panel_surface))
+
+        val decor = window.decorView
+        val bars = WindowCompat.getInsetsController(window, decor)
+        bars.isAppearanceLightStatusBars = false
+        bars.isAppearanceLightNavigationBars = false
+        if (android.os.Build.VERSION.SDK_INT < 35) {
+            @Suppress("DEPRECATION")
+            window.statusBarColor = getColor(R.color.viewer_status_surface)
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = Color.BLACK
+        } else {
+            (decor as? ViewGroup)?.findViewWithTag<View>("oxygen_classic_status_underlay")
+                ?.setBackgroundColor(getColor(R.color.viewer_status_surface))
+        }
     }
 
     override fun onStop() {
@@ -693,7 +742,7 @@ class EditActivity : BaseCropActivity() {
             else -> null
         }
 
-        currentPrimaryActionButton?.applyColorFilter(getProperPrimaryColor())
+        currentPrimaryActionButton?.applyColorFilter(EDITOR_ACCENT)
         binding.bottomEditorFilterActions.root.beVisibleIf(currPrimaryAction == PRIMARY_ACTION_FILTER)
         binding.bottomEditorCropRotateActions.root.beVisibleIf(currPrimaryAction == PRIMARY_ACTION_CROP_ROTATE)
         binding.bottomEditorDrawActions.root.beVisibleIf(currPrimaryAction == PRIMARY_ACTION_DRAW)
@@ -809,7 +858,7 @@ class EditActivity : BaseCropActivity() {
             else -> binding.bottomAspectRatios.bottomAspectRatioOther
         }
 
-        currentAspectRatioButton.setTextColor(getProperPrimaryColor())
+        currentAspectRatioButton.setTextColor(EDITOR_ACCENT)
     }
 
     private fun updateCropRotateActionButtons() {
@@ -822,13 +871,13 @@ class EditActivity : BaseCropActivity() {
             else -> null
         }
 
-        primaryActionView?.applyColorFilter(getProperPrimaryColor())
+        primaryActionView?.applyColorFilter(EDITOR_ACCENT)
     }
 
     private fun updateDrawColor(color: Int) {
         drawColor = color
         binding.bottomEditorDrawActions.bottomDrawColor
-            .setFillWithStroke(color, getProperBackgroundColor())
+            .setFillWithStroke(color, getColor(R.color.editor_panel_surface))
         config.lastEditorDrawColor = color
         binding.editorDrawCanvas.updateColor(color)
     }

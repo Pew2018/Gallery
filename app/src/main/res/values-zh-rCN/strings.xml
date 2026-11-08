@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="editor_unsupported_media">此媒体类型不支持编辑。</string>
+    <string name="play_video">播放视频</string>
     <string name="app_launcher_name">图库</string>
     <string name="edit">编辑</string>
     <string name="open_camera">打开相机</string>
