@@ -212,6 +212,7 @@ class EditActivity : BaseCropActivity() {
             Color.WHITE, editorAccentColor, getColor(R.color.editor_panel_surface)
         )
         applyEditorAccentToSelectedControls()
+        selectBrushMode(binding.editorDrawCanvas.getMode())
 
         val decor = window.decorView
         val bars = WindowCompat.getInsetsController(window, decor)
@@ -790,7 +791,7 @@ class EditActivity : BaseCropActivity() {
     private fun selectBrushMode(mode: EditorBrushMode) {
         binding.editorDrawCanvas.setMode(mode)
         binding.bottomEditorDrawActions.bottomDrawColorClickable.isSelected = mode == EditorBrushMode.DRAW
-        binding.bottomEditorDrawActions.bottomDrawColorClickable.foreground = if (mode == EditorBrushMode.DRAW) {
+        binding.bottomEditorDrawActions.bottomDrawColor.foreground = if (mode == EditorBrushMode.DRAW) {
             GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(Color.TRANSPARENT)
