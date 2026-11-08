@@ -82,6 +82,7 @@ import org.fossify.gallery.extensions.launchGesturePlayer
 import org.fossify.gallery.extensions.parseFileChannel
 import org.fossify.gallery.helpers.Config
 import org.fossify.gallery.helpers.OxygenThemeEngine
+import org.fossify.gallery.helpers.VideoPreviewFrameHandoff
 import org.fossify.gallery.helpers.EXOPLAYER_MAX_BUFFER_MS
 import org.fossify.gallery.helpers.EXOPLAYER_MIN_BUFFER_MS
 import org.fossify.gallery.helpers.FAST_FORWARD_VIDEO_MS
@@ -161,6 +162,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     private lateinit var mBrightnessSideScroll: MediaSideScroll
     private lateinit var mVolumeSideScroll: MediaSideScroll
     private lateinit var binding: PagerVideoItemBinding
+    private var videoPreviewFrameHandoff: VideoPreviewFrameHandoff? = null
     private lateinit var mView: View
     private lateinit var mMedium: Medium
     private lateinit var mConfig: Config
@@ -198,7 +200,6 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             bottomVideoTimeHolder.videoCurrTime.setOnClickListener { skip(false) }
             bottomVideoTimeHolder.videoDuration.setOnClickListener { skip(true) }
             videoHolder.setOnClickListener { toggleFullscreen() }
-            videoPreview.setOnClickListener { toggleFullscreen() }
             bottomVideoTimeHolder.videoPlaybackSpeed.setOnClickListener { showPlaybackSpeedPicker() }
             bottomVideoTimeHolder.videoToggleMute.setOnClickListener {
                 mConfig.muteVideos = !mConfig.muteVideos
@@ -264,11 +265,6 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                     }
                 })
 
-            videoPreview.setOnTouchListener { view, event ->
-                handleEvent(event)
-                false
-            }
-
             videoSurfaceFrame.setOnTouchListener { view, event ->
                 if (videoSurfaceFrame.controller.state.zoom == 1f) {
                     handleEvent(event)
@@ -282,6 +278,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                 false
             }
         }
+        videoPreviewFrameHandoff = VideoPreviewFrameHandoff(binding.videoPreview)
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.videoHolder) { _, insets ->
             val system = insets.getInsetsIgnoringVisibility(Type.systemBars())
@@ -424,6 +421,8 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         // timer or video Surface alive across view destruction.
         cleanup()
         mTextureView.surfaceTextureListener = null
+        videoPreviewFrameHandoff?.clear()
+        videoPreviewFrameHandoff = null
         super.onDestroyView()
     }
 
@@ -561,6 +560,8 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     }
 
     private fun ExoPlayer.initListeners() {
+        val listenerPlayer = this
+        videoPreviewFrameHandoff?.bind(listenerPlayer)
         addListener(object : Player.Listener {
             override fun onPositionDiscontinuity(
                 oldPosition: Player.PositionInfo,
@@ -584,7 +585,9 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             override fun onRenderedFirstFrame() {
                 // Keep the preview visible until the decoder really displays a frame.
                 // Player.STATE_READY alone does not guarantee that the Surface has one.
-                if (view != null) binding.videoPreview.beGone()
+                if (mExoPlayer === listenerPlayer && view != null) {
+                    videoPreviewFrameHandoff?.onRenderedFirstFrame(listenerPlayer)
+                }
             }
 
             override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -594,15 +597,20 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             }
 
             override fun onPlayerErrorChanged(error: PlaybackException?) {
+                if (mExoPlayer !== listenerPlayer || view == null) return
                 binding.errorMessageHolder.errorMessage.apply {
                     if (error != null) {
-                        binding.videoPreview.beGone()
+                        // Keep the cover behind the error message if the decoder
+                        // never produced a visible frame.
+                        videoPreviewFrameHandoff?.keepCoverForError(listenerPlayer)
                         binding.videoPlayOutline.beGone()
                         text = error.getFriendlyMessage(context)
                         setTextColor(if (context.config.blackBackground) Color.WHITE else context.getProperTextColor())
                         fadeIn()
                     } else {
                         beGone()
+                        // A retry remains covered until onRenderedFirstFrame arrives.
+                        videoPreviewFrameHandoff?.keepCoverForError(listenerPlayer)
                         binding.videoPlayOutline.beVisible()
                     }
                 }

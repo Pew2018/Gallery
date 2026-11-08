@@ -181,6 +181,7 @@ import org.fossify.gallery.helpers.SHOW_PREV_ITEM
 import org.fossify.gallery.helpers.SHOW_RECYCLE_BIN
 import org.fossify.gallery.helpers.SKIP_AUTHENTICATION
 import org.fossify.gallery.helpers.ViewerAuthenticationPolicy
+import org.fossify.gallery.helpers.ViewerMediaActionVisibility
 import org.fossify.gallery.helpers.ViewerAccessCoordinator
 import org.fossify.gallery.helpers.FavoriteMediaLoadPolicy
 import org.fossify.gallery.helpers.SLIDESHOW_ANIMATION_FADE
@@ -727,11 +728,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     fun refreshMenuItems() {
-        val currentMedium = getCurrentMedium() ?: return
-        currentMedium.isFavorite = mFavoritePaths.contains(currentMedium.path)
+        val selectedMedium = getCurrentMedium()
+        if (selectedMedium == null) {
+            runOnUiThread { refreshMediaDependentActionVisibility(null) }
+            return
+        }
+        selectedMedium.isFavorite = mFavoritePaths.contains(selectedMedium.path)
         val visibleBottomActions = if (config.bottomActions) config.visibleBottomActions else 0
 
         runOnUiThread {
+            val currentMedium = getCurrentMedium()
+            refreshMediaDependentActionVisibility(currentMedium)
+            if (currentMedium == null) return@runOnUiThread
             val rotationDegrees = getCurrentPhotoFragment()?.mCurrentRotationDegrees ?: 0
             binding.mediumViewerToolbar.menu.apply {
                 findItem(R.id.menu_show_on_map).isVisible = visibleBottomActions and BOTTOM_ACTION_SHOW_ON_MAP == 0
@@ -2667,13 +2675,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun initBottomActionButtons() {
         val currentMedium = getCurrentMedium()
         val visibleBottomActions = if (config.bottomActions) config.visibleBottomActions else 0
+        refreshMediaDependentActionVisibility(currentMedium)
         binding.bottomActions.bottomFavorite.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_TOGGLE_FAVORITE != 0 && currentMedium?.getIsInRecycleBin() == false)
         binding.bottomActions.bottomFavorite.setOnLongClickListener { toast(R.string.toggle_favorite); true }
         binding.bottomActions.bottomFavorite.setOnClickListener {
             toggleFavorite()
         }
 
-        binding.bottomActions.bottomEdit.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_EDIT != 0 && currentMedium?.isImage() == true && currentMedium.isSVG().not())
         binding.bottomActions.bottomEdit.setOnLongClickListener { toast(R.string.edit); true }
         binding.bottomActions.bottomEdit.setOnClickListener {
             val medium = getCurrentMedium()
@@ -2693,7 +2701,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             checkDeleteConfirmation()
         }
 
-        binding.bottomActions.bottomRotate.beVisibleIf(config.visibleBottomActions and BOTTOM_ACTION_ROTATE != 0 && getCurrentMedium()?.isImage() == true)
         binding.bottomActions.bottomRotate.setOnLongClickListener { toast(R.string.rotate); true }
         binding.bottomActions.bottomRotate.setOnClickListener {
             rotateImage(90)
@@ -2768,11 +2775,40 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             moveFileTo()
         }
 
-        binding.bottomActions.bottomResize.beVisibleIf(visibleBottomActions and BOTTOM_ACTION_RESIZE != 0 && currentMedium?.isImage() == true)
         binding.bottomActions.bottomResize.setOnLongClickListener { toast(org.fossify.commons.R.string.resize); true }
         binding.bottomActions.bottomResize.setOnClickListener {
             resizeImage()
         }
+    }
+
+    /** Recompute media-capability actions without reinstalling listeners or rebuilding the bar. */
+    private fun refreshMediaDependentActionVisibility(medium: Medium?) {
+        val visibleBottomActions = if (config.bottomActions) config.visibleBottomActions else 0
+        ViewerMediaActionVisibility.apply(
+            binding.bottomActions.bottomEdit,
+            binding.bottomActions.bottomResize,
+            binding.bottomActions.bottomRotate,
+            visibleBottomActions,
+            medium
+        )
+
+        val menu = binding.mediumViewerToolbar.menu
+        val edit = menu.findItem(R.id.menu_edit)
+        val resize = menu.findItem(R.id.menu_resize)
+        val rotate = menu.findItem(R.id.menu_rotate)
+        val copyToClipboard = menu.findItem(R.id.menu_copy_to_clipboard)
+        val print = menu.findItem(R.id.menu_print)
+        val saveAs = menu.findItem(R.id.menu_save_as)
+        val rotationDegrees = if (medium?.isImage() == true) getCurrentPhotoFragment()?.mCurrentRotationDegrees ?: 0 else 0
+        edit?.isVisible = visibleBottomActions and BOTTOM_ACTION_EDIT == 0 && medium?.isImage() == true && medium?.isSVG() == false
+        resize?.isVisible = visibleBottomActions and BOTTOM_ACTION_RESIZE == 0 && medium?.isImage() == true
+        rotate?.isVisible = visibleBottomActions and BOTTOM_ACTION_ROTATE == 0 && medium?.isImage() == true
+        rotate?.setShowAsAction(
+            if (rotationDegrees != 0) MenuItem.SHOW_AS_ACTION_ALWAYS else MenuItem.SHOW_AS_ACTION_IF_ROOM
+        )
+        copyToClipboard?.isVisible = medium?.isImage() == true
+        print?.isVisible = medium?.isImage() == true || medium?.isRaw() == true
+        saveAs?.isVisible = rotationDegrees != 0
     }
 
     private fun updateBottomActionIcons(medium: Medium?) {
@@ -4320,7 +4356,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun onPageSelected(position: Int) {
-        if (!checkFavoriteAccess(getCurrentMedia().getOrNull(position)?.path)) return
+        if (!checkFavoriteAccess(getCurrentMedia().getOrNull(position)?.path)) {
+            refreshMediaDependentActionVisibility(null)
+            return
+        }
         if (progressiveInternalViewer) {
             if (photoNavigation.pending?.anchor != getCurrentMedia().getOrNull(position)?.path) photoNavigation.cancel()
             viewerLoading.setLoading(photoNavigation.pending != null)
@@ -4366,6 +4405,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 )
             }
             updateActionbarTitle()
+            // Page selection changes the capability state immediately, even when
+            // catalog publication defers the rest of the toolbar refresh.
+            refreshMediaDependentActionVisibility(getCurrentMedium())
             if (swipePublicationGate.isMoving) pendingSwipeMenuRefresh = true
             else refreshMenuItems()
             if (mIsSlideshowActive) scheduleSwipe()

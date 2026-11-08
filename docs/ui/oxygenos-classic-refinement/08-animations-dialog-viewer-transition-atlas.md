@@ -113,6 +113,7 @@
 **MaterialContainerTransform 的级别**：只属于可选受控实验，不是全站必做。Viewer 的 Fragment/目录扫描/邻页预取/权限比容器变形复杂，若无安全稳定的跨 Activity shared element 就沿用系统动画；Viewer 左右拖动继续现有 ViewPager，禁止套用 SharedAxis/FadeThrough。未来 ContainerTransform 的容器和 scrim 颜色按实际用户主题派生。
 
 - 对普通“点击缩略图进入全屏”：**先考察默认 Activity open/close**，再比对 OnePlus 参考；不要以缩略图截图快照长期覆盖真实 Viewer 内容。
+
 - 如果考虑 Shared Element：必须满足 selected path 已经通过授权、图片尺寸/矩形可从当前 RecyclerView 获取、不重新构造 Fragment、不因扫描部分结果替换 anchor；候选先在单个**未受保护的普通物理文件夹**实验，特殊来源暂退回系统动画。
 - 全屏“点按显隐 chrome”可以精修 `ViewerChromeMotion`，但不能触发 ViewPager `setCurrentItem` 或左右预取。
 - “左右翻页”优先保持手指拖动的直接跟随、原生 settle；如果尝试 PageTransformer，需要证明在媒体还未 READY、被删除、RTL、图片放大、切换视频时不会出现旧缩略图闪帧。
@@ -134,3 +135,13 @@
 历史补充：[docs/classic-dialog-review.md](../../classic-dialog-review.md)、[docs/ui/classic-dialog-repair-review.md](../classic-dialog-repair-review.md) 和 [docs/testing/classic-motion-device-checks.md](../../testing/classic-motion-device-checks.md)。这三份历史记录的“代码已修复”不能自动升级成“新动画真机已验收”。
 
 > 最终取舍：**有必要提升弹窗与页面动画的一致性，但第一步应精修现有原生行为，不应优先增加复杂转场。** 明确不改图片预取、数据发布、鉴权和删除恢复状态机。
+
+## 7. Viewer 媒体能力与视频封面交接回归（2026-11-08）
+
+本次在 `refactor/media-pipeline-stability` 最新基线上确认了一个可复现的状态设计缺陷：`ViewPagerActivity.onPageSelected()` 在页面变更时刷新标题，但若扫描发布门控仍在移动，会延迟剩余菜单刷新；`refreshMenuItems()` 本身也没有重算底部 Edit/Resize/Rotate 的可见性。首次视频隐藏的按钮因此可在滑到图片后继续隐藏，首次图片打开也可能使按钮在视频页残留。现在复用 `ViewerMediaActionVisibility` 按当前媒体和 `visibleBottomActions` 即时更新这三个 View；顶部对应菜单仍按原有配置显示，且媒体数据暂缺或当前页未获授权时隐藏能力相关操作。点击监听仍在执行时读取当前媒体路径。
+
+视频布局审计确认 `pager_video_item.xml` 原先先画封面、后画 TextureView 容器，空 Surface 可能覆盖已加载封面。布局现将封面放在 Surface 上方，封面不消费触摸，手势仍落到 Surface/手势容器；控制器仍绘制在封面之后。当前 Fragment 的 ExoPlayer 首帧回调才会隐藏封面，旧播放器的迟到回调不会改变当前封面状态。播放器报错时保留封面作为错误消息下的背景。Surface 仍按原有可用/销毁生命周期 attach、clear、release。
+
+回归测试覆盖真实 bottom_actions View 在图片/视频/SVG/暂缺媒体间重复切换、Edit/Resize/Rotate 配置位、封面交接状态与过期播放器回调，以及封面与 Surface/控制器的 View 层级。普通相册、收藏/虚拟来源和照片配置仍共用现有 Viewer 数据与授权路径，没有改变 Viewer Adapter、Fragment 复用、邻页交接、排序或会话检查。
+
+静态检查未发现可证明的 PhotoFragment 首帧重复加载或 Activity/Fragment 重建缺陷，因此没有增加快照过渡或全屏淡入。测试环境没有 `adb`，没有可用 Android 真机或模拟器；真实 Surface 合成、Activity 窗口交接、图片/视频首帧时间和返回网格连续性仍需 Pixel 8 Pro 验收，不能依据源码或构建结果宣称黑闪已在设备上完全消除。
