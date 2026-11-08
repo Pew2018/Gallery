@@ -120,9 +120,6 @@ class DialogUiRepairTest {
                     assertNull("child control has no local ripple", check.background)
                     assertFalse("row is the only touch target", check.isClickable)
                     assertTrue("row exposes accessibility focus", row.isFocusable)
-                    row.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
-                        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
-                    row.layout(0, 0, row.measuredWidth, row.measuredHeight)
                     row.draw(android.graphics.Canvas(android.graphics.Bitmap.createBitmap(
                         row.width, row.height, android.graphics.Bitmap.Config.ARGB_8888
                     )))
