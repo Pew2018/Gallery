@@ -113,6 +113,11 @@ class DialogUiRepairTest {
                 val dialog = OxygenClassicDialog.show(activity,
                     OxygenClassicDialog.builder(activity, "Options").setView(root)
                         .setNegativeButton("Cancel", null).setPositiveButton("Apply", null), root)
+                val decor = dialog.window!!.decorView
+                val width = (320 * activity.resources.displayMetrics.density).toInt()
+                decor.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(760, View.MeasureSpec.AT_MOST))
+                decor.layout(0, 0, decor.measuredWidth, decor.measuredHeight)
                 val checks = descendants(root).filterIsInstance<CheckBox>()
                 assertEquals(if (index == 0) 6 else 4, checks.size)
                 for (check in checks) {
