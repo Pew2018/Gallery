@@ -123,6 +123,9 @@ class DialogUiRepairTest {
                     row.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
                         View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
                     row.layout(0, 0, row.measuredWidth, row.measuredHeight)
+                    row.draw(android.graphics.Canvas(android.graphics.Bitmap.createBitmap(
+                        row.width, row.height, android.graphics.Bitmap.Config.ARGB_8888
+                    )))
                     var callbackCount = 0
                     check.setOnCheckedChangeListener { _, _ -> callbackCount++ }
                     val points = listOf(12f to 28f, 120f to 28f, 318f to 28f,
