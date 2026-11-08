@@ -47,7 +47,6 @@ import com.bumptech.glide.Glide
 import com.bumptech.glide.request.RequestOptions
 import com.bumptech.glide.request.target.SimpleTarget
 import com.bumptech.glide.request.transition.Transition
-import org.fossify.commons.dialogs.CreateNewFolderDialog
 import org.fossify.commons.dialogs.RadioGroupDialog
 import org.fossify.commons.extensions.appLockManager
 import org.fossify.commons.extensions.areSystemAnimationsEnabled
@@ -1323,7 +1322,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             setVisibleIfChanged(R.id.folder_view, hasFixedBrowseSwitch)
             setVisibleIfChanged(R.id.open_camera, mShowAll)
             setVisibleIfChanged(R.id.about, mShowAll)
-            setVisibleIfChanged(R.id.create_new_folder, !mShowAll && mPath != RECYCLE_BIN && mPath != FAVORITES)
             setVisibleIfChanged(R.id.open_recycle_bin, config.useRecycleBin && mPath != RECYCLE_BIN)
 
             setVisibleIfChanged(R.id.temporarily_show_excluded, mPath.isEmpty() && !config.temporarilyShowExcluded)
@@ -1340,7 +1338,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             setVisibleIfChanged(R.id.column_count, viewType == VIEW_TYPE_GRID)
             setVisibleIfChanged(R.id.toggle_filename, viewType == VIEW_TYPE_GRID)
             if (isPhotoProfiles) {
-                listOf(R.id.group, R.id.create_new_folder, R.id.set_as_default_folder,
                     R.id.unset_as_default_folder, R.id.temporarily_show_hidden, R.id.stop_showing_hidden,
                     R.id.temporarily_show_excluded, R.id.stop_showing_excluded).forEach { setVisibleIfChanged(it, false) }
                 setVisibleIfChanged(R.id.slideshow, hasPlayableMedia())
@@ -1413,7 +1410,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 R.id.folder_view -> switchToFolderView()
                 R.id.change_view_type -> changeViewType()
                 R.id.group -> showGroupByDialog()
-                R.id.create_new_folder -> createNewFolder()
                 R.id.open_recycle_bin -> openRecycleBin()
                 R.id.temporarily_show_excluded -> tryToggleTemporarilyShowExcluded()
                 R.id.stop_showing_excluded -> tryToggleTemporarilyShowExcluded()
@@ -2888,12 +2884,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 directoryDB.deleteDirPath(mPath)
             } catch (ignored: Exception) {
             }
-        }
-    }
-
-    private fun createNewFolder() {
-        CreateNewFolderDialog(this, mPath) {
-            config.tempFolderPath = it
         }
     }
 

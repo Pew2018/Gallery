@@ -83,12 +83,6 @@
         android:title="@string/set_as_default_folder"
         app:showAsAction="never" />
     <item
-        android:id="@+id/create_new_folder"
-        android:orderInCategory="51"
-        android:showAsAction="never"
-        android:title="@string/create_new_folder"
-        app:showAsAction="never" />
-    <item
         android:id="@+id/open_recycle_bin"
         android:orderInCategory="60"
         android:showAsAction="never"
