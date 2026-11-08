@@ -17,32 +17,52 @@
         android:progress="50"
         app:layout_constraintBottom_toBottomOf="@id/bottom_draw_color"
         app:layout_constraintLeft_toLeftOf="parent"
-        app:layout_constraintRight_toLeftOf="@+id/bottom_draw_color"
-        app:layout_constraintTop_toTopOf="@+id/bottom_draw_color" />
+        app:layout_constraintRight_toLeftOf="@+id/bottom_draw_color_clickable"
+        app:layout_constraintTop_toTopOf="@+id/bottom_draw_color_clickable" />
 
     <ImageView
         android:id="@+id/bottom_draw_color_clickable"
         android:layout_width="@dimen/bottom_editor_color_picker_size"
         android:layout_height="@dimen/bottom_editor_color_picker_size"
-        android:layout_marginEnd="@dimen/small_margin"
+        android:layout_marginEnd="0dp"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="@string/change_color"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintRight_toLeftOf="@+id/bottom_draw_undo"
+        app:layout_constraintRight_toLeftOf="@+id/bottom_draw_mosaic"
         app:layout_constraintTop_toTopOf="parent" />
 
     <ImageView
         android:id="@+id/bottom_draw_color"
         android:layout_width="@dimen/bottom_editor_color_picker_size"
         android:layout_height="@dimen/bottom_editor_color_picker_size"
-        android:layout_marginEnd="@dimen/small_margin"
+        android:layout_marginEnd="0dp"
         android:clickable="false"
         android:contentDescription="@null"
         android:padding="@dimen/small_margin"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintRight_toLeftOf="@+id/bottom_draw_undo"
+        app:layout_constraintRight_toLeftOf="@+id/bottom_draw_mosaic"
         app:layout_constraintTop_toTopOf="parent"
         tools:src="@drawable/circle_background" />
+
+    <org.fossify.gallery.views.EditorBrushButton
+        android:id="@+id/bottom_draw_mosaic"
+        android:layout_width="@dimen/bottom_editor_color_picker_size"
+        android:layout_height="@dimen/bottom_editor_color_picker_size"
+        android:foreground="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/mosaic_brush"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toStartOf="@+id/bottom_draw_blur"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <org.fossify.gallery.views.EditorBrushButton
+        android:id="@+id/bottom_draw_blur"
+        android:layout_width="@dimen/bottom_editor_color_picker_size"
+        android:layout_height="@dimen/bottom_editor_color_picker_size"
+        android:foreground="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/blur_brush"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toStartOf="@+id/bottom_draw_undo"
+        app:layout_constraintTop_toTopOf="parent" />
 
     <ImageView
         android:id="@+id/bottom_draw_undo"

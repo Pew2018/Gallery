@@ -4,6 +4,7 @@ import org.fossify.gallery.helpers.OxygenToolbarStyle
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.graphics.Point
 import android.content.res.Configuration
 import android.net.Uri
@@ -84,6 +85,7 @@ import org.fossify.gallery.helpers.OxygenThemeColors
 import org.fossify.gallery.helpers.FilterThumbnailsManager
 import org.fossify.gallery.helpers.getPermissionToRequest
 import org.fossify.gallery.models.FilterItem
+import org.fossify.gallery.views.EditorBrushMode
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
@@ -484,10 +486,18 @@ class EditActivity : BaseCropActivity() {
     }
 
     private fun saveDrawnImage() {
-        saveBitmap(
-            overwrite = overwriteRequested,
-            bitmap = binding.editorDrawCanvas.getBitmap()
-        )
+        val strokeSnapshot = binding.editorDrawCanvas.snapshotForExport()
+        ensureBackgroundThread {
+            try {
+                val source = getOriginalBitmap()
+                val rendered = binding.editorDrawCanvas.getBitmap(source, strokeSnapshot)
+                runOnUiThread { saveBitmap(overwriteRequested, rendered) }
+            } catch (_: OutOfMemoryError) {
+                toast(org.fossify.commons.R.string.out_of_memory_error)
+            } catch (e: Exception) {
+                showErrorToast(e)
+            }
+        }
     }
 
     override fun onImageCropped(bitmap: Bitmap?, error: Exception?) {
@@ -556,6 +566,9 @@ class EditActivity : BaseCropActivity() {
     }
 
     private fun shareImage() {
+        val drawStrokeSnapshot = if (binding.editorDrawCanvas.isVisible()) {
+            binding.editorDrawCanvas.snapshotForExport()
+        } else null
         ensureBackgroundThread {
             when {
                 binding.defaultImageView.isVisible() -> {
@@ -577,7 +590,16 @@ class EditActivity : BaseCropActivity() {
                     }
                 }
 
-                binding.editorDrawCanvas.isVisible() -> shareBitmap(binding.editorDrawCanvas.getBitmap())
+                binding.editorDrawCanvas.isVisible() -> {
+                    try {
+                        val original = getOriginalBitmap()
+                        shareBitmap(binding.editorDrawCanvas.getBitmap(original, drawStrokeSnapshot))
+                    } catch (_: OutOfMemoryError) {
+                        toast(org.fossify.commons.R.string.out_of_memory_error)
+                    } catch (e: Exception) {
+                        showErrorToast(e)
+                    }
+                }
             }
         }
     }
@@ -723,11 +745,18 @@ class EditActivity : BaseCropActivity() {
     }
 
     private fun setupDrawButtons() {
+        binding.bottomEditorDrawActions.bottomDrawMosaic.setBrushMode(
+            EditorBrushMode.MOSAIC, getString(R.string.mosaic_brush)
+        )
+        binding.bottomEditorDrawActions.bottomDrawBlur.setBrushMode(
+            EditorBrushMode.BLUR, getString(R.string.blur_brush)
+        )
         updateDrawColor(config.lastEditorDrawColor)
         binding.bottomEditorDrawActions.bottomDrawWidth.progress = config.lastEditorBrushSize
         updateBrushSize(config.lastEditorBrushSize)
 
         binding.bottomEditorDrawActions.bottomDrawColorClickable.setOnClickListener {
+            selectBrushMode(EditorBrushMode.DRAW)
             ColorPickerDialog(this, drawColor) { wasPositivePressed, color ->
                 if (wasPositivePressed) {
                     updateDrawColor(color)
@@ -743,6 +772,35 @@ class EditActivity : BaseCropActivity() {
         binding.bottomEditorDrawActions.bottomDrawUndo.setOnClickListener {
             binding.editorDrawCanvas.undo()
         }
+        binding.editorDrawCanvas.onUndoAvailabilityChanged = { canUndo ->
+            binding.bottomEditorDrawActions.bottomDrawUndo.isEnabled = canUndo
+            binding.bottomEditorDrawActions.bottomDrawUndo.alpha = if (canUndo) 1f else 0.4f
+        }
+        binding.bottomEditorDrawActions.bottomDrawUndo.isEnabled = binding.editorDrawCanvas.canUndo()
+        binding.bottomEditorDrawActions.bottomDrawUndo.alpha = if (binding.editorDrawCanvas.canUndo()) 1f else 0.4f
+        binding.bottomEditorDrawActions.bottomDrawMosaic.setOnClickListener {
+            selectBrushMode(EditorBrushMode.MOSAIC)
+        }
+        binding.bottomEditorDrawActions.bottomDrawBlur.setOnClickListener {
+            selectBrushMode(EditorBrushMode.BLUR)
+        }
+        selectBrushMode(EditorBrushMode.DRAW)
+    }
+
+    private fun selectBrushMode(mode: EditorBrushMode) {
+        binding.editorDrawCanvas.setMode(mode)
+        binding.bottomEditorDrawActions.bottomDrawColorClickable.isSelected = mode == EditorBrushMode.DRAW
+        binding.bottomEditorDrawActions.bottomDrawColorClickable.foreground = if (mode == EditorBrushMode.DRAW) {
+            GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.TRANSPARENT)
+                setStroke((2f * resources.displayMetrics.density).toInt().coerceAtLeast(2), editorAccentColor)
+            }
+        } else null
+        binding.bottomEditorDrawActions.bottomDrawMosaic.isSelected = mode == EditorBrushMode.MOSAIC
+        binding.bottomEditorDrawActions.bottomDrawBlur.isSelected = mode == EditorBrushMode.BLUR
+        binding.bottomEditorDrawActions.bottomDrawMosaic.setAccentColor(editorAccentColor)
+        binding.bottomEditorDrawActions.bottomDrawBlur.setAccentColor(editorAccentColor)
     }
 
     private fun updateBrushSize(percent: Int) {

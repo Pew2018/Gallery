@@ -418,5 +418,7 @@
     <string name="diagnostics_cleared">Diagnostic logs cleared.</string>
     <string name="diagnostics_save_name">Gallery-Diagnostics-%1$s.txt</string>
     <string name="diagnostics_events_heading">--- Events ---</string>
+    <string name="mosaic_brush">Mosaic brush</string>
+    <string name="blur_brush">Blur brush</string>
 </resources>
 
