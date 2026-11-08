@@ -16,13 +16,14 @@ import org.robolectric.annotation.GraphicsMode
 class NavigationRippleDrawableTest {
     @Test fun handoffContinuesTheSameClockInsteadOfRestartingOrRetainingAView() {
         val source = NavigationRippleDrawable(Color.GREEN, 28f)
-        val pulse = NavigationRippleDrawable.Pulse(100L, 0.25f, 0.6f, 150L)
+        val start = android.os.SystemClock.uptimeMillis()
+        val pulse = NavigationRippleDrawable.Pulse(start, 0.25f, 0.6f, start + 50L)
         source.continuePulse(pulse)
         val destination = NavigationRippleDrawable(Color.GREEN, 28f)
         destination.continuePulse(pulse.copy())
-        assertEquals(source.progress(200), destination.progress(200))
-        assertNotEquals(source.progress(200), destination.progress(250))
-        assertNull(destination.progress(330))
+        assertEquals(source.progress(start + 100), destination.progress(start + 100))
+        assertNotEquals(source.progress(start + 100), destination.progress(start + 150))
+        assertNull(destination.progress(start + 405))
     }
 
     @Test fun disabledAnimationsHaveImmediatePressedFeedbackAndNoReleaseTail() {
@@ -46,4 +47,19 @@ class NavigationRippleDrawableTest {
         assertEquals(0, Color.alpha(bitmap.getPixel(5, 30)))
         assertEquals(0, Color.alpha(bitmap.getPixel(115, 30)))
     }
+    @Test fun shortReleaseUsesScaledExpansionAndZeroScaleLeavesNoSnapshot() {
+        for (scale in listOf(0f, 1f, 2f)) {
+            val ripple = NavigationRippleDrawable(Color.GREEN, 28f, scale)
+            val now = android.os.SystemClock.uptimeMillis()
+            ripple.continuePulse(NavigationRippleDrawable.Pulse(now, .2f, .6f, now + 20))
+            if (scale == 0f) {
+                assertNull(ripple.pulse)
+            } else {
+                val end = now + (NavigationRippleDrawable.EXPAND_MS * scale).toLong()
+                assertEquals(1f to 1f, ripple.progress(end))
+                assertNull(ripple.progress(end + (NavigationRippleDrawable.RELEASE_MS * scale).toLong()))
+            }
+        }
+    }
+
 }

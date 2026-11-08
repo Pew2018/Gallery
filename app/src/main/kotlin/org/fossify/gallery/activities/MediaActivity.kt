@@ -841,7 +841,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (mGallerySection != null) {
             GalleryBottomBar.attach(this, binding.root,
                 GalleryBottomBar.Tab.valueOf(mGallerySection!!.name),
-                loadingFrame = { mediaHeaderProgress?.let(OxygenProgressStyle::revealPending) }
+                loadingFrame = { mediaHeaderProgress?.let { indicator ->
+                    OxygenProgressStyle.setLoading(indicator, true)
+                    OxygenProgressStyle.revealPending(indicator)
+                } },
+                frameState = { when {
+                    binding.mediaGrid.isShown && binding.mediaGrid.childCount > 0 -> "content"
+                    binding.mediaEmptyTextPlaceholder.isShown -> "empty_or_error"
+                    mediaHeaderProgress?.isShown == true -> "loading"
+                    else -> null
+                } }
             ) { tab ->
                 getMediaAdapter()?.finishActMode()
                 val section = GallerySection.valueOf(tab.name)

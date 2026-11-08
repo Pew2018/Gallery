@@ -38,8 +38,14 @@ internal class NavigationRippleDrawable(var color: Int, private val radius: Floa
         return true
     }
 
+    fun release(now: Long = SystemClock.uptimeMillis()) {
+        pulse?.let { if (it.releasedAt == null) it.releasedAt = now }
+        invalidateSelf()
+    }
+
     fun continuePulse(value: Pulse?) {
-        pulse = value
+        pulse = value?.copy()
+        if (progress(SystemClock.uptimeMillis()) == null) pulse = null
         invalidateSelf()
     }
 
@@ -47,7 +53,7 @@ internal class NavigationRippleDrawable(var color: Int, private val radius: Floa
         val value = pulse ?: return null
         if (durationScale <= 0f) return if (value.releasedAt == null) 1f to 1f else null
         val expansion = ((now - value.startedAt).toFloat() / (EXPAND_MS * durationScale)).coerceIn(0f, 1f)
-        val fade = value.releasedAt?.let { ((now - it).toFloat() / (RELEASE_MS * durationScale)).coerceIn(0f, 1f) } ?: 0f
+        val fade = value.releasedAt?.let { ((now - maxOf(it, value.startedAt + (EXPAND_MS * durationScale).toLong())).toFloat() / (RELEASE_MS * durationScale)).coerceIn(0f, 1f) } ?: 0f
         if (fade >= 1f) return null
         return easing.getInterpolation(expansion) to (1f - fade)
     }

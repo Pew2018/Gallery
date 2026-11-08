@@ -18,6 +18,7 @@ import android.widget.TextView
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.doOnPreDraw
 import org.fossify.gallery.R
 
 /**
@@ -33,19 +34,64 @@ object GalleryBottomBar {
     private data class PendingRoot(
         val source: java.lang.ref.WeakReference<Activity>,
         val feedback: Map<String, NavigationRippleDrawable.Pulse>,
+        val selection: String?,
         val timeout: Runnable,
         var acknowledged: Boolean = false
     )
     private val pendingRoots = mutableMapOf<String, PendingRoot>()
+    private val latestRequests = java.util.WeakHashMap<Activity, String>()
+    private val touchTokens = java.util.WeakHashMap<Activity, String>()
+    private val retiringSources = java.util.Collections.newSetFromMap(java.util.WeakHashMap<Activity, Boolean>())
     private val navigationResets = java.util.WeakHashMap<Activity, () -> Unit>()
     private val rootCleanups = java.util.WeakHashMap<Activity, () -> Unit>()
     internal val pendingRootCount: Int get() = pendingRoots.size
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private val tintAnimations = java.util.WeakHashMap<Activity, android.animation.ValueAnimator>()
     private val rippleColors = java.util.WeakHashMap<LinearLayout, Int>()
 
     /** Track the resolved theme tint without replacing feedback drawables. */
     internal fun currentRippleColor(item: LinearLayout): Int? = rippleColors[item]
+
+    internal fun isRetiringRoot(activity: Activity): Boolean = activity in retiringSources
+
+    internal fun isRootTransition(activity: Activity): Boolean =
+        activity.intent.getBooleanExtra(EXTRA_ROOT_TRANSITION, false) || activity in retiringSources
+
+    internal fun trace(activity: Activity, event: String, fields: Map<String, Any?> = emptyMap()) {
+        if (!GalleryDiagnosticLogger.isEnabled()) return
+        val inputEvent = event == "touch" || event == "pulse_created" || event == "pulse_released" || event == "click"
+        val token = (if (inputEvent) touchTokens[activity] ?: latestRequests[activity]
+            else latestRequests[activity] ?: activity.intent.getStringExtra(EXTRA_ROOT_TOKEN)) ?: return
+        GalleryDiagnosticLogger.event(module = "RootNavigation", name = event, requestId = token,
+            fields = mapOf("activity" to activity.javaClass.simpleName,
+                "uptimeMs" to android.os.SystemClock.uptimeMillis()) + fields)
+    }
+
+    internal fun traceWindow(activity: Activity, event: String) {
+        if (!GalleryDiagnosticLogger.isEnabled()) return
+        fun attribute(id: Int): Int {
+            val value = android.util.TypedValue()
+            activity.theme.resolveAttribute(id, value, true)
+            return if (value.type in android.util.TypedValue.TYPE_FIRST_COLOR_INT..android.util.TypedValue.TYPE_LAST_COLOR_INT)
+                value.data else value.resourceId
+        }
+        trace(activity, event, mapOf(
+            "themeBackground" to attribute(android.R.attr.windowBackground),
+            "themeAnimation" to attribute(android.R.attr.windowAnimationStyle),
+            "windowAnimations" to activity.window.attributes.windowAnimations,
+            "windowAlpha" to activity.window.attributes.alpha,
+            "flags" to activity.window.attributes.flags,
+            "decorColor" to (activity.window.peekDecorView()?.background as? ColorDrawable)?.color))
+    }
+
+    internal fun restoreRootWindow(activity: Activity) {
+        if (!isRootTransition(activity)) return
+        disableRootWindowMotion(activity)
+        activity.window.setBackgroundDrawable(ColorDrawable(
+            OxygenThemeEngine.snapshot(activity, activity.config).pageBackground))
+        traceWindow(activity, "window_restored")
+    }
 
     fun prepareRootSurface(activity: Activity, parent: CoordinatorLayout) {
         if (!activity.intent.getBooleanExtra(EXTRA_ROOT_TRANSITION, false)) return
@@ -54,6 +100,7 @@ object GalleryBottomBar {
         activity.window.setBackgroundDrawable(ColorDrawable(surface))
         parent.setBackgroundColor(surface)
         OxygenSystemBars.apply(activity)
+        traceWindow(activity, "prepare_surface")
     }
 
     @Suppress("DEPRECATION")
@@ -67,6 +114,11 @@ object GalleryBottomBar {
 
     /** Activity teardown cancels callbacks rather than leaving a retained window/view. */
     fun dispose(activity: Activity) {
+        trace(activity, "destroy_or_dispose")
+        tintAnimations.remove(activity)?.cancel()
+        touchTokens.remove(activity)
+        latestRequests.remove(activity)
+        retiringSources.remove(activity)
         rootCleanups.remove(activity)?.invoke()
         navigationResets.remove(activity)
         bars.remove(activity)?.get()?.let { bar ->
@@ -90,8 +142,10 @@ object GalleryBottomBar {
         if (token != null) pendingRoots.remove(token)
         val source = pending.source.get() ?: return
         // A late frame after the watchdog must not retire the source of a newer request.
-        if (pendingRoots.values.any { it.source.get() === source }) return
+        if (latestRequests[source] != token) return
         if (!source.isFinishing && !source.isDestroyed) {
+            retiringSources.add(source)
+            trace(source, "source_finish")
             source.finish()
             source.overridePendingTransition(0, 0)
         }
@@ -143,6 +197,15 @@ object GalleryBottomBar {
         if (label.currentTextColor != tint) label.setTextColor(tint)
     }
 
+    internal fun applySelectionBlend(bar: LinearLayout, previous: String, fraction: Float, colors: OxygenThemeTokens) {
+        for (index in 0 until bar.childCount) {
+            val item = bar.getChildAt(index) as? LinearLayout ?: continue
+            val from = if (item.tag == previous) colors.interactiveAccent else colors.secondaryText
+            val to = if (item.isSelected) colors.interactiveAccent else colors.secondaryText
+            updateTint(item, androidx.core.graphics.ColorUtils.blendARGB(from, to, fraction))
+        }
+    }
+
     fun refreshAll() {
         bars.entries.toList().forEach { (activity, reference) ->
             val bar = reference.get() ?: return@forEach
@@ -162,6 +225,7 @@ object GalleryBottomBar {
     /** Refresh the current colors without recreating views or losing selection. */
     fun recolor(activity: Activity) {
         val bar = bars[activity]?.get() ?: return
+        tintAnimations.remove(activity)?.cancel()
         if (activity.isFinishing || activity.isDestroyed) return
         val tokens = OxygenThemeEngine.snapshot(activity, activity.config)
         val surface = tokens.pageBackground
@@ -183,30 +247,38 @@ object GalleryBottomBar {
         if (activity.isFinishing || activity.isDestroyed ||
             pendingRoots.values.any { it.source.get() === activity }) return
         intent.putExtra(EXTRA_ROOT_TRANSITION, true)
-        val token = if (finishCurrent) java.util.UUID.randomUUID().toString() else null
+        val token = if (finishCurrent) touchTokens.remove(activity) ?: java.util.UUID.randomUUID().toString() else null
         if (token != null) {
             intent.putExtra(EXTRA_ROOT_TOKEN, token)
+            latestRequests[activity] = token
             val feedback = bars[activity]?.get()?.let { bar ->
                 (0 until bar.childCount).mapNotNull { index ->
                     val item = bar.getChildAt(index)
-                    val pulse = (item.background as? NavigationRippleDrawable)?.pulse ?: return@mapNotNull null
+                    val drawable = item.background as? NavigationRippleDrawable ?: return@mapNotNull null
+                    val pulse = drawable.pulse ?: return@mapNotNull null
+                    if (drawable.progress(android.os.SystemClock.uptimeMillis()) == null) return@mapNotNull null
                     // Snapshot release even if View posts its unset-pressed callback after click.
                     item.tag.toString() to pulse.copy(releasedAt = pulse.releasedAt
                         ?: android.os.SystemClock.uptimeMillis())
                 }.toMap()
             }.orEmpty()
+            trace(activity, "pulse_snapshot", mapOf("count" to feedback.size))
             val timeout = Runnable {
                 val pending = pendingRoots.remove(token) ?: return@Runnable
                 // A deadline cannot prove a destination frame. Release the request
                 // lock; a later frame may still retire this weakly held source.
                 pending.source.get()?.let { navigationResets[it]?.invoke() }
             }
-            pendingRoots[token] = PendingRoot(java.lang.ref.WeakReference(activity), feedback, timeout)
+            val selection = bars[activity]?.get()?.let { bar ->
+                (0 until bar.childCount).map { bar.getChildAt(it) }.firstOrNull { it.isSelected }?.tag as? String
+            }
+            pendingRoots[token] = PendingRoot(java.lang.ref.WeakReference(activity), feedback, selection, timeout)
             mainHandler.postDelayed(timeout, ROOT_FINISH_FALLBACK_MS)
         }
         try {
             disableRootWindowMotion(activity)
-            activity.startActivity(intent)
+            traceWindow(activity, "start_activity")
+            activity.startActivity(intent, android.app.ActivityOptions.makeCustomAnimation(activity, 0, 0).toBundle())
             activity.overridePendingTransition(0, 0)
         } catch (error: RuntimeException) {
             token?.let { pendingRoots.remove(it)?.let { pending -> mainHandler.removeCallbacks(pending.timeout) } }
@@ -217,28 +289,41 @@ object GalleryBottomBar {
     private const val EXTRA_ROOT_TRANSITION = "org.fossify.gallery.ROOT_TRANSITION"
     /** Finish the source on a real destination frame, without blocking that frame. */
     internal fun coordinateFirstDraw(activity: Activity, parent: CoordinatorLayout,
-        loadingFrame: () -> Unit = {}) {
+        loadingFrame: () -> Unit = {},
+        frameState: () -> String? = { null }) {
         if (!activity.intent.getBooleanExtra(EXTRA_ROOT_TRANSITION, false)) return
         rootCleanups.remove(activity)?.invoke()
-        activity.intent.removeExtra(EXTRA_ROOT_TRANSITION)
+        // Keep root-window identity through Commons onResume and eventual finish.
         val token = activity.intent.getStringExtra(EXTRA_ROOT_TOKEN)
         val captured = pendingRoots[token]
-        activity.intent.removeExtra(EXTRA_ROOT_TOKEN)
+        // Keep token for lifecycle diagnostics after the first frame.
         var acknowledged = false
+        // A blank target must not replace the still-valid source surface. Production
+        // attach publishes loading synchronously, so this is a state gate, not a delay.
+        val readyToDraw = android.view.ViewTreeObserver.OnPreDrawListener { frameState() != null }
         lateinit var cleanup: () -> Unit
         lateinit var drawn: android.view.ViewTreeObserver.OnDrawListener
         lateinit var attachment: android.view.View.OnAttachStateChangeListener
         val afterDraw = Runnable {
             if (acknowledged) return@Runnable
             acknowledged = true
+            traceWindow(activity, "frame_commit")
             cleanup()
             rootCleanups.remove(activity)
             finishOutgoing(token, captured)
         }
         val revealLoading = Runnable { if (!acknowledged) loadingFrame() }
         var commitRequested = false
+        var firstDraw = true
         drawn = android.view.ViewTreeObserver.OnDrawListener {
-            if (!commitRequested) {
+            val state = frameState()
+            if (firstDraw) {
+                firstDraw = false
+                traceWindow(activity, "first_root_draw")
+                trace(activity, "first_page_state", mapOf("state" to (state ?: "blank")))
+            }
+            if (!commitRequested && state != null) {
+                trace(activity, "valid_frame_draw", mapOf("state" to state))
                 commitRequested = true
                 if (android.os.Build.VERSION.SDK_INT >= 29 && parent.isHardwareAccelerated) {
                     parent.viewTreeObserver.registerFrameCommitCallback(afterDraw)
@@ -255,7 +340,10 @@ object GalleryBottomBar {
                     pending.source.get()?.let { navigationResets[it]?.invoke() }
                 }
             }
-            if (parent.viewTreeObserver.isAlive) parent.viewTreeObserver.removeOnDrawListener(drawn)
+            if (parent.viewTreeObserver.isAlive) {
+                parent.viewTreeObserver.removeOnDrawListener(drawn)
+                parent.viewTreeObserver.removeOnPreDrawListener(readyToDraw)
+            }
             mainHandler.removeCallbacks(afterDraw)
             parent.removeCallbacks(afterDraw)
             if (android.os.Build.VERSION.SDK_INT >= 29 && parent.viewTreeObserver.isAlive) {
@@ -273,6 +361,7 @@ object GalleryBottomBar {
             }
         }
         rootCleanups[activity] = cleanup
+        parent.viewTreeObserver.addOnPreDrawListener(readyToDraw)
         parent.viewTreeObserver.addOnDrawListener(drawn)
         parent.addOnAttachStateChangeListener(attachment)
         parent.postDelayed(revealLoading, FIRST_DRAW_LIMIT_MS)
@@ -283,10 +372,15 @@ object GalleryBottomBar {
         parent: CoordinatorLayout,
         active: Tab,
         loadingFrame: () -> Unit = {},
+        frameState: () -> String? = { null },
         navigate: (Tab) -> Unit
     ) {
-        val feedback = pendingRoots[activity.intent.getStringExtra(EXTRA_ROOT_TOKEN)]?.feedback.orEmpty()
-        coordinateFirstDraw(activity, parent, loadingFrame)
+        val pending = pendingRoots[activity.intent.getStringExtra(EXTRA_ROOT_TOKEN)]
+        val feedback = pending?.feedback.orEmpty()
+        val previousSelection = pending?.selection
+        // Publish a real loading strip before the first traversal, not after an empty draw.
+        if (activity.intent.getBooleanExtra(EXTRA_ROOT_TRANSITION, false) && frameState() == null) loadingFrame()
+        coordinateFirstDraw(activity, parent, loadingFrame, frameState)
         val density = activity.resources.displayMetrics.density
         fun dp(value: Int) = (value * density + 0.5f).toInt()
         val tokens = OxygenThemeEngine.snapshot(activity, activity.config)
@@ -331,6 +425,10 @@ object GalleryBottomBar {
                 isSelected = selected
                 setOnTouchListener { view, event ->
                     if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+                        touchTokens[activity] = java.util.UUID.randomUUID().toString()
+                    }
+                    trace(activity, "touch", mapOf("action" to event.actionMasked, "tab" to tab.name))
+                    if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
                         // CoordinatorLayout can defer child pressed feedback while
                         // deciding whether a gesture belongs to a scrolling parent.
                         // Set the Drawable state immediately; leave click,
@@ -338,6 +436,14 @@ object GalleryBottomBar {
                         (view.background as? NavigationRippleDrawable)?.durationScale = animationScale(this)
                         view.drawableHotspotChanged(event.x, event.y)
                         view.isPressed = true
+                        trace(activity, "pulse_created", mapOf("tab" to tab.name,
+                            "started" to (view.background as? NavigationRippleDrawable)?.pulse?.startedAt))
+                    } else if (event.actionMasked == android.view.MotionEvent.ACTION_UP ||
+                        event.actionMasked == android.view.MotionEvent.ACTION_CANCEL) {
+                        val ripple = view.background as? NavigationRippleDrawable
+                        ripple?.release()
+                        trace(activity, "pulse_released", mapOf("tab" to tab.name,
+                            "released" to ripple?.pulse?.releasedAt))
                     }
                     false
                 }
@@ -349,6 +455,7 @@ object GalleryBottomBar {
                 setOnClickListener {
                     if (tab != active && !navigating) {
                         navigating = true
+                        trace(activity, "click", mapOf("tab" to tab.name))
                         // Keep outgoing selection aligned with outgoing content. Destination
                         // attach applies its own selection on the same frame as its content.
                         try {
@@ -401,6 +508,23 @@ object GalleryBottomBar {
             insets
         }
         bars[activity] = java.lang.ref.WeakReference(bar)
+        if (previousSelection != null && previousSelection != active.name) bar.doOnPreDraw {
+            if (bars[activity]?.get() === bar && !activity.isFinishing && !activity.isDestroyed && animationScale(bar) > 0f) {
+                val currentColors = OxygenThemeEngine.snapshot(activity, activity.config)
+                val animator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+                    duration = OxygenClassicMotion.TAB_MS
+                    interpolator = OxygenClassicMotion.easing()
+                    addUpdateListener { applySelectionBlend(bar, previousSelection, it.animatedValue as Float, currentColors) }
+                }
+                animator.addListener(object : android.animation.AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: android.animation.Animator) {
+                        if (tintAnimations[activity] === animation) tintAnimations.remove(activity)
+                    }
+                })
+                tintAnimations.put(activity, animator)?.cancel()
+                animator.start()
+            }
+        }
         ViewCompat.requestApplyInsets(bar)
     }
 }

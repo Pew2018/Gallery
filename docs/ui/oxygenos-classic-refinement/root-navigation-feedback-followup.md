@@ -1,3 +1,5 @@
+> Follow-up device feedback and updated implementation: [2026-11-08 repair](root-navigation-device-feedback-20261108.md). Timing and handoff details below describe the earlier baseline.
+
 # Root navigation feedback follow-up
 
 Baseline: `7bec997f9fbbad77b71fcc74cebf77a2d4795e5f` on

@@ -60,6 +60,7 @@
 
         <activity
             android:name=".activities.MainActivity"
+            android:theme="@style/OxygenClassicRootTheme"
             android:configChanges="orientation"
             android:exported="true"
             android:resizeableActivity="true">
@@ -89,6 +90,7 @@
 
         <activity
             android:name=".activities.MediaActivity"
+            android:theme="@style/OxygenClassicRootTheme"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false"
             android:parentActivityName=".activities.MainActivity" />

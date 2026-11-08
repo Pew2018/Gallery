@@ -404,4 +404,95 @@ class GalleryBottomBarRippleTest {
         }
     }
 
+    @Test fun shortTapFinishesExpansionBeforeReleaseFade() {
+        for (held in listOf(20L, 50L, 120L, 800L)) {
+            val ripple = NavigationRippleDrawable(Color.GREEN, 28f)
+            val start = android.os.SystemClock.uptimeMillis()
+            ripple.continuePulse(NavigationRippleDrawable.Pulse(start, .5f, .5f, start + held))
+            val expanded = ripple.progress(start + maxOf(held, NavigationRippleDrawable.EXPAND_MS))
+            assertNotNull("held=$held must reach full radius visibly", expanded)
+            assertEquals(1f, expanded!!.first, .001f)
+            assertEquals(1f, expanded.second, .001f)
+        }
+    }
+
+    @Test fun expiredSnapshotIsDiscardedInsteadOfBeingInstalled() {
+        val ripple = NavigationRippleDrawable(Color.GREEN, 28f)
+        ripple.continuePulse(NavigationRippleDrawable.Pulse(
+            android.os.SystemClock.uptimeMillis() - 2_000L, .5f, .5f,
+            android.os.SystemClock.uptimeMillis() - 1_980L))
+        assertNull(ripple.pulse)
+    }
+
+    @Test fun iconAndLabelShareOneSelectionBlendAndPreserveSurfaceOpacity() {
+        val (activity, bar) = fixture(active = GalleryBottomBar.Tab.PHOTOS)
+        val colors = OxygenThemeEngine.snapshot(activity, activity.config)
+        val tabs = items(bar)
+        for (fraction in listOf(0f, .3f, .7f, 1f)) {
+            GalleryBottomBar.applySelectionBlend(bar, "ALL", fraction, colors)
+            tabs.forEach { item ->
+                assertEquals((item.getChildAt(0) as ImageView).imageTintList!!.defaultColor,
+                    (item.getChildAt(1) as TextView).currentTextColor)
+            }
+            assertTrue(tabs.single { it.tag == "PHOTOS" }.isSelected)
+            assertEquals(1f, bar.alpha)
+        }
+        assertEquals(colors.interactiveAccent,
+            (tabs.single { it.tag == "PHOTOS" }.getChildAt(1) as TextView).currentTextColor)
+        GalleryBottomBar.dispose(activity)
+        activity.finish()
+    }
+
+    @Test fun delayedDestinationDiscardsExpiredRippleButKeepsItsSelection() {
+        val (source, bar) = fixture()
+        val item = items(bar)[1]
+        item.isPressed = true
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(20, TimeUnit.MILLISECONDS)
+        item.isPressed = false
+        val intent = Intent(source, android.app.Activity::class.java)
+        GalleryBottomBar.open(source, intent, finishCurrent = true)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(600, TimeUnit.MILLISECONDS)
+        val target = Robolectric.buildActivity(android.app.Activity::class.java, intent).setup().get()
+        val root = CoordinatorLayout(target)
+        target.setContentView(root)
+        GalleryBottomBar.attach(target, root, GalleryBottomBar.Tab.FAVORITES, navigate = {})
+        val targetBar = root.findViewWithTag<LinearLayout>("oxygen_classic_bottom_bar")
+        val selected = items(targetBar).single { it.isSelected }
+        assertEquals("FAVORITES", selected.tag)
+        assertNull((selected.background as NavigationRippleDrawable).pulse)
+        GalleryBottomBar.dispose(target)
+        GalleryBottomBar.dispose(source)
+        target.finish()
+        source.finish()
+    }
+
+    @Test fun realTwentyAndFiftyMillisecondTouchesReleaseOnUpAndNavigateOnce() {
+        val clock = Shadows.shadowOf(Looper.getMainLooper())
+        for (held in listOf(20L, 50L)) {
+            var visits = 0
+            val (activity, bar) = fixture(onNavigate = { visits++ })
+            clock.idle()
+            val item = items(bar)[1]
+            item.layout(0, 0, 100, 56)
+            val start = android.os.SystemClock.uptimeMillis()
+            fun dispatch(action: Int) {
+                val event = android.view.MotionEvent.obtain(start, android.os.SystemClock.uptimeMillis(),
+                    action, 50f, 28f, 0)
+                item.dispatchTouchEvent(event)
+                event.recycle()
+            }
+            dispatch(android.view.MotionEvent.ACTION_DOWN)
+            clock.idleFor(held, TimeUnit.MILLISECONDS)
+            dispatch(android.view.MotionEvent.ACTION_UP)
+            clock.idle()
+            val ripple = item.background as NavigationRippleDrawable
+            assertEquals(start + held, ripple.pulse!!.releasedAt)
+            assertEquals(1, visits)
+            assertNotNull(ripple.progress(start + NavigationRippleDrawable.EXPAND_MS))
+            assertTrue(items(bar).first().isSelected)
+            GalleryBottomBar.dispose(activity)
+            activity.finish()
+        }
+    }
+
 }

@@ -514,7 +514,16 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         if (!mIsThirdPartyIntent) {
             GalleryBottomBar.attach(this, binding.root,
                 if (mShowingFolderFavorites) GalleryBottomBar.Tab.FAVORITES else GalleryBottomBar.Tab.ALL,
-                loadingFrame = { directoryHeaderProgress?.let(OxygenProgressStyle::revealPending) }
+                loadingFrame = { directoryHeaderProgress?.let { indicator ->
+                    OxygenProgressStyle.setLoading(indicator, true)
+                    OxygenProgressStyle.revealPending(indicator)
+                } },
+                frameState = { when {
+                    binding.directoriesGrid.isShown && binding.directoriesGrid.childCount > 0 -> "content"
+                    binding.directoriesEmptyPlaceholder.isShown -> "empty_or_error"
+                    directoryHeaderProgress?.isShown == true -> "loading"
+                    else -> null
+                } }
             ) { tab ->
                 getRecyclerAdapter()?.finishActMode()
                 val section = GallerySection.valueOf(tab.name)
