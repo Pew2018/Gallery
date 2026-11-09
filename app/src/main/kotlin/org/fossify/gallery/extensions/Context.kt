@@ -1062,6 +1062,10 @@ fun Context.getCachedMedia(
                 }
             }) as ArrayList<Medium>
 
+            // Cache rows are only preview candidates. Hide files confirmed missing
+            // under a readable parent; do not mutate Room or favorite relationships.
+            media = org.fossify.gallery.helpers.CachedMediaPreviewFilter.removeConfirmedMissing(media)
+
             val pathToUse = path.ifEmpty { SHOW_ALL }
             mediaFetcher.sortMedia(media, config.getFolderSorting(pathToUse))
             val grouped = mediaFetcher.groupMedia(media, pathToUse)

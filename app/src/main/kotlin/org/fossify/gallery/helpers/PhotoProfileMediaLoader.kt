@@ -147,7 +147,9 @@ class PhotoProfileMediaLoader internal constructor(
                 }
             }
             GalleryPerfTrace.end("photo_cache", started, cached.size)
-            val sorted = ArrayList(cached)
+            // Cache preview only: remove confirmed missing files without pruning
+            // persistent media/favorite rows. Inaccessible parents remain eligible.
+            val sorted = CachedMediaPreviewFilter.removeConfirmedMissing(cached)
             sort(sorted)
             preview = PhotoProfileMediaCache.preview(sorted, anchorPath)
             if (preview.isNotEmpty()) {
