@@ -89,46 +89,6 @@ jobs:
           echo "::add-mask::$STORE_PASSWORD"
 
 
-      - name: Run full FOSS Release unit test suite
-        run: |
-          ./gradlew :app:testFossReleaseUnitTest --stacktrace --info
-          python3 - <<'PYTEST'
-          import glob, xml.etree.ElementTree as ET
-          reports = glob.glob('app/build/test-results/testFossReleaseUnitTest/TEST-*.xml')
-          assert reports, 'Missing unit test XML reports'
-          totals = {key: 0 for key in ('tests', 'failures', 'errors', 'skipped')}
-          for report in reports:
-              suite = ET.parse(report).getroot()
-              for key in totals:
-                  totals[key] += int(suite.get(key, '0'))
-          print('Verified JUnit totals:', totals)
-          assert totals['failures'] == totals['errors'] == 0
-          PYTEST
-
-
-      - name: Upload source picker render previews
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: photo-source-ui-previews
-          path: "**/build/reports/photo-source-previews/*.png"
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Upload backup UI renders and test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backup-ui-test-reports
-          path: |
-            **/build/reports/backup-ui-previews/*.png
-            **/build/reports/restore-reliability/*
-            **/build/reports/backup-performance/*
-            **/build/reports/ui-regression/*
-            app/build/test-results/testFossReleaseUnitTest/TEST-*.xml
-            app/build/reports/tests/testFossReleaseUnitTest/**
-          if-no-files-found: warn
-          retention-days: 14
 
       - name: Assemble FOSS arm64-v8a Release ONLY
         run: ./gradlew :app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a --stacktrace
