@@ -31,8 +31,16 @@ object ClassicSettingsPageTransition {
         if (!container.isAttachedToWindow || container.width <= 0 || container.height <= 0) return null
         var bitmap: Bitmap? = null
         return try {
-            bitmap = Bitmap.createBitmap(container.width, container.height, Bitmap.Config.ARGB_8888)
-            container.draw(Canvas(bitmap))
+            // These snapshots only bridge a short page change. Keep their peak
+            // allocation bounded on tall/high-density screens.
+            val scale = minOf(1f, 720f / maxOf(container.width, container.height))
+            val width = (container.width * scale).toInt().coerceAtLeast(1)
+            val height = (container.height * scale).toInt().coerceAtLeast(1)
+            bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            Canvas(bitmap).apply {
+                scale(scale, scale)
+                container.draw(this)
+            }
             Snapshot(bitmap)
         } catch (_: RuntimeException) {
             bitmap?.recycle()

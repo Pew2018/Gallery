@@ -3,6 +3,10 @@ package org.fossify.gallery.activities
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import org.fossify.gallery.helpers.ViewerAccessCoordinator
+import org.fossify.gallery.helpers.AlbumPageTransition
+import org.fossify.gallery.helpers.DirectoryPageHeroTransition
+import org.fossify.gallery.helpers.OxygenClassicMotion
+import android.app.ActivityOptions
 import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
@@ -13,6 +17,7 @@ import android.provider.MediaStore.Images
 import android.provider.MediaStore.Video
 import android.view.ViewGroup
 import android.view.View
+import android.widget.ImageView
 import android.widget.RelativeLayout
 import android.widget.Toast
 import java.util.concurrent.Future
@@ -786,9 +791,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 appLockManager.lock()
                 false
             } else {
+                val closingPath = mCurrentPathPrefix
+                val pageSnapshot = DirectoryPageHeroTransition.capturePage(binding.directoriesRefreshLayout)
                 mOpenedSubfolders.removeAt(mOpenedSubfolders.lastIndex)
                 mCurrentPathPrefix = mOpenedSubfolders.last()
-                setupAdapter(mDirs)
+                setupAdapter(mDirs, onCommitted = {
+                    animateDirectoryPage(pageSnapshot, forward = false, targetPath = closingPath)
+                }, onDiscarded = { pageSnapshot?.dispose() })
                 true
             }
         } else {
@@ -2192,8 +2201,51 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 putExtra(GET_VIDEO_INTENT, mIsPickVideoIntent || mIsGetVideoContentIntent)
                 putExtra(GET_ANY_INTENT, mIsGetAnyContentIntent)
                 putExtra(Intent.EXTRA_ALLOW_MULTIPLE, mAllowPickingMultiple)
-                startActivityForResult(this, PICK_MEDIA)
+                val transitionOptions = albumTransitionOptions(this)
+                if (transitionOptions == null) {
+                    startActivityForResult(this, PICK_MEDIA)
+                    org.fossify.gallery.helpers.OxygenClassicActivityMotion.applyOpen(this@MainActivity)
+                } else {
+                    startActivityForResult(this, PICK_MEDIA, transitionOptions)
+                }
             }
+        }
+    }
+
+    /** Match the clicked directory by stable path after any asynchronous access gate. */
+    private fun albumTransitionOptions(intent: Intent): Bundle? {
+        if (!OxygenClassicMotion.enabled(this) || org.fossify.gallery.helpers.GalleryBottomBar.isRootTransition(this)) return null
+        val path = intent.getStringExtra(DIRECTORY) ?: return null
+        val adapter = binding.directoriesGrid.adapter as? DirectoryAdapter ?: return null
+        val position = adapter.dirs.indexOfFirst { it.path == path }
+        if (position < 0) return null
+        val coverPath = adapter.dirs.getOrNull(position)?.tmb?.takeIf { it.isNotEmpty() } ?: return null
+        val holder = binding.directoriesGrid.findViewHolderForAdapterPosition(position) ?: return null
+        if (holder.bindingAdapterPosition != position || adapter.dirs.getOrNull(position)?.path != path) return null
+        val cover = holder.itemView.findViewById<ImageView>(R.id.dir_thumbnail) ?: return null
+        if (!cover.isAttachedToWindow || cover.visibility != View.VISIBLE || cover.drawable == null ||
+            cover.width <= 0 || cover.height <= 0) return null
+
+        return runCatching {
+            cover.transitionName = AlbumPageTransition.ELEMENT_NAME
+            intent.putExtra(AlbumPageTransition.EXTRA_ACTIVE, true)
+            intent.putExtra(AlbumPageTransition.EXTRA_COVER_PATH, coverPath)
+            window.sharedElementExitTransition = android.transition.ChangeBounds().apply {
+                duration = AlbumPageTransition.DURATION_MS
+                interpolator = OxygenClassicMotion.decelerate()
+            }
+            window.exitTransition = android.transition.Fade(android.transition.Fade.OUT).apply { duration = 170L }
+            window.reenterTransition = android.transition.Fade(android.transition.Fade.IN).apply { duration = 170L }
+            window.sharedElementReenterTransition = android.transition.ChangeBounds().apply {
+                duration = AlbumPageTransition.DURATION_MS
+                interpolator = OxygenClassicMotion.decelerate()
+            }
+            ActivityOptions.makeSceneTransitionAnimation(this, cover, AlbumPageTransition.ELEMENT_NAME).toBundle()
+        }.getOrElse {
+            cover.transitionName = null
+            intent.removeExtra(AlbumPageTransition.EXTRA_ACTIVE)
+            intent.removeExtra(AlbumPageTransition.EXTRA_COVER_PATH)
+            null
         }
     }
 
@@ -2777,6 +2829,45 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         binding.directoriesFastscroller.beVisibleIf(binding.directoriesEmptyPlaceholder.isGone())
     }
 
+    private fun animateDirectoryPage(
+        snapshot: DirectoryPageHeroTransition.Snapshot?,
+        forward: Boolean,
+        targetPath: String
+    ) {
+        if (snapshot == null || isFinishing || isDestroyed) {
+            snapshot?.dispose()
+            return
+        }
+        val container = binding.directoriesRefreshLayout
+        val incoming = binding.directoriesGrid
+        DirectoryPageHeroTransition.run(container, incoming, snapshot) {
+            if (forward) incoming else findDirectoryThumbnail(targetPath)
+        }
+    }
+
+    private fun captureDirectoryCard(path: String): DirectoryPageHeroTransition.Snapshot? {
+        if (!org.fossify.gallery.helpers.OxygenClassicMotion.enabled(this)) return null
+        val adapter = binding.directoriesGrid.adapter as? DirectoryAdapter ?: return null
+        val position = adapter.dirs.indexOfFirst { it.path == path }
+        if (position < 0) return null
+        val holder = binding.directoriesGrid.findViewHolderForAdapterPosition(position) ?: return null
+        if (holder.bindingAdapterPosition != position || adapter.dirs.getOrNull(position)?.path != path) return null
+        val thumbnail = holder.itemView.findViewById<ImageView>(R.id.dir_thumbnail) ?: return null
+        if (!thumbnail.isAttachedToWindow || thumbnail.visibility != View.VISIBLE || thumbnail.drawable == null) return null
+        return DirectoryPageHeroTransition.capture(thumbnail, binding.directoriesRefreshLayout)
+    }
+
+    private fun findDirectoryThumbnail(path: String): View? {
+        val adapter = binding.directoriesGrid.adapter as? DirectoryAdapter ?: return null
+        val position = adapter.dirs.indexOfFirst { it.path == path }
+        if (position < 0) return null
+        val holder = binding.directoriesGrid.findViewHolderForAdapterPosition(position) ?: return null
+        if (holder.bindingAdapterPosition != position || adapter.dirs.getOrNull(position)?.path != path) return null
+        return holder.itemView.findViewById<ImageView>(R.id.dir_thumbnail)?.takeIf {
+            it.isAttachedToWindow && it.visibility == View.VISIBLE && it.drawable != null
+        }
+    }
+
     private fun setupAdapter(
         dirs: ArrayList<Directory>,
         textToSearch: String? = null,
@@ -2980,9 +3071,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                                 if (org.fossify.gallery.helpers.DirectoryGrouping.opensMedia(clicked, config.groupDirectSubfolders)) {
                                     if (clicked.path != config.tempFolderPath) itemClicked(clicked.path)
                                 } else {
+                                    val pageSnapshot = captureDirectoryCard(clicked.path)
                                     mCurrentPathPrefix = clicked.path
                                     mOpenedSubfolders.add(clicked.path)
-                                    setupAdapter(mDirs, "")
+                                    setupAdapter(mDirs, "", onCommitted = {
+                                        animateDirectoryPage(pageSnapshot, forward = true, targetPath = clicked.path)
+                                    }, onDiscarded = { pageSnapshot?.dispose() })
                                 }
                             }.apply {
                                 setupZoomListener(mZoomListener)

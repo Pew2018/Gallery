@@ -73,6 +73,22 @@ class OxygenClassicMotionTest {
         }
     }
 
+    @Test fun transitionAnimationScaleAlsoDisablesClassicMotion() {
+        val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
+        val resolver = activity.contentResolver
+        val originalAnimator = Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val originalTransition = Settings.Global.getFloat(resolver, Settings.Global.TRANSITION_ANIMATION_SCALE, 1f)
+        try {
+            Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+            Settings.Global.putFloat(resolver, Settings.Global.TRANSITION_ANIMATION_SCALE, 0f)
+            assertFalse(OxygenClassicMotion.enabled(activity))
+        } finally {
+            Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, originalAnimator)
+            Settings.Global.putFloat(resolver, Settings.Global.TRANSITION_ANIMATION_SCALE, originalTransition)
+            activity.finish()
+        }
+    }
+
     @Test fun shortLoadingDoesNotFlashAndLongLoadingKeepsMinimumVisibility() {
         val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
         val resolver = activity.contentResolver

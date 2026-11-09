@@ -684,6 +684,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
 
     override fun fullscreenToggled(isFullscreen: Boolean) {
         mIsFullscreen = isFullscreen
+        val bottomOffset = 8f * resources.displayMetrics.density
 
         mSeekBar.setOnSeekBarChangeListener(if (mIsFullscreen) null else this)
         arrayOf(
@@ -696,8 +697,12 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             it.isClickable = !mIsFullscreen
         }
 
-        org.fossify.gallery.helpers.ViewerChromeMotion.show(mTimeHolder, !isFullscreen)
-        org.fossify.gallery.helpers.ViewerChromeMotion.show(binding.bottomActionsDummy, !isFullscreen)
+        org.fossify.gallery.helpers.ViewerChromeMotion.show(
+            mTimeHolder, !isFullscreen, hiddenTranslationY = bottomOffset
+        )
+        org.fossify.gallery.helpers.ViewerChromeMotion.show(
+            binding.bottomActionsDummy, !isFullscreen, hiddenTranslationY = bottomOffset
+        )
 
         binding.videoDetails.apply {
             if (mStoredShowExtendedDetails && context != null && resources != null) {
