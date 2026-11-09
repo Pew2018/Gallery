@@ -60,7 +60,7 @@
 
         <activity
             android:name=".activities.MainActivity"
-            android:theme="@style/OxygenClassicRootTheme"
+            android:theme="@style/GalleryPageTransitionTheme"
             android:configChanges="orientation"
             android:exported="true"
             android:resizeableActivity="true">
@@ -90,7 +90,7 @@
 
         <activity
             android:name=".activities.MediaActivity"
-            android:theme="@style/OxygenClassicRootTheme"
+            android:theme="@style/GalleryPageTransitionTheme"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false"
             android:parentActivityName=".activities.MainActivity" />
@@ -122,7 +122,7 @@
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:exported="true"
             android:parentActivityName=".activities.MediaActivity"
-            android:theme="@style/TranslucentTheme">
+            android:theme="@style/GalleryViewerTransitionTheme">
 
             <intent-filter>
                 <action android:name="com.android.camera.action.REVIEW" />

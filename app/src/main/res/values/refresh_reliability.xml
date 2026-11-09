@@ -1,4 +1,5 @@
 <resources>
     <string name="folder_refresh_timeout">Refresh did not finish within 45 seconds. Available content has been kept; refresh again to retry.</string>
+    <string name="home_folder_refresh_timeout">Home scan did not finish within 150 seconds. Available content has been kept; refresh again to retry.</string>
     <string name="folder_refresh_busy">Media readers are busy. Available content has been kept; try refreshing again.</string>
 </resources>

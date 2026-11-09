@@ -141,6 +141,20 @@ class PhotoFragment : ViewPagerFragment() {
         }
     }
 
+    /** Return only the visible, rendered, untransformed surface suitable for a shared transition. */
+    fun sharedElementViewFor(path: String): View? {
+        if (!mIsFragmentVisible || !::mMedium.isInitialized || mMedium.path != path ||
+            mReportedImagePath != path || mCurrentRotationDegrees != 0 ||
+            abs(mCurrentGestureViewZoom - mInitialZoom) > MAX_ZOOM_EQUALITY_TOLERANCE) return null
+        return when {
+            mIsSubsamplingVisible && binding.subsamplingView.visibility == View.VISIBLE ->
+                binding.subsamplingView.takeIf { it.isZoomedOut() }
+            binding.gifViewFrame.visibility == View.VISIBLE -> binding.gifView
+            binding.gesturesView.drawable != null -> binding.gesturesView
+            else -> null
+        }
+    }
+
     private var mStoredShowExtendedDetails = false
     private var mStoredHideExtendedDetails = false
     private var mStoredAllowDeepZoomableImages = false

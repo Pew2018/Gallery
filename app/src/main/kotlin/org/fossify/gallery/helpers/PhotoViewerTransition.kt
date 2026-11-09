@@ -1,0 +1,10 @@
+package org.fossify.gallery.helpers
+
+/** Intent and timing contract for a photo grid to full-screen shared element. */
+object PhotoViewerTransition {
+    const val EXTRA_PATH = "org.fossify.gallery.extra.PHOTO_VIEWER_TRANSITION_PATH"
+    const val ELEMENT_NAME = "gallery_photo_content"
+    const val DURATION_MS = 280L
+    const val FADE_DURATION_MS = 170L
+    const val READY_TIMEOUT_MS = 1_200L
+}

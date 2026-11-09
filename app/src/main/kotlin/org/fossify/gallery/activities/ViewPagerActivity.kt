@@ -5,6 +5,8 @@ import org.fossify.gallery.helpers.PhotoAccessEvent
 import org.fossify.gallery.helpers.PhotoPlaybackPolicy
 
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
+import org.fossify.gallery.helpers.PhotoViewerTransition
+import org.fossify.gallery.helpers.OxygenClassicMotion
 import org.fossify.gallery.extensions.favoriteProtection
 import org.fossify.gallery.helpers.FAVORITE_ACCESS_SESSION
 import org.fossify.gallery.helpers.FavoriteAccessSessionManager
@@ -13,6 +15,7 @@ import android.animation.Animator
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.SharedElementCallback
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -213,6 +216,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private var mPath = ""
     private var viewerInitialSelectedPath = ""
+    private var pendingPhotoSharedElement = false
+    private var photoSharedElementMapped = false
+    private var finishAfterSharedTransitionInProgress = false
+    private var photoSharedElementPath: String? = null
+    private val photoSharedElementHandler = Handler()
+    private val photoSharedElementTimeout = Runnable { releasePhotoSharedElement() }
     private var viewerSelectedImageStarted = 0L
     private var selectedImageRenderedLogged = false
     private val renderedAdjacentPaths = HashSet<String>()
@@ -537,6 +546,55 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         // Never restore media fragments before the current password/session
         // flow validates the viewer request.
         super.onCreate(null)
+        photoSharedElementPath = intent.getStringExtra(PhotoViewerTransition.EXTRA_PATH)
+            ?.takeIf { OxygenClassicMotion.enabled(this) }
+        pendingPhotoSharedElement = photoSharedElementPath != null
+        if (pendingPhotoSharedElement) {
+            postponeEnterTransition()
+            window.sharedElementEnterTransition = android.transition.ChangeBounds().apply {
+                duration = PhotoViewerTransition.DURATION_MS
+                interpolator = OxygenClassicMotion.easing()
+            }
+            window.sharedElementReturnTransition = android.transition.ChangeBounds().apply {
+                duration = PhotoViewerTransition.DURATION_MS
+                interpolator = OxygenClassicMotion.easing()
+            }
+            window.enterTransition = android.transition.Fade(android.transition.Fade.IN).apply {
+                duration = PhotoViewerTransition.FADE_DURATION_MS
+            }
+            window.returnTransition = android.transition.Fade(android.transition.Fade.OUT).apply {
+                duration = PhotoViewerTransition.FADE_DURATION_MS
+            }
+            setEnterSharedElementCallback(object : SharedElementCallback() {
+                override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
+                    val name = PhotoViewerTransition.ELEMENT_NAME
+                    if (name !in names) return
+                    val path = photoSharedElementPath
+                    val view = path?.let { selected ->
+                        (getCurrentPhotoFragment())?.sharedElementViewFor(selected)
+                    }
+                    if (view == null) sharedElements.remove(name) else {
+                        view.transitionName = name
+                        sharedElements[name] = view
+                        photoSharedElementMapped = true
+                    }
+                }
+            })
+            setExitSharedElementCallback(object : SharedElementCallback() {
+                override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
+                    val name = PhotoViewerTransition.ELEMENT_NAME
+                    if (name !in names) return
+                    val path = photoSharedElementPath
+                    val view = if (path != null && getCurrentPath() == path)
+                        getCurrentPhotoFragment()?.sharedElementViewFor(path) else null
+                    if (view == null) sharedElements.remove(name) else {
+                        view.transitionName = name
+                        sharedElements[name] = view
+                    }
+                }
+            })
+            photoSharedElementHandler.postDelayed(photoSharedElementTimeout, PhotoViewerTransition.READY_TIMEOUT_MS)
+        }
         supportFragmentManager.registerFragmentLifecycleCallbacks(slideshowFragments, false)
         setContentView(binding.root)
         // The media canvas must not inherit the app's light theme while pages load
@@ -648,6 +706,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun onDestroy() {
+        photoSharedElementHandler.removeCallbacks(photoSharedElementTimeout)
         if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
             org.fossify.gallery.helpers.DiagnosticLevel.INFO, "Viewer", "viewer_close",
             viewerDiagnosticRequestId,
@@ -724,6 +783,22 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             if (intent.extras == null || isExternalIntent()) {
                 mMediaFiles = arrayListOf()
             }
+        }
+    }
+
+    override fun finish() {
+        // Activity.finishAfterTransition() dispatches back through this override on API 29.
+        // Let that second call reach the framework without recursively starting another transition.
+        if (finishAfterSharedTransitionInProgress) {
+            super.finish()
+            return
+        }
+        releasePhotoSharedElement()
+        if (photoSharedElementMapped) {
+            finishAfterSharedTransitionInProgress = true
+            super.finishAfterTransition()
+        } else {
+            super.finish()
         }
     }
 
@@ -4122,6 +4197,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override fun isFullScreen() = mIsFullScreen
 
     override fun imageRendered(path: String) {
+        if (pendingPhotoSharedElement && path == photoSharedElementPath) releasePhotoSharedElement()
         if (path == viewerInitialSelectedPath && !selectedImageRenderedLogged) {
             selectedImageRenderedLogged = true
             org.fossify.gallery.helpers.GalleryPerfTrace.end(
@@ -4132,6 +4208,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 "viewer_adjacent_image_rendered", adjacentReadyStarted, 1
             )
         }
+    }
+
+    private fun releasePhotoSharedElement() {
+        if (!pendingPhotoSharedElement) return
+        pendingPhotoSharedElement = false
+        photoSharedElementHandler.removeCallbacks(photoSharedElementTimeout)
+        if (!isFinishing && !isDestroyed) startPostponedEnterTransition()
     }
 
     override fun goToPrevItem() {

@@ -379,6 +379,7 @@ fun Context.loadImage(
     signature: ObjectKey,
     skipMemoryCacheAtPaths: ArrayList<String>? = null,
     onError: (() -> Unit)? = null,
+    onLoaded: (() -> Unit)? = null,
     crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS
 ) {
     target.isHorizontalScrolling = horizontalScroll
@@ -389,7 +390,8 @@ fun Context.loadImage(
             cropThumbnails = cropThumbnails,
             roundCorners = roundCorners,
             signature = signature,
-            crossFadeDuration = crossFadeDuration
+            crossFadeDuration = crossFadeDuration,
+            onLoaded = onLoaded
         )
     } else {
         loadImageBase(
@@ -402,6 +404,7 @@ fun Context.loadImage(
             animate = animateGifs,
             tryLoadingWithPicasso = type == TYPE_IMAGES && path.isPng(),
             onError = onError,
+            onLoaded = onLoaded,
             crossFadeDuration = crossFadeDuration
         )
     }
@@ -451,7 +454,8 @@ fun Context.loadImageBase(
     animate: Boolean = false,
     tryLoadingWithPicasso: Boolean = false,
     crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
-    onError: (() -> Unit)? = null
+    onError: (() -> Unit)? = null,
+    onLoaded: (() -> Unit)? = null
 ) {
     val bindingToken = target.getTag(R.id.thumbnail_request_key)
     val options = RequestOptions()
@@ -531,7 +535,15 @@ fun Context.loadImageBase(
             targetBitmap: Target<Drawable>,
             dataSource: DataSource,
             isFirstResource: Boolean,
-        ) = false
+        ): Boolean {
+            if (target.tag == path && target.getTag(R.id.thumbnail_request_key) == bindingToken) {
+                target.post {
+                    if (target.tag == path && target.getTag(R.id.thumbnail_request_key) == bindingToken &&
+                        target.drawable != null) onLoaded?.invoke()
+                }
+            }
+            return false
+        }
     })
 
     builder.into(target)
@@ -544,6 +556,7 @@ fun Context.loadSVG(
     roundCorners: Int,
     signature: ObjectKey,
     crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
+    onLoaded: (() -> Unit)? = null,
 ) {
     target.scaleType = if (cropThumbnails) {
         ImageView.ScaleType.CENTER_CROP
@@ -552,6 +565,7 @@ fun Context.loadSVG(
     }
 
     val options = RequestOptions().signature(signature)
+    val bindingToken = target.getTag(R.id.thumbnail_request_key)
     var builder = Glide.with(target)
         .`as`(PictureDrawable::class.java)
         .listener(SvgSoftwareLayerSetter())
@@ -571,7 +585,25 @@ fun Context.loadSVG(
         builder = builder.transform(CenterCrop(), RoundedCorners(cornerRadius))
     }
 
-    builder.into(target)
+    builder.listener(object : RequestListener<PictureDrawable> {
+        override fun onLoadFailed(
+            e: GlideException?, model: Any?, targetBitmap: Target<PictureDrawable>, isFirstResource: Boolean
+        ): Boolean = false
+
+        override fun onResourceReady(
+            resource: PictureDrawable, model: Any, targetBitmap: Target<PictureDrawable>,
+            dataSource: DataSource, isFirstResource: Boolean
+        ): Boolean {
+            if (target.getTag(R.id.thumbnail_request_key) == bindingToken) {
+                target.post {
+                    if (target.getTag(R.id.thumbnail_request_key) == bindingToken && target.drawable != null) {
+                        onLoaded?.invoke()
+                    }
+                }
+            }
+            return false
+        }
+    }).into(target)
 }
 
 // intended mostly for Android 11 issues, that fail loading PNG files bigger than 10 MB

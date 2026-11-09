@@ -22,6 +22,9 @@ import org.fossify.gallery.extensions.prepareFavoritePasswordProtection
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import org.fossify.gallery.helpers.ViewerAccessCoordinator
+import org.fossify.gallery.helpers.AlbumPageTransition
+import org.fossify.gallery.helpers.PhotoViewerTransition
+import org.fossify.gallery.helpers.OxygenClassicMotion
 import org.fossify.gallery.helpers.FolderReturnCheckpoint
 import org.fossify.gallery.extensions.isThisOrParentExcluded
 import org.fossify.gallery.extensions.isThisOrParentIncluded
@@ -31,6 +34,8 @@ import org.fossify.gallery.helpers.MediaUpdateReason
 import org.fossify.gallery.helpers.DisplayedFolderSnapshot
 import org.fossify.gallery.helpers.DisplayedSourceStage
 import org.fossify.gallery.helpers.FolderCachePreviewAccess
+import android.app.ActivityOptions
+import android.app.SharedElementCallback
 import android.app.WallpaperManager
 import android.content.Intent
 import android.graphics.Bitmap
@@ -39,6 +44,7 @@ import android.os.Handler
 import android.view.View
 import android.view.ViewGroup
 import android.widget.RelativeLayout
+import android.widget.ImageView
 import java.util.concurrent.Future
 import androidx.core.net.toUri
 import androidx.recyclerview.widget.GridLayoutManager
@@ -178,6 +184,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var photoProfileId: String? = null
     private var photoNeedsUnlock = false
     private var photoViewerTransition = false
+    private var albumTransitionPending = false
+    private var albumTransitionMapped = false
+    private var finishAfterAlbumTransitionInProgress = false
+    private var albumCoverPath: String? = null
+    private var pendingViewerReturnPath: String? = null
+    private val albumTransitionHandler = Handler()
+    private val albumTransitionTimeout = Runnable { releaseAlbumTransition() }
     private var photoReturnProbeGeneration = 0L
     private var viewerHandoffGeneration = 0L
     private var photoLoadCompleted = false
@@ -705,8 +718,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        albumTransitionPending = intent.getBooleanExtra(AlbumPageTransition.EXTRA_ACTIVE, false) &&
+            OxygenClassicMotion.enabled(this)
+        albumCoverPath = intent.getStringExtra(AlbumPageTransition.EXTRA_COVER_PATH)
+        if (albumTransitionPending) postponeEnterTransition()
         OxygenClassicActivityMotion.install(this)
         setContentView(binding.root)
+        if (albumTransitionPending) configureAlbumPageTransition()
         org.fossify.gallery.helpers.OxygenClassicEdgeGlow.install(binding.root, this)
         GalleryBottomBar.prepareRootSurface(this, binding.root)
         setupMediaProgressIndicator()
@@ -875,6 +893,58 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         updateWidgets()
+    }
+
+    private fun configureAlbumPageTransition() {
+        window.sharedElementEnterTransition = android.transition.ChangeBounds().apply {
+            duration = AlbumPageTransition.DURATION_MS
+            interpolator = OxygenClassicMotion.easing()
+        }
+        window.sharedElementReturnTransition = android.transition.ChangeBounds().apply {
+            duration = AlbumPageTransition.DURATION_MS
+            interpolator = OxygenClassicMotion.easing()
+        }
+        window.enterTransition = android.transition.Fade(android.transition.Fade.IN).apply {
+            duration = AlbumPageTransition.FADE_DURATION_MS
+        }
+        window.returnTransition = android.transition.Fade(android.transition.Fade.OUT).apply {
+            duration = AlbumPageTransition.FADE_DURATION_MS
+        }
+        setEnterSharedElementCallback(object : SharedElementCallback() {
+            override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
+                val name = AlbumPageTransition.ELEMENT_NAME
+                if (name !in names) return
+                val cover = resolveAlbumCoverView()
+                if (cover == null) sharedElements.remove(name) else {
+                    cover.transitionName = name
+                    sharedElements[name] = cover
+                    albumTransitionMapped = true
+                }
+            }
+        })
+        albumTransitionHandler.postDelayed(albumTransitionTimeout, AlbumPageTransition.READY_TIMEOUT_MS)
+    }
+
+    private fun releaseAlbumTransition() {
+        if (!albumTransitionPending) return
+        albumTransitionPending = false
+        albumTransitionHandler.removeCallbacks(albumTransitionTimeout)
+        if (!isFinishing && !isDestroyed) startPostponedEnterTransition()
+    }
+
+    private fun resolveAlbumCoverView(): ImageView? {
+        val path = albumCoverPath ?: return null
+        val adapter = getMediaAdapter() ?: return null
+        val position = adapter.media.indexOfFirst { (it as? Medium)?.path == path }
+        if (position < 0) return null
+        val holder = binding.mediaGrid.findViewHolderForAdapterPosition(position) ?: return null
+        if (holder.bindingAdapterPosition != position ||
+            (adapter.media.getOrNull(position) as? Medium)?.path != path) return null
+        val image = holder.itemView.findViewById<ImageView>(R.id.medium_thumbnail) ?: return null
+        val requestKey = image.getTag(R.id.thumbnail_request_key)
+        return image.takeIf {
+            it.isAttachedToWindow && it.width > 0 && it.height > 0 && it.drawable != null && requestKey != null
+        }
     }
 
     override fun onStart() {
@@ -1191,6 +1261,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     override fun finish() {
+        // finishAfterTransition() calls finish() again while completing the shared return.
+        if (finishAfterAlbumTransitionInProgress) {
+            super.finish()
+            return
+        }
+        releaseAlbumTransition()
         favoritesReturnCover?.dismiss()
         favoritesScroll.clear()
         photoScroll.clear()
@@ -1201,11 +1277,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val revoked = favoriteSessionId
         favoriteSessionId = null
         FavoriteAccessSessionManager.revokeSession(revoked)
-        super.finish()
-        OxygenClassicActivityMotion.applyClose(this)
+        if (albumTransitionMapped && !GalleryBottomBar.isRootTransition(this) &&
+            !GalleryBottomBar.isRetiringRoot(this)) {
+            finishAfterAlbumTransitionInProgress = true
+            super.finishAfterTransition()
+        } else {
+            super.finish()
+            OxygenClassicActivityMotion.applyClose(this)
+        }
     }
 
     override fun onDestroy() {
+        albumTransitionHandler.removeCallbacks(albumTransitionTimeout)
         photoFastScrollActive = false
         photoGridPublication.clear()
         mediaRefreshWatchdog.stop()
@@ -1782,9 +1865,17 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     itemClicked(it.path)
                 }
             }.apply {
+                onThumbnailLoaded = { path, image ->
+                    if (albumTransitionPending && path == albumCoverPath) image.post {
+                        if (albumTransitionPending && resolveAlbumCoverView() === image) releaseAlbumTransition()
+                    }
+                }
                 sorting = config.getFolderSorting(if (mShowAll) SHOW_ALL else mPath)
                 setupZoomListener(mZoomListener)
                 binding.mediaGrid.adapter = this
+            }
+            if (albumTransitionPending) binding.mediaGrid.post {
+                if (albumTransitionPending && resolveAlbumCoverView() != null) releaseAlbumTransition()
             }
 
             val viewType = config.getFolderViewType(if (mShowAll) SHOW_ALL else mPath)
@@ -3079,6 +3170,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             rememberFavoritesScrollAnchor()
             prepareFavoritesReturnCover()
         }
+        binding.mediaGrid.stopScroll()
         hideKeyboard()
         if (isSetWallpaperIntent()) {
             toast(R.string.setting_wallpaper)
@@ -3193,7 +3285,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     return@runOnUiThread
                 }
                 pendingFolderReturn = checkpoint
-                startActivity(Intent(this, ViewPagerActivity::class.java).apply {
+                val viewerIntent = Intent(this, ViewPagerActivity::class.java).apply {
                     folderToken?.let { putExtra(FOLDER_UNLOCK_SESSION, it) }
                     if (source == FAVORITES) putExtra(FAVORITE_ACCESS_SESSION, favoriteToken)
                     putExtra(PATH, path)
@@ -3208,8 +3300,74 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     gridOrderId?.let { putExtra(org.fossify.gallery.helpers.ViewerGridOrderStore.EXTRA_ID, it) }
                     catalogId?.let { putExtra(org.fossify.gallery.helpers.FolderViewerSnapshotStore.EXTRA_ID, it) }
                     favoriteCatalogId?.let { putExtra(org.fossify.gallery.helpers.FavoriteViewerCatalogStore.EXTRA_ID, it) }
-                })
+                }
+                if (!launchPhotoViewerWithSharedElement(viewerIntent, path)) {
+                    startActivity(viewerIntent)
+                }
             }
+        }
+    }
+
+    /** Launch from the still-bound thumbnail; stale/recycled holders use the normal page transition. */
+    private fun launchPhotoViewerWithSharedElement(intent: Intent, path: String): Boolean {
+        if (!OxygenClassicMotion.enabled(this) || path.isVideoFast()) return false
+        val adapter = getMediaAdapter() ?: return false
+        val position = adapter.media.indexOfFirst { (it as? Medium)?.path == path }
+        if (position < 0) return false
+        val holder = binding.mediaGrid.findViewHolderForAdapterPosition(position) ?: return false
+        if (holder.bindingAdapterPosition != position ||
+            (adapter.media.getOrNull(position) as? Medium)?.path != path) return false
+        val thumbnail = holder.itemView.findViewById<ImageView>(R.id.medium_thumbnail) ?: return false
+        if (!thumbnail.isAttachedToWindow || thumbnail.width <= 0 || thumbnail.height <= 0 ||
+            thumbnail.drawable == null) return false
+
+        return runCatching {
+            pendingViewerReturnPath = path
+            thumbnail.transitionName = PhotoViewerTransition.ELEMENT_NAME
+            intent.putExtra(PhotoViewerTransition.EXTRA_PATH, path)
+            window.sharedElementExitTransition = android.transition.ChangeBounds().apply {
+                duration = PhotoViewerTransition.DURATION_MS
+                interpolator = OxygenClassicMotion.easing()
+            }
+            window.sharedElementReenterTransition = android.transition.ChangeBounds().apply {
+                duration = PhotoViewerTransition.DURATION_MS
+                interpolator = OxygenClassicMotion.easing()
+            }
+            window.exitTransition = android.transition.Fade(android.transition.Fade.OUT).apply {
+                duration = PhotoViewerTransition.FADE_DURATION_MS
+            }
+            window.reenterTransition = android.transition.Fade(android.transition.Fade.IN).apply {
+                duration = PhotoViewerTransition.FADE_DURATION_MS
+            }
+            setEnterSharedElementCallback(object : SharedElementCallback() {
+                override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
+                    val name = PhotoViewerTransition.ELEMENT_NAME
+                    if (name !in names) return
+                    val returnPath = pendingViewerReturnPath
+                    val returnPosition = returnPath?.let { selected ->
+                        adapter.media.indexOfFirst { (it as? Medium)?.path == selected }
+                    } ?: -1
+                    val returnHolder = if (returnPosition >= 0)
+                        binding.mediaGrid.findViewHolderForAdapterPosition(returnPosition) else null
+                    val returnImage = returnHolder?.itemView?.findViewById<ImageView>(R.id.medium_thumbnail)
+                    if (returnHolder == null || returnHolder.bindingAdapterPosition != returnPosition ||
+                        (adapter.media.getOrNull(returnPosition) as? Medium)?.path != returnPath ||
+                        returnImage?.drawable == null || !returnImage.isAttachedToWindow) {
+                        sharedElements.remove(name)
+                    } else {
+                        returnImage.transitionName = name
+                        sharedElements[name] = returnImage
+                    }
+                }
+            })
+            val options = ActivityOptions.makeSceneTransitionAnimation(this, thumbnail, PhotoViewerTransition.ELEMENT_NAME)
+            startActivity(intent, options.toBundle())
+            true
+        }.getOrElse {
+            thumbnail.transitionName = null
+            pendingViewerReturnPath = null
+            intent.removeExtra(PhotoViewerTransition.EXTRA_PATH)
+            false
         }
     }
 

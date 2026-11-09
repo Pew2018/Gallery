@@ -5,6 +5,8 @@ import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import org.fossify.gallery.helpers.ViewerAccessCoordinator
 import android.content.ClipData
 import android.content.Intent
+import android.app.ActivityOptions
+import android.app.SharedElementCallback
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -13,6 +15,7 @@ import android.provider.MediaStore.Images
 import android.provider.MediaStore.Video
 import android.view.ViewGroup
 import android.view.View
+import android.widget.ImageView
 import android.widget.RelativeLayout
 import android.widget.Toast
 import java.util.concurrent.Future
@@ -29,6 +32,9 @@ import org.fossify.gallery.helpers.DirectoryScanSnapshot
 import org.fossify.gallery.helpers.FolderMediaReadResult
 import org.fossify.gallery.helpers.FolderReadStatus
 import org.fossify.gallery.helpers.HomeDirectorySorter
+import org.fossify.gallery.helpers.AlbumPageTransition
+import org.fossify.gallery.helpers.GalleryEntryMotion
+import org.fossify.gallery.helpers.OxygenClassicMotion
 import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.commons.dialogs.FilePickerDialog
@@ -200,6 +206,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         private const val PICK_MEDIA = 2
         private const val PICK_WALLPAPER = 3
         private const val LAST_MEDIA_CHECK_PERIOD = 3000L
+        internal const val HOME_DIRECTORY_SCAN_TIMEOUT_MS = 150_000L
         const val EXTRA_SHOW_FOLDERS = "org.fossify.gallery.SHOW_FOLDERS"
         const val EXTRA_FOLDER_FAVORITES = "org.fossify.gallery.FOLDER_FAVORITES"
     }
@@ -238,6 +245,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     // used at "Group direct subfolders" for navigation
     private var mCurrentPathPrefix = ""
+    private var pendingAlbumReturnPath: String? = null
 
     // used at "Group direct subfolders" for navigating Up with the back button
     private var mOpenedSubfolders = arrayListOf("")
@@ -441,13 +449,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private val directoryRefreshWatchdog = org.fossify.gallery.helpers.RefreshWatchdog()
     private fun setDirectoryLoading(loading: Boolean) {
         val update = {
-            if (loading) directoryRefreshWatchdog.arm {
+            if (loading) directoryRefreshWatchdog.arm(HOME_DIRECTORY_SCAN_TIMEOUT_MS) {
                 org.fossify.gallery.helpers.FolderRefreshDiagnostics.event(directoryTraceRequest, "album_timeout")
                 val request = directoryScanEpoch.currentVersion()
                 if (isCurrentDirectoryScan(request) && !mShowingFolderFavorites && !categorizedLoadActive) {
                     finishDirectoryScan(request, GalleryScanResult(GalleryScanState.TIMED_OUT))
                 } else {
-                    presentDirectoryLoadFailure(R.string.folder_refresh_timeout)
+                    presentDirectoryLoadFailure(R.string.home_folder_refresh_timeout)
                 }
                 retireDirectoryScan()
             } else directoryRefreshWatchdog.stop()
@@ -788,7 +796,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             } else {
                 mOpenedSubfolders.removeAt(mOpenedSubfolders.lastIndex)
                 mCurrentPathPrefix = mOpenedSubfolders.last()
-                setupAdapter(mDirs)
+                setupAdapter(mDirs, onCommitted = {
+                    GalleryEntryMotion.enter(binding.directoriesGrid, forward = false)
+                })
                 true
             }
         } else {
@@ -1216,7 +1226,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             when (result.state) {
                 GalleryScanState.PARTIAL -> presentDirectoryLoadFailure(R.string.media_load_partial_error)
                 GalleryScanState.FAILED -> presentDirectoryLoadFailure(R.string.folder_load_failed)
-                GalleryScanState.TIMED_OUT -> presentDirectoryLoadFailure(R.string.folder_refresh_timeout)
+                GalleryScanState.TIMED_OUT -> presentDirectoryLoadFailure(R.string.home_folder_refresh_timeout)
                 else -> Unit
             }
         }
@@ -2120,6 +2130,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var folderOpenTask: Future<*>? = null
 
     private fun itemClicked(path: String) {
+        binding.directoriesGrid.stopScroll()
         val request = ++folderOpenGeneration
         val app = applicationContext
         ViewerAccessCoordinator.cancel(folderOpenTask)
@@ -2192,8 +2203,80 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 putExtra(GET_VIDEO_INTENT, mIsPickVideoIntent || mIsGetVideoContentIntent)
                 putExtra(GET_ANY_INTENT, mIsGetAnyContentIntent)
                 putExtra(Intent.EXTRA_ALLOW_MULTIPLE, mAllowPickingMultiple)
-                startActivityForResult(this, PICK_MEDIA)
+                val options = albumTransitionOptions(this)
+                if (options == null) {
+                    startActivityForResult(this, PICK_MEDIA)
+                } else {
+                    startActivityForResult(this, PICK_MEDIA, options)
+                }
             }
+        }
+    }
+
+    /** Match the selected album by path, including when a password gate delayed its launch. */
+    private fun albumTransitionOptions(intent: Intent): Bundle? {
+        if (!OxygenClassicMotion.enabled(this) ||
+            org.fossify.gallery.helpers.GalleryBottomBar.isRootTransition(this)) return null
+        val path = intent.getStringExtra(DIRECTORY) ?: return null
+        val adapter = binding.directoriesGrid.adapter as? DirectoryAdapter ?: return null
+        val position = adapter.dirs.indexOfFirst { it.path == path }
+        if (position < 0) return null
+        val holder = binding.directoriesGrid.findViewHolderForAdapterPosition(position)
+        if (holder == null || holder.bindingAdapterPosition != position ||
+            adapter.dirs.getOrNull(position)?.path != path) return null
+        val cover = holder.itemView.findViewById<ImageView>(R.id.dir_thumbnail) ?: return null
+        if (!cover.isAttachedToWindow || cover.visibility != View.VISIBLE || cover.drawable == null ||
+            cover.width <= 0 || cover.height <= 0) return null
+
+        return runCatching {
+            pendingAlbumReturnPath = path
+            cover.transitionName = AlbumPageTransition.ELEMENT_NAME
+            setEnterSharedElementCallback(object : SharedElementCallback() {
+                override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
+                    val name = AlbumPageTransition.ELEMENT_NAME
+                    if (name !in names) return
+                    val targetPath = pendingAlbumReturnPath
+                    val target = targetPath?.let(::findDirectoryThumbnail)
+                    if (target == null) sharedElements.remove(name) else {
+                        target.transitionName = name
+                        sharedElements[name] = target
+                    }
+                }
+            })
+            intent.putExtra(AlbumPageTransition.EXTRA_ACTIVE, true)
+            intent.putExtra(AlbumPageTransition.EXTRA_COVER_PATH, adapter.dirs[position].tmb)
+            window.sharedElementExitTransition = android.transition.ChangeBounds().apply {
+                duration = AlbumPageTransition.DURATION_MS
+                interpolator = OxygenClassicMotion.easing()
+            }
+            window.sharedElementReenterTransition = android.transition.ChangeBounds().apply {
+                duration = AlbumPageTransition.DURATION_MS
+                interpolator = OxygenClassicMotion.easing()
+            }
+            window.exitTransition = android.transition.Fade(android.transition.Fade.OUT).apply {
+                duration = AlbumPageTransition.FADE_DURATION_MS
+            }
+            window.reenterTransition = android.transition.Fade(android.transition.Fade.IN).apply {
+                duration = AlbumPageTransition.FADE_DURATION_MS
+            }
+            ActivityOptions.makeSceneTransitionAnimation(this, cover, AlbumPageTransition.ELEMENT_NAME).toBundle()
+        }.getOrElse {
+            cover.transitionName = null
+            pendingAlbumReturnPath = null
+            intent.removeExtra(AlbumPageTransition.EXTRA_ACTIVE)
+            intent.removeExtra(AlbumPageTransition.EXTRA_COVER_PATH)
+            null
+        }
+    }
+
+    private fun findDirectoryThumbnail(path: String): View? {
+        val adapter = binding.directoriesGrid.adapter as? DirectoryAdapter ?: return null
+        val position = adapter.dirs.indexOfFirst { it.path == path }
+        if (position < 0) return null
+        val holder = binding.directoriesGrid.findViewHolderForAdapterPosition(position) ?: return null
+        if (holder.bindingAdapterPosition != position || adapter.dirs.getOrNull(position)?.path != path) return null
+        return holder.itemView.findViewById<ImageView>(R.id.dir_thumbnail)?.takeIf {
+            it.isAttachedToWindow && it.visibility == View.VISIBLE && it.drawable != null
         }
     }
 
@@ -2980,9 +3063,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                                 if (org.fossify.gallery.helpers.DirectoryGrouping.opensMedia(clicked, config.groupDirectSubfolders)) {
                                     if (clicked.path != config.tempFolderPath) itemClicked(clicked.path)
                                 } else {
+                                    binding.directoriesGrid.stopScroll()
                                     mCurrentPathPrefix = clicked.path
                                     mOpenedSubfolders.add(clicked.path)
-                                    setupAdapter(mDirs, "")
+                                    setupAdapter(mDirs, "", onCommitted = {
+                                        GalleryEntryMotion.enter(binding.directoriesGrid, forward = true)
+                                    })
                                 }
                             }.apply {
                                 setupZoomListener(mZoomListener)

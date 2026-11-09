@@ -141,6 +141,7 @@ class MediaAdapter(
     var sorting = config.getFolderSorting(if (config.showAll) SHOW_ALL else path)
     var dateFormat = config.dateFormat
     var timeFormat = activity.getTimeFormat()
+    var onThumbnailLoaded: ((String, ImageView) -> Unit)? = null
 
     init {
         actModeCallback = OxygenSelectionMode.wrap(activity, actModeCallback)
@@ -1165,6 +1166,14 @@ class MediaAdapter(
                     signature = signature,
                     skipMemoryCacheAtPaths = rotatedImagePaths,
                     crossFadeDuration = 0,
+                    onLoaded = {
+                        mediumThumbnail.post {
+                            if (mediumThumbnail.getTag(R.id.thumbnail_request_key) == requestKey &&
+                                mediumThumbnail.drawable != null) {
+                                onThumbnailLoaded?.invoke(medium.path, mediumThumbnail)
+                            }
+                        }
+                    },
                     onError = {
                         if (mediumThumbnail.getTag(R.id.thumbnail_request_key) == requestKey) {
                             mediumThumbnail.scaleType = ImageView.ScaleType.CENTER
