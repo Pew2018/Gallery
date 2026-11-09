@@ -7,4 +7,6 @@ object PhotoViewerTransition {
     const val DURATION_MS = 280L
     const val FADE_DURATION_MS = 170L
     const val READY_TIMEOUT_MS = 1_200L
+    const val REQUEST_CODE = 9_071
+    const val EXTRA_RETURN_PATH = "org.fossify.gallery.extra.MEDIA_RETURN_PATH"
 }

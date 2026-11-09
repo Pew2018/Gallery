@@ -1,0 +1,43 @@
+{
+  "branch": "perf/home-gallery-sorting",
+  "base_head": "bb8a12307c811553964c2fdeab090cdda9254c95",
+  "state": "implemented and validated locally",
+  "test_result": {
+    "tests": 1094,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "test_classes": 158,
+  "command": ":app:assembleFossRelease :app:testFossReleaseUnitTest --offline",
+  "build_result": "BUILD SUCCESSFUL in 3m 3s",
+  "release": {
+    "minify": true,
+    "shrink_resources": true,
+    "version": "1.14.1",
+    "version_code": 30,
+    "flavor": "foss",
+    "signing": "unsigned original plus local Android test certificate signed installation copy; no production certificate configured"
+  },
+  "emulator": {
+    "api": 29,
+    "architecture": "arm64-v8a",
+    "avd": "Pixel_4",
+    "read_only": true,
+    "animations_enabled": true,
+    "checks": [
+      "album cover enter and return",
+      "paused video preview enter and return",
+      "actual decoded video playback and frozen-frame return",
+      "portrait enter",
+      "swipe to landscape and return to current grid item",
+      "synchronized viewer chrome",
+      "no AndroidRuntime crash during checks"
+    ],
+    "return_events": "viewer_transition_return=1 and viewer_transition_reenter=1 for video and swiped photo"
+  },
+  "limitations": [
+    "Original recording device and original media were not connected; original hardware verification remains pending."
+  ],
+  "remote_operations": "none; no GitHub push"
+}

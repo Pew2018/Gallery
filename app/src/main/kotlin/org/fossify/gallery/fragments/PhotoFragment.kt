@@ -5,6 +5,7 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.RectF
 import android.graphics.Matrix
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
@@ -141,18 +142,36 @@ class PhotoFragment : ViewPagerFragment() {
         }
     }
 
-    /** Return only the visible, rendered, untransformed surface suitable for a shared transition. */
+    private var sharedSurface: org.fossify.gallery.helpers.MediaSharedSurface? = null
+
+    /** Share pixels, not the full-screen renderer and its black letterboxes. */
     fun sharedElementViewFor(path: String): View? {
-        if (!mIsFragmentVisible || !::mMedium.isInitialized || mMedium.path != path ||
-            mReportedImagePath != path || mCurrentRotationDegrees != 0 ||
-            abs(mCurrentGestureViewZoom - mInitialZoom) > MAX_ZOOM_EQUALITY_TOLERANCE) return null
-        return when {
-            mIsSubsamplingVisible && binding.subsamplingView.visibility == View.VISIBLE ->
-                binding.subsamplingView.takeIf { it.isZoomedOut() }
-            binding.gifViewFrame.visibility == View.VISIBLE -> binding.gifView
-            binding.gesturesView.drawable != null -> binding.gesturesView
-            else -> null
+        fun reject(reason: Int): View? {
+            org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_transition_photo_unavailable", reason)
+            return null
         }
+        if (!mIsFragmentVisible || !::mMedium.isInitialized || mMedium.path != path) return reject(1)
+        if (mReportedImagePath != path) return reject(2)
+        if (mCurrentRotationDegrees != 0) return reject(3)
+        if (abs(mCurrentGestureViewZoom - mInitialZoom) > MAX_ZOOM_EQUALITY_TOLERANCE) return reject(4)
+        if (binding.gifViewFrame.visibility == View.VISIBLE) return reject(5)
+        val drawable = binding.gesturesView.drawable ?: return reject(6)
+        val settings = binding.gesturesView.controller.settings
+        if (!settings.hasImageSize() || !settings.hasViewportSize()) return reject(7)
+        val bounds = RectF(0f, 0f, settings.imageWidth.toFloat(), settings.imageHeight.toFloat())
+        val matrix = Matrix()
+        binding.gesturesView.controller.state.get(matrix)
+        matrix.mapRect(bounds)
+        bounds.offset(binding.gesturesView.left.toFloat(), binding.gesturesView.top.toFloat())
+        if (mIsSubsamplingVisible && !binding.subsamplingView.isZoomedOut()) return reject(8)
+        val surface = sharedSurface ?: org.fossify.gallery.helpers.MediaSharedSurface(binding.root).also { sharedSurface = it }
+        return surface.prepare(drawable, bounds, binding.gesturesView, binding.subsamplingView)
+    }
+
+    fun finishSharedTransition() {
+        sharedSurface?.clear()
+        sharedSurface = null
+        if (view != null && mIsFragmentVisible) scheduleZoomableView()
     }
 
     private var mStoredShowExtendedDetails = false
@@ -345,6 +364,8 @@ class PhotoFragment : ViewPagerFragment() {
     }
 
     override fun onDestroyView() {
+        sharedSurface?.clear()
+        sharedSurface = null
         org.fossify.gallery.helpers.ViewerChromeMotion.cancel(binding.root)
         detailsGeneration++
         super.onDestroyView()
@@ -777,6 +798,7 @@ class PhotoFragment : ViewPagerFragment() {
     }
 
     private fun scheduleZoomableView() {
+        if ((activity as? org.fossify.gallery.activities.ViewPagerActivity)?.isMediaTransitionRunning() == true) return
         mLoadZoomableViewHandler.removeCallbacksAndMessages(null)
         mLoadZoomableViewHandler.postDelayed({
             if (mIsFragmentVisible && context?.config?.allowZoomingImages == true && (mMedium.isImage() || mMedium.isPortrait()) && !mIsSubsamplingVisible) {
@@ -786,6 +808,7 @@ class PhotoFragment : ViewPagerFragment() {
     }
 
     private fun addZoomableView() {
+        if ((activity as? org.fossify.gallery.activities.ViewPagerActivity)?.isMediaTransitionRunning() == true) return
         val rotation = degreesForRotation(mImageOrientation)
         mIsSubsamplingVisible = true
         val config = requireContext().config

@@ -14,6 +14,26 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], application = Application::class)
 class VideoPreviewFrameHandoffTest {
+    @Test fun firstDecodedFrameCannotReplaceCoverDuringSharedMotion() {
+        val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
+        try {
+            val cover = FrameLayout(controller.get())
+            val handoff = VideoPreviewFrameHandoff(cover)
+            val player = Any()
+            handoff.setTransitionRunning(true)
+            handoff.bind(player)
+            handoff.onRenderedFirstFrame(player)
+            assertEquals(View.VISIBLE, cover.visibility)
+            handoff.setTransitionRunning(false)
+            assertEquals(View.GONE, cover.visibility)
+            handoff.setTransitionRunning(true)
+            assertEquals(View.VISIBLE, cover.visibility)
+            handoff.keepCoverForError(player)
+            handoff.setTransitionRunning(false)
+            assertEquals(View.VISIBLE, cover.visibility)
+        } finally { controller.pause().stop().destroy() }
+    }
+
     @Test fun coverRemainsUntilActivePlayerFrameAndIgnoresStalePlayerCallbacks() {
         val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
         try {

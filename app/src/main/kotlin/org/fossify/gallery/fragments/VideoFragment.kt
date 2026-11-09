@@ -5,6 +5,8 @@ package org.fossify.gallery.fragments
 import android.annotation.SuppressLint
 import android.content.res.Configuration
 import android.content.res.ColorStateList
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.Color
 import android.graphics.Point
 import android.graphics.SurfaceTexture
@@ -50,6 +52,10 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.bumptech.glide.Glide
+import com.bumptech.glide.request.RequestListener
+import com.bumptech.glide.request.target.Target
+import com.bumptech.glide.load.DataSource as GlideDataSource
+import com.bumptech.glide.load.engine.GlideException
 import org.fossify.commons.extensions.beGone
 import org.fossify.commons.extensions.beGoneIf
 import org.fossify.commons.extensions.beVisible
@@ -164,15 +170,71 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     private lateinit var binding: PagerVideoItemBinding
     private var videoPreviewFrameHandoff: VideoPreviewFrameHandoff? = null
 
-    /** The decoded-frame cover is the stable shared surface for grid transitions. */
+    private var sharedSurface: org.fossify.gallery.helpers.MediaSharedSurface? = null
+    private var previewReady = false
+    private var sharedTransitionRunning = false
+
+    /** Use a frozen, content-only frame throughout the transition. */
     fun sharedElementViewFor(path: String): View? {
-        if (!::mMedium.isInitialized || mMedium.path != path || !isAdded || view == null) return null
-        val cover = binding.videoPreview.takeIf {
-            it.visibility == View.VISIBLE && it.isAttachedToWindow && it.width > 0 && it.height > 0
+        if (!::mMedium.isInitialized || mMedium.path != path || !mIsFragmentVisible ||
+            !isAdded || view == null || !previewReady ||
+            binding.videoSurfaceFrame.controller.state.zoom != 1f) return null
+        val drawable = if (binding.videoPreview.visibility != View.VISIBLE && mTextureView.isAvailable) {
+            // Texture readback is limited to the already displayed preview dimensions.
+            val bounds = org.fossify.gallery.helpers.MediaTransitionGeometry.fit(
+                binding.root.width, binding.root.height, mVideoSize.x, mVideoSize.y) ?: return null
+            val frame = runCatching { mTextureView.getBitmap(bounds.width().toInt().coerceAtLeast(1),
+                bounds.height().toInt().coerceAtLeast(1)) }.getOrNull() ?: return null
+            BitmapDrawable(resources, frame)
+        } else binding.videoPreview.drawable ?: return null
+        val bounds = org.fossify.gallery.helpers.MediaTransitionGeometry.fit(binding.root.width,
+            binding.root.height, drawable.intrinsicWidth, drawable.intrinsicHeight) ?: return null
+        sharedTransitionRunning = true
+        videoPreviewFrameHandoff?.setTransitionRunning(true)
+        val surface = sharedSurface ?: org.fossify.gallery.helpers.MediaSharedSurface(binding.root).also { sharedSurface = it }
+        return surface.prepare(drawable, bounds, binding.videoPreview, binding.videoSurfaceFrame)
+    }
+
+    fun finishSharedTransition() {
+        sharedSurface?.clear()
+        sharedSurface = null
+        sharedTransitionRunning = false
+        videoPreviewFrameHandoff?.setTransitionRunning(false)
+        if (view != null) setVideoSize()
+    }
+
+    fun setSharedChromeVisible(show: Boolean, animate: Boolean) {
+        if (!this::binding.isInitialized) return
+        val alpha = if (show && !mIsFullscreen) 1f else 0f
+        listOf(binding.videoPlayOutline, binding.bottomVideoTimeHolder.root, binding.videoDetails).forEach {
+            it.animate().cancel()
+            if (animate) it.animate().alpha(alpha).setDuration(if (show) 170L else 140L)
+                .setInterpolator(org.fossify.gallery.helpers.OxygenClassicMotion.easing()).start()
+            else it.alpha = alpha
         }
-        return cover ?: mTextureView.takeIf {
-            it.visibility == View.VISIBLE && it.isAttachedToWindow && it.width > 0 && it.height > 0
-        }
+    }
+
+    private fun loadPreview() {
+        val path = mMedium.path
+        Glide.with(this).load(path).signature(mMedium.getKey())
+            .fitCenter().dontAnimate()
+            .listener(object : RequestListener<Drawable> {
+                override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean = false
+                override fun onResourceReady(resource: Drawable, model: Any, target: Target<Drawable>?,
+                    dataSource: GlideDataSource, isFirstResource: Boolean): Boolean {
+                    binding.videoPreview.post {
+                        if (view != null && mMedium.path == path && binding.videoPreview.drawable === resource) {
+                            previewReady = true
+                            if (mVideoSize.x <= 1 || mVideoSize.y <= 1) {
+                                mVideoSize = Point(resource.intrinsicWidth, resource.intrinsicHeight)
+                                setVideoSize()
+                            }
+                            if (mIsFragmentVisible) listener?.imageRendered(path)
+                        }
+                    }
+                    return false
+                }
+            }).into(binding.videoPreview)
     }
     private lateinit var mView: View
     private lateinit var mMedium: Medium
@@ -289,7 +351,12 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                 false
             }
         }
-        videoPreviewFrameHandoff = VideoPreviewFrameHandoff(binding.videoPreview)
+        if ((activity as? org.fossify.gallery.activities.ViewPagerActivity)?.isMediaTransitionRunning() == true) {
+            setSharedChromeVisible(false, false)
+        }
+        videoPreviewFrameHandoff = VideoPreviewFrameHandoff(binding.videoPreview).also {
+            it.setTransitionRunning((activity as? org.fossify.gallery.activities.ViewPagerActivity)?.isMediaTransitionRunning() == true)
+        }
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.videoHolder) { _, insets ->
             val system = insets.getInsetsIgnoringVisibility(Type.systemBars())
@@ -309,13 +376,16 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
 
         mView = binding.root
+        binding.videoSurfaceFrame.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) setVideoSize()
+        }
 
         if (!arguments.getBoolean(SHOULD_INIT_FRAGMENT, true)) {
             return mView
         }
 
         storeStateVariables()
-        Glide.with(context).load(mMedium.path).signature(mMedium.getKey()).into(binding.videoPreview)
+        loadPreview()
 
         // setMenuVisibility is not called at VideoActivity (third party intent)
         if (!mIsFragmentVisible && activity is VideoActivity) {
@@ -326,10 +396,14 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         initTimeHolder()
         // checkIfPanorama() TODO: Implement panorama using a FOSS library
 
+        val resolutionPath = mMedium.path
         ensureBackgroundThread {
-            activity.getVideoResolution(mMedium.path)?.apply {
-                mVideoSize.x = x
-                mVideoSize.y = y
+            val size = activity.getVideoResolution(resolutionPath)
+            activity.runOnUiThread {
+                if (view != null && mMedium.path == resolutionPath && size != null && size.x > 0 && size.y > 0) {
+                    mVideoSize = size
+                    setVideoSize()
+                }
             }
         }
 
@@ -339,7 +413,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                 videoPlayOutline.beGone()
                 mVolumeSideScroll.beGone()
                 mBrightnessSideScroll.beGone()
-                Glide.with(context).load(mMedium.path).signature(mMedium.getKey()).into(videoPreview)
+                loadPreview()
             }
         }
 
@@ -426,6 +500,10 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     }
 
     override fun onDestroyView() {
+        sharedSurface?.clear()
+        sharedSurface = null
+        previewReady = false
+        Glide.with(this).clear(binding.videoPreview)
         org.fossify.gallery.helpers.ViewerChromeMotion.cancel(binding.root)
         detailsGeneration++
         // Fragment views are discarded on rotation too. Never keep their player,
@@ -444,6 +522,9 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
 
         mIsFragmentVisible = menuVisible
+        if (menuVisible && previewReady) binding.videoPreview.post {
+            if (view != null && mIsFragmentVisible) listener?.imageRendered(mMedium.path)
+        }
         val shouldPlayVideo = mWasFragmentInit && menuVisible && mConfig.autoplayVideos && !mConfig.gestureVideoPlayer
         if (shouldPlayVideo) playVideo()
     }
@@ -598,7 +679,9 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                 // Player.STATE_READY alone does not guarantee that the Surface has one.
                 if (mExoPlayer === listenerPlayer && view != null) {
                     videoPreviewFrameHandoff?.onRenderedFirstFrame(listenerPlayer)
-                    listener?.imageRendered(mMedium.path)
+                    // A fast decoder must not release the shared transition before its
+                    // stable preview has loaded. loadPreview owns that readiness signal.
+                    org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_video_first_frame")
                 }
             }
 
@@ -1022,29 +1105,13 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     }
 
     private fun setVideoSize() {
-        if (activity == null || mConfig.gestureVideoPlayer) return
-
-        val videoProportion = mVideoSize.x.toFloat() / mVideoSize.y.toFloat()
-        val display = requireActivity().windowManager.defaultDisplay
-        val screenWidth: Int
-        val screenHeight: Int
-
-        val realMetrics = DisplayMetrics()
-        display.getRealMetrics(realMetrics)
-        screenWidth = realMetrics.widthPixels
-        screenHeight = realMetrics.heightPixels
-
-        val screenProportion = screenWidth.toFloat() / screenHeight.toFloat()
-
-        mTextureView.layoutParams.apply {
-            if (videoProportion > screenProportion) {
-                width = screenWidth
-                height = (screenWidth.toFloat() / videoProportion).toInt()
-            } else {
-                width = (videoProportion * screenHeight.toFloat()).toInt()
-                height = screenHeight
-            }
-            mTextureView.layoutParams = this
+        if (activity == null || mConfig.gestureVideoPlayer || sharedTransitionRunning ||
+            mVideoSize.x <= 1 || mVideoSize.y <= 1) return
+        val bounds = org.fossify.gallery.helpers.MediaTransitionGeometry.fit(
+            binding.videoSurfaceFrame.width, binding.videoSurfaceFrame.height, mVideoSize.x, mVideoSize.y) ?: return
+        mTextureView.layoutParams = mTextureView.layoutParams.apply {
+            width = bounds.width().toInt().coerceAtLeast(1)
+            height = bounds.height().toInt().coerceAtLeast(1)
         }
     }
 

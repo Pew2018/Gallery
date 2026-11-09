@@ -321,6 +321,8 @@ class DirectoryAdapter(
             Picasso.get().cancelRequest(thumbnail)
             Glide.with(activity).clear(thumbnail)
             thumbnail.setImageDrawable(null)
+            thumbnail.setTag(R.id.thumbnail_request_key, null)
+            thumbnail.setTag(R.id.thumbnail_loaded_key, null)
             thumbnail.tag = null
         }
     }
@@ -1093,6 +1095,8 @@ class DirectoryAdapter(
                 Picasso.get().cancelRequest(dirThumbnail)
                 Glide.with(activity).clear(dirThumbnail)
                 dirThumbnail.setImageDrawable(null)
+                dirThumbnail.setTag(R.id.thumbnail_request_key, null)
+                dirThumbnail.setTag(R.id.thumbnail_loaded_key, null)
                 dirThumbnail.tag = null
                 dirLock.beVisible()
                 dirLock.background = ColorDrawable(root.context.getProperBackgroundColor())

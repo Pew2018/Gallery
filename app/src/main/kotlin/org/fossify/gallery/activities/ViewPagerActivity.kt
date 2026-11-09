@@ -31,6 +31,7 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.drawable.Icon
+import androidx.core.view.doOnPreDraw
 import android.os.Bundle
 import android.os.Handler
 import android.provider.MediaStore
@@ -216,6 +217,32 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private var mPath = ""
     private var viewerInitialSelectedPath = ""
+    private var mediaTransitionRunning = false
+    private var visualTitlePending = false
+    fun isMediaTransitionRunning() = mediaTransitionRunning || pendingPhotoSharedElement
+
+    private fun animateSharedChrome(show: Boolean, animate: Boolean = true) {
+        val alpha = if (show && !mIsFullScreen) 1f else 0f
+        listOf(binding.topShadow, binding.bottomActions.root, binding.mediumViewerAppbar).forEach {
+            it.animate().cancel()
+            if (animate) it.animate().alpha(alpha).setDuration(if (show) 170L else 140L)
+                .setInterpolator(OxygenClassicMotion.easing()).start()
+            else it.alpha = alpha
+        }
+        (getCurrentFragment() as? org.fossify.gallery.fragments.VideoFragment)?.setSharedChromeVisible(show, animate)
+    }
+
+    private fun finishMediaTransition() {
+        mediaTransitionRunning = false
+        if (!isFinishing && !isDestroyed && !finishAfterSharedTransitionInProgress) animateSharedChrome(true, false)
+        supportFragmentManager.fragments.forEach {
+            when (it) {
+                is org.fossify.gallery.fragments.PhotoFragment -> it.finishSharedTransition()
+                is org.fossify.gallery.fragments.VideoFragment -> it.finishSharedTransition()
+            }
+        }
+    }
+
     private var pendingPhotoSharedElement = false
     private var photoSharedElementMapped = false
     private var finishAfterSharedTransitionInProgress = false
@@ -550,18 +577,19 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             ?.takeIf { OxygenClassicMotion.enabled(this) }
         pendingPhotoSharedElement = photoSharedElementPath != null
         if (pendingPhotoSharedElement) {
+            mediaTransitionRunning = true
+            org.fossify.gallery.helpers.OxygenClassicActivityMotion.configureShared(this)
             postponeEnterTransition()
-            window.sharedElementEnterTransition = android.transition.ChangeBounds().apply {
-                duration = PhotoViewerTransition.DURATION_MS
-                interpolator = OxygenClassicMotion.easing()
-            }
-            window.sharedElementReturnTransition = android.transition.ChangeBounds().apply {
-                duration = PhotoViewerTransition.DURATION_MS
-                interpolator = OxygenClassicMotion.easing()
-            }
+            window.sharedElementEnterTransition = org.fossify.gallery.helpers.OxygenClassicActivityMotion.mediaTransition(
+                PhotoViewerTransition.DURATION_MS, ::finishMediaTransition)
+            window.sharedElementReturnTransition = org.fossify.gallery.helpers.OxygenClassicActivityMotion.mediaTransition(
+                PhotoViewerTransition.DURATION_MS)
             // The shared element is the only content transition. A parallel
             // window fade exposes the destination background before its frame.
             setEnterSharedElementCallback(object : SharedElementCallback() {
+                override fun onSharedElementStart(names: MutableList<String>, elements: MutableList<View>, snapshots: MutableList<View>?) {
+                    animateSharedChrome(!finishAfterSharedTransitionInProgress)
+                }
                 override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
                     val name = PhotoViewerTransition.ELEMENT_NAME
                     if (name !in names) return
@@ -581,8 +609,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     val name = PhotoViewerTransition.ELEMENT_NAME
                     if (name !in names) return
                     val path = photoSharedElementPath
-                    val view = if (path != null && getCurrentPath() == path)
-                        getCurrentSharedElementView(path) else null
+                    val view = path?.let(::getCurrentSharedElementView)
                     if (view == null) sharedElements.remove(name) else {
                         view.transitionName = name
                         sharedElements[name] = view
@@ -598,6 +625,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         binding.root.setBackgroundColor(Color.BLACK)
         binding.fragmentHolder.setBackgroundColor(Color.BLACK)
         binding.viewPager.setBackgroundColor(Color.BLACK)
+        if (pendingPhotoSharedElement) animateSharedChrome(false, false)
         org.fossify.gallery.helpers.OxygenProgressStyle.apply(this, config, binding.photoBoundaryLoading)
         binding.viewPager.onUnknownBoundary = { forward -> requestViewerBoundary(forward) }
         PhotoProfileAccessSessionManager.addListener(favoriteListenerId) { event ->
@@ -702,7 +730,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun onDestroy() {
-        photoSharedElementHandler.removeCallbacks(photoSharedElementTimeout)
+        photoSharedElementHandler.removeCallbacksAndMessages(null)
+        finishMediaTransition()
         if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
             org.fossify.gallery.helpers.DiagnosticLevel.INFO, "Viewer", "viewer_close",
             viewerDiagnosticRequestId,
@@ -782,6 +811,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
     }
 
+    // System back calls finishAfterTransition directly. Prepare the current media/album
+    // mapping before the framework captures its return, not after that return finishes.
+    override fun finishAfterTransition() { finish() }
+
     override fun finish() {
         // Activity.finishAfterTransition() dispatches back through this override on API 29.
         // Let that second call reach the framework without recursively starting another transition.
@@ -790,10 +823,21 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             return
         }
         releasePhotoSharedElement()
-        if (photoSharedElementMapped) {
+        finishMediaTransition()
+        val returnPath = getCurrentPath()
+        val canReturn = photoSharedElementMapped && returnPath.isNotEmpty() &&
+            getCurrentSharedElementView(returnPath) != null
+        org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_transition_return", if (canReturn) 1 else 0)
+        photoSharedElementPath = returnPath.takeIf { canReturn }
+        setResult(RESULT_OK, Intent().putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH,
+            returnPath.takeIf { canReturn }))
+        if (canReturn) {
+            animateSharedChrome(false)
+            mediaTransitionRunning = true
             finishAfterSharedTransitionInProgress = true
             super.finishAfterTransition()
         } else {
+            finishMediaTransition()
             super.finish()
         }
     }
@@ -4216,7 +4260,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (!pendingPhotoSharedElement) return
         pendingPhotoSharedElement = false
         photoSharedElementHandler.removeCallbacks(photoSharedElementTimeout)
-        if (!isFinishing && !isDestroyed) startPostponedEnterTransition()
+        if (!isFinishing && !isDestroyed) {
+            binding.viewPager.doOnPreDraw {
+                if (!isFinishing && !isDestroyed) {
+                    startPostponedEnterTransition()
+                    // Also clean up if a platform transition has no animators/targets.
+                    photoSharedElementHandler.postDelayed({
+                        if (!isFinishing && mediaTransitionRunning) finishMediaTransition()
+                    }, PhotoViewerTransition.DURATION_MS + PhotoViewerTransition.READY_TIMEOUT_MS)
+                }
+            }
+        }
     }
 
     override fun goToPrevItem() {
@@ -4489,7 +4543,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     )
                 )
             }
-            updateActionbarTitle()
+            if (swipePublicationGate.isMoving) visualTitlePending = true else updateActionbarTitle()
             // Page selection changes the capability state immediately, even when
             // catalog publication defers the rest of the toolbar refresh.
             refreshMediaDependentActionVisibility(getCurrentMedium())
@@ -4508,6 +4562,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val wasMoving = swipePublicationGate.isMoving
         val ready = swipePublicationGate.onScrollMoving(state != ViewPager.SCROLL_STATE_IDLE)
         if (state != ViewPager.SCROLL_STATE_IDLE) return
+        if (visualTitlePending || wasMoving) {
+            visualTitlePending = false
+            updateActionbarTitle()
+        }
         userSwipeInProgress = false
         swipePageOrigin = -1
         swipePrefetchTarget = -1

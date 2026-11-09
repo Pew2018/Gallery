@@ -14,6 +14,17 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], manifest = Config.NONE, application = Application::class)
 class OxygenClassicActivityMotionTest {
+    @Test fun sharedWindowDoesNotInstallASecondPageAnimation() {
+        val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
+        activity.intent.putExtra(PhotoViewerTransition.EXTRA_PATH, "/test/video.mp4")
+        OxygenClassicActivityMotion.install(activity)
+        assertEquals(0, activity.window.attributes.windowAnimations)
+        assertEquals(0L, activity.window.transitionBackgroundFadeDuration)
+        assertEquals(null, activity.window.enterTransition)
+        assertEquals(null, activity.window.returnTransition)
+        activity.finish()
+    }
+
     @Test fun activityWindowReceivesTheSharedDirectionalTransitionStyle() {
         val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
         OxygenClassicActivityMotion.install(activity)

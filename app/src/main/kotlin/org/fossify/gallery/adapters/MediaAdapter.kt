@@ -276,6 +276,7 @@ class MediaAdapter(
             if (tmb is ImageView) {
                 tmb.tag = null
                 tmb.setTag(R.id.thumbnail_request_key, null)
+                tmb.setTag(R.id.thumbnail_loaded_key, null)
                 Picasso.get().cancelRequest(tmb)
                 Glide.with(activity).clear(tmb)
                 tmb.setImageDrawable(null)
@@ -1149,6 +1150,7 @@ class MediaAdapter(
             if (mediumThumbnail.getTag(R.id.thumbnail_request_key) != requestKey) {
                 // Change the token before cancellation so an obsolete failure cannot start a fallback.
                 mediumThumbnail.setTag(R.id.thumbnail_request_key, requestKey)
+                mediumThumbnail.setTag(R.id.thumbnail_loaded_key, null)
                 Picasso.get().cancelRequest(mediumThumbnail)
                 Glide.with(activity).clear(mediumThumbnail)
                 mediumThumbnail.setImageDrawable(null)
@@ -1170,6 +1172,7 @@ class MediaAdapter(
                         mediumThumbnail.post {
                             if (mediumThumbnail.getTag(R.id.thumbnail_request_key) == requestKey &&
                                 mediumThumbnail.drawable != null) {
+                                mediumThumbnail.setTag(R.id.thumbnail_loaded_key, requestKey)
                                 onThumbnailLoaded?.invoke(medium.path, mediumThumbnail)
                             }
                         }

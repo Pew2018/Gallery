@@ -32,6 +32,7 @@ import org.fossify.gallery.helpers.DirectoryScanSnapshot
 import org.fossify.gallery.helpers.FolderMediaReadResult
 import org.fossify.gallery.helpers.FolderReadStatus
 import org.fossify.gallery.helpers.HomeDirectorySorter
+import org.fossify.gallery.helpers.OxygenClassicActivityMotion
 import org.fossify.gallery.helpers.AlbumPageTransition
 import org.fossify.gallery.helpers.GalleryEntryMotion
 import org.fossify.gallery.helpers.OxygenClassicMotion
@@ -2215,8 +2216,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     /** Match the selected album by path, including when a password gate delayed its launch. */
     private fun albumTransitionOptions(intent: Intent): Bundle? {
-        if (!OxygenClassicMotion.enabled(this) ||
-            org.fossify.gallery.helpers.GalleryBottomBar.isRootTransition(this)) return null
+        if (!OxygenClassicMotion.enabled(this)) return null
         val path = intent.getStringExtra(DIRECTORY) ?: return null
         val adapter = binding.directoriesGrid.adapter as? DirectoryAdapter ?: return null
         val position = adapter.dirs.indexOfFirst { it.path == path }
@@ -2226,12 +2226,15 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             adapter.dirs.getOrNull(position)?.path != path) return null
         val cover = holder.itemView.findViewById<ImageView>(R.id.dir_thumbnail) ?: return null
         if (!cover.isAttachedToWindow || cover.visibility != View.VISIBLE || cover.drawable == null ||
-            cover.width <= 0 || cover.height <= 0) return null
+            cover.width <= 0 || cover.height <= 0 ||
+            cover.getTag(R.id.thumbnail_loaded_key) == null ||
+            cover.getTag(R.id.thumbnail_loaded_key) != cover.getTag(R.id.thumbnail_request_key)) return null
 
         return runCatching {
             pendingAlbumReturnPath = path
+            OxygenClassicActivityMotion.configureShared(this)
             cover.transitionName = AlbumPageTransition.ELEMENT_NAME
-            setEnterSharedElementCallback(object : SharedElementCallback() {
+            setExitSharedElementCallback(object : SharedElementCallback() {
                 override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
                     val name = AlbumPageTransition.ELEMENT_NAME
                     if (name !in names) return
@@ -2245,14 +2248,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             })
             intent.putExtra(AlbumPageTransition.EXTRA_ACTIVE, true)
             intent.putExtra(AlbumPageTransition.EXTRA_COVER_PATH, adapter.dirs[position].tmb)
-            window.sharedElementExitTransition = android.transition.ChangeBounds().apply {
-                duration = AlbumPageTransition.DURATION_MS
-                interpolator = OxygenClassicMotion.easing()
-            }
-            window.sharedElementReenterTransition = android.transition.ChangeBounds().apply {
-                duration = AlbumPageTransition.DURATION_MS
-                interpolator = OxygenClassicMotion.easing()
-            }
+            window.sharedElementExitTransition = OxygenClassicActivityMotion.mediaTransition(AlbumPageTransition.DURATION_MS)
+            window.sharedElementReenterTransition = OxygenClassicActivityMotion.mediaTransition(AlbumPageTransition.DURATION_MS)
             // Keep folder navigation on one shared-element bounds animation;
             // a second window fade produces a visible flash on entry/return.
             ActivityOptions.makeSceneTransitionAnimation(this, cover, AlbumPageTransition.ELEMENT_NAME).toBundle()
