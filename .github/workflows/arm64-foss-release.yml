@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - perf/home-gallery-sorting
       - fix/folder-viewer-swipe
       - feature/custom-photo-profiles
       - feature/photo-session-seamless-viewer
