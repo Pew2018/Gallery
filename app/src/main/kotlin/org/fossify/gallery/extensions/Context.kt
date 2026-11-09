@@ -238,10 +238,12 @@ fun Context.getDirsToShow(
     allDirs: ArrayList<Directory>,
     currentPathPrefix: String,
     randomOrder: MutableMap<String, Long>? = null,
-    sortDirs: Boolean = true
+    sortDirs: Boolean = true,
+    groupDirectSubfolders: Boolean = config.groupDirectSubfolders,
+    directorySorter: ((ArrayList<Directory>) -> ArrayList<Directory>)? = null
 ): ArrayList<Directory> {
     val snapshots = dirs.mapTo(ArrayList()) { it.snapshot() }
-    return if (config.groupDirectSubfolders) {
+    return if (groupDirectSubfolders) {
         snapshots.forEach {
             it.subfoldersCount = 0
             it.subfoldersMediaCount = it.mediaCnt
@@ -265,7 +267,8 @@ fun Context.getDirsToShow(
             }
         }
 
-        if (sortDirs) getSortedDirectories(parentDirs, randomOrder) else parentDirs
+        if (sortDirs) directorySorter?.invoke(parentDirs) ?: getSortedDirectories(parentDirs, randomOrder)
+        else parentDirs
     } else {
         snapshots.forEach { it.subfoldersMediaCount = it.mediaCnt }
         snapshots

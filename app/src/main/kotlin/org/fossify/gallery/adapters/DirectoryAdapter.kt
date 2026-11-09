@@ -998,7 +998,7 @@ class DirectoryAdapter(
         val old = dirs.mapTo(ArrayList()) { it.snapshot() }
         diffExecutor.execute {
             if (generation != diffGeneration) return@execute
-            val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+            val calculationStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
             val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
                 override fun getOldListSize() = old.size
                 override fun getNewListSize() = directories.size
@@ -1007,6 +1007,9 @@ class DirectoryAdapter(
                 override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int) =
                     DirectoryPresentation.sameContent(old[oldItemPosition], directories[newItemPosition])
             })
+            org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                "album_diff_calculate", calculationStarted, directories.size
+            )
             activity.runOnUiThread {
                 if (generation != diffGeneration || activity.isDestroyed ||
                     recyclerView.adapter !== this || !isCurrent()) return@runOnUiThread
@@ -1022,11 +1025,12 @@ class DirectoryAdapter(
                 }
                 directoryScrollAnchor.clear()
                 directoryScrollAnchor.remember(recyclerView, dirs.map { it.path })
+                val commitStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
                 dirs = directories
                 latestDirectoryUpdate = null
                 fillLockedFolders()
                 diff.dispatchUpdatesTo(this)
-                org.fossify.gallery.helpers.GalleryPerfTrace.end("album_diff_commit", started, directories.size)
+                org.fossify.gallery.helpers.GalleryPerfTrace.end("album_diff_commit", commitStarted, directories.size)
                 if (forceDirectoryRebind) {
                     forceDirectoryRebind = false
                     notifyItemRangeChanged(0, itemCount)

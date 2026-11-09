@@ -16,6 +16,11 @@ import android.view.View
 import android.widget.RelativeLayout
 import android.widget.Toast
 import java.util.concurrent.Future
+import java.util.concurrent.CancellationException
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import org.fossify.gallery.helpers.OxygenClassicDialog
 import org.fossify.gallery.helpers.DirectoryScanEpoch
 import org.fossify.gallery.helpers.DirectoryMetadataRepository
@@ -23,6 +28,7 @@ import org.fossify.gallery.helpers.DirectoryScanScope
 import org.fossify.gallery.helpers.DirectoryScanSnapshot
 import org.fossify.gallery.helpers.FolderMediaReadResult
 import org.fossify.gallery.helpers.FolderReadStatus
+import org.fossify.gallery.helpers.HomeDirectorySorter
 import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.commons.dialogs.FilePickerDialog
@@ -256,6 +262,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private val directoryRandomOrder = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private var directorySortStartedNanos = 0L
     private var directorySortRequestedMode = 0
+    private val directoryPresentationGeneration = AtomicLong()
+    private val directoryPresentationExecutor: ExecutorService = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "gallery-directory-presentation").apply { isDaemon = true }
+    }
+    private var directoryPresentationFuture: Future<*>? = null
+    private var directoryPresentationDiscard: (() -> Unit)? = null
 
     private fun isCurrentDirectoryScan(id: Long): Boolean =
         directoryScanEpoch.isCurrent(id) && !mShouldStopFetching &&
@@ -739,6 +751,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     override fun onDestroy() {
+        directoryPresentationGeneration.incrementAndGet()
+        directoryPresentationFuture?.cancel(true)
+        directoryPresentationFuture = null
+        directoryPresentationDiscard?.invoke()
+        directoryPresentationDiscard = null
+        directoryPresentationExecutor.shutdownNow()
         directoryMetadataHandler.removeCallbacks(directoryMetadataRebindRunnable)
         directoryMetadataRebindWatchdog.stop()
         directoryMetadataRebindGate.cancel()
@@ -2764,105 +2782,220 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val snapshot = dirs.map { it.copy().also { copy -> copy.folderStatuses = it.folderStatuses } }
             .toCollection(ArrayList())
         runOnUiThread {
+            val request = directoryPresentationGeneration.incrementAndGet()
+            directoryPresentationDiscard?.invoke()
+            directoryPresentationFuture?.cancel(true)
+            directoryPresentationDiscard = null
+            directoryPresentationFuture = null
             if (isFinishing || isDestroyed || !presentationIsCurrent() ||
                 (scanRequest != null && !isCurrentDirectoryScan(scanRequest))) {
                 onDiscarded()
                 return@runOnUiThread
             }
-            val query = textToSearch ?: binding.mainMenu.getCurrentQuery()
-            val sortingAtPublication = config.directorySorting
-            val preparationStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
-            val measurePreparationDetails = org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()
-            val dedupeStarted = if (measurePreparationDetails)
-                org.fossify.gallery.helpers.GalleryPerfTrace.begin() else 0L
-            val distinctDirs = snapshot.filter { !mShowingFolderFavorites || mFavoriteFolderPaths.contains(it.path) }
-                .distinctBy {
-                    if (mShowingFolderFavorites) FavoriteFolderRules.normalizedPath(it.path)
-                    else it.path.getDistinctPath()
-                }.toCollection(ArrayList())
-            if (measurePreparationDetails) org.fossify.gallery.helpers.GalleryPerfTrace.end(
-                "album_presentation_dedupe", dedupeStarted, snapshot.size
-            )
-            val sortStarted = if (measurePreparationDetails)
-                org.fossify.gallery.helpers.GalleryPerfTrace.begin() else 0L
-            val sorted = if (sortDirs) getSortedDirectories(distinctDirs, directoryRandomOrder) else distinctDirs
-            if (measurePreparationDetails) org.fossify.gallery.helpers.GalleryPerfTrace.end(
-                "album_presentation_sort", sortStarted, distinctDirs.size
-            )
-            if (textToSearch == null) {
-                // Search always derives from the latest complete catalog, not the first cache.
-                mDirs = ArrayList(sorted)
-                mDirsIgnoringSearch = ArrayList(sorted)
+
+            val completion = AtomicBoolean(false)
+            val discardOnce = {
+                if (completion.compareAndSet(false, true)) {
+                    if (directoryPresentationGeneration.get() == request) directoryPresentationDiscard = null
+                    onDiscarded()
+                }
             }
-            val filterStarted = if (measurePreparationDetails)
-                org.fossify.gallery.helpers.GalleryPerfTrace.begin() else 0L
-            var visible = getDirsToShow(sorted, mDirs, mCurrentPathPrefix, directoryRandomOrder, sortDirs = sortDirs)
-                .toCollection(ArrayList())
-            if (query.isNotEmpty()) visible = visible.filter { it.name.contains(query, true) }
-                .sortedBy { !it.name.startsWith(query, true) }.toCollection(ArrayList())
-            if (measurePreparationDetails) org.fossify.gallery.helpers.GalleryPerfTrace.end(
-                "album_presentation_filter", filterStarted, visible.size
+            val commitOnce = {
+                if (completion.compareAndSet(false, true)) {
+                    if (directoryPresentationGeneration.get() == request) directoryPresentationDiscard = null
+                    onCommitted()
+                }
+            }
+            directoryPresentationDiscard = discardOnce
+            val query = textToSearch ?: binding.mainMenu.getCurrentQuery()
+            val searchInputAtPublication = binding.mainMenu.getCurrentQuery()
+            val sortingAtPublication = config.directorySorting
+            val customOrderAtPublication = config.customFoldersOrder
+            val pinnedFoldersAtPublication = config.pinnedFolders.toSet()
+            val showRecycleBinAtPublication = config.showRecycleBinAtFolders
+            val showRecycleBinLastAtPublication = config.showRecycleBinLast
+            val groupAtPublication = config.groupDirectSubfolders
+            val pathAtPublication = mCurrentPathPrefix
+            val favoriteViewAtPublication = mShowingFolderFavorites
+            val favoritePathsAtPublication = mFavoriteFolderPaths.toSet()
+            val localeAtPublication = java.util.Locale.getDefault()
+            // Grouping only consults the cached catalog for the current folder row.
+            // Snapshot that one row instead of copying the entire catalog on the UI thread.
+            val allDirsSnapshot = ArrayList<Directory>(1).apply {
+                mDirs.firstOrNull { it.path.equals(pathAtPublication, true) }?.let { add(it.snapshot()) }
+            }
+            val sortOptions = HomeDirectorySorter.Options(
+                sorting = sortingAtPublication,
+                customFoldersOrder = customOrderAtPublication,
+                pinnedFolders = pinnedFoldersAtPublication,
+                showRecycleBin = showRecycleBinAtPublication,
+                showRecycleBinLast = showRecycleBinLastAtPublication,
+                randomOrder = directoryRandomOrder,
+                locale = localeAtPublication
             )
+            val measurePreparationDetails = org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()
+            val isCurrentPresentation = {
+                !isFinishing && !isDestroyed && request == directoryPresentationGeneration.get() &&
+                    presentationIsCurrent() &&
+                    (scanRequest == null || isCurrentDirectoryScan(scanRequest)) &&
+                    config.directorySorting == sortingAtPublication &&
+                    config.customFoldersOrder == customOrderAtPublication &&
+                    config.pinnedFolders.toSet() == pinnedFoldersAtPublication &&
+                    config.showRecycleBinAtFolders == showRecycleBinAtPublication &&
+                    config.showRecycleBinLast == showRecycleBinLastAtPublication &&
+                    config.groupDirectSubfolders == groupAtPublication &&
+                    java.util.Locale.getDefault() == localeAtPublication &&
+                    mCurrentPathPrefix == pathAtPublication &&
+                    binding.mainMenu.getCurrentQuery() == searchInputAtPublication &&
+                    mShowingFolderFavorites == favoriteViewAtPublication &&
+                    (!favoriteViewAtPublication || mFavoriteFolderPaths == favoritePathsAtPublication)
+            }
 
-            if (scanRequest != null && org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
-                org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
-                    org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "album_adapter_submit", scanRequest,
-                    mapOf("itemCount" to visible.size, "sortDirs" to sortDirs, "scanComplete" to scanComplete)
-                )
+            directoryPresentationFuture = directoryPresentationExecutor.submit {
+                try {
+                    if (Thread.currentThread().isInterrupted || request != directoryPresentationGeneration.get()) {
+                        throw CancellationException()
+                    }
+                    val preparationStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+                    val dedupeStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+                    val distinctDirs = snapshot.filter {
+                        if (Thread.currentThread().isInterrupted) throw CancellationException()
+                        !favoriteViewAtPublication || favoritePathsAtPublication.contains(it.path)
+                    }
+                        .distinctBy {
+                            if (favoriteViewAtPublication) FavoriteFolderRules.normalizedPath(it.path)
+                            else it.path.getDistinctPath()
+                        }.toCollection(ArrayList())
+                    if (measurePreparationDetails) org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                        "album_presentation_dedupe", dedupeStarted, snapshot.size
+                    )
 
-            org.fossify.gallery.helpers.GalleryPerfTrace.end("album_presentation_prepare", preparationStarted, snapshot.size)
-            val committed = {
-                if (presentationIsCurrent() && (scanRequest == null || isCurrentDirectoryScan(scanRequest))) {
-                    // Only an in-progress scan can publish an unconfirmed empty cache.
-                    if (scanRequest == null || visible.isNotEmpty() || scanComplete) {
-                        checkPlaceholderVisibility(visible)
+                    var keyPreparationNanos = 0L
+                    var sortingNanos = 0L
+                    var groupedKeyPreparationNanos = 0L
+                    var groupedSortingNanos = 0L
+                    var groupedDirectoryCount = 0
+                    val sorted = if (sortDirs) {
+                        val sortedResult = HomeDirectorySorter.sort(distinctDirs, sortOptions)
+                        keyPreparationNanos += sortedResult.keyPreparationNanos
+                        sortingNanos += sortedResult.sortingNanos
+                        sortedResult.directories
+                    } else distinctDirs
+                    if (Thread.currentThread().isInterrupted || request != directoryPresentationGeneration.get()) {
+                        throw CancellationException()
+                    }
+
+                    val filterStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+                    val visible = getDirsToShow(
+                        sorted,
+                        allDirsSnapshot,
+                        pathAtPublication,
+                        directoryRandomOrder,
+                        sortDirs = sortDirs,
+                        groupDirectSubfolders = groupAtPublication,
+                        directorySorter = if (sortDirs) { grouped ->
+                            val groupedResult = HomeDirectorySorter.sort(grouped, sortOptions)
+                            groupedDirectoryCount += grouped.size
+                            groupedKeyPreparationNanos += groupedResult.keyPreparationNanos
+                            groupedSortingNanos += groupedResult.sortingNanos
+                            groupedResult.directories
+                        } else null
+                    ).let { shown -> HomeDirectorySorter.filterForSearch(shown, query) }
+                    org.fossify.gallery.helpers.GalleryPerfTrace.duration(
+                        "album_sort_key_prepare", keyPreparationNanos, distinctDirs.size
+                    )
+                    org.fossify.gallery.helpers.GalleryPerfTrace.duration(
+                        "album_presentation_sort", sortingNanos, distinctDirs.size
+                    )
+                    if (groupedDirectoryCount > 0) {
+                        org.fossify.gallery.helpers.GalleryPerfTrace.duration(
+                            "album_group_key_prepare", groupedKeyPreparationNanos, groupedDirectoryCount
+                        )
+                        org.fossify.gallery.helpers.GalleryPerfTrace.duration(
+                            "album_group_sort", groupedSortingNanos, groupedDirectoryCount
+                        )
+                    }
+                    if (measurePreparationDetails) {
+                        org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                            "album_presentation_filter", filterStarted, visible.size
+                        )
                     }
                     if (scanRequest != null && org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
                         org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
-                            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "album_adapter_commit", scanRequest,
-                            mapOf("itemCount" to visible.size, "scanComplete" to scanComplete)
+                            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "album_adapter_submit", scanRequest,
+                            mapOf("itemCount" to visible.size, "sortDirs" to sortDirs, "scanComplete" to scanComplete)
                         )
-                    if (directorySortStartedNanos != 0L &&
-                        directorySortRequestedMode == sortingAtPublication &&
-                        sortingAtPublication == config.directorySorting &&
-                        (scanComplete || (scanRequest == null && !mIsGettingDirs))) {
-                        org.fossify.gallery.helpers.GalleryPerfTrace.end(
-                            "album_sort_to_commit", directorySortStartedNanos, visible.size
-                        )
-                        directorySortStartedNanos = 0L
+                    org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                        "album_presentation_prepare", preparationStarted, snapshot.size
+                    )
+
+                    runOnUiThread {
+                        if (!isCurrentPresentation()) {
+                            discardOnce()
+                            return@runOnUiThread
+                        }
+                        if (textToSearch == null) {
+                            // Search always derives from the latest complete catalog, not the first cache.
+                            mDirs = ArrayList(sorted)
+                            mDirsIgnoringSearch = ArrayList(sorted)
+                        }
+                        val committed = {
+                            if (isCurrentPresentation()) {
+                                // Only an in-progress scan can publish an unconfirmed empty cache.
+                                if (scanRequest == null || visible.isNotEmpty() || scanComplete) {
+                                    checkPlaceholderVisibility(visible)
+                                }
+                                if (scanRequest != null && org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+                                    org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                                        org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "album_adapter_commit", scanRequest,
+                                        mapOf("itemCount" to visible.size, "scanComplete" to scanComplete)
+                                    )
+                                if (directorySortStartedNanos != 0L &&
+                                    directorySortRequestedMode == sortingAtPublication &&
+                                    sortingAtPublication == config.directorySorting &&
+                                    (scanComplete || (scanRequest == null && !mIsGettingDirs))
+                                ) {
+                                    org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                                        "album_sort_to_commit", directorySortStartedNanos, visible.size
+                                    )
+                                    directorySortStartedNanos = 0L
+                                }
+                                commitOnce()
+                            } else discardOnce()
+                        }
+
+                        val current = getRecyclerAdapter()
+                        if (current == null || forceRecreate) {
+                            initZoomListener()
+                            DirectoryAdapter(this, visible, this, binding.directoriesGrid,
+                                isPickIntent(intent) || isGetAnyContentIntent(intent), binding.directoriesRefreshLayout) {
+                                val clicked = it as Directory
+                                if (clicked.subfoldersCount == 1 || !config.groupDirectSubfolders) {
+                                    if (clicked.path != config.tempFolderPath) itemClicked(clicked.path)
+                                } else {
+                                    mCurrentPathPrefix = clicked.path
+                                    mOpenedSubfolders.add(clicked.path)
+                                    setupAdapter(mDirs, "")
+                                }
+                            }.apply {
+                                setupZoomListener(mZoomListener)
+                                binding.directoriesGrid.adapter = this
+                                setupScrollDirection()
+                                if (config.viewTypeFolders == VIEW_TYPE_LIST && areSystemAnimationsEnabled) {
+                                    binding.directoriesGrid.scheduleLayoutAnimation()
+                                }
+                            }
+                            committed()
+                        } else {
+                            current.directorySorting = config.directorySorting
+                            current.updateDirs(visible, isCurrent = {
+                                isCurrentPresentation() && binding.directoriesGrid.adapter === current
+                            }, onCommitted = committed, preserveOrder = !sortDirs, onDiscarded = discardOnce)
+                        }
                     }
-                    onCommitted()
-                } else onDiscarded()
-            }
-            val current = getRecyclerAdapter()
-            if (current == null || forceRecreate) {
-                initZoomListener()
-                DirectoryAdapter(this, visible, this, binding.directoriesGrid,
-                    isPickIntent(intent) || isGetAnyContentIntent(intent), binding.directoriesRefreshLayout) {
-                    val clicked = it as Directory
-                    if (clicked.subfoldersCount == 1 || !config.groupDirectSubfolders) {
-                        if (clicked.path != config.tempFolderPath) itemClicked(clicked.path)
-                    } else {
-                        mCurrentPathPrefix = clicked.path
-                        mOpenedSubfolders.add(clicked.path)
-                        setupAdapter(mDirs, "")
-                    }
-                }.apply {
-                    setupZoomListener(mZoomListener)
-                    binding.directoriesGrid.adapter = this
-                    setupScrollDirection()
-                    if (config.viewTypeFolders == VIEW_TYPE_LIST && areSystemAnimationsEnabled) {
-                        binding.directoriesGrid.scheduleLayoutAnimation()
-                    }
+                } catch (_: CancellationException) {
+                    runOnUiThread { discardOnce() }
                 }
-                committed()
-            } else {
-                current.directorySorting = config.directorySorting
-                current.updateDirs(visible, isCurrent = {
-                    !isFinishing && !isDestroyed && presentationIsCurrent() && binding.directoriesGrid.adapter === current &&
-                        config.directorySorting == sortingAtPublication &&
-                        (scanRequest == null || isCurrentDirectoryScan(scanRequest))
-                }, onCommitted = committed, preserveOrder = !sortDirs, onDiscarded = onDiscarded)
             }
         }
     }
