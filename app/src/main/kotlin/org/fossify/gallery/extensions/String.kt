@@ -6,11 +6,21 @@ import java.io.File
 import java.io.IOException
 import java.util.Locale
 
-fun String.isThisOrParentIncluded(includedPaths: MutableSet<String>) =
-    includedPaths.any { equals(it, true) } || includedPaths.any { "$this/".startsWith("$it/", true) }
+private fun String.withinFolder(root: String) = this == root || startsWith("${root.trimEnd('/')}/")
 
-fun String.isThisOrParentExcluded(excludedPaths: MutableSet<String>) =
-    excludedPaths.any { equals(it, true) } || excludedPaths.any { "$this/".startsWith("$it/", true) }
+private fun String.matchesFolderRoots(roots: Set<String>, exact: Boolean = false): Boolean {
+    if (roots.isEmpty()) return false
+    if (roots.any { if (exact) this == it else withinFolder(it) }) return true
+    val identity = getDistinctPath()
+    return roots.any { root ->
+        val parent = root.getDistinctPath()
+        if (exact) identity == parent else identity.withinFolder(parent)
+    }
+}
+
+fun String.isThisOrParentIncluded(includedPaths: MutableSet<String>) = matchesFolderRoots(includedPaths)
+
+fun String.isThisOrParentExcluded(excludedPaths: MutableSet<String>) = matchesFolderRoots(excludedPaths)
 
 // cache which folders contain .nomedia files to avoid checking them over and over again
 fun String.shouldFolderBeVisible(
@@ -34,7 +44,7 @@ fun String.shouldFolderBeVisible(
 
     if (!showHidden && filename.startsWith('.')) {
         return false
-    } else if (includedPaths.contains(this)) {
+    } else if (matchesFolderRoots(includedPaths, exact = true)) {
         return true
     }
 
@@ -47,7 +57,7 @@ fun String.shouldFolderBeVisible(
 
     return if (!showHidden && containsNoMedia) {
         false
-    } else if (excludedPaths.contains(this)) {
+    } else if (matchesFolderRoots(excludedPaths, exact = true)) {
         false
     } else if (isThisOrParentIncluded(includedPaths)) {
         true
@@ -84,9 +94,9 @@ fun String.shouldFolderBeVisible(
 // recognize /sdcard/DCIM as the same folder as /storage/emulated/0/DCIM
 fun String.getDistinctPath(): String {
     return try {
-        File(this).canonicalPath.lowercase(Locale.getDefault())
+        File(this).canonicalPath
     } catch (e: IOException) {
-        lowercase(Locale.getDefault())
+        this
     }
 }
 

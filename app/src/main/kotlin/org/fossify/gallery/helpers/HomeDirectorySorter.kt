@@ -89,8 +89,8 @@ internal object HomeDirectorySorter {
                 first.textKey != null && second.textKey != null -> first.textKey.compareTo(second.textKey)
                 options.sorting and SORT_BY_SIZE != 0 -> first.directory.size.compareTo(second.directory.size)
                 options.sorting and SORT_BY_COUNT != 0 -> first.directory.mediaCnt.compareTo(second.directory.mediaCnt)
-                options.sorting and SORT_BY_DATE_MODIFIED != 0 -> first.directory.modified.compareTo(second.directory.modified)
-                else -> first.directory.taken.compareTo(second.directory.taken)
+                options.sorting and SORT_BY_DATE_MODIFIED != 0 -> first.directory.modifiedForSort(descending).compareTo(second.directory.modifiedForSort(descending))
+                else -> first.directory.takenForSort(descending).compareTo(second.directory.takenForSort(descending))
             }
             val orderedPrimary = if (descending) primary.compareTo(0).let { -it } else primary.compareTo(0)
             if (orderedPrimary != 0) orderedPrimary else {

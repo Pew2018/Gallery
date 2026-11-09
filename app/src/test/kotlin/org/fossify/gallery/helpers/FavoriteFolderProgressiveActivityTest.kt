@@ -53,7 +53,11 @@ class FavoriteFolderProgressiveActivityTest {
         override fun update(uri: Uri, values: ContentValues?, selection: String?, args: Array<out String>?) = 0
     }
 
-    @Test fun safeManifestIsClickableBeforeBlockedMetadataAndStatisticsFillSameAdapter() {
+    @Test fun safeManifestIsClickableBeforeBlockedMetadataAndStatisticsFillSameAdapter() = runManifestTest(false)
+
+    @Test fun changedDataScopeRetiresBlockedFavoriteLoadAndClearsLoadingWithoutPublishingOldCards() = runManifestTest(true)
+
+    private fun runManifestTest(changeScope: Boolean) {
         val app = RuntimeEnvironment.getApplication()
         GalleryDatabase.destroyInstance()
         app.getSharedPrefs().edit().clear().commit()
@@ -108,6 +112,15 @@ class FavoriteFolderProgressiveActivityTest {
             activity.config.directorySorting = SORT_BY_NAME or org.fossify.commons.helpers.SORT_DESCENDING
             MainActivity::class.java.getDeclaredMethod("refreshDirectoryPresentation").apply { isAccessible = true }.invoke(activity)
             await { coordinator.hasVisibleManifest && adapter()?.dirs?.map { it.path } == listOf(unavailable.path, folder.path) }
+            if (changeScope) {
+                app.config.filterMedia = TYPE_VIDEOS
+                provider.release.countDown()
+                await { coordinator.status != FavoriteFolderLoadStatus.Loading &&
+                    !MainActivity::class.java.getDeclaredField("mIsGettingDirs").apply { isAccessible = true }.getBoolean(activity) }
+                assertNull(adapter())
+                assertFalse(activity.findViewById<androidx.swiperefreshlayout.widget.SwipeRefreshLayout>(R.id.directories_refresh_layout).isRefreshing)
+                return
+            }
             provider.release.countDown()
             await { coordinator.status != FavoriteFolderLoadStatus.Loading && adapter()?.dirs?.any { it.path == folder.path && it.mediaCnt == 1 } == true }
             assertSame(first, adapter())

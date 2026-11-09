@@ -1,0 +1,18 @@
+{
+  "class": "DirectoryMetadataRepositoryTest",
+  "tests": "8",
+  "failures": "0",
+  "errors": "0",
+  "skipped": "0",
+  "time": "0.283",
+  "cases": [
+    "deferredRepositoryReachesLaterThirtySixPathsAfterTwentyFourOfflinePaths",
+    "missingStatsSwitchesCoalesceWhileReadingAndBeforeObserverRebind",
+    "fullStatsRoundTripAndOmittedFieldsRetainPreviewWithoutClaimingCompleteness",
+    "partialAndMismatchedScopeCannotPoisonACompleteCount",
+    "invalidatedScanIsDeferredRatherThanPublished",
+    "lateOldScanCannotReplaceNewerCommittedResult",
+    "protectedDirectoryRequiresTheExactLiveFolderSession",
+    "missingRowIsInsertedAndFullScanSupportsDecreasesAndZero"
+  ]
+}

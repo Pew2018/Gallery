@@ -58,7 +58,7 @@ class RefreshRepairTest {
             val refreshed = background { scan(root.toString()) }
             assertEquals(setOf(old, indexedOnly, added), refreshed.map { it.path }.toSet())
             assertEquals(3, refreshed.size)
-            assertEquals(123L, refreshed.single { it.path == old }.size)
+            assertEquals(1L, refreshed.single { it.path == old }.size) // freshly read file wins over stale index size
             assertEquals(2L, refreshed.single { it.path == added }.size)
             assertTrue("all source queries remain folder bounded", provider.queries.all { it?.contains("LIKE") == true })
             val controller = Robolectric.buildActivity(org.fossify.gallery.activities.SimpleActivity::class.java).setup()

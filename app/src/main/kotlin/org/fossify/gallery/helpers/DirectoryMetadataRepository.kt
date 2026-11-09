@@ -2,16 +2,19 @@ package org.fossify.gallery.helpers
 
 import android.content.Context
 import android.util.Log
-import org.fossify.commons.helpers.SORT_BY_SIZE
+import org.fossify.commons.extensions.getSharedPrefs
+import org.fossify.commons.extensions.isExternalStorageManager
 import org.fossify.gallery.R
 import org.fossify.gallery.databases.GalleryDatabase
 import org.fossify.gallery.extensions.config
+import org.fossify.gallery.extensions.directoryCoverNeedsMediaOrder
 import org.fossify.gallery.extensions.createDirectoryFromMedia
 import org.fossify.gallery.extensions.directoryDB
 import org.fossify.gallery.extensions.getFavoritePaths
 import org.fossify.gallery.extensions.isThisOrParentExcluded
 import org.fossify.gallery.models.Directory
 import org.fossify.gallery.models.Medium
+import org.fossify.gallery.models.DirectoryStats
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -20,12 +23,38 @@ internal data class DirectoryScanScope(
     val filterMedia: Int,
     val showDotFiles: Boolean,
     val pickImagesOnly: Boolean = false,
-    val pickVideosOnly: Boolean = false
+    val pickVideosOnly: Boolean = false,
+    val access: DirectoryAccessState? = null
 ) {
     fun matches(context: Context): Boolean {
         val current = context.config
         return !pickImagesOnly && !pickVideosOnly && filterMedia != 0 &&
-            current.filterMedia == filterMedia && current.shouldShowHidden == showDotFiles
+            current.filterMedia == filterMedia && current.shouldShowHidden == showDotFiles &&
+            (access == null || access == DirectoryAccessState.capture(context))
+    }
+}
+
+/** The authorization and data configuration fence deliberately excludes sort/search/layout. */
+internal data class DirectoryAccessState(
+    val permissions: List<Int>, val manager: Boolean, val grants: Set<String>,
+    val filter: Int, val hidden: Boolean, val included: Set<String>, val excluded: Set<String>,
+    val showExcluded: Boolean, val protection: Map<String, Any?>
+) {
+    companion object {
+        fun capture(context: Context): DirectoryAccessState {
+            val cfg = context.config
+            return DirectoryAccessState(
+                listOf("android.permission.READ_EXTERNAL_STORAGE", "android.permission.READ_MEDIA_IMAGES",
+                    "android.permission.READ_MEDIA_VIDEO", "android.permission.READ_MEDIA_VISUAL_USER_SELECTED").map {
+                    androidx.core.content.ContextCompat.checkSelfPermission(context, it)
+                }, isExternalStorageManager(),
+                context.contentResolver.persistedUriPermissions.filter { it.isReadPermission }.map { it.uri.toString() }.toSet(),
+                cfg.filterMedia, cfg.shouldShowHidden, cfg.includedFolders.toSet(), cfg.excludedFolders.toSet(),
+                cfg.temporarilyShowExcluded,
+                context.getSharedPrefs().all.filterKeys { it.contains("protect", true) || it.contains("password", true) }
+                    .mapValues { (_, value) -> if (value is Set<*>) value.toSet() else value }
+            )
+        }
     }
 }
 
@@ -39,7 +68,8 @@ internal data class DirectoryScanSnapshot(
     val folderSessionId: String? = null,
     val isCurrent: () -> Boolean = { true },
     // MainActivity already updates its own adapter; do not recursively restart its scan.
-    val notifyObservers: Boolean = true
+    val notifyObservers: Boolean = true,
+    val preparedDirectory: Directory? = null
 )
 
 /**
@@ -52,6 +82,7 @@ internal object DirectoryMetadataRepository {
     private var revision = 0L
     private val activeRequests = hashMapOf<String, Long>()
     private val committedRequests = hashMapOf<String, Long>()
+    private val committedStats = hashMapOf<String, DirectoryStats>()
     private val pending = MetadataRetryQueue(android.os.SystemClock::elapsedRealtime)
     private val publishedRevisions = hashMapOf<String, Long>()
     private val observers = linkedSetOf<(String) -> Unit>()
@@ -61,6 +92,7 @@ internal object DirectoryMetadataRepository {
         if (!path.startsWith('/') || path == "/") return@synchronized 0L
         val version = ++revision
         activeRequests[path] = version
+        committedStats.remove(path)
         version
     }
 
@@ -69,6 +101,32 @@ internal object DirectoryMetadataRepository {
         synchronized(lock) {
             if (activeRequests[path] == requestVersion && committedRequests[path] != requestVersion) pending.add(path)
         }
+    }
+
+    /** Queue only missing physical rows; a sort never replaces a live per-path ticket.
+     * The existing retry worker coalesces repeated wakes and reads all fields once.
+     */
+    fun ensureStatistics(context: Context, directories: List<Directory>) {
+        val cfg = context.config
+        val scope = DirectoryStats.scope(cfg.filterMedia, cfg.shouldShowHidden)
+        val required = when {
+            cfg.directorySorting and org.fossify.commons.helpers.SORT_BY_SIZE != 0 -> DirectoryStats.SIZE
+            cfg.directorySorting and org.fossify.commons.helpers.SORT_BY_COUNT != 0 -> DirectoryStats.COUNT
+            cfg.directorySorting and org.fossify.commons.helpers.SORT_BY_DATE_MODIFIED != 0 -> DirectoryStats.MODIFIED
+            cfg.directorySorting and org.fossify.commons.helpers.SORT_BY_DATE_TAKEN != 0 -> DirectoryStats.TAKEN
+            else -> return
+        }
+        val missing = synchronized(lock) { directories.filter { directory ->
+            val latest = committedStats[directory.path]
+            val recentlySatisfied = latest != null && latest.scope == scope && latest.has(required) &&
+                latest.scannedAt >= directory.stats.scannedAt && committedRequests[directory.path] == activeRequests[directory.path]
+            directory.path.startsWith('/') && !recentlySatisfied &&
+                (directory.stats.scope != scope || !directory.stats.has(required)) &&
+                FolderUnlockSessionManager.findProtectedAncestor(directory.path, cfg::isFolderProtected) == null
+        } }
+        if (missing.isEmpty()) return
+        synchronized(lock) { missing.forEach { pending.add(it.path) } }
+        refreshPendingPaths(context)
     }
 
     fun observe(observer: (String) -> Unit) { synchronized(lock) { observers.add(observer) } }
@@ -101,18 +159,20 @@ internal object DirectoryMetadataRepository {
         if (!authorized(context, snapshot)) { defer(path, version); return false }
 
         val cfg = context.config
-        val media = ArrayList(snapshot.mediaSnapshot.distinctBy { it.path }.map { it.copy() })
         val calculated = try {
-            context.createDirectoryFromMedia(path, media, cfg.parseAlbumCovers(),
+            snapshot.preparedDirectory?.snapshot() ?: context.createDirectoryFromMedia(path,
+                ArrayList(snapshot.mediaSnapshot.distinctBy { it.path }.map { it.copy() }), cfg.parseAlbumCovers(),
                 context.getString(R.string.hidden), cfg.includedFolders,
-                cfg.directorySorting and SORT_BY_SIZE != 0,
-                ArrayList(NoMediaSnapshot().markerFolders(path)))
+                true,
+                ArrayList(NoMediaSnapshot().markerFolders(path)),
+                snapshot.readResult.stats)
         } catch (error: Exception) {
             Log.w("GalleryDirs", "Cannot compute directory metadata", error)
             defer(path, version)
             return false
         }
 
+        var committedStatistics = calculated.stats
         var changed = false
         var accepted = false
         var recipients: List<(String) -> Unit> = emptyList()
@@ -135,21 +195,28 @@ internal object DirectoryMetadataRepository {
                         if (!File(path).isDirectory) throw java.io.IOException("Directory is no longer visible")
                         dao.insert(calculated)
                         changed = true
-                    } else if (old.tmb != calculated.tmb || old.mediaCnt != calculated.mediaCnt ||
-                        old.modified != calculated.modified || old.taken != calculated.taken ||
-                        old.size != calculated.size || old.types != calculated.types ||
-                        old.sortValue != calculated.sortValue) {
-                        val updated = dao.updateDirectory(
-                            path, calculated.tmb, calculated.mediaCnt, calculated.modified,
-                            calculated.taken, calculated.size, calculated.types, calculated.sortValue
+                    } else {
+                        val sameScope = calculated.stats.scope == old.stats.scope
+                        val merged = DirectoryStats.retainUnknown(calculated.stats, old.stats)
+                        committedStatistics = merged
+                        val updated = old.copy(
+                            tmb = calculated.tmb, mediaCnt = calculated.mediaCnt,
+                            modified = if (merged.has(DirectoryStats.MODIFIED)) merged.maxModified else if (sameScope) old.modified else calculated.modified,
+                            taken = if (merged.has(DirectoryStats.TAKEN)) merged.maxTaken else if (sameScope) old.taken else calculated.taken,
+                            size = if (merged.has(DirectoryStats.SIZE)) merged.bytes else if (sameScope) old.size else calculated.size,
+                            types = calculated.types, sortValue = "", stats = merged
                         )
-                        if (updated != 1) throw java.io.IOException("Directory metadata update lost its row")
-                        changed = true
+                        if (old.copy(stats = old.stats.copy(scannedAt = updated.stats.scannedAt)) != updated) {
+                            if (dao.update(updated) != 1) throw java.io.IOException("Directory metadata update lost its row")
+                            changed = true
+                        }
                     }
                 }
                 accepted = true
                 committedRequests[path] = version
-                pending.remove(path)
+                committedStats[path] = committedStatistics
+                if (committedStatistics.has(DirectoryStats.ALL)) pending.remove(path)
+                else { pending.add(path); pending.failed(path) }
                 if (changed) {
                     publishedRevisions[path] = ++revision
                     recipients = observers.toList()
@@ -195,8 +262,9 @@ internal object DirectoryMetadataRepository {
                             try {
                                 val fetcher = MediaFetcher(context.applicationContext, reportReadFailures = true)
                                 val read = fetcher.readFolder(path, false, false, true, true,
-                                    cfg.directorySorting and SORT_BY_SIZE != 0, context.getFavoritePaths(),
-                                    false, hashMapOf(), fetcher.getSelectedFolderDateOverrides(listOf(path)), null)
+                                    true, context.getFavoritePaths(),
+                                    false, hashMapOf(), fetcher.directoryDates(path), null,
+                                    sortResult = context.directoryCoverNeedsMediaOrder(path, cfg.parseAlbumCovers()))
                                 commit(context, DirectoryScanSnapshot(path, version, scope, read,
                                     read.media.map { it.copy() }))
                             } catch (error: Exception) {

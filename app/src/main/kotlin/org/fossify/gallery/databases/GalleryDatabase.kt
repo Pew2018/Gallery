@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import org.fossify.gallery.interfaces.*
 import org.fossify.gallery.models.*
 
-@Database(entities = [Directory::class, Medium::class, Widget::class, DateTaken::class, Favorite::class, FavoriteFolder::class], version = 11)
+@Database(entities = [Directory::class, Medium::class, Widget::class, DateTaken::class, Favorite::class, FavoriteFolder::class], version = 12)
 abstract class GalleryDatabase : RoomDatabase() {
 
     abstract fun DirectoryDao(): DirectoryDao
@@ -41,6 +41,7 @@ abstract class GalleryDatabase : RoomDatabase() {
                             .addMigrations(MIGRATION_8_9)
                             .addMigrations(MIGRATION_9_10)
                             .addMigrations(MIGRATION_10_11)
+                            .addMigrations(MIGRATION_11_12)
                             .build()
                     }
                 }
@@ -53,6 +54,17 @@ abstract class GalleryDatabase : RoomDatabase() {
                 db?.close()
             }
             db = null
+        }
+
+        internal val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Preserve all old columns and user data. One legacy extremum cannot recover two.
+                listOf("count", "bytes", "minModified", "maxModified", "minTaken", "maxTaken",
+                    "types", "takenFallbackCount", "known", "scannedAt").forEach {
+                    database.execSQL("ALTER TABLE directories ADD COLUMN stats_$it INTEGER NOT NULL DEFAULT 0")
+                }
+                database.execSQL("ALTER TABLE directories ADD COLUMN stats_scope TEXT NOT NULL DEFAULT ''")
+            }
         }
 
         private val MIGRATION_4_5 = object : Migration(4, 5) {

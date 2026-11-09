@@ -13,7 +13,7 @@ internal data class FolderEnumeration(
     val files: List<File>, val method: String = "direct", val limited: Boolean = false,
     val current: () -> Boolean = { true }
 )
-internal data class FolderFileMetadata(val size: Long?, val modified: Long, val readable: Boolean, val regular: Boolean)
+internal data class FolderFileMetadata(val size: Long?, val modified: Long?, val readable: Boolean, val regular: Boolean)
 internal interface FolderFileAccess {
     fun enumerate(folder: String): FolderEnumeration
     fun metadata(file: File): FolderFileMetadata
@@ -91,7 +91,7 @@ internal class DeviceFolderFileAccess(private val context: Context) : FolderFile
                 val regular = it.getString(2) != DocumentsContract.Document.MIME_TYPE_DIR
                 // An open descriptor proves readability; unknown size is retained as the project's 0 sentinel.
                 val readable = regular && context.contentResolver.openFileDescriptor(uri, "r")?.use { true } == true
-                FolderFileMetadata(size, it.getLong(1), readable, regular)
+                FolderFileMetadata(size, if (it.isNull(1)) null else it.getLong(1), readable, regular)
             }
         }
         if (!file.exists()) throw IOException("File disappeared during scan")

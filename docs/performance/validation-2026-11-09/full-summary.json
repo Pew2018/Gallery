@@ -1,0 +1,16 @@
+{
+  "tests": 1088,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "classes": 157,
+  "command": "ANDROID_HOME=/Users/patrick/Library/Android/sdk JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' ./gradlew :app:testFossReleaseUnitTest --offline",
+  "branch": "perf/home-gallery-sorting",
+  "base_head": "6246f6b156184035c19046225b8d6e2c50efac12",
+  "state": "validated local implementation",
+  "gradle_result": "BUILD SUCCESSFUL in 1m 43s",
+  "jdk": "25.0.3",
+  "gradle": "9.5.1",
+  "host": "Darwin arm64",
+  "date": "2026-11-09 Asia/Hong_Kong"
+}

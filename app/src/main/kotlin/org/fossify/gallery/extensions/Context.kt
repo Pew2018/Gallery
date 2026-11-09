@@ -184,53 +184,11 @@ fun Context.getSortedDirectories(
     source: ArrayList<Directory>,
     randomOrder: MutableMap<String, Long>? = null
 ): ArrayList<Directory> {
-    val sorting = config.directorySorting
-    val dirs = source.mapTo(ArrayList()) { it.snapshot() }
-    if (sorting and SORT_BY_RANDOM != 0) {
-        if (randomOrder == null) dirs.shuffle()
-        else {
-            dirs.forEach { randomOrder.getOrPut(it.path) { java.util.concurrent.ThreadLocalRandom.current().nextLong() } }
-            dirs.sortWith(compareBy<Directory> { randomOrder[it.path] }.thenBy { it.path })
-        }
-        return movePinnedDirectoriesToFront(dirs)
-    } else if (sorting and SORT_BY_CUSTOM != 0) {
-        val remaining = dirs.associateByTo(LinkedHashMap()) { it.path }
-        val ordered = ArrayList<Directory>()
-        config.customFoldersOrder.split("|||").forEach { remaining.remove(it)?.let(ordered::add) }
-        ordered.addAll(remaining.values)
-        return movePinnedDirectoriesToFront(ordered)
-    }
-
-    val locale = Locale.getDefault()
-    val numeric = sorting and SORT_USE_NUMERIC_VALUE != 0
-    fun text(directory: Directory): String = if (sorting and SORT_BY_PATH != 0) {
-        directory.path.lowercase(locale)
-    } else directory.name.normalizeString().lowercase(locale)
-    // sortValue belongs to the previous scan's sorting mode. It is never an
-    // authority for a newly selected mode (including grouped synthetic parents).
-    val stablePaths = dirs.associate { it.path to org.fossify.gallery.helpers.FavoriteFolderRules
-        .normalizedPath(it.path).lowercase(Locale.ROOT) }
-    dirs.sortWith { first, second ->
-        val result = when {
-            sorting and SORT_BY_NAME != 0 || sorting and SORT_BY_PATH != 0 -> {
-                if (numeric) AlphanumericComparator().compare(text(first), text(second))
-                else text(first).compareTo(text(second))
-            }
-            sorting and SORT_BY_SIZE != 0 -> first.size.compareTo(second.size)
-            sorting and SORT_BY_COUNT != 0 -> first.mediaCnt.compareTo(second.mediaCnt)
-            sorting and SORT_BY_DATE_MODIFIED != 0 -> first.modified.compareTo(second.modified)
-            else -> first.taken.compareTo(second.taken)
-        }
-        if (result != 0) {
-            if (sorting and SORT_DESCENDING != 0) -result else result
-        } else {
-            // Scan/cache input order is not a tie breaker. Keep ties ascending
-            // in both modes, with a case-sensitive final comparison for distinct paths.
-            val pathOrder = stablePaths.getValue(first.path).compareTo(stablePaths.getValue(second.path))
-            if (pathOrder != 0) pathOrder else first.path.compareTo(second.path)
-        }
-    }
-    return movePinnedDirectoriesToFront(dirs)
+    return org.fossify.gallery.helpers.HomeDirectorySorter.sort(source.map { it.snapshot() },
+        org.fossify.gallery.helpers.HomeDirectorySorter.Options(
+            config.directorySorting, config.customFoldersOrder, config.pinnedFolders.toSet(),
+            config.showRecycleBinAtFolders, config.showRecycleBinLast, randomOrder ?: hashMapOf()
+        )).directories
 }
 
 fun Context.getDirsToShow(
@@ -255,14 +213,14 @@ fun Context.getDirsToShow(
 
         // show the current folder as an available option too, not just subfolders
         if (currentPathPrefix.isNotEmpty()) {
-            val currentFolder = allDirs.firstOrNull {
-                parentDirs.firstOrNull {
-                    it.path.equals(currentPathPrefix, true)
-                } == null && it.path.equals(currentPathPrefix, true)
+            val currentFolder = allDirs.firstOrNull { directory ->
+                directory.path == currentPathPrefix && directory.containsMediaFilesDirectly && directory.mediaCnt > 0 &&
+                    parentDirs.none { it.path == currentPathPrefix }
             }
 
             currentFolder?.snapshot()?.apply {
                 subfoldersCount = 1
+                subfoldersMediaCount = mediaCnt
                 parentDirs.add(this)
             }
         }
@@ -275,198 +233,22 @@ fun Context.getDirsToShow(
     }
 }
 
-private fun Context.addParentWithoutMediaFiles(into: ArrayList<Directory>, path: String): Boolean {
-    val isSortingAscending = config.directorySorting.isSortingAscending()
-    val subDirs = into.filter { File(it.path).parent.equals(path, true) } as ArrayList<Directory>
-    val newDirId = max(1000L, into.maxOf { it.id ?: 0L })
-    if (subDirs.isNotEmpty()) {
-        val lastModified = if (isSortingAscending) {
-            subDirs.minByOrNull { it.modified }?.modified
-        } else {
-            subDirs.maxByOrNull { it.modified }?.modified
-        } ?: 0
-
-        val dateTaken = if (isSortingAscending) {
-            subDirs.minByOrNull { it.taken }?.taken
-        } else {
-            subDirs.maxByOrNull { it.taken }?.taken
-        } ?: 0
-
-        var mediaTypes = 0
-        subDirs.forEach {
-            mediaTypes = mediaTypes or it.types
-        }
-
-        val directory = Directory(
-            id = newDirId + 1,
-            path = path,
-            tmb = subDirs.first().tmb,
-            name = getFolderNameFromPath(path),
-            mediaCnt = subDirs.sumOf { it.mediaCnt },
-            modified = lastModified,
-            taken = dateTaken,
-            size = subDirs.sumByLong { it.size },
-            location = getPathLocation(path),
-            types = mediaTypes,
-            sortValue = ""
-        )
-
-        directory.containsMediaFilesDirectly = false
-        into.add(directory)
-        return true
-    }
-    return false
+private fun Context.groupParent(path: String, child: Directory) = Directory().apply {
+    this.path = path
+    name = getFolderNameFromPath(path)
+    tmb = child.tmb
+    location = getPathLocation(path)
+    containsMediaFilesDirectly = false
 }
 
-fun Context.fillWithSharedDirectParents(dirs: ArrayList<Directory>): ArrayList<Directory> {
-    val allDirs = ArrayList<Directory>(dirs)
-    val childCounts = mutableMapOf<String, Int>()
-    for (dir in dirs) {
-        File(dir.path).parent?.let {
-            val current = childCounts[it] ?: 0
-            childCounts.put(it, current + 1)
-        }
-    }
+fun Context.fillWithSharedDirectParents(dirs: ArrayList<Directory>): ArrayList<Directory> =
+    org.fossify.gallery.helpers.DirectoryGrouping.fill(dirs, ::groupParent)
 
-    childCounts
-        .filter { dir -> dir.value > 1 && dirs.none { it.path.equals(dir.key, true) } }
-        .toList()
-        .sortedByDescending { it.first.length }
-        .forEach { (parent, _) ->
-            addParentWithoutMediaFiles(allDirs, parent)
-        }
-    return allDirs
-}
+fun Context.getDirectParentSubfolders(dirs: ArrayList<Directory>, currentPathPrefix: String): ArrayList<Directory> =
+    org.fossify.gallery.helpers.DirectoryGrouping.visible(dirs, currentPathPrefix, ::groupParent)
 
-fun Context.getDirectParentSubfolders(
-    dirs: ArrayList<Directory>,
-    currentPathPrefix: String
-): ArrayList<Directory> {
-    val folders = dirs.map { it.path }.sorted().toMutableSet() as HashSet<String>
-    val currentPaths = LinkedHashSet<String>()
-    val foldersWithoutMediaFiles = ArrayList<String>()
-
-    for (path in folders) {
-        if (path == RECYCLE_BIN || path == FAVORITES) {
-            continue
-        }
-
-        if (currentPathPrefix.isNotEmpty()) {
-            if (!path.startsWith(currentPathPrefix, true)) {
-                continue
-            }
-
-            if (!File(path).parent.equals(currentPathPrefix, true)) {
-                continue
-            }
-        }
-
-        if (
-            currentPathPrefix.isNotEmpty() &&
-            path.equals(currentPathPrefix, true)
-            || File(path).parent.equals(currentPathPrefix, true)
-        ) {
-            currentPaths.add(path)
-        } else if (
-            folders.any {
-                !it.equals(path, true) && (File(path).parent.equals(it, true)
-                        || File(it).parent.equals(File(path).parent, true))
-            }
-        ) {
-            // if we have folders like
-            // /storage/emulated/0/Pictures/Images and
-            // /storage/emulated/0/Pictures/Screenshots,
-            // but /storage/emulated/0/Pictures is empty, still Pictures with the first folders thumbnails and proper other info
-            val parent = File(path).parent
-            if (
-                parent != null
-                && !folders.contains(parent)
-                && dirs.none { it.path.equals(parent, true) }
-            ) {
-                currentPaths.add(parent)
-                if (addParentWithoutMediaFiles(dirs, parent)) {
-                    foldersWithoutMediaFiles.add(parent)
-                }
-            }
-        } else {
-            currentPaths.add(path)
-        }
-    }
-
-    var areDirectSubfoldersAvailable = false
-    currentPaths.forEach {
-        val path = it
-        currentPaths.forEach {
-            if (
-                !foldersWithoutMediaFiles.contains(it)
-                && !it.equals(path, true)
-                && File(it).parent?.equals(path, true) == true
-            ) {
-                areDirectSubfoldersAvailable = true
-            }
-        }
-    }
-
-    if (currentPathPrefix.isEmpty() && folders.contains(RECYCLE_BIN)) {
-        currentPaths.add(RECYCLE_BIN)
-    }
-
-    if (currentPathPrefix.isEmpty() && folders.contains(FAVORITES)) {
-        currentPaths.add(FAVORITES)
-    }
-
-    if (folders.size == currentPaths.size) {
-        return dirs.filter { currentPaths.contains(it.path) } as ArrayList<Directory>
-    }
-
-    folders.clear()
-    folders.addAll(currentPaths)
-
-    val dirsToShow = dirs.filter { folders.contains(it.path) } as ArrayList<Directory>
-    return if (areDirectSubfoldersAvailable) {
-        getDirectParentSubfolders(dirsToShow, currentPathPrefix)
-    } else {
-        dirsToShow
-    }
-}
-
-fun Context.updateSubfolderCounts(
-    children: ArrayList<Directory>,
-    parentDirs: ArrayList<Directory>
-) {
-    for (child in children) {
-        var longestSharedPath = ""
-        for (parentDir in parentDirs) {
-            if (parentDir.path == child.path) {
-                longestSharedPath = child.path
-                continue
-            }
-
-            if (
-                child.path.startsWith(parentDir.path, true)
-                && parentDir.path.length > longestSharedPath.length
-            ) {
-                longestSharedPath = parentDir.path
-            }
-        }
-
-        // make sure we count only the proper direct subfolders, grouped the same way as on the main screen
-        parentDirs.firstOrNull { it.path == longestSharedPath }?.apply {
-            if (
-                path.equals(child.path, true)
-                || path.equals(File(child.path).parent, true)
-                || children.any { it.path.equals(File(child.path).parent, true) }
-            ) {
-                if (child.containsMediaFilesDirectly) {
-                    subfoldersCount++
-                }
-
-                if (path != child.path) {
-                    subfoldersMediaCount += child.mediaCnt
-                }
-            }
-        }
-    }
+fun Context.updateSubfolderCounts(children: ArrayList<Directory>, parentDirs: ArrayList<Directory>) {
+    org.fossify.gallery.helpers.DirectoryGrouping.aggregate(children, parentDirs, !config.directorySorting.isSortingAscending())
 }
 
 fun Context.getNoMediaFolders(callback: (folders: ArrayList<String>) -> Unit) {
@@ -552,11 +334,6 @@ fun Context.rescanFolderMediaSync(path: String) {
     }
 }
 
-fun Context.storeDirectoryItems(items: ArrayList<Directory>) {
-    ensureBackgroundThread {
-        directoryDB.insertAll(items)
-    }
-}
 
 fun Context.checkAppendingHidden(
     path: String,
@@ -1119,6 +896,8 @@ fun Context.updateDBMediaPath(oldPath: String, newPath: String) {
 }
 
 fun Context.updateDBDirectory(directory: Directory) {
+    // Physical metadata must pass the scope/access/version gate in the repository.
+    if (!directory.areFavorites() && !directory.isRecycleBin()) return
     try {
         directoryDB.updateDirectory(
             path = directory.path,
@@ -1330,6 +1109,10 @@ fun Context.addPathToDB(path: String) {
     }
 }
 
+/** Default covers retain the album's own sort/group rules; valid custom covers need neither. */
+fun Context.directoryCoverNeedsMediaOrder(path: String, covers: List<AlbumCover>): Boolean =
+    covers.none { it.path == path && getDoesFilePathExist(it.tmb, config.OTGPath) }
+
 fun Context.createDirectoryFromMedia(
     path: String,
     curMedia: ArrayList<Medium>,
@@ -1338,9 +1121,9 @@ fun Context.createDirectoryFromMedia(
     includedFolders: MutableSet<String>,
     getProperFileSize: Boolean,
     noMediaFolders: ArrayList<String>,
+    statistics: org.fossify.gallery.models.DirectoryStats? = null,
 ): Directory {
     val OTGPath = config.OTGPath
-    val grouped = MediaFetcher(this).groupMedia(curMedia, path)
     var thumbnail: String? = null
 
     albumCovers.forEach {
@@ -1350,134 +1133,55 @@ fun Context.createDirectoryFromMedia(
     }
 
     if (thumbnail == null) {
-        val sortedMedia = grouped.filter { it is Medium }.toMutableList() as ArrayList<Medium>
-        thumbnail = sortedMedia.firstOrNull { getDoesFilePathExist(it.path, OTGPath) }?.path ?: ""
+        // Only default covers need folder grouping. Preserve the album's internal
+        // order, without allocating another full list or mutating it for statistics.
+        thumbnail = MediaFetcher(this).groupMedia(curMedia, path).asSequence().filterIsInstance<Medium>()
+            .firstOrNull { getDoesFilePathExist(it.path, OTGPath) }?.path ?: ""
     }
 
     if (config.OTGPath.isNotEmpty() && thumbnail!!.startsWith(config.OTGPath)) {
         thumbnail = thumbnail!!.getOTGPublicPath(applicationContext)
     }
 
-    val isSortingAscending = config.directorySorting.isSortingAscending()
+    val stats = statistics ?: org.fossify.gallery.models.DirectoryStats.calculate(curMedia,
+        org.fossify.gallery.models.DirectoryStats.scope(config.filterMedia, config.shouldShowHidden), 0)
     val dirName = checkAppendingHidden(path, hiddenString, includedFolders, noMediaFolders)
-    val lastModified = if (isSortingAscending) {
-        curMedia.minOfOrNull { it.modified } ?: 0L
-    } else {
-        curMedia.maxOfOrNull { it.modified } ?: 0L
-    }
-
-    val dateTaken = if (isSortingAscending) {
-        curMedia.minOfOrNull { it.taken } ?: 0L
-    } else {
-        curMedia.maxOfOrNull { it.taken } ?: 0L
-    }
-
-    val size = if (getProperFileSize) curMedia.sumByLong { it.size } else 0L
-    val mediaTypes = curMedia.getDirMediaTypes()
-    val count = curMedia.size
-    val sortValue = getDirectorySortingValue(curMedia, path, dirName, size, count)
     return Directory(
         id = null,
         path = path,
         tmb = thumbnail!!,
         name = dirName,
         mediaCnt = curMedia.size,
-        modified = lastModified,
-        taken = dateTaken,
-        size = size,
+        modified = stats.maxModified,
+        taken = stats.maxTaken,
+        size = stats.bytes,
         location = getPathLocation(path),
-        types = mediaTypes,
-        sortValue = sortValue
+        types = stats.types,
+        sortValue = "",
+        stats = stats,
+        containsMediaFilesDirectly = curMedia.isNotEmpty()
     )
 }
 
-fun Context.getDirectorySortingValue(
-    media: ArrayList<Medium>,
-    path: String,
-    name: String,
-    size: Long,
-    count: Int
-): String {
-    val sorting = config.directorySorting
-    val sorted = when {
-        sorting and SORT_BY_NAME != 0 -> return name
-        sorting and SORT_BY_PATH != 0 -> return path
-        sorting and SORT_BY_SIZE != 0 -> return size.toString()
-        sorting and SORT_BY_COUNT != 0 -> return count.toString()
-        sorting and SORT_BY_DATE_MODIFIED != 0 -> media.sortedBy { it.modified }
-        sorting and SORT_BY_DATE_TAKEN != 0 -> media.sortedBy { it.taken }
-        else -> media
-    }
-
-    val relevantMedium = if (sorting.isSortingAscending()) {
-        sorted.firstOrNull() ?: return ""
-    } else {
-        sorted.lastOrNull() ?: return ""
-    }
-
-    val result: Any = when {
-        sorting and SORT_BY_DATE_MODIFIED != 0 -> relevantMedium.modified
-        sorting and SORT_BY_DATE_TAKEN != 0 -> relevantMedium.taken
-        else -> 0
-    }
-
-    return result.toString()
-}
 
 fun Context.updateDirectoryPath(path: String) {
-    val mediaFetcher = MediaFetcher(applicationContext)
-    val getImagesOnly = false
-    val getVideosOnly = false
-    val hiddenString = getString(R.string.hidden)
-    val albumCovers = config.parseAlbumCovers()
-    val includedFolders = config.includedFolders
-    val noMediaFolders = getNoMediaFoldersSync()
-
-    val sorting = config.getFolderSorting(path)
-    val grouping = config.getFolderGrouping(path)
-    val getProperDateTaken = config.directorySorting and SORT_BY_DATE_TAKEN != 0
-            || sorting and SORT_BY_DATE_TAKEN != 0
-            || grouping and GROUP_BY_DATE_TAKEN_DAILY != 0
-            || grouping and GROUP_BY_DATE_TAKEN_MONTHLY != 0
-
-    val getProperLastModified = config.directorySorting and SORT_BY_DATE_MODIFIED != 0
-            || sorting and SORT_BY_DATE_MODIFIED != 0
-            || grouping and GROUP_BY_LAST_MODIFIED_DAILY != 0
-            || grouping and GROUP_BY_LAST_MODIFIED_MONTHLY != 0
-
-    val getProperFileSize = config.directorySorting and SORT_BY_SIZE != 0
-
-    val lastModifieds = if (getProperLastModified) {
-        mediaFetcher.getFolderLastModifieds(path)
-    } else {
-        HashMap()
+    val cfg = config
+    if (!path.startsWith('/') || org.fossify.gallery.helpers.FolderUnlockSessionManager
+            .findProtectedAncestor(path, cfg::isFolderProtected) != null ||
+        (!cfg.temporarilyShowExcluded && path.isThisOrParentExcluded(cfg.excludedFolders))) return
+    val scope = org.fossify.gallery.helpers.DirectoryScanScope(cfg.filterMedia, cfg.shouldShowHidden)
+    val version = org.fossify.gallery.helpers.DirectoryMetadataRepository.begin(path)
+    try {
+        val fetcher = MediaFetcher(applicationContext, reportReadFailures = true)
+        val read = fetcher.readFolder(path, false, false, true, true, true, getFavoritePaths(),
+            false, hashMapOf(), fetcher.directoryDates(path), null,
+            sortResult = directoryCoverNeedsMediaOrder(path, cfg.parseAlbumCovers()))
+        org.fossify.gallery.helpers.DirectoryMetadataRepository.commit(this,
+            org.fossify.gallery.helpers.DirectoryScanSnapshot(path, version, scope, read, read.media))
+    } catch (error: Exception) {
+        org.fossify.gallery.helpers.DirectoryMetadataRepository.defer(path, version)
+        android.util.Log.w("GalleryDirs", "Cannot refresh directory metadata", error)
     }
-
-    val dateTakens = mediaFetcher.getFolderDateTakens(path)
-    val favoritePaths = getFavoritePaths()
-    val curMedia = mediaFetcher.getFilesFrom(
-        curPath = path,
-        isPickImage = getImagesOnly,
-        isPickVideo = getVideosOnly,
-        getProperDateTaken = getProperDateTaken,
-        getProperLastModified = getProperLastModified,
-        getProperFileSize = getProperFileSize,
-        favoritePaths = favoritePaths,
-        getVideoDurations = false,
-        lastModifieds = lastModifieds,
-        dateTakens = dateTakens,
-        android11Files = null
-    )
-    val directory = createDirectoryFromMedia(
-        path = path,
-        curMedia = curMedia,
-        albumCovers = albumCovers,
-        hiddenString = hiddenString,
-        includedFolders = includedFolders,
-        getProperFileSize = getProperFileSize,
-        noMediaFolders = noMediaFolders
-    )
-    updateDBDirectory(directory)
 }
 
 fun Context.getFileDateTaken(path: String): Long {

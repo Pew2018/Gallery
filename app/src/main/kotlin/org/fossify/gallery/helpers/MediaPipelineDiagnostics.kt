@@ -88,7 +88,7 @@ internal class MediaPipelineDiagnostics(
         emit("media_sort_summary", common, values, listOf("sortCount", "sortInputItems", "sortMs", "sortMode"))
         emit("media_source_summary", common, values, listOf(
             "mediaStoreQueryCount", "mediaStoreQueryMs", "mediaStoreRows", "diskEnumerateCount",
-            "diskEnumeratedItems", "diskEnumerateMs", "metadataReadCount", "metadataReadMs",
+            "diskEnumeratedItems", "diskEnumerateMs", "metadataReadCount", "metadataReadMs", "directoryStatsCount",
             "safOperationCount", "safOperationMs"
         ))
         emit("media_cache_db_summary", common, values, listOf(

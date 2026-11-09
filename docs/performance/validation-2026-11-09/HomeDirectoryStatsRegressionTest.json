@@ -1,0 +1,19 @@
+{
+  "class": "HomeDirectoryStatsRegressionTest",
+  "tests": "9",
+  "failures": "0",
+  "errors": "0",
+  "skipped": "0",
+  "time": "0.075",
+  "cases": [
+    "directionSwitchesUseBothExtremaWithoutRebuildingStats",
+    "unknownAndTrueZeroAreDifferentAndScopesCannotMerge",
+    "confirmedSdcardSymlinkAliasStillDeduplicatesWithoutFoldingCase",
+    "takenFallbackIsExplicitAndStatisticsDoNotDependOnMediaOrder",
+    "groupWithDirectMembersUsesOneRangeForAllSortFields",
+    "syntheticParentsNestedChildrenAndCurrentEntryDoNotDoubleCount",
+    "customCoverBypassesGroupingAndDefaultCoverKeepsInternalGroupOrder",
+    "dateBubblesUseTheSelectedExtremumJustLikeTheComparator",
+    "identitiesRespectCaseAndDirectoryBoundaries"
+  ]
+}

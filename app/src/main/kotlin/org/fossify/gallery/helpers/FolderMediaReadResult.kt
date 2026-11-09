@@ -12,7 +12,8 @@ internal data class FolderMediaReadResult(
     val enumerated: Int,
     val reasons: Map<String, Int>,
     val error: Exception? = null,
-    val accessCurrent: () -> Boolean = { true }
+    val accessCurrent: () -> Boolean = { true },
+    val stats: org.fossify.gallery.models.DirectoryStats? = null
 ) {
     val accepted get() = media.size
     val confirmedPaths get() = media.mapTo(hashSetOf()) { it.path }

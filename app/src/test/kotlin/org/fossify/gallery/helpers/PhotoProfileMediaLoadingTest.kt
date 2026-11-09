@@ -66,9 +66,9 @@ class PhotoProfileMediaLoadingTest {
                 MediaFetcher(context, TYPE_IMAGES).getPhotoProfileMedia(setOf(root.toString()), emptySet(), arrayListOf(indexed))
             }.associateBy { it.path }
             assertEquals(setOf(indexed, unindexed), result.keys)
-            assertEquals(321L, result.getValue(indexed).size)
+            assertEquals(3L, result.getValue(indexed).size) // physical metadata was already verified during supplementation
             assertEquals(9999L, result.getValue(indexed).taken)
-            assertEquals(12000L, result.getValue(indexed).modified)
+            assertEquals(java.io.File(indexed).lastModified(), result.getValue(indexed).modified)
             assertTrue(result.getValue(indexed).isFavorite)
             assertEquals(3L, result.getValue(unindexed).size)
             assertEquals(1, provider.queries.size)

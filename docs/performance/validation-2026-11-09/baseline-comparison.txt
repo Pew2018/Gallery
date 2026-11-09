@@ -1,0 +1,22 @@
+Baseline: 6246f6b156184035c19046225b8d6e2c50efac12
+Command: ./gradlew :app:testFossReleaseUnitTest --offline --tests '*HomeSortingComparisonBenchmarkTest'
+Result: BUILD SUCCESSFUL in 20s; 1 benchmark test passed.
+Fixture: 3 physical albums, 120 direct JPEGs per album, all unindexed, each album has .nomedia and is explicitly included.
+Counter columns: [provider queries, folder enumerations, file metadata reads, MediaFetcher.sortMedia calls, media sort input items, Room SELECT statements, Room mutation statements]
+Actual sorting dialog Handler callback and adapter completion were awaited.
+
+HomeSortComparison cold firstUsableMs=400.073208 fullStatsMs=519.50325 counters=[9, 5, 360, 7, 360, 15, 363]
+HomeSortComparison mode=4 dialogToCommitMs=580.966375 delta=[8, 5, 360, 7, 360, 22, 363]
+HomeSortComparison mode=2 dialogToCommitMs=231.271333 delta=[7, 5, 360, 7, 360, 22, 363]
+HomeSortComparison mode=1026 dialogToCommitMs=248.280167 delta=[7, 5, 360, 7, 360, 22, 363]
+HomeSortComparison mode=8 dialogToCommitMs=211.092875 delta=[7, 5, 360, 7, 360, 22, 363]
+HomeSortComparison mode=1032 dialogToCommitMs=260.718792 delta=[7, 5, 360, 7, 360, 22, 363]
+HomeSortComparison mode=524288 dialogToCommitMs=135.28075 delta=[0, 0, 0, 0, 0, 0, 0]
+HomeSortComparison mode=1 dialogToCommitMs=185.299417 delta=[0, 0, 0, 0, 0, 0, 0]
+HomeSortComparison grouped commitMs=19.726292 delta=[0, 0, 0, 0, 0, 0, 0]
+
+Host-only single observations. No Android device speedup percentage is inferred.
+Provider rows were empty in this unindexed fixture; filesystem supplementation supplies the 360 legitimate files.
+sortMedia counters exclude the baseline getDirectorySortingValue.sortedBy calls.
+Room counters count SQL statements, not affected rows or transaction boundaries.
+Cold fullStatsMs includes the benchmark's explicit 100 ms post-scan drain.

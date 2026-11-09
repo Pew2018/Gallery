@@ -53,6 +53,39 @@ class FolderMediaReadTest {
         override fun metadata(file: File) = metadata.invoke(file)
     }
 
+    @Test fun unknownProviderFieldsAreNotCompleteAndConfirmedZeroIsData() {
+        val file = photo("provider.jpg")
+        val unknown = read(fake(listOf(file), metadata = { FolderFileMetadata(null, null, true, true) }))
+        assertEquals(FolderReadStatus.COMPLETE, unknown.status)
+        val stats = unknown.stats!!
+        assertTrue(stats.has(org.fossify.gallery.models.DirectoryStats.COUNT))
+        assertFalse(stats.has(org.fossify.gallery.models.DirectoryStats.SIZE))
+        assertFalse(stats.has(org.fossify.gallery.models.DirectoryStats.MODIFIED))
+        assertFalse(stats.has(org.fossify.gallery.models.DirectoryStats.TAKEN))
+        val zero = read(fake(listOf(file), metadata = { FolderFileMetadata(2, 0, true, true) })).stats!!
+        assertTrue(zero.has(org.fossify.gallery.models.DirectoryStats.MODIFIED))
+        assertEquals(0L, zero.minModified)
+        assertEquals(0L, zero.maxModified)
+    }
+
+    @Test fun verifiedFileModificationWinsOverStaleIndexMapAndCustomDateStillWins() {
+        val file = photo("date.jpg")
+        var reads = 0
+        val pool = Executors.newSingleThreadExecutor()
+        try {
+            val result = pool.submit<FolderMediaReadResult> {
+                MediaFetcher(context, reportReadFailures = true).apply {
+                    folderFileAccess = fake(listOf(file), metadata = { reads++; FolderFileMetadata(2, 1, true, true) })
+                }.readFolder(root.path, false, false, true, true, true, arrayListOf(), false,
+                    hashMapOf(file.path to 999L), hashMapOf(file.path to 17L), null)
+            }.get(10, TimeUnit.SECONDS)
+            assertEquals(1, reads)
+            assertEquals(1L, result.media.single().modified)
+            assertEquals(17L, result.media.single().taken)
+            assertFalse(result.media.single().takenIsFallback)
+        } finally { pool.shutdownNow() }
+    }
+
     @Test fun copiedJpgIsReadWithoutIndexAndAncestorMarkerDoesNotHideIt() {
         val child = File(root, "child").apply { mkdir() }
         val fresh = File(child, "NEW.JPG").apply { writeBytes(byteArrayOf(1)) }

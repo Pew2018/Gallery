@@ -9,14 +9,14 @@ import org.fossify.gallery.models.Directory
 
 @Dao
 interface DirectoryDao {
-    @Query("SELECT path, thumbnail, filename, media_count, last_modified, date_taken, size, location, media_types, sort_value FROM directories")
+    @Query("SELECT * FROM directories")
     fun getAll(): List<Directory>
 
     // Only query the paths explicitly saved as favorites; no full-library scan.
-    @Query("SELECT path, thumbnail, filename, media_count, last_modified, date_taken, size, location, media_types, sort_value FROM directories WHERE path IN (:paths)")
+    @Query("SELECT * FROM directories WHERE path IN (:paths)")
     fun getByPaths(paths: List<String>): List<Directory>
 
-    @Query("SELECT path, thumbnail, filename, media_count, last_modified, date_taken, size, location, media_types, sort_value FROM directories WHERE path = :path LIMIT 1")
+    @Query("SELECT * FROM directories WHERE path = :path LIMIT 1")
     fun getByPath(path: String): Directory?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -28,10 +28,13 @@ interface DirectoryDao {
     @Query("DELETE FROM directories WHERE path = :path")
     fun deleteDirPath(path: String)
 
-    @Query("UPDATE directories SET thumbnail = :thumbnail, media_count = :mediaCnt, last_modified = :lastModified, date_taken = :dateTaken, size = :size, media_types = :mediaTypes, sort_value = :sortValue WHERE path = :path")
+    @Query("UPDATE directories SET thumbnail = :thumbnail, media_count = :mediaCnt, last_modified = :lastModified, date_taken = :dateTaken, size = :size, media_types = :mediaTypes, sort_value = :sortValue, stats_known = 0, stats_scannedAt = 0 WHERE path = :path")
     fun updateDirectory(path: String, thumbnail: String, mediaCnt: Int, lastModified: Long, dateTaken: Long, size: Long, mediaTypes: Int, sortValue: String): Int
 
-    @Query("UPDATE directories SET thumbnail = :thumbnail, filename = :name, path = :newPath WHERE path = :oldPath")
+    @androidx.room.Update
+    fun update(directory: Directory): Int
+
+    @Query("UPDATE directories SET thumbnail = :thumbnail, filename = :name, path = :newPath, stats_known = 0, stats_scannedAt = 0 WHERE path = :oldPath")
     fun updateDirectoryAfterRename(thumbnail: String, name: String, newPath: String, oldPath: String)
 
     @Query("DELETE FROM directories WHERE path = \'$RECYCLE_BIN\'")

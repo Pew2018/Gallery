@@ -1,0 +1,16 @@
+{
+  "class": "AlbumSearchLifecycleTest",
+  "tests": "6",
+  "failures": "0",
+  "errors": "0",
+  "skipped": "0",
+  "time": "0.868",
+  "cases": [
+    "sortingSearchResultsKeepsTheFullCatalogAndTheActiveScan",
+    "newlyDiscoveredAlbumIsSearchableAndClearingSearchKeepsTheLatestCatalog",
+    "invalidatedCategoryResultCannotCommitAnAlreadyCalculatedDiff",
+    "pausedCategoryRestartsWhileInlineSearchStaysOpen",
+    "sortingGroupedRowsDoesNotDiscardThePhysicalChildren",
+    "pauseWithoutStopReleasesOnlyTheInvalidatedCategoryLoad"
+  ]
+}

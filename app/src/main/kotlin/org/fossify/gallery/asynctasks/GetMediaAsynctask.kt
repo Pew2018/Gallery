@@ -177,7 +177,7 @@ internal class GetMediaAsynctask(
         // The scoped cursor already returns DATE_MODIFIED and DATE_TAKEN.
         // Only user-edited dates need a separate Room lookup.
         val indexedMetadata = scopedAvailable && (showAll || scopedFolder)
-        val lastModifieds = if (getProperLastModified && !indexedMetadata && !noMediaFolder) {
+        val lastModifieds = if (getProperLastModified && !indexedMetadata && !noMediaFolder && (showAll || !mPath.startsWith('/'))) {
             if (!showAll && mPath.startsWith('/')) mediaFetcher.getFolderLastModifieds(mPath) else mediaFetcher.getLastModifieds()
         } else HashMap()
         val dateTakens = when {

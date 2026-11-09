@@ -2,9 +2,9 @@ package org.fossify.gallery.helpers
 
 import android.content.Context
 import android.os.Environment
-import org.fossify.commons.helpers.SORT_BY_SIZE
 import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
+import org.fossify.gallery.extensions.directoryCoverNeedsMediaOrder
 import org.fossify.gallery.extensions.createDirectoryFromMedia
 import org.fossify.gallery.extensions.getFavoritePaths
 import org.fossify.gallery.extensions.getNoMediaFoldersSync
@@ -28,7 +28,8 @@ internal object CategorizedFolderScanner {
         fun locked(path: String) = FolderUnlockSessionManager.findProtectedAncestor(path, cfg::isFolderProtected) != null
         fun allowed(path: String) = policy.allows(path, markers.contains(path), locked(path))
         val failures = linkedMapOf<String, Exception>()
-        val fetcher = MediaFetcher(context, cancelled = cancelled, reportReadFailures = true, showDotFiles = policy.dots).also { it.noMediaSnapshot = markers; it.traceRequest = System.nanoTime() }
+        val scanAccess = DirectoryAccessState.capture(context)
+        val fetcher = MediaFetcher(context, filterOverride = cfg.filterMedia, cancelled = cancelled, reportReadFailures = true, showDotFiles = policy.dots).also { it.noMediaSnapshot = markers; it.traceRequest = System.nanoTime() }
         onFetcher(fetcher)
         val byPath = cached.associateBy { it.path }
         val result = linkedMapOf<String, Directory>()
@@ -61,9 +62,10 @@ internal object CategorizedFolderScanner {
             val old = byPath[path]
             val isProtected = locked(path)
             val hasMarker = markers.contains(path)
-            val metadataScope = DirectoryScanScope(cfg.filterMedia, policy.dots)
+            val metadataScope = DirectoryScanScope(cfg.filterMedia, policy.dots, access = scanAccess)
             val metadataVersion = if (!isProtected && metadataScope.matches(context))
                 DirectoryMetadataRepository.begin(path) else 0L
+            var prepared: Directory? = null
             val item = if (isProtected) {
                 // Metadata rows never authorize a read of a protected folder or descendants.
                 if (old == null && !File(path).isDirectory) return
@@ -72,23 +74,30 @@ internal object CategorizedFolderScanner {
                 }
             } else try {
                 val read = fetcher.readFolder(path, false, false, true, true,
-                    cfg.directorySorting and SORT_BY_SIZE != 0, favorites, false,
-                    hashMapOf(), fetcher.getSelectedFolderDateOverrides(listOf(path)), null)
+                    true, favorites, false,
+                    hashMapOf(), fetcher.directoryDates(path), null,
+                    sortResult = context.directoryCoverNeedsMediaOrder(path, covers))
                 if (locked(path) || !read.accessCurrent()) throw SecurityException("Directory authorization changed")
+                if (read.status == FolderReadStatus.COMPLETE) {
+                    prepared = context.createDirectoryFromMedia(path, read.media, covers, context.getString(R.string.hidden),
+                        cfg.includedFolders, true, ArrayList(markers.markerFolders(path)), read.stats)
+                }
                 if (metadataVersion != 0L) {
                     if (read.status == FolderReadStatus.COMPLETE) {
                         onMetadata(DirectoryScanSnapshot(
                             path, metadataVersion, metadataScope, read, read.media.map { it.copy() },
-                            isCurrent = { !cancelled() && !locked(path) }
+                            isCurrent = { !cancelled() && !locked(path) }, preparedDirectory = prepared
                         ))
                     } else {
                         DirectoryMetadataRepository.defer(path, metadataVersion)
                     }
                 }
-                if (read.status != FolderReadStatus.COMPLETE) {
+                if (read.status != FolderReadStatus.COMPLETE || read.stats?.has(org.fossify.gallery.models.DirectoryStats.ALL) != true) {
                     failures[path] = read.error ?: java.io.IOException("Directory refresh is incomplete")
                 }
-                if (read.status == FolderReadStatus.FAILED || read.status == FolderReadStatus.ACCESS_REQUIRED) {
+                if (read.status != FolderReadStatus.COMPLETE && old != null) {
+                    old.snapshot()
+                } else if (read.status == FolderReadStatus.FAILED || read.status == FolderReadStatus.ACCESS_REQUIRED) {
                     if (old == null) return
                     old.snapshot()
                 } else if (read.media.isEmpty()) {
@@ -96,9 +105,9 @@ internal object CategorizedFolderScanner {
                     old.snapshot()
                 } else {
                     val media = read.media
-                    context.createDirectoryFromMedia(path, media, covers, context.getString(R.string.hidden),
-                    cfg.includedFolders, cfg.directorySorting and SORT_BY_SIZE != 0,
-                    ArrayList(markers.markerFolders(path))).apply {
+                    (prepared ?: context.createDirectoryFromMedia(path, media, covers, context.getString(R.string.hidden),
+                    cfg.includedFolders, true,
+                    ArrayList(markers.markerFolders(path)), read.stats)).apply {
                     if (read.status == FolderReadStatus.PARTIAL && old != null) {
                         // A card has no cached member list. Retain a conservative lower bound,
                         // not old+new (which would count overlapping members twice).

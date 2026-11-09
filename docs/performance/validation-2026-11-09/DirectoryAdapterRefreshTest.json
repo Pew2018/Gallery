@@ -1,0 +1,19 @@
+{
+  "class": "DirectoryAdapterRefreshTest",
+  "tests": "9",
+  "failures": "0",
+  "errors": "0",
+  "skipped": "0",
+  "time": "0.45",
+  "cases": [
+    "selectionSurvivesRefreshAndOnlyLatestSnapshotAppliesAfterExit",
+    "localMutationDiscardsQueuedRefreshInsteadOfResurrectingRemovedAlbum",
+    "retiredRefreshCannotReplaceTheListAfterSelectionEnds",
+    "refreshWaitsForScrollIdleBeforeChangingTheVisibleList",
+    "intermediateBatchesKeepOrderAndTheFinalBatchCanSortOnce",
+    "identicalDirectorySnapshotDoesNotQueueDiffOrNotifyRows",
+    "submittedDirectoriesAreIndependentOfTheirProducer",
+    "directoryCountAndCoverChangesStillQueueVisibleUpdate",
+    "refreshDuringReorderCannotUndoTheUsersSavedOrder"
+  ]
+}

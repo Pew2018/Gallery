@@ -21,7 +21,7 @@ class GalleryDatabaseMigrationSafetyTest {
     @Test fun unsupportedOldAndNewSchemasKeepSavedFavoritesIntact() {
         val context = RuntimeEnvironment.getApplication()
         val path = context.getDatabasePath("gallery.db")
-        for (version in listOf(3, 12)) {
+        for (version in listOf(3, 13)) {
             GalleryDatabase.destroyInstance()
             context.deleteDatabase("gallery.db")
             path.parentFile?.mkdirs()

@@ -1,3 +1,4 @@
+import java.io.File
 import com.android.build.api.variant.FilterConfiguration
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
@@ -80,6 +81,9 @@ android {
         unitTests.all {
             // Large backup fixtures plus the native-render matrix exceed Gradle's 512 MiB test default.
             it.maxHeapSize = "2g"
+            // macOS exposes /var via /private/var. Keep host temp fixtures on a
+            // canonical root so symlink/security tests exercise their intended alias.
+            it.systemProperty("java.io.tmpdir", File(System.getProperty("java.io.tmpdir")).canonicalPath)
             it.jvmArgs(
                 "--add-opens=java.base/java.lang=ALL-UNNAMED",
                 "--add-opens=java.base/java.util=ALL-UNNAMED",
