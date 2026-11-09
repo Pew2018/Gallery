@@ -3,7 +3,6 @@
     <style name="OxygenClassicRootTheme" parent="AppTheme">
         <item name="android:windowDisablePreview">true</item>
         <item name="android:windowIsTranslucent">false</item>
-        <item name="android:windowContentTransitions">true</item>
     </style>
 
     <!-- OxygenOS 4.5.15 screenshot-derived visual baselines; user-selected
@@ -29,15 +28,15 @@
     <dimen name="oxygen_classic_switch_thumb_size">24dp</dimen>
 
     <!-- Window animation values are resource tokens because Android's WindowManager loads them from XML. -->
-    <integer name="oxygen_classic_dialog_enter_duration_ms">225</integer>
-    <integer name="oxygen_classic_dialog_exit_duration_ms">195</integer>
-    <dimen name="oxygen_classic_dialog_motion_distance">8dp</dimen>
+    <integer name="oxygen_classic_dialog_enter_duration_ms">170</integer>
+    <integer name="oxygen_classic_dialog_exit_duration_ms">130</integer>
+    <dimen name="oxygen_classic_dialog_motion_distance">6dp</dimen>
 
     <!-- Activity Window motion tokens; kept in XML for WindowManager-owned transitions. -->
-    <integer name="oxygen_classic_page_enter_duration_ms">225</integer>
-    <integer name="oxygen_classic_page_exit_duration_ms">195</integer>
-    <dimen name="oxygen_classic_page_enter_offset">24dp</dimen>
-    <dimen name="oxygen_classic_page_return_offset">8dp</dimen>
+    <integer name="oxygen_classic_page_enter_duration_ms">170</integer>
+    <integer name="oxygen_classic_page_exit_duration_ms">140</integer>
+    <dimen name="oxygen_classic_page_enter_offset">14dp</dimen>
+    <dimen name="oxygen_classic_page_return_offset">10dp</dimen>
     <style name="OxygenClassicPageWindow">
         <item name="android:windowEnterAnimation">@anim/oxygen_classic_page_open_enter</item>
         <item name="android:windowExitAnimation">@anim/oxygen_classic_page_open_exit</item>

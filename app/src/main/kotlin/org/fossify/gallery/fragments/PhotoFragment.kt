@@ -128,7 +128,6 @@ class PhotoFragment : ViewPagerFragment() {
     private var mInitialZoom = 1f
     private var mHasInitialZoom = false
     private var mReportedImagePath: String? = null
-    private var mSubsamplingReadyPath: String? = null
     private var detailsGeneration = 0L
 
     private fun reportImageRendered() {
@@ -136,28 +135,9 @@ class PhotoFragment : ViewPagerFragment() {
         if (mReportedImagePath == path || !mIsFragmentVisible) return
         binding.gesturesView.post {
             if (mIsFragmentVisible && mReportedImagePath != path && binding.gesturesView.drawable != null && mMedium.path == path) {
-                reportImageRenderedNow(path)
+                mReportedImagePath = path
+                listener?.imageRendered(path)
             }
-        }
-    }
-
-    private fun reportImageRenderedNow(path: String) {
-        if (!mIsFragmentVisible || mMedium.path != path || mReportedImagePath == path) return
-        mReportedImagePath = path
-        listener?.imageRendered(path)
-    }
-
-    /** The currently rendered page view used by the optional grid-to-viewer transition. */
-    fun sharedElementViewFor(path: String): View? {
-        if (!mIsFragmentVisible || !::mMedium.isInitialized || mMedium.path != path || mReportedImagePath != path) return null
-        if (mCurrentRotationDegrees != 0 ||
-            abs(mCurrentGestureViewZoom - mInitialZoom) > MAX_ZOOM_EQUALITY_TOLERANCE) return null
-        return when {
-            mIsSubsamplingVisible && binding.subsamplingView.visibility == View.VISIBLE ->
-                binding.subsamplingView.takeIf { it.isZoomedOut() }
-            binding.gifViewFrame.visibility == View.VISIBLE -> binding.gifView
-            binding.gesturesView.drawable != null -> binding.gesturesView
-            else -> null
         }
     }
 
@@ -400,10 +380,7 @@ class PhotoFragment : ViewPagerFragment() {
         super.setMenuVisibility(menuVisible)
         mIsFragmentVisible = menuVisible
         if (mWasInit) {
-            if (menuVisible) {
-                if (mSubsamplingReadyPath == mMedium.path) reportImageRenderedNow(mMedium.path)
-                else reportImageRendered()
-            }
+            if (menuVisible) reportImageRendered()
             val isNotAnimatedContent =
                 !mMedium.isGIF() && !mMedium.isApng() && !mMedium.isAvif() && !mMedium.isWebP()
             if (isNotAnimatedContent) {
@@ -836,8 +813,6 @@ class PhotoFragment : ViewPagerFragment() {
                     val useWidth = if (mImageOrientation == ORIENTATION_ROTATE_90 || mImageOrientation == ORIENTATION_ROTATE_270) sHeight else sWidth
                     val useHeight = if (mImageOrientation == ORIENTATION_ROTATE_90 || mImageOrientation == ORIENTATION_ROTATE_270) sWidth else sHeight
                     doubleTapZoomScale = getDoubleTapZoomScale(useWidth, useHeight)
-                    mSubsamplingReadyPath = mMedium.path
-                    binding.subsamplingView.post { reportImageRenderedNow(mMedium.path) }
                 }
 
                 override fun onImageLoadError(e: Exception) {
@@ -1008,7 +983,6 @@ class PhotoFragment : ViewPagerFragment() {
 
     override fun fullscreenToggled(isFullscreen: Boolean) {
         this.mIsFullscreen = isFullscreen
-        val bottomOffset = 8f * resources.displayMetrics.density
         binding.apply {
             photoDetails.apply {
                 if (mStoredShowExtendedDetails && context != null && resources != null) {
@@ -1018,9 +992,7 @@ class PhotoFragment : ViewPagerFragment() {
                 }
             }
 
-            org.fossify.gallery.helpers.ViewerChromeMotion.show(
-                bottomActionsDummy, !isFullscreen, hiddenTranslationY = bottomOffset
-            )
+            org.fossify.gallery.helpers.ViewerChromeMotion.show(bottomActionsDummy, !isFullscreen)
 
             if (mIsPanorama) {
                 panoramaOutline.let { org.fossify.gallery.helpers.ViewerChromeMotion.show(it, !isFullscreen) }

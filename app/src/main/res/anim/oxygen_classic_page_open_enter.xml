@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <set xmlns:android="http://schemas.android.com/apk/res/android"
-    android:interpolator="@android:interpolator/decelerate_cubic">
-    <alpha android:fromAlpha="0.92" android:toAlpha="1.0" android:duration="@integer/oxygen_classic_page_enter_duration_ms" />
+    android:interpolator="@android:interpolator/fast_out_slow_in">
+    <alpha android:fromAlpha="0.0" android:toAlpha="1.0" android:duration="@integer/oxygen_classic_page_enter_duration_ms" />
     <translate android:fromXDelta="@dimen/oxygen_classic_page_enter_offset" android:toXDelta="0dp" android:duration="@integer/oxygen_classic_page_enter_duration_ms" />
 </set>

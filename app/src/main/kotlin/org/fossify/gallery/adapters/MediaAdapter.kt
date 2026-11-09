@@ -92,7 +92,6 @@ import org.fossify.gallery.extensions.ensureFavoriteAddAllowed
 import org.fossify.gallery.helpers.FastScrollerBubble
 import org.fossify.gallery.helpers.OxygenThumbnailPlaceholder
 import org.fossify.gallery.helpers.OxygenSelectionMode
-import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.ROUNDED_CORNERS_BIG
@@ -140,7 +139,6 @@ class MediaAdapter(
     private var showFileTypes = config.showThumbnailFileTypes
 
     var sorting = config.getFolderSorting(if (config.showAll) SHOW_ALL else path)
-    var onThumbnailLoaded: ((String, ImageView) -> Unit)? = null
     var dateFormat = config.dateFormat
     var timeFormat = activity.getTimeFormat()
 
@@ -275,8 +273,6 @@ class MediaAdapter(
             val itemView = holder.itemView
             val tmb = itemView.allViews.firstOrNull { it.id == R.id.medium_thumbnail }
             if (tmb is ImageView) {
-                if (tmb.transitionName == PhotoViewerTransition.ELEMENT_NAME) tmb.transitionName = null
-                tmb.setTag(R.id.thumbnail_ready_key, null)
                 tmb.tag = null
                 tmb.setTag(R.id.thumbnail_request_key, null)
                 Picasso.get().cancelRequest(tmb)
@@ -1152,7 +1148,6 @@ class MediaAdapter(
             if (mediumThumbnail.getTag(R.id.thumbnail_request_key) != requestKey) {
                 // Change the token before cancellation so an obsolete failure cannot start a fallback.
                 mediumThumbnail.setTag(R.id.thumbnail_request_key, requestKey)
-                mediumThumbnail.setTag(R.id.thumbnail_ready_key, null)
                 Picasso.get().cancelRequest(mediumThumbnail)
                 Glide.with(activity).clear(mediumThumbnail)
                 mediumThumbnail.setImageDrawable(null)
@@ -1174,12 +1169,6 @@ class MediaAdapter(
                         if (mediumThumbnail.getTag(R.id.thumbnail_request_key) == requestKey) {
                             mediumThumbnail.scaleType = ImageView.ScaleType.CENTER
                             mediumThumbnail.setImageDrawable(AppCompatResources.getDrawable(activity, R.drawable.ic_vector_warning_colored))
-                        }
-                    },
-                    onLoaded = {
-                        if (mediumThumbnail.getTag(R.id.thumbnail_request_key) == requestKey && mediumThumbnail.tag == path) {
-                            mediumThumbnail.setTag(R.id.thumbnail_ready_key, requestKey)
-                            onThumbnailLoaded?.invoke(medium.path, mediumThumbnail)
                         }
                     }
                 )

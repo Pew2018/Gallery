@@ -5,20 +5,6 @@ import org.fossify.gallery.R
 
 /** Installs the shared Activity Window transition contract for folder and Viewer layers. */
 object OxygenClassicActivityMotion {
-    fun applyOpen(activity: Activity) {
-        if (GalleryBottomBar.isRootTransition(activity)) {
-            GalleryBottomBar.restoreRootWindow(activity)
-            activity.overridePendingTransition(0, 0)
-            return
-        }
-        if (OxygenClassicMotion.enabled(activity)) {
-            activity.overridePendingTransition(
-                R.anim.oxygen_classic_page_open_enter,
-                R.anim.oxygen_classic_page_open_exit
-            )
-        } else activity.overridePendingTransition(0, 0)
-    }
-
     fun install(activity: Activity) {
         if (GalleryBottomBar.isRootTransition(activity)) {
             GalleryBottomBar.restoreRootWindow(activity)
@@ -31,11 +17,9 @@ object OxygenClassicActivityMotion {
             activity.overridePendingTransition(0, 0)
             return
         }
-        if (OxygenClassicMotion.enabled(activity)) {
-            activity.overridePendingTransition(
-                R.anim.oxygen_classic_page_close_enter,
-                R.anim.oxygen_classic_page_close_exit
-            )
-        } else activity.overridePendingTransition(0, 0)
+        activity.overridePendingTransition(
+            R.anim.oxygen_classic_page_close_enter,
+            R.anim.oxygen_classic_page_close_exit
+        )
     }
 }

@@ -19,7 +19,6 @@ import androidx.appcompat.content.res.AppCompatResources
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.DiffUtil
 import org.fossify.gallery.helpers.DirectoryPresentation
-import org.fossify.gallery.helpers.AlbumPageTransition
 import org.fossify.gallery.helpers.FavoritesScrollRestorer
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -319,7 +318,6 @@ class DirectoryAdapter(
         super.onViewRecycled(holder)
         if (!activity.isDestroyed) {
             val thumbnail = bindItem(holder.itemView).dirThumbnail
-            if (thumbnail.transitionName == AlbumPageTransition.ELEMENT_NAME) thumbnail.transitionName = null
             Picasso.get().cancelRequest(thumbnail)
             Glide.with(activity).clear(thumbnail)
             thumbnail.setImageDrawable(null)

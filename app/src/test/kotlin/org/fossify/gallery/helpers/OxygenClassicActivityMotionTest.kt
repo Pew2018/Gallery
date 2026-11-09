@@ -18,8 +18,8 @@ class OxygenClassicActivityMotionTest {
         val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
         OxygenClassicActivityMotion.install(activity)
         assertEquals(R.style.OxygenClassicPageWindow, activity.window.attributes.windowAnimations)
-        assertEquals(225, activity.resources.getInteger(R.integer.oxygen_classic_page_enter_duration_ms))
-        assertEquals(195, activity.resources.getInteger(R.integer.oxygen_classic_page_exit_duration_ms))
+        assertEquals(170, activity.resources.getInteger(R.integer.oxygen_classic_page_enter_duration_ms))
+        assertEquals(140, activity.resources.getInteger(R.integer.oxygen_classic_page_exit_duration_ms))
         activity.finish()
     }
 }

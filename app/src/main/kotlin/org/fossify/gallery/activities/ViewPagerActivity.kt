@@ -13,7 +13,6 @@ import android.animation.Animator
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.SharedElementCallback
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -31,14 +30,11 @@ import android.graphics.Color
 import android.graphics.drawable.Icon
 import android.os.Bundle
 import android.os.Handler
-import android.os.Looper
 import android.provider.MediaStore
 import android.view.MenuItem
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
-import android.transition.ChangeBounds
-import android.transition.TransitionSet
 import android.widget.Toast
 import androidx.exifinterface.media.ExifInterface
 import androidx.print.PrintHelper
@@ -75,8 +71,6 @@ import org.fossify.commons.extensions.handleLockedFolderOpening
 import org.fossify.gallery.extensions.handleExcludedFolderPasswordProtection
 import org.fossify.gallery.helpers.FavoriteFolderRules
 import org.fossify.gallery.helpers.OxygenToolbarStyle
-import org.fossify.gallery.helpers.OxygenClassicMotion
-import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.commons.extensions.hasPermission
 import org.fossify.commons.extensions.hideKeyboard
 import org.fossify.commons.extensions.internalStoragePath
@@ -221,11 +215,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var viewerInitialSelectedPath = ""
     private var viewerSelectedImageStarted = 0L
     private var selectedImageRenderedLogged = false
-    private var pendingPhotoSharedElement = false
-    private var photoSharedElementMapped = false
-    private var photoSharedElementPath: String? = null
-    private val photoSharedElementHandler = Handler(Looper.getMainLooper())
-    private val photoSharedElementTimeout = Runnable { releasePhotoSharedElement() }
     private val renderedAdjacentPaths = HashSet<String>()
     private var mDirectory = ""
     private var mIsFullScreen = false
@@ -545,37 +534,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        photoSharedElementPath = intent.getStringExtra(PhotoViewerTransition.EXTRA_PATH)
-            ?.takeIf { OxygenClassicMotion.enabled(this) }
-        pendingPhotoSharedElement = photoSharedElementPath != null
-        if (pendingPhotoSharedElement) postponeEnterTransition()
         // Never restore media fragments before the current password/session
         // flow validates the viewer request.
         super.onCreate(null)
-        if (pendingPhotoSharedElement) {
-            val sharedTransition = TransitionSet().apply {
-                addTransition(ChangeBounds())
-                duration = 280L
-                interpolator = OxygenClassicMotion.decelerate()
-            }
-            window.sharedElementEnterTransition = sharedTransition
-            window.sharedElementReturnTransition = sharedTransition
-            window.enterTransition = android.transition.Fade(android.transition.Fade.IN).apply { duration = 170L }
-            window.returnTransition = android.transition.Fade(android.transition.Fade.OUT).apply { duration = 170L }
-            setEnterSharedElementCallback(object : SharedElementCallback() {
-                override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
-                    val name = PhotoViewerTransition.ELEMENT_NAME
-                    if (name !in names) return
-                    val view = photoSharedElementPath?.let { getCurrentPhotoFragment()?.sharedElementViewFor(it) }
-                    if (view == null) sharedElements.remove(name) else {
-                        view.transitionName = name
-                        sharedElements[name] = view
-                        photoSharedElementMapped = true
-                    }
-                }
-            })
-            photoSharedElementHandler.postDelayed(photoSharedElementTimeout, PhotoViewerTransition.READY_TIMEOUT_MS)
-        }
         supportFragmentManager.registerFragmentLifecycleCallbacks(slideshowFragments, false)
         setContentView(binding.root)
         // The media canvas must not inherit the app's light theme while pages load
@@ -687,7 +648,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun onDestroy() {
-        photoSharedElementHandler.removeCallbacks(photoSharedElementTimeout)
         if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
             org.fossify.gallery.helpers.DiagnosticLevel.INFO, "Viewer", "viewer_close",
             viewerDiagnosticRequestId,
@@ -4162,7 +4122,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override fun isFullScreen() = mIsFullScreen
 
     override fun imageRendered(path: String) {
-        if (pendingPhotoSharedElement && path == photoSharedElementPath) releasePhotoSharedElement()
         if (path == viewerInitialSelectedPath && !selectedImageRenderedLogged) {
             selectedImageRenderedLogged = true
             org.fossify.gallery.helpers.GalleryPerfTrace.end(
@@ -4173,18 +4132,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 "viewer_adjacent_image_rendered", adjacentReadyStarted, 1
             )
         }
-    }
-
-    private fun releasePhotoSharedElement() {
-        if (!pendingPhotoSharedElement) return
-        pendingPhotoSharedElement = false
-        photoSharedElementHandler.removeCallbacks(photoSharedElementTimeout)
-        startPostponedEnterTransition()
-    }
-
-    override fun finish() {
-        releasePhotoSharedElement()
-        if (photoSharedElementMapped) super.finishAfterTransition() else super.finish()
     }
 
     override fun goToPrevItem() {
@@ -4241,18 +4188,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun fullscreenToggled() {
-        val chromeOffset = 8f * resources.displayMetrics.density
         binding.viewPager.adapter?.let {
             (it as MyPagerAdapter).toggleFullscreen(mIsFullScreen)
-            org.fossify.gallery.helpers.ViewerChromeMotion.show(
-                binding.topShadow, !mIsFullScreen, hiddenTranslationY = -chromeOffset
-            )
-            org.fossify.gallery.helpers.ViewerChromeMotion.show(
-                binding.mediumViewerAppbar, !mIsFullScreen, hiddenTranslationY = -chromeOffset
-            )
-            org.fossify.gallery.helpers.ViewerChromeMotion.show(
-                binding.bottomActions.root, !mIsFullScreen, hiddenTranslationY = chromeOffset
-            )
+            listOf(binding.topShadow, binding.bottomActions.root, binding.mediumViewerAppbar).forEach {
+                org.fossify.gallery.helpers.ViewerChromeMotion.show(it, !mIsFullScreen)
+            }
         }
     }
 

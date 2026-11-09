@@ -10,7 +10,7 @@ import android.view.animation.PathInterpolator
  */
 object OxygenClassicMotion {
     // Viewer timings are application choices, not measured ROM resource values.
-    const val VIEWER_CHROME_MS = 150L
+    const val VIEWER_CHROME_MS = 170L
     const val VIEWER_LOADING_DELAY_MS = 120L
     const val VIEWER_LOADING_MIN_VISIBLE_MS = 180L
     const val VIEWER_LOADING_FADE_MS = 140L
@@ -27,14 +27,10 @@ object OxygenClassicMotion {
     const val SETTINGS_DISTANCE_DP = ClassicSettingsPageTransition.DISTANCE_DP
 
     fun enabled(context: Context): Boolean = runCatching {
-        val resolver = context.contentResolver
-        Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f &&
-            Settings.Global.getFloat(resolver, Settings.Global.TRANSITION_ANIMATION_SCALE, 1f) > 0f
+        Settings.Global.getFloat(
+            context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f
+        ) > 0f
     }.getOrDefault(true)
 
     fun easing() = PathInterpolator(0.4f, 0f, 0.2f, 1f)
-
-    fun decelerate() = PathInterpolator(0f, 0f, 0.2f, 1f)
-
-    fun accelerate() = PathInterpolator(0.4f, 0f, 1f, 1f)
 }

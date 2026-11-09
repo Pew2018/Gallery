@@ -20,34 +20,18 @@ internal object ViewerChromeMotion {
         if (view is ViewGroup) for (index in 0 until view.childCount) cancel(view.getChildAt(index))
     }
 
-    fun show(
-        view: View,
-        visible: Boolean,
-        duration: Long = OxygenClassicMotion.VIEWER_CHROME_MS,
-        hiddenTranslationY: Float = 0f
-    ) {
+    fun show(view: View, visible: Boolean, duration: Long = OxygenClassicMotion.VIEWER_CHROME_MS) {
         val generation = supersede(view)
         val alpha = if (visible) 1f else 0f
         if (!OxygenClassicMotion.enabled(view.context)) {
             view.alpha = alpha
-            view.translationY = 0f
             view.visibility = if (visible) View.VISIBLE else View.INVISIBLE
             return
         }
-        if (visible) {
-            val wasVisible = view.visibility == View.VISIBLE
-            view.visibility = View.VISIBLE
-            if (!wasVisible) view.translationY = hiddenTranslationY
-        }
-        view.animate().alpha(alpha)
-            .translationY(if (visible) 0f else hiddenTranslationY)
-            .setDuration(duration)
-            .setInterpolator(if (visible) OxygenClassicMotion.decelerate() else OxygenClassicMotion.accelerate())
+        if (visible) view.visibility = View.VISIBLE
+        view.animate().alpha(alpha).setDuration(duration).setInterpolator(OxygenClassicMotion.easing())
             .withEndAction {
-                if (generations[view] == generation) {
-                    if (!visible) view.translationY = 0f
-                    view.visibility = if (visible) View.VISIBLE else View.INVISIBLE
-                }
+                if (generations[view] == generation) view.visibility = if (visible) View.VISIBLE else View.INVISIBLE
             }.start()
     }
 }

@@ -16,10 +16,4 @@
     </style>
 
     <style name="FullScreenTheme" parent="FullScreenTheme.Base" />
-
-    <style name="GalleryViewerTransitionTheme" parent="TranslucentTheme">
-        <item name="android:windowContentTransitions">true</item>
-        <item name="android:windowSharedElementEnterTransition">@android:transition/move</item>
-        <item name="android:windowSharedElementReturnTransition">@android:transition/move</item>
-    </style>
 </resources>

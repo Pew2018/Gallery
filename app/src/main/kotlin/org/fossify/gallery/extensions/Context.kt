@@ -379,8 +379,7 @@ fun Context.loadImage(
     signature: ObjectKey,
     skipMemoryCacheAtPaths: ArrayList<String>? = null,
     onError: (() -> Unit)? = null,
-    crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
-    onLoaded: (() -> Unit)? = null
+    crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS
 ) {
     target.isHorizontalScrolling = horizontalScroll
     if (type == TYPE_SVGS) {
@@ -403,8 +402,7 @@ fun Context.loadImage(
             animate = animateGifs,
             tryLoadingWithPicasso = type == TYPE_IMAGES && path.isPng(),
             onError = onError,
-            crossFadeDuration = crossFadeDuration,
-            onLoaded = onLoaded
+            crossFadeDuration = crossFadeDuration
         )
     }
 }
@@ -453,8 +451,7 @@ fun Context.loadImageBase(
     animate: Boolean = false,
     tryLoadingWithPicasso: Boolean = false,
     crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
-    onError: (() -> Unit)? = null,
-    onLoaded: (() -> Unit)? = null
+    onError: (() -> Unit)? = null
 ) {
     val bindingToken = target.getTag(R.id.thumbnail_request_key)
     val options = RequestOptions()
@@ -520,7 +517,7 @@ fun Context.loadImageBase(
             // A recycled ImageView must never receive a failed request's fallback.
             if (target.tag != path || target.getTag(R.id.thumbnail_request_key) != bindingToken) return true
             if (tryLoadingWithPicasso) {
-                tryLoadingWithPicasso(path, target, cropThumbnails, roundCorners, signature, onError, onLoaded)
+                tryLoadingWithPicasso(path, target, cropThumbnails, roundCorners, signature, onError)
             } else {
                 onError?.invoke()
             }
@@ -534,10 +531,7 @@ fun Context.loadImageBase(
             targetBitmap: Target<Drawable>,
             dataSource: DataSource,
             isFirstResource: Boolean,
-        ): Boolean {
-            if (target.tag == path && target.getTag(R.id.thumbnail_request_key) == bindingToken) onLoaded?.invoke()
-            return false
-        }
+        ) = false
     })
 
     builder.into(target)
@@ -549,7 +543,7 @@ fun Context.loadSVG(
     cropThumbnails: Boolean,
     roundCorners: Int,
     signature: ObjectKey,
-    crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS
+    crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
 ) {
     target.scaleType = if (cropThumbnails) {
         ImageView.ScaleType.CENTER_CROP
@@ -587,8 +581,7 @@ fun Context.tryLoadingWithPicasso(
     cropThumbnails: Boolean,
     roundCorners: Int,
     signature: ObjectKey,
-    onError: (() -> Unit)? = null,
-    onLoaded: (() -> Unit)? = null
+    onError: (() -> Unit)? = null
 ) {
     val bindingToken = view.getTag(R.id.thumbnail_request_key)
     var pathToLoad = "file://$path"
@@ -615,9 +608,7 @@ fun Context.tryLoadingWithPicasso(
         // Picasso is a fallback: its own failure must terminate loading, and
         // an outdated callback must never replace a newer holder's image.
         builder.into(view, object : com.squareup.picasso.Callback {
-            override fun onSuccess() {
-                if (view.tag == path && view.getTag(R.id.thumbnail_request_key) == bindingToken) onLoaded?.invoke()
-            }
+            override fun onSuccess() = Unit
             override fun onError(e: Exception?) {
                 if (view.tag == path && view.getTag(R.id.thumbnail_request_key) == bindingToken) onError?.invoke()
             }
