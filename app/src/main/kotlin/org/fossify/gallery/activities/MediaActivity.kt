@@ -904,12 +904,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             duration = AlbumPageTransition.DURATION_MS
             interpolator = OxygenClassicMotion.easing()
         }
-        window.enterTransition = android.transition.Fade(android.transition.Fade.IN).apply {
-            duration = AlbumPageTransition.FADE_DURATION_MS
-        }
-        window.returnTransition = android.transition.Fade(android.transition.Fade.OUT).apply {
-            duration = AlbumPageTransition.FADE_DURATION_MS
-        }
+        // Animate the cover bounds only; an overlapping window fade exposes
+        // the destination before its grid has finished binding.
         setEnterSharedElementCallback(object : SharedElementCallback() {
             override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
                 val name = AlbumPageTransition.ELEMENT_NAME
@@ -3215,7 +3211,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
 
             // Never consult the legacy system-player preference for internal taps.
-            if (config.gestureVideoPlayer && !isPhotoProfiles) {
+            if (config.gestureVideoPlayer && !isPhotoProfiles && !OxygenClassicMotion.enabled(this)) {
                 launchGesturePlayer(path, folderSessionId = folderUnlockSessionId,
                     favoriteSessionId = if (mPath == FAVORITES) favoriteSessionId else null)
             } else {
@@ -3310,7 +3306,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     /** Launch from the still-bound thumbnail; stale/recycled holders use the normal page transition. */
     private fun launchPhotoViewerWithSharedElement(intent: Intent, path: String): Boolean {
-        if (!OxygenClassicMotion.enabled(this) || path.isVideoFast()) return false
+        if (!OxygenClassicMotion.enabled(this)) return false
         val adapter = getMediaAdapter() ?: return false
         val position = adapter.media.indexOfFirst { (it as? Medium)?.path == path }
         if (position < 0) return false
@@ -3333,12 +3329,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 duration = PhotoViewerTransition.DURATION_MS
                 interpolator = OxygenClassicMotion.easing()
             }
-            window.exitTransition = android.transition.Fade(android.transition.Fade.OUT).apply {
-                duration = PhotoViewerTransition.FADE_DURATION_MS
-            }
-            window.reenterTransition = android.transition.Fade(android.transition.Fade.IN).apply {
-                duration = PhotoViewerTransition.FADE_DURATION_MS
-            }
+            // Keep the shared-element bounds animation as the single transition;
+            // layering a window fade causes a flash on return.
             setEnterSharedElementCallback(object : SharedElementCallback() {
                 override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
                     val name = PhotoViewerTransition.ELEMENT_NAME

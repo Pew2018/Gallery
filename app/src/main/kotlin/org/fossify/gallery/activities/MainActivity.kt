@@ -2253,12 +2253,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 duration = AlbumPageTransition.DURATION_MS
                 interpolator = OxygenClassicMotion.easing()
             }
-            window.exitTransition = android.transition.Fade(android.transition.Fade.OUT).apply {
-                duration = AlbumPageTransition.FADE_DURATION_MS
-            }
-            window.reenterTransition = android.transition.Fade(android.transition.Fade.IN).apply {
-                duration = AlbumPageTransition.FADE_DURATION_MS
-            }
+            // Keep folder navigation on one shared-element bounds animation;
+            // a second window fade produces a visible flash on entry/return.
             ActivityOptions.makeSceneTransitionAnimation(this, cover, AlbumPageTransition.ELEMENT_NAME).toBundle()
         }.getOrElse {
             cover.transitionName = null

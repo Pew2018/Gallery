@@ -163,6 +163,17 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     private lateinit var mVolumeSideScroll: MediaSideScroll
     private lateinit var binding: PagerVideoItemBinding
     private var videoPreviewFrameHandoff: VideoPreviewFrameHandoff? = null
+
+    /** The decoded-frame cover is the stable shared surface for grid transitions. */
+    fun sharedElementViewFor(path: String): View? {
+        if (!::mMedium.isInitialized || mMedium.path != path || !isAdded || view == null) return null
+        val cover = binding.videoPreview.takeIf {
+            it.visibility == View.VISIBLE && it.isAttachedToWindow && it.width > 0 && it.height > 0
+        }
+        return cover ?: mTextureView.takeIf {
+            it.visibility == View.VISIBLE && it.isAttachedToWindow && it.width > 0 && it.height > 0
+        }
+    }
     private lateinit var mView: View
     private lateinit var mMedium: Medium
     private lateinit var mConfig: Config
@@ -587,6 +598,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                 // Player.STATE_READY alone does not guarantee that the Surface has one.
                 if (mExoPlayer === listenerPlayer && view != null) {
                     videoPreviewFrameHandoff?.onRenderedFirstFrame(listenerPlayer)
+                    listener?.imageRendered(mMedium.path)
                 }
             }
 

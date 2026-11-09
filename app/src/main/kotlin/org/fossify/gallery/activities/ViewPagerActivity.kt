@@ -559,19 +559,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 duration = PhotoViewerTransition.DURATION_MS
                 interpolator = OxygenClassicMotion.easing()
             }
-            window.enterTransition = android.transition.Fade(android.transition.Fade.IN).apply {
-                duration = PhotoViewerTransition.FADE_DURATION_MS
-            }
-            window.returnTransition = android.transition.Fade(android.transition.Fade.OUT).apply {
-                duration = PhotoViewerTransition.FADE_DURATION_MS
-            }
+            // The shared element is the only content transition. A parallel
+            // window fade exposes the destination background before its frame.
             setEnterSharedElementCallback(object : SharedElementCallback() {
                 override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
                     val name = PhotoViewerTransition.ELEMENT_NAME
                     if (name !in names) return
                     val path = photoSharedElementPath
                     val view = path?.let { selected ->
-                        (getCurrentPhotoFragment())?.sharedElementViewFor(selected)
+                        getCurrentSharedElementView(selected)
                     }
                     if (view == null) sharedElements.remove(name) else {
                         view.transitionName = name
@@ -586,7 +582,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     if (name !in names) return
                     val path = photoSharedElementPath
                     val view = if (path != null && getCurrentPath() == path)
-                        getCurrentPhotoFragment()?.sharedElementViewFor(path) else null
+                        getCurrentSharedElementView(path) else null
                     if (view == null) sharedElements.remove(name) else {
                         view.transitionName = name
                         sharedElements[name] = view
@@ -2707,6 +2703,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun getCurrentPhotoFragment() = getCurrentFragment() as? PhotoFragment
+
+    private fun getCurrentSharedElementView(path: String): View? = when (val fragment = getCurrentFragment()) {
+        is PhotoFragment -> fragment.sharedElementViewFor(path)
+        is VideoFragment -> fragment.sharedElementViewFor(path)
+        else -> null
+    }
 
     private fun getPortraitPath() = intent.getStringExtra(PORTRAIT_PATH) ?: ""
 
