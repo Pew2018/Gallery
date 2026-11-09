@@ -1,9 +1,27 @@
-# Gallery 项目文档入口
+# Gallery 文档中心
 
-> 2026-11-05 整理。文档中的历史分支/版本不等于当前可操作目标，实施前核对远程最新 HEAD。
+本目录按“当前工程、历史交付、专题参考”组织。历史报告保留原始证据，但其中的分支名、阶段状态和下一步只代表当时，不作为当前任务指令。
 
-**当前媒体索引、加载、排序、稳定性项目**：先阅读 [media-engine-v2/18-current-media-pipeline-roadmap.md](media-engine-v2/18-current-media-pipeline-roadmap.md)，再阅读 [实施细则](media-engine-v2/05-minimal-scan-sort-display-refactor.md)、[验证标准](media-engine-v2/04-validation-and-migration-readiness.md) 和 [兼容性契约](media-engine-v2/03-compatibility-contracts.md)。从 `main` `49e799eceab00414ef074cbf71b7f0a35133b669` 创建 `refactor/media-pipeline-stability`，本轮只有文档修订。
+## 当前工程
 
-[media-engine-v2/README.md](media-engine-v2/README.md) 将 01–17 归为历史证据/修复日志；其它 `backup/`、`testing/`、`emulator-testing/`、`ui/` 是各自功能历史，不能被新媒体路线图的任务需求覆盖。已停用的模拟器 harness 不可当成当前 CI 测试项。
+- [性能优化工程](performance/README.md)：主页目录排序后台化的设计、实现、验证状态与后续性能验收。
+- [媒体管线历史路线图](media-engine-v2/18-current-media-pipeline-roadmap.md)：此前媒体索引/加载/排序工程的阶段计划。该文档的基线与分支状态已过期；只用于理解历史阶段，当前 `perf/home-gallery-sorting` 状态以性能优化工程为准。
 
-未来任何性能改善、权限回归、旧版数据兼容或 P0 修复都要以指定 SHA 的实际测试与设备数据佐证。
+## 专题资料
+
+- [媒体管线与诊断](media-engine-v2/README.md)、[诊断说明](diagnostics/app-diagnostics.md)
+- [界面精修](ui/oxygenos-classic-refinement/README.md)
+- [备份与恢复](backup/)
+- [回归与设备测试](testing/)、[模拟器测试记录](emulator-testing/)
+- [其它界面/媒体专题](classic-dialog-review.md)、[媒体资源](media-assets.md)、[工具栏稳定性](Photo_Profile_Toolbar_Stability_2026-11-07.md)
+
+## 历史归档约定
+
+`media-engine-v2/` 中 01–17 是旧阶段资料；22–43 是各阶段审计、实现和交付记录。它们作为历史归档保留，不表示当前分支已经完成相同工作。各专题目录中的 `phase-*`、审计、修复和设备验收文档同样按固定提交追溯。阶段仅在对应记录提供实际测试/CI/设备证据时才标为完成。
+
+## 状态口径
+
+- **已实现**：代码已提交；不代表测试通过。
+- **自动化已验证**：记录了对应提交的实际测试结果。
+- **设备待验**：真机数据或交互验收仍缺失。
+- **已归档**：交付记录保留供追溯，不是当前待办。
