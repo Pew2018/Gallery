@@ -8,6 +8,7 @@ internal object PhotoProfileMediaCache {
     private const val MAX_PROFILES = 2
     private const val MAX_ITEMS = 12000
     private const val MAX_AGE_MS = 60_000L
+    internal const val PREVIEW_LIMIT = 160
     private data class Entry(
         val scope: PhotoProfileScope,
         val revision: Long,
@@ -101,7 +102,7 @@ internal object PhotoProfileMediaCache {
         if (profileId == null) entries.clear() else entries.remove(profileId)
     }
 
-    fun preview(sorted: List<Medium>, anchorPath: String?, limit: Int = 160): List<Medium> {
+    fun preview(sorted: List<Medium>, anchorPath: String?, limit: Int = PREVIEW_LIMIT): List<Medium> {
         val anchor = sorted.indexOfFirst { it.path == anchorPath }.coerceAtLeast(0)
         val start = (anchor - limit / 4).coerceAtLeast(0)
         return sorted.subList(start, (start + limit).coerceAtMost(sorted.size))
