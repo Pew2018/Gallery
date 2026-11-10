@@ -15,7 +15,11 @@ object OxygenClassicActivityMotion {
             exitTransition = null
             reenterTransition = null
             returnTransition = null
-            sharedElementsUseOverlay = true
+            // The content proxy is already a standalone ImageView above the
+            // renderer. Keeping it in the scene hierarchy avoids the extra
+            // overlay snapshot that can flash beside the still-visible window
+            // content during the cross-Activity return on Android 10.
+            sharedElementsUseOverlay = false
             transitionBackgroundFadeDuration = 0L
         }
     }

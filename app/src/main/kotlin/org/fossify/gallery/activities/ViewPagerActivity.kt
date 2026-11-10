@@ -233,7 +233,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         listOf(binding.topShadow, binding.bottomActions.root, binding.mediumViewerAppbar).forEach {
             it.animate().cancel()
             if (animate) it.animate().alpha(alpha).setStartDelay(if (show) 70L else 0L)
-                .setDuration(if (show) 170L else 140L)
+                .setDuration(if (show) OxygenClassicMotion.VIEWER_CHROME_ENTER_MS
+                    else OxygenClassicMotion.VIEWER_CHROME_EXIT_MS)
                 .setInterpolator(OxygenClassicMotion.easing()).start()
             else it.alpha = alpha
         }
@@ -315,10 +316,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun finishMediaTransition() {
         if (!finishAfterSharedTransitionInProgress && !isFinishing && !isDestroyed) {
-            if (photoCanvasCompletionPending) return
-            photoCanvasCompletionPending = true
+            val completion = photoCanvasCompletionGate.begin() ?: return
             animatePhotoTransitionScrim {
-                photoCanvasCompletionPending = false
+                // Back can start the return bounds transition while this
+                // post-entry canvas fade is still running. A stale completion
+                // must never remove the shared surface in the middle of that
+                // return transition.
+                if (!photoCanvasCompletionGate.complete(completion)) return@animatePhotoTransitionScrim
                 completeMediaTransition()
             }
             return
@@ -326,7 +330,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         completeMediaTransition()
     }
 
-    private var photoCanvasCompletionPending = false
+    private val photoCanvasCompletionGate = org.fossify.gallery.helpers.PhotoTransitionCompletionGate()
+
+    private fun cancelPendingPhotoCanvasCompletion() {
+        photoCanvasCompletionGate.cancel()
+        binding.viewerTransitionScrim.animate().withEndAction(null).cancel()
+        binding.viewerTransitionScrim.visibility = View.GONE
+        binding.viewerTransitionScrim.alpha = 0f
+    }
 
     private fun completeMediaTransition() {
         mediaTransitionRunning = false
@@ -971,7 +982,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             return
         }
         releasePhotoSharedElement()
-        finishMediaTransition()
         val returnPath = getCurrentPath()
         val canReturn = photoSharedElementMapped && returnPath.isNotEmpty() &&
             getCurrentSharedElementView(returnPath) != null
@@ -980,6 +990,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         setResult(RESULT_OK, Intent().putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH,
             returnPath.takeIf { canReturn }))
         if (canReturn) {
+            // Preserve the content-only proxy until Android finishes the
+            // reverse shared-element transition. Entry's canvas fade can
+            // still be pending if the user presses Back immediately.
+            cancelPendingPhotoCanvasCompletion()
+            // A full-window loading snapshot is useful only while the target
+            // renderer is unavailable. Once the real renderer can be mapped,
+            // keeping both layers during return produces a small duplicate at
+            // the grid endpoint.
+            clearPhotoSharedElementSnapshot()
             setSharedTransitionCanvasTransparent()
             binding.viewerTransitionScrim.visibility = View.GONE
             animateSharedChrome(false)

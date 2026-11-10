@@ -215,11 +215,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             val adapter = getMediaAdapter()
             val position = adapter?.media?.indexOfFirst { (it as? Medium)?.path == path } ?: -1
             val holder = if (position >= 0) binding.mediaGrid.findViewHolderForAdapterPosition(position) else null
-            val image = holder?.itemView?.findViewById<ImageView>(R.id.medium_thumbnail)
-            val loaded = image != null && image.getTag(R.id.thumbnail_loaded_key) != null &&
-                image.getTag(R.id.thumbnail_loaded_key) == image.getTag(R.id.thumbnail_request_key)
-            if (loaded && holder.bindingAdapterPosition == position) {
-                binding.mediaGrid.doOnPreDraw { startPostponedEnterTransition() }
+            val image = findLoadedViewerReturnThumbnail(path)
+            if (image != null && holder?.bindingAdapterPosition == position) {
+                binding.mediaGrid.doOnPreDraw {
+                    startPostponedEnterTransition()
+                }
                 binding.mediaGrid.invalidate()
             } else if (position < 0 || android.os.SystemClock.uptimeMillis() >= deadline) {
                 pendingViewerReturnPath = null
@@ -230,6 +230,20 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
         }
         awaitTarget()
+    }
+
+    private fun findLoadedViewerReturnThumbnail(path: String): ImageView? {
+        val adapter = getMediaAdapter() ?: return null
+        val position = adapter.media.indexOfFirst { (it as? Medium)?.path == path }
+        if (position < 0) return null
+        val holder = binding.mediaGrid.findViewHolderForAdapterPosition(position) ?: return null
+        if (holder.bindingAdapterPosition != position ||
+            (adapter.media.getOrNull(position) as? Medium)?.path != path) return null
+        return holder.itemView.findViewById<ImageView>(R.id.medium_thumbnail)?.takeIf { image ->
+            image.isAttachedToWindow && image.width > 0 && image.height > 0 && image.drawable != null &&
+                image.getTag(R.id.thumbnail_loaded_key) != null &&
+                image.getTag(R.id.thumbnail_loaded_key) == image.getTag(R.id.thumbnail_request_key)
+        }
     }
     private val albumTransitionHandler = Handler()
     private val albumTransitionTimeout = Runnable { releaseAlbumTransition() }

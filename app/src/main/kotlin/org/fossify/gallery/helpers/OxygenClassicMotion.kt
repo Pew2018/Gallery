@@ -11,6 +11,11 @@ import android.view.animation.PathInterpolator
 object OxygenClassicMotion {
     // Viewer timings are application choices, not measured ROM resource values.
     const val VIEWER_CHROME_MS = 170L
+    const val MEDIA_SHARED_ELEMENT_MS = 300L
+    const val MEDIA_SCRIM_FADE_MS = 150L
+    const val ALBUM_CONTENT_ENTER_MS = 225L
+    const val VIEWER_CHROME_ENTER_MS = 225L
+    const val VIEWER_CHROME_EXIT_MS = 195L
     const val VIEWER_LOADING_DELAY_MS = 120L
     const val VIEWER_LOADING_MIN_VISIBLE_MS = 180L
     const val VIEWER_LOADING_FADE_MS = 140L
