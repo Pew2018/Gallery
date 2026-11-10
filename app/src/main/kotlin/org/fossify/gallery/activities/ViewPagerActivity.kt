@@ -240,16 +240,21 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         (getCurrentFragment() as? org.fossify.gallery.fragments.VideoFragment)?.setSharedChromeVisible(show, animate)
     }
 
-    private fun animatePhotoTransitionScrim() {
+    private fun animatePhotoTransitionScrim(onEnd: () -> Unit) {
         val scrim = binding.viewerTransitionScrim
         scrim.animate().cancel()
         scrim.setBackgroundColor(Color.BLACK)
         scrim.visibility = View.VISIBLE
         scrim.alpha = 0f
         scrim.animate().alpha(1f)
-            .setDuration(PhotoViewerTransition.DURATION_MS)
+            // Fill the letterbox only after the image has reached its final
+            // bounds; fading it during expansion hides the source grid too soon.
+            .setDuration(PhotoViewerTransition.FADE_DURATION_MS)
             .setInterpolator(OxygenClassicMotion.easing())
-            .withEndAction { scrim.visibility = View.GONE }
+            .withEndAction {
+                scrim.visibility = View.GONE
+                onEnd()
+            }
             .start()
     }
 
@@ -309,6 +314,21 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun finishMediaTransition() {
+        if (!finishAfterSharedTransitionInProgress && !isFinishing && !isDestroyed) {
+            if (photoCanvasCompletionPending) return
+            photoCanvasCompletionPending = true
+            animatePhotoTransitionScrim {
+                photoCanvasCompletionPending = false
+                completeMediaTransition()
+            }
+            return
+        }
+        completeMediaTransition()
+    }
+
+    private var photoCanvasCompletionPending = false
+
+    private fun completeMediaTransition() {
         mediaTransitionRunning = false
         binding.viewPager.transitionInputLocked = false
         if (!finishAfterSharedTransitionInProgress) {
@@ -683,7 +703,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             setEnterSharedElementCallback(object : SharedElementCallback() {
                 override fun onSharedElementStart(names: MutableList<String>, elements: MutableList<View>, snapshots: MutableList<View>?) {
                     animateSharedChrome(!finishAfterSharedTransitionInProgress)
-                    if (!finishAfterSharedTransitionInProgress) animatePhotoTransitionScrim()
                 }
                 override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
                     val name = PhotoViewerTransition.ELEMENT_NAME
