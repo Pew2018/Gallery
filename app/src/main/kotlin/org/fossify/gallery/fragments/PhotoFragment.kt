@@ -174,6 +174,16 @@ class PhotoFragment : ViewPagerFragment() {
         if (view != null && mIsFragmentVisible) scheduleZoomableView()
     }
 
+    /** Expose the source grid around the moving photo until the shared bounds settle. */
+    fun setTransitionCanvasTransparent(transparent: Boolean) {
+        if (!this::binding.isInitialized) return
+        val color = if (transparent) Color.TRANSPARENT else Color.BLACK
+        binding.root.setBackgroundColor(color)
+        binding.gesturesView.setBackgroundColor(color)
+        binding.subsamplingView.setBackgroundColor(color)
+        binding.gifViewFrame.setBackgroundColor(color)
+    }
+
     private var mStoredShowExtendedDetails = false
     private var mStoredHideExtendedDetails = false
     private var mStoredAllowDeepZoomableImages = false
@@ -205,6 +215,10 @@ class PhotoFragment : ViewPagerFragment() {
         binding.gesturesView.setBackgroundColor(Color.BLACK)
         binding.subsamplingView.setBackgroundColor(Color.BLACK)
         binding.gifViewFrame.setBackgroundColor(Color.BLACK)
+        if ((activity as? org.fossify.gallery.activities.ViewPagerActivity)
+                ?.shouldKeepPhotoCanvasTransparent() == true) {
+            setTransitionCanvasTransparent(true)
+        }
         if (!arguments.getBoolean(SHOULD_INIT_FRAGMENT, true)) {
             return mView
         }

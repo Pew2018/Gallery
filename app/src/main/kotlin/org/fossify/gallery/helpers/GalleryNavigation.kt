@@ -1,5 +1,8 @@
 package org.fossify.gallery.helpers
 
+import android.os.Parcelable
+import androidx.recyclerview.widget.RecyclerView
+
 /** Navigation scope and presentation mode must never be inferred from Activity names. */
 enum class GallerySection { ALL, FAVORITES, PHOTOS }
 enum class GalleryContentView { FILES, FOLDERS }
@@ -18,6 +21,37 @@ data class GalleryScreen(
 
 object GalleryNavigation {
     const val EXTRA_SECTION = "org.fossify.gallery.GALLERY_SECTION"
+    const val LIST_FAVORITES_FILES = "favorites_files"
+
+    // Root tab changes replace MainActivity/MediaActivity instances. Keep each
+    // root list's native layout-manager anchor while the process remains alive.
+    private val rootListStates = mutableMapOf<String, Parcelable>()
+
+    fun rememberListState(screen: GalleryScreen, list: RecyclerView) {
+        rememberListState(screen.key(), list)
+    }
+
+    fun rememberListState(key: String, list: RecyclerView) {
+        list.layoutManager?.onSaveInstanceState()?.let { rootListStates[key] = it }
+    }
+
+    fun restoreListState(screen: GalleryScreen, list: RecyclerView) {
+        restoreListState(screen.key(), list)
+    }
+
+    fun restoreListState(key: String, list: RecyclerView) {
+        val state = rootListStates.remove(key) ?: return
+        list.post {
+            if (list.isAttachedToWindow && list.adapter != null) {
+                list.layoutManager?.onRestoreInstanceState(state)
+            } else {
+                // Adapter publication can finish after the first scan callback.
+                rootListStates.putIfAbsent(key, state)
+            }
+        }
+    }
+
+    private fun GalleryScreen.key(): String = "${section.name}:${view.name}"
 
     /** Explicit navigation overrides legacy folder-only Intents. */
     fun resolveSection(explicit: String?, legacyFavoriteFolders: Boolean = false): GallerySection =

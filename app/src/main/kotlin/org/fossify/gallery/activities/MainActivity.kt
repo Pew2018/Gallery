@@ -1705,6 +1705,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     /** Called only by root navigation; leave third-party picker contracts untouched. */
     private fun openGalleryRoot(screen: GalleryScreen) {
+        if (!mIsThirdPartyIntent && mCurrentPathPrefix.isEmpty()) {
+            val currentSection = if (mShowingFolderFavorites) GallerySection.FAVORITES else GallerySection.ALL
+            GalleryNavigation.rememberListState(
+                GalleryScreen(currentSection, GalleryContentView.FOLDERS), binding.directoriesGrid
+            )
+        }
         if (screen.section == GallerySection.ALL) {
             config.lastMainViewAll = screen.view == GalleryContentView.FILES
         }
@@ -2227,6 +2233,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val cover = holder.itemView.findViewById<ImageView>(R.id.dir_thumbnail) ?: return null
         if (!cover.isAttachedToWindow || cover.visibility != View.VISIBLE || cover.drawable == null ||
             cover.width <= 0 || cover.height <= 0 ||
+            cover.getTag(R.id.directory_bound_path) != path ||
+            cover.getTag(R.id.thumbnail_request_key) == null ||
             cover.getTag(R.id.thumbnail_loaded_key) == null ||
             cover.getTag(R.id.thumbnail_loaded_key) != cover.getTag(R.id.thumbnail_request_key)) return null
 
@@ -3069,6 +3077,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                             }.apply {
                                 setupZoomListener(mZoomListener)
                                 binding.directoriesGrid.adapter = this
+                                if (!mIsThirdPartyIntent && mCurrentPathPrefix.isEmpty()) {
+                                    GalleryNavigation.restoreListState(
+                                        GalleryScreen(mGallerySection, GalleryContentView.FOLDERS),
+                                        binding.directoriesGrid
+                                    )
+                                }
                                 setupScrollDirection()
                                 if (config.viewTypeFolders == VIEW_TYPE_LIST && areSystemAnimationsEnabled) {
                                     binding.directoriesGrid.scheduleLayoutAnimation()

@@ -46,8 +46,12 @@ open class SimpleActivity : BaseSimpleActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Viewer/editor starting windows share the same black media canvas as their roots.
+        val photoSharedTransition = this is ViewPagerActivity &&
+            intent.hasExtra(org.fossify.gallery.helpers.PhotoViewerTransition.EXTRA_PATH)
         if (this is EditActivity || this is ViewPagerActivity || this is PhotoVideoActivity) {
-            window.setBackgroundDrawable(ColorDrawable(Color.BLACK))
+            window.setBackgroundDrawable(ColorDrawable(
+                if (photoSharedTransition) Color.TRANSPARENT else Color.BLACK
+            ))
         }
         // Commons resolves its base theme in super.onCreate(), before Gallery inflates controls.
         OxygenThemeEngine.apply(this, config)
@@ -62,7 +66,9 @@ open class SimpleActivity : BaseSimpleActivity() {
         org.fossify.gallery.helpers.GalleryBottomBar.traceWindow(this, "create_before_commons")
         super.onCreate(savedInstanceState)
         if (this is EditActivity || this is ViewPagerActivity || this is PhotoVideoActivity) {
-            window.setBackgroundDrawable(ColorDrawable(Color.BLACK))
+            window.setBackgroundDrawable(ColorDrawable(
+                if (photoSharedTransition) Color.TRANSPARENT else Color.BLACK
+            ))
         }
         applyClassicOverlay()
         org.fossify.gallery.helpers.GalleryBottomBar.restoreRootWindow(this)

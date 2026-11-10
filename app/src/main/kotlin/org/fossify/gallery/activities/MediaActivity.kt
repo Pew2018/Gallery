@@ -147,6 +147,8 @@ import org.fossify.gallery.helpers.OxygenThemeEngine
 import org.fossify.gallery.helpers.OxygenProgressStyle
 import org.fossify.gallery.helpers.GalleryNavigation
 import org.fossify.gallery.helpers.GallerySection
+import org.fossify.gallery.helpers.GalleryScreen
+import org.fossify.gallery.helpers.GalleryContentView
 import org.fossify.gallery.helpers.OxygenToolbarStyle
 import org.fossify.gallery.helpers.OxygenSystemBars
 import org.fossify.gallery.helpers.OxygenSearchNavigation
@@ -192,6 +194,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var pendingViewerReturnPath: String? = null
     private var viewerReturnGeneration = 0L
     private var viewerSourceLease: androidx.recyclerview.widget.RecyclerView.ViewHolder? = null
+    private var viewerLaunchInProgress = false
 
     private fun releaseViewerSourceLease() {
         viewerSourceLease?.setIsRecyclable(true)
@@ -1412,7 +1415,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, resultData: Intent?) {
-        if (requestCode == PhotoViewerTransition.REQUEST_CODE) releaseViewerSourceLease()
+        if (requestCode == PhotoViewerTransition.REQUEST_CODE) {
+            viewerLaunchInProgress = false
+            releaseViewerSourceLease()
+        }
         if (requestCode == REQUEST_EDIT_IMAGE) {
             if (resultCode == RESULT_OK && resultData != null) {
                 mMedia.clear()
@@ -1944,6 +1950,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }
 
             setupLayoutManager()
+            if (mGallerySection != null && mPath in listOf("", FAVORITES, PhotoProfileMediaLoader.PATH)) {
+                if (mPath == FAVORITES) {
+                    GalleryNavigation.restoreListState(GalleryNavigation.LIST_FAVORITES_FILES, binding.mediaGrid)
+                } else GalleryNavigation.restoreListState(
+                    GalleryScreen(mGallerySection!!, GalleryContentView.FILES), binding.mediaGrid
+                )
+            }
             handleGridSpacing()
             if (mLastSearchedText.isNotEmpty()) searchQueryChanged(
                 mLastSearchedText, onCommitted, SearchTrigger.MEDIA_SNAPSHOT
@@ -2535,6 +2548,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun openGalleryRoot(section: GallerySection) {
         favoriteAuthGeneration++
         FavoriteAccessSessionManager.revokeSession(favoriteSessionId)
+        if (mGallerySection != null && mPath in listOf("", FAVORITES, PhotoProfileMediaLoader.PATH)) {
+            if (mPath == FAVORITES) {
+                GalleryNavigation.rememberListState(GalleryNavigation.LIST_FAVORITES_FILES, binding.mediaGrid)
+            } else GalleryNavigation.rememberListState(
+                GalleryScreen(mGallerySection!!, GalleryContentView.FILES), binding.mediaGrid
+            )
+        }
         val screen = GalleryNavigation.bottomDestination(section, config.lastMainViewAll)
         config.showAll = screen.isAllFiles
         val destination = if (screen.section == GallerySection.PHOTOS) {
@@ -3287,6 +3307,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (mPath == FAVORITES && !FavoriteAccessSessionManager.isCapturedPath(favoriteSessionId, path)) {
             finish(); return
         }
+        if (viewerLaunchInProgress) return
+        viewerLaunchInProgress = true
         val request = ++viewerHandoffGeneration
         val source = mPath
         val folderToken = folderUnlockSessionId
@@ -3339,6 +3361,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             )
             runOnUiThread {
                 if (request != viewerHandoffGeneration || source != mPath || isFinishing || isDestroyed) {
+                    if (!isFinishing && !isDestroyed) viewerLaunchInProgress = false
                     org.fossify.gallery.helpers.ViewerNeighborHandoffStore.clear(neighborId)
                     return@runOnUiThread
                 }
@@ -3388,6 +3411,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         return runCatching {
+            val snapshotToken = java.util.UUID.randomUUID().toString()
+            org.fossify.gallery.helpers.PhotoViewerTransitionSnapshotStore.put(snapshotToken, thumbnail.drawable)
             pendingViewerReturnPath = path
             releaseViewerSourceLease()
             holder.setIsRecyclable(false)
@@ -3395,6 +3420,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             OxygenClassicActivityMotion.configureShared(this)
             thumbnail.transitionName = PhotoViewerTransition.ELEMENT_NAME
             intent.putExtra(PhotoViewerTransition.EXTRA_PATH, path)
+            intent.putExtra(PhotoViewerTransition.EXTRA_SNAPSHOT_TOKEN, snapshotToken)
             window.sharedElementExitTransition = OxygenClassicActivityMotion.mediaTransition(
                 PhotoViewerTransition.DURATION_MS, ::releaseViewerSourceLease)
             window.sharedElementReenterTransition = OxygenClassicActivityMotion.mediaTransition(
@@ -3430,6 +3456,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             startActivityForResult(intent, PhotoViewerTransition.REQUEST_CODE, options.toBundle())
             Unit
         }.getOrElse {
+            org.fossify.gallery.helpers.PhotoViewerTransitionSnapshotStore.clear(
+                intent.getStringExtra(PhotoViewerTransition.EXTRA_SNAPSHOT_TOKEN)
+            )
             releaseViewerSourceLease()
             thumbnail.transitionName = null
             pendingViewerReturnPath = null
@@ -3443,7 +3472,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         intent.removeExtra(PhotoViewerTransition.EXTRA_PATH)
         intent.putExtra(PhotoViewerTransition.EXTRA_FADE_ONLY, true)
         startActivityForResult(intent, PhotoViewerTransition.REQUEST_CODE)
-        overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+        if (OxygenClassicMotion.enabled(this)) {
+            overridePendingTransition(R.anim.photo_viewer_fade_in, R.anim.photo_viewer_fade_out)
+        } else {
+            overridePendingTransition(0, 0)
+        }
     }
 
     private fun openInViewPager(path: String) {
