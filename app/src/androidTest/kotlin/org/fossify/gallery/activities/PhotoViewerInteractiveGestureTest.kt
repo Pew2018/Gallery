@@ -157,6 +157,32 @@ class PhotoViewerInteractiveGestureTest {
             assertTrue("a short drag should restore the real image", restored.imageAlpha > 0.99f)
             assertTrue("viewer should remain open after a short drag", !viewer.isFinishing)
 
+            val initialZoom = photoFragment.javaClass.getDeclaredField("mInitialZoom").apply {
+                isAccessible = true
+            }.getFloat(photoFragment)
+            val currentZoomField = photoFragment.javaClass.getDeclaredField("mCurrentGestureViewZoom").apply {
+                isAccessible = true
+            }
+            assertTrue("double-tap should be injected on the emulator", injectDoubleTap(instrumentation, initial.image))
+            val zoomDeadline = SystemClock.uptimeMillis() + 3_000
+            while (currentZoomField.getFloat(photoFragment) <= initialZoom + 0.1f &&
+                SystemClock.uptimeMillis() < zoomDeadline) SystemClock.sleep(50)
+            assertTrue("the real photo renderer should enter a zoomed state",
+                currentZoomField.getFloat(photoFragment) > initialZoom + 0.1f)
+            assertTrue("zoomed-image drag should be injected on the emulator",
+                injectVerticalSwipe(instrumentation, initial.image, 180f))
+            SystemClock.sleep(400)
+            assertTrue("a downward drag on a zoomed image must not dismiss the viewer", !viewer.isFinishing)
+            assertTrue("the renderer should remain zoomed after the attempted dismissal",
+                currentZoomField.getFloat(photoFragment) > initialZoom + 0.1f)
+            assertTrue("double-tap should restore the image before dismissal testing",
+                injectDoubleTap(instrumentation, initial.image))
+            val resetDeadline = SystemClock.uptimeMillis() + 3_000
+            while (currentZoomField.getFloat(photoFragment) > initialZoom + 0.1f &&
+                SystemClock.uptimeMillis() < resetDeadline) SystemClock.sleep(50)
+            assertTrue("photo renderer should return to its fit zoom",
+                currentZoomField.getFloat(photoFragment) <= initialZoom + 0.1f)
+
             assertTrue("horizontal swipe must be injected on the emulator",
                 injectHorizontalSwipe(instrumentation, initial.image))
             SystemClock.sleep(400)
@@ -360,6 +386,57 @@ class PhotoViewerInteractiveGestureTest {
                 x - target.width * 0.56f * step / 6f, y, 0).apply {
                 source = InputDevice.SOURCE_TOUCHSCREEN
             }
+            injected = instrumentation.uiAutomation.injectInputEvent(event, true) && injected
+            event.recycle()
+            SystemClock.sleep(45)
+        }
+        return injected
+    }
+
+    private fun injectDoubleTap(instrumentation: android.app.Instrumentation, target: View): Boolean {
+        val location = IntArray(2)
+        instrumentation.runOnMainSync { target.getLocationOnScreen(location) }
+        val x = location[0] + target.width * 0.5f
+        val y = location[1] + target.height * 0.5f
+        var injected = true
+        repeat(2) {
+            val downTime = SystemClock.uptimeMillis()
+            val down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0).apply {
+                source = InputDevice.SOURCE_TOUCHSCREEN
+            }
+            injected = instrumentation.uiAutomation.injectInputEvent(down, true) && injected
+            down.recycle()
+            SystemClock.sleep(45)
+            val upTime = SystemClock.uptimeMillis()
+            val up = MotionEvent.obtain(downTime, upTime, MotionEvent.ACTION_UP, x, y, 0).apply {
+                source = InputDevice.SOURCE_TOUCHSCREEN
+            }
+            injected = instrumentation.uiAutomation.injectInputEvent(up, true) && injected
+            up.recycle()
+            if (it == 0) SystemClock.sleep(80)
+        }
+        return injected
+    }
+
+    private fun injectVerticalSwipe(
+        instrumentation: android.app.Instrumentation,
+        target: View,
+        distance: Float,
+    ): Boolean {
+        val location = IntArray(2)
+        instrumentation.runOnMainSync { target.getLocationOnScreen(location) }
+        val x = location[0] + target.width * 0.5f
+        val startY = location[1] + target.height * 0.5f
+        val downTime = SystemClock.uptimeMillis()
+        var injected = true
+        for (step in 0..6) {
+            val action = when (step) {
+                0 -> MotionEvent.ACTION_DOWN
+                6 -> MotionEvent.ACTION_UP
+                else -> MotionEvent.ACTION_MOVE
+            }
+            val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action,
+                x, startY + distance * step / 6f, 0).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
             injected = instrumentation.uiAutomation.injectInputEvent(event, true) && injected
             event.recycle()
             SystemClock.sleep(45)
