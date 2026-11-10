@@ -961,9 +961,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun maybeReleaseAlbumTransition() {
         if (!albumTransitionPending) return
         val adapter = getMediaAdapter() ?: return
-        // The page shell is ready as soon as RecyclerView has laid out its first
-        // frame. A cover that is missing or stale simply opts out of the shared map.
-        if (binding.mediaGrid.childCount > 0 || adapter.itemCount == 0) releaseAlbumTransition()
+        // Do not start the shared transition just because an unrelated grid cell
+        // has appeared. The named cover must be attached and decoded so the
+        // framework captures the real destination bounds; the bounded timeout
+        // below remains the fallback for missing or inaccessible cover media.
+        if (resolveAlbumCoverView() != null || adapter.itemCount == 0) releaseAlbumTransition()
     }
 
     private fun releaseAlbumTransition() {
