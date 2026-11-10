@@ -2269,7 +2269,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         val holder = binding.directoriesGrid.findViewHolderForAdapterPosition(position) ?: return null
         if (holder.bindingAdapterPosition != position || adapter.dirs.getOrNull(position)?.path != path) return null
         return holder.itemView.findViewById<ImageView>(R.id.dir_thumbnail)?.takeIf {
-            it.isAttachedToWindow && it.visibility == View.VISIBLE && it.drawable != null
+            it.getTag(R.id.directory_bound_path) == path &&
+                it.isAttachedToWindow && it.visibility == View.VISIBLE && it.drawable != null &&
+                it.getTag(R.id.thumbnail_request_key) != null &&
+                it.getTag(R.id.thumbnail_loaded_key) == it.getTag(R.id.thumbnail_request_key)
         }
     }
 

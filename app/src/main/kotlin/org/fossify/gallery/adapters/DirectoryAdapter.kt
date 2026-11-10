@@ -1060,6 +1060,7 @@ class DirectoryAdapter(
     private fun setupView(view: View, directory: Directory, holder: ViewHolder) {
         val isSelected = selectedKeys.contains(directory.path.hashCode())
         bindItem(view).apply {
+            dirThumbnail.setTag(R.id.directory_bound_path, directory.path)
             dirPath?.text = "${directory.path.substringBeforeLast("/")}/"
             dirCheck.beVisibleIf(isSelected)
             if (isSelected) {

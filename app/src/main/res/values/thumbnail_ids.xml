@@ -2,4 +2,5 @@
 <resources>
     <item name="thumbnail_request_key" type="id" />
     <item name="thumbnail_loaded_key" type="id" />
+    <item name="directory_bound_path" type="id" />
 </resources>

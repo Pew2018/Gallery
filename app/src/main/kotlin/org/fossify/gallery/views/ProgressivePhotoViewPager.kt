@@ -12,12 +12,14 @@ import kotlin.math.abs
  */
 class ProgressivePhotoViewPager(context: Context, attrs: AttributeSet) : MyViewPager(context, attrs) {
     var onUnknownBoundary: ((Boolean) -> Boolean)? = null
+    var transitionInputLocked = false
     private var downX = 0f
     private var downY = 0f
     private var startItem = -1
     private var singlePointer = true
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (transitionInputLocked) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x

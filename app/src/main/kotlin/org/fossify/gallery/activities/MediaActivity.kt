@@ -956,24 +956,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun maybeReleaseAlbumTransition() {
-        if (!albumTransitionPending || binding.mediaGrid.childCount == 0) return
-        val cover = resolveAlbumCoverView()
-        // A directory cover outside the initial viewport must not drag the album to a different position.
-        if (cover == null) {
-            val adapter = getMediaAdapter() ?: return
-            val position = adapter.media.indexOfFirst { (it as? Medium)?.path == albumCoverPath }
-            if (position < 0 || binding.mediaGrid.findViewHolderForAdapterPosition(position) == null) {
-                albumCoverPath = null
-                releaseAlbumTransition()
-            }
-            return
-        }
-        for (index in 0 until binding.mediaGrid.childCount) {
-            val image = binding.mediaGrid.getChildAt(index).findViewById<ImageView>(R.id.medium_thumbnail) ?: continue
-            val request = image.getTag(R.id.thumbnail_request_key) ?: continue
-            if (image.getTag(R.id.thumbnail_loaded_key) != request) return
-        }
-        releaseAlbumTransition()
+        if (!albumTransitionPending) return
+        val adapter = getMediaAdapter() ?: return
+        // The page shell is ready as soon as RecyclerView has laid out its first
+        // frame. A cover that is missing or stale simply opts out of the shared map.
+        if (binding.mediaGrid.childCount > 0 || adapter.itemCount == 0) releaseAlbumTransition()
     }
 
     private fun releaseAlbumTransition() {
@@ -981,7 +968,19 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         albumTransitionPending = false
         albumTransitionHandler.removeCallbacks(albumTransitionTimeout)
         if (!isFinishing && !isDestroyed) binding.mediaGrid.doOnPreDraw {
-            if (!isFinishing && !isDestroyed) startPostponedEnterTransition()
+            if (isFinishing || isDestroyed) return@doOnPreDraw
+            val cover = resolveAlbumCoverView()
+            val coverHolder = cover?.let(binding.mediaGrid::findContainingViewHolder)?.itemView
+            val content = (0 until binding.mediaGrid.childCount)
+                .map(binding.mediaGrid::getChildAt)
+                .filter { it !== coverHolder }
+            content.forEach { it.alpha = 0f }
+            startPostponedEnterTransition()
+            content.forEach { item ->
+                item.animate().cancel()
+                item.animate().alpha(1f).setDuration(AlbumPageTransition.FADE_DURATION_MS)
+                    .setInterpolator(OxygenClassicMotion.easing()).start()
+            }
         }
     }
 
@@ -3360,26 +3359,33 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     catalogId?.let { putExtra(org.fossify.gallery.helpers.FolderViewerSnapshotStore.EXTRA_ID, it) }
                     favoriteCatalogId?.let { putExtra(org.fossify.gallery.helpers.FavoriteViewerCatalogStore.EXTRA_ID, it) }
                 }
-                if (!launchPhotoViewerWithSharedElement(viewerIntent, path)) {
-                    startActivity(viewerIntent)
-                }
+                launchPhotoViewerWithSharedElement(viewerIntent, path)
             }
         }
     }
 
-    /** Launch from the still-bound thumbnail; stale/recycled holders use the normal page transition. */
-    private fun launchPhotoViewerWithSharedElement(intent: Intent, path: String): Boolean {
-        if (!OxygenClassicMotion.enabled(this)) return false
-        val adapter = getMediaAdapter() ?: return false
+    /** Launch from a validated thumbnail; stale targets use a short fade with no window scale. */
+    private fun launchPhotoViewerWithSharedElement(intent: Intent, path: String) {
+        if (!OxygenClassicMotion.enabled(this)) {
+            launchViewerWithoutSharedElement(intent)
+            return
+        }
+        val adapter = getMediaAdapter() ?: run { launchViewerWithoutSharedElement(intent); return }
         val position = adapter.media.indexOfFirst { (it as? Medium)?.path == path }
-        if (position < 0) return false
-        val holder = binding.mediaGrid.findViewHolderForAdapterPosition(position) ?: return false
+        if (position < 0) { launchViewerWithoutSharedElement(intent); return }
+        val holder = binding.mediaGrid.findViewHolderForAdapterPosition(position)
+            ?: run { launchViewerWithoutSharedElement(intent); return }
         if (holder.bindingAdapterPosition != position ||
-            (adapter.media.getOrNull(position) as? Medium)?.path != path) return false
-        val thumbnail = holder.itemView.findViewById<ImageView>(R.id.medium_thumbnail) ?: return false
+            (adapter.media.getOrNull(position) as? Medium)?.path != path) {
+            launchViewerWithoutSharedElement(intent); return
+        }
+        val thumbnail = holder.itemView.findViewById<ImageView>(R.id.medium_thumbnail)
+            ?: run { launchViewerWithoutSharedElement(intent); return }
         if (!thumbnail.isAttachedToWindow || thumbnail.width <= 0 || thumbnail.height <= 0 ||
             thumbnail.drawable == null || thumbnail.getTag(R.id.thumbnail_loaded_key) == null ||
-            thumbnail.getTag(R.id.thumbnail_loaded_key) != thumbnail.getTag(R.id.thumbnail_request_key)) return false
+            thumbnail.getTag(R.id.thumbnail_loaded_key) != thumbnail.getTag(R.id.thumbnail_request_key)) {
+            launchViewerWithoutSharedElement(intent); return
+        }
 
         return runCatching {
             pendingViewerReturnPath = path
@@ -3422,14 +3428,22 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             })
             val options = ActivityOptions.makeSceneTransitionAnimation(this, thumbnail, PhotoViewerTransition.ELEMENT_NAME)
             startActivityForResult(intent, PhotoViewerTransition.REQUEST_CODE, options.toBundle())
-            true
+            Unit
         }.getOrElse {
             releaseViewerSourceLease()
             thumbnail.transitionName = null
             pendingViewerReturnPath = null
-            intent.removeExtra(PhotoViewerTransition.EXTRA_PATH)
-            false
+            launchViewerWithoutSharedElement(intent)
         }
+    }
+
+    private fun launchViewerWithoutSharedElement(intent: Intent) {
+        releaseViewerSourceLease()
+        pendingViewerReturnPath = null
+        intent.removeExtra(PhotoViewerTransition.EXTRA_PATH)
+        intent.putExtra(PhotoViewerTransition.EXTRA_FADE_ONLY, true)
+        startActivityForResult(intent, PhotoViewerTransition.REQUEST_CODE)
+        overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
     }
 
     private fun openInViewPager(path: String) {
@@ -3515,7 +3529,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         rememberPhotoScrollAnchor()
                         photoViewerTransition = true
                     }
-                    if (!launchPhotoViewerWithSharedElement(this, path)) startActivity(this)
+                    launchPhotoViewerWithSharedElement(this, path)
                 }
             }
         }

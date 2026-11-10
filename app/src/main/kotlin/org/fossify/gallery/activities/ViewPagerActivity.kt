@@ -67,6 +67,7 @@ import org.fossify.commons.extensions.getFinalUriFromPath
 import org.fossify.commons.extensions.getImageResolution
 import org.fossify.commons.extensions.getIsPathDirectory
 import org.fossify.commons.extensions.getParentPath
+import org.fossify.commons.extensions.getProperBackgroundColor
 import org.fossify.commons.extensions.getSharedPrefs
 import org.fossify.commons.extensions.getResolution
 import org.fossify.commons.extensions.getUriMimeType
@@ -218,6 +219,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var mPath = ""
     private var viewerInitialSelectedPath = ""
     private var mediaTransitionRunning = false
+    private var fadeOnlyPhotoFallback = false
     private var visualTitlePending = false
     fun isMediaTransitionRunning() = mediaTransitionRunning || pendingPhotoSharedElement
 
@@ -225,15 +227,36 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val alpha = if (show && !mIsFullScreen) 1f else 0f
         listOf(binding.topShadow, binding.bottomActions.root, binding.mediumViewerAppbar).forEach {
             it.animate().cancel()
-            if (animate) it.animate().alpha(alpha).setDuration(if (show) 170L else 140L)
+            if (animate) it.animate().alpha(alpha).setStartDelay(if (show) 70L else 0L)
+                .setDuration(if (show) 170L else 140L)
                 .setInterpolator(OxygenClassicMotion.easing()).start()
             else it.alpha = alpha
         }
         (getCurrentFragment() as? org.fossify.gallery.fragments.VideoFragment)?.setSharedChromeVisible(show, animate)
     }
 
+    private fun animatePhotoTransitionScrim(returning: Boolean) {
+        val scrim = binding.viewerTransitionScrim
+        scrim.animate().cancel()
+        if (returning) {
+            scrim.setBackgroundColor(getProperBackgroundColor())
+            scrim.visibility = View.VISIBLE
+            scrim.alpha = 0f
+            scrim.animate().alpha(1f).setDuration(PhotoViewerTransition.DURATION_MS)
+                .setInterpolator(OxygenClassicMotion.easing()).start()
+        } else {
+            scrim.setBackgroundColor(getProperBackgroundColor())
+            scrim.visibility = View.VISIBLE
+            scrim.alpha = 1f
+            scrim.animate().alpha(0f).setDuration(PhotoViewerTransition.DURATION_MS)
+                .setInterpolator(OxygenClassicMotion.easing())
+                .withEndAction { scrim.visibility = View.GONE }.start()
+        }
+    }
+
     private fun finishMediaTransition() {
         mediaTransitionRunning = false
+        binding.viewPager.transitionInputLocked = false
         if (!isFinishing && !isDestroyed && !finishAfterSharedTransitionInProgress) animateSharedChrome(true, false)
         supportFragmentManager.fragments.forEach {
             when (it) {
@@ -245,6 +268,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private var pendingPhotoSharedElement = false
     private var photoSharedElementMapped = false
+    private var photoSharedElementFadeFallback = false
     private var finishAfterSharedTransitionInProgress = false
     private var photoSharedElementPath: String? = null
     private val photoSharedElementHandler = Handler()
@@ -573,6 +597,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         // Never restore media fragments before the current password/session
         // flow validates the viewer request.
         super.onCreate(null)
+        fadeOnlyPhotoFallback = intent.getBooleanExtra(PhotoViewerTransition.EXTRA_FADE_ONLY, false)
+        if (fadeOnlyPhotoFallback) window.setWindowAnimations(0)
         photoSharedElementPath = intent.getStringExtra(PhotoViewerTransition.EXTRA_PATH)
             ?.takeIf { OxygenClassicMotion.enabled(this) }
         pendingPhotoSharedElement = photoSharedElementPath != null
@@ -589,6 +615,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             setEnterSharedElementCallback(object : SharedElementCallback() {
                 override fun onSharedElementStart(names: MutableList<String>, elements: MutableList<View>, snapshots: MutableList<View>?) {
                     animateSharedChrome(!finishAfterSharedTransitionInProgress)
+                    if (!finishAfterSharedTransitionInProgress) animatePhotoTransitionScrim(returning = false)
                 }
                 override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
                     val name = PhotoViewerTransition.ELEMENT_NAME
@@ -597,7 +624,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     val view = path?.let { selected ->
                         getCurrentSharedElementView(selected)
                     }
-                    if (view == null) sharedElements.remove(name) else {
+                    if (view == null) {
+                        sharedElements.remove(name)
+                        photoSharedElementFadeFallback = true
+                        binding.fragmentHolder.alpha = 0f
+                    } else {
                         view.transitionName = name
                         sharedElements[name] = view
                         photoSharedElementMapped = true
@@ -626,6 +657,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         binding.fragmentHolder.setBackgroundColor(Color.BLACK)
         binding.viewPager.setBackgroundColor(Color.BLACK)
         if (pendingPhotoSharedElement) animateSharedChrome(false, false)
+        binding.viewPager.transitionInputLocked = pendingPhotoSharedElement
         org.fossify.gallery.helpers.OxygenProgressStyle.apply(this, config, binding.photoBoundaryLoading)
         binding.viewPager.onUnknownBoundary = { forward -> requestViewerBoundary(forward) }
         PhotoProfileAccessSessionManager.addListener(favoriteListenerId) { event ->
@@ -815,6 +847,21 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     // mapping before the framework captures its return, not after that return finishes.
     override fun finishAfterTransition() { finish() }
 
+    override fun onBackPressed() {
+        if (mediaTransitionRunning && !finishAfterSharedTransitionInProgress) {
+            // A back request during entry settles to a fade close; do not start a
+            // second bounds transition while the first one is still in flight.
+            finishAfterSharedTransitionInProgress = true
+            photoSharedElementMapped = false
+            releasePhotoSharedElement()
+            finishMediaTransition()
+            super.finish()
+            overridePendingTransition(0, android.R.anim.fade_out)
+            return
+        }
+        super.onBackPressed()
+    }
+
     override fun finish() {
         // Activity.finishAfterTransition() dispatches back through this override on API 29.
         // Let that second call reach the framework without recursively starting another transition.
@@ -833,12 +880,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             returnPath.takeIf { canReturn }))
         if (canReturn) {
             animateSharedChrome(false)
+            animatePhotoTransitionScrim(returning = true)
             mediaTransitionRunning = true
+            binding.viewPager.transitionInputLocked = true
             finishAfterSharedTransitionInProgress = true
             super.finishAfterTransition()
         } else {
             finishMediaTransition()
             super.finish()
+            if (fadeOnlyPhotoFallback || photoSharedElementMapped) {
+                overridePendingTransition(0, android.R.anim.fade_out)
+            }
         }
     }
 
@@ -4264,10 +4316,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             binding.viewPager.doOnPreDraw {
                 if (!isFinishing && !isDestroyed) {
                     startPostponedEnterTransition()
+                    if (photoSharedElementFadeFallback) {
+                        animateSharedChrome(true, false)
+                        binding.fragmentHolder.animate().cancel()
+                        binding.fragmentHolder.animate().alpha(1f)
+                            .setDuration(PhotoViewerTransition.FADE_DURATION_MS)
+                            .setInterpolator(OxygenClassicMotion.easing()).start()
+                    }
                     // Also clean up if a platform transition has no animators/targets.
                     photoSharedElementHandler.postDelayed({
                         if (!isFinishing && mediaTransitionRunning) finishMediaTransition()
-                    }, PhotoViewerTransition.DURATION_MS + PhotoViewerTransition.READY_TIMEOUT_MS)
+                    }, PhotoViewerTransition.DURATION_MS + PhotoViewerTransition.FADE_DURATION_MS)
                 }
             }
         }
