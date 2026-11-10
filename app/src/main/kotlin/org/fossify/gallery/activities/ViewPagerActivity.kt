@@ -696,6 +696,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         photoSharedElementFadeFallback = true
                         binding.fragmentHolder.alpha = 0f
                     } else {
+                        // Keep a single visible representation of the photo.
+                        // The full-window fallback snapshot otherwise remains
+                        // above the pager while the content-sized renderer proxy
+                        // is also animating, which creates a doubled image.
+                        photoSharedElementSnapshotView?.visibility =
+                            if (view === photoSharedElementSnapshotView) View.VISIBLE else View.GONE
                         view.transitionName = name
                         sharedElements[name] = view
                         photoSharedElementMapped = true
