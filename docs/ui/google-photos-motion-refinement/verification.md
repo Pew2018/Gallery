@@ -24,7 +24,7 @@
 - 图片打开不是单一系统默认 Activity 动画：源码使用按媒体身份校验的 shared element；失败分支明确改用短 fade-only，避免在错误 bounds 上缩放。Viewer 黑色 window background 也在 `GalleryViewerTransitionTheme` 声明，转场中 canvas/scrim 由 `ViewPagerActivity` 管理。
 - 返回目标使用媒体 path 而非旧列表 position，并在 source mapping 时验证 holder 当前绑定项和 thumbnail request/load key。这降低了排序、刷新或 RecyclerView 复用导致飞错位置的风险。
 - 文件夹首屏通过封面 drawable readiness 与 450 ms timeout 放行；超时前系统可能继续保留前一个窗口。实际视频关键帧出现的亮色空白，仅凭非同步录屏无法确认是这段等待、目标主题首帧、或扫描/图片请求造成，需在 API 36 设备逐帧复现后才能归因。
-- Gallery 输入录屏在约 6.5–6.75 秒的返回画面中，选中缩略图位置短暂呈白色；4 fps 样本到约 7 秒可见缩略图恢复。由于抽帧率远低于屏幕刷新率且原操作不可同步对照，这只能证明录屏里存在短暂空白，不能据此断定是 RecyclerView 回收、共享元素隐藏或图片请求中的哪一项造成。
+- Gallery 输入录屏中，约 6.5 秒后选中缩略图格暂时露出白色底，随后返回中的照片代理进入该格并恢复为普通缩略图。对 6–7.5 秒 ROI 以 20 fps 抽帧的联系表（`/private/tmp/gallery-motion-delivery/gallery-return-20fps-crop.jpg`）显示这是一次进行中的 shared-element 交接；录屏未显示静止状态下长期缺图。由于操作未与 Google Photos 同步录制，且视频抽样仍低于屏幕刷新率，不能由此证明代码路径或排除更短的单帧闪烁。
 - 本轮 API 29 模拟器中，普通 `10_MixedRatios` 文件夹可显示 15 张内容；图片 Viewer 进入后能显示 2400×90 全景图片并按比例居中，系统返回回到原文件夹。未观察到最终静止画面上的残留 overlay 或错位。这个观察不能证明转场过程没有单帧闪烁。
 
 ## 本轮验证
