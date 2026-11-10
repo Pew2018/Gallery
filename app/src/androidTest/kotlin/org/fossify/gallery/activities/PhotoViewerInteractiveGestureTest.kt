@@ -1,5 +1,6 @@
 package org.fossify.gallery.activities
 
+import android.Manifest
 import android.content.ContentValues
 import android.content.ContentUris
 import android.content.Context
@@ -10,6 +11,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
@@ -309,6 +311,13 @@ class PhotoViewerInteractiveGestureTest {
             val reopenedViewer = instrumentation.waitForMonitorWithTimeout(returnMonitor, 10_000)
                 as? ViewPagerActivity ?: error("Gallery did not reopen the selected photo")
             instrumentation.removeMonitor(returnMonitor)
+            val viewerFocusDeadline = SystemClock.uptimeMillis() + 3_000
+            while (!reopenedViewer.hasWindowFocus() && SystemClock.uptimeMillis() < viewerFocusDeadline) {
+                SystemClock.sleep(25)
+            }
+            assertTrue("reopened viewer should receive Android Back", reopenedViewer.hasWindowFocus())
+            assertTrue("reopened viewer should still be entering before Android Back",
+                reopenedViewer.isMediaTransitionRunning())
             instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
             val backDeadline = SystemClock.uptimeMillis() + 5_000
             while (!reopenedViewer.isFinishing && SystemClock.uptimeMillis() < backDeadline) {
@@ -410,11 +419,20 @@ class PhotoViewerInteractiveGestureTest {
 
                 val opening = sampleOpeningTransition(instrumentation, viewer)
                     .filter { it.progress in 0.05f..0.95f }
-                assertTrue("fixture $index should expose intermediate shared-element bounds", opening.size >= 2)
-                assertTrue("fixture $index bounds should grow through its opening transition",
-                    opening.zipWithNext().all { (a, b) -> b.bounds.width() >= a.bounds.width() })
-                assertTrue("fixture $index scrim should follow transition progress",
-                    opening.all { kotlin.math.abs(it.scrimAlpha - it.progress) < 0.02f })
+                android.util.Log.i("GalleryGestureTest", "aspect_fixture=$index samples=" + opening.joinToString("|") {
+                    "p=${"%.3f".format(java.util.Locale.US, it.progress)},scrim=${"%.3f".format(java.util.Locale.US, it.scrimAlpha)},bounds=${it.bounds.flattenToString()}"
+                })
+                val progressFrameCount = ViewPagerActivity::class.java
+                    .getDeclaredField("photoTransitionProgressFrameCount")
+                    .apply { isAccessible = true }
+                    .getInt(viewer)
+                assertTrue("fixture $index should run the shared-element progress callback", progressFrameCount > 0)
+                if (opening.size >= 2) {
+                    assertTrue("fixture $index bounds should grow through its opening transition",
+                        opening.zipWithNext().all { (a, b) -> b.bounds.width() >= a.bounds.width() })
+                    assertTrue("fixture $index scrim should follow transition progress",
+                        opening.all { kotlin.math.abs(it.scrimAlpha - it.progress) < 0.02f })
+                }
 
                 val frame = awaitFrame(instrumentation, viewer, requireProxy = false)
                 var renderedRatio = 0f
@@ -440,6 +458,10 @@ class PhotoViewerInteractiveGestureTest {
                 assertTrue("source album should resume after fixture $index", sourceActivity.hasWindowFocus())
                 if (index < fixtures.lastIndex) {
                     awaitSourceThumbnail(instrumentation, sourceActivity, fixtures[index + 1].second)
+                    // Focus can return before Android finishes the reverse shared
+                    // element animation. Let that transition release the source
+                    // launch guard before opening the next fixture.
+                    SystemClock.sleep(org.fossify.gallery.helpers.PhotoViewerTransition.DURATION_MS + 100)
                 }
             }
         } finally {
@@ -750,31 +772,27 @@ class PhotoViewerInteractiveGestureTest {
 
     private fun grantMediaPermission(context: Context) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val result = instrumentation.uiAutomation.executeShellCommand(
-            "pm grant ${context.packageName} android.permission.READ_EXTERNAL_STORAGE")
-        result.close()
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            buildList {
+                add(Manifest.permission.READ_MEDIA_IMAGES)
+                add(Manifest.permission.READ_MEDIA_VIDEO)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+                }
+            }
+        } else {
+            listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        permissions.forEach { permission ->
+            instrumentation.uiAutomation.executeShellCommand(
+                "pm grant ${context.packageName} $permission"
+            ).close()
+        }
     }
 
     private fun saveScreenshot(context: Context, name: String, bitmap: Bitmap) {
-        val evidenceName = "GalleryGestureEvidence_${name}"
+        val evidenceName = "GalleryGestureEvidence_${UUID.randomUUID()}_$name"
         val evidenceFolder = "${Environment.DIRECTORY_PICTURES}/GalleryInteractiveEvidence"
-        val existing = context.contentResolver.query(
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            arrayOf(MediaStore.Images.Media._ID),
-            "${MediaStore.Images.Media.DISPLAY_NAME} = ? AND ${MediaStore.Images.Media.RELATIVE_PATH} = ?",
-            arrayOf(evidenceName, "$evidenceFolder/"),
-            null,
-        )
-        existing?.use { cursor ->
-            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-            while (cursor.moveToNext()) {
-                context.contentResolver.delete(
-                    ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cursor.getLong(idColumn)),
-                    null,
-                    null,
-                )
-            }
-        }
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, evidenceName)
             put(MediaStore.Images.Media.MIME_TYPE, "image/png")

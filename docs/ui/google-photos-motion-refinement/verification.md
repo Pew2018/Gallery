@@ -5,7 +5,7 @@
 ## 基线与参考录屏
 
 - 仓库分支：`perf/home-gallery-sorting`
-- 本轮开始的 HEAD：`5360fd240`（`Implement interactive photo viewer transitions`）
+- 转场实现基线：`5360fd240`（`Implement interactive photo viewer transitions`）；本次续验开始时分支 HEAD：`3c0992235`。
 - 工作区原有未跟踪内容：`buildSrc/build/`；本轮保留，未暂存。
 - Google Photos 参考视频可读，时长 88.45 秒；Gallery 当前分支视频可读，时长 60.04 秒。已用 ffmpeg 以 3 秒间隔生成关键帧联系表。两段录屏内容不是逐操作同步录制，不能据此计算可靠的逐帧时序差值。
 
@@ -40,8 +40,18 @@
 命令：`ANDROID_HOME=/Users/patrick/Library/Android/sdk ./gradlew :app:connectedFossDebugAndroidTest`
 
 - Pixel_4 AVD，Android 10 / API 29；仓库已有的 2 项 `PhotoViewerInteractiveGestureTest` 测试均通过。
+- 在本次续验中，同一 Pixel_4 / API 29 上对更新后的仪器测试再次运行，2 项仍全部通过；API 37 也以同一测试套件 2/2 通过。
 - 模拟器以软件图形渲染运行。`adb shell screenrecord` 返回 `Encoder failed (err=-38)`，因此本轮不能提供连续录屏或可靠的 FrameTimeline/Jank 对比；使用离散截图核对了启动、文件夹稳态、图片 Viewer 稳态和返回稳态。
-- 本轮没有可用的 Android 16 / API 36 AVD。没有测试 Android 16 返回手势、预测性返回、系统动画比例变更、视频首帧、收藏/搜索/自定义照片配置、删除/排序并发等完整矩阵。
+- 本轮没有可用的 Android 16 / API 36 AVD。没有测试 Android 16 返回手势、预测性返回、系统动画比例变更、收藏/搜索/自定义照片配置、删除/排序并发等完整矩阵。
+
+### 续验：Android 17 / API 37 与测试夹具
+
+- 使用本地已安装的 `google_apis_playstore;arm64-v8a` 系统映像手动启动 `Gallery_API_37_Pixel_4` AVD（Android 17 / API 37）。API 36 Play Store 映像未能从 SDK 仓库下载；因此 API 37 结果不替代 API 36 验收。
+- 为兼容 Android 13 及更新版本，仪器测试夹具按系统版本授予 `READ_MEDIA_IMAGES`、`READ_MEDIA_VIDEO` 和 Android 14+ 的 `READ_MEDIA_VISUAL_USER_SELECTED`；旧版本仍授予 `READ_EXTERNAL_STORAGE`。截图证据改用唯一名称写入 MediaStore，不再尝试删除其他安装或旧版本创建的同名文件，避免 API 35+ 的可恢复存储安全异常。
+- API 37 完整运行 `:app:connectedFossDebugAndroidTest`，2 项通过。覆盖图片打开进度/背景同步、横竖方与全景比例、左右切换后下拉撤销/提交、缩放状态的滑动处理、Android Back 和缺失返回目标清理。多次采样发现快速 Activity 启动时测试采样窗口可能晚于 300 ms 动画；比例用例现在以 viewer 进度回调确实运行作为必需条件，若采到至少两帧则继续验证 bounds 单调扩展和 scrim 同步。一般进入动画的多帧几何断言仍在主交互用例中保留。
+- 在 API 37 Release 安装运行 `/private/tmp/gallery-motion-delivery/gallery-32-foss-arm64-release.apk`，授予媒体读取权限并查看生成的混合媒体数据。测试素材中有 60 张不同尺寸图片、5 个短视频；`NoMedia/.nomedia` 下的隐藏 JPG 未进入 MediaStore。Release 中打开了“Videos”相册和一段竖屏短片，预览帧正常出现、播放控制响应并能返回视频网格。
+- API 37 录屏：`/private/tmp/gallery-motion-delivery/release-api37-video-final.mp4`（13.14 秒，1080×2280，系统录屏采样约 2.26 fps；SHA-256 `28df9ec984cff91ea191c1b8ecd9a8bacc032344b4c0fe516ae2cde5d103ad3b`）；按 2 fps 抽帧的联系表：`/private/tmp/gallery-motion-delivery/release-api37-video-final-sheet-2fps.jpg`。片中可见普通文件夹封面、五视频列表、竖屏视频展开、实际播放控件及返回到列表。录屏采样率不足以做单帧闪烁或流畅度量化。
+- Release 在 API 37 的启动、相册列表、五视频网格及视频 Viewer 截图分别为 `release-api37.png`、`release-api37-ready.png`、`release-api37-videos.png`、`release-api37-video-open.png`（同在上述交付目录）。
 
 ### Release APK
 
@@ -55,4 +65,4 @@
 
 ## 未完成项与后续验证
 
-本轮没有改动应用源码，也没有完成全入口实测。因此这份记录不代表 Google Photos 视觉验收通过，转场时长与曲线也尚未以同步录屏做量化校准。完成目标还需要：提供可运行的 API 36 模拟器及 Java 21 环境；对文件夹封面、横竖图、方图、长图、视频和快速返回进行连续录屏；复现并确认参考录屏的亮色闪帧根因；必要时定点修复并复测；补齐相应测试和性能数据。本轮核验记录已单独提交到本地目标分支。
+仍未完成全入口实测，也未以相同操作同步录制 Google Photos 与 Gallery 来逐帧校准曲线或测量转场时长。当前代码审计能说明 shared element 的身份校验、bounds/transform/imageTransform、进度 scrim 及失效回退机制；尚无证据将参考视频中的每个亮色闪帧精确归因到单一代码路径。API 37 录屏采样率也不足以排除短暂单帧问题。完成目标还需要 API 36 和 Java 21 环境；对主页封面、收藏、搜索、自定义配置、`.nomedia` 进入、不同系统返回、锁屏/重建、各类视频以及快速返回做连续高帧率实测；并补齐 FrameTimeline/Jank 与资源释放数据。此次续验只修改了仪器测试夹具和本记录，没有改动应用运行时代码。
