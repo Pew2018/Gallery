@@ -234,6 +234,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var interactivePhotoGestureBaseY = 0f
     private var interactivePhotoGeneration = 0L
     private var photoTransitionProgressFrameCount = 0
+    private var photoTransitionProgress = 0f
     fun isMediaTransitionRunning() = mediaTransitionRunning || pendingPhotoSharedElement || interactivePhotoDragActive
 
     fun shouldKeepPhotoCanvasTransparent() = pendingPhotoSharedElement || photoSharedElementSnapshotView != null
@@ -273,9 +274,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun renderPhotoTransitionProgress(progress: Float) {
         if (finishAfterSharedTransitionInProgress || isFinishing || isDestroyed) return
         photoTransitionProgressFrameCount++
-        binding.viewerTransitionScrim.setBackgroundColor(Color.BLACK)
-        binding.viewerTransitionScrim.visibility = View.VISIBLE
-        binding.viewerTransitionScrim.alpha = progress.coerceIn(0f, 1f)
+        photoTransitionProgress = progress.coerceIn(0f, 1f)
+        binding.viewerTransitionScrim.alpha = photoTransitionProgress
     }
 
     private fun setSharedTransitionCanvasTransparent() {
@@ -299,24 +299,21 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun setInteractivePhotoChromeAlpha(alpha: Float) {
-        listOf(binding.topShadow, binding.bottomActions.root, binding.mediumViewerAppbar,
-            binding.mediumViewerToolbar).forEach {
-            it.alpha = alpha.coerceIn(0f, 1f)
-        }
+        val value = alpha.coerceIn(0f, 1f)
+        binding.topShadow.alpha = value
+        binding.bottomActions.root.alpha = value
+        binding.mediumViewerAppbar.alpha = value
+        binding.mediumViewerToolbar.alpha = value
     }
 
     private fun renderInteractivePhotoProgress(progress: Float) {
         val surface = interactivePhotoSurface ?: return
         val p = progress.coerceIn(0f, 1f)
-        surface.pivotX = surface.width / 2f
-        surface.pivotY = surface.height / 2f
         val scale = 1f - 0.34f * p
         surface.scaleX = scale
         surface.scaleY = scale
         surface.translationX = interactivePhotoDeltaXSlope * p
         surface.translationY = interactivePhotoDeltaYSlope * p
-        binding.viewerTransitionScrim.setBackgroundColor(Color.BLACK)
-        binding.viewerTransitionScrim.visibility = View.VISIBLE
         binding.viewerTransitionScrim.alpha = 1f - p
         setInteractivePhotoChromeAlpha(1f - p)
         interactivePhotoProgress = p
@@ -370,6 +367,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             surface.scaleY = 1f
             surface.translationX = 0f
             surface.translationY = 0f
+            // Cache the image once while only its position and scale are moving.
+            surface.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            binding.viewerTransitionScrim.setBackgroundColor(Color.BLACK)
+            binding.viewerTransitionScrim.visibility = View.VISIBLE
             interactivePhotoSurface = surface
             interactivePhotoDragActive = true
             interactivePhotoGestureBaseX = 0f
@@ -907,6 +908,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         // or the progressive adapter replaces deferred placeholders.
         if (pendingPhotoSharedElement) {
             setSharedTransitionCanvasTransparent()
+            binding.viewerTransitionScrim.setBackgroundColor(Color.BLACK)
+            binding.viewerTransitionScrim.visibility = View.VISIBLE
+            binding.viewerTransitionScrim.alpha = 0f
             installPhotoSharedElementSnapshot()
         }
         else {
@@ -918,6 +922,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         binding.viewPager.transitionInputLocked = pendingPhotoSharedElement
         org.fossify.gallery.helpers.OxygenProgressStyle.apply(this, config, binding.photoBoundaryLoading)
         binding.viewPager.onUnknownBoundary = { forward -> requestViewerBoundary(forward) }
+        binding.viewPager.canPageHorizontallyFromCurrentPhoto = {
+            getCurrentPhotoFragment()?.canPageHorizontallyFromCurrentPhoto() == true
+        }
         PhotoProfileAccessSessionManager.addListener(favoriteListenerId) { event ->
             if (event == PhotoAccessEvent.REVOKED && isPhotoProfile && photoSessionId != null) runOnUiThread {
                 if (!isDestroyed && !isFinishing && isPhotoProfile && photoSessionId != null) closeUnauthorizedFavorites()

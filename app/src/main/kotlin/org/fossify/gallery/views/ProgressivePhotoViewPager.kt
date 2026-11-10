@@ -12,11 +12,20 @@ import kotlin.math.abs
  */
 class ProgressivePhotoViewPager(context: Context, attrs: AttributeSet) : MyViewPager(context, attrs) {
     var onUnknownBoundary: ((Boolean) -> Boolean)? = null
+    var canPageHorizontallyFromCurrentPhoto: (() -> Boolean)? = null
     var transitionInputLocked = false
     private var downX = 0f
     private var downY = 0f
     private var startItem = -1
     private var singlePointer = true
+    private var horizontalPhotoGesture = false
+
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        if (horizontalPhotoGesture) {
+            return true
+        }
+        return super.onInterceptTouchEvent(ev)
+    }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (transitionInputLocked) return true
@@ -26,8 +35,23 @@ class ProgressivePhotoViewPager(context: Context, attrs: AttributeSet) : MyViewP
                 downY = event.y
                 startItem = currentItem
                 singlePointer = true
+                horizontalPhotoGesture = false
             }
             MotionEvent.ACTION_POINTER_DOWN -> singlePointer = false
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.x - downX
+                val dy = event.y - downY
+                if (singlePointer && !horizontalPhotoGesture &&
+                    abs(dx) > ViewConfiguration.get(context).scaledTouchSlop &&
+                    abs(dx) > abs(dy) * 1.2f &&
+                    canPageHorizontallyFromCurrentPhoto?.invoke() == true) {
+                    // The zoom widget can disallow parent interception before
+                    // ViewPager gets a chance to recognize a page swipe. At fit
+                    // scale, take the stream here; zoomed photos keep panning.
+                    horizontalPhotoGesture = true
+                    requestDisallowInterceptTouchEvent(false)
+                }
+            }
             MotionEvent.ACTION_UP -> {
                 val dx = event.x - downX
                 val dy = event.y - downY
@@ -46,6 +70,10 @@ class ProgressivePhotoViewPager(context: Context, attrs: AttributeSet) : MyViewP
                 }
             }
         }
-        return super.dispatchTouchEvent(event)
+        val result = super.dispatchTouchEvent(event)
+        if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            horizontalPhotoGesture = false
+        }
+        return result
     }
 }

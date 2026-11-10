@@ -1,14 +1,17 @@
 package org.fossify.gallery.activities
 
 import android.content.ContentValues
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RectF
 import android.net.Uri
 import android.os.Environment
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.view.InputDevice
@@ -25,6 +28,7 @@ import org.fossify.gallery.fragments.PhotoFragment
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.helpers.DIRECTORY
 import org.fossify.gallery.helpers.PATH
+import org.fossify.gallery.views.ProgressivePhotoViewPager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -44,6 +48,8 @@ class PhotoViewerInteractiveGestureTest {
         val translationY: Float,
     )
 
+    private data class OpeningSample(val progress: Float, val scrimAlpha: Float, val bounds: android.graphics.Rect)
+
     private class GestureCheckpoint {
         val reached = CountDownLatch(1)
         val resume = CountDownLatch(1)
@@ -56,8 +62,11 @@ class PhotoViewerInteractiveGestureTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         grantMediaPermission(context)
-        val fixture = createFixture(context)
+        val fixtureAlbum = "${Environment.DIRECTORY_PICTURES}/GalleryInteractiveGestureTest-${UUID.randomUUID()}"
+        val fixture = createFixture(context, fixtureAlbum)
+        val neighborFixture = createFixture(context, fixtureAlbum)
         val wasZoomingEnabled = context.config.allowZoomingImages
+        val wasShowingAllMedia = context.config.showAll
         try {
             // Keep this UI scenario on GestureImageView so asynchronous tile setup
             // does not obscure touch arbitration for the core transition.
@@ -67,6 +76,12 @@ class PhotoViewerInteractiveGestureTest {
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             instrumentation.startActivitySync(launch)
             SystemClock.sleep(1_000)
+            // MainActivity restores its remembered section on resume; pin the test
+            // source to the temporary folder only after that startup restoration.
+            context.config.showAll = false
+            instrumentation.uiAutomation.executeShellCommand(
+                "dumpsys gfxinfo ${context.packageName} reset"
+            ).close()
             val beforeViewer = instrumentation.uiAutomation.takeScreenshot()
                 ?: error("Could not capture the source Gallery screen")
             saveScreenshot(context, "gallery-source-screen.png", beforeViewer)
@@ -76,7 +91,7 @@ class PhotoViewerInteractiveGestureTest {
                 putExtra(DIRECTORY, java.io.File(fixture.second).parent)
             }
             val source = instrumentation.startActivitySync(sourceIntent) as MediaActivity
-            val sourceThumbnail = awaitSourceThumbnail(instrumentation, source)
+            val sourceThumbnail = awaitSourceThumbnail(instrumentation, source, fixture.second)
             SystemClock.sleep(300)
             val sourceGrid = instrumentation.uiAutomation.takeScreenshot()
                 ?: error("Could not capture the source album grid")
@@ -90,19 +105,27 @@ class PhotoViewerInteractiveGestureTest {
                 Color.green(thumbnailPixel) > Color.red(thumbnailPixel) + 40)
             saveScreenshot(context, "gallery-source-grid.png", sourceGrid)
 
-            val viewerIntent = Intent(source, ViewPagerActivity::class.java).apply {
-                putExtra(PATH, fixture.second)
-                putExtra(IS_FROM_GALLERY, true)
-            }
             val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
-            val launchViewer = MediaActivity::class.java.getDeclaredMethod(
-                "launchPhotoViewerWithSharedElement", Intent::class.java, String::class.java
-            ).apply { isAccessible = true }
-            instrumentation.runOnMainSync { launchViewer.invoke(source, viewerIntent, fixture.second) }
+            val openViewer = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java)
+                .apply { isAccessible = true }
+            instrumentation.runOnMainSync { openViewer.invoke(source, fixture.second) }
             val viewer = instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
                 ?: error("MediaActivity did not launch ViewPagerActivity")
             instrumentation.removeMonitor(monitor)
-            val initial = awaitFrame(instrumentation, viewer, requireProxy = false)
+            val openingSamples = sampleOpeningTransition(instrumentation, viewer)
+            val intermediateOpening = openingSamples.filter { it.progress in 0.05f..0.95f }
+            android.util.Log.i("GalleryGestureTest", "opening_samples=" + intermediateOpening.joinToString("|") {
+                "p=${"%.3f".format(java.util.Locale.US, it.progress)},scrim=${"%.3f".format(java.util.Locale.US, it.scrimAlpha)},bounds=${it.bounds.flattenToString()}"
+            })
+            assertTrue("opening should expose multiple intermediate shared-element frames",
+                intermediateOpening.size >= 2)
+            assertTrue("opening bounds should grow between sampled frames",
+                intermediateOpening.map { it.bounds.width() }.distinct().size >= 2)
+            assertTrue("scrim alpha should follow the shared-element progress value",
+                intermediateOpening.all { kotlin.math.abs(it.scrimAlpha - it.progress) < 0.02f })
+            assertTrue("opening progress should advance monotonically",
+                intermediateOpening.zipWithNext().all { (a, b) -> b.progress >= a.progress })
+            var initial = awaitFrame(instrumentation, viewer, requireProxy = false)
             instrumentation.uiAutomation.takeScreenshot()?.let {
                 saveScreenshot(context, "gallery-opened-viewer.png", it)
                 it.recycle()
@@ -119,8 +142,69 @@ class PhotoViewerInteractiveGestureTest {
                 .getInt(viewer)
             assertTrue("shared image bounds should drive opening scrim progress on the same transition clock",
                 progressFrameCount > 0)
-            val photoFragment = viewer.supportFragmentManager.fragments.filterIsInstance<PhotoFragment>()
+            var photoFragment = viewer.supportFragmentManager.fragments.filterIsInstance<PhotoFragment>()
                 .first { it.isVisible && it.isResumed }
+            val viewerMedia = viewer.javaClass.getDeclaredField("mMediaFiles").apply { isAccessible = true }
+                .get(viewer) as List<*>
+            val viewerPaths = viewerMedia.mapNotNull { medium ->
+                runCatching { medium?.javaClass?.getMethod("getPath")?.invoke(medium) as? String }.getOrNull()
+            }
+            val viewerDirectory = viewer.javaClass.getDeclaredField("mDirectory").apply { isAccessible = true }
+                .get(viewer) as String
+            val viewerShowAll = viewer.javaClass.getDeclaredField("mShowAll").apply { isAccessible = true }
+                .getBoolean(viewer)
+            assertEquals("viewer should remain scoped to the source photo's folder",
+                java.io.File(fixture.second).parent, viewerDirectory)
+            assertTrue("folder handoff should not become Show All", !viewerShowAll)
+            assertTrue("real Gallery launch should hand off the selected photo", fixture.second in viewerPaths)
+            assertTrue("real Gallery launch should retain the adjacent album photo", neighborFixture.second in viewerPaths)
+            assertEquals("test viewer catalog should contain only the generated album items", 2, viewerPaths.size)
+            val currentPathMethod = viewer.javaClass.getDeclaredMethod("getCurrentPath").apply { isAccessible = true }
+            val startingPath = currentPathMethod.invoke(viewer) as String
+            assertEquals("viewer should start on the tapped item", fixture.second, startingPath)
+            instrumentation.runOnMainSync {
+                val sourceSurface = photoFragment.sharedElementViewFor(fixture.second)
+                assertNotNull("selected photo should expose its shared content surface", sourceSurface)
+                photoFragment.finishSharedTransition()
+            }
+            val pager = viewer.findViewById<ProgressivePhotoViewPager>(R.id.view_pager)
+            val pagerReadyDeadline = SystemClock.uptimeMillis() + 5_000
+            while ((pager.adapter?.count ?: 0) < 2 || pager.transitionInputLocked) {
+                if (SystemClock.uptimeMillis() >= pagerReadyDeadline) break
+                SystemClock.sleep(50)
+            }
+            assertEquals("both handoff photos should be published before horizontal paging", 2,
+                pager.adapter?.count)
+            assertTrue("entry transition should release horizontal touch input", !pager.transitionInputLocked)
+            val startPosition = viewerPaths.indexOf(startingPath)
+            val neighborPosition = viewerPaths.indexOf(neighborFixture.second)
+            val swipeRight = neighborPosition < startPosition
+            assertTrue("horizontal page input should be injected on the emulator",
+                injectHorizontalSwipe(instrumentation, initial.image, swipeRight))
+            fun awaitPageChange(): String {
+                val deadline = SystemClock.uptimeMillis() + 1_500
+                var livePath = currentPathMethod.invoke(viewer) as String
+                while (livePath == startingPath && SystemClock.uptimeMillis() < deadline) {
+                    SystemClock.sleep(50)
+                    livePath = currentPathMethod.invoke(viewer) as String
+                }
+                return livePath
+            }
+            var currentPath = awaitPageChange()
+            if (currentPath == startingPath) {
+                assertTrue("reverse horizontal page input should also be injected",
+                    injectHorizontalSwipe(instrumentation, initial.image, !swipeRight))
+                currentPath = awaitPageChange()
+            }
+            assertEquals("horizontal paging should select the generated neighbor photo",
+                neighborFixture.second, currentPath)
+            // Legacy ViewPager exposes current item but not its scroll state;
+            // allow the measured page settling animation to finish before the
+            // next device-level gesture begins.
+            SystemClock.sleep(700)
+            photoFragment = viewer.supportFragmentManager.fragments.filterIsInstance<PhotoFragment>()
+                .first { it.isVisible && it.isResumed }
+            initial = awaitFrame(instrumentation, viewer, requireProxy = false)
             assertNotNull("source thumbnail must be decoded before the shared transition",
                 sourceThumbnail.getTag(R.id.thumbnail_loaded_key))
             assertEquals("source thumbnail request must match its decoded media",
@@ -129,11 +213,6 @@ class PhotoViewerInteractiveGestureTest {
             val touchHandler = photoFragment.javaClass.getDeclaredMethod(
                 "handlePhotoDismissTouch", View::class.java, MotionEvent::class.java
             ).apply { isAccessible = true }
-            instrumentation.runOnMainSync {
-                val probe = photoFragment.sharedElementViewFor(fixture.second)
-                assertNotNull("fixture photo should expose a shared content surface", probe)
-                photoFragment.finishSharedTransition()
-            }
             val checkpoints = List(3) { GestureCheckpoint() }
             val shortSwipe = startSwipe(instrumentation, photoFragment, touchHandler, initial.image,
                 initial.image.width / 2f, initial.image.height / 2f,
@@ -152,10 +231,27 @@ class PhotoViewerInteractiveGestureTest {
             shortSwipe.thread.join(5_000)
             assertTrue("short drag must use device-level touchscreen injection",
                 shortSwipe.deviceInjectionWorked.get())
+            captureFrameStats(instrumentation, context)
             SystemClock.sleep(700)
             val restored = awaitFrame(instrumentation, viewer, requireProxy = false)
             assertTrue("a short drag should restore the real image", restored.imageAlpha > 0.99f)
             assertTrue("viewer should remain open after a short drag", !viewer.isFinishing)
+
+            // Keep frame profiling free from checkpoint screenshots and their
+            // pauses; use a separate continuous device-injected drag.
+            instrumentation.uiAutomation.executeShellCommand(
+                "dumpsys gfxinfo ${context.packageName} reset"
+            ).close()
+            val profileSwipe = startSwipe(instrumentation, photoFragment, touchHandler, initial.image,
+                initial.image.width / 2f, initial.image.height / 2f,
+                initial.image.height / 2f + 220f, 900)
+            profileSwipe.thread.join(10_000)
+            assertTrue("profile drag input should finish on the emulator", !profileSwipe.thread.isAlive)
+            assertTrue("profile drag should use device-level touchscreen injection",
+                profileSwipe.deviceInjectionWorked.get())
+            SystemClock.sleep(500)
+            captureFrameStats(instrumentation, context)
+            assertTrue("profile drag should settle back without closing the viewer", !viewer.isFinishing)
 
             val initialZoom = photoFragment.javaClass.getDeclaredField("mInitialZoom").apply {
                 isAccessible = true
@@ -182,21 +278,24 @@ class PhotoViewerInteractiveGestureTest {
                 SystemClock.uptimeMillis() < resetDeadline) SystemClock.sleep(50)
             assertTrue("photo renderer should return to its fit zoom",
                 currentZoomField.getFloat(photoFragment) <= initialZoom + 0.1f)
-
-            assertTrue("horizontal swipe must be injected on the emulator",
-                injectHorizontalSwipe(instrumentation, initial.image))
             SystemClock.sleep(400)
-            assertTrue("horizontal navigation must not trigger a vertical dismissal", !viewer.isFinishing)
+            assertTrue("viewer should be idle before the committed drag",
+                !viewer.isMediaTransitionRunning())
 
             val dismissSwipe = startSwipe(instrumentation, photoFragment, touchHandler, initial.image,
                 initial.image.width / 2f, initial.image.height / 2f,
                 initial.image.height / 2f + 500f, 900)
+            dismissSwipe.thread.join(10_000)
+            assertTrue("dismiss input stream should finish before checking the settle", !dismissSwipe.thread.isAlive)
             val deadline = SystemClock.uptimeMillis() + 3_000
             while (!viewer.isFinishing && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(50)
-            dismissSwipe.thread.join(5_000)
             assertTrue("dismiss drag must use device-level touchscreen injection",
                 dismissSwipe.deviceInjectionWorked.get())
             assertTrue("a committed drag should dismiss the viewer", viewer.isFinishing)
+            val returnPath = viewer.javaClass.getDeclaredField("photoSharedElementPath").apply { isAccessible = true }
+                .get(viewer) as? String
+            assertEquals("dismissal should target the photo selected after horizontal paging",
+                neighborFixture.second, returnPath)
             instrumentation.uiAutomation.takeScreenshot()?.let {
                 saveScreenshot(context, "gallery-dismissed-screen.png", it)
                 it.recycle()
@@ -206,7 +305,7 @@ class PhotoViewerInteractiveGestureTest {
             // Reopen from the same real album thumbnail and exercise Android Back
             // while the shared transition may still be running.
             val returnMonitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
-            instrumentation.runOnMainSync { launchViewer.invoke(source, viewerIntent, fixture.second) }
+            instrumentation.runOnMainSync { openViewer.invoke(source, fixture.second) }
             val reopenedViewer = instrumentation.waitForMonitorWithTimeout(returnMonitor, 10_000)
                 as? ViewPagerActivity ?: error("Gallery did not reopen the selected photo")
             instrumentation.removeMonitor(returnMonitor)
@@ -217,12 +316,170 @@ class PhotoViewerInteractiveGestureTest {
             }
             assertTrue("Android Back during entry must close cleanly without a competing transition",
                 reopenedViewer.isFinishing)
+            val launchInProgress = MediaActivity::class.java.getDeclaredField("viewerLaunchInProgress")
+                .apply { isAccessible = true }
+            val sourceReadyDeadline = SystemClock.uptimeMillis() + 5_000
+            while ((launchInProgress.getBoolean(source) || !source.hasWindowFocus()) &&
+                SystemClock.uptimeMillis() < sourceReadyDeadline) SystemClock.sleep(50)
+            assertTrue("source activity should be ready before reopening another viewer",
+                !launchInProgress.getBoolean(source))
+
+            // Feed the resumed source Activity a return result for a path that
+            // is absent from its adapter. This must clear the pending target
+            // and release the postponed transition rather than waiting for or
+            // mapping to a different thumbnail.
+            val missingReturn = Intent().putExtra(
+                org.fossify.gallery.helpers.PhotoViewerTransition.EXTRA_RETURN_PATH,
+                "${java.io.File(fixture.second).parent}/missing-target.jpg",
+            )
+            instrumentation.runOnMainSync {
+                source.onActivityReenter(android.app.Activity.RESULT_OK, missingReturn)
+            }
+            val pendingReturn = MediaActivity::class.java.getDeclaredField("pendingViewerReturnPath")
+                .apply { isAccessible = true }
+            assertEquals("missing return path should not remain pending", null, pendingReturn.get(source))
+            assertTrue("missing return path should not finish the source album", !source.isFinishing)
+
+            val toolbarMonitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
+            instrumentation.runOnMainSync { openViewer.invoke(source, fixture.second) }
+            val toolbarViewer = instrumentation.waitForMonitorWithTimeout(toolbarMonitor, 10_000)
+                as? ViewPagerActivity ?: error("Gallery did not open for toolbar Back")
+            instrumentation.removeMonitor(toolbarMonitor)
+            awaitFrame(instrumentation, toolbarViewer, requireProxy = false)
+            SystemClock.sleep(500)
+            instrumentation.runOnMainSync {
+                val toolbar = toolbarViewer.findViewById<ViewGroup>(R.id.medium_viewer_toolbar)
+                assertNotNull("viewer toolbar should be attached", toolbar)
+                assertTrue("toolbar should expose its navigation button", toolbar.childCount > 0)
+                toolbar.getChildAt(0).performClick()
+            }
+            val toolbarBackDeadline = SystemClock.uptimeMillis() + 5_000
+            while (!toolbarViewer.isFinishing && SystemClock.uptimeMillis() < toolbarBackDeadline) {
+                SystemClock.sleep(50)
+            }
+            assertTrue("toolbar Back should close the viewer through the shared return path",
+                toolbarViewer.isFinishing)
             beforeViewer.recycle()
             sourceGrid.recycle()
         } finally {
             context.config.allowZoomingImages = wasZoomingEnabled
+            context.config.showAll = wasShowingAllMedia
             context.contentResolver.delete(fixture.first, null, null)
+            runCatching { context.contentResolver.delete(neighborFixture.first, null, null) }
         }
+    }
+
+    @Test
+    fun viewerPreservesLandscapePortraitSquareAndPanoramaRatiosOnDevice() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GalleryAspectRatioTest-${UUID.randomUUID()}"
+        val dimensions = listOf(960 to 540, 540 to 960, 720 to 720, 1440 to 480)
+        val fixtures = dimensions.map { (width, height) -> createFixture(context, album, width, height) }
+        val wasZoomingEnabled = context.config.allowZoomingImages
+        val wasShowingAllMedia = context.config.showAll
+        var source: MediaActivity? = null
+        try {
+            context.config.allowZoomingImages = false
+            val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                ?: error("Gallery launcher activity is unavailable")
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            instrumentation.startActivitySync(launch)
+            SystemClock.sleep(800)
+            context.config.showAll = false
+
+            val firstPath = fixtures.first().second
+            val sourceIntent = Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, java.io.File(firstPath).parent)
+            }
+            val sourceActivity = instrumentation.startActivitySync(sourceIntent) as MediaActivity
+            source = sourceActivity
+            awaitSourceThumbnail(instrumentation, sourceActivity, firstPath)
+            val openViewer = MediaActivity::class.java
+                .getDeclaredMethod("openInViewPager", String::class.java)
+                .apply { isAccessible = true }
+
+            fixtures.zip(dimensions).forEachIndexed { index, (fixture, size) ->
+                val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
+                instrumentation.runOnMainSync { openViewer.invoke(sourceActivity, fixture.second) }
+                val viewer = instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
+                    ?: error("Gallery did not open aspect-ratio fixture $index")
+                instrumentation.removeMonitor(monitor)
+
+                val opening = sampleOpeningTransition(instrumentation, viewer)
+                    .filter { it.progress in 0.05f..0.95f }
+                assertTrue("fixture $index should expose intermediate shared-element bounds", opening.size >= 2)
+                assertTrue("fixture $index bounds should grow through its opening transition",
+                    opening.zipWithNext().all { (a, b) -> b.bounds.width() >= a.bounds.width() })
+                assertTrue("fixture $index scrim should follow transition progress",
+                    opening.all { kotlin.math.abs(it.scrimAlpha - it.progress) < 0.02f })
+
+                val frame = awaitFrame(instrumentation, viewer, requireProxy = false)
+                var renderedRatio = 0f
+                instrumentation.runOnMainSync {
+                    val drawable = frame.image.drawable
+                    val bounds = RectF(0f, 0f,
+                        drawable.intrinsicWidth.toFloat(), drawable.intrinsicHeight.toFloat())
+                    frame.image.imageMatrix.mapRect(bounds)
+                    renderedRatio = bounds.width() / bounds.height()
+                }
+                val expectedRatio = size.first.toFloat() / size.second
+                assertTrue(
+                    "fixture $index should render at the source aspect ratio; expected=$expectedRatio actual=$renderedRatio",
+                    kotlin.math.abs(renderedRatio / expectedRatio - 1f) < 0.02f,
+                )
+
+                instrumentation.runOnMainSync { viewer.finish() }
+                val returnDeadline = SystemClock.uptimeMillis() + 5_000
+                while ((!sourceActivity.hasWindowFocus() || sourceActivity.isFinishing) &&
+                    SystemClock.uptimeMillis() < returnDeadline) {
+                    SystemClock.sleep(50)
+                }
+                assertTrue("source album should resume after fixture $index", sourceActivity.hasWindowFocus())
+                if (index < fixtures.lastIndex) {
+                    awaitSourceThumbnail(instrumentation, sourceActivity, fixtures[index + 1].second)
+                }
+            }
+        } finally {
+            context.config.allowZoomingImages = wasZoomingEnabled
+            context.config.showAll = wasShowingAllMedia
+            fixtures.forEach { runCatching { context.contentResolver.delete(it.first, null, null) } }
+            source?.let { instrumentation.runOnMainSync { it.finish() } }
+        }
+    }
+
+    private fun sampleOpeningTransition(
+        instrumentation: android.app.Instrumentation,
+        activity: ViewPagerActivity,
+    ): List<OpeningSample> {
+        val progressField = ViewPagerActivity::class.java.getDeclaredField("photoTransitionProgress")
+            .apply { isAccessible = true }
+        val samples = mutableListOf<OpeningSample>()
+        repeat(18) {
+            instrumentation.runOnMainSync {
+                fun findSharedElement(view: View): View? {
+                    if (view.transitionName == org.fossify.gallery.helpers.PhotoViewerTransition.ELEMENT_NAME) {
+                        return view
+                    }
+                    if (view is ViewGroup) {
+                        for (index in 0 until view.childCount) {
+                            findSharedElement(view.getChildAt(index))?.let { return it }
+                        }
+                    }
+                    return null
+                }
+                val image = findSharedElement(activity.window.decorView)
+                val bounds = android.graphics.Rect()
+                if (image != null && image.getGlobalVisibleRect(bounds)) {
+                    val scrim = activity.findViewById<View>(R.id.viewer_transition_scrim)
+                    samples += OpeningSample(progressField.getFloat(activity), scrim.alpha, bounds)
+                }
+            }
+            SystemClock.sleep(16)
+        }
+        return samples
     }
 
     private fun awaitFrame(
@@ -258,6 +515,7 @@ class PhotoViewerInteractiveGestureTest {
     private fun awaitSourceThumbnail(
         instrumentation: android.app.Instrumentation,
         activity: MediaActivity,
+        path: String,
     ): ImageView {
         val deadline = SystemClock.uptimeMillis() + 15_000
         var thumbnail: ImageView? = null
@@ -266,7 +524,7 @@ class PhotoViewerInteractiveGestureTest {
                 val grid = activity.findViewById<RecyclerView>(R.id.media_grid)
                 thumbnail = (0 until (grid?.childCount ?: 0)).asSequence()
                     .mapNotNull { index -> grid?.getChildAt(index)?.findViewById<ImageView>(R.id.medium_thumbnail) }
-                    .firstOrNull { it.drawable != null && it.isAttachedToWindow }
+                    .firstOrNull { it.drawable != null && it.isAttachedToWindow && it.tag == path }
             }
             if (thumbnail != null) return thumbnail!!
             SystemClock.sleep(50)
@@ -318,11 +576,14 @@ class PhotoViewerInteractiveGestureTest {
                     screenX, location[1] + y, 0).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
                 var handled = false
                 if (useDeviceInjection) {
-                    useDeviceInjection = instrumentation.uiAutomation.injectInputEvent(event, true)
-                    if (!useDeviceInjection) deviceInjectionWorked.set(false)
-                    handled = useDeviceInjection
+                    val accepted = instrumentation.uiAutomation.injectInputEvent(event, true)
+                    if (!accepted && fragment.activity?.isFinishing != true) {
+                        deviceInjectionWorked.set(false)
+                    }
+                    useDeviceInjection = accepted
+                    handled = accepted
                 }
-                if (!useDeviceInjection) {
+                if (!useDeviceInjection && fragment.activity?.isFinishing != true) {
                     event.setLocation(x, y)
                     instrumentation.runOnMainSync {
                         handled = touchHandler.invoke(fragment, target, event) as Boolean
@@ -333,7 +594,9 @@ class PhotoViewerInteractiveGestureTest {
             }
 
             inject(MotionEvent.ACTION_DOWN, startY)
-            val moveCount = (durationMs / 100).coerceAtLeast(1)
+            // Match a real touchscreen stream closely enough to exercise each
+            // rendered frame instead of making the image jump every 100 ms.
+            val moveCount = (durationMs / 16).coerceAtLeast(1)
             val phaseLength = (moveCount / 3).coerceAtLeast(1)
             val reversalY = startY + (endY - startY) * 0.45f
             val finalY = startY + (endY - startY) * 0.85f
@@ -346,7 +609,9 @@ class PhotoViewerInteractiveGestureTest {
                     else -> reversalY + (finalY - reversalY) * (step - phaseLength * 2) / (moveCount - phaseLength * 2)
                 }
                 val handled = inject(MotionEvent.ACTION_MOVE, y)
-                if (step == 3) check(handled) { "Photo view did not claim the vertical drag" }
+                if ((checkpoints.size >= 3 && step == phaseLength) || (checkpoints.size < 3 && step == 3)) {
+                    check(handled) { "Photo view did not claim the vertical drag" }
+                }
                 val checkpointIndex = when (step) {
                     phaseLength -> 0
                     phaseLength * 2 -> 1
@@ -369,10 +634,14 @@ class PhotoViewerInteractiveGestureTest {
         return SwipeRun(thread, deviceInjectionWorked)
     }
 
-    private fun injectHorizontalSwipe(instrumentation: android.app.Instrumentation, target: View): Boolean {
+    private fun injectHorizontalSwipe(
+        instrumentation: android.app.Instrumentation,
+        target: View,
+        swipeRight: Boolean = false,
+    ): Boolean {
         val location = IntArray(2)
         instrumentation.runOnMainSync { target.getLocationOnScreen(location) }
-        val x = location[0] + target.width * 0.78f
+        val startX = location[0] + target.width * (if (swipeRight) 0.1f else 0.9f)
         val y = location[1] + target.height * 0.5f
         val downTime = SystemClock.uptimeMillis()
         var injected = true
@@ -383,7 +652,7 @@ class PhotoViewerInteractiveGestureTest {
                 else -> MotionEvent.ACTION_MOVE
             }
             val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action,
-                x - target.width * 0.56f * step / 6f, y, 0).apply {
+                startX + (if (swipeRight) 1f else -1f) * target.width * 0.8f * step / 6f, y, 0).apply {
                 source = InputDevice.SOURCE_TOUCHSCREEN
             }
             injected = instrumentation.uiAutomation.injectInputEvent(event, true) && injected
@@ -444,26 +713,30 @@ class PhotoViewerInteractiveGestureTest {
         return injected
     }
 
-    private fun createFixture(context: Context): Pair<Uri, String> {
+    private fun createFixture(
+        context: Context,
+        relativePath: String,
+        width: Int = 960,
+        height: Int = 720,
+    ): Pair<Uri, String> {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, "gallery-interactive-${UUID.randomUUID()}.png")
             put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-            put(MediaStore.Images.Media.RELATIVE_PATH,
-                "${Environment.DIRECTORY_PICTURES}/GalleryInteractiveGestureTest-${UUID.randomUUID()}")
+            put(MediaStore.Images.Media.RELATIVE_PATH, relativePath)
         }
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
             ?: error("Could not create emulator image fixture")
-        val bitmap = Bitmap.createBitmap(960, 720, Bitmap.Config.ARGB_8888)
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         Canvas(bitmap).apply {
             drawColor(Color.BLUE)
             val paint = Paint(Paint.ANTI_ALIAS_FLAG)
             paint.color = Color.RED
-            drawRect(0f, 0f, 320f, 720f, paint)
+            drawRect(0f, 0f, width / 3f, height.toFloat(), paint)
             paint.color = Color.GREEN
-            drawRect(320f, 0f, 640f, 720f, paint)
+            drawRect(width / 3f, 0f, width * 2f / 3f, height.toFloat(), paint)
             paint.color = Color.YELLOW
-            drawRect(640f, 0f, 960f, 720f, paint)
+            drawRect(width * 2f / 3f, 0f, width.toFloat(), height.toFloat(), paint)
         }
         resolver.openOutputStream(uri)?.use { output ->
             check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) { "could not write image fixture" }
@@ -483,11 +756,29 @@ class PhotoViewerInteractiveGestureTest {
     }
 
     private fun saveScreenshot(context: Context, name: String, bitmap: Bitmap) {
+        val evidenceName = "GalleryGestureEvidence_${name}"
+        val evidenceFolder = "${Environment.DIRECTORY_PICTURES}/GalleryInteractiveEvidence"
+        val existing = context.contentResolver.query(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.Images.Media._ID),
+            "${MediaStore.Images.Media.DISPLAY_NAME} = ? AND ${MediaStore.Images.Media.RELATIVE_PATH} = ?",
+            arrayOf(evidenceName, "$evidenceFolder/"),
+            null,
+        )
+        existing?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+            while (cursor.moveToNext()) {
+                context.contentResolver.delete(
+                    ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cursor.getLong(idColumn)),
+                    null,
+                    null,
+                )
+            }
+        }
         val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, "GalleryGestureEvidence_${name}")
+            put(MediaStore.Images.Media.DISPLAY_NAME, evidenceName)
             put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-            put(MediaStore.Images.Media.RELATIVE_PATH,
-                "${Environment.DIRECTORY_PICTURES}/GalleryInteractiveEvidence")
+            put(MediaStore.Images.Media.RELATIVE_PATH, evidenceFolder)
         }
         val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
             ?: error("Could not create screenshot evidence entry")
@@ -497,5 +788,40 @@ class PhotoViewerInteractiveGestureTest {
         val path = context.contentResolver.query(uri, arrayOf(MediaStore.Images.Media.DATA), null, null, null)
             ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
         android.util.Log.i("GalleryGestureTest", "evidence=${path ?: uri}")
+    }
+
+    private fun captureFrameStats(instrumentation: android.app.Instrumentation, context: Context) {
+        val descriptor = instrumentation.uiAutomation.executeShellCommand(
+            "dumpsys gfxinfo ${context.packageName} framestats"
+        )
+        val stats = ParcelFileDescriptor.AutoCloseInputStream(descriptor).bufferedReader().use { it.readText() }
+        check(stats.contains("Graphics info for pid")) { "Gallery gfxinfo did not report an active process" }
+        val name = "GalleryGestureEvidence_gfxinfo-framestats.txt"
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/GalleryInteractiveEvidence")
+        }
+        context.contentResolver.query(
+            MediaStore.Files.getContentUri("external"),
+            arrayOf(MediaStore.MediaColumns._ID),
+            "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?",
+            arrayOf(name, "${Environment.DIRECTORY_DOWNLOADS}/GalleryInteractiveEvidence/"),
+            null,
+        )?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+            while (cursor.moveToNext()) {
+                context.contentResolver.delete(
+                    ContentUris.withAppendedId(MediaStore.Files.getContentUri("external"), cursor.getLong(idColumn)),
+                    null,
+                    null,
+                )
+            }
+        }
+        val uri = context.contentResolver.insert(MediaStore.Files.getContentUri("external"), values)
+            ?: error("Could not create emulator gfxinfo artifact")
+        context.contentResolver.openOutputStream(uri)?.use { it.write(stats.toByteArray()) }
+            ?: error("Could not save emulator gfxinfo artifact")
+        android.util.Log.i("GalleryGestureTest", "gfxinfo=$uri bytes=${stats.length}")
     }
 }

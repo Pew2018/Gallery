@@ -83,6 +83,7 @@ import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.getActionBarHeight
 import org.fossify.gallery.extensions.getBottomActionsHeight
 import org.fossify.gallery.extensions.getFormattedDuration
+import org.fossify.gallery.helpers.OxygenClassicMotion
 import org.fossify.gallery.extensions.getFriendlyMessage
 import org.fossify.gallery.extensions.launchGesturePlayer
 import org.fossify.gallery.extensions.parseFileChannel
@@ -206,10 +207,12 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     fun setSharedChromeVisible(show: Boolean, animate: Boolean) {
         if (!this::binding.isInitialized) return
         val alpha = if (show && !mIsFullscreen) 1f else 0f
+        val duration = if (show) OxygenClassicMotion.VIEWER_CHROME_ENTER_MS
+            else OxygenClassicMotion.VIEWER_CHROME_EXIT_MS
         listOf(binding.videoPlayOutline, binding.bottomVideoTimeHolder.root, binding.videoDetails).forEach {
             it.animate().cancel()
-            if (animate) it.animate().alpha(alpha).setDuration(if (show) 170L else 140L)
-                .setInterpolator(org.fossify.gallery.helpers.OxygenClassicMotion.easing()).start()
+            if (animate) it.animate().alpha(alpha).setDuration(duration)
+                .setInterpolator(OxygenClassicMotion.easing()).start()
             else it.alpha = alpha
         }
     }

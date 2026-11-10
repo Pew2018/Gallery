@@ -181,6 +181,14 @@ class PhotoFragment : ViewPagerFragment() {
         if (view != null && mIsFragmentVisible) scheduleZoomableView()
     }
 
+    /** Horizontal paging stays with this pager only while the photo is at fitted scale. */
+    fun canPageHorizontallyFromCurrentPhoto(): Boolean =
+        mCurrentRotationDegrees == 0 && when {
+            binding.gifViewFrame.visibility == View.VISIBLE -> binding.gifViewFrame.controller.state.zoom <= 1.001f
+            mIsSubsamplingVisible -> binding.subsamplingView.isZoomedOut()
+            else -> abs(mCurrentGestureViewZoom - mInitialZoom) < MAX_ZOOM_EQUALITY_TOLERANCE
+        }
+
     /** Expose the source grid around the moving photo until the shared bounds settle. */
     fun setTransitionCanvasTransparent(transparent: Boolean) {
         if (!this::binding.isInitialized) return

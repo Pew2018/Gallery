@@ -20,6 +20,8 @@ class MediaSharedSurfaceTest {
     @Test fun fitUsesTheAvailableCanvasAndNeverChangesAspectRatio() {
         assertEquals(RectF(0f, 300f, 400f, 500f), MediaTransitionGeometry.fit(400, 800, 800, 400))
         assertEquals(RectF(100f, 0f, 300f, 800f), MediaTransitionGeometry.fit(400, 800, 200, 800))
+        assertEquals(RectF(0f, 200f, 400f, 600f), MediaTransitionGeometry.fit(400, 800, 1000, 1000))
+        assertEquals(RectF(0f, 350f, 400f, 450f), MediaTransitionGeometry.fit(400, 800, 1600, 400))
         assertNull(MediaTransitionGeometry.fit(0, 800, 800, 400))
         assertNull(MediaTransitionGeometry.fit(400, 800, 0, 0))
     }

@@ -39,7 +39,11 @@ internal class MediaSharedSurface(private val parent: RelativeLayout) {
     fun clear() {
         hidden.forEach { (view, alpha) -> view.alpha = alpha }
         hidden.clear()
-        image?.let { parent.removeView(it); it.setImageDrawable(null) }
+        image?.let {
+            it.setLayerType(View.LAYER_TYPE_NONE, null)
+            parent.removeView(it)
+            it.setImageDrawable(null)
+        }
         image = null
     }
 }
