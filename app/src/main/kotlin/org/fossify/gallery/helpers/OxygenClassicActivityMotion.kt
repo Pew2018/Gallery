@@ -1,6 +1,9 @@
 package org.fossify.gallery.helpers
 
 import android.app.Activity
+import android.animation.ValueAnimator
+import android.view.ViewGroup
+import android.transition.TransitionValues
 import org.fossify.gallery.R
 
 /** Installs the shared Activity Window transition contract for folder and Viewer layers. */
@@ -24,11 +27,19 @@ object OxygenClassicActivityMotion {
         }
     }
 
-    fun mediaTransition(durationMs: Long, onEnd: (() -> Unit)? = null): android.transition.Transition =
+    fun mediaTransition(
+        durationMs: Long,
+        onEnd: (() -> Unit)? = null,
+        onProgress: ((Float) -> Unit)? = null,
+    ): android.transition.Transition =
         android.transition.TransitionSet().apply {
             ordering = android.transition.TransitionSet.ORDERING_TOGETHER
             addTransition(android.transition.ChangeBounds())
+            // Drag-to-dismiss leaves the shared photo surface translated and scaled.
+            // Capture those properties so the reverse handoff can start at the live frame.
+            addTransition(android.transition.ChangeTransform())
             addTransition(android.transition.ChangeImageTransform())
+            if (onProgress != null) addTransition(SharedElementProgress(durationMs, onProgress))
             duration = durationMs
             interpolator = OxygenClassicMotion.easing()
             if (onEnd != null) addListener(object : android.transition.Transition.TransitionListener {
@@ -41,6 +52,48 @@ object OxygenClassicActivityMotion {
                 override fun onTransitionResume(transition: android.transition.Transition) = Unit
             })
         }
+
+    /** Drives the viewer scrim on the same transition clock as shared image geometry. */
+    private class SharedElementProgress(
+        durationMs: Long,
+        private val onProgress: (Float) -> Unit,
+    ) : android.transition.Transition() {
+        init {
+            addTarget(PhotoViewerTransition.ELEMENT_NAME)
+            duration = durationMs
+            interpolator = OxygenClassicMotion.easing()
+        }
+
+        override fun captureStartValues(transitionValues: TransitionValues) {
+            transitionValues.values[PROGRESS] = 0f
+        }
+
+        override fun captureEndValues(transitionValues: TransitionValues) {
+            transitionValues.values[PROGRESS] = 1f
+        }
+
+        override fun getTransitionProperties() = arrayOf(PROGRESS)
+
+        override fun createAnimator(
+            sceneRoot: ViewGroup,
+            startValues: TransitionValues?,
+            endValues: TransitionValues?,
+        ): android.animation.Animator? {
+            if (startValues == null || endValues == null) return null
+            return ValueAnimator.ofFloat(
+                startValues.values[PROGRESS] as Float,
+                endValues.values[PROGRESS] as Float,
+            ).apply {
+                duration = this@SharedElementProgress.duration
+                interpolator = this@SharedElementProgress.interpolator ?: OxygenClassicMotion.easing()
+                addUpdateListener { onProgress(it.animatedValue as Float) }
+            }
+        }
+
+        private companion object {
+            const val PROGRESS = "oxygen_classic_shared_element_progress"
+        }
+    }
 
     fun install(activity: Activity) {
         if (isShared(activity)) configureShared(activity)

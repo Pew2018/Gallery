@@ -224,13 +224,24 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var mediaTransitionRunning = false
     private var fadeOnlyPhotoFallback = false
     private var visualTitlePending = false
-    fun isMediaTransitionRunning() = mediaTransitionRunning || pendingPhotoSharedElement
+    private var interactivePhotoSurface: View? = null
+    private var interactivePhotoDragActive = false
+    private var interactivePhotoSettleAnimator: ValueAnimator? = null
+    private var interactivePhotoProgress = 0f
+    private var interactivePhotoDeltaXSlope = 0f
+    private var interactivePhotoDeltaYSlope = 0f
+    private var interactivePhotoGestureBaseX = 0f
+    private var interactivePhotoGestureBaseY = 0f
+    private var interactivePhotoGeneration = 0L
+    private var photoTransitionProgressFrameCount = 0
+    fun isMediaTransitionRunning() = mediaTransitionRunning || pendingPhotoSharedElement || interactivePhotoDragActive
 
     fun shouldKeepPhotoCanvasTransparent() = pendingPhotoSharedElement || photoSharedElementSnapshotView != null
 
     private fun animateSharedChrome(show: Boolean, animate: Boolean = true) {
         val alpha = if (show && !mIsFullScreen) 1f else 0f
-        listOf(binding.topShadow, binding.bottomActions.root, binding.mediumViewerAppbar).forEach {
+        listOf(binding.topShadow, binding.bottomActions.root, binding.mediumViewerAppbar,
+            binding.mediumViewerToolbar).forEach {
             it.animate().cancel()
             if (animate) it.animate().alpha(alpha).setStartDelay(if (show) 70L else 0L)
                 .setDuration(if (show) OxygenClassicMotion.VIEWER_CHROME_ENTER_MS
@@ -259,6 +270,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             .start()
     }
 
+    private fun renderPhotoTransitionProgress(progress: Float) {
+        if (finishAfterSharedTransitionInProgress || isFinishing || isDestroyed) return
+        photoTransitionProgressFrameCount++
+        binding.viewerTransitionScrim.setBackgroundColor(Color.BLACK)
+        binding.viewerTransitionScrim.visibility = View.VISIBLE
+        binding.viewerTransitionScrim.alpha = progress.coerceIn(0f, 1f)
+    }
+
     private fun setSharedTransitionCanvasTransparent() {
         binding.root.setBackgroundColor(Color.TRANSPARENT)
         binding.fragmentHolder.setBackgroundColor(Color.TRANSPARENT)
@@ -277,6 +296,129 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         binding.viewerTransitionScrim.visibility = View.GONE
         window.setBackgroundDrawableResource(android.R.color.black)
         window.decorView.setBackgroundColor(Color.BLACK)
+    }
+
+    private fun setInteractivePhotoChromeAlpha(alpha: Float) {
+        listOf(binding.topShadow, binding.bottomActions.root, binding.mediumViewerAppbar,
+            binding.mediumViewerToolbar).forEach {
+            it.alpha = alpha.coerceIn(0f, 1f)
+        }
+    }
+
+    private fun renderInteractivePhotoProgress(progress: Float) {
+        val surface = interactivePhotoSurface ?: return
+        val p = progress.coerceIn(0f, 1f)
+        surface.pivotX = surface.width / 2f
+        surface.pivotY = surface.height / 2f
+        val scale = 1f - 0.34f * p
+        surface.scaleX = scale
+        surface.scaleY = scale
+        surface.translationX = interactivePhotoDeltaXSlope * p
+        surface.translationY = interactivePhotoDeltaYSlope * p
+        binding.viewerTransitionScrim.setBackgroundColor(Color.BLACK)
+        binding.viewerTransitionScrim.visibility = View.VISIBLE
+        binding.viewerTransitionScrim.alpha = 1f - p
+        setInteractivePhotoChromeAlpha(1f - p)
+        interactivePhotoProgress = p
+    }
+
+    private fun clearInteractivePhotoDrag(restoreViewer: Boolean) {
+        interactivePhotoSettleAnimator?.removeAllUpdateListeners()
+        interactivePhotoSettleAnimator?.removeAllListeners()
+        interactivePhotoSettleAnimator?.cancel()
+        interactivePhotoSettleAnimator = null
+        interactivePhotoGeneration++
+        if (restoreViewer) {
+            (getCurrentFragment() as? PhotoFragment)?.finishSharedTransition()
+            restoreBlackViewerCanvas()
+            animateSharedChrome(true, false)
+        }
+        interactivePhotoSurface = null
+        interactivePhotoDragActive = false
+        interactivePhotoProgress = 0f
+        interactivePhotoDeltaXSlope = 0f
+        interactivePhotoDeltaYSlope = 0f
+        interactivePhotoGestureBaseX = 0f
+        interactivePhotoGestureBaseY = 0f
+    }
+
+    override fun photoDismissGestureBegin(): Float? {
+        val animator = interactivePhotoSettleAnimator ?: return null
+        val progress = interactivePhotoProgress
+        interactivePhotoGeneration++
+        animator.removeAllUpdateListeners()
+        animator.removeAllListeners()
+        animator.cancel()
+        interactivePhotoSettleAnimator = null
+        interactivePhotoGestureBaseX = interactivePhotoDeltaXSlope * progress
+        interactivePhotoGestureBaseY = interactivePhotoDeltaYSlope * progress
+        interactivePhotoDragActive = interactivePhotoSurface != null
+        return progress
+    }
+
+    override fun photoDismissProgress(progress: Float, deltaX: Float, deltaY: Float) {
+        if (isFinishing || isDestroyed || mediaTransitionRunning || pendingPhotoSharedElement) return
+        if (interactivePhotoSurface == null) {
+            val path = getCurrentPath()
+            val fragment = getCurrentFragment() as? PhotoFragment ?: return
+            val surface = fragment.sharedElementViewFor(path) ?: return
+            interactivePhotoSettleAnimator?.cancel()
+            surface.animate().cancel()
+            surface.pivotX = surface.width / 2f
+            surface.pivotY = surface.height / 2f
+            surface.scaleX = 1f
+            surface.scaleY = 1f
+            surface.translationX = 0f
+            surface.translationY = 0f
+            interactivePhotoSurface = surface
+            interactivePhotoDragActive = true
+            interactivePhotoGestureBaseX = 0f
+            interactivePhotoGestureBaseY = 0f
+            setSharedTransitionCanvasTransparent()
+            animateSharedChrome(false, false)
+            setInteractivePhotoChromeAlpha(0f)
+        }
+        interactivePhotoDeltaXSlope = if (progress > 0f)
+            (interactivePhotoGestureBaseX + deltaX) / progress else 0f
+        interactivePhotoDeltaYSlope = if (progress > 0f)
+            (interactivePhotoGestureBaseY + deltaY) / progress else 0f
+        renderInteractivePhotoProgress(progress)
+    }
+
+    override fun photoDismissSettled(dismiss: Boolean) {
+        val surface = interactivePhotoSurface ?: return
+        if (!interactivePhotoDragActive || isDestroyed || isFinishing) return
+        interactivePhotoSettleAnimator?.cancel()
+        val generation = ++interactivePhotoGeneration
+        val start = interactivePhotoProgress
+        val end = if (dismiss) 1f else 0f
+        val duration = (140L + (220L * kotlin.math.abs(end - start))).toLong()
+        interactivePhotoSettleAnimator = ValueAnimator.ofFloat(start, end).apply {
+            this.duration = duration
+            interpolator = OxygenClassicMotion.easing()
+            addUpdateListener { animator ->
+                if (generation == interactivePhotoGeneration && surface === interactivePhotoSurface) {
+                    renderInteractivePhotoProgress(animator.animatedValue as Float)
+                }
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                private var cancelled = false
+                override fun onAnimationCancel(animation: Animator) { cancelled = true }
+                override fun onAnimationEnd(animation: Animator) {
+                    if (cancelled || generation != interactivePhotoGeneration) return
+                    interactivePhotoSettleAnimator = null
+                    if (dismiss) {
+                        // Keep the transformed content proxy alive: the reverse shared
+                        // transition captures its live transform and hands it to the grid.
+                        interactivePhotoDragActive = false
+                        finish()
+                    } else {
+                        clearInteractivePhotoDrag(restoreViewer = true)
+                    }
+                }
+            })
+            start()
+        }
     }
 
     private fun installPhotoSharedElementSnapshot() {
@@ -316,6 +458,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun finishMediaTransition() {
         if (!finishAfterSharedTransitionInProgress && !isFinishing && !isDestroyed) {
+            if (photoSharedElementMapped && photoTransitionProgressFrameCount > 0) {
+                // The same shared-element transition clock already reached its
+                // endpoint; hand the transparent canvas to the normal black viewer.
+                renderPhotoTransitionProgress(1f)
+                completeMediaTransition()
+                return
+            }
             val completion = photoCanvasCompletionGate.begin() ?: return
             animatePhotoTransitionScrim {
                 // Back can start the return bounds transition while this
@@ -706,7 +855,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             org.fossify.gallery.helpers.OxygenClassicActivityMotion.configureShared(this)
             postponeEnterTransition()
             window.sharedElementEnterTransition = org.fossify.gallery.helpers.OxygenClassicActivityMotion.mediaTransition(
-                PhotoViewerTransition.DURATION_MS, ::finishMediaTransition)
+                PhotoViewerTransition.DURATION_MS, ::finishMediaTransition, ::renderPhotoTransitionProgress)
             window.sharedElementReturnTransition = org.fossify.gallery.helpers.OxygenClassicActivityMotion.mediaTransition(
                 PhotoViewerTransition.DURATION_MS)
             // Keep the underlying grid visible outside the moving image. The
@@ -872,6 +1021,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun onDestroy() {
+        clearInteractivePhotoDrag(restoreViewer = false)
         photoSharedElementHandler.removeCallbacksAndMessages(null)
         clearPhotoSharedElementSnapshot()
         finishMediaTransition()
@@ -975,6 +1125,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun finish() {
+        if (interactivePhotoDragActive) {
+            // A toolbar/system close can take over a live drag or its return settle.
+            photoDismissSettled(dismiss = true)
+            return
+        }
         // Activity.finishAfterTransition() dispatches back through this override on API 29.
         // Let that second call reach the framework without recursively starting another transition.
         if (finishAfterSharedTransitionInProgress) {

@@ -49,7 +49,8 @@ android {
         versionCode = baseVersionCode
     }
 
-    testBuildType = "release"
+    // Keep instrumentation runnable from a normal local checkout without release signing keys.
+    testBuildType = "debug"
 
     signingConfigs {
         if (keystorePropertiesFile.exists()) {
@@ -78,6 +79,9 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        // Debug trace paths call android.util.Log; plain JVM test stubs should
+        // return their defaults instead of throwing for nonessential log output.
+        unitTests.isReturnDefaultValues = true
         unitTests.all {
             // Large backup fixtures plus the native-render matrix exceed Gradle's 512 MiB test default.
             it.maxHeapSize = "2g"
@@ -209,6 +213,10 @@ dependencies {
     testImplementation(libs.okhttp)
     // Test-only Android View measurement, interaction and native Canvas rendering.
     testImplementation("org.robolectric:robolectric:4.16.1")
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation("androidx.test:core:1.5.0")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("junit:junit:4.13.2")
     implementation(libs.fossify.commons)
     // Match Commons 7.1.3 while distinguishing retryable biometric mismatch
     // callbacks from terminal system errors.

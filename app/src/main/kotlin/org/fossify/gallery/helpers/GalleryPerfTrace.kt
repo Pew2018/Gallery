@@ -8,13 +8,13 @@ import org.fossify.gallery.BuildConfig
  * and durations so device boundary reports can be diagnosed without media paths.
  */
 internal object GalleryPerfTrace {
-    private fun logcatEnabled(name: String) = BuildConfig.DEBUG || name.startsWith("viewer_") ||
+    private fun logcatEnabled(name: String, debug: Boolean = BuildConfig.DEBUG) = debug || name.startsWith("viewer_") ||
         name.startsWith("photo_grid_") || name.startsWith("album_")
 
     internal fun shouldPersist(name: String, diagnosticsEnabled: Boolean) = diagnosticsEnabled
 
     internal fun shouldMeasure(name: String, debug: Boolean, diagnosticsEnabled: Boolean) =
-        debug || logcatEnabled(name) || shouldPersist(name, diagnosticsEnabled)
+        logcatEnabled(name, debug) || shouldPersist(name, diagnosticsEnabled)
 
     fun begin(): Long = System.nanoTime()
 

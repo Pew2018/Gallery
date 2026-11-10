@@ -68,6 +68,7 @@ import org.fossify.gallery.helpers.BOTTOM_ACTION_SHOW_ON_MAP
 import org.fossify.gallery.helpers.IS_IN_RECYCLE_BIN
 import org.fossify.gallery.helpers.IS_VIEW_INTENT
 import org.fossify.gallery.helpers.MEDIUM
+import org.fossify.gallery.helpers.OxygenClassicMotion
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.SHOW_FAVORITES
 import org.fossify.gallery.helpers.SKIP_AUTHENTICATION
@@ -425,12 +426,20 @@ open class PhotoVideoActivity : BaseViewerActivity(), ViewPagerFragment.Fragment
         mFragment?.fullscreenToggled(mIsFullScreen)
 
         val newAlpha = if (mIsFullScreen) 0f else 1f
-        binding.topShadow.animate().alpha(newAlpha).start()
+        val duration = if (newAlpha == 1f) OxygenClassicMotion.VIEWER_CHROME_ENTER_MS
+            else OxygenClassicMotion.VIEWER_CHROME_EXIT_MS
+        binding.topShadow.animate().cancel()
+        binding.bottomActions.root.animate().cancel()
+        binding.fragmentViewerToolbar.animate().cancel()
+        binding.topShadow.animate().alpha(newAlpha).setDuration(duration)
+            .setInterpolator(OxygenClassicMotion.easing()).start()
         if (!binding.bottomActions.root.isGone()) {
-            binding.bottomActions.root.animate().alpha(newAlpha).start()
+            binding.bottomActions.root.animate().alpha(newAlpha).setDuration(duration)
+                .setInterpolator(OxygenClassicMotion.easing()).start()
         }
 
-        binding.fragmentViewerToolbar.animate().alpha(newAlpha).withStartAction {
+        binding.fragmentViewerToolbar.animate().alpha(newAlpha).setDuration(duration)
+            .setInterpolator(OxygenClassicMotion.easing()).withStartAction {
             binding.fragmentViewerToolbar.beVisible()
         }.withEndAction {
             binding.fragmentViewerToolbar.beVisibleIf(newAlpha == 1f)

@@ -47,6 +47,15 @@ abstract class ViewPagerFragment : Fragment() {
 
         /** Called after a photo drawable has been installed; paths remain in-process only. */
         fun imageRendered(path: String) {}
+
+        /** The current photo owns a downward drag; progress is derived from live pointer position. */
+        fun photoDismissProgress(progress: Float, deltaX: Float, deltaY: Float) {}
+
+        /** Cancels a settling frame and returns its progress so a new pointer can take over. */
+        fun photoDismissGestureBegin(): Float? = null
+
+        /** Ends a live photo drag and asks the host to settle or close from its current frame. */
+        fun photoDismissSettled(dismiss: Boolean) {}
     }
 
     override fun onDestroy() {
