@@ -298,11 +298,23 @@ class PhotoViewerInteractiveGestureTest {
                 .get(viewer) as? String
             assertEquals("dismissal should target the photo selected after horizontal paging",
                 neighborFixture.second, returnPath)
-            instrumentation.uiAutomation.takeScreenshot()?.let {
-                saveScreenshot(context, "gallery-dismissed-screen.png", it)
-                it.recycle()
-            }
             SystemClock.sleep(500)
+            val returnedThumbnail = awaitSourceThumbnail(instrumentation, source, neighborFixture.second)
+            assertEquals("return target thumbnail request should be fully loaded after dismissal",
+                returnedThumbnail.getTag(R.id.thumbnail_request_key),
+                returnedThumbnail.getTag(R.id.thumbnail_loaded_key))
+            val returnedGrid = instrumentation.uiAutomation.takeScreenshot()
+                ?: error("Could not capture the returned album grid")
+            val returnedLocation = IntArray(2)
+            instrumentation.runOnMainSync { returnedThumbnail.getLocationOnScreen(returnedLocation) }
+            val returnedPixel = returnedGrid.getPixel(
+                returnedLocation[0] + returnedThumbnail.width / 2,
+                returnedLocation[1] + returnedThumbnail.height / 2,
+            )
+            assertTrue("selected thumbnail should be visible again after its shared return",
+                Color.green(returnedPixel) > Color.red(returnedPixel) + 40)
+            saveScreenshot(context, "gallery-dismissed-screen.png", returnedGrid)
+            returnedGrid.recycle()
 
             // Reopen from the same real album thumbnail and exercise Android Back
             // while the shared transition may still be running.
