@@ -105,6 +105,7 @@ import org.fossify.gallery.helpers.FOLDER_STYLE_SQUARE
 import org.fossify.gallery.helpers.LOCATION_INTERNAL
 import org.fossify.gallery.helpers.LOCATION_SD
 import org.fossify.gallery.helpers.DirectoryThumbnailBinder
+import org.fossify.gallery.helpers.DirectoryGridItemAnimator
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.OxygenSelectionMode
@@ -975,6 +976,7 @@ class DirectoryAdapter(
         onDiscarded: () -> Unit = {}
     ) {
         if (!isCurrent() || activity.isDestroyed) { onDiscarded(); return }
+        (recyclerView.itemAnimator as? DirectoryGridItemAnimator)?.clearUserReorderMoves()
         latestDirectoryUpdate?.takeIf { it.onCommitted !== onCommitted }?.onDiscarded?.invoke()
         val generation = ++diffGeneration
         val snapshots = newDirs.mapTo(ArrayList()) { it.snapshot() }
@@ -1188,6 +1190,8 @@ class DirectoryAdapter(
     }
 
     override fun onRowMoved(fromPosition: Int, toPosition: Int) {
+        val firstAffectedPosition = minOf(fromPosition, toPosition)
+        val lastAffectedPosition = maxOf(fromPosition, toPosition)
         if (fromPosition < toPosition) {
             for (i in fromPosition until toPosition) {
                 Collections.swap(dirs, i, i + 1)
@@ -1198,6 +1202,10 @@ class DirectoryAdapter(
             }
         }
 
+        val reorderedIds = (firstAffectedPosition..lastAffectedPosition)
+            .map(::getItemId)
+            .filter { it != RecyclerView.NO_ID }
+        (recyclerView.itemAnimator as? DirectoryGridItemAnimator)?.allowUserReorderMoves(reorderedIds)
         notifyItemMoved(fromPosition, toPosition)
     }
 

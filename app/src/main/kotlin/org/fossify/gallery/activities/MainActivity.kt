@@ -29,6 +29,7 @@ import org.fossify.gallery.helpers.DirectoryScanEpoch
 import org.fossify.gallery.helpers.DirectoryMetadataRepository
 import org.fossify.gallery.helpers.DirectoryScanScope
 import org.fossify.gallery.helpers.DirectoryScanSnapshot
+import org.fossify.gallery.helpers.DirectoryGridItemAnimator
 import org.fossify.gallery.helpers.FolderMediaReadResult
 import org.fossify.gallery.helpers.FolderReadStatus
 import org.fossify.gallery.helpers.HomeDirectorySorter
@@ -1913,6 +1914,9 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     private fun setupLayoutManager() {
+        if (binding.directoriesGrid.itemAnimator !is DirectoryGridItemAnimator) {
+            binding.directoriesGrid.itemAnimator = DirectoryGridItemAnimator()
+        }
         if (config.viewTypeFolders == VIEW_TYPE_GRID) {
             setupGridLayoutManager()
         } else {

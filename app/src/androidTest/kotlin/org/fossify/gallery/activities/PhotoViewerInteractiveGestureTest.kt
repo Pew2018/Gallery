@@ -29,8 +29,12 @@ import org.fossify.commons.helpers.IS_FROM_GALLERY
 import org.fossify.gallery.R
 import org.fossify.gallery.fragments.PhotoFragment
 import org.fossify.gallery.extensions.config
+import org.fossify.gallery.extensions.favoriteFoldersDB
 import org.fossify.gallery.helpers.DIRECTORY
+import org.fossify.gallery.helpers.GalleryNavigation
+import org.fossify.gallery.helpers.GallerySection
 import org.fossify.gallery.helpers.PATH
+import org.fossify.gallery.models.FavoriteFolder
 import org.fossify.gallery.views.ProgressivePhotoViewPager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -131,6 +135,76 @@ class PhotoViewerInteractiveGestureTest {
         } finally {
             runCatching { media?.finish() }
             runCatching { home?.finish() }
+            runCatching { context.contentResolver.delete(fixture.first, null, null) }
+            context.config.lastMainViewAll = wasLastViewAll
+        }
+    }
+
+    @Test
+    fun favoriteFolderCardUsesTheSameSharedAlbumRoundTripOnDevice() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GalleryFavoriteAlbumTransitionTest-${UUID.randomUUID()}"
+        val fixture = createFixture(context, album)
+        val fixtureDirectory = java.io.File(fixture.second).parent
+            ?: error("fixture image has no parent directory")
+        val wasLastViewAll = context.config.lastMainViewAll
+        var home: MainActivity? = null
+        var media: MediaActivity? = null
+        context.favoriteFoldersDB.insert(FavoriteFolder(fixtureDirectory))
+        try {
+            context.config.lastMainViewAll = false
+            val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                ?: error("Gallery launcher activity is unavailable")
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            launch.putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true)
+            launch.putExtra(MainActivity.EXTRA_FOLDER_FAVORITES, true)
+            launch.putExtra(GalleryNavigation.EXTRA_SECTION, GallerySection.FAVORITES.name)
+            val monitor = instrumentation.addMonitor(MainActivity::class.java.name, null, false)
+            instrumentation.startActivitySync(launch)
+            home = instrumentation.waitForMonitorWithTimeout(monitor, 15_000) as? MainActivity
+                ?: error("Gallery did not finish launching the favorite-folder view")
+            instrumentation.removeMonitor(monitor)
+
+            val homeActivity = home!!
+            val folderCard = awaitDirectoryCard(instrumentation, homeActivity, fixtureDirectory)
+            val cover = folderCard.findViewById<ImageView>(R.id.dir_thumbnail)
+            assertNotNull("favorite album card should have its decoded cover", cover.drawable)
+            assertEquals("favorite card should be bound to the fixture album",
+                fixtureDirectory, cover.getTag(R.id.directory_bound_path))
+
+            val mediaMonitor = instrumentation.addMonitor(MediaActivity::class.java.name, null, false)
+            instrumentation.runOnMainSync { folderCard.performClick() }
+            media = instrumentation.waitForMonitorWithTimeout(mediaMonitor, 15_000) as? MediaActivity
+                ?: error("clicking the favorite album card did not open MediaActivity")
+            instrumentation.removeMonitor(mediaMonitor)
+            val mediaActivity = media!!
+            assertTrue("favorite album should use the shared cover transition",
+                mediaActivity.intent.getBooleanExtra(
+                    org.fossify.gallery.helpers.AlbumPageTransition.EXTRA_ACTIVE, false
+                ))
+            assertEquals("favorite transition should carry the matching folder cover path", fixture.second,
+                mediaActivity.intent.getStringExtra(
+                    org.fossify.gallery.helpers.AlbumPageTransition.EXTRA_COVER_PATH
+                ))
+            awaitSourceThumbnail(instrumentation, mediaActivity, fixture.second)
+
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            val returnedCardDeadline = SystemClock.uptimeMillis() + 5_000
+            var returnedCard: View? = null
+            while (returnedCard == null && SystemClock.uptimeMillis() < returnedCardDeadline) {
+                returnedCard = runCatching {
+                    awaitDirectoryCard(instrumentation, homeActivity, fixtureDirectory, 300)
+                }.getOrNull()
+                if (returnedCard == null) SystemClock.sleep(50)
+            }
+            assertNotNull("favorite-folder Back should return to its original visible card", returnedCard)
+            assertTrue("favorite return should leave the original MainActivity alive", !homeActivity.isFinishing)
+        } finally {
+            runCatching { media?.finish() }
+            runCatching { home?.finish() }
+            context.favoriteFoldersDB.delete(fixtureDirectory)
             runCatching { context.contentResolver.delete(fixture.first, null, null) }
             context.config.lastMainViewAll = wasLastViewAll
         }
