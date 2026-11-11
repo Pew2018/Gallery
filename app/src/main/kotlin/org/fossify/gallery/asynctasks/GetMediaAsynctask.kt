@@ -236,19 +236,23 @@ internal class GetMediaAsynctask(
                         (item.type == TYPE_PORTRAITS &&
                             MediaStoreFolderKey.of(java.io.File(parent).parent.orEmpty()) == folderKey)
                 }
-                mediaFetcher.onFolderProgress = { progress ->
-                    if (!isCancelled && onFolderPreview != null && folderCache.isEmpty()) {
-                        val merged = progress.presentation(folderCache.filter {
-                            it.type and context.config.filterMedia != 0 &&
-                                (context.config.shouldShowHidden || !it.name.startsWith('.')) &&
-                                (!isPickImage || it.type != TYPE_VIDEOS) && (!isPickVideo || it.type != TYPE_IMAGES)
-                        }, ::folderAllowed)
-                        mediaFetcher.sortMedia(merged, folderSorting)
-                        val grouped = mediaFetcher.groupMedia(merged, pathToUse)
-                        delivery.post {
-                            if (!isCancelled && progress.accessCurrent()) onFolderPreview.invoke(progress, grouped)
-                        }
+                val folderProbe = java.io.File(mPath, "access-probe").path
+                fun publishFolderPreview(progress: FolderMediaReadResult) {
+                    if (isCancelled || onFolderPreview == null || folderCache.isNotEmpty()) return
+                    val merged = progress.presentation(emptyList(), ::folderAllowed)
+                    if (merged.isEmpty()) return
+                    mediaFetcher.sortMedia(merged, folderSorting)
+                    val grouped = mediaFetcher.groupMedia(merged, pathToUse)
+                    delivery.post {
+                        if (!isCancelled && progress.accessCurrent()) onFolderPreview?.invoke(progress, grouped)
                     }
+                }
+                mediaFetcher.onFolderProgress = ::publishFolderPreview
+                if (scopedFolder) {
+                    val indexPreview = FolderMediaProgressPreview.fromScopedIndex(
+                        indexedFolder?.get(folderKey).orEmpty()
+                    ) { !isCancelled && allowed(folderProbe) }
+                    if (indexPreview != null) publishFolderPreview(indexPreview)
                 }
                 val read = mediaFetcher.readFolder(
                     mPath, isPickImage, isPickVideo, getProperDateTaken, getProperLastModified, getProperFileSize, favoritePaths,

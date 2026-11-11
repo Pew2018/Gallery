@@ -28,6 +28,24 @@ internal data class FolderMediaReadResult(
     }
 }
 
+/** A scoped-storage index may paint an early preview, but never certifies scan completeness. */
+internal object FolderMediaProgressPreview {
+    fun fromScopedIndex(
+        media: Collection<Medium>,
+        accessCurrent: () -> Boolean
+    ): FolderMediaReadResult? {
+        if (media.isEmpty()) return null
+        return FolderMediaReadResult(
+            media = ArrayList(media.map { it.copy() }),
+            status = FolderReadStatus.PARTIAL,
+            method = "mediastore_index_preview",
+            enumerated = 0,
+            reasons = mapOf("scan_in_progress" to 1),
+            accessCurrent = accessCurrent,
+        )
+    }
+}
+
 internal class FolderReadObservation {
     var status = FolderReadStatus.COMPLETE
     var method = "direct"

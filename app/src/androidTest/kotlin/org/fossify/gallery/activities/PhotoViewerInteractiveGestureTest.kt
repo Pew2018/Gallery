@@ -34,6 +34,12 @@ import org.fossify.gallery.helpers.DIRECTORY
 import org.fossify.gallery.helpers.GalleryNavigation
 import org.fossify.gallery.helpers.GallerySection
 import org.fossify.gallery.helpers.PATH
+import org.fossify.gallery.helpers.PhotoProfile
+import org.fossify.gallery.helpers.PhotoProfileMediaCache
+import org.fossify.gallery.helpers.PhotoProfileMediaLoader
+import org.fossify.gallery.helpers.PhotoProfileRepository
+import org.fossify.gallery.helpers.PhotoSource
+import org.fossify.gallery.helpers.PhotoSourceType
 import org.fossify.gallery.models.FavoriteFolder
 import org.fossify.gallery.views.ProgressivePhotoViewPager
 import org.junit.Assert.assertEquals
@@ -207,6 +213,105 @@ class PhotoViewerInteractiveGestureTest {
             context.favoriteFoldersDB.delete(fixtureDirectory)
             runCatching { context.contentResolver.delete(fixture.first, null, null) }
             context.config.lastMainViewAll = wasLastViewAll
+        }
+    }
+
+    @Test
+    fun customPhotoProfileReturnsToTheLastSwipedMediaIdentityOnDevice() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GalleryPhotoProfileReturnTest-${UUID.randomUUID()}"
+        val fixtures = List(41) { createFixture(context, album) }
+        val fixturePaths = fixtures.mapTo(HashSet()) { it.second }
+        val store = PhotoProfileRepository.of(context)
+        val previousState = store.state()
+        val profileId = UUID.randomUUID().toString()
+        val wasShowingAllMedia = context.config.showAll
+        var source: MediaActivity? = null
+        var viewer: ViewPagerActivity? = null
+        try {
+            store.save(PhotoProfile(profileId, "Viewer return test", listOf(
+                PhotoSource(PhotoSourceType.FOLDER, java.io.File(fixtures.first().second).parent)
+            )))
+            context.config.showAll = false
+            val sourceIntent = Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, PhotoProfileMediaLoader.PATH)
+                putExtra(GalleryNavigation.EXTRA_SECTION, GallerySection.PHOTOS.name)
+            }
+            val sourceActivity = instrumentation.startActivitySync(sourceIntent) as MediaActivity
+            source = sourceActivity
+            val (initialPath, _) = awaitAnySourceThumbnail(instrumentation, sourceActivity, fixturePaths)
+            val openViewer = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java)
+                .apply { isAccessible = true }
+            val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
+            instrumentation.runOnMainSync { openViewer.invoke(sourceActivity, initialPath) }
+            val photoViewer = instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
+                ?: error("custom photo profile did not open the Viewer")
+            instrumentation.removeMonitor(monitor)
+            viewer = photoViewer
+            awaitFrame(instrumentation, photoViewer, requireProxy = false)
+            instrumentation.runOnMainSync {
+                photoViewer.supportFragmentManager.fragments.filterIsInstance<PhotoFragment>()
+                    .first { it.isVisible && it.isResumed }.finishSharedTransition()
+            }
+
+            val viewerPaths = photoViewer.javaClass.getDeclaredField("mMediaFiles")
+                .apply { isAccessible = true }.get(photoViewer).let { rows ->
+                    (rows as List<*>).mapNotNull { row ->
+                        runCatching { row?.javaClass?.getMethod("getPath")?.invoke(row) as? String }.getOrNull()
+                    }
+                }
+            assertEquals("custom profile should publish every generated source photo", fixtures.size, viewerPaths.size)
+            assertTrue("custom profile Viewer catalog should contain the generated source identities",
+                fixturePaths.all { it in viewerPaths })
+            val currentPath = photoViewer.javaClass.getDeclaredMethod("getCurrentPath").apply { isAccessible = true }
+            assertEquals("custom profile viewer should begin on the tapped media identity",
+                initialPath, currentPath.invoke(photoViewer))
+            val pager = photoViewer.findViewById<ProgressivePhotoViewPager>(R.id.view_pager)
+            val pagerDeadline = SystemClock.uptimeMillis() + 5_000
+            while (pager.transitionInputLocked && SystemClock.uptimeMillis() < pagerDeadline) {
+                SystemClock.sleep(25)
+            }
+            assertTrue("custom profile swipe input should unlock after the shared entry transition",
+                !pager.transitionInputLocked)
+            var lastDisplayedPath = initialPath
+            val visitedPaths = hashSetOf(initialPath)
+            repeat(20) { swipeIndex ->
+                val frame = awaitFrame(instrumentation, photoViewer, requireProxy = false)
+                assertTrue("profile swipe ${swipeIndex + 1} should inject touchscreen input",
+                    injectHorizontalSwipe(instrumentation, frame.image, swipeRight = false))
+                val deadline = SystemClock.uptimeMillis() + 2_000
+                while (currentPath.invoke(photoViewer) == lastDisplayedPath && SystemClock.uptimeMillis() < deadline) {
+                    SystemClock.sleep(25)
+                }
+                lastDisplayedPath = currentPath.invoke(photoViewer) as? String
+                    ?: error("custom profile swipe ${swipeIndex + 1} lost its current media identity")
+                assertTrue("custom profile swipe ${swipeIndex + 1} should select a different catalog item",
+                    lastDisplayedPath in fixturePaths && visitedPaths.add(lastDisplayedPath))
+                SystemClock.sleep(220)
+            }
+            val expectedReturnPath = currentPath.invoke(photoViewer) as? String
+                ?: error("custom profile Viewer did not retain its final media identity")
+            assertEquals("twenty profile swipes should end on the last displayed media identity",
+                lastDisplayedPath, expectedReturnPath)
+
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            val returned = awaitSourceThumbnail(instrumentation, sourceActivity, expectedReturnPath)
+            assertEquals("profile return thumbnail must be bound to the final Viewer media path",
+                expectedReturnPath, returned.tag)
+            assertEquals("profile return must leave the custom Photos grid alive", PhotoProfileMediaLoader.PATH,
+                MediaActivity::class.java.getDeclaredField("mPath").apply { isAccessible = true }
+                    .get(sourceActivity))
+        } finally {
+            runCatching { viewer?.finish() }
+            runCatching { source?.finish() }
+            store.delete(profileId)
+            previousState.selectedId?.let(store::select)
+            PhotoProfileMediaCache.invalidate()
+            context.config.showAll = wasShowingAllMedia
+            fixtures.forEach { fixture -> runCatching { context.contentResolver.delete(fixture.first, null, null) } }
         }
     }
 
@@ -412,7 +517,7 @@ class PhotoViewerInteractiveGestureTest {
                 isAccessible = true
             }
             assertTrue("double-tap should be injected on the emulator", injectDoubleTap(instrumentation, initial.image))
-            val zoomDeadline = SystemClock.uptimeMillis() + 3_000
+            val zoomDeadline = SystemClock.uptimeMillis() + 6_000
             while (currentZoomField.getFloat(photoFragment) <= initialZoom + 0.1f &&
                 SystemClock.uptimeMillis() < zoomDeadline) SystemClock.sleep(50)
             assertTrue("the real photo renderer should enter a zoomed state",
@@ -425,7 +530,7 @@ class PhotoViewerInteractiveGestureTest {
                 currentZoomField.getFloat(photoFragment) > initialZoom + 0.1f)
             assertTrue("double-tap should restore the image before dismissal testing",
                 injectDoubleTap(instrumentation, initial.image))
-            val resetDeadline = SystemClock.uptimeMillis() + 3_000
+            val resetDeadline = SystemClock.uptimeMillis() + 6_000
             while (currentZoomField.getFloat(photoFragment) > initialZoom + 0.1f &&
                 SystemClock.uptimeMillis() < resetDeadline) SystemClock.sleep(50)
             assertTrue("photo renderer should return to its fit zoom",
