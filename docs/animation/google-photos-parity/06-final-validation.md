@@ -8,7 +8,7 @@
 - `PhotoViewerInteractiveGestureTest` 在 Pixel_4 / Android 10 (API 29) 上检查实际拖动代理、方向反转恢复、确认退出交接、缩放比例和返回按钮/工具栏路径。
 - Debug 测试构建在 shared-progress 回调帧中记录最多 64 个图像可见矩形和进度值；测试等待动画结束后检查多帧增长、单调进度。Release 不执行这段调试采样。
 - 下滑确认退出独立运行 10 次，10/10 通过。完整的两项 instrumentation 类最终运行也通过 2/2。
-- 在 Android Studio 启动的同一 Pixel_4 / API 29 AVD 上再次运行两项 instrumentation，0/2 通过。两项均因测试图片未显示在网格中而在动画断言前失败（适配器数据非空、可见子项为 0）；该 AVD 的画面仍为黑屏。因此旧的 2/2 软件渲染成功结果仍保留，但这次复跑不能独立确认它。
+- 在 Android Studio 启动的 Pixel_4 / API 29 AVD 首次复跑两项 instrumentation 时，0/2 通过：适配器有数据但可见子项为 0，且设备画面全黑。将 AVD 图形加速切为 Software 并重启后再次在 Studio 运行，2/2 通过。软件渲染成功复跑确认了手势回归，但不构成帧性能或视觉轨迹验收。
 - 增补参考观察、代码审计、状态设计、模拟器结果与限制说明。
 
 ## 验证结果
@@ -20,7 +20,7 @@
 
 ## 不能宣称通过的验收
 
-- 当前没有 Gallery 修改后的可用高帧率连续录屏。`screenrecord` 报 `Encoder failed (err=-38)`，AVD 内建录制约 3 fps。现有 `/private/tmp/gallery-goal-review/gesture-run.webm` 不能验证 300 ms 曲线、闪屏或 25/50/75% 视觉关键帧；不能证明与 Google Photos 视觉等价。
+- 当前没有 Gallery 修改后的可用高帧率连续录屏。`screenrecord` 报 `Encoder failed (err=-38)`，AVD 内建录制约 3 fps。现有 `/private/tmp/gallery-goal-review/gesture-run.webm` 不能验证转场曲线、闪屏或 25/50/75% 视觉关键帧；不能证明与 Google Photos 视觉等价。
 - 下滑手势轨迹的回调边界检查验证了连续 progress，但它不能代替屏幕像素视频分析，尚未证明真实屏幕无一帧闪烁或无微小跳变。
 - Gallery 文件夹进入/返回、Android 系统边缘返回、预测性返回、快速重复打开、离屏/慢加载、扫描期间、视频、`.nomedia`、旋转、前后台恢复及不同动画比例/主题尚未按完整矩阵实测。API 29 不支持预测性返回验收；注入 swipe 不能稳定进入 SystemUI 边缘手势处理。
 - 模拟器软件渲染 `gfxinfo` 样本全部迟帧，不用于性能结论。需要硬件加速设备或可用的高帧率 AVD 复测。

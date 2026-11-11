@@ -18,7 +18,8 @@
 | `PhotoViewerInteractiveGestureTest`（软件图形重跑） | 2/2 通过 | 覆盖比例、拖动跟手、反向拖动恢复、下滑确认退出、返回路径、Android Back 键、工具栏返回、缩放手势仲裁和缺失目标清理；包括新增的松手状态交接断言 |
 | `PhotoViewerInteractiveGestureTest`（采样修正前的两次尝试） | 先 1 项通过/1 项失败，后 2 项失败 | Activity monitor 在 postponed enter 开始前就可返回，测试线程轮询会漏掉中间帧。没有放宽检查；改为 Debug build 在 shared-progress 回调中记录最多 64 个实际帧的 progress 与图像边界，测试等待到进度终点后验证 |
 | `PhotoViewerInteractiveGestureTest`（采样修正后） | 2/2 通过 | Pixel_4 / API 29；覆盖下滑过程/反向恢复/确认退出/返回路径，以及横图、竖图、方图、长图比例；以真实共享进度回调帧检查图像边界增长 |
-| Android Studio 中再次运行 `PhotoViewerInteractiveGestureTest` | 0/2 通过 | 两项均在进入转场断言前失败：测试媒体已进入数据集，但 RecyclerView 可见子项为 0（`visible=[]`）；此次 AVD 截图仍全黑。保留此前软件渲染 AVD 的 2/2 成功记录；该次复跑未能重新确认转场行为 |
+| Android Studio 黑屏 AVD 复跑 `PhotoViewerInteractiveGestureTest` | 0/2 通过 | 两项均在进入转场断言前失败：测试媒体已进入数据集，但 RecyclerView 可见子项为 0（`visible=[]`）；当时 AVD 截图全黑。 |
+| Android Studio 软件渲染 AVD 复跑 `PhotoViewerInteractiveGestureTest` | 2/2 通过 | 将 Pixel_4 AVD 图形加速改为 Software 并重启后，Android 主页正常显示；随后 Studio 运行在 14:00 完成，2 项通过、0 项失败。再次确认交互手势测试，不代表高帧率视觉验收。 |
 | 下滑确认退出独立重复运行 | 10/10 通过 | 每次单独启动 Android instrumentation 测试；完整日志保存在 `/private/tmp/gallery-goal-review/repeats/downward-1.log` … `downward-10.log` |
 | 最终 Debug / AndroidTest / ARM64 Release 构建 | 通过 | 分开执行 `:app:assembleFossDebug :app:assembleFossDebugAndroidTest :app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a`；帧边界记录只在 Debug 构建启用 |
 | 连续录屏/逐帧比较 | 证据不足 | `screenrecord` 编码器失败（err=-38）。模拟器内建录制得到 68 秒 VP9/WebM，1080×2280，平均 3 fps；不能用于评估 300 ms 动画曲线或单帧闪烁 |
