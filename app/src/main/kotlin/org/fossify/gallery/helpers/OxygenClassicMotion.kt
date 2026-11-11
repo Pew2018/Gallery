@@ -11,9 +11,13 @@ import android.view.animation.PathInterpolator
 object OxygenClassicMotion {
     // Viewer timings are application choices, not measured ROM resource values.
     const val VIEWER_CHROME_MS = 170L
-    const val MEDIA_SHARED_ELEMENT_MS = 300L
-    const val MEDIA_SCRIM_FADE_MS = 150L
-    const val ALBUM_CONTENT_ENTER_MS = 225L
+    // The supplied Google Photos reference settles its folder/photo geometry
+    // in roughly 50–120 ms. Keep the shared image and the follow-on content
+    // fade inside that observed window instead of carrying the older 300 ms
+    // page-transition timing into media navigation.
+    const val MEDIA_SHARED_ELEMENT_MS = 120L
+    const val MEDIA_SCRIM_FADE_MS = 120L
+    const val ALBUM_CONTENT_ENTER_MS = 100L
     const val VIEWER_CHROME_ENTER_MS = 225L
     const val VIEWER_CHROME_EXIT_MS = 195L
     const val VIEWER_LOADING_DELAY_MS = 120L

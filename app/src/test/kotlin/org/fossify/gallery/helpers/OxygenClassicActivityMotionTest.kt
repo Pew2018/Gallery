@@ -19,8 +19,8 @@ class OxygenClassicActivityMotionTest {
         assertEquals(PhotoViewerTransition.DURATION_MS, AlbumPageTransition.DURATION_MS)
         assertEquals(OxygenClassicMotion.MEDIA_SCRIM_FADE_MS, PhotoViewerTransition.FADE_DURATION_MS)
         assertEquals(OxygenClassicMotion.ALBUM_CONTENT_ENTER_MS, AlbumPageTransition.FADE_DURATION_MS)
-        assertEquals(300L, PhotoViewerTransition.DURATION_MS)
-        assertEquals(225L, AlbumPageTransition.FADE_DURATION_MS)
+        assertEquals(120L, PhotoViewerTransition.DURATION_MS)
+        assertEquals(100L, AlbumPageTransition.FADE_DURATION_MS)
     }
 
     @Test fun sharedWindowDoesNotInstallASecondPageAnimation() {

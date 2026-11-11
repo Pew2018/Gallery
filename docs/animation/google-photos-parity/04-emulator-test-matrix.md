@@ -14,6 +14,7 @@
 | `:app:assembleFossDebug` | 通过 | 当前转场代码与 instrumentation 源码编译通过 |
 | 全量 `:app:testFossDebugUnitTest` | 1082 项中 1080 项通过，2 项失败 | `DeleteWithRememberDialogRippleTest` 与 `GalleryRootTransitionTest` 的 Robolectric API 36 sandbox 在本机 Java 17 环境报 `UnsupportedOperationException`；本机未安装 Java 21 |
 | 聚焦转场 JVM 测试 | 通过 | `PhotoTransitionCompletionGateTest`、`ViewerMotionTest`、`OxygenClassicActivityMotionTest`、`PhotoViewerContinuousSwipeTest`、`MediaTransitionGestureControllerTest` |
+| 本轮时长候选单元测试 | 3/3 通过 | Android Studio 的 `:app:testFossDebugUnitTest --tests org.fossify.gallery.helpers.OxygenClassicActivityMotionTest`；确认 shared transition 120 ms、文件夹内容淡入 100 ms 等现有参数约束。参数断言不等于视觉验收。 |
 | `:app:connectedFossDebugAndroidTest`（第一次） | 2 项均未到达动画断言 | 适配器有 2 项但 RecyclerView 可见子项为 0；当时模拟器输出全黑画面 |
 | `PhotoViewerInteractiveGestureTest`（软件图形重跑） | 2/2 通过 | 覆盖比例、拖动跟手、反向拖动恢复、下滑确认退出、返回路径、Android Back 键、工具栏返回、缩放手势仲裁和缺失目标清理；包括新增的松手状态交接断言 |
 | `PhotoViewerInteractiveGestureTest`（加入文件夹往返用例后，软件渲染复跑） | 3/3 通过 | 新增用例从 MainActivity 的真实相册卡片点击进入临时测试文件夹，验证启用共享元素的 intent、封面路径与目标项映射，再注入 Android Back 并确认返回同一可见且已解码的封面。仅验证路径和状态，不是逐帧视觉验收。 |
@@ -22,12 +23,14 @@
 | Android Studio 文件夹往返最终复跑 | 3/3 通过 | Pixel_4 / API 29；JUnit XML 时间戳 2026-11-11 19:15:51，3 项、0 失败、0 跳过，测试套件耗时 67.189 秒（Gradle 72.684 秒）。 |
 | `PhotoViewerInteractiveGestureTest`（采样修正前的两次尝试） | 先 1 项通过/1 项失败，后 2 项失败 | Activity monitor 在 postponed enter 开始前就可返回，测试线程轮询会漏掉中间帧。没有放宽检查；改为 Debug build 在 shared-progress 回调中记录最多 64 个实际帧的 progress 与图像边界，测试等待到进度终点后验证 |
 | `PhotoViewerInteractiveGestureTest`（采样修正后） | 2/2 通过 | Pixel_4 / API 29；覆盖下滑过程/反向恢复/确认退出/返回路径，以及横图、竖图、方图、长图比例；以真实共享进度回调帧检查图像边界增长 |
+| 本轮 Pixel 4 UI 回归 | 3/3 通过 | Android Studio 执行 `PhotoViewerInteractiveGestureTest`，Pixel_4 / API 29；JUnit XML 时间戳 2026-11-11T13:57:11Z，套件 50.279 秒。 |
 | Android Studio 黑屏 AVD 复跑 `PhotoViewerInteractiveGestureTest` | 0/2 通过 | 两项均在进入转场断言前失败：测试媒体已进入数据集，但 RecyclerView 可见子项为 0（`visible=[]`）；当时 AVD 截图全黑。 |
 | Android Studio 软件渲染 AVD 复跑 `PhotoViewerInteractiveGestureTest` | 2/2 通过 | 将 Pixel_4 AVD 图形加速改为 Software 并重启后，Android 主页正常显示；随后 Studio 运行在 14:00 完成，2 项通过、0 项失败。再次确认交互手势测试，不代表高帧率视觉验收。 |
 | 下滑确认退出独立重复运行 | 10/10 通过 | 每次单独启动 Android instrumentation 测试；完整日志保存在 `/private/tmp/gallery-goal-review/repeats/downward-1.log` … `downward-10.log` |
 | 最终 Debug / AndroidTest / ARM64 Release 构建 | 通过 | 分开执行 `:app:assembleFossDebug :app:assembleFossDebugAndroidTest :app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a`；帧边界记录只在 Debug 构建启用 |
-| 连续录屏/逐帧比较 | 证据不足 | `screenrecord` 编码器失败（err=-38）。模拟器内建录制得到 68 秒 VP9/WebM，1080×2280，平均 3 fps；不能用于评估转场曲线或单帧闪烁 |
+| 连续录屏/逐帧比较 | 部分证据 | AVD 内建录制曾得到 68 秒 VP9/WebM、平均约 3 fps，无法分析转场。之后 Android Studio 屏幕录制得到 `/private/tmp/gallery-goal-review/gallery-motion-20261111_191025.webm`，1080×2280、24 fps、1615.894 秒；录制过长且含测试等待时间，抽帧可见文件夹封面到网格尺寸切换，但该视频早于当前时长候选值，且目标仅为合成 RGB 测试媒体，不能证明真实相册内容下的最终视觉质量。 |
 | 本轮高帧率录屏重试 | 未能启动 | 本机命令行 ADB server 在启动监听时返回 `Operation not permitted`，因此录屏命令未连接到模拟器；没有生成新视频或新的帧率证据 |
+| 时长调整后的新 UI 录制 | 未取得转场证据 | 解锁后启动了约 1 分 24 秒的 Android Studio 录制，但未能选中并运行目标 instrumentation 配置；录制期间模拟器停留在桌面。此前保存的 26 分钟 WebM 早于本轮 120/100 ms 时长调整，也不能作为该调整的录屏验证。 |
 | `dumpsys gfxinfo` | 仅记录，不作性能验收 | 软件渲染样本 57 帧全部迟帧（p50 46 ms，p90 61 ms，p95 89 ms）；软件渲染与录屏负载不代表应用设备性能 |
 
 仪器测试截图及 gfxinfo 原始文件存于本机临时目录 `/private/tmp/gallery-goal-review/emulator-evidence/`，未提交到仓库。

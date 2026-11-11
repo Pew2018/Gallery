@@ -10,6 +10,7 @@
 - 下滑确认退出独立运行 10 次，10/10 通过。完整的两项 instrumentation 类最终运行也通过 2/2。
 - 在 Android Studio 启动的 Pixel_4 / API 29 AVD 首次复跑两项 instrumentation 时，0/2 通过：适配器有数据但可见子项为 0，且设备画面全黑。将 AVD 图形加速切为 Software 并重启后再次在 Studio 运行，2/2 通过。软件渲染成功复跑确认了手势回归，但不构成帧性能或视觉轨迹验收。
 - 新增真实文件夹卡片往返 instrumentation：创建临时 MediaStore 图片，从 MainActivity 文件夹卡片打开 MediaActivity，检查共享元素 intent 与封面路径，等待目标图像映射，再以 Android Back 返回同一可见且已解码的封面。第一次运行因测试将 SplashActivity 强转为 MainActivity 而失败；改为等待 MainActivity 后，在 Pixel_4 / API 29 全类运行 3/3 通过。清理 nullable-path 告警后再次复跑也通过；Android Studio 中的最终复跑 JUnit XML 为 3 项、0 失败、0 跳过，套件耗时 67.189 秒（Gradle 72.684 秒）。该用例不测像素轨迹或闪帧。
+- 根据 Google Photos 录屏人工观察到的 50–120 ms 形变窗口，将媒体共享转场从 300 ms 调为 120 ms，Scrim 从 150 ms 调为 120 ms，文件夹内容淡入从 225 ms 调为 100 ms。聚焦参数单元测试 3/3 通过；这组候选数值仍需新的模拟器录屏和帧核验。
 - 增补参考观察、代码审计、状态设计、模拟器结果与限制说明。
 
 ## 验证结果
@@ -18,6 +19,7 @@
 - 全量 JVM 测试 1082 项中 1080 项通过；`DeleteWithRememberDialogRippleTest` 和 `GalleryRootTransitionTest` 在 Java 17 下创建 Robolectric API 36 sandbox 时以 `UnsupportedOperationException` 失败。当前主机只安装 Java 17，不能完成 Java 21 复测。
 - Release 构建原件为未签名 ARM64 APK。为便于本机试装生成的副本使用 Android Debug keystore 签名，v2/v3 验签通过；不能作为发布签名包。
 - AVD 是 Pixel_4 / Android 10 / API 29 / 60 Hz，使用软件图形渲染。它适合触摸与状态回归，不适合据此结论生产设备帧性能。
+- 本轮 UI 回归在 Android Studio 中 3/3 通过；本轮参数单元测试 3/3 通过。解锁后启动了约 1 分 24 秒的新录制，但未能选中并运行目标 instrumentation 配置，录制期间模拟器停留在桌面，因此仍没有时长改动后的转场画面证据；既有 26 分钟录屏早于该时长调整。
 
 ## 不能宣称通过的验收
 

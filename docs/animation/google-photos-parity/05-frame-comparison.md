@@ -20,11 +20,15 @@ Gallery 用户录屏：H.264、576×1280、约 30 fps、88.4997 秒。重点复�
 
 Google Photos 120 fps 抽样显示文件夹展开约 0.05–0.1s、缩略图进入 Viewer 约 0.05–0.08s、Viewer 回网格约 0.08–0.12s（见 `01-reference-analysis.md`）。这些是人工判读的近似窗口，不能直接当作 Android transition duration 常量；Gallery 原录屏没有同步操作，也缺少可用的高帧率修改后录屏，因此不能据此给出数值误差。
 
+`OxygenClassicMotion` 本轮将媒体共享转场候选时长设为 120 ms、Scrim 淡变设为 120 ms、文件夹内容淡入设为 100 ms。上述范围与参考视频人工估计处于相近数量级，但本轮调整后没有可用的新连续录屏，不能据此判断关键帧中心点、缩放曲线或闪帧结果。
+
 ## 数值比较的限制
 
-当前没有同步动作下的 Gallery 新版高帧率录像，因此无法可信报告两端 25% / 50% / 75% 进度的归一化中心点误差、时长误差或 scrim 曲线误差。模拟器的 instrumentation 回调可验证 Viewer shared progress 与图像可见边界，但不能检查实际屏幕每一帧的颜色分布，也不能证明没有一帧级白闪或黑闪。
+有一段 Android Studio 录屏 `/private/tmp/gallery-goal-review/gallery-motion-20261111_191025.webm`（VP9，1080×2280，24 fps，1615.894 秒），在先前的文件夹测试中包含可辨认的转场片段。抽帧可见合成 RGB 封面约 524×524 px，进入目标网格后约 352×352 px，尺寸交接在若干 24 fps 帧内完成；截图只证明了该合成素材下的粗略路径，未用于测量逐帧中心误差或闪帧。该长录屏发生在本轮 120/100 ms 参数调整之前。
 
-模拟器内建录制产物为 `/private/tmp/gallery-goal-review/gesture-run.webm`，68 秒、1080×2280，约 3 fps。它可作粗略操作记录，不足以评价 300 ms 转场曲线。Android `screenrecord` 在该模拟器环境报编码器错误。原始抽帧与截图保存在 `/private/tmp/gallery-goal-review/`，未提交到仓库。
+由于没有与 Google Photos 同步动作、同素材和同布局的修改后高帧率录像，当前无法可信报告两端 25% / 50% / 75% 进度的归一化中心点误差、时长误差或 scrim 曲线误差。模拟器 instrumentation 回调可验证 Viewer shared progress 与图像可见边界，但不能检查实际屏幕每一帧的颜色分布，也不能证明本轮时长调整后没有一帧级白闪或黑闪。
+
+AVD 内建低帧率录制为 `/private/tmp/gallery-goal-review/gesture-run.webm`，68 秒、1080×2280，约 3 fps；Android `screenrecord` 在该模拟器环境报编码器错误。Android Studio 24 fps 录制和原始抽帧保存在 `/private/tmp/gallery-goal-review/`，未提交到 Git。当前时长调整的可视录制仍待完成。
 
 ## 本轮可证明的改变
 

@@ -4,7 +4,7 @@
 
 ## 当前 Viewer 图片进入
 
-Activity shared element 使用一组并行的 Android `Transition`：`ChangeBounds`、`ChangeTransform`、`ChangeImageTransform`，以及 `SharedElementProgress`。进度动画以相同的 300 ms 时长和插值器驱动 Viewer scrim。Viewer 先等待所选图像可映射，再开始 postponed enter transition；转场期间横向翻页输入保持锁定。
+Activity shared element 使用一组并行的 Android `Transition`：`ChangeBounds`、`ChangeTransform`、`ChangeImageTransform`，以及 `SharedElementProgress`。当前媒体共享转场和 Viewer scrim 时长为 120 ms；文件夹目标内容淡入为 100 ms。这是基于参考录屏人工时间线的候选值，仍需修改后连续录屏复核。Viewer 先等待所选图像可映射，再开始 postponed enter transition；转场期间横向翻页输入保持锁定。
 
 `ViewPagerActivity.renderPhotoTransitionProgress()` 现在在每次进度回调中同时记录进度与共享图像的屏幕可见边界。Instrumentation 测试在等待进度到达终点后读取这些实际回调帧，用于判断进度单调、图像边界持续增长。这比测试线程轮询窗口状态更接近真实动画帧，也避免 Activity monitor 返回早晚造成的采样竞争。
 
