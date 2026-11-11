@@ -16,6 +16,9 @@
 | 聚焦转场 JVM 测试 | 通过 | `PhotoTransitionCompletionGateTest`、`ViewerMotionTest`、`OxygenClassicActivityMotionTest`、`PhotoViewerContinuousSwipeTest`、`MediaTransitionGestureControllerTest` |
 | `:app:connectedFossDebugAndroidTest`（第一次） | 2 项均未到达动画断言 | 适配器有 2 项但 RecyclerView 可见子项为 0；当时模拟器输出全黑画面 |
 | `PhotoViewerInteractiveGestureTest`（软件图形重跑） | 2/2 通过 | 覆盖比例、拖动跟手、反向拖动恢复、下滑确认退出、返回路径、Android Back 键、工具栏返回、缩放手势仲裁和缺失目标清理；包括新增的松手状态交接断言 |
+| `PhotoViewerInteractiveGestureTest`（加入文件夹往返用例后，软件渲染复跑） | 3/3 通过 | 新增用例从 MainActivity 的真实相册卡片点击进入临时测试文件夹，验证启用共享元素的 intent、封面路径与目标项映射，再注入 Android Back 并确认返回同一可见且已解码的封面。仅验证路径和状态，不是逐帧视觉验收。 |
+| 文件夹用例第一次运行 | 1 项失败，另 2 项通过 | `startActivitySync()` 返回启动页 `SplashActivity`，测试错误地将其强转为 `MainActivity`；将启动监视改为等待真实 `MainActivity` 后，完整类复跑 3/3 通过。 |
+| 文件夹回归清理后的最终复跑 | 3/3 通过 | Pixel_4 / API 29 Software；JUnit XML 报告记录 3 项、0 失败、0 跳过，耗时 58.7 秒；AndroidTest Kotlin 编译无告警。 |
 | `PhotoViewerInteractiveGestureTest`（采样修正前的两次尝试） | 先 1 项通过/1 项失败，后 2 项失败 | Activity monitor 在 postponed enter 开始前就可返回，测试线程轮询会漏掉中间帧。没有放宽检查；改为 Debug build 在 shared-progress 回调中记录最多 64 个实际帧的 progress 与图像边界，测试等待到进度终点后验证 |
 | `PhotoViewerInteractiveGestureTest`（采样修正后） | 2/2 通过 | Pixel_4 / API 29；覆盖下滑过程/反向恢复/确认退出/返回路径，以及横图、竖图、方图、长图比例；以真实共享进度回调帧检查图像边界增长 |
 | Android Studio 黑屏 AVD 复跑 `PhotoViewerInteractiveGestureTest` | 0/2 通过 | 两项均在进入转场断言前失败：测试媒体已进入数据集，但 RecyclerView 可见子项为 0（`visible=[]`）；当时 AVD 截图全黑。 |

@@ -17,6 +17,7 @@ import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import android.widget.ImageView
@@ -56,6 +57,84 @@ class PhotoViewerInteractiveGestureTest {
     }
 
     private data class SwipeRun(val thread: Thread, val deviceInjectionWorked: AtomicBoolean)
+
+    @Test
+    fun folderCardEntersAlbumAndReturnsToTheSameCoverOnDevice() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GalleryAlbumTransitionTest-${UUID.randomUUID()}"
+        val fixture = createFixture(context, album)
+        val fixtureDirectory = java.io.File(fixture.second).parent
+            ?: error("fixture image has no parent directory")
+        val wasLastViewAll = context.config.lastMainViewAll
+        var home: MainActivity? = null
+        var media: MediaActivity? = null
+        try {
+            context.config.lastMainViewAll = false
+            val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                ?: error("Gallery launcher activity is unavailable")
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            launch.putExtra(MainActivity.EXTRA_SHOW_FOLDERS, true)
+            val homeMonitor = instrumentation.addMonitor(MainActivity::class.java.name, null, false)
+            instrumentation.startActivitySync(launch)
+            home = instrumentation.waitForMonitorWithTimeout(homeMonitor, 15_000) as? MainActivity
+                ?: error("Gallery did not finish launching MainActivity")
+            instrumentation.removeMonitor(homeMonitor)
+            val homeActivity = home!!
+
+            val folderCard = awaitDirectoryCard(instrumentation, homeActivity, fixtureDirectory)
+            val cover = folderCard.findViewById<ImageView>(R.id.dir_thumbnail)
+            assertNotNull("home album card should have its decoded cover", cover.drawable)
+            assertEquals("home card cover should be bound to the fixture album",
+                fixtureDirectory, cover.getTag(R.id.directory_bound_path))
+
+            val monitor = instrumentation.addMonitor(MediaActivity::class.java.name, null, false)
+            instrumentation.runOnMainSync {
+                check(folderCard.performClick()) { "the album card did not accept a click" }
+            }
+            media = instrumentation.waitForMonitorWithTimeout(monitor, 15_000) as? MediaActivity
+                ?: error("clicking the home album card did not open MediaActivity")
+            instrumentation.removeMonitor(monitor)
+            val mediaActivity = media!!
+
+            assertTrue("the album launch should use the shared cover transition",
+                mediaActivity.intent.getBooleanExtra(
+                    org.fossify.gallery.helpers.AlbumPageTransition.EXTRA_ACTIVE, false
+                ))
+            assertEquals("the transition should carry the matching folder cover path", fixture.second,
+                mediaActivity.intent.getStringExtra(
+                    org.fossify.gallery.helpers.AlbumPageTransition.EXTRA_COVER_PATH
+                ))
+            awaitSourceThumbnail(instrumentation, mediaActivity, fixture.second)
+            val mappedField = MediaActivity::class.java.getDeclaredField("albumTransitionMapped")
+                .apply { isAccessible = true }
+            val mappingDeadline = SystemClock.uptimeMillis() + 2_000
+            while (!mappedField.getBoolean(mediaActivity) && SystemClock.uptimeMillis() < mappingDeadline) {
+                SystemClock.sleep(16)
+            }
+            assertTrue("the decoded album item should map to the shared cover", mappedField.getBoolean(mediaActivity))
+
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            val returnDeadline = SystemClock.uptimeMillis() + 5_000
+            var returnedCard: View? = null
+            while (SystemClock.uptimeMillis() < returnDeadline && returnedCard == null) {
+                returnedCard = runCatching {
+                    awaitDirectoryCard(instrumentation, homeActivity, fixtureDirectory, 300)
+                }.getOrNull()
+                if (returnedCard == null) SystemClock.sleep(50)
+            }
+            assertNotNull("system Back should return to the same visible album card", returnedCard)
+            assertTrue("the returned album cover should still be decoded",
+                returnedCard!!.findViewById<ImageView>(R.id.dir_thumbnail).drawable != null)
+            assertTrue("folder return should leave the original home Activity alive", !homeActivity.isFinishing)
+        } finally {
+            runCatching { media?.finish() }
+            runCatching { home?.finish() }
+            runCatching { context.contentResolver.delete(fixture.first, null, null) }
+            context.config.lastMainViewAll = wasLastViewAll
+        }
+    }
 
     @Test
     fun downwardDragReversesRestoresAndDismissesFromTheCurrentPhotoFrame() {
@@ -553,6 +632,51 @@ class PhotoViewerInteractiveGestureTest {
             SystemClock.sleep(50)
         }
         error("test image did not appear in the MediaActivity grid: path=$path $observedGrid")
+    }
+
+    private fun awaitDirectoryCard(
+        instrumentation: android.app.Instrumentation,
+        activity: MainActivity,
+        path: String,
+        timeoutMs: Long = 20_000,
+    ): View {
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
+        var card: View? = null
+        var observed = "directory grid not ready"
+        while (SystemClock.uptimeMillis() < deadline) {
+            instrumentation.runOnMainSync {
+                val grid = activity.findViewById<RecyclerView>(R.id.directories_grid)
+                val adapter = grid?.adapter
+                val dirs = runCatching {
+                    @Suppress("UNCHECKED_CAST")
+                    adapter?.javaClass?.getMethod("getDirs")?.invoke(adapter) as? List<Any?>
+                }.getOrNull().orEmpty()
+                val position = dirs.indexOfFirst { directory ->
+                    val itemPath = runCatching {
+                        directory?.javaClass?.getMethod("getPath")?.invoke(directory) as? String
+                    }.getOrNull()
+                    itemPath != null && runCatching {
+                        java.io.File(itemPath).canonicalPath == java.io.File(path).canonicalPath
+                    }.getOrDefault(false)
+                }
+                val holder = if (position >= 0) grid?.findViewHolderForAdapterPosition(position) else null
+                val item = holder?.itemView
+                val image = item?.findViewById<ImageView>(R.id.dir_thumbnail)
+                observed = "items=${adapter?.itemCount} position=$position " +
+                    "children=${grid?.childCount} cover=${image?.drawable != null} " +
+                    "bound=${image?.getTag(R.id.directory_bound_path)} target=$path"
+                if (item != null && image?.isAttachedToWindow == true && image.drawable != null &&
+                    runCatching {
+                        java.io.File(image.getTag(R.id.directory_bound_path) as String).canonicalPath ==
+                            java.io.File(path).canonicalPath
+                    }.getOrDefault(false)) {
+                    card = item
+                }
+            }
+            if (card != null) return card!!
+            SystemClock.sleep(50)
+        }
+        error("album card did not become visible with a decoded cover: $observed")
     }
 
     private fun captureCheckpoint(
