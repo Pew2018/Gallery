@@ -9,7 +9,7 @@
 - Debug 测试构建在 shared-progress 回调帧中记录最多 64 个图像可见矩形和进度值；测试等待动画结束后检查多帧增长、单调进度。Release 不执行这段调试采样。
 - 下滑确认退出独立运行 10 次，10/10 通过。完整的两项 instrumentation 类最终运行也通过 2/2。
 - 在 Android Studio 启动的 Pixel_4 / API 29 AVD 首次复跑两项 instrumentation 时，0/2 通过：适配器有数据但可见子项为 0，且设备画面全黑。将 AVD 图形加速切为 Software 并重启后再次在 Studio 运行，2/2 通过。软件渲染成功复跑确认了手势回归，但不构成帧性能或视觉轨迹验收。
-- 新增真实文件夹卡片往返 instrumentation：创建临时 MediaStore 图片，从 MainActivity 文件夹卡片打开 MediaActivity，检查共享元素 intent 与封面路径，等待目标图像映射，再以 Android Back 返回同一可见且已解码的封面。第一次运行因测试将 SplashActivity 强转为 MainActivity 而失败；改为等待 MainActivity 后，在 Pixel_4 / API 29 全类运行 3/3 通过。清理 nullable-path 告警后再次复跑也通过；JUnit XML 报告为 3 项、0 失败、0 跳过、58.7 秒。该用例不测像素轨迹或闪帧。
+- 新增真实文件夹卡片往返 instrumentation：创建临时 MediaStore 图片，从 MainActivity 文件夹卡片打开 MediaActivity，检查共享元素 intent 与封面路径，等待目标图像映射，再以 Android Back 返回同一可见且已解码的封面。第一次运行因测试将 SplashActivity 强转为 MainActivity 而失败；改为等待 MainActivity 后，在 Pixel_4 / API 29 全类运行 3/3 通过。清理 nullable-path 告警后再次复跑也通过；Android Studio 中的最终复跑 JUnit XML 为 3 项、0 失败、0 跳过，套件耗时 67.189 秒（Gradle 72.684 秒）。该用例不测像素轨迹或闪帧。
 - 增补参考观察、代码审计、状态设计、模拟器结果与限制说明。
 
 ## 验证结果
