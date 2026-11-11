@@ -22,7 +22,8 @@
 | Android Studio 软件渲染 AVD 复跑 `PhotoViewerInteractiveGestureTest` | 2/2 通过 | 将 Pixel_4 AVD 图形加速改为 Software 并重启后，Android 主页正常显示；随后 Studio 运行在 14:00 完成，2 项通过、0 项失败。再次确认交互手势测试，不代表高帧率视觉验收。 |
 | 下滑确认退出独立重复运行 | 10/10 通过 | 每次单独启动 Android instrumentation 测试；完整日志保存在 `/private/tmp/gallery-goal-review/repeats/downward-1.log` … `downward-10.log` |
 | 最终 Debug / AndroidTest / ARM64 Release 构建 | 通过 | 分开执行 `:app:assembleFossDebug :app:assembleFossDebugAndroidTest :app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a`；帧边界记录只在 Debug 构建启用 |
-| 连续录屏/逐帧比较 | 证据不足 | `screenrecord` 编码器失败（err=-38）。模拟器内建录制得到 68 秒 VP9/WebM，1080×2280，平均 3 fps；不能用于评估 300 ms 动画曲线或单帧闪烁 |
+| 连续录屏/逐帧比较 | 证据不足 | `screenrecord` 编码器失败（err=-38）。模拟器内建录制得到 68 秒 VP9/WebM，1080×2280，平均 3 fps；不能用于评估转场曲线或单帧闪烁 |
+| 本轮高帧率录屏重试 | 未能启动 | 本机命令行 ADB server 在启动监听时返回 `Operation not permitted`，因此录屏命令未连接到模拟器；没有生成新视频或新的帧率证据 |
 | `dumpsys gfxinfo` | 仅记录，不作性能验收 | 软件渲染样本 57 帧全部迟帧（p50 46 ms，p90 61 ms，p95 89 ms）；软件渲染与录屏负载不代表应用设备性能 |
 
 仪器测试截图及 gfxinfo 原始文件存于本机临时目录 `/private/tmp/gallery-goal-review/emulator-evidence/`，未提交到仓库。
