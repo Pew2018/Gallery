@@ -235,6 +235,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var interactivePhotoGeneration = 0L
     private var photoTransitionProgressFrameCount = 0
     private var photoTransitionProgress = 0f
+    private val photoTransitionFrameSamples = ArrayList<Pair<Float, android.graphics.Rect>>(32)
     fun isMediaTransitionRunning() = mediaTransitionRunning || pendingPhotoSharedElement || interactivePhotoDragActive
 
     fun shouldKeepPhotoCanvasTransparent() = pendingPhotoSharedElement || photoSharedElementSnapshotView != null
@@ -276,6 +277,16 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         photoTransitionProgressFrameCount++
         photoTransitionProgress = progress.coerceIn(0f, 1f)
         binding.viewerTransitionScrim.alpha = photoTransitionProgress
+        if (BuildConfig.DEBUG) {
+            val path = photoSharedElementPath
+            val bounds = path?.let(::getCurrentSharedElementView)?.let { view ->
+                android.graphics.Rect().takeIf { view.getGlobalVisibleRect(it) }
+            }
+            if (bounds != null) {
+                if (photoTransitionFrameSamples.size == 64) photoTransitionFrameSamples.removeAt(0)
+                photoTransitionFrameSamples += photoTransitionProgress to bounds
+            }
+        }
     }
 
     private fun setSharedTransitionCanvasTransparent() {
@@ -390,9 +401,19 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val surface = interactivePhotoSurface ?: return
         if (!interactivePhotoDragActive || isDestroyed || isFinishing) return
         interactivePhotoSettleAnimator?.cancel()
+        if (dismiss) {
+            // Hand the live gesture transform directly to the Activity shared
+            // element return. Settling to the gesture's arbitrary p=1 frame
+            // first made the photo travel down, pause at that frame, then start
+            // a second bounds animation toward the thumbnail.
+            interactivePhotoDragActive = false
+            interactivePhotoSettleAnimator = null
+            finish()
+            return
+        }
         val generation = ++interactivePhotoGeneration
         val start = interactivePhotoProgress
-        val end = if (dismiss) 1f else 0f
+        val end = 0f
         val duration = (140L + (220L * kotlin.math.abs(end - start))).toLong()
         interactivePhotoSettleAnimator = ValueAnimator.ofFloat(start, end).apply {
             this.duration = duration
@@ -408,14 +429,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 override fun onAnimationEnd(animation: Animator) {
                     if (cancelled || generation != interactivePhotoGeneration) return
                     interactivePhotoSettleAnimator = null
-                    if (dismiss) {
-                        // Keep the transformed content proxy alive: the reverse shared
-                        // transition captures its live transform and hands it to the grid.
-                        interactivePhotoDragActive = false
-                        finish()
-                    } else {
-                        clearInteractivePhotoDrag(restoreViewer = true)
-                    }
+                    clearInteractivePhotoDrag(restoreViewer = true)
                 }
             })
             start()

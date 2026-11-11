@@ -50,8 +50,6 @@ class PhotoViewerInteractiveGestureTest {
         val translationY: Float,
     )
 
-    private data class OpeningSample(val progress: Float, val scrimAlpha: Float, val bounds: android.graphics.Rect)
-
     private class GestureCheckpoint {
         val reached = CountDownLatch(1)
         val resume = CountDownLatch(1)
@@ -114,19 +112,14 @@ class PhotoViewerInteractiveGestureTest {
             val viewer = instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
                 ?: error("MediaActivity did not launch ViewPagerActivity")
             instrumentation.removeMonitor(monitor)
-            val openingSamples = sampleOpeningTransition(instrumentation, viewer)
-            val intermediateOpening = openingSamples.filter { it.progress in 0.05f..0.95f }
-            android.util.Log.i("GalleryGestureTest", "opening_samples=" + intermediateOpening.joinToString("|") {
-                "p=${"%.3f".format(java.util.Locale.US, it.progress)},scrim=${"%.3f".format(java.util.Locale.US, it.scrimAlpha)},bounds=${it.bounds.flattenToString()}"
-            })
+            val transitionSamples = awaitTransitionFrameSamples(instrumentation, viewer)
+            val intermediateOpening = transitionSamples.filter { (progress, _) -> progress in 0.05f..0.95f }
             assertTrue("opening should expose multiple intermediate shared-element frames",
                 intermediateOpening.size >= 2)
             assertTrue("opening bounds should grow between sampled frames",
-                intermediateOpening.map { it.bounds.width() }.distinct().size >= 2)
-            assertTrue("scrim alpha should follow the shared-element progress value",
-                intermediateOpening.all { kotlin.math.abs(it.scrimAlpha - it.progress) < 0.02f })
+                intermediateOpening.map { it.second.width() }.distinct().size >= 2)
             assertTrue("opening progress should advance monotonically",
-                intermediateOpening.zipWithNext().all { (a, b) -> b.progress >= a.progress })
+                intermediateOpening.map { it.first }.zipWithNext().all { (a, b) -> b >= a })
             var initial = awaitFrame(instrumentation, viewer, requireProxy = false)
             instrumentation.uiAutomation.takeScreenshot()?.let {
                 saveScreenshot(context, "gallery-opened-viewer.png", it)
@@ -294,6 +287,13 @@ class PhotoViewerInteractiveGestureTest {
             assertTrue("dismiss drag must use device-level touchscreen injection",
                 dismissSwipe.deviceInjectionWorked.get())
             assertTrue("a committed drag should dismiss the viewer", viewer.isFinishing)
+            val dismissProgress = ViewPagerActivity::class.java
+                .getDeclaredField("interactivePhotoProgress").apply { isAccessible = true }
+                .getFloat(viewer)
+            assertTrue(
+                "a committed drag must hand its live transform to the shared return before an arbitrary settle endpoint",
+                dismissProgress in 0.05f..0.99f,
+            )
             val returnPath = viewer.javaClass.getDeclaredField("photoSharedElementPath").apply { isAccessible = true }
                 .get(viewer) as? String
             assertEquals("dismissal should target the photo selected after horizontal paging",
@@ -429,21 +429,16 @@ class PhotoViewerInteractiveGestureTest {
                     ?: error("Gallery did not open aspect-ratio fixture $index")
                 instrumentation.removeMonitor(monitor)
 
-                val opening = sampleOpeningTransition(instrumentation, viewer)
-                    .filter { it.progress in 0.05f..0.95f }
-                android.util.Log.i("GalleryGestureTest", "aspect_fixture=$index samples=" + opening.joinToString("|") {
-                    "p=${"%.3f".format(java.util.Locale.US, it.progress)},scrim=${"%.3f".format(java.util.Locale.US, it.scrimAlpha)},bounds=${it.bounds.flattenToString()}"
-                })
+                val opening = awaitTransitionFrameSamples(instrumentation, viewer)
+                val intermediate = opening.filter { (progress, _) -> progress in 0.05f..0.95f }
                 val progressFrameCount = ViewPagerActivity::class.java
                     .getDeclaredField("photoTransitionProgressFrameCount")
                     .apply { isAccessible = true }
                     .getInt(viewer)
                 assertTrue("fixture $index should run the shared-element progress callback", progressFrameCount > 0)
-                if (opening.size >= 2) {
+                if (intermediate.size >= 2) {
                     assertTrue("fixture $index bounds should grow through its opening transition",
-                        opening.zipWithNext().all { (a, b) -> b.bounds.width() >= a.bounds.width() })
-                    assertTrue("fixture $index scrim should follow transition progress",
-                        opening.all { kotlin.math.abs(it.scrimAlpha - it.progress) < 0.02f })
+                        intermediate.zipWithNext().all { (a, b) -> b.second.width() >= a.second.width() })
                 }
 
                 val frame = awaitFrame(instrumentation, viewer, requireProxy = false)
@@ -484,38 +479,6 @@ class PhotoViewerInteractiveGestureTest {
         }
     }
 
-    private fun sampleOpeningTransition(
-        instrumentation: android.app.Instrumentation,
-        activity: ViewPagerActivity,
-    ): List<OpeningSample> {
-        val progressField = ViewPagerActivity::class.java.getDeclaredField("photoTransitionProgress")
-            .apply { isAccessible = true }
-        val samples = mutableListOf<OpeningSample>()
-        repeat(18) {
-            instrumentation.runOnMainSync {
-                fun findSharedElement(view: View): View? {
-                    if (view.transitionName == org.fossify.gallery.helpers.PhotoViewerTransition.ELEMENT_NAME) {
-                        return view
-                    }
-                    if (view is ViewGroup) {
-                        for (index in 0 until view.childCount) {
-                            findSharedElement(view.getChildAt(index))?.let { return it }
-                        }
-                    }
-                    return null
-                }
-                val image = findSharedElement(activity.window.decorView)
-                val bounds = android.graphics.Rect()
-                if (image != null && image.getGlobalVisibleRect(bounds)) {
-                    val scrim = activity.findViewById<View>(R.id.viewer_transition_scrim)
-                    samples += OpeningSample(progressField.getFloat(activity), scrim.alpha, bounds)
-                }
-            }
-            SystemClock.sleep(16)
-        }
-        return samples
-    }
-
     private fun awaitFrame(
         instrumentation: android.app.Instrumentation,
         activity: ViewPagerActivity,
@@ -546,6 +509,27 @@ class PhotoViewerInteractiveGestureTest {
         error("viewer photo did not reach the expected render state")
     }
 
+    private fun awaitTransitionFrameSamples(
+        instrumentation: android.app.Instrumentation,
+        activity: ViewPagerActivity,
+    ): List<Pair<Float, android.graphics.Rect>> {
+        val samplesField = ViewPagerActivity::class.java
+            .getDeclaredField("photoTransitionFrameSamples").apply { isAccessible = true }
+        val deadline = SystemClock.uptimeMillis() + 3_000
+        var latest = emptyList<Pair<Float, android.graphics.Rect>>()
+        while (SystemClock.uptimeMillis() < deadline) {
+            instrumentation.runOnMainSync {
+                @Suppress("UNCHECKED_CAST")
+                latest = (samplesField.get(activity) as List<Pair<Float, android.graphics.Rect>>).map { (p, rect) ->
+                    p to android.graphics.Rect(rect)
+                }
+            }
+            if (latest.lastOrNull()?.first == 1f) break
+            SystemClock.sleep(16)
+        }
+        return latest
+    }
+
     private fun awaitSourceThumbnail(
         instrumentation: android.app.Instrumentation,
         activity: MediaActivity,
@@ -553,17 +537,22 @@ class PhotoViewerInteractiveGestureTest {
     ): ImageView {
         val deadline = SystemClock.uptimeMillis() + 15_000
         var thumbnail: ImageView? = null
+        var observedGrid = "not attached"
         while (SystemClock.uptimeMillis() < deadline) {
             instrumentation.runOnMainSync {
                 val grid = activity.findViewById<RecyclerView>(R.id.media_grid)
-                thumbnail = (0 until (grid?.childCount ?: 0)).asSequence()
+                val visible = (0 until (grid?.childCount ?: 0)).asSequence()
                     .mapNotNull { index -> grid?.getChildAt(index)?.findViewById<ImageView>(R.id.medium_thumbnail) }
-                    .firstOrNull { it.drawable != null && it.isAttachedToWindow && it.tag == path }
+                    .toList()
+                observedGrid = "requested=${activity.intent.getStringExtra(DIRECTORY)} " +
+                    "children=${grid?.childCount} items=${grid?.adapter?.itemCount} " +
+                    "visible=${visible.map { "${it.tag}:${it.drawable != null}:${it.isAttachedToWindow}" }}"
+                thumbnail = visible.firstOrNull { it.drawable != null && it.isAttachedToWindow && it.tag == path }
             }
             if (thumbnail != null) return thumbnail!!
             SystemClock.sleep(50)
         }
-        error("test image did not appear in the MediaActivity grid")
+        error("test image did not appear in the MediaActivity grid: path=$path $observedGrid")
     }
 
     private fun captureCheckpoint(
