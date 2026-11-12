@@ -81,7 +81,8 @@ class PhotoViewerInteractiveGestureTest {
         val context = instrumentation.targetContext
         grantMediaPermission(context)
         val album = "${Environment.DIRECTORY_PICTURES}/GalleryAlbumTransitionTest-${UUID.randomUUID()}"
-        val fixture = createFixture(context, album)
+        val fixtures = List(5) { createFixture(context, album) }
+        val fixture = fixtures.first()
         val fixtureDirectory = java.io.File(fixture.second).parent
             ?: error("fixture image has no parent directory")
         val wasLastViewAll = context.config.lastMainViewAll
@@ -131,6 +132,13 @@ class PhotoViewerInteractiveGestureTest {
                 SystemClock.sleep(16)
             }
             assertTrue("the decoded album item should map to the shared cover", mappedField.getBoolean(mediaActivity))
+            instrumentation.runOnMainSync {
+                val grid = mediaActivity.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.media_grid)
+                val visibleRows = (0 until grid.childCount).map(grid::getChildAt)
+                assertTrue("the fixture album should show multiple media rows", visibleRows.size > 1)
+                assertTrue("entering an album should keep every visible row fully opaque",
+                    visibleRows.all { it.alpha == 1f })
+            }
 
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
             val returnDeadline = SystemClock.uptimeMillis() + 5_000
@@ -148,7 +156,9 @@ class PhotoViewerInteractiveGestureTest {
         } finally {
             runCatching { media?.finish() }
             runCatching { home?.finish() }
-            runCatching { context.contentResolver.delete(fixture.first, null, null) }
+            fixtures.forEach { fixtureItem ->
+                runCatching { context.contentResolver.delete(fixtureItem.first, null, null) }
+            }
             context.config.lastMainViewAll = wasLastViewAll
         }
     }

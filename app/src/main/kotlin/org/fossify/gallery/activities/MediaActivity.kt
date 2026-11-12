@@ -994,18 +994,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         albumTransitionHandler.removeCallbacks(albumTransitionTimeout)
         if (!isFinishing && !isDestroyed) binding.mediaGrid.doOnPreDraw {
             if (isFinishing || isDestroyed) return@doOnPreDraw
-            val cover = resolveAlbumCoverView()
-            val coverHolder = cover?.let(binding.mediaGrid::findContainingViewHolder)?.itemView
-            val content = (0 until binding.mediaGrid.childCount)
-                .map(binding.mediaGrid::getChildAt)
-                .filter { it !== coverHolder }
-            content.forEach { it.alpha = 0f }
             startPostponedEnterTransition()
-            content.forEach { item ->
-                item.animate().cancel()
-                item.animate().alpha(1f).setDuration(AlbumPageTransition.FADE_DURATION_MS)
-                    .setInterpolator(OxygenClassicMotion.easing()).start()
-            }
         }
     }
 
