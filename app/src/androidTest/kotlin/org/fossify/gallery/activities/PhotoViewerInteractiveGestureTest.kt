@@ -26,15 +26,19 @@ import android.view.View
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.fossify.commons.helpers.IS_FROM_GALLERY
+import org.fossify.commons.helpers.FAVORITES
 import org.fossify.gallery.R
 import org.fossify.gallery.adapters.MediaAdapter
 import org.fossify.gallery.fragments.PhotoFragment
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.favoriteFoldersDB
+import org.fossify.gallery.extensions.favoritesDB
+import org.fossify.gallery.extensions.updateFavorite
 import org.fossify.gallery.helpers.DIRECTORY
 import org.fossify.gallery.helpers.GalleryNavigation
 import org.fossify.gallery.helpers.GallerySection
 import org.fossify.gallery.helpers.PATH
+import org.fossify.gallery.helpers.SHOW_FAVORITES
 import org.fossify.gallery.helpers.PhotoProfile
 import org.fossify.gallery.helpers.PhotoProfileMediaCache
 import org.fossify.gallery.helpers.PhotoProfileMediaLoader
@@ -216,6 +220,99 @@ class PhotoViewerInteractiveGestureTest {
             context.favoriteFoldersDB.delete(fixtureDirectory)
             runCatching { context.contentResolver.delete(fixture.first, null, null) }
             context.config.lastMainViewAll = wasLastViewAll
+        }
+    }
+
+    @Test
+    fun favoritePhotoViewerReturnsToTheLastSwipedThumbnailOnDevice() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GalleryFavoritePhotoTransitionTest-${UUID.randomUUID()}"
+        val fixtures = List(3) { createFixture(context, album) }
+        val fixturePaths = fixtures.mapTo(HashSet()) { it.second }
+        var source: MediaActivity? = null
+        var viewer: ViewPagerActivity? = null
+        try {
+            fixtures.forEach { (_, path) ->
+                assertTrue("test fixture should enter the real favorites collection",
+                    context.updateFavorite(path, true))
+            }
+            val sourceIntent = Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, FAVORITES)
+                putExtra(SHOW_FAVORITES, true)
+                putExtra(GalleryNavigation.EXTRA_SECTION, GallerySection.FAVORITES.name)
+            }
+            val sourceActivity = instrumentation.startActivitySync(sourceIntent) as MediaActivity
+            source = sourceActivity
+            val (initialPath, sourceThumbnail) = awaitAnySourceThumbnail(
+                instrumentation, sourceActivity, fixturePaths
+            )
+            val adapter = MediaActivity::class.java.getDeclaredMethod("getMediaAdapter")
+                .apply { isAccessible = true }.invoke(sourceActivity)
+            val orderedPaths = (adapter.javaClass.getMethod("getMedia").invoke(adapter) as List<*>)
+                .mapNotNull { row ->
+                    runCatching { row?.javaClass?.getMethod("getPath")?.invoke(row) as? String }.getOrNull()
+                }
+            assertEquals("favorites grid should contain only the three synthetic test photos",
+                fixturePaths, orderedPaths.toSet())
+
+            val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
+            val openViewer = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java)
+                .apply { isAccessible = true }
+            instrumentation.runOnMainSync { openViewer.invoke(sourceActivity, initialPath) }
+            viewer = instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
+                ?: error("favorite photo did not open ViewPagerActivity")
+            instrumentation.removeMonitor(monitor)
+            val viewerActivity = viewer!!
+            awaitFrame(instrumentation, viewerActivity, requireProxy = false)
+            val currentPathMethod = viewerActivity.javaClass.getDeclaredMethod("getCurrentPath")
+                .apply { isAccessible = true }
+            assertEquals("viewer should open the selected favorite", initialPath,
+                currentPathMethod.invoke(viewerActivity))
+
+            val viewerMedia = viewerActivity.javaClass.getDeclaredField("mMediaFiles")
+                .apply { isAccessible = true }.get(viewerActivity) as List<*>
+            val viewerPaths = viewerMedia.mapNotNull { medium ->
+                runCatching { medium?.javaClass?.getMethod("getPath")?.invoke(medium) as? String }.getOrNull()
+            }
+            assertEquals("favorite Viewer should retain the same synthetic photo identities",
+                fixturePaths, viewerPaths.toSet())
+            val startPosition = viewerPaths.indexOf(initialPath)
+            val direction = if (startPosition < viewerPaths.lastIndex) 1 else -1
+            val expectedReturnPath = viewerPaths[startPosition + direction]
+            val frame = awaitFrame(instrumentation, viewerActivity, requireProxy = false)
+            assertTrue("favorite viewer swipe should be injected",
+                injectHorizontalSwipe(instrumentation, frame.image, swipeRight = direction < 0))
+            val pageDeadline = SystemClock.uptimeMillis() + 3_000
+            while (currentPathMethod.invoke(viewerActivity) == initialPath &&
+                SystemClock.uptimeMillis() < pageDeadline) SystemClock.sleep(25)
+            val swipedPath = currentPathMethod.invoke(viewerActivity)
+            assertEquals("favorite swipe should select the adjacent catalog item; " +
+                "viewerPaths=$viewerPaths, start=$initialPath, actual=$swipedPath",
+                expectedReturnPath, swipedPath)
+
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            val returnDeadline = SystemClock.uptimeMillis() + 5_000
+            while (!viewerActivity.isFinishing && SystemClock.uptimeMillis() < returnDeadline) {
+                SystemClock.sleep(25)
+            }
+            assertTrue("system Back should finish the favorite viewer", viewerActivity.isFinishing)
+            val returnedThumbnail = awaitSourceThumbnail(instrumentation, sourceActivity, expectedReturnPath)
+            assertEquals("favorite return image should remain bound to the viewer's last photo",
+                expectedReturnPath, returnedThumbnail.getTag(R.id.media_bound_path))
+            assertEquals("favorite return drawable should match its current request",
+                returnedThumbnail.getTag(R.id.thumbnail_request_key),
+                returnedThumbnail.getTag(R.id.thumbnail_loaded_key))
+            assertTrue("favorites source should remain alive after shared return", !sourceActivity.isFinishing)
+        } finally {
+            runCatching { viewer?.finish() }
+            runCatching { source?.finish() }
+            fixturePaths.forEach(context.favoritesDB::deleteFavoritePath)
+            fixtures.forEach { fixture ->
+                runCatching { context.contentResolver.delete(fixture.first, null, null) }
+            }
         }
     }
 
