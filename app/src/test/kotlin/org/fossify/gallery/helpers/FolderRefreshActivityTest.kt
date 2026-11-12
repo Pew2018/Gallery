@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.Intent
 import android.os.Bundle
 import android.os.Looper
+import android.view.View
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import org.fossify.commons.extensions.getSharedPrefs
 import org.fossify.commons.helpers.FAVORITES
@@ -89,6 +90,55 @@ class FolderRefreshActivityTest {
             block(activity)
             (field(activity, "mCurrAsyncTask").get(activity) as? org.fossify.gallery.asynctasks.GetMediaAsynctask)?.stopFetching()
         } finally { controller.stop().destroy() }
+    }
+
+    @Test fun initialFolderLoadingTracksPublishedMediaRatherThanAdapterExistence() {
+        val controller = Robolectric.buildActivity(MediaActivity::class.java,
+            Intent(context, MediaActivity::class.java).putExtra(DIRECTORY, root.path)).create(Bundle())
+        try {
+            val activity = controller.get()
+            val resolver = activity.contentResolver
+            val oldAnimatorScale = android.provider.Settings.Global.getFloat(
+                resolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+            android.provider.Settings.Global.putFloat(resolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
+            try {
+                val grid = activity.findViewById<MyRecyclerView>(R.id.media_grid)
+                val adapter = MediaAdapter(activity, arrayListOf(), activity, false, false, root.path, grid) {}
+                grid.adapter = adapter
+                val setLoading = MediaActivity::class.java.getDeclaredMethod(
+                    "setMediaLoading", Boolean::class.javaPrimitiveType
+                ).apply { isAccessible = true }
+                val central = activity.findViewById<View>(R.id.loading_indicator)
+                val header = field(activity, "mediaHeaderProgress").get(activity) as View
+                assertNull("a normal folder has no root navigation section", field(activity, "mGallerySection").get(activity))
+                assertSame(adapter, grid.adapter)
+                assertFalse(activity.isFinishing)
+                OxygenProgressStyle.dispose(central as com.google.android.material.progressindicator.BaseProgressIndicator<*>)
+                OxygenProgressStyle.dispose(header as com.google.android.material.progressindicator.BaseProgressIndicator<*>)
+
+                setLoading.invoke(activity, true)
+                assertEquals("an empty adapter is still waiting for real content", View.VISIBLE, central.visibility)
+                assertEquals(View.GONE, header.visibility)
+
+                adapter.media.add(Medium().apply {
+                    path = File(root, "first.jpg").path
+                    parentPath = root.path
+                    name = "first.jpg"
+                    type = TYPE_IMAGES
+                })
+                setLoading.invoke(activity, true)
+                assertEquals("published media immediately retires the central spinner", View.GONE, central.visibility)
+                assertEquals("the background scan remains visible in the header", View.VISIBLE, header.visibility)
+
+                setLoading.invoke(activity, false)
+                assertEquals(View.GONE, central.visibility)
+                assertEquals(View.GONE, header.visibility)
+            } finally {
+                android.provider.Settings.Global.putFloat(resolver,
+                    android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, oldAnimatorScale)
+            }
+        } finally { controller.destroy() }
     }
 
     @Test fun pullRefreshAddsCopiedNoMediaImageToTheActualAdapterAndHomeCard() {
@@ -202,6 +252,8 @@ class FolderRefreshActivityTest {
                 assertTrue(blocked.await(5, TimeUnit.SECONDS))
                 await { fresh.path in paths(activity) }
                 assertTrue("preview incorrectly marked the full scan complete", field(activity, "mIsGettingMedia").getBoolean(activity))
+                assertEquals("a committed first batch must not keep the central ring visible",
+                    View.GONE, activity.findViewById<View>(R.id.loading_indicator).visibility)
                 Shadows.shadowOf(Looper.getMainLooper()).idleFor(46, TimeUnit.SECONDS)
                 assertFalse(field(activity, "mIsGettingMedia").getBoolean(activity))
                 assertFalse(activity.isFinishing)

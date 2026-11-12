@@ -671,9 +671,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         // A cached preview is not a new request and cannot restart a deadline.
         if (!loading) mediaRefreshWatchdog.stop()
         if (isDestroyed || isFinishing) return
-        // Root navigation uses the header strip. The central indicator is reserved
-        // for the initial non-root folder/picker load; never show both together.
-        val central = loading && mGallerySection == null && getMediaAdapter() == null
+        // Adapter existence does not mean the initial result contains media. Keep
+        // central feedback until a real, already-filtered Medium is published;
+        // after that, ongoing scans use the quiet header strip.
+        val hasMedia = getMediaAdapter()?.media?.any { it is Medium } == true
+        val central = loading && mGallerySection == null && !hasMedia
         if (loading && !central) OxygenProgressStyle.dispose(binding.loadingIndicator)
         else OxygenProgressStyle.setLoading(binding.loadingIndicator, central)
         mediaHeaderProgress?.apply {
