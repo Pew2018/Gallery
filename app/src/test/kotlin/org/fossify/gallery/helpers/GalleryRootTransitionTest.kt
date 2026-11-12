@@ -84,6 +84,36 @@ class GalleryRootTransitionTest {
         source.finish()
     }
 
+    @Test fun attachingRootNavigationKeepsCachedGridVisibleFromItsFirstFrame() {
+        val source = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        val intent = Intent(source, android.app.Activity::class.java)
+        GalleryBottomBar.open(source, intent, finishCurrent = true)
+        val destination = Robolectric.buildActivity(android.app.Activity::class.java,
+            Shadows.shadowOf(source).nextStartedActivity).setup().get()
+        val root = CoordinatorLayout(destination)
+        val grid = androidx.recyclerview.widget.RecyclerView(destination).apply {
+            id = R.id.directories_grid
+            alpha = 1f
+        }
+        root.addView(grid, CoordinatorLayout.LayoutParams(
+            CoordinatorLayout.LayoutParams.MATCH_PARENT, CoordinatorLayout.LayoutParams.MATCH_PARENT))
+        destination.setContentView(root)
+
+        GalleryBottomBar.attach(destination, root, GalleryBottomBar.Tab.ALL,
+            frameState = { "content" }, navigate = {})
+
+        assertEquals("cached root content stays visible immediately", 1f, grid.alpha)
+        root.viewTreeObserver.dispatchOnPreDraw()
+        root.viewTreeObserver.dispatchOnDraw()
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(250, TimeUnit.MILLISECONDS)
+        assertEquals("root attach must not schedule a second full-grid fade", 1f, grid.alpha)
+
+        GalleryBottomBar.dispose(destination)
+        GalleryBottomBar.dispose(source)
+        destination.finish()
+        source.finish()
+    }
+
     @Test fun noDrawStartupUsesBoundedFallbackAndDisposalCancelsFrameCallbacks() {
         val clock = Shadows.shadowOf(android.os.Looper.getMainLooper())
         val source = Robolectric.buildActivity(android.app.Activity::class.java).setup().get()

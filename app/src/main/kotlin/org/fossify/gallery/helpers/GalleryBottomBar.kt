@@ -493,22 +493,6 @@ object GalleryBottomBar {
             insets
         }
         bars[activity] = java.lang.ref.WeakReference(bar)
-        // Root destinations use no window/page motion. Fade only their list
-        // surface in, leaving the system bars and bottom navigation stationary.
-        if (activity.intent.getBooleanExtra(EXTRA_ROOT_TRANSITION, false)) {
-            val content: android.view.View? = parent.findViewById<android.view.View>(R.id.directories_grid)
-                ?: parent.findViewById<android.view.View>(R.id.media_grid)
-            if (content != null && OxygenClassicMotion.enabled(activity)) {
-                content.animate().cancel()
-                content.alpha = 0f
-                content.doOnPreDraw {
-                    if (!activity.isFinishing && !activity.isDestroyed) {
-                        content.animate().alpha(1f).setDuration(180L)
-                            .setInterpolator(OxygenClassicMotion.easing()).start()
-                    } else content.alpha = 1f
-                }
-            }
-        }
         if (previousSelection != null && previousSelection != active.name) bar.doOnPreDraw {
             if (bars[activity]?.get() === bar && !activity.isFinishing && !activity.isDestroyed && animationScale(bar) > 0f) {
                 val currentColors = OxygenThemeEngine.snapshot(activity, activity.config)
