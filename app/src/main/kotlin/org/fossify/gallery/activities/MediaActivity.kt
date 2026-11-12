@@ -241,8 +241,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             (adapter.media.getOrNull(position) as? Medium)?.path != path) return null
         return holder.itemView.findViewById<ImageView>(R.id.medium_thumbnail)?.takeIf { image ->
             image.isAttachedToWindow && image.width > 0 && image.height > 0 && image.drawable != null &&
-                image.getTag(R.id.thumbnail_loaded_key) != null &&
-                image.getTag(R.id.thumbnail_loaded_key) == image.getTag(R.id.thumbnail_request_key)
+                org.fossify.gallery.helpers.PhotoViewerReturnTarget.isLoadedFor(
+                    path,
+                    image.getTag(R.id.media_bound_path) as? String,
+                    image.getTag(R.id.thumbnail_request_key),
+                    image.getTag(R.id.thumbnail_loaded_key)
+                )
         }
     }
     private val albumTransitionHandler = Handler()
@@ -3421,8 +3425,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val thumbnail = holder.itemView.findViewById<ImageView>(R.id.medium_thumbnail)
             ?: run { launchViewerWithoutSharedElement(intent); return }
         if (!thumbnail.isAttachedToWindow || thumbnail.width <= 0 || thumbnail.height <= 0 ||
-            thumbnail.drawable == null || thumbnail.getTag(R.id.thumbnail_loaded_key) == null ||
-            thumbnail.getTag(R.id.thumbnail_loaded_key) != thumbnail.getTag(R.id.thumbnail_request_key)) {
+            thumbnail.drawable == null || !org.fossify.gallery.helpers.PhotoViewerReturnTarget.isLoadedFor(
+                path,
+                thumbnail.getTag(R.id.media_bound_path) as? String,
+                thumbnail.getTag(R.id.thumbnail_request_key),
+                thumbnail.getTag(R.id.thumbnail_loaded_key)
+            )) {
             launchViewerWithoutSharedElement(intent); return
         }
 
@@ -3459,8 +3467,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     if (returnHolder == null || returnHolder.bindingAdapterPosition != returnPosition ||
                         (adapter.media.getOrNull(returnPosition) as? Medium)?.path != returnPath ||
                         returnImage?.drawable == null || !returnImage.isAttachedToWindow ||
-                        returnImage.getTag(R.id.thumbnail_loaded_key) == null ||
-                        returnImage.getTag(R.id.thumbnail_loaded_key) != returnImage.getTag(R.id.thumbnail_request_key)) {
+                        returnPath == null || !org.fossify.gallery.helpers.PhotoViewerReturnTarget.isLoadedFor(
+                            returnPath,
+                            returnImage?.getTag(R.id.media_bound_path) as? String,
+                            returnImage?.getTag(R.id.thumbnail_request_key),
+                            returnImage?.getTag(R.id.thumbnail_loaded_key)
+                        )) {
                         sharedElements.remove(name)
                     } else {
                         returnImage.transitionName = name

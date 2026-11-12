@@ -275,6 +275,7 @@ class MediaAdapter(
             val tmb = itemView.allViews.firstOrNull { it.id == R.id.medium_thumbnail }
             if (tmb is ImageView) {
                 tmb.tag = null
+                tmb.setTag(R.id.media_bound_path, null)
                 tmb.setTag(R.id.thumbnail_request_key, null)
                 tmb.setTag(R.id.thumbnail_loaded_key, null)
                 Picasso.get().cancelRequest(tmb)
@@ -1145,6 +1146,7 @@ class MediaAdapter(
             }
 
             val signature = medium.getKey()
+            mediumThumbnail.setTag(R.id.media_bound_path, medium.path)
             val requestKey = listOf(path, signature, medium.type, cropThumbnails, roundedCorners, animateGifs,
                 scrollHorizontally, rotatedImagePaths.contains(path))
             if (mediumThumbnail.getTag(R.id.thumbnail_request_key) != requestKey) {

@@ -337,10 +337,23 @@ class PhotoViewerInteractiveGestureTest {
             assertEquals("twenty profile swipes should end on the last displayed media identity",
                 lastDisplayedPath, expectedReturnPath)
 
+            instrumentation.runOnMainSync {
+                val sourceGrid = sourceActivity.findViewById<RecyclerView>(R.id.media_grid)
+                val sourceAdapter = sourceGrid.adapter as MediaAdapter
+                val targetPosition = sourceAdapter.media.indexOfFirst {
+                    (it as? Medium)?.path == expectedReturnPath
+                }
+                assertTrue("the last Viewer item should still exist in the profile grid", targetPosition >= 0)
+                assertTrue("the return fixture should exercise an offscreen thumbnail",
+                    sourceGrid.findViewHolderForAdapterPosition(targetPosition) == null)
+            }
+
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
             val returned = awaitSourceThumbnail(instrumentation, sourceActivity, expectedReturnPath)
             assertEquals("profile return thumbnail must be bound to the final Viewer media path",
                 expectedReturnPath, returned.tag)
+            assertEquals("profile return thumbnail must carry the same bound media identity",
+                expectedReturnPath, returned.getTag(R.id.media_bound_path))
             assertEquals("profile return must leave the custom Photos grid alive", PhotoProfileMediaLoader.PATH,
                 MediaActivity::class.java.getDeclaredField("mPath").apply { isAccessible = true }
                     .get(sourceActivity))
@@ -485,11 +498,23 @@ class PhotoViewerInteractiveGestureTest {
                 photoFragment = viewer.supportFragmentManager.fragments.filterIsInstance<PhotoFragment>()
                     .first { it.isVisible && it.isResumed }
                 initial = awaitFrame(instrumentation, viewer, requireProxy = false)
-                assertTrue("horizontal swipe ${swipeIndex + 1} should be injected on the emulator",
-                    injectHorizontalSwipe(instrumentation, initial.image, swipeRight = direction < 0))
+                var swipeInjected = injectHorizontalSwipe(instrumentation, initial.image, swipeRight = direction < 0)
                 val pageDeadline = SystemClock.uptimeMillis() + 2_000
                 while (currentPath == (currentPathMethod.invoke(viewer) as String) &&
                     SystemClock.uptimeMillis() < pageDeadline) SystemClock.sleep(25)
+                if (!swipeInjected && currentPath == (currentPathMethod.invoke(viewer) as String)) {
+                    // The API 29 input channel can reject an injection during a brief pager handoff.
+                    // Retry only when no page change occurred; every step still has to reach its
+                    // expected adjacent media identity below.
+                    val retryFrame = awaitFrame(instrumentation, viewer, requireProxy = false)
+                    swipeInjected = injectHorizontalSwipe(
+                        instrumentation, retryFrame.image, swipeRight = direction < 0
+                    )
+                    val retryDeadline = SystemClock.uptimeMillis() + 2_000
+                    while (currentPath == (currentPathMethod.invoke(viewer) as String) &&
+                        SystemClock.uptimeMillis() < retryDeadline) SystemClock.sleep(25)
+                }
+                assertTrue("horizontal swipe ${swipeIndex + 1} should be injected on the emulator", swipeInjected)
                 currentPath = currentPathMethod.invoke(viewer) as String
                 assertEquals("swipe ${swipeIndex + 1} should select the adjacent catalog identity",
                     expectedPath, currentPath)

@@ -15,6 +15,12 @@ object PhotoViewerTransition {
     const val EXTRA_SNAPSHOT_TOKEN = "org.fossify.gallery.extra.PHOTO_SNAPSHOT_TOKEN"
 }
 
+/** A return thumbnail is usable only while its bound media identity and pixels agree. */
+internal object PhotoViewerReturnTarget {
+    fun isLoadedFor(path: String, boundPath: String?, requestKey: Any?, loadedKey: Any?): Boolean =
+        path.isNotEmpty() && boundPath == path && requestKey != null && loadedKey == requestKey
+}
+
 /** Rejects a delayed entry completion after the viewer has begun its return. */
 internal class PhotoTransitionCompletionGate {
     private var generation = 0L
