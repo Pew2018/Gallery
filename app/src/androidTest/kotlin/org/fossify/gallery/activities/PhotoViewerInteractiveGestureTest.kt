@@ -282,6 +282,16 @@ class PhotoViewerInteractiveGestureTest {
             val startPosition = viewerPaths.indexOf(initialPath)
             val direction = if (startPosition < viewerPaths.lastIndex) 1 else -1
             val expectedReturnPath = viewerPaths[startPosition + direction]
+            val pager = viewerActivity.findViewById<ProgressivePhotoViewPager>(R.id.view_pager)
+            val pagerReadyDeadline = SystemClock.uptimeMillis() + 5_000
+            while ((pager.adapter?.count ?: 0) < viewerPaths.size || pager.transitionInputLocked) {
+                if (SystemClock.uptimeMillis() >= pagerReadyDeadline) break
+                SystemClock.sleep(50)
+            }
+            assertEquals("favorite Viewer should publish its complete catalog before paging",
+                viewerPaths.size, pager.adapter?.count)
+            assertTrue("favorite Viewer entry transition should release horizontal input",
+                !pager.transitionInputLocked)
             val frame = awaitFrame(instrumentation, viewerActivity, requireProxy = false)
             assertTrue("favorite viewer swipe should be injected",
                 injectHorizontalSwipe(instrumentation, frame.image, swipeRight = direction < 0))
