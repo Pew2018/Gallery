@@ -17,7 +17,6 @@ object OxygenClassicMotion {
     // page-transition timing into media navigation.
     const val MEDIA_SHARED_ELEMENT_MS = 120L
     const val MEDIA_SCRIM_FADE_MS = 120L
-    const val ALBUM_CONTENT_ENTER_MS = 100L
     const val VIEWER_CHROME_ENTER_MS = 225L
     const val VIEWER_CHROME_EXIT_MS = 195L
     const val VIEWER_LOADING_DELAY_MS = 120L
