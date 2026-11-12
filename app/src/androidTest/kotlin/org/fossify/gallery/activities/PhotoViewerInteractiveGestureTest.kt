@@ -27,6 +27,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.fossify.commons.helpers.IS_FROM_GALLERY
 import org.fossify.gallery.R
+import org.fossify.gallery.adapters.MediaAdapter
 import org.fossify.gallery.fragments.PhotoFragment
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.favoriteFoldersDB
@@ -38,9 +39,11 @@ import org.fossify.gallery.helpers.PhotoProfile
 import org.fossify.gallery.helpers.PhotoProfileMediaCache
 import org.fossify.gallery.helpers.PhotoProfileMediaLoader
 import org.fossify.gallery.helpers.PhotoProfileRepository
+import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.PhotoSource
 import org.fossify.gallery.helpers.PhotoSourceType
 import org.fossify.gallery.models.FavoriteFolder
+import org.fossify.gallery.models.Medium
 import org.fossify.gallery.views.ProgressivePhotoViewPager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -242,7 +245,33 @@ class PhotoViewerInteractiveGestureTest {
             }
             val sourceActivity = instrumentation.startActivitySync(sourceIntent) as MediaActivity
             source = sourceActivity
-            val (initialPath, _) = awaitAnySourceThumbnail(instrumentation, sourceActivity, fixturePaths)
+            awaitAnySourceThumbnail(instrumentation, sourceActivity, fixturePaths)
+            // Start near the center of the 41-item catalog so the fixed left-swipe
+            // sequence has enough adjacent media to move through on API 29 as well.
+            val sourcePaths = arrayListOf<String>()
+            instrumentation.runOnMainSync {
+                val adapter = MediaActivity::class.java.getDeclaredMethod("getMediaAdapter")
+                    .apply { isAccessible = true }.invoke(sourceActivity)
+                val rows = adapter.javaClass.getMethod("getMedia").invoke(adapter) as List<*>
+                rows.mapNotNullTo(sourcePaths) { row ->
+                    val path = runCatching {
+                        row?.javaClass?.getMethod("getPath")?.invoke(row) as? String
+                    }.getOrNull()
+                    path?.takeIf { it in fixturePaths }
+                }
+            }
+            assertEquals("custom profile should expose every generated source photo", fixtures.size, sourcePaths.size)
+            val initialPath = sourcePaths[sourcePaths.size / 2]
+            instrumentation.runOnMainSync {
+                val grid = sourceActivity.findViewById<RecyclerView>(R.id.media_grid)
+                val adapter = grid.adapter
+                val position = (adapter as? MediaAdapter)?.media?.indexOfFirst {
+                    (it as? Medium)?.path == initialPath
+                } ?: -1
+                assertTrue("middle source thumbnail should remain in the current custom profile", position >= 0)
+                grid.scrollToPosition(position)
+            }
+            awaitSourceThumbnail(instrumentation, sourceActivity, initialPath)
             val openViewer = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java)
                 .apply { isAccessible = true }
             val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
@@ -251,6 +280,8 @@ class PhotoViewerInteractiveGestureTest {
                 ?: error("custom photo profile did not open the Viewer")
             instrumentation.removeMonitor(monitor)
             viewer = photoViewer
+            assertEquals("a decoded visible source thumbnail should start the shared photo transition",
+                initialPath, photoViewer.intent.getStringExtra(PhotoViewerTransition.EXTRA_PATH))
             awaitFrame(instrumentation, photoViewer, requireProxy = false)
             instrumentation.runOnMainSync {
                 photoViewer.supportFragmentManager.fragments.filterIsInstance<PhotoFragment>()
@@ -280,11 +311,20 @@ class PhotoViewerInteractiveGestureTest {
             val visitedPaths = hashSetOf(initialPath)
             repeat(20) { swipeIndex ->
                 val frame = awaitFrame(instrumentation, photoViewer, requireProxy = false)
-                assertTrue("profile swipe ${swipeIndex + 1} should inject touchscreen input",
-                    injectHorizontalSwipe(instrumentation, frame.image, swipeRight = false))
-                val deadline = SystemClock.uptimeMillis() + 2_000
-                while (currentPath.invoke(photoViewer) == lastDisplayedPath && SystemClock.uptimeMillis() < deadline) {
-                    SystemClock.sleep(25)
+                var injectionAccepted = injectHorizontalSwipe(instrumentation, frame.image, swipeRight = false)
+                fun waitForPageChange() {
+                    val deadline = SystemClock.uptimeMillis() + 2_000
+                    while (currentPath.invoke(photoViewer) == lastDisplayedPath && SystemClock.uptimeMillis() < deadline) {
+                        SystemClock.sleep(25)
+                    }
+                }
+                waitForPageChange()
+                if (currentPath.invoke(photoViewer) == lastDisplayedPath && !injectionAccepted) {
+                    // UIAutomation can reject an event during a transient input-channel
+                    // handoff on API 29. Retry only when the Viewer did not advance.
+                    val retryFrame = awaitFrame(instrumentation, photoViewer, requireProxy = false)
+                    injectionAccepted = injectHorizontalSwipe(instrumentation, retryFrame.image, swipeRight = false)
+                    waitForPageChange()
                 }
                 lastDisplayedPath = currentPath.invoke(photoViewer) as? String
                     ?: error("custom profile swipe ${swipeIndex + 1} lost its current media identity")
@@ -805,7 +845,11 @@ class PhotoViewerInteractiveGestureTest {
                 observedGrid = "requested=${activity.intent.getStringExtra(DIRECTORY)} " +
                     "children=${grid?.childCount} items=${grid?.adapter?.itemCount} " +
                     "visible=${visible.map { "${it.tag}:${it.drawable != null}:${it.isAttachedToWindow}" }}"
-                thumbnail = visible.firstOrNull { it.drawable != null && it.isAttachedToWindow && it.tag == path }
+                thumbnail = visible.firstOrNull {
+                    it.drawable != null && it.isAttachedToWindow && it.tag == path &&
+                        it.getTag(R.id.thumbnail_loaded_key) != null &&
+                        it.getTag(R.id.thumbnail_loaded_key) == it.getTag(R.id.thumbnail_request_key)
+                }
             }
             if (thumbnail != null) return thumbnail!!
             SystemClock.sleep(50)
@@ -868,10 +912,14 @@ class PhotoViewerInteractiveGestureTest {
                 val holder = if (position >= 0) grid?.findViewHolderForAdapterPosition(position) else null
                 val item = holder?.itemView
                 val image = item?.findViewById<ImageView>(R.id.dir_thumbnail)
+                val requestKey = image?.getTag(R.id.thumbnail_request_key)
+                val loadedKey = image?.getTag(R.id.thumbnail_loaded_key)
                 observed = "items=${adapter?.itemCount} position=$position " +
                     "children=${grid?.childCount} cover=${image?.drawable != null} " +
+                    "loaded=${loadedKey != null && loadedKey == requestKey} " +
                     "bound=${image?.getTag(R.id.directory_bound_path)} target=$path"
                 if (item != null && image?.isAttachedToWindow == true && image.drawable != null &&
+                    requestKey != null && loadedKey == requestKey &&
                     runCatching {
                         java.io.File(image.getTag(R.id.directory_bound_path) as String).canonicalPath ==
                             java.io.File(path).canonicalPath
