@@ -11,6 +11,8 @@ Date: 2026-11-13 (Hong Kong time)
 - ARM64 FOSS Release build passed from the committed source in `/private/tmp/Gallery-final-validation`.
 - Build outputs identify `org.fossify.gallery`, version `1.14.1` / code `32`, compile SDK 36, and `arm64-v8a` native libraries only.
 - The Gradle APK is unsigned because no release signing config is available. A separate locally signed copy was produced with a temporary self-signed certificate and verified with APK Signature Scheme v2 and v3. This copy can be installed as a fresh app, but cannot update an existing Gallery installed under a different signing certificate. Do not uninstall or clear an existing Gallery without backing up its data first.
+- Local unsigned APK SHA-256: `0c9c58b1789d82862b6b1c0ddbab4e05db23f52e4190850c8f56abfb4fe69dd5`. Locally signed installable copy SHA-256: `9286449eae168deab8e8181ff01b2d01dae6244f0b5c4e4b000b43e82831e9e1`.
+- GitHub Actions run for final branch SHA `8ee0b9248e0334c8a5df8b1342b93d591589902f` completed successfully: [Arm64 FOSS Release APK](https://github.com/Pew2018/Gallery/actions/runs/43271937405). Its signature/ABI/package validation and artifact upload passed. Artifact `gallery-foss-arm64-v8a-release` (ID `13969650666`) is available from the run page.
 - APK source is the code-bearing SHA above; this final-validation report commit changes only documentation. The temporary signing keystore and its password remain under `/private/tmp`, not in the repository.
 
 ## Regression coverage and limits
