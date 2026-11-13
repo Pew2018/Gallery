@@ -131,6 +131,7 @@ class PhotoFragment : ViewPagerFragment() {
     private var mCurrentGestureViewZoom = 1f
     private var mInitialZoom = 1f
     private var mSubsamplingImageReady = false
+    private var mSubsamplingImageLoading = false
     private var mHasInitialZoom = false
     private var mReportedImagePath: String? = null
     private var detailsGeneration = 0L
@@ -456,6 +457,10 @@ class PhotoFragment : ViewPagerFragment() {
         if (mWasInit) {
             if (config.allowZoomingImages != mStoredAllowDeepZoomableImages || config.showHighestQuality != mStoredShowHighestQuality) {
                 mIsSubsamplingVisible = false
+                mSubsamplingImageLoading = false
+                mSubsamplingImageReady = false
+                binding.subsamplingView.animate().cancel()
+                binding.subsamplingView.recycle()
                 binding.subsamplingView.beGone()
                 loadImage()
             } else if (mMedium.isGIF()) {
@@ -573,7 +578,7 @@ class PhotoFragment : ViewPagerFragment() {
     private fun photoFragmentVisibilityChanged(isVisible: Boolean) {
         if (isVisible) {
             applyProperColorMode(binding.gesturesView.drawable)
-            scheduleZoomableView()
+            if (mSubsamplingImageReady) revealReadySubsamplingImage() else scheduleZoomableView()
         } else {
             hideZoomableView()
             ColorModeHelper.resetColorMode(activity)
@@ -586,6 +591,11 @@ class PhotoFragment : ViewPagerFragment() {
         ORIENTATION_ROTATE_90, ORIENTATION_TRANSVERSE -> 90
         else -> 0
     }
+
+    private fun gestureImageIsAtFit(): Boolean =
+        org.fossify.gallery.helpers.SubsamplingHandoffPolicy.isAtFit(
+            mCurrentGestureViewZoom, mInitialZoom, mHasInitialZoom, MAX_ZOOM_EQUALITY_TOLERANCE.toFloat()
+        )
 
     private fun rotateViaMatrix(original: Bitmap, orientation: Int): Bitmap {
         val degrees = degreesForRotation(orientation).toFloat()
@@ -805,6 +815,11 @@ class PhotoFragment : ViewPagerFragment() {
                 }
 
                 mCurrentGestureViewZoom = state.zoom
+                if (mSubsamplingImageReady) {
+                    revealReadySubsamplingImage()
+                } else if (!mSubsamplingImageLoading && !mIsSubsamplingVisible && mIsFragmentVisible) {
+                    scheduleZoomableView()
+                }
             }
         })
     }
@@ -924,16 +939,20 @@ class PhotoFragment : ViewPagerFragment() {
         if ((activity as? org.fossify.gallery.activities.ViewPagerActivity)?.isMediaTransitionRunning() == true) return
         mLoadZoomableViewHandler.removeCallbacksAndMessages(null)
         mLoadZoomableViewHandler.postDelayed({
-            if (mIsFragmentVisible && context?.config?.allowZoomingImages == true && (mMedium.isImage() || mMedium.isPortrait()) && !mIsSubsamplingVisible) {
-                addZoomableView()
+            if (mIsFragmentVisible && context?.config?.allowZoomingImages == true &&
+                (mMedium.isImage() || mMedium.isPortrait()) && !mIsSubsamplingVisible) {
+                if (mSubsamplingImageReady) revealReadySubsamplingImage()
+                else if (!mSubsamplingImageLoading && gestureImageIsAtFit()) addZoomableView()
             }
         }, ZOOMABLE_VIEW_LOAD_DELAY)
     }
 
     private fun addZoomableView() {
-        if ((activity as? org.fossify.gallery.activities.ViewPagerActivity)?.isMediaTransitionRunning() == true) return
+        if ((activity as? org.fossify.gallery.activities.ViewPagerActivity)?.isMediaTransitionRunning() == true ||
+            mSubsamplingImageLoading || mIsSubsamplingVisible || !gestureImageIsAtFit()) return
         val rotation = degreesForRotation(mImageOrientation)
-        mIsSubsamplingVisible = true
+        mSubsamplingImageLoading = true
+        mSubsamplingImageReady = false
         val config = requireContext().config
         val showHighestQuality = config.showHighestQuality
         val minTileDpi = if (showHighestQuality) -1 else getMinTileDpi()
@@ -958,7 +977,10 @@ class PhotoFragment : ViewPagerFragment() {
             bitmapDecoderFactory = bitmapDecoder
             regionDecoderFactory = regionDecoder
             maxScale = 10f
-            beVisible()
+            // Decode offscreen while Glide remains the interactive renderer.
+            // This prevents a first-frame zoom reset and avoids intercepting a
+            // user's gesture before the matching high-resolution image is ready.
+            visibility = View.INVISIBLE
             rotationEnabled = config.allowRotatingWithGestures
             isOneToOneZoomEnabled = config.allowOneToOneZoom
             orientation = newOrientation
@@ -974,6 +996,7 @@ class PhotoFragment : ViewPagerFragment() {
                     val useWidth = if (mImageOrientation == ORIENTATION_ROTATE_90 || mImageOrientation == ORIENTATION_ROTATE_270) sHeight else sWidth
                     val useHeight = if (mImageOrientation == ORIENTATION_ROTATE_90 || mImageOrientation == ORIENTATION_ROTATE_270) sWidth else sHeight
                     doubleTapZoomScale = getDoubleTapZoomScale(useWidth, useHeight)
+                    mSubsamplingImageLoading = false
                     mSubsamplingImageReady = true
                     revealReadySubsamplingImage()
                 }
@@ -984,6 +1007,7 @@ class PhotoFragment : ViewPagerFragment() {
                     animate().cancel()
                     alpha = 0f
                     mIsSubsamplingVisible = false
+                    mSubsamplingImageLoading = false
                     mSubsamplingImageReady = false
                     beGone()
                 }
@@ -1013,9 +1037,12 @@ class PhotoFragment : ViewPagerFragment() {
     }
 
     private fun revealReadySubsamplingImage() {
-        if (!mSubsamplingImageReady || !mIsSubsamplingVisible || !mIsFragmentVisible ||
+        if (!mSubsamplingImageReady || mSubsamplingImageLoading || mIsSubsamplingVisible ||
+            !gestureImageIsAtFit() || !mIsFragmentVisible ||
             (activity as? ViewPagerActivity)?.isMediaTransitionRunning() == true ||
-            !this::binding.isInitialized || binding.subsamplingView.visibility != View.VISIBLE) return
+            !this::binding.isInitialized || binding.subsamplingView.visibility == View.GONE) return
+        mIsSubsamplingVisible = true
+        binding.subsamplingView.visibility = View.VISIBLE
         binding.subsamplingView.animate().cancel()
         binding.subsamplingView.alpha = 0f
         binding.subsamplingView.animate().alpha(1f).setDuration(90L).start()
@@ -1113,6 +1140,7 @@ class PhotoFragment : ViewPagerFragment() {
         if (mIsSubsamplingVisible) {
             binding.subsamplingView.rotateBy(degrees)
         } else {
+            hideZoomableView()
             mCurrentRotationDegrees = (mCurrentRotationDegrees + degrees) % 360
             mLoadZoomableViewHandler.removeCallbacksAndMessages(null)
             mIsSubsamplingVisible = false
@@ -1145,6 +1173,10 @@ class PhotoFragment : ViewPagerFragment() {
     private fun hideZoomableView() {
         if (context?.config?.allowZoomingImages == true) {
             mIsSubsamplingVisible = false
+            mSubsamplingImageLoading = false
+            mSubsamplingImageReady = false
+            binding.subsamplingView.animate().cancel()
+            binding.subsamplingView.alpha = 1f
             binding.subsamplingView.recycle()
             binding.subsamplingView.beGone()
             mLoadZoomableViewHandler.removeCallbacksAndMessages(null)
