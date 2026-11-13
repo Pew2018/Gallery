@@ -19,6 +19,28 @@ object PhotoViewerTransition {
 internal object PhotoViewerReturnTarget {
     fun isLoadedFor(path: String, boundPath: String?, requestKey: Any?, loadedKey: Any?): Boolean =
         path.isNotEmpty() && boundPath == path && requestKey != null && loadedKey == requestKey
+
+    /**
+     * A loaded holder can still be a poor shared-element target when RecyclerView clips
+     * all but a few pixels of it. Require a meaningful visible intersection before the
+     * return transition is mapped; callers can first scroll the stable media identity
+     * into view and retry.
+     */
+    fun hasUsableVisibleArea(
+        imageWidth: Int,
+        imageHeight: Int,
+        visibleWidth: Int,
+        visibleHeight: Int,
+    ): Boolean {
+        if (imageWidth <= 0 || imageHeight <= 0 || visibleWidth <= 0 || visibleHeight <= 0) return false
+        val imageArea = imageWidth.toLong() * imageHeight
+        val visibleArea = visibleWidth.toLong() * visibleHeight
+        return visibleArea * MIN_VISIBLE_AREA_FRACTION_DENOMINATOR >=
+            imageArea * MIN_VISIBLE_AREA_FRACTION_NUMERATOR
+    }
+
+    private const val MIN_VISIBLE_AREA_FRACTION_NUMERATOR = 1L
+    private const val MIN_VISIBLE_AREA_FRACTION_DENOMINATOR = 3L
 }
 
 /** Rejects a delayed entry completion after the viewer has begun its return. */

@@ -235,7 +235,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var interactivePhotoGeneration = 0L
     private var photoTransitionProgressFrameCount = 0
     private var photoTransitionProgress = 0f
+    private val photoTransitionProgressSamples = ArrayList<Float>(32)
+    private val photoTransitionProgressTimes = ArrayList<Long>(32)
     private val photoTransitionFrameSamples = ArrayList<Pair<Float, android.graphics.Rect>>(32)
+    private var photoTransitionMappedView: View? = null
     fun isMediaTransitionRunning() = mediaTransitionRunning || pendingPhotoSharedElement || interactivePhotoDragActive
 
     fun shouldKeepPhotoCanvasTransparent() = pendingPhotoSharedElement || photoSharedElementSnapshotView != null
@@ -278,15 +281,37 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         photoTransitionProgress = progress.coerceIn(0f, 1f)
         binding.viewerTransitionScrim.alpha = photoTransitionProgress
         if (BuildConfig.DEBUG) {
-            val path = photoSharedElementPath
-            val bounds = path?.let(::getCurrentSharedElementView)?.let { view ->
-                android.graphics.Rect().takeIf { view.getGlobalVisibleRect(it) }
-            }
+            if (photoTransitionProgressSamples.size == 64) photoTransitionProgressSamples.removeAt(0)
+            photoTransitionProgressSamples += photoTransitionProgress
+            if (photoTransitionProgressTimes.size == 64) photoTransitionProgressTimes.removeAt(0)
+            photoTransitionProgressTimes += android.os.SystemClock.uptimeMillis()
+            // Keep diagnostics tied to the exact mapped surface instead of
+            // re-resolving it by path while the fragment renderer is binding.
+            val sharedSurface = photoTransitionMappedView ?: photoSharedElementSnapshotView
+            val bounds = sharedSurface?.let(::mappedTransitionSurfaceBounds)
             if (bounds != null) {
                 if (photoTransitionFrameSamples.size == 64) photoTransitionFrameSamples.removeAt(0)
                 photoTransitionFrameSamples += photoTransitionProgress to bounds
             }
         }
+    }
+
+    private fun mappedTransitionSurfaceBounds(view: View): android.graphics.Rect? {
+        if (view.width <= 0 || view.height <= 0 || !view.isAttachedToWindow) return null
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
+            return android.graphics.Rect().takeIf { view.getGlobalVisibleRect(it) }
+        }
+        val transformed = android.graphics.RectF(0f, 0f, view.width.toFloat(), view.height.toFloat())
+        val matrix = android.graphics.Matrix()
+        view.transformMatrixToGlobal(matrix)
+        matrix.mapRect(transformed)
+        if (transformed.isEmpty) return null
+        return android.graphics.Rect(
+            kotlin.math.floor(transformed.left).toInt(),
+            kotlin.math.floor(transformed.top).toInt(),
+            kotlin.math.ceil(transformed.right).toInt(),
+            kotlin.math.ceil(transformed.bottom).toInt(),
+        )
     }
 
     private fun setSharedTransitionCanvasTransparent() {
@@ -459,6 +484,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             snapshot.setImageDrawable(null)
         }
         photoSharedElementSnapshotView = null
+        photoTransitionMappedView = null
         photoSharedElementSnapshot = null
     }
 
@@ -504,8 +530,20 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun completeMediaTransition() {
+        if (!mediaTransitionRunning) return
         mediaTransitionRunning = false
-        binding.viewPager.transitionInputLocked = false
+        val pendingPublication = transitionPendingSwipePublication
+        transitionPendingSwipePublication = null
+        if (isFavoriteRequest) org.fossify.gallery.helpers.GalleryPerfTrace.event(
+            "viewer_favorite_transition_publication_ready",
+            pendingPublication?.media?.size ?: transitionPendingAdjacentMedia?.size ?: 0
+        )
+        val hasDeferredContent = pendingPublication != null ||
+            transitionPendingAdjacentMedia != null ||
+            (initialViewerPublicationPending && mMediaFiles.isNotEmpty())
+        initialViewerPublicationPending = false
+        initialViewerPublicationAwaitingAdapter = hasDeferredContent && activePagerAdapter == null
+        binding.viewPager.transitionInputLocked = initialViewerPublicationAwaitingAdapter
         if (!finishAfterSharedTransitionInProgress) {
             restoreBlackViewerCanvas()
             if (photoSharedElementTargetRendered) clearPhotoSharedElementSnapshot()
@@ -518,6 +556,26 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             when (it) {
                 is org.fossify.gallery.fragments.PhotoFragment -> it.finishSharedTransition()
                 is org.fossify.gallery.fragments.VideoFragment -> it.finishSharedTransition()
+            }
+        }
+        // Transition end listeners run during the final shared-element frame.
+        // Pager publication can synchronously create fragments and bind their
+        // images, so queue that work after this frame has been drawn.
+        if (pendingPublication != null || transitionPendingAdjacentMedia != null ||
+            (initialViewerPublicationAwaitingAdapter && mMediaFiles.isNotEmpty())) {
+            binding.root.postOnAnimation {
+                if (isFinishing || isDestroyed) return@postOnAnimation
+                when {
+                    pendingPublication != null -> {
+                        transitionPendingAdjacentMedia = null
+                        applySwipeMediaPublication(pendingPublication)
+                    }
+                    transitionPendingAdjacentMedia != null -> publishPendingAdjacentAfterTransition()
+                    initialViewerPublicationAwaitingAdapter && mMediaFiles.isNotEmpty() -> {
+                        gotMedia(mMediaFiles as ArrayList<ThumbnailItem>, refetchViewPagerPosition = true)
+                        checkSlideshowOnEnter()
+                    }
+                }
             }
         }
     }
@@ -624,6 +682,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var stagedInternalViewer = false
     private var mIsSlideshowActive = false
     private var activePagerAdapter: MyPagerAdapter? = null
+    private var initialViewerPublicationPending = false
+    private var initialViewerPublicationAwaitingAdapter = false
     private data class PendingPagerPublication(
         val media: List<Medium>,
         val positions: Map<org.fossify.gallery.helpers.ViewerMediumIdentity, Int>?,
@@ -633,6 +693,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val scope: String
     )
     private var pendingPagerPublication: PendingPagerPublication? = null
+    private var transitionPendingAdjacentMedia: ArrayList<Medium>? = null
 
     /** A catalog upgrade may finish on any animation frame; never rebuild pages mid-swipe. */
     private data class SwipeMediaPublication(
@@ -648,6 +709,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     )
     private val swipePublicationGate =
         org.fossify.gallery.helpers.ViewerSwipePublicationGate<SwipeMediaPublication>()
+    private var transitionPendingSwipePublication: SwipeMediaPublication? = null
+    private data class PendingFullCatalogRequest(
+        val generation: Long,
+        val folderRevision: Long,
+        val photoRevision: Long
+    )
+    private var pendingFullCatalogRequest: PendingFullCatalogRequest? = null
+    private var publishedFavoriteFullCatalogRevision: Pair<Long, Long>? = null
     private var swipePageOrigin = -1
     private var swipePrefetchTarget = -1
     private var pendingPageAccessRefresh = false
@@ -898,6 +967,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                             if (view === photoSharedElementSnapshotView) View.VISIBLE else View.GONE
                         view.transitionName = name
                         sharedElements[name] = view
+                        photoTransitionMappedView = view
                         photoSharedElementMapped = true
                     }
                 }
@@ -926,6 +996,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             binding.viewerTransitionScrim.visibility = View.VISIBLE
             binding.viewerTransitionScrim.alpha = 0f
             installPhotoSharedElementSnapshot()
+            // The source snapshot already contains the selected image's decoded
+            // pixels. Start the shared transition as soon as that bounded proxy
+            // has real screen bounds; waiting for the destination fragment's
+            // full image decode needlessly leaves the source Activity on screen.
+            binding.root.doOnPreDraw {
+                val snapshot = photoSharedElementSnapshotView
+                if (pendingPhotoSharedElement && snapshot?.drawable != null &&
+                    snapshot.width > 0 && snapshot.height > 0) {
+                    releasePhotoSharedElement()
+                }
+            }
         }
         else {
             binding.root.setBackgroundColor(Color.BLACK)
@@ -1164,7 +1245,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_transition_return", if (canReturn) 1 else 0)
         photoSharedElementPath = returnPath.takeIf { canReturn }
         setResult(RESULT_OK, Intent().putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH,
-            returnPath.takeIf { canReturn }))
+            returnPath.takeIf { it.isNotEmpty() }))
         if (canReturn) {
             // Preserve the content-only proxy until Android finishes the
             // reverse shared-element transition. Entry's canvas fade can
@@ -1876,8 +1957,24 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun publishAdjacent(media: List<Medium>) {
         if (media.size < 2 || media.none { it.path == mPath } || isFinishing || isDestroyed) return
         if (isPhotoProfile && (photoCatalogMode || mMediaFiles.size > media.size)) return
+        if (mediaTransitionRunning) {
+            // Keep the opening frame light: the selected page is already ready,
+            // and swiping stays locked until the shared image reaches fullscreen.
+            // Install its validated neighbor window immediately after that motion.
+            transitionPendingAdjacentMedia = ArrayList(media)
+            return
+        }
         gotMedia(ArrayList<ThumbnailItem>(media), refetchViewPagerPosition = true, fullCatalog = false)
         logPagerReady("viewer_adjacent_pager_ready", adjacentReadyStarted, media.size, mPath, requireMultiplePages = true)
+    }
+
+    private fun publishPendingAdjacentAfterTransition() {
+        val pending = transitionPendingAdjacentMedia ?: return
+        transitionPendingAdjacentMedia = null
+        if (isFavoriteRequest) org.fossify.gallery.helpers.GalleryPerfTrace.event(
+            "viewer_favorite_adjacent_after_transition", pending.size
+        )
+        if (!isFinishing && !isDestroyed && !appliedViewerCatalogComplete) publishAdjacent(pending)
     }
 
     private var adjacentReadyStarted = 0L
@@ -2660,8 +2757,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             // owns initialization; a late singleton callback must not cancel it.
             if (!isDestroyed && initialPublication == mediaPublicationGeneration && activePagerAdapter == null) {
                 if (mMediaFiles.isNotEmpty()) {
-                    gotMedia(mMediaFiles as ArrayList<ThumbnailItem>, refetchViewPagerPosition = true)
-                    checkSlideshowOnEnter()
+                    if (mediaTransitionRunning) {
+                        initialViewerPublicationPending = true
+                    } else {
+                        gotMedia(mMediaFiles as ArrayList<ThumbnailItem>, refetchViewPagerPosition = true)
+                        checkSlideshowOnEnter()
+                    }
                 }
             }
         }
@@ -4301,7 +4402,38 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         fullCatalog: Boolean = false
     ) {
         if (!checkFavoriteAccess()) return
+        val currentFolderRevision = FolderContentRevision.current()
+        val currentPhotoRevision = org.fossify.gallery.helpers.PhotoContentRevision.current()
+        val pendingFullRequest = pendingFullCatalogRequest ?: transitionPendingSwipePublication
+            ?.takeIf { it.fullCatalog }
+            ?.let { PendingFullCatalogRequest(it.generation, it.folderRevision, it.photoRevision) }
+        if (isFavoriteRequest && !fullCatalog &&
+            publishedFavoriteFullCatalogRevision == (currentFolderRevision to currentPhotoRevision)) {
+            if (BuildConfig.DEBUG) org.fossify.gallery.helpers.GalleryPerfTrace.event(
+                "viewer_favorite_partial_catalog_ignored_after_complete",
+                thumbnailItems.size
+            )
+            return
+        }
+        if (!fullCatalog && pendingFullRequest != null &&
+            pendingFullRequest.generation == mediaPublicationGeneration &&
+            pendingFullRequest.folderRevision == currentFolderRevision &&
+            pendingFullRequest.photoRevision == currentPhotoRevision) {
+            // A delayed first-frame/adjacent-page snapshot can arrive after the
+            // complete catalog was requested. It carries less information and
+            // must not cancel or invalidate that richer publication.
+            if (isFavoriteRequest) org.fossify.gallery.helpers.GalleryPerfTrace.event(
+                "viewer_favorite_partial_catalog_ignored",
+                thumbnailItems.size
+            )
+            return
+        }
+        if (fullCatalog) pendingFullCatalogRequest = null
+        else if (pendingFullRequest != null) pendingFullCatalogRequest = null
         val request = ++mediaPublicationGeneration
+        if (fullCatalog) pendingFullCatalogRequest = PendingFullCatalogRequest(
+            request, currentFolderRevision, currentPhotoRevision
+        )
         mediaPublicationTask?.cancel(true)
         mediaPublicationExecutor.queue.clear()
         val source = thumbnailItems.toList()
@@ -4327,22 +4459,37 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             val positionIndex = org.fossify.gallery.helpers.ViewerMediaUpdatePolicy.positionIndex(media)
             val pathIndex = org.fossify.gallery.helpers.ViewerMediaUpdatePolicy.pathIndex(media)
             val authorizedPaths = media.mapTo(HashSet(media.size)) { it.path }
+            if (favoriteRequest) org.fossify.gallery.helpers.GalleryPerfTrace.event(
+                "viewer_favorite_catalog_prepared", media.size
+            )
             val revisionsUnchanged = priorFolderRevision == FolderContentRevision.current() &&
                 priorPhotoRevision == org.fossify.gallery.helpers.PhotoContentRevision.current()
             val unchanged = revisionsUnchanged && org.fossify.gallery.helpers.ViewerMediaUpdatePolicy.sameCatalog(previous, media)
             runOnUiThread {
-                if (request != mediaPublicationGeneration || isFinishing || isDestroyed || !checkFavoriteAccess()) return@runOnUiThread
+                if (request != mediaPublicationGeneration || isFinishing || isDestroyed || !checkFavoriteAccess()) {
+                    if (pendingFullCatalogRequest?.generation == request) pendingFullCatalogRequest = null
+                    return@runOnUiThread
+                }
                 if (sourceFolderRevision != FolderContentRevision.current() ||
                     sourcePhotoRevision != org.fossify.gallery.helpers.PhotoContentRevision.current()) {
+                    if (pendingFullCatalogRequest?.generation == request) pendingFullCatalogRequest = null
                     if (isPhotoProfile) consumePhotoCatalogAdvance() else refreshViewPager(true)
                     return@runOnUiThread
                 }
-                if (isDirEmpty(media, fullCatalog)) return@runOnUiThread
+                if (isDirEmpty(media, fullCatalog)) {
+                    if (pendingFullCatalogRequest?.generation == request) pendingFullCatalogRequest = null
+                    return@runOnUiThread
+                }
                 if (unchanged) {
+                    if (pendingFullCatalogRequest?.generation == request) pendingFullCatalogRequest = null
                     if (progressiveInternalViewer && fullCatalog) {
                         appliedViewerCatalogComplete = true
                         folderCompletePreparing = false
                         photoNavigation.publish(true)
+                    }
+                    if (favoriteRequest && fullCatalog) {
+                        publishedFavoriteFullCatalogRevision =
+                            sourceFolderRevision to sourcePhotoRevision
                     }
                     if (progressiveInternalViewer && pendingPagerPublication == null) updatePhotoBoundaryWait()
                     if (pendingPagerPublication != null) {
@@ -4376,13 +4523,27 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     /** Only apply an authorized, current result at an animation-safe point. */
     private fun applySwipeMediaPublication(publication: SwipeMediaPublication) {
+        if (isFavoriteRequest) org.fossify.gallery.helpers.GalleryPerfTrace.event(
+            "viewer_favorite_catalog_apply", publication.media.size
+        )
         if (publication.generation != mediaPublicationGeneration || isFinishing || isDestroyed ||
-            !checkFavoriteAccess()) return
+            !checkFavoriteAccess()) {
+            if (pendingFullCatalogRequest?.generation == publication.generation) pendingFullCatalogRequest = null
+            return
+        }
         if (publication.folderRevision != FolderContentRevision.current() ||
             publication.photoRevision != org.fossify.gallery.helpers.PhotoContentRevision.current()) {
             // Never apply a stale ordering/authorization snapshot after mutations.
+            if (pendingFullCatalogRequest?.generation == publication.generation) pendingFullCatalogRequest = null
             if (isPhotoProfile) consumePhotoCatalogAdvance()
             else refreshViewPager(true)
+            return
+        }
+        if (mediaTransitionRunning && activePagerAdapter == null) {
+            // The source snapshot is already a complete first frame. Defer
+            // fragment creation/binding until it reaches fullscreen so image
+            // decoding and pager setup cannot stall the shared motion.
+            transitionPendingSwipePublication = publication
             return
         }
         val livePath = getCurrentPath().ifEmpty { mPath }
@@ -4398,6 +4559,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             finish(); return
         }
         val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+        if (pendingFullCatalogRequest?.generation == publication.generation) pendingFullCatalogRequest = null
+        if (publication.fullCatalog) transitionPendingAdjacentMedia = null
+        if (isFavoriteRequest && publication.fullCatalog) {
+            publishedFavoriteFullCatalogRevision = publication.folderRevision to publication.photoRevision
+        }
         if (progressiveInternalViewer) {
             appliedViewerCatalogComplete = publication.fullCatalog
             if (publication.fullCatalog) folderCompletePreparing = false
@@ -4407,6 +4573,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             publication.media, publication.refetchPosition, publication.positionIndex,
             publication.pathIndex, publication.authorizedPaths, preferredPath = retainedPath
         )
+        if (initialViewerPublicationAwaitingAdapter && (activePagerAdapter?.count ?: 0) > 0) {
+            initialViewerPublicationAwaitingAdapter = false
+            binding.viewPager.transitionInputLocked = false
+        }
         if (publication.fullCatalog && photoCatalogMode && pendingPagerPublication == null) {
             validatePhotoPageWindow(mPos)
         }

@@ -230,6 +230,7 @@ internal class GetMediaAsynctask(
                 }
                 if (!allowed(java.io.File(mPath, "access-probe").path)) throw SecurityException("Folder authorization required")
                 val folderKey = MediaStoreFolderKey.of(mPath)
+                val indexedFolderMedia = indexedFolder?.get(folderKey).orEmpty()
                 val folderCache = cachedMediaFallback.filter { item ->
                     val parent = java.io.File(item.path).parent.orEmpty()
                     MediaStoreFolderKey.of(parent) == folderKey ||
@@ -239,12 +240,14 @@ internal class GetMediaAsynctask(
                 val folderProbe = java.io.File(mPath, "access-probe").path
                 fun publishFolderPreview(progress: FolderMediaReadResult) {
                     if (isCancelled || onFolderPreview == null || folderCache.isNotEmpty()) return
-                    val merged = progress.presentation(emptyList(), ::folderAllowed)
+                    val retained = if (progress.method == "mediastore_index_preview") progress
+                        else FolderMediaProgressPreview.retainIndexedSnapshot(progress, indexedFolderMedia)
+                    val merged = retained.presentation(emptyList(), ::folderAllowed)
                     if (merged.isEmpty()) return
                     mediaFetcher.sortMedia(merged, folderSorting)
                     val grouped = mediaFetcher.groupMedia(merged, pathToUse)
                     delivery.post {
-                        if (!isCancelled && progress.accessCurrent()) onFolderPreview?.invoke(progress, grouped)
+                        if (!isCancelled && retained.accessCurrent()) onFolderPreview?.invoke(retained, grouped)
                     }
                 }
                 mediaFetcher.onFolderProgress = ::publishFolderPreview

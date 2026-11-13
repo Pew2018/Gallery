@@ -129,7 +129,7 @@ class FolderRefreshActivityTest {
                 })
                 setLoading.invoke(activity, true)
                 assertEquals("published media immediately retires the central spinner", View.GONE, central.visibility)
-                assertEquals("the background scan remains visible in the header", View.VISIBLE, header.visibility)
+                assertEquals("background discovery stays quiet after media is visible", View.GONE, header.visibility)
 
                 setLoading.invoke(activity, false)
                 assertEquals(View.GONE, central.visibility)

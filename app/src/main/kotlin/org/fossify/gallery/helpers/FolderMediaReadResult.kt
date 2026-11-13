@@ -44,6 +44,22 @@ internal object FolderMediaProgressPreview {
             accessCurrent = accessCurrent,
         )
     }
+
+    /**
+     * Keep the already complete indexed snapshot in later directory previews.
+     * Disk enumeration can discover extra rows, but publishing its small prefix
+     * alone would throw away the known range and make a usable list jump back.
+     */
+    fun retainIndexedSnapshot(
+        progress: FolderMediaReadResult,
+        indexed: Collection<Medium>,
+    ): FolderMediaReadResult {
+        if (indexed.isEmpty()) return progress
+        val byPath = LinkedHashMap<String, Medium>(indexed.size + progress.media.size)
+        indexed.forEach { byPath[it.path] = it }
+        progress.media.forEach { byPath[it.path] = it }
+        return progress.copy(media = ArrayList(byPath.values))
+    }
 }
 
 internal class FolderReadObservation {

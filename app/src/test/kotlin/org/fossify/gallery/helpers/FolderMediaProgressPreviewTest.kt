@@ -40,4 +40,23 @@ class FolderMediaProgressPreviewTest {
         authorized = false
         assertFalse(preview.accessCurrent())
     }
+
+    @Test fun diskProgressRetainsIndexedRowsAndAddsNewlyDiscoveredMediaOnce() {
+        val indexedA = medium("/camera/a.jpg")
+        val indexedB = medium("/camera/b.jpg")
+        val freshA = medium("/camera/a.jpg").apply { modified = 9L }
+        val discovered = medium("/camera/c.jpg")
+        val progress = FolderMediaReadResult(
+            media = arrayListOf(freshA, discovered),
+            status = FolderReadStatus.PARTIAL,
+            method = "direct",
+            enumerated = 3,
+            reasons = mapOf("scan_in_progress" to 1),
+        )
+
+        val merged = FolderMediaProgressPreview.retainIndexedSnapshot(progress, listOf(indexedA, indexedB))
+
+        assertEquals(listOf("/camera/a.jpg", "/camera/b.jpg", "/camera/c.jpg"), merged.media.map { it.path })
+        assertEquals(9L, merged.media.first().modified)
+    }
 }
