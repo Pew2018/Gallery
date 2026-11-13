@@ -71,6 +71,7 @@ Viewer 先显示 Glide 的 FIT_CENTER 图像，再让覆盖其上的 Subsampling
 
 - 后续复查发现，深度缩放视图就绪后即使用户已经在 Glide 图层放大，也可能以默认适配比例接管。现在只有 Glide 初始缩放已测得且当前缩放仍处于适配容差内，才启动/显示 Subsampling；不可见加载期间继续由 Glide 接收触摸。增加 `SubsamplingHandoffPolicyTest` 覆盖未知初始几何、容差边界、用户已放大和非有限缩放值。
 - `:app:testFossDebugUnitTest --tests org.fossify.gallery.helpers.SubsamplingHandoffPolicyTest --tests org.fossify.gallery.helpers.MediaSharedSurfaceTest` 通过，3 项、0 失败；同一 Gradle 调用中的 ARM64 FOSS Release 重新构建成功。该全量本地测试仍受 Java 17 限制，两项 Robolectric SDK 36 测试不能运行通过。
+- 修改后的 `:app:compileFossDebugAndroidTestKotlin` 也再次编译成功；这只证明 instrumentation 测试源码和 APK 可编译，不代表设备端用例已执行。
 - 当前未签名 ARM64 APK：`app/build/outputs/apk/foss/release/gallery-32-foss-arm64-v8a-release-unsigned.apk`，SHA-256 `77238e03a21d2e16b6456ddba91b8e318ca094fff0cca2590e06af2ad310e6fc`。另用一次性本地测试证书签名并通过 `apksigner verify` 的 ARM64 APK：`/private/tmp/gallery-perf-home-gallery-3a277b8db-arm64-test-signed.apk`，SHA-256 `c8f30b4dac30bced1ba8f8d97179cacd10ecbea744990bc17a5767efe3cfffd2`；包名 `org.fossify.gallery`、版本 `1.14.1`、ABI 仅 `arm64-v8a`。测试证书不能作为正式签名或用于覆盖正式签名安装，本轮没有把该 APK 安装到设备。
 - 复查发现本机唯一 AVD 是 Android 10 / API 29 的 Pixel 4，模拟器二进制报告主机处理器不兼容；因此它不构成可用于本次 Android 16 验收的模拟器。ADB 守护进程也仍因 `could not install *smartsocket* listener: Operation not permitted` 无法启动。此前记录的 API 37 抽样属于先前代码状态，不作为本次提交的视觉验收证据。
 - 本地 `perf/home-gallery-sorting` HEAD 为 `3a277b8db2ec383507c4a44501c842b01bb08c5b`，GitHub 只读 ref 查询确认远端仍为 `51792c1942f8ff4171fb2d1066bbcfdc8afd1024`。提交后的 workflow 与 APK artifact 仍待发布授权和远端运行；不得将旧基线的 Actions 成功计作当前代码的验证。
