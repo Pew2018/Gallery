@@ -23,7 +23,6 @@ import org.fossify.gallery.extensions.prepareFavoritePasswordProtection
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import org.fossify.gallery.helpers.ViewerAccessCoordinator
-import org.fossify.gallery.helpers.AlbumPageTransition
 import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.OxygenClassicMotion
 import org.fossify.gallery.helpers.FolderReturnCheckpoint
@@ -195,10 +194,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var photoProfileId: String? = null
     private var photoNeedsUnlock = false
     private var photoViewerTransition = false
-    private var albumTransitionPending = false
-    private var albumTransitionMapped = false
-    private var finishAfterAlbumTransitionInProgress = false
-    private var albumCoverPath: String? = null
     private var pendingViewerReturnPath: String? = null
     private var viewerReturnGeneration = 0L
     private var viewerSourceLease: androidx.recyclerview.widget.RecyclerView.ViewHolder? = null
@@ -293,7 +288,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
     }
     private val albumTransitionHandler = Handler()
-    private val albumTransitionTimeout = Runnable { releaseAlbumTransition() }
     private var photoReturnProbeGeneration = 0L
     private var viewerHandoffGeneration = 0L
     private var photoLoadCompleted = false
@@ -849,13 +843,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        albumTransitionPending = intent.getBooleanExtra(AlbumPageTransition.EXTRA_ACTIVE, false) &&
-            OxygenClassicMotion.enabled(this)
-        albumCoverPath = intent.getStringExtra(AlbumPageTransition.EXTRA_COVER_PATH)
-        if (albumTransitionPending) postponeEnterTransition()
+        // Folder navigation uses Oxygen Classic's bounded page-level animation;
+        // no scan or thumbnail readiness is part of the Activity transition.
         OxygenClassicActivityMotion.install(this)
         setContentView(binding.root)
-        if (albumTransitionPending) configureAlbumPageTransition()
         org.fossify.gallery.helpers.OxygenClassicEdgeGlow.install(binding.root, this)
         GalleryBottomBar.prepareRootSurface(this, binding.root)
         setupMediaProgressIndicator()
@@ -1024,65 +1015,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         updateWidgets()
-    }
-
-    private fun configureAlbumPageTransition() {
-        OxygenClassicActivityMotion.configureShared(this)
-        window.sharedElementEnterTransition = OxygenClassicActivityMotion.mediaTransition(AlbumPageTransition.DURATION_MS)
-        window.sharedElementReturnTransition = OxygenClassicActivityMotion.mediaTransition(AlbumPageTransition.DURATION_MS)
-        // Animate the cover bounds only; an overlapping window fade exposes
-        // the destination before its grid has finished binding.
-        setEnterSharedElementCallback(object : SharedElementCallback() {
-            override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
-                val name = AlbumPageTransition.ELEMENT_NAME
-                if (name !in names) return
-                val cover = resolveAlbumCoverView()
-                if (cover == null) sharedElements.remove(name) else {
-                    cover.transitionName = name
-                    sharedElements[name] = cover
-                    albumTransitionMapped = true
-                }
-            }
-        })
-        albumTransitionHandler.postDelayed(albumTransitionTimeout, AlbumPageTransition.READY_TIMEOUT_MS)
-    }
-
-    private fun maybeReleaseAlbumTransition() {
-        if (!albumTransitionPending) return
-        val adapter = getMediaAdapter() ?: return
-        // Do not start the shared transition just because an unrelated grid cell
-        // has appeared. The named cover must be attached and decoded so the
-        // framework captures the real destination bounds; the bounded timeout
-        // below remains the fallback for missing or inaccessible cover media.
-        if (resolveAlbumCoverView() != null || (adapter.itemCount == 0 && displayedMediaIsFinal)) {
-            releaseAlbumTransition()
-        }
-    }
-
-    private fun releaseAlbumTransition() {
-        if (!albumTransitionPending) return
-        albumTransitionPending = false
-        albumTransitionHandler.removeCallbacks(albumTransitionTimeout)
-        if (!isFinishing && !isDestroyed) binding.mediaGrid.doOnPreDraw {
-            if (isFinishing || isDestroyed) return@doOnPreDraw
-            startPostponedEnterTransition()
-        }
-    }
-
-    private fun resolveAlbumCoverView(): ImageView? {
-        val path = albumCoverPath ?: return null
-        val adapter = getMediaAdapter() ?: return null
-        val position = adapter.media.indexOfFirst { (it as? Medium)?.path == path }
-        if (position < 0) return null
-        val holder = binding.mediaGrid.findViewHolderForAdapterPosition(position) ?: return null
-        if (holder.bindingAdapterPosition != position ||
-            (adapter.media.getOrNull(position) as? Medium)?.path != path) return null
-        val image = holder.itemView.findViewById<ImageView>(R.id.medium_thumbnail) ?: return null
-        val requestKey = image.getTag(R.id.thumbnail_request_key)
-        return image.takeIf {
-            it.isAttachedToWindow && it.width > 0 && it.height > 0 && it.drawable != null &&
-                requestKey != null && it.getTag(R.id.thumbnail_loaded_key) == requestKey
-        }
     }
 
     override fun onStart() {
@@ -1399,17 +1331,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         super.onSaveInstanceState(outState)
     }
 
-    // System back calls finishAfterTransition directly. Prepare the current media/album
-    // mapping before the framework captures its return, not after that return finishes.
+    // Keep the activity's close animation contract consistent across system and toolbar back.
     override fun finishAfterTransition() { finish() }
 
     override fun finish() {
-        // finishAfterTransition() calls finish() again while completing the shared return.
-        if (finishAfterAlbumTransitionInProgress) {
-            super.finish()
-            return
-        }
-        releaseAlbumTransition()
         favoritesReturnCover?.dismiss()
         favoritesScroll.clear()
         photoScroll.clear()
@@ -1420,20 +1345,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val revoked = favoriteSessionId
         favoriteSessionId = null
         FavoriteAccessSessionManager.revokeSession(revoked)
-        if (albumTransitionMapped && !GalleryBottomBar.isRootTransition(this) &&
-            !GalleryBottomBar.isRetiringRoot(this)) {
-            finishAfterAlbumTransitionInProgress = true
-            super.finishAfterTransition()
-        } else {
-            super.finish()
-            OxygenClassicActivityMotion.applyClose(this)
-        }
+        super.finish()
+        OxygenClassicActivityMotion.applyClose(this)
     }
 
     override fun onDestroy() {
         viewerReturnGeneration++
         releaseViewerSourceLease()
-        albumTransitionHandler.removeCallbacks(albumTransitionTimeout)
+        albumTransitionHandler.removeCallbacksAndMessages(null)
         photoFastScrollActive = false
         photoGridPublication.clear()
         mediaRefreshWatchdog.stop()
@@ -2050,7 +1969,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val completeCommit = {
             onCommitted()
             updateMediaFastScrollerVisibility()
-            if (albumTransitionPending) maybeReleaseAlbumTransition()
         }
         if (currAdapter == null) {
             initZoomListener()
@@ -2068,7 +1986,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 }
             }.apply {
                 onThumbnailLoaded = { _, image ->
-                    if (albumTransitionPending) image.post { maybeReleaseAlbumTransition() }
                     val request = displayedMediaRequest
                     if (mediaPageRequest == request && request >= 0 && firstThumbnailDraw != request &&
                         GalleryDiagnosticLogger.isEnabled()) {
@@ -2087,9 +2004,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 sorting = config.getFolderSorting(if (mShowAll) SHOW_ALL else mPath)
                 setupZoomListener(mZoomListener)
                 binding.mediaGrid.adapter = this
-            }
-            if (albumTransitionPending) binding.mediaGrid.post {
-                if (albumTransitionPending) maybeReleaseAlbumTransition()
             }
 
             val viewType = config.getFolderViewType(if (mShowAll) SHOW_ALL else mPath)

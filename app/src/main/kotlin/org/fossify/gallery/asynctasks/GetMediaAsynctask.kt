@@ -179,7 +179,10 @@ internal class GetMediaAsynctask(
             mPath.startsWith('/') && mPath != RECYCLE_BIN && mPath != FAVORITES
         // Publish the basic folder catalog before optional video metadata extraction.
         val getVideoDurations = context.config.showThumbnailVideoDuration && !ordinaryFolder && !progressivePage
-        val scopedAvailable = isRPlus() && !isExternalStorageManager()
+        // MediaStore indexing and direct filesystem access are separate
+        // capabilities. MANAGE_EXTERNAL_STORAGE enables the latter; it does
+        // not make indexed rows unavailable as an early, validated preview.
+        val scopedAvailable = isRPlus()
         val scopedFolder = MediaQueryScope.shouldUseFolderQuery(
             showAll = showAll,
             path = mPath,
@@ -323,10 +326,13 @@ internal class GetMediaAsynctask(
                 }
                 val folderProbe = java.io.File(mPath, "access-probe").path
                 fun publishFolderPreview(progress: FolderMediaReadResult) {
-                    if (isCancelled || onFolderPreview == null || folderCache.isNotEmpty()) return
+                    if (isCancelled || onFolderPreview == null) return
                     val retained = if (progress.method == "mediastore_index_preview") progress
                         else FolderMediaProgressPreview.retainIndexedSnapshot(progress, indexedFolderMedia)
-                    val merged = retained.presentation(emptyList(), ::folderAllowed)
+                    // A cache is a preview, not proof that the scan is finished.
+                    // Keep cached rows while the live read is partial, then let a
+                    // successful complete read remove paths confirmed absent.
+                    val merged = retained.presentation(folderCache, ::folderAllowed)
                     if (merged.isEmpty()) return
                     mediaFetcher.sortMedia(merged, folderSorting)
                     val grouped = mediaFetcher.groupMedia(merged, pathToUse)

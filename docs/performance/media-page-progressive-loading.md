@@ -27,7 +27,7 @@ Android 的 MediaStore 读取和直接文件访问独立。MediaStore 可消费�
 
 本地回归使用 `:app:testFossDebugUnitTest`。ARM64 Release 使用 `:app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a`。设备端 `MediaPageStartupTest` 用相同的 5,000 张合成 JPEG 验证成功提交、可见缩略图和最终条数，并输出阶段耗时。
 
-Pixel 8 Pro 的冷启动、热启动和有无缓存对比仍需在真机上测量。文件夹进出动画、Viewer 图片比例和全屏转场属于后续阶段。
+Pixel 8 Pro 的冷启动、热启动和有无缓存对比仍需在真机上测量。
 
 ### 交付版本的模拟器抽样
 
@@ -43,3 +43,26 @@ API 37 ARM64 模拟器、FOSS Debug、所有文件访问权限、单个含 5,000
 | 全量排序 | 17 ms | 4 ms |
 
 两次打开分别记录到五次和七次增量追加，均使用插入通知，提交记录为 1–20 ms。每次打开只有一次完整扫描，工作排队分别为 1 ms 和 4 ms。测试观察到两个场景均显示实际缩略图，首张绘制的独立计时事件未取得。本地 1,127 个 JVM 测试和 2 个设备测试通过，包含 5,000 张合成照片与 FastScroller 状态切换。没有同环境的旧版对照、所有图片大库绘制计时、过期队列等待统计或 Pixel 8 Pro 真机数据。
+
+## 综合整改复审（2026-11-14）
+
+### 上一轮实际做到和没有证明的内容
+
+- `431648c` 给媒体页加了缓存、MediaStore、磁盘三阶段预览、请求代际和首张可见缩略图诊断；`51792c1` 仅调整 FastScroller 的完整范围处理。静态调用链显示普通目录与 All 已调用渐进页回调。
+- 先前 5,000 项设备测试只断言“首个 Adapter 提交早于最终提交”。它没有断言首张真实缩略图在完整扫描完成之前绘制；因此不能排除预览早提交但屏幕仍迟迟无图。现在补上该时序断言。
+- All 和普通目录共用的 `GetMediaAsynctask` 先逐行消费 MediaStore 游标，再开始磁盘补齐。MediaStore 行会在游标遍历期间回调，但未索引及 `.nomedia` 媒体只能在后续磁盘阶段出现。此前缓存回调还有 `folderCache.isNotEmpty()` 短路，缓存非空就跳过实时增量；已移除短路并在 PARTIAL 阶段保留缓存，只有完整读取才能确认缓存项缺失。
+- `scopedAvailable` 原先把 Android 版本、MediaStore 可用性和“所有文件访问”状态合成一个条件。现在 MediaStore 查询与直接文件访问分开判断，完整文件权限不会关闭索引预览。
+- 文件夹进入曾使用封面缩略图共享元素，并通过 `postponeEnterTransition()` 等待目标缩略图，最长等待 1.2 秒。当前已切换回 Oxygen Classic 页面级窗口动画（170ms 进入、140ms 退出），文件夹扫描、网格绑定和封面解码不再参与导航就绪条件。
+- `GalleryListDiffExecutor` 原本是固定两线程但使用无界 FIFO 队列。现在改用两线程、最多四个排队任务的有界执行器，与媒体扫描隔离；过期 Diff 仍通过代际检查尽早中止，队列满时保留既有整表恢复路径。
+
+### Viewer 图层交接
+
+Viewer 先显示 Glide 的 FIT_CENTER 图像，再让覆盖其上的 SubsamplingScaleImageView 异步解码；此前该视图在加载时已可见，且图片就绪监听器在 `setImage()` 后才安装。现在先安装监听，保留 Glide 图层，Subsampling 就绪后于共享转场结束再以 90ms 渐显接管。解码失败会隐藏未就绪图层并保留 Glide 回退。
+
+这修复了监听注册竞态并缓和渲染器交接，但没有取得 Pixel 8 Pro 上实际可见矩形、帧时间或 EXIF 方向动画截图证据，因此不宣称 Viewer 几何已通过真机验收。
+
+### 验证边界
+
+本轮完整单元测试共 1,106 项，1,104 项通过；两项失败均是 Robolectric SDK 36 要求 Java 21，而本机只有 Java 17（`DeleteWithRememberDialogRippleTest`、`GalleryRootTransitionTest`）。缓存保留测试及 `RefreshReliabilityTest` 另行通过，共 17 项。Android instrumentation 测试 Kotlin 源码编译通过；设备测试未运行。ARM64 FOSS Release 编译通过，产物 `gallery-32-foss-arm64-v8a-release-unsigned.apk` 为 18 MiB，SHA-256 `85deba072e4d4b24a730dfa1ff77c8338403f9d3ebd90d7d7a5b0653193b06b6`；由于本机无签名配置，该本地 APK 不能作为最终安装包。Actions 构建负责生成并验证带临时测试签名的安装包。
+
+本机 Android Debug Bridge 无法启动 daemon（系统拒绝监听 socket），Pixel 真机和模拟器本轮不可连接。shell `git fetch` 因运行环境 DNS 无法解析 github.com 失败；GitHub 只读接口确认执行开始时远端 HEAD 与本地相同，远端原始 HEAD 的 ARM64 Release workflow `43457052215` 成功。本轮提交后的 Actions 状态与签名 APK 以 GitHub 工作流为准。

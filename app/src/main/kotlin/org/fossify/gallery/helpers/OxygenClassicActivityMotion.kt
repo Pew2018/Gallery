@@ -8,8 +8,7 @@ import org.fossify.gallery.R
 
 /** Installs the shared Activity Window transition contract for folder and Viewer layers. */
 object OxygenClassicActivityMotion {
-    fun isShared(activity: Activity): Boolean = activity.intent.hasExtra(PhotoViewerTransition.EXTRA_PATH) ||
-        activity.intent.getBooleanExtra(AlbumPageTransition.EXTRA_ACTIVE, false)
+    fun isShared(activity: Activity): Boolean = activity.intent.hasExtra(PhotoViewerTransition.EXTRA_PATH)
 
     fun configureShared(activity: Activity) {
         activity.window.apply {

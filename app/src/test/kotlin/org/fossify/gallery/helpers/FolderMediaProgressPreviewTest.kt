@@ -59,4 +59,18 @@ class FolderMediaProgressPreviewTest {
         assertEquals(listOf("/camera/a.jpg", "/camera/b.jpg", "/camera/c.jpg"), merged.media.map { it.path })
         assertEquals(9L, merged.media.first().modified)
     }
+
+    @Test fun partialDiskResultRetainsCacheUntilACompleteReadConfirmsAbsence() {
+        val cached = medium("/camera/cached.jpg")
+        val discovered = medium("/camera/new.jpg")
+        val partial = FolderMediaReadResult(
+            media = arrayListOf(discovered), status = FolderReadStatus.PARTIAL,
+            method = "direct", enumerated = 2, reasons = mapOf("scan_in_progress" to 1)
+        )
+        assertEquals(listOf(discovered.path, cached.path),
+            partial.presentation(listOf(cached)) { true }.map { it.path })
+
+        val complete = partial.copy(status = FolderReadStatus.COMPLETE)
+        assertEquals(listOf(discovered.path), complete.presentation(listOf(cached)) { true }.map { it.path })
+    }
 }

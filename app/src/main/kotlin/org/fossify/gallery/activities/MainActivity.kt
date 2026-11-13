@@ -5,8 +5,6 @@ import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import org.fossify.gallery.helpers.ViewerAccessCoordinator
 import android.content.ClipData
 import android.content.Intent
-import android.app.ActivityOptions
-import android.app.SharedElementCallback
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -34,7 +32,6 @@ import org.fossify.gallery.helpers.FolderMediaReadResult
 import org.fossify.gallery.helpers.FolderReadStatus
 import org.fossify.gallery.helpers.HomeDirectorySorter
 import org.fossify.gallery.helpers.OxygenClassicActivityMotion
-import org.fossify.gallery.helpers.AlbumPageTransition
 import org.fossify.gallery.helpers.GalleryEntryMotion
 import org.fossify.gallery.helpers.OxygenClassicMotion
 import androidx.appcompat.app.AlertDialog
@@ -247,7 +244,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     // used at "Group direct subfolders" for navigation
     private var mCurrentPathPrefix = ""
-    private var pendingAlbumReturnPath: String? = null
 
     // used at "Group direct subfolders" for navigating Up with the back button
     private var mOpenedSubfolders = arrayListOf("")
@@ -2214,77 +2210,8 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 putExtra(GET_VIDEO_INTENT, mIsPickVideoIntent || mIsGetVideoContentIntent)
                 putExtra(GET_ANY_INTENT, mIsGetAnyContentIntent)
                 putExtra(Intent.EXTRA_ALLOW_MULTIPLE, mAllowPickingMultiple)
-                val options = albumTransitionOptions(this)
-                if (options == null) {
-                    startActivityForResult(this, PICK_MEDIA)
-                } else {
-                    startActivityForResult(this, PICK_MEDIA, options)
-                }
+                startActivityForResult(this, PICK_MEDIA)
             }
-        }
-    }
-
-    /** Match the selected album by path, including when a password gate delayed its launch. */
-    private fun albumTransitionOptions(intent: Intent): Bundle? {
-        if (!OxygenClassicMotion.enabled(this)) return null
-        val path = intent.getStringExtra(DIRECTORY) ?: return null
-        val adapter = binding.directoriesGrid.adapter as? DirectoryAdapter ?: return null
-        val position = adapter.dirs.indexOfFirst { it.path == path }
-        if (position < 0) return null
-        val holder = binding.directoriesGrid.findViewHolderForAdapterPosition(position)
-        if (holder == null || holder.bindingAdapterPosition != position ||
-            adapter.dirs.getOrNull(position)?.path != path) return null
-        val cover = holder.itemView.findViewById<ImageView>(R.id.dir_thumbnail) ?: return null
-        if (!cover.isAttachedToWindow || cover.visibility != View.VISIBLE || cover.drawable == null ||
-            cover.width <= 0 || cover.height <= 0 ||
-            cover.getTag(R.id.directory_bound_path) != path ||
-            cover.getTag(R.id.thumbnail_request_key) == null ||
-            cover.getTag(R.id.thumbnail_loaded_key) == null ||
-            cover.getTag(R.id.thumbnail_loaded_key) != cover.getTag(R.id.thumbnail_request_key)) return null
-
-        return runCatching {
-            pendingAlbumReturnPath = path
-            OxygenClassicActivityMotion.configureShared(this)
-            cover.transitionName = AlbumPageTransition.ELEMENT_NAME
-            setExitSharedElementCallback(object : SharedElementCallback() {
-                override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
-                    val name = AlbumPageTransition.ELEMENT_NAME
-                    if (name !in names) return
-                    val targetPath = pendingAlbumReturnPath
-                    val target = targetPath?.let(::findDirectoryThumbnail)
-                    if (target == null) sharedElements.remove(name) else {
-                        target.transitionName = name
-                        sharedElements[name] = target
-                    }
-                }
-            })
-            intent.putExtra(AlbumPageTransition.EXTRA_ACTIVE, true)
-            intent.putExtra(AlbumPageTransition.EXTRA_COVER_PATH, adapter.dirs[position].tmb)
-            window.sharedElementExitTransition = OxygenClassicActivityMotion.mediaTransition(AlbumPageTransition.DURATION_MS)
-            window.sharedElementReenterTransition = OxygenClassicActivityMotion.mediaTransition(AlbumPageTransition.DURATION_MS)
-            // Keep folder navigation on one shared-element bounds animation;
-            // a second window fade produces a visible flash on entry/return.
-            ActivityOptions.makeSceneTransitionAnimation(this, cover, AlbumPageTransition.ELEMENT_NAME).toBundle()
-        }.getOrElse {
-            cover.transitionName = null
-            pendingAlbumReturnPath = null
-            intent.removeExtra(AlbumPageTransition.EXTRA_ACTIVE)
-            intent.removeExtra(AlbumPageTransition.EXTRA_COVER_PATH)
-            null
-        }
-    }
-
-    private fun findDirectoryThumbnail(path: String): View? {
-        val adapter = binding.directoriesGrid.adapter as? DirectoryAdapter ?: return null
-        val position = adapter.dirs.indexOfFirst { it.path == path }
-        if (position < 0) return null
-        val holder = binding.directoriesGrid.findViewHolderForAdapterPosition(position) ?: return null
-        if (holder.bindingAdapterPosition != position || adapter.dirs.getOrNull(position)?.path != path) return null
-        return holder.itemView.findViewById<ImageView>(R.id.dir_thumbnail)?.takeIf {
-            it.getTag(R.id.directory_bound_path) == path &&
-                it.isAttachedToWindow && it.visibility == View.VISIBLE && it.drawable != null &&
-                it.getTag(R.id.thumbnail_request_key) != null &&
-                it.getTag(R.id.thumbnail_loaded_key) == it.getTag(R.id.thumbnail_request_key)
         }
     }
 

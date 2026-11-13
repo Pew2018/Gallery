@@ -130,6 +130,7 @@ class PhotoFragment : ViewPagerFragment() {
     private var mScreenHeight = 0
     private var mCurrentGestureViewZoom = 1f
     private var mInitialZoom = 1f
+    private var mSubsamplingImageReady = false
     private var mHasInitialZoom = false
     private var mReportedImagePath: String? = null
     private var detailsGeneration = 0L
@@ -178,7 +179,10 @@ class PhotoFragment : ViewPagerFragment() {
     fun finishSharedTransition() {
         sharedSurface?.clear()
         sharedSurface = null
-        if (view != null && mIsFragmentVisible) scheduleZoomableView()
+        if (view != null && mIsFragmentVisible) {
+            revealReadySubsamplingImage()
+            scheduleZoomableView()
+        }
     }
 
     /** Horizontal paging stays with this pager only while the photo is at fitted scale. */
@@ -958,7 +962,8 @@ class PhotoFragment : ViewPagerFragment() {
             rotationEnabled = config.allowRotatingWithGestures
             isOneToOneZoomEnabled = config.allowOneToOneZoom
             orientation = newOrientation
-            setImage(getFilePathToShow())
+            alpha = 0f
+            mSubsamplingImageReady = false
 
             onImageEventListener = object : SubsamplingScaleImageView.OnImageEventListener {
                 override fun onReady() {
@@ -969,12 +974,17 @@ class PhotoFragment : ViewPagerFragment() {
                     val useWidth = if (mImageOrientation == ORIENTATION_ROTATE_90 || mImageOrientation == ORIENTATION_ROTATE_270) sHeight else sWidth
                     val useHeight = if (mImageOrientation == ORIENTATION_ROTATE_90 || mImageOrientation == ORIENTATION_ROTATE_270) sWidth else sHeight
                     doubleTapZoomScale = getDoubleTapZoomScale(useWidth, useHeight)
+                    mSubsamplingImageReady = true
+                    revealReadySubsamplingImage()
                 }
 
                 override fun onImageLoadError(e: Exception) {
                     binding.gesturesView.controller.settings.isZoomEnabled = true
                     background = ColorDrawable(Color.TRANSPARENT)
+                    animate().cancel()
+                    alpha = 0f
                     mIsSubsamplingVisible = false
+                    mSubsamplingImageReady = false
                     beGone()
                 }
 
@@ -995,7 +1005,20 @@ class PhotoFragment : ViewPagerFragment() {
                     mShouldResetImage = false
                 }
             }
+            // Install listeners before setImage: cached/small sources may report
+            // readiness immediately. Keep the Glide frame underneath until the
+            // matching fit-center Subsampling render is ready.
+            setImage(getFilePathToShow())
         }
+    }
+
+    private fun revealReadySubsamplingImage() {
+        if (!mSubsamplingImageReady || !mIsSubsamplingVisible || !mIsFragmentVisible ||
+            (activity as? ViewPagerActivity)?.isMediaTransitionRunning() == true ||
+            !this::binding.isInitialized || binding.subsamplingView.visibility != View.VISIBLE) return
+        binding.subsamplingView.animate().cancel()
+        binding.subsamplingView.alpha = 0f
+        binding.subsamplingView.animate().alpha(1f).setDuration(90L).start()
     }
 
     private fun getMinTileDpi(): Int {

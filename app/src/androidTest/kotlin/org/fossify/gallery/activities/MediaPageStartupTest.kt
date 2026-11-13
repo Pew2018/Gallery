@@ -111,8 +111,12 @@ class MediaPageStartupTest {
                     }.toList()
                     events.forEach { android.util.Log.i("GalleryStageA", "$label $it") }
                     val first = events.indexOfFirst { it.contains("event=media_first_adapter_commit") }
+                    val thumbnail = events.indexOfFirst { it.contains("event=media_first_thumbnail_rendered") }
+                    val complete = events.indexOfFirst { it.contains("event=media_scan_complete") }
                     val last = events.indexOfFirst { it.contains("event=media_final_commit") }
                     assertTrue("$label must commit preview before final catalog", first in 0 until last)
+                    assertTrue("$label must paint a real thumbnail before full scan completion",
+                        thumbnail in 0 until complete)
                 } finally {
                     instrumentation.runOnMainSync { activity.finish() }
                     instrumentation.waitForIdleSync()
