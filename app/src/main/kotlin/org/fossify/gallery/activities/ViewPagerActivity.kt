@@ -1923,7 +1923,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (query.isNullOrBlank()) return media
         val matches = org.fossify.gallery.helpers.ViewerSearchPolicy.filter(media, query)
         if (isPhotoProfile) return matches
-        val groupingPath = if (isFavoriteRequest) FAVORITES else mDirectory
+        val groupingPath = when {
+            isFavoriteRequest -> FAVORITES
+            mShowAll -> SHOW_ALL
+            else -> mDirectory
+        }
         val grouped = MediaFetcher(applicationContext).groupMedia(ArrayList(matches), groupingPath)
         return grouped.filterIsInstance<Medium>()
     }
@@ -1933,6 +1937,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val sortPath = when {
             isPhotoProfile -> PhotoProfileMediaLoader.PATH
             isFavoriteRequest -> FAVORITES
+            mShowAll -> SHOW_ALL
             else -> mDirectory
         }
         if (config.getFolderSorting(sortPath) and SORT_BY_RANDOM == 0) return media
@@ -2708,6 +2713,28 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
         binding.mediumViewerToolbar.title = mPath.getFilenameFromPath()
 
+        val allMediaNeighbors = if (mShowAll && !isExternalIntent()) takeNeighborWindow(
+            org.fossify.gallery.helpers.ViewerSourceType.FOLDER, SHOW_ALL
+        ) else null
+        if (allMediaNeighbors != null && mMediaFiles.isEmpty()) {
+            val app = applicationContext
+            val request = viewerAccessGeneration
+            stagedInternalViewer = true
+            retryViewerScan = { refreshViewPager(true) }
+            submitViewerAccess(request) {
+                val visibility = org.fossify.gallery.helpers.MediaPageVisibility(app, true) { path ->
+                    FolderUnlockSessionManager.findProtectedAncestor(
+                        path.getParentPath(), app.config::isFolderProtected
+                    ) == null
+                }
+                val safe = allMediaNeighbors.items.filter { visibility.allows(it.path) && File(it.path).canRead() }
+                runOnUiThread {
+                    if (request != viewerAccessGeneration || isDestroyed || isFinishing) return@runOnUiThread
+                    if (safe.any { it.path == mPath } && !appliedViewerCatalogComplete) publishAdjacent(safe)
+                }
+            }
+        }
+
         scheduleInitialViewerPublication()
 
         // show the selected image asap, while loading the rest in the background to allow swiping between them. Might be needed at third party intents
@@ -2720,7 +2747,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             gotMedia(mMediaFiles as ArrayList<ThumbnailItem>, refetchViewPagerPosition = true)
         }
 
-        if (!isPhotoProfile && !initialPublicFolderSnapshot && !stagedInternalViewer) refreshViewPager(true)
+        if (!isPhotoProfile && !initialPublicFolderSnapshot && (!stagedInternalViewer || mShowAll)) refreshViewPager(true)
         binding.viewPager.offscreenPageLimit = 2
 
         if (config.hideSystemUI) {
@@ -3968,12 +3995,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             if (!catalogAlreadyInvalidated) invalidatePhotoCatalogForRequery()
             if (!photoRevisionAlreadyChanged) org.fossify.gallery.helpers.PhotoContentRevision.changed()
         }
-        val isRandomSorting = config.getFolderSorting(mDirectory) and SORT_BY_RANDOM != 0
-        if (isPhotoProfile || !isRandomSorting || isExternalIntent() || pendingViewerDeleteRecovery != null) {
+        val isRandomSorting = config.getFolderSorting(if (mShowAll) SHOW_ALL else mDirectory) and SORT_BY_RANDOM != 0
+        if (isPhotoProfile || mShowAll || !isRandomSorting || isExternalIntent() || pendingViewerDeleteRecovery != null) {
             val request = ++viewerLoadGeneration
+            if (mShowAll) viewerScanNeedsRetry = false
             viewerLoadTask?.stopFetching()
             viewerLoadTask = GetMediaAsynctask(
                 applicationContext, mDirectory, isPickImage = false, isPickVideo = false, showAll = mShowAll,
+                reuseAllMediaIndex = mShowAll,
                 cachedMediaFallback = if (mShowAll) mMediaFiles.map { it.copy() } else emptyList(),
                 onPartialFailure = {
                     if (request == viewerLoadGeneration && !isFinishing && !isDestroyed && checkFavoriteAccess()) toast(R.string.media_load_partial_error)
@@ -3997,6 +4026,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         viewerLoading.setLoading(false)
                         viewerScanNeedsRetry = true
                         showErrorToast(it)
+                    } else if (mShowAll && stagedInternalViewer && request == viewerLoadGeneration && !isFinishing) {
+                        viewerScanNeedsRetry = true
+                        photoNavigation.cancel()
+                        viewerLoading.setLoading(false)
+                        showErrorToast(it)
                     } else if (isPhotoProfile) {
                         // Keep the currently displayed selection when a recoverable
                         // rescan fails, but leave protected catalog pages fail-closed.
@@ -4015,12 +4049,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         return@GetMediaAsynctask
                     }
                     val fullCatalog = viewerLoadTask?.scanResult?.complete == true
+                    if (mShowAll) viewerScanNeedsRetry = !fullCatalog
                     val pendingRecovery = pendingViewerDeleteRecovery
                     if (pendingRecovery != null) {
                         recoverViewerDeletionFromLoadResult(it, fullCatalog, request, pendingRecovery)
                         return@GetMediaAsynctask
                     }
-                    gotMedia(it, refetchViewPagerPosition = refetchPosition, fullCatalog = fullCatalog)
+                    val ordered = if (mShowAll) {
+                        val shown = searchedViewerMedia(it.filterIsInstance<Medium>())
+                        ArrayList<ThumbnailItem>(stabilizeRandomViewerOrder(shown))
+                    } else it
+                    gotMedia(ordered, refetchViewPagerPosition = refetchPosition, fullCatalog = fullCatalog)
                 }
             }.also { it.execute() }
         }

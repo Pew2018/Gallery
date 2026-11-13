@@ -765,6 +765,31 @@ fun Context.getCachedDirectories(
 
 }
 
+/** A bounded, provisional grid snapshot. Full cache callers keep their existing behavior. */
+internal fun Context.getMediaPageCache(
+    folder: String?, types: Int, target: Int, current: () -> Boolean,
+    allowed: (String) -> Boolean
+): ArrayList<Medium> {
+    val visibility = org.fossify.gallery.helpers.MediaPageVisibility(this, folder == null, allowed)
+    val accessByFolder = HashMap<String, () -> Boolean>()
+    val preview = ArrayList<Medium>()
+    val sorting = config.getFolderSorting(folder ?: SHOW_ALL)
+    val rows = mediaDB.getPreviewMedia(folder, types, sorting and org.fossify.commons.helpers.SORT_DESCENDING == 0, target * 4)
+    for (item in rows) {
+        if (!current() || preview.size == target) break
+        if (!visibility.allows(item.path)) continue
+        val access = accessByFolder.getOrPut(item.parentPath) {
+            org.fossify.gallery.helpers.FolderCachePreviewAccess.capture(this, item.parentPath)
+        }
+        if (!access()) continue
+        if (!visibility.allowsIndexedFile(item.path)) continue
+        preview.add(item)
+    }
+    // This orders the verified sample. The scan establishes global rank.
+    MediaFetcher(this).sortMedia(preview, sorting)
+    return preview
+}
+
 fun Context.getCachedMedia(
     path: String,
     getVideosOnly: Boolean = false,

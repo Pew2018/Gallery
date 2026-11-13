@@ -708,6 +708,7 @@ class PhotoProfileMediaLoadingTest {
 
     class IndexedMediaProvider : ContentProvider() {
         lateinit var db: SQLiteDatabase
+        var rejectQueries = false
         val queries = ArrayList<String?>()
         val projections = ArrayList<List<String>>()
         override fun onCreate(): Boolean {
@@ -720,6 +721,7 @@ class PhotoProfileMediaLoadingTest {
                 arrayOf(path.substringAfterLast('/'), path, taken, size))
         }
         override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor {
+            if (rejectQueries) throw java.io.IOException("Injected MediaStore failure")
             queries.add(selection)
             projections.add(projection?.toList().orEmpty())
             return db.query("media", projection, selection, selectionArgs, null, null, sortOrder)

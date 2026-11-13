@@ -809,6 +809,20 @@ class MediaAdapter(
             pending.committed()
             return
         }
+        if (pending.preserveScroll && pending.reason == MediaUpdateReason.SCAN &&
+            pending.snapshotStage in setOf("CACHE_PREVIEW", "INDEX_PREVIEW", "SCAN_PARTIAL") &&
+            MediaUpdatePolicy.isContentAppend(media, incoming)) {
+            val oldCount = media.size
+            sorting = pending.sorting
+            media = incoming
+            committedVersion++
+            currentMediaHash = media.hashCode()
+            listener?.updateMediaGridDecoration(media)
+            notifyItemRangeInserted(oldCount, incoming.size - oldCount)
+            logUpdate(pending, "adapter_snapshot_fast_commit", "append", oldCount)
+            pending.committed()
+            return
+        }
         if (MediaUpdatePolicy.isPureMediaReorder(media, incoming)) {
             commitReorder(pending)
             return
@@ -928,13 +942,18 @@ class MediaAdapter(
         // DiffUtil's edit-distance search is needlessly expensive for a large
         // permutation. Other updates use the bounded replacement or Diff
         // policy, preserving any section headers.
-        refreshScroll.clear()
+        rememberRefreshScroll(pending)
         sorting = pending.sorting
         media = incoming
         committedVersion++
         currentMediaHash = media.hashCode()
         listener?.updateMediaGridDecoration(media)
         notifyItemRangeChanged(0, incoming.size)
+        if (refreshScroll.pending != null) refreshScroll.restore(recyclerView,
+            media.map { (it as? Medium)?.path }, true, isCurrent = {
+                pending.generation == diffGeneration && canCommit(pending) &&
+                    recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE
+            })
         if (pending.diagnosticsEnabled)
             org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
                 org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_reorder_commit",

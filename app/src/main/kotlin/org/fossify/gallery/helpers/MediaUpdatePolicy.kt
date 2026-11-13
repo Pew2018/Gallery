@@ -23,8 +23,15 @@ internal object MediaUpdatePolicy {
         }
 
     fun sameContent(before: Medium, after: Medium): Boolean =
-        before.copy(id = null, gridPosition = 0, mediaStoreId = 0) ==
-            after.copy(id = null, gridPosition = 0, mediaStoreId = 0)
+        before.path == after.path && before.name == after.name && before.parentPath == after.parentPath &&
+            before.modified == after.modified && before.taken == after.taken && before.size == after.size &&
+            before.type == after.type && before.videoDuration == after.videoDuration &&
+            before.isFavorite == after.isFavorite && before.deletedTS == after.deletedTS &&
+            before.takenIsFallback == after.takenIsFallback
+
+    /** Appending an unchanged prefix preserves RecyclerView's current anchor and bindings. */
+    fun isContentAppend(before: List<ThumbnailItem>, after: List<ThumbnailItem>): Boolean =
+        after.size > before.size && sameDisplayedContent(before, after.subList(0, before.size))
 
     /**
      * Sorting a plain media list changes positions without changing membership or

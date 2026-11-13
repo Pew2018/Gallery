@@ -324,6 +324,77 @@ class FolderRefreshActivityTest {
         } finally { home.pause().stop().destroy() }
     }
 
+    @Test fun roomPreviewPaintsWhileBothScanWorkersAreOccupied() {
+        val cached = photo("cached-first.jpg")
+        val later = photo("disk-second.jpg")
+        dbExecutor.submit {
+            context.mediaDB.insert(Medium().apply {
+                name = cached.name
+                path = cached.path
+                parentPath = root.path
+                size = cached.length()
+                type = TYPE_IMAGES
+            })
+        }.get(5, TimeUnit.SECONDS)
+        val occupied = java.util.concurrent.CountDownLatch(2)
+        val release = java.util.concurrent.CountDownLatch(1)
+        try {
+            repeat(2) { GalleryMediaScanExecutor.execute {
+                occupied.countDown()
+                release.await(10, TimeUnit.SECONDS)
+            } }
+            assertTrue(occupied.await(3, TimeUnit.SECONDS))
+            withActivity { activity ->
+                refresh(activity)
+                await { paths(activity) == setOf(cached.path) }
+                assertTrue(field(activity, "mIsGettingMedia").getBoolean(activity))
+                assertFalse(field(activity, "displayedMediaIsFinal").getBoolean(activity))
+                release.countDown()
+                await { paths(activity) == setOf(cached.path, later.path) &&
+                    field(activity, "displayedMediaIsFinal").getBoolean(activity) }
+            }
+        } finally { release.countDown() }
+    }
+
+    @Test fun allFilesIndexPublishesBeforeBlockedDiskReadAndExcludesHiddenAndProtectedRows() {
+        File(root, ".nomedia").delete()
+        val indexed = photo("indexed.jpg")
+        val hidden = photo(".hidden.jpg")
+        val protected = File(root, "protected").apply { mkdirs() }
+        val protectedPhoto = File(protected, "locked.jpg").apply { writeBytes(byteArrayOf(1)) }
+        context.config.addFolderProtection(protected.path, "test", org.fossify.commons.helpers.PROTECTION_PIN)
+        val unindexed = photo("unindexed.jpg")
+        listOf(indexed, hidden, protectedPhoto).forEach { provider.add(it.path) }
+        val blocked = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val previews = arrayListOf<MediaPageBatch>()
+        var final: List<Medium>? = null
+        val task = org.fossify.gallery.asynctasks.GetMediaAsynctask(context, "", showAll = true,
+            pagePreviewTarget = 1, onPagePreview = { previews.add(it) }) { final = it.filterIsInstance<Medium>() }
+        val fetcher = task.javaClass.getDeclaredField("mediaFetcher").apply { isAccessible = true }.get(task) as MediaFetcher
+        fetcher.folderFileAccess = object : FolderFileAccess {
+            override fun enumerate(folder: String): FolderEnumeration {
+                if (folder != root.path) return FolderEnumeration(emptyList())
+                blocked.countDown()
+                check(release.await(10, TimeUnit.SECONDS))
+                return FolderEnumeration(listOf(indexed, unindexed, hidden))
+            }
+            override fun metadata(file: File) = FolderFileMetadata(2, 1, true, true)
+        }
+        try {
+            task.executeOnExecutor(GalleryMediaScanExecutor)
+            assertTrue(blocked.await(5, TimeUnit.SECONDS))
+            await { previews.isNotEmpty() }
+            assertEquals(DisplayedSourceStage.INDEX_PREVIEW, previews.first().stage)
+            assertEquals(listOf(indexed.path), previews.first().rows.map { it.path })
+            assertNull(final)
+            release.countDown()
+            await { final != null }
+            assertEquals(setOf(indexed.path, unindexed.path), final!!.map { it.path }.toSet())
+            assertTrue(task.scanResult.complete)
+        } finally { release.countDown(); task.stopFetching() }
+    }
+
     @Test fun allFilesRetainsFailedFolderCacheAndNeverClaimsACompleteViewerCatalog() {
         val fresh = photo("good.jpg")
         val failed = File(root, "failed").apply { mkdirs() }

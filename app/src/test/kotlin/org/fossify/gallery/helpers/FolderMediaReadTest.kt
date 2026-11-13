@@ -53,6 +53,42 @@ class FolderMediaReadTest {
         override fun metadata(file: File) = metadata.invoke(file)
     }
 
+    @org.robolectric.annotation.Implements(android.os.Environment::class)
+    class AllFilesEnvironment : org.robolectric.shadows.ShadowEnvironment() {
+        companion object {
+            @JvmStatic @org.robolectric.annotation.Implementation(minSdk = 30)
+            fun isExternalStorageManager(): Boolean = true
+        }
+    }
+
+    @Test
+    @Config(shadows = [AllFilesEnvironment::class])
+    fun allFilesPermissionUsesIndexAndStillWalksDiskAfterQueryFailure() {
+        assertTrue(android.os.Environment.isExternalStorageManager())
+        File(root, ".nomedia").delete()
+        val indexed = photo("indexed.jpg")
+        val missingFromIndex = photo("direct-only.jpg")
+        provider.add(indexed.path)
+        val fetcher = MediaFetcher(context, reportReadFailures = true)
+        val offered = mutableListOf<Medium>()
+        val index = fetcher.queryPageIndex(false, false, arrayListOf(), hashMapOf(), setOf(root.path), offered::add)
+        assertNotNull(index)
+        assertEquals(listOf(indexed.path), offered.map { it.path })
+
+        fun scan(lookup: HashMap<String, ArrayList<Medium>>): FolderMediaReadResult = fetcher.readFolder(
+            root.path, false, false, true, true, true, arrayListOf(), false,
+            hashMapOf(), hashMapOf(), lookup, sortResult = false
+        )
+        val read = scan(index!!)
+        assertEquals(FolderReadStatus.COMPLETE, read.status)
+        assertEquals(setOf(indexed.path, missingFromIndex.path), read.confirmedPaths)
+        assertEquals(4000L, read.media.single { it.path == indexed.path }.taken)
+
+        provider.rejectQueries = true
+        assertNull(fetcher.queryPageIndex(false, false, arrayListOf(), hashMapOf(), setOf(root.path)) {})
+        assertEquals(read.confirmedPaths, scan(hashMapOf()).confirmedPaths)
+    }
+
     @Test fun unknownProviderFieldsAreNotCompleteAndConfirmedZeroIsData() {
         val file = photo("provider.jpg")
         val unknown = read(fake(listOf(file), metadata = { FolderFileMetadata(null, null, true, true) }))
