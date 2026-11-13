@@ -122,44 +122,27 @@ class PhotoViewerInteractiveGestureTest {
             val ready = MediaActivity::class.java.getDeclaredMethod(
                 "updateMediaFastScrollerVisibility", Boolean::class.javaPrimitiveType
             ).apply { isAccessible = true }
-            instrumentation.runOnMainSync {
-                MediaActivity::class.java.getDeclaredField("displayedMediaIsFinal")
-                    .apply { isAccessible = true }.setBoolean(activity, false)
-                // The API 37 MediaStore index may already contain the entire fixture,
-                // even though the physical directory reconciliation is still in flight.
-                // This assertion specifically covers the honest unknown-count fallback.
-                MediaActivity::class.java.getDeclaredField("indexedPreviewMediaCount")
-                    .apply { isAccessible = true }.set(activity, null)
-                ready.invoke(activity, true)
-            }
-            assertEquals("partial rows must not expose a thumb scaled to the loaded prefix",
-                View.GONE, scroller.visibility)
-
-            val countField = MediaActivity::class.java.getDeclaredField("indexedPreviewMediaCount")
+            val final = MediaActivity::class.java.getDeclaredField("displayedMediaIsFinal")
                 .apply { isAccessible = true }
-            var displayedCount = 0
+            val scanning = MediaActivity::class.java.getDeclaredField("mIsGettingMedia")
+                .apply { isAccessible = true }
             instrumentation.runOnMainSync {
-                displayedCount = (activity.findViewById<RecyclerView>(R.id.media_grid).adapter as MediaAdapter)
-                    .media.count { it is Medium }
-            }
-            instrumentation.runOnMainSync {
-                countField.set(activity, displayedCount)
+                final.setBoolean(activity, false)
+                scanning.setBoolean(activity, true)
                 ready.invoke(activity, true)
             }
-            assertEquals("a complete scoped-index snapshot can expose its matching logical range",
-                View.VISIBLE, scroller.visibility)
-
-            instrumentation.runOnMainSync {
-                countField.set(activity, displayedCount + 1)
-                ready.invoke(activity, true)
-            }
-            assertEquals("a physical-scan count mismatch must hide the stale indexed range",
+            assertEquals("an indexed or disk preview has a provisional scroll range",
                 View.GONE, scroller.visibility)
 
             instrumentation.runOnMainSync {
-                countField.set(activity, null)
-                MediaActivity::class.java.getDeclaredField("displayedMediaIsFinal")
-                    .apply { isAccessible = true }.setBoolean(activity, true)
+                final.setBoolean(activity, true)
+                ready.invoke(activity, true)
+            }
+            assertEquals("a refresh keeps the previous grid but hides its provisional scroll range",
+                View.GONE, scroller.visibility)
+
+            instrumentation.runOnMainSync {
+                scanning.setBoolean(activity, false)
                 ready.invoke(activity, true)
             }
             assertEquals("the complete non-empty media range should expose the fast scroller",
