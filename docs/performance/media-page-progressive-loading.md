@@ -63,6 +63,6 @@ Viewer 先显示 Glide 的 FIT_CENTER 图像，再让覆盖其上的 Subsampling
 
 ### 验证边界
 
-本轮完整单元测试共 1,106 项，1,104 项通过；两项失败均是 Robolectric SDK 36 要求 Java 21，而本机只有 Java 17（`DeleteWithRememberDialogRippleTest`、`GalleryRootTransitionTest`）。缓存保留测试及 `RefreshReliabilityTest` 另行通过，共 17 项。Android instrumentation 测试 Kotlin 源码编译通过；设备测试未运行。ARM64 FOSS Release 编译通过，产物 `gallery-32-foss-arm64-v8a-release-unsigned.apk` 为 18 MiB，SHA-256 `85deba072e4d4b24a730dfa1ff77c8338403f9d3ebd90d7d7a5b0653193b06b6`；由于本机无签名配置，该本地 APK 不能作为最终安装包。Actions 构建负责生成并验证带临时测试签名的安装包。
+本轮完整单元测试共 1,106 项，1,104 项通过；两项失败均是 Robolectric SDK 36 要求 Java 21，而本机只有 Java 17（`DeleteWithRememberDialogRippleTest`、`GalleryRootTransitionTest`）。缓存保留测试及 `RefreshReliabilityTest` 另行通过，共 17 项。Android instrumentation 测试 Kotlin 源码编译通过；设备测试未运行。ARM64 FOSS Release 编译通过，产物 `gallery-32-foss-arm64-v8a-release-unsigned.apk` 为 18 MiB，SHA-256 `85deba072e4d4b24a730dfa1ff77c8338403f9d3ebd90d7d7a5b0653193b06b6`。随后以临时本地测试证书签名并通过 `apksigner verify`，包名为 `org.fossify.gallery`、仅包含 `arm64-v8a`，可安装签名包位于 `/private/tmp/gallery-foss-arm64-v8a-release-test-signed.apk`，SHA-256 `35dc86a419fb2199b12f844dab3ac01cea7477e0b1a688dcac387575d9d48c19`。该测试证书不具备后续升级兼容性；本轮没有设备可用于安装和画面验收。
 
-本机 Android Debug Bridge 无法启动 daemon（系统拒绝监听 socket），Pixel 真机和模拟器本轮不可连接。shell `git fetch` 因运行环境 DNS 无法解析 github.com 失败；GitHub 只读接口确认执行开始时远端 HEAD 与本地相同，远端原始 HEAD 的 ARM64 Release workflow `43457052215` 成功。本轮提交后的 Actions 状态与签名 APK 以 GitHub 工作流为准。
+本机 Android Debug Bridge 无法启动 daemon（系统拒绝监听 socket），Pixel 真机和模拟器本轮不可连接。shell `git fetch` 因运行环境 DNS 无法解析 github.com 失败；GitHub 只读接口确认执行开始时远端 HEAD 与本地相同，远端原始 HEAD 的 ARM64 Release workflow `43457052215` 成功。自动审查拒绝了本轮远端写入，并明确要求不要通过其它方式绕过；因此提交后的新 Actions workflow 尚未运行。待用户在对话中明确授权向已核验的 `Pew2018/Gallery` `perf/home-gallery-sorting` 发布后，再触发 Actions 并验证其签名 APK。
