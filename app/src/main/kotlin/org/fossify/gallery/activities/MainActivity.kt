@@ -3045,6 +3045,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         OxygenFastScroller.apply(binding.directoriesFastscroller, binding.directoriesGrid,
             OxygenThemeEngine.snapshot(this, config),
             if (mIsThirdPartyIntent) 0 else resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height))
+        OxygenFastScroller.installGalleryTouchHandling(
+            binding.directoriesFastscroller,
+            binding.directoriesGrid,
+        )
     }
 
     private fun checkInvalidDirectories(dirs: ArrayList<Directory>, scanRequest: Long, failedPaths: Set<String> = emptySet()) {

@@ -2125,6 +2125,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         OxygenFastScroller.apply(binding.mediaFastscroller, binding.mediaGrid,
             OxygenThemeEngine.snapshot(this, config),
             if (mGallerySection == null) 0 else resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height))
+        OxygenFastScroller.installGalleryTouchHandling(
+            binding.mediaFastscroller,
+            binding.mediaGrid,
+            ::onPhotoFastScrollStateChanged,
+        )
     }
 
     private var mediaPollScheduled = false

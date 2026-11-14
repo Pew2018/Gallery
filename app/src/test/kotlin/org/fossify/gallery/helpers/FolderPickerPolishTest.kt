@@ -90,6 +90,29 @@ class FolderPickerPolishTest {
         assertEquals(0, OxygenFastScroller.positionForPickerDrag(10f, 0, 0, 0))
     }
 
+    @Test fun galleryDragMapsTheVisibleTrackToTheRealPixelScrollRange() {
+        assertEquals(0, OxygenFastScroller.scrollOffsetForDrag(
+            coordinate = 140f, trackStart = 100, trackLength = 1_000,
+            thumbLength = 80, range = 9_000, extent = 1_000,
+        ))
+        assertEquals(4_000, OxygenFastScroller.scrollOffsetForDrag(
+            coordinate = 600f, trackStart = 100, trackLength = 1_000,
+            thumbLength = 80, range = 9_000, extent = 1_000,
+        ))
+        assertEquals(8_000, OxygenFastScroller.scrollOffsetForDrag(
+            coordinate = 1_060f, trackStart = 100, trackLength = 1_000,
+            thumbLength = 80, range = 9_000, extent = 1_000,
+        ))
+        assertEquals(8_000, OxygenFastScroller.scrollOffsetForDrag(
+            coordinate = 2_000f, trackStart = 100, trackLength = 1_000,
+            thumbLength = 80, range = 9_000, extent = 1_000,
+        ))
+        assertEquals(0, OxygenFastScroller.scrollOffsetForDrag(
+            coordinate = 600f, trackStart = 100, trackLength = 1_000,
+            thumbLength = 80, range = 800, extent = 1_000,
+        ))
+    }
+
     @Test fun popupThemesKeepReadableTextAgainstTheirActualSurfaces() {
         val activity = activity()
         for ((style, surface) in listOf(

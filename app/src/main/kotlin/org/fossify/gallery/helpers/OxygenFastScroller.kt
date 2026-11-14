@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.graphics.Color
 import android.view.MotionEvent
 import android.view.View
+import android.os.Handler
+import android.os.Looper
 import android.widget.LinearLayout
 import kotlin.math.roundToInt
 import android.graphics.drawable.GradientDrawable
@@ -29,10 +31,19 @@ object OxygenFastScroller {
     fun setRangeAvailable(scroller: RecyclerViewFastScroller, available: Boolean) {
         scroller.visibility = View.VISIBLE
         scroller.isFastScrollEnabled = available
+        // The library scales its handle to 0 after the idle timeout, which also
+        // collapses its touch bounds to 0. Keep the existing 28dp handle target
+        // interactive whenever the current grid has a real scroll range.
+        scroller.handleVisibilityDuration = 0
         val childVisibility = if (available) View.VISIBLE else View.INVISIBLE
         scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.thumbIV)?.apply {
+            animate().cancel()
             visibility = childVisibility
             isEnabled = available
+            if (available) {
+                scaleX = 1f
+                scaleY = 1f
+            }
         }
         scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.trackView)?.apply {
             visibility = childVisibility
@@ -118,12 +129,107 @@ object OxygenFastScroller {
         if (scroller.handleHeight != hitHeight) scroller.handleHeight = hitHeight
     }
 
+    /**
+     * The bundled scroller mixes raw screen coordinates with window coordinates
+     * and scales its idle thumb to zero. Gallery uses pixel scroll metrics so
+     * dragging stays aligned with the visible track across system-bar insets.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    fun installGalleryTouchHandling(
+        scroller: RecyclerViewFastScroller,
+        recycler: RecyclerView,
+        onDragStateChanged: (Boolean) -> Unit = {},
+    ) {
+        val thumb = scroller.findViewById<ImageView>(com.qtalk.recyclerviewfastscroller.R.id.thumbIV)
+            ?: return
+        val track = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.trackView)
+            ?: return
+        val vertical = scroller.fastScrollDirection ==
+            RecyclerViewFastScroller.FastScrollDirection.VERTICAL
+        val handler = Handler(Looper.getMainLooper())
+        scroller.handleVisibilityDuration = 0
+        thumb.animate().cancel()
+        thumb.scaleX = 1f
+        thumb.scaleY = 1f
+        val hidePopup = Runnable { scroller.popupTextView.visibility = View.INVISIBLE }
+        var dragging = false
+
+        fun dragTo(event: MotionEvent) {
+            val location = IntArray(2)
+            track.getLocationOnScreen(location)
+            if (vertical) {
+                val range = recycler.computeVerticalScrollRange()
+                val extent = recycler.computeVerticalScrollExtent()
+                if (range <= extent) return
+                val target = scrollOffsetForDrag(
+                    event.rawY, location[1], track.height, thumb.height, range, extent
+                )
+                recycler.scrollBy(0, target - recycler.computeVerticalScrollOffset())
+            } else {
+                val range = recycler.computeHorizontalScrollRange()
+                val extent = recycler.computeHorizontalScrollExtent()
+                if (range <= extent) return
+                val target = scrollOffsetForDrag(
+                    event.rawX, location[0], track.width, thumb.width, range, extent
+                )
+                recycler.scrollBy(target - recycler.computeHorizontalScrollOffset(), 0)
+            }
+            scroller.popupTextView.visibility = View.VISIBLE
+            handler.removeCallbacks(hidePopup)
+            handler.postDelayed(hidePopup, HIDE_DELAY_MS)
+        }
+
+        thumb.setOnTouchListener { touched, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    dragging = true
+                    handler.removeCallbacks(hidePopup)
+                    onDragStateChanged(true)
+                    touched.parent?.requestDisallowInterceptTouchEvent(true)
+                    scroller.parent?.requestDisallowInterceptTouchEvent(true)
+                    recycler.stopScroll()
+                    dragTo(event)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    touched.parent?.requestDisallowInterceptTouchEvent(true)
+                    scroller.parent?.requestDisallowInterceptTouchEvent(true)
+                    if (dragging) dragTo(event)
+                    dragging
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (dragging) onDragStateChanged(false)
+                    dragging = false
+                    handler.removeCallbacks(hidePopup)
+                    handler.postDelayed(hidePopup, HIDE_DELAY_MS)
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
     /** Clamp a drag fraction to an adapter position for compact popup labels. */
     internal fun positionForPickerDrag(relative: Float, track: Int, thumb: Int, count: Int): Int {
         if (count <= 1) return 0
         val travel = (track - thumb).coerceAtLeast(1).toFloat()
         return ((relative / travel).coerceIn(0f, 1f) * (count - 1))
             .roundToInt().coerceIn(0, count - 1)
+    }
+
+    internal fun scrollOffsetForDrag(
+        coordinate: Float,
+        trackStart: Int,
+        trackLength: Int,
+        thumbLength: Int,
+        range: Int,
+        extent: Int,
+    ): Int {
+        val maxOffset = (range - extent).coerceAtLeast(0)
+        if (maxOffset == 0) return 0
+        val travel = (trackLength - thumbLength).coerceAtLeast(1).toFloat()
+        val fraction = ((coordinate - trackStart - thumbLength / 2f) / travel).coerceIn(0f, 1f)
+        return (fraction * maxOffset).roundToInt()
     }
 
     /** Apply only to picker dialogs, not the Gallery's main scrollers. */

@@ -83,7 +83,7 @@ class PhotoViewerInteractiveGestureTest {
         val context = instrumentation.targetContext
         grantMediaPermission(context)
         val album = "${Environment.DIRECTORY_PICTURES}/GalleryFastScrollerTest-${UUID.randomUUID()}"
-        val fixtures = List(5) { createFixture(context, album) }
+        val fixtures = List(40) { createFixture(context, album) }
         val wasShowingAllMedia = context.config.showAll
         var source: MediaActivity? = null
         try {
@@ -133,12 +133,13 @@ class PhotoViewerInteractiveGestureTest {
                 scanning.setBoolean(activity, true)
                 ready.invoke(activity, true)
             }
+            instrumentation.waitForIdleSync()
             assertEquals("the media grid remains visible while its scroll range is provisional",
                 View.VISIBLE, scroller.visibility)
-            assertEquals("the provisional thumb stays hidden", View.INVISIBLE, thumb.visibility)
-            assertEquals("the provisional track stays hidden", View.INVISIBLE, track.visibility)
-            assertTrue("fast scrolling stays disabled until the final range is known",
-                !activity.findViewById<com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller>(
+            assertEquals("a scrollable partial result exposes the thumb", View.VISIBLE, thumb.visibility)
+            assertEquals("a scrollable partial result exposes the track", View.VISIBLE, track.visibility)
+            assertTrue("fast scrolling is enabled as soon as the current range can scroll",
+                activity.findViewById<com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller>(
                     R.id.media_fastscroller
                 ).isFastScrollEnabled)
 
@@ -146,13 +147,15 @@ class PhotoViewerInteractiveGestureTest {
                 final.setBoolean(activity, true)
                 ready.invoke(activity, true)
             }
+            instrumentation.waitForIdleSync()
             assertEquals("a refresh keeps the previous grid visible", View.VISIBLE, scroller.visibility)
-            assertEquals("a refresh keeps the provisional thumb hidden", View.INVISIBLE, thumb.visibility)
+            assertEquals("a refresh retains the valid scroll range", View.VISIBLE, thumb.visibility)
 
             instrumentation.runOnMainSync {
                 scanning.setBoolean(activity, false)
                 ready.invoke(activity, true)
             }
+            instrumentation.waitForIdleSync()
             assertEquals("the complete non-empty media range should expose the fast scroller",
                 View.VISIBLE, scroller.visibility)
             assertEquals("the final thumb should be visible", View.VISIBLE, thumb.visibility)
@@ -160,6 +163,76 @@ class PhotoViewerInteractiveGestureTest {
         } finally {
             context.config.showAll = wasShowingAllMedia
             source?.let { instrumentation.runOnMainSync { it.finish() } }
+            fixtures.forEach { fixture -> runCatching { context.contentResolver.delete(fixture.first, null, null) } }
+        }
+    }
+
+    @Test
+    fun fastScrollerThumbDragMovesARealScrollableGrid() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GalleryFastScrollerDrag-${UUID.randomUUID()}"
+        val fixtures = List(60) { createFixture(context, album) }
+        var activity: MediaActivity? = null
+        try {
+            val intent = Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, java.io.File(fixtures.first().second).parent)
+            }
+            activity = instrumentation.startActivitySync(intent) as MediaActivity
+            val source = activity!!
+            awaitAnySourceThumbnail(instrumentation, source, fixtures.mapTo(HashSet()) { it.second })
+            val grid = source.findViewById<RecyclerView>(R.id.media_grid)
+            val scroller = source.findViewById<com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller>(
+                R.id.media_fastscroller
+            )
+            val thumb = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.thumbIV)
+            val track = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.trackView)
+            val deadline = SystemClock.uptimeMillis() + 15_000
+            var scrollable = false
+            while (!scrollable && SystemClock.uptimeMillis() < deadline) {
+                instrumentation.runOnMainSync {
+                    scrollable = grid.computeVerticalScrollRange() > grid.computeVerticalScrollExtent()
+                }
+                if (!scrollable) SystemClock.sleep(100)
+            }
+            assertTrue("the 60-file fixture grid should have a real scroll range", scrollable)
+            instrumentation.runOnMainSync { grid.scrollToPosition(0) }
+            instrumentation.waitForIdleSync()
+
+            val thumbLocation = IntArray(2)
+            val trackLocation = IntArray(2)
+            instrumentation.runOnMainSync {
+                thumb.getLocationOnScreen(thumbLocation)
+                track.getLocationOnScreen(trackLocation)
+            }
+            val startX = thumbLocation[0] + thumb.width / 2f
+            val startY = thumbLocation[1] + thumb.height / 2f
+            val endY = (trackLocation[1] + track.height - thumb.height / 2f).toFloat()
+            var originalOffset = 0
+            instrumentation.runOnMainSync { originalOffset = grid.computeVerticalScrollOffset() }
+            val downTime = SystemClock.uptimeMillis()
+            fun inject(action: Int, y: Float): Boolean {
+                val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, startX, y, 0)
+                    .apply { this.source = InputDevice.SOURCE_TOUCHSCREEN }
+                val accepted = instrumentation.uiAutomation.injectInputEvent(event, true)
+                event.recycle()
+                return accepted
+            }
+            assertTrue("touch down should reach the visible thumb", inject(MotionEvent.ACTION_DOWN, startY))
+            repeat(8) { step ->
+                SystemClock.sleep(24)
+                val y = startY + (endY - startY) * (step + 1) / 8f
+                assertTrue("thumb move should be accepted", inject(MotionEvent.ACTION_MOVE, y))
+            }
+            assertTrue("thumb release should be accepted", inject(MotionEvent.ACTION_UP, endY))
+            instrumentation.waitForIdleSync()
+            val finalOffset = grid.computeVerticalScrollOffset()
+            assertTrue("dragging the thumb must move the RecyclerView; before=$originalOffset after=$finalOffset",
+                finalOffset > originalOffset + grid.height / 2)
+        } finally {
+            activity?.let { instrumentation.runOnMainSync { it.finish() } }
             fixtures.forEach { fixture -> runCatching { context.contentResolver.delete(fixture.first, null, null) } }
         }
     }
