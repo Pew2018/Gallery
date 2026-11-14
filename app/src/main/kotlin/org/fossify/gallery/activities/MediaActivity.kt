@@ -636,6 +636,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var mediaPageAccess: (() -> Boolean)? = null
     private var mediaPageRequest = -1L
     private var firstAdapterCommit = -1L
+    private var firstThumbnailResourceReady = -1L
+    private var firstThumbnailNotVisible = -1L
     private var firstThumbnailDraw = -1L
     private var mediaPageOpenedAt = 0L
     private var mediaSearchGeneration = 0L
@@ -744,7 +746,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             complete = displayedMediaIsFinal && !mIsGettingMedia,
             emptyStateVisible = binding.mediaEmptyTextPlaceholder.isVisible()
         )
-        binding.mediaFastscroller.beVisibleIf(ready)
+        OxygenFastScroller.setRangeAvailable(binding.mediaFastscroller, ready)
     }
 
     companion object {
@@ -1987,18 +1989,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }.apply {
                 onThumbnailLoaded = { _, image ->
                     val request = displayedMediaRequest
+                    if (mediaPageRequest == request && request >= 0 && GalleryDiagnosticLogger.isEnabled()) {
+                        if (firstThumbnailResourceReady != request) {
+                            firstThumbnailResourceReady = request
+                            logMediaPage(request, "media_first_thumbnail_resource_ready")
+                        }
+                    }
                     if (mediaPageRequest == request && request >= 0 && firstThumbnailDraw != request &&
                         GalleryDiagnosticLogger.isEnabled()) {
                         val thumbnailKey = image.getTag(R.id.thumbnail_loaded_key)
-                        image.doOnPreDraw {
-                            if (request == displayedMediaRequest && mediaLoadRequests.isCurrent(request) &&
-                                firstThumbnailDraw != request && image.isShown &&
-                                image.getTag(R.id.thumbnail_request_key) == thumbnailKey && image.drawable != null) {
-                                firstThumbnailDraw = request
-                                logMediaPage(request, "media_first_thumbnail_rendered")
-                            }
-                        }
-                        image.invalidate()
+                        watchForFirstMediaThumbnailDraw(request, image, thumbnailKey)
                     }
                 }
                 sorting = config.getFolderSorting(if (mShowAll) SHOW_ALL else mPath)
@@ -2803,6 +2803,77 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (mediaPageRequest != request || !GalleryDiagnosticLogger.isEnabled()) return
         val elapsed = android.os.SystemClock.elapsedRealtime() - mediaPageOpenedAt
         FolderRefreshDiagnostics.event(request, event, detail = "elapsedMs=$elapsed $detail")
+    }
+
+    private fun watchForFirstMediaThumbnailDraw(
+        request: Long,
+        image: ImageView,
+        thumbnailKey: Any?
+    ) {
+        var removed = false
+        var observing: android.view.ViewTreeObserver? = null
+        lateinit var preDrawListener: android.view.ViewTreeObserver.OnPreDrawListener
+        lateinit var attachListener: View.OnAttachStateChangeListener
+
+        fun removePreDraw() {
+            observing?.let { if (it.isAlive) it.removeOnPreDrawListener(preDrawListener) }
+            observing = null
+        }
+
+        fun removeWatch() {
+            if (removed) return
+            removed = true
+            removePreDraw()
+            image.removeOnAttachStateChangeListener(attachListener)
+        }
+
+        fun watchAttachedView() {
+            if (removed || !image.isAttachedToWindow) return
+            val observer = image.viewTreeObserver
+            if (!observer.isAlive || observing === observer) return
+            removePreDraw()
+            observing = observer
+            observer.addOnPreDrawListener(preDrawListener)
+            image.invalidate()
+        }
+
+        attachListener = object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(view: View) = watchAttachedView()
+            override fun onViewDetachedFromWindow(view: View) = removePreDraw()
+        }
+        preDrawListener = android.view.ViewTreeObserver.OnPreDrawListener {
+            val current = request == mediaPageRequest && request == displayedMediaRequest &&
+                mediaLoadRequests.isCurrent(request) && firstThumbnailDraw != request &&
+                image.getTag(R.id.thumbnail_request_key) == thumbnailKey && image.drawable != null
+            if (!current) {
+                removeWatch()
+            } else {
+                val visibleRect = android.graphics.Rect()
+                if (image.isShown && image.getGlobalVisibleRect(visibleRect) &&
+                    !visibleRect.isEmpty) {
+                    firstThumbnailDraw = request
+                    logMediaPage(request, "media_first_thumbnail_rendered")
+                    removeWatch()
+                } else if (firstThumbnailNotVisible != request) {
+                    firstThumbnailNotVisible = request
+                    var ancestor: View? = image
+                    var hiddenBy = "none"
+                    while (ancestor != null) {
+                        if (ancestor.visibility != View.VISIBLE) {
+                            hiddenBy = ancestor.javaClass.simpleName
+                            break
+                        }
+                        ancestor = ancestor.parent as? View
+                    }
+                    logMediaPage(request, "media_thumbnail_waiting_for_visible_draw",
+                        "attached=${image.isAttachedToWindow}_shown=${image.isShown}_hiddenBy=${hiddenBy}_window=${image.windowVisibility}")
+                }
+            }
+            true
+        }
+
+        image.addOnAttachStateChangeListener(attachListener)
+        watchAttachedView()
     }
 
     private fun loadMediaPageCache(request: Long, folder: String, token: String?, target: Int) {

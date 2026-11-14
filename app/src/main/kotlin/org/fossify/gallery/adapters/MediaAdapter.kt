@@ -4,6 +4,7 @@ import java.util.concurrent.Executor
 import org.fossify.gallery.helpers.GalleryListDiffExecutor
 import org.fossify.gallery.helpers.MediaUpdatePolicy
 import org.fossify.gallery.helpers.MediaUpdateReason
+import org.fossify.gallery.helpers.MediaThumbnailPriorityPolicy
 import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
@@ -16,10 +17,12 @@ import android.widget.Toast
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.view.allViews
 import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.gallery.helpers.FavoritesScrollRestorer
 import org.fossify.gallery.helpers.PhotoProfileMediaLoader
 import com.bumptech.glide.Glide
+import com.bumptech.glide.Priority
 import com.squareup.picasso.Picasso
 import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 import org.fossify.commons.activities.BaseSimpleActivity
@@ -179,7 +182,7 @@ class MediaAdapter(
         val allowLongPress = (!isAGetIntent || allowMultiplePicks) && tmbItem is Medium
         holder.bindView(tmbItem, tmbItem is Medium, allowLongPress) { itemView, adapterPosition ->
             if (tmbItem is Medium) {
-                setupThumbnail(itemView, tmbItem)
+                setupThumbnail(itemView, tmbItem, thumbnailLoadPriority(adapterPosition))
             } else {
                 setupSection(itemView, tmbItem as ThumbnailSection)
             }
@@ -1089,7 +1092,14 @@ class MediaAdapter(
         notifyDataSetChanged()
     }
 
-    private fun setupThumbnail(view: View, medium: Medium) {
+    private fun thumbnailLoadPriority(position: Int): Priority {
+        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return Priority.NORMAL
+        val firstVisible = layoutManager.findFirstVisibleItemPosition()
+        val lastVisible = layoutManager.findLastVisibleItemPosition()
+        return MediaThumbnailPriorityPolicy.priority(position, firstVisible, lastVisible)
+    }
+
+    private fun setupThumbnail(view: View, medium: Medium, thumbnailPriority: Priority) {
         val isSelected = selectedKeys.contains(medium.path.hashCode())
         bindItem(view, medium).apply {
             val padding = if (config.thumbnailSpacing <= 1) {
@@ -1189,6 +1199,7 @@ class MediaAdapter(
                     signature = signature,
                     skipMemoryCacheAtPaths = rotatedImagePaths,
                     crossFadeDuration = 0,
+                    priority = thumbnailPriority,
                     onLoaded = {
                         mediumThumbnail.post {
                             if (mediumThumbnail.getTag(R.id.thumbnail_request_key) == requestKey &&

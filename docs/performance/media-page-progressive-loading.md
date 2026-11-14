@@ -77,3 +77,20 @@ Viewer 先显示 Glide 的 FIT_CENTER 图像，再让覆盖其上的 Subsampling
 - 当前未签名 ARM64 APK：`app/build/outputs/apk/foss/release/gallery-32-foss-arm64-v8a-release-unsigned.apk`，SHA-256 `77238e03a21d2e16b6456ddba91b8e318ca094fff0cca2590e06af2ad310e6fc`。另用一次性本地测试证书签名并通过 `apksigner verify` 的 ARM64 APK：`/private/tmp/gallery-perf-home-gallery-3a277b8db-arm64-test-signed.apk`，SHA-256 `c8f30b4dac30bced1ba8f8d97179cacd10ecbea744990bc17a5767efe3cfffd2`；包名 `org.fossify.gallery`、版本 `1.14.1`、ABI 仅 `arm64-v8a`。测试证书不能作为正式签名或用于覆盖正式签名安装，本轮没有把该 APK 安装到设备。
 - 复查发现本机唯一 AVD 是 Android 10 / API 29 的 Pixel 4，模拟器二进制报告主机处理器不兼容；因此它不构成可用于本次 Android 16 验收的模拟器。ADB 守护进程也仍因 `could not install *smartsocket* listener: Operation not permitted` 无法启动。此前记录的 API 37 抽样属于先前代码状态，不作为本次提交的视觉验收证据。
 - 本地 `perf/home-gallery-sorting` HEAD 为 `3a277b8db2ec383507c4a44501c842b01bb08c5b`，GitHub 只读 ref 查询确认远端仍为 `51792c1942f8ff4171fb2d1066bbcfdc8afd1024`。提交后的 workflow 与 APK artifact 仍待发布授权和远端运行；不得将旧基线的 Actions 成功计作当前代码的验证。
+
+### FastScroller 隐藏祖先的根因及实测验证（2026-11-14）
+
+本轮恢复连接的 Pixel 4 API 29 AVD 上，使用 `MediaPageStartupTest` 对含 5,000 张合成 JPEG 的 `.nomedia` 目录执行空缓存和 Room 热缓存两次启动。此前诊断记录发现首图 Drawable 已就绪，但 `RecyclerViewFastScroller` 在全量目录范围确认前被设为 `GONE`；该控件同时是 RecyclerView 的容器，因此整张网格都无法绘制。这里是首图等待的直接 UI 根因，和候选生成/Adapter 提交是不同阶段。
+
+修复将容器及网格保持 `VISIBLE`，仅在完整范围未就绪时将 FastScroller 的轨道、滑块和弹出标签设为 `INVISIBLE`，并禁用快速滚动；最终范围可用后再显示控件。仪器测试也检查真实 ImageView 已显示、缩略图标签已加载，且首图预绘制事件早于扫描完成。
+
+| 从 `media_page_open` 起算 | 空缓存 | Room 热缓存 |
+| --- | ---: | ---: |
+| 首个 Adapter 提交 | 240 ms（1 项） | 126 ms（21 项） |
+| 首张真实缩略图绘制 | 584 ms | 253 ms |
+| 扫描完成 | 894 ms | 620 ms |
+| 最终 Adapter 提交 | 906 ms | 637 ms |
+
+设备测试 1 项通过；两种缓存状态都成功提交全部 5,000 项，并确认首图早于扫描完成。完整 FOSS Debug JVM 套件为 **1,131 项、0 失败、0 错误**，仪器测试 Kotlin 编译成功。此设备是 Android 10 / API 29 Pixel 4 AVD，不代表 Google Pixel 8 Pro / Android 16 的测量；仍需在目标真机上复测布局、动画与帧率。
+
+本次代码的 ARM64 FOSS Release 重新构建成功。未签名 APK SHA-256 为 `3a85fecbbcef79376c750e72b6cb938f1789fc7f84106aaa97106b8d81c85a63`；用一次性本地测试证书签名并通过 `apksigner verify` 的可安装 APK 位于 `/private/tmp/gallery-final-home-gallery-arm64-test-signed.apk`，SHA-256 为 `fb44b9e3d68236fdf37784511973ddd01427366dbd9c00853ebe83407387732d`，包名 `org.fossify.gallery`、版本 `1.14.1`、ABI 为 `arm64-v8a`。该证书仅供本地测试，不能覆盖正式签名安装或用于后续升级。

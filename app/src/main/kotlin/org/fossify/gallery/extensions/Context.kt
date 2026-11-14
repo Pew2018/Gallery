@@ -380,7 +380,8 @@ fun Context.loadImage(
     skipMemoryCacheAtPaths: ArrayList<String>? = null,
     onError: (() -> Unit)? = null,
     onLoaded: (() -> Unit)? = null,
-    crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS
+    crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
+    priority: Priority = Priority.LOW
 ) {
     target.isHorizontalScrolling = horizontalScroll
     if (type == TYPE_SVGS) {
@@ -391,7 +392,8 @@ fun Context.loadImage(
             roundCorners = roundCorners,
             signature = signature,
             crossFadeDuration = crossFadeDuration,
-            onLoaded = onLoaded
+            onLoaded = onLoaded,
+            priority = priority
         )
     } else {
         loadImageBase(
@@ -405,7 +407,8 @@ fun Context.loadImage(
             tryLoadingWithPicasso = type == TYPE_IMAGES && path.isPng(),
             onError = onError,
             onLoaded = onLoaded,
-            crossFadeDuration = crossFadeDuration
+            crossFadeDuration = crossFadeDuration,
+            priority = priority
         )
     }
 }
@@ -455,13 +458,14 @@ fun Context.loadImageBase(
     tryLoadingWithPicasso: Boolean = false,
     crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
     onError: (() -> Unit)? = null,
-    onLoaded: (() -> Unit)? = null
+    onLoaded: (() -> Unit)? = null,
+    priority: Priority = Priority.LOW
 ) {
     val bindingToken = target.getTag(R.id.thumbnail_request_key)
     val options = RequestOptions()
         .signature(signature)
         .skipMemoryCache(skipMemoryCacheAtPaths?.contains(path) == true)
-        .priority(Priority.LOW)
+        .priority(priority)
         .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
         .format(DecodeFormat.PREFER_ARGB_8888)
         .placeholder(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
@@ -557,6 +561,7 @@ fun Context.loadSVG(
     signature: ObjectKey,
     crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
     onLoaded: (() -> Unit)? = null,
+    priority: Priority = Priority.LOW,
 ) {
     target.scaleType = if (cropThumbnails) {
         ImageView.ScaleType.CENTER_CROP
@@ -564,7 +569,7 @@ fun Context.loadSVG(
         ImageView.ScaleType.FIT_CENTER
     }
 
-    val options = RequestOptions().signature(signature)
+    val options = RequestOptions().signature(signature).priority(priority)
     val bindingToken = target.getTag(R.id.thumbnail_request_key)
     var builder = Glide.with(target)
         .`as`(PictureDrawable::class.java)

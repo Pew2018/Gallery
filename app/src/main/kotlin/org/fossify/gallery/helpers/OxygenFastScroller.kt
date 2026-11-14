@@ -24,6 +24,24 @@ object OxygenFastScroller {
     private val pickerStates = WeakHashMap<RecyclerViewFastScroller, PickerScrollState>()
     private const val HIDE_DELAY_MS = 650L
     private const val FADE_DURATION_MS = 180L
+
+    /** Keep the RecyclerView visible while its final scroll range is unknown. */
+    fun setRangeAvailable(scroller: RecyclerViewFastScroller, available: Boolean) {
+        scroller.visibility = View.VISIBLE
+        scroller.isFastScrollEnabled = available
+        val childVisibility = if (available) View.VISIBLE else View.INVISIBLE
+        scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.thumbIV)?.apply {
+            visibility = childVisibility
+            isEnabled = available
+        }
+        scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.trackView)?.apply {
+            visibility = childVisibility
+            isEnabled = available
+        }
+        scroller.popupTextView.visibility = childVisibility
+        scroller.popupTextView.isEnabled = available
+    }
+
     // Keep the existing call signature so no unrelated Activity code has to change.
     @Suppress("UNUSED_PARAMETER")
     fun apply(
