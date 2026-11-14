@@ -35,7 +35,7 @@
     <!-- Activity Window motion tokens; kept in XML for WindowManager-owned transitions. -->
     <integer name="oxygen_classic_page_enter_duration_ms">170</integer>
     <integer name="oxygen_classic_page_exit_duration_ms">140</integer>
-    <dimen name="oxygen_classic_page_enter_offset">14dp</dimen>
+    <dimen name="oxygen_classic_page_enter_offset">8dp</dimen>
     <dimen name="oxygen_classic_page_return_offset">10dp</dimen>
     <style name="OxygenClassicPageWindow">
         <item name="android:windowEnterAnimation">@anim/oxygen_classic_page_open_enter</item>

@@ -283,41 +283,44 @@ class PhotoViewerInteractiveGestureTest {
             assertTrue("the selected album cover should be one of the generated fixture images",
                 fixtures.any { it.second == expectedCoverPath })
 
-            val monitor = instrumentation.addMonitor(MediaActivity::class.java.name, null, false)
-            instrumentation.runOnMainSync {
-                check(folderCard.performClick()) { "the album card did not accept a click" }
-            }
-            media = instrumentation.waitForMonitorWithTimeout(monitor, 15_000) as? MediaActivity
-                ?: error("clicking the home album card did not open MediaActivity")
-            instrumentation.removeMonitor(monitor)
-            val mediaActivity = media!!
+            repeat(20) { cycle ->
+                val visibleCard = awaitDirectoryCard(instrumentation, homeActivity, fixtureDirectory)
+                val monitor = instrumentation.addMonitor(MediaActivity::class.java.name, null, false)
+                instrumentation.runOnMainSync {
+                    check(visibleCard.performClick()) { "album card did not accept click on cycle $cycle" }
+                }
+                media = instrumentation.waitForMonitorWithTimeout(monitor, 15_000) as? MediaActivity
+                    ?: error("clicking the home album card did not open MediaActivity on cycle $cycle")
+                instrumentation.removeMonitor(monitor)
+                val mediaActivity = media!!
 
-            assertTrue("folder navigation should not depend on a cover shared element",
-                !mediaActivity.intent.getBooleanExtra(
-                    org.fossify.gallery.helpers.AlbumPageTransition.EXTRA_ACTIVE, false
-                ))
-            awaitSourceThumbnail(instrumentation, mediaActivity, expectedCoverPath)
-            instrumentation.runOnMainSync {
-                val grid = mediaActivity.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.media_grid)
-                val visibleRows = (0 until grid.childCount).map(grid::getChildAt)
-                assertTrue("the fixture album should show multiple media rows", visibleRows.size > 1)
-                assertTrue("entering an album should keep every visible row fully opaque",
-                    visibleRows.all { it.alpha == 1f })
-            }
+                assertTrue("folder navigation should not depend on a cover shared element",
+                    !mediaActivity.intent.getBooleanExtra(
+                        org.fossify.gallery.helpers.AlbumPageTransition.EXTRA_ACTIVE, false
+                    ))
+                awaitSourceThumbnail(instrumentation, mediaActivity, expectedCoverPath)
+                instrumentation.runOnMainSync {
+                    val grid = mediaActivity.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.media_grid)
+                    val visibleRows = (0 until grid.childCount).map(grid::getChildAt)
+                    assertTrue("the fixture album should show multiple media rows", visibleRows.size > 1)
+                    assertTrue("entering an album should keep every visible row fully opaque",
+                        visibleRows.all { it.alpha == 1f })
+                }
 
-            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-            val returnDeadline = SystemClock.uptimeMillis() + 5_000
-            var returnedCard: View? = null
-            while (SystemClock.uptimeMillis() < returnDeadline && returnedCard == null) {
-                returnedCard = runCatching {
-                    awaitDirectoryCard(instrumentation, homeActivity, fixtureDirectory, 300)
-                }.getOrNull()
-                if (returnedCard == null) SystemClock.sleep(50)
+                instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+                val returnDeadline = SystemClock.uptimeMillis() + 5_000
+                var returnedCard: View? = null
+                while (SystemClock.uptimeMillis() < returnDeadline && returnedCard == null) {
+                    returnedCard = runCatching {
+                        awaitDirectoryCard(instrumentation, homeActivity, fixtureDirectory, 300)
+                    }.getOrNull()
+                    if (returnedCard == null) SystemClock.sleep(50)
+                }
+                assertNotNull("system Back should return to the same album card on cycle $cycle", returnedCard)
+                assertTrue("returned album cover should still be decoded on cycle $cycle",
+                    returnedCard!!.findViewById<ImageView>(R.id.dir_thumbnail).drawable != null)
+                assertTrue("folder return should keep the original home Activity alive", !homeActivity.isFinishing)
             }
-            assertNotNull("system Back should return to the same visible album card", returnedCard)
-            assertTrue("the returned album cover should still be decoded",
-                returnedCard!!.findViewById<ImageView>(R.id.dir_thumbnail).drawable != null)
-            assertTrue("folder return should leave the original home Activity alive", !homeActivity.isFinishing)
         } finally {
             runCatching { media?.finish() }
             runCatching { home?.finish() }
