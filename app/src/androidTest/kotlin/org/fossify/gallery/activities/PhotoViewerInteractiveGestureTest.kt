@@ -55,6 +55,12 @@ import org.fossify.gallery.models.FavoriteFolder
 import org.fossify.gallery.models.Medium
 import org.fossify.gallery.views.ProgressivePhotoViewPager
 import org.fossify.commons.helpers.SORT_BY_NAME
+import org.fossify.commons.helpers.SORT_BY_DATE_MODIFIED
+import org.fossify.commons.helpers.SORT_BY_DATE_TAKEN
+import org.fossify.commons.helpers.SORT_BY_PATH
+import org.fossify.commons.helpers.SORT_BY_SIZE
+import org.fossify.commons.helpers.SORT_DESCENDING
+import org.fossify.commons.helpers.SORT_USE_NUMERIC_VALUE
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -82,7 +88,7 @@ class PhotoViewerInteractiveGestureTest {
     private data class SwipeRun(val thread: Thread, val deviceInjectionWorked: AtomicBoolean)
 
     @Test
-    fun thousandRealFilesMatchConfiguredNameOrderOnDevice() {
+    fun thousandRealFilesFollowConfiguredSortModesOnDevice() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         grantMediaPermission(context)
@@ -98,7 +104,7 @@ class PhotoViewerInteractiveGestureTest {
             repeat(1_000) { index ->
                 fixtures += createFixture(
                     context, album, width = 24, height = 24,
-                    displayName = "IMG_${(1_000 - index).toString().padStart(4, '0')}.png",
+                    displayName = "IMG_${1_000 - index}.png",
                 )
             }
             val rows = fixtures.map { java.io.File(it.second).name to it.second }
@@ -129,11 +135,57 @@ class PhotoViewerInteractiveGestureTest {
                 SystemClock.sleep(100)
             }
             val actualNames = adapter?.media?.filterIsInstance<Medium>()?.map { it.name }.orEmpty()
-            val expectedNames = rows.map { it.first }.sorted()
             assertTrue("the real-file scan reaches its complete terminal result", displayedFinal)
             assertEquals("the scan reaches the complete real-file catalog", rows.size, actualNames.size)
             assertEquals("the final 1,000-row grid follows the selected ascending name sort",
-                expectedNames, actualNames)
+                rows.map { it.first }.sorted(), actualNames)
+
+            val getMedia = MediaActivity::class.java.getDeclaredMethod(
+                "getMedia", Boolean::class.javaPrimitiveType, String::class.java,
+            ).apply { isAccessible = true }
+            val refreshRequest = MediaActivity::class.java.getDeclaredField("mediaRefreshRequest")
+                .apply { isAccessible = true }
+            val displayedRequest = MediaActivity::class.java.getDeclaredField("displayedMediaRequest")
+                .apply { isAccessible = true }
+            val modes = listOf(
+                SORT_BY_NAME or SORT_DESCENDING,
+                SORT_BY_NAME or SORT_USE_NUMERIC_VALUE,
+                SORT_BY_NAME or SORT_USE_NUMERIC_VALUE or SORT_DESCENDING,
+                SORT_BY_DATE_TAKEN,
+                SORT_BY_DATE_TAKEN or SORT_DESCENDING,
+                SORT_BY_DATE_MODIFIED,
+                SORT_BY_DATE_MODIFIED or SORT_DESCENDING,
+                SORT_BY_PATH,
+                SORT_BY_PATH or SORT_DESCENDING,
+                SORT_BY_SIZE,
+                SORT_BY_SIZE or SORT_DESCENDING,
+            )
+            modes.forEach { sorting ->
+                context.config.saveCustomSorting(folderPath, sorting)
+                val previousRequest = refreshRequest.getLong(page)
+                instrumentation.runOnMainSync { getMedia.invoke(page, false, "sort_regression_$sorting") }
+                var completed = false
+                val sortDeadline = SystemClock.uptimeMillis() + 45_000
+                while (SystemClock.uptimeMillis() < sortDeadline) {
+                    instrumentation.runOnMainSync {
+                        adapter = adapterGetter.invoke(page) as? MediaAdapter
+                        displayedFinal = finalFlag.getBoolean(page)
+                        val request = refreshRequest.getLong(page)
+                        completed = request > previousRequest && displayedRequest.getLong(page) == request &&
+                            displayedFinal && adapter?.media?.filterIsInstance<Medium>()?.size == rows.size
+                    }
+                    if (completed) break
+                    SystemClock.sleep(100)
+                }
+                assertTrue("sort mode $sorting reaches its full terminal result", completed)
+                val actual = adapter?.media?.filterIsInstance<Medium>().orEmpty()
+                assertEquals("sort mode $sorting has no duplicate or missing paths", rows.size,
+                    actual.map { it.path }.toSet().size)
+                val expected = ArrayList(actual.map { it.copy() })
+                org.fossify.gallery.helpers.MediaFetcher(context).sortMedia(expected, sorting)
+                assertEquals("the real 1,000-file grid follows comparator mode $sorting",
+                    expected.map { it.path }, actual.map { it.path })
+            }
         } finally {
             activity?.let { instrumentation.runOnMainSync { it.finish() } }
             if (hadCustomSorting) context.config.saveCustomSorting(folderPath, previousSorting)
@@ -620,11 +672,16 @@ class PhotoViewerInteractiveGestureTest {
         val context = instrumentation.targetContext
         grantMediaPermission(context)
         val album = "${Environment.DIRECTORY_PICTURES}/GalleryPhotoProfileReturnTest-${UUID.randomUUID()}"
-        val fixtures = List(41) { createFixture(context, album) }
+        val fixtures = List(41) { index ->
+            createFixture(context, album, displayName = "profile_${(41 - index).toString().padStart(3, '0')}.png")
+        }
         val fixturePaths = fixtures.mapTo(HashSet()) { it.second }
         val store = PhotoProfileRepository.of(context)
         val previousState = store.state()
         val profileId = UUID.randomUUID().toString()
+        val profileSortKey = PhotoProfileMediaLoader.PATH
+        val hadProfileSorting = context.config.hasCustomSorting(profileSortKey)
+        val previousProfileSorting = context.config.getFolderSorting(profileSortKey)
         val wasShowingAllMedia = context.config.showAll
         var source: MediaActivity? = null
         var viewer: ViewPagerActivity? = null
@@ -632,6 +689,7 @@ class PhotoViewerInteractiveGestureTest {
             store.save(PhotoProfile(profileId, "Viewer return test", listOf(
                 PhotoSource(PhotoSourceType.FOLDER, java.io.File(fixtures.first().second).parent)
             )))
+            context.config.saveCustomSorting(profileSortKey, SORT_BY_NAME)
             context.config.showAll = false
             val sourceIntent = Intent(context, MediaActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -660,6 +718,9 @@ class PhotoViewerInteractiveGestureTest {
                 }
             }
             assertEquals("custom profile should expose every generated source photo", fixtures.size, sourcePaths.size)
+            assertEquals("custom photo profile follows configured ascending name order",
+                fixtures.map { java.io.File(it.second).name }.sorted(),
+                sourcePaths.map { java.io.File(it).name })
             val initialPath = sourcePaths[sourcePaths.size / 2]
             instrumentation.runOnMainSync {
                 val grid = sourceActivity.findViewById<RecyclerView>(R.id.media_grid)
@@ -764,6 +825,8 @@ class PhotoViewerInteractiveGestureTest {
             previousState.selectedId?.let(store::select)
             PhotoProfileMediaCache.invalidate()
             context.config.showAll = wasShowingAllMedia
+            if (hadProfileSorting) context.config.saveCustomSorting(profileSortKey, previousProfileSorting)
+            else context.config.removeCustomSorting(profileSortKey)
             fixtures.forEach { fixture -> runCatching { context.contentResolver.delete(fixture.first, null, null) } }
         }
     }
