@@ -1310,7 +1310,7 @@ class PhotoViewerInteractiveGestureTest {
             }
             val sourceActivity = instrumentation.startActivitySync(sourceIntent) as MediaActivity
             source = sourceActivity
-            awaitAnySourceThumbnail(instrumentation, sourceActivity, fixtures.mapTo(HashSet()) { it.second })
+            awaitSourceThumbnail(instrumentation, sourceActivity, fixtures.first().second)
             val openViewer = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java)
                 .apply { isAccessible = true }
 
@@ -1320,6 +1320,33 @@ class PhotoViewerInteractiveGestureTest {
                 val viewer = instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
                     ?: error("Gallery did not open video fixture $index")
                 instrumentation.removeMonitor(monitor)
+
+                val hueFrames = mutableListOf<Int>()
+                repeat(12) { frameIndex ->
+                    val frame = instrumentation.uiAutomation.takeScreenshot()
+                        ?: error("could not capture video transition frame $frameIndex")
+                    var matchingPixels = 0
+                    for (y in 0 until frame.height step 4) {
+                        for (x in 0 until frame.width step 4) {
+                            val color = frame.getPixel(x, y)
+                            val red = android.graphics.Color.red(color)
+                            val green = android.graphics.Color.green(color)
+                            val blue = android.graphics.Color.blue(color)
+                            if (if (index == 0) red > green * 1.4 && red > blue * 1.4
+                                else blue > red * 1.4 && blue > green * 1.4) {
+                                matchingPixels++
+                            }
+                        }
+                    }
+                    hueFrames += matchingPixels
+                    frame.recycle()
+                    SystemClock.sleep(32)
+                }
+                assertTrue(
+                    "the source video color remains represented through each sampled opening frame; " +
+                        "matches=$hueFrames",
+                    hueFrames.all { it > 4 },
+                )
 
                 val deadline = SystemClock.uptimeMillis() + 15_000
                 var sharedSurface: View? = null
