@@ -25,6 +25,7 @@ import androidx.recyclerview.widget.RecyclerView
 import android.widget.ImageView
 import android.view.MotionEvent
 import android.view.View
+import androidx.exifinterface.media.ExifInterface
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.fossify.commons.helpers.IS_FROM_GALLERY
@@ -1229,8 +1230,10 @@ class PhotoViewerInteractiveGestureTest {
         val context = instrumentation.targetContext
         grantMediaPermission(context)
         val album = "${Environment.DIRECTORY_PICTURES}/GalleryAspectRatioTest-${UUID.randomUUID()}"
-        val dimensions = listOf(960 to 540, 540 to 960, 720 to 720, 1440 to 480)
-        val fixtures = dimensions.map { (width, height) -> createFixture(context, album, width, height) }
+        val dimensions = listOf(960 to 540, 540 to 960, 720 to 720, 1440 to 480, 3840 to 2160)
+        val fixtures = dimensions.map { size ->
+            createFixture(context, album, size.first, size.second) to size
+        } + listOf(createExifRotatedFixture(context, album, 800, 1200) to (1200 to 800))
         val wasZoomingEnabled = context.config.allowZoomingImages
         val wasShowingAllMedia = context.config.showAll
         var source: MediaActivity? = null
@@ -1238,7 +1241,7 @@ class PhotoViewerInteractiveGestureTest {
             context.config.allowZoomingImages = false
             context.config.showAll = false
 
-            val firstPath = fixtures.first().second
+            val firstPath = fixtures.first().first.second
             val sourceIntent = Intent(context, MediaActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 putExtra(DIRECTORY, java.io.File(firstPath).parent)
@@ -1250,7 +1253,11 @@ class PhotoViewerInteractiveGestureTest {
                 .getDeclaredMethod("openInViewPager", String::class.java)
                 .apply { isAccessible = true }
 
-            fixtures.zip(dimensions).forEachIndexed { index, (fixture, size) ->
+            fixtures.forEachIndexed { index, (fixture, size) ->
+                if (index == fixtures.lastIndex) {
+                    assertEquals("the final still fixture carries a real 90-degree EXIF rotation",
+                        90, ExifInterface(fixture.second).rotationDegrees)
+                }
                 val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
                 instrumentation.runOnMainSync { openViewer.invoke(sourceActivity, fixture.second) }
                 val viewer = instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
@@ -1337,7 +1344,7 @@ class PhotoViewerInteractiveGestureTest {
                     sourceActivity.hasWindowFocus(),
                 )
                 if (index < fixtures.lastIndex) {
-                    awaitSourceThumbnail(instrumentation, sourceActivity, fixtures[index + 1].second)
+                    awaitSourceThumbnail(instrumentation, sourceActivity, fixtures[index + 1].first.second)
                     val launchGuard = MediaActivity::class.java.getDeclaredField("viewerLaunchInProgress")
                         .apply { isAccessible = true }
                     val returnDeadline = SystemClock.uptimeMillis() + 5_000
@@ -1351,7 +1358,7 @@ class PhotoViewerInteractiveGestureTest {
         } finally {
             context.config.allowZoomingImages = wasZoomingEnabled
             context.config.showAll = wasShowingAllMedia
-            fixtures.forEach { runCatching { context.contentResolver.delete(it.first, null, null) } }
+            fixtures.forEach { runCatching { context.contentResolver.delete(it.first.first, null, null) } }
             source?.let { instrumentation.runOnMainSync { it.finish() } }
         }
     }
@@ -1919,6 +1926,38 @@ class PhotoViewerInteractiveGestureTest {
         val path = resolver.query(uri, arrayOf(MediaStore.Images.Media.DATA), null, null, null)?.use { cursor ->
             if (cursor.moveToFirst()) cursor.getString(0) else null
         } ?: error("The emulator did not expose the test image path")
+        return uri to path
+    }
+
+    private fun createExifRotatedFixture(
+        context: Context,
+        relativePath: String,
+        width: Int,
+        height: Int,
+    ): Pair<Uri, String> {
+        val resolver = context.contentResolver
+        val temporaryFile = java.io.File(context.cacheDir, "gallery-exif-${UUID.randomUUID()}.jpg")
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        Canvas(bitmap).drawColor(Color.MAGENTA)
+        temporaryFile.outputStream().use { output ->
+            check(bitmap.compress(Bitmap.CompressFormat.JPEG, 92, output)) { "could not write EXIF fixture" }
+        }
+        bitmap.recycle()
+        ExifInterface(temporaryFile.absolutePath).apply {
+            setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_ROTATE_90.toString())
+            saveAttributes()
+        }
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, "gallery-exif-rotated-${UUID.randomUUID()}.jpg")
+            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            put(MediaStore.Images.Media.RELATIVE_PATH, relativePath)
+        }) ?: error("Could not create emulator EXIF image fixture")
+        resolver.openOutputStream(uri)?.use { output -> temporaryFile.inputStream().use { it.copyTo(output) } }
+            ?: error("Could not open EXIF image fixture")
+        temporaryFile.delete()
+        val path = resolver.query(uri, arrayOf(MediaStore.Images.Media.DATA), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        } ?: error("The emulator did not expose the EXIF image path")
         return uri to path
     }
 
