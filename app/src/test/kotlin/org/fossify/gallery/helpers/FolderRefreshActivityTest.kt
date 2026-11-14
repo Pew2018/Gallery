@@ -448,6 +448,68 @@ class FolderRefreshActivityTest {
         }
     }
 
+    @Test fun progressivePageRegroupsCorrectedRowsAndRejectsOldSortingAfterCompletion() {
+        val old = photo("old.jpg")
+        val moved = photo("moved.png")
+        val newest = photo("newest.jpg")
+        val descending = org.fossify.commons.helpers.SORT_BY_DATE_TAKEN or org.fossify.commons.helpers.SORT_DESCENDING
+        val ascending = org.fossify.commons.helpers.SORT_BY_DATE_TAKEN
+        context.config.saveCustomSorting(root.path, descending)
+        context.config.saveFolderGrouping(root.path, GROUP_BY_EXTENSION)
+        fun row(file: File, taken: Long) =
+            Medium(null, file.name, file.path, root.path, taken, taken, 2, TYPE_IMAGES, 0, false, 0, 0)
+        withActivity { activity ->
+            val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
+            val request = requests.begin()
+            (field(activity, "mediaScanTerminals").get(activity) as GalleryScanTerminalGate).begin(request)
+            field(activity, "mediaRefreshRequest").setLong(activity, request)
+            field(activity, "mediaPageRequest").setLong(activity, request)
+            field(activity, "mIsGettingMedia").setBoolean(activity, true)
+            val preview = MediaActivity::class.java.getDeclaredMethod("publishPagePreview",
+                Long::class.javaPrimitiveType, MediaPageBatch::class.java).apply { isAccessible = true }
+            fun deliver(stage: DisplayedSourceStage, vararg rows: Medium, id: Long = request) =
+                preview.invoke(activity, id, MediaPageBatch(stage, rows.toList()) { true })
+            val grid = activity.findViewById<MyRecyclerView>(R.id.media_grid)
+            fun order() = (grid.adapter as? MediaAdapter)?.media.orEmpty().map {
+                when (it) {
+                    is Medium -> it.name
+                    is org.fossify.gallery.models.ThumbnailSection -> it.title
+                    else -> error("Unknown grid row")
+                }
+            }
+            deliver(DisplayedSourceStage.CACHE_PREVIEW, row(old, 10), row(moved, 12))
+            await { order() == listOf("JPG", old.name, "PNG", moved.name) }
+            val adapter = grid.adapter
+            deliver(DisplayedSourceStage.INDEX_PREVIEW, row(old, 10), row(moved, 14))
+            deliver(DisplayedSourceStage.SCAN_PARTIAL, row(newest, 20))
+            await { order() == listOf("JPG", newest.name, old.name, "PNG", moved.name) }
+
+            context.config.saveCustomSorting(root.path, ascending)
+            val gate = field(activity, "mediaSortOperations").get(activity) as MediaSortOperationGate
+            val reorder = MediaActivity::class.java.getDeclaredMethod("previewSortDuringFolderScan",
+                Long::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
+            assertEquals(true, reorder.invoke(activity, gate.begin(), android.os.SystemClock.elapsedRealtime()))
+            val expected = listOf("JPG", old.name, newest.name, "PNG", moved.name)
+            await { order() == expected }
+            assertFalse(field(activity, "displayedMediaIsFinal").getBoolean(activity))
+
+            field(activity, "mediaScanOutcomeRequest").setLong(activity, request)
+            field(activity, "mediaScanOutcome").set(activity, GalleryScanResult(GalleryScanState.COMPLETE))
+            val publishScan = MediaActivity::class.java.getDeclaredMethod("publishPageScan",
+                Long::class.javaPrimitiveType, Int::class.javaObjectType, ArrayList::class.java, Function0::class.java)
+                .apply { isAccessible = true }
+            publishScan.invoke(activity, request, descending, arrayListOf(row(newest, 20), row(old, 10), row(moved, 14)),
+                { true })
+            await { field(activity, "displayedMediaIsFinal").getBoolean(activity) }
+            assertEquals(expected, order())
+            assertSame(adapter, grid.adapter)
+            deliver(DisplayedSourceStage.SCAN_PARTIAL, row(newest, 1))
+            deliver(DisplayedSourceStage.SCAN_PARTIAL, row(newest, 1), id = request - 1)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(expected, order())
+        }
+    }
+
     @Test fun ordinaryCachePreviewSortsBeforeAnyReadResultAndDoesNotRestartScan() {
         File(root, ".nomedia").delete()
         context.config.saveCustomSorting(root.path, org.fossify.commons.helpers.SORT_BY_NAME)

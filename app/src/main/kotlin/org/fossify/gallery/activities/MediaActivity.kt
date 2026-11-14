@@ -1,6 +1,11 @@
 package org.fossify.gallery.activities
 
 import androidx.core.view.doOnPreDraw
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.fossify.gallery.helpers.OxygenClassicActivityMotion
 
 import org.fossify.gallery.helpers.PhotoProfileAccessSessionManager
@@ -42,6 +47,8 @@ import org.fossify.gallery.helpers.GalleryScanResult
 import org.fossify.gallery.helpers.GalleryScanState
 import org.fossify.gallery.helpers.MediaPageBatch
 import org.fossify.gallery.helpers.MediaPagePreview
+import org.fossify.gallery.helpers.PhotoProfileScope
+import org.fossify.gallery.helpers.StagedMediaOrder
 import org.fossify.gallery.extensions.getMediaPageCache
 import android.app.ActivityOptions
 import android.app.SharedElementCallback
@@ -443,12 +450,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun getPhotoProfileMedia(
-        reason: org.fossify.gallery.helpers.PhotoLoadReason = org.fossify.gallery.helpers.PhotoLoadReason.REFRESH
+        reason: org.fossify.gallery.helpers.PhotoLoadReason = org.fossify.gallery.helpers.PhotoLoadReason.REFRESH,
+        previousSortScope: PhotoProfileScope? = null
     ) {
         if (photoToken() != null) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         val profile = PhotoProfileRepository.of(this).state().current
         photoProfileId = profile?.id
-        photoNeedsUnlock = false
         val request = mediaLoadRequests.begin()
         photoActiveRequestId = request
         mCurrAsyncTask?.stopFetching()
@@ -456,11 +463,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             photoScroll.clear()
             photoScrollProfileId = null
         }
-        val requestedKey = photoDisplayKey()
+        val scope = PhotoProfileScope.capture(this, profile?.id, photoToken())
+        val requestedKey = scope.toString()
+        val sortOnly = previousSortScope != null && scope != null &&
+            previousSortScope.copy(sorting = scope.sorting) == scope
+        val retainedKey = if (sortOnly) previousSortScope.toString() else requestedKey
         val retainGrid = reason != org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED &&
-            !photoNeedsUnlock && photoLoadedKey == requestedKey &&
+            !photoNeedsUnlock && photoLoadedKey == retainedKey &&
             photoLoadedRevision == org.fossify.gallery.helpers.PhotoContentRevision.current() &&
             getMediaAdapter() != null && mMedia.isNotEmpty()
+        photoNeedsUnlock = false
         photoGridPublication.clear()
         photoPublishedStage = -1
         photoRequestStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
@@ -496,6 +508,21 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             return
         }
         val requestedToken = photoToken()
+        val order = if (retainGrid && sortOnly) StagedMediaOrder() else null
+        if (order != null && scope != null) {
+            photoLoadedKey = requestedKey
+            val rows = mMedia.filterIsInstance<Medium>().mapTo(ArrayList()) { it.copy() }
+            lifecycleScope.launch {
+                withContext(Dispatchers.Default) {
+                    order.sort(rows, scope.sorting, MediaFetcher(applicationContext))
+                }
+                if (mediaLoadRequests.isCurrent(request) && photoDisplayKey() == requestedKey &&
+                    photoLoadedRevision == org.fossify.gallery.helpers.PhotoContentRevision.current() &&
+                    photoPublishedStage < 0 && !isFinishing && !isDestroyed) {
+                    publishMedia(ArrayList<ThumbnailItem>(rows), true, request)
+                }
+            }
+        }
         mIsGettingMedia = true
         if (reason == org.fossify.gallery.helpers.PhotoLoadReason.REFRESH) {
             binding.mediaRefreshLayout.isRefreshing = true
@@ -514,6 +541,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             },
             photoAllowPreview = !retainGrid,
             photoAnchorPath = photoScroll.pending?.path,
+            photoOrder = order,
             onPhotoResult = photoResult@{ result ->
                 // The shared worker/store still publishes every validated stage
                 // to the viewer. A stopped grid needs only the final snapshot.
@@ -579,6 +607,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             if (accessChanged) refreshMenuItems()
             if (!complete) {
                 photoLoadedKey = requestedKey
+                photoLoadedRevision = result.context.revision
                 mIsGettingMedia = true
                 setMediaLoading(true)
             }
@@ -633,6 +662,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var displayedMediaRequest = -1L
     private var displayedMediaIsFinal = false
     private var mediaPagePreview = MediaPagePreview()
+    private var mediaPageOrder = StagedMediaOrder()
+    private var mediaPagePreviewJob: Job? = null
+    private var mediaPagePendingAccess: (() -> Boolean)? = null
     private var mediaPageAccess: (() -> Boolean)? = null
     private var mediaPageRequest = -1L
     private var firstAdapterCommit = -1L
@@ -2122,6 +2154,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun showSortingDialog() {
+        val previousPhotoScope = if (isPhotoProfiles) PhotoProfileScope.capture(this, photoProfileId, photoToken()) else null
         ChangeSortingDialog(this, false, true, mPath) {
             val sortOperation = mediaSortOperations.begin()
             val startedAt = android.os.SystemClock.elapsedRealtime()
@@ -2140,6 +2173,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         "scanRequest" to mediaRefreshRequest,
                         "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath))
                 )
+            if (isPhotoProfiles) {
+                getPhotoProfileMedia(org.fossify.gallery.helpers.PhotoLoadReason.ENTER, previousPhotoScope)
+                return@ChangeSortingDialog
+            }
             if (tryResortVirtualMediaSnapshot(sortOperation, startedAt)) return@ChangeSortingDialog
             if (resortCompletedPhysicalFolder(sortOperation, startedAt)) return@ChangeSortingDialog
             if (previewSortDuringFolderScan(sortOperation, startedAt)) return@ChangeSortingDialog
@@ -2414,8 +2451,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val snapshot = displayedFolderSnapshot?.takeIf { it.request == request }
         val sourceVersion = displayedSourceVersion
         val adapter = getMediaAdapter() ?: return false
-        val source = ArrayList(mMedia)
-        val sourcePaths = source.filterIsInstance<Medium>().mapTo(HashSet()) { it.path }
+        val source = mMedia.filterIsInstance<Medium>()
+        val sourcePaths = source.mapTo(HashSet()) { it.path }
         val adapterMatches = adapter.media.filterIsInstance<Medium>().all { it.path in sourcePaths }
         val token = folderUnlockSessionId
         val eligible = org.fossify.gallery.helpers.MediaSortPreviewPolicy.canPreview(
@@ -2434,12 +2471,15 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
         val folder = if (mShowAll) SHOW_ALL else mPath
         val sorting = config.getFolderSorting(folder)
+        val order = mediaPageOrder
         logSortSnapshotSelected(sortOperation, request, sorting,
             snapshot?.stage?.name ?: "UNKNOWN", source.size)
         ensureBackgroundThread {
             try {
-                val sorted = ArrayList(source.filterIsInstance<Medium>().map { it.copy() })
-                MediaFetcher(applicationContext).sortMedia(sorted, sorting)
+                val sorted = source.mapTo(ArrayList(source.size)) { it.copy() }
+                val fetcher = MediaFetcher(applicationContext)
+                order.sort(sorted, sorting, fetcher)
+                val grouped = fetcher.groupMedia(sorted, folder)
                 runOnUiThread {
                     if (isFinishing || isDestroyed || !mediaSortOperations.isCurrent(sortOperation) ||
                         displayedMediaRequest != request || !mediaLoadRequests.isCurrent(scanRequest) ||
@@ -2450,7 +2490,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         logSortStaleDrop(sortOperation, request, sorting, "preview_snapshot_or_access_changed")
                         return@runOnUiThread
                     }
-                    mMedia = ArrayList(sorted)
+                    mMedia = grouped
                     setupAdapter(MediaUpdateReason.USER_SORT) {
                         val sourceIsPartial = read?.status != org.fossify.gallery.helpers.FolderReadStatus.COMPLETE
                         logSortCommit("sort_preview_committed", sortOperation, request, sorting, sourceIsPartial,
@@ -2746,7 +2786,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             val token = folderUnlockSessionId
             val target = mediaViewportItems()
             mediaPageRequest = request
+            mediaPagePreviewJob?.cancel()
             mediaPagePreview = MediaPagePreview()
+            mediaPageOrder = StagedMediaOrder()
+            mediaPagePendingAccess = null
             mediaPageOpenedAt = android.os.SystemClock.elapsedRealtime()
             logMediaPage(request, "media_page_open")
             if (getMediaAdapter()?.media?.any { it is Medium } != true) {
@@ -2921,16 +2964,41 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         // Refreshes keep the already committed grid until the final result. The
         // first page request can grow from cache/index even while the first diff runs.
         if (displayedMediaRequest != request && getMediaAdapter()?.media?.any { it is Medium } == true) return
-        val rows = mediaPagePreview.add(batch.stage, batch.rows,
-            mMedia.takeIf { displayedMediaRequest == request }.orEmpty()) ?: return
-        val previousAccess = mediaPageAccess.takeIf { displayedMediaRequest == request }
-        val access = {
-            batch.accessCurrent() && previousAccess?.invoke() != false
+        val rows = mediaPagePreview.add(batch.stage, batch.rows) ?: return
+        val previousAccess = mediaPagePendingAccess
+        val access = { batch.accessCurrent() && previousAccess?.invoke() != false }
+        mediaPagePendingAccess = access
+        sortPagePreview(request, batch.stage, rows, access)
+    }
+
+    private fun sortPagePreview(
+        request: Long, stage: DisplayedSourceStage, rows: List<Medium>, access: () -> Boolean
+    ) {
+        mediaPagePreviewJob?.cancel()
+        val path = if (mShowAll) SHOW_ALL else mPath
+        val sorting = config.getFolderSorting(path)
+        val grouping = config.getFolderGrouping(path)
+        val order = mediaPageOrder
+        mediaPagePreviewJob = lifecycleScope.launch {
+            val grouped = withContext(Dispatchers.Default) {
+                val sorted = rows.mapTo(ArrayList(rows.size)) {
+                    it.copy(taken = if (it.taken > 0L) it.taken else it.modified)
+                }
+                val fetcher = MediaFetcher(applicationContext)
+                order.sort(sorted, sorting, fetcher)
+                fetcher.groupMedia(sorted, path)
+            }
+            if (!mediaLoadRequests.isCurrent(request) || mediaScanTerminals.result(request) != null ||
+                request != mediaPageRequest || isFinishing || isDestroyed || !access()) return@launch
+            if (sorting != config.getFolderSorting(path) || grouping != config.getFolderGrouping(path)) {
+                sortPagePreview(request, stage, rows, access)
+                return@launch
+            }
+            mediaPageAccess = access
+            displayedFolderSnapshot = DisplayedFolderSnapshot(request, displayedSourceVersion + 1, stage, access)
+            if (displayedMediaRequest != request) logMediaPage(request, "media_first_preview_submit", "stage=$stage")
+            publishMedia(grouped, true, request)
         }
-        mediaPageAccess = access
-        displayedFolderSnapshot = DisplayedFolderSnapshot(request, displayedSourceVersion + 1, batch.stage, access)
-        if (displayedMediaRequest != request) logMediaPage(request, "media_first_preview_submit", "stage=${batch.stage}")
-        publishMedia(ArrayList(rows), true, request)
     }
 
     private fun publishPageScan(
@@ -2950,23 +3018,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
         val path = if (mShowAll) SHOW_ALL else mPath
         val latestSorting = config.getFolderSorting(path)
-        val random = latestSorting and SORT_BY_RANDOM != 0
-        val prepared = sorting == latestSorting && !random
+        val prepared = sorting == latestSorting && latestSorting and SORT_BY_RANDOM == 0
         if (!prepared) {
-            val visible = getMediaAdapter()?.takeIf { it.sorting == latestSorting }
-                ?.media.orEmpty().filterIsInstance<Medium>().map { it.path }
+            val order = mediaPageOrder
             ensureBackgroundThread {
                 val rows = media.filterIsInstance<Medium>().mapTo(ArrayList()) { it.copy() }
                 val fetcher = MediaFetcher(applicationContext).also { it.traceRequest = request }
-                fetcher.sortMedia(rows, latestSorting)
-                val ordered = if (random) {
-                    val remaining = rows.associateByTo(LinkedHashMap()) { it.path }
-                    ArrayList<Medium>(rows.size).apply {
-                        visible.forEach { remaining.remove(it)?.let(::add) }
-                        addAll(remaining.values)
-                    }
-                } else rows
-                val grouped = fetcher.groupMedia(ordered, path)
+                order.sort(rows, latestSorting, fetcher)
+                val grouped = fetcher.groupMedia(rows, path)
                 runOnUiThread {
                     if (latestSorting == config.getFolderSorting(path)) commitPageScan(request, grouped, access)
                     else publishPageScan(request, null, grouped, access)
@@ -2996,6 +3055,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             ) { getMedia(manualRefresh = true) }
             return
         }
+        mediaPagePreviewJob?.cancel()
         mediaPageAccess = access
         val stage = if (mediaScanOutcome.complete) DisplayedSourceStage.SCAN_COMPLETE else DisplayedSourceStage.SCAN_PARTIAL
         displayedFolderSnapshot = DisplayedFolderSnapshot(request, displayedSourceVersion + 1, stage, access)
@@ -3115,7 +3175,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     }
                 }
             }
-        ) { scannedMedia ->
+        ) scanComplete@{ scannedMedia ->
+            if (scanGeneration != mediaScanGeneration || !mediaLoadRequests.isCurrent(request) ||
+                requestedFolder != mPath || isFinishing || isDestroyed) return@scanComplete
             // Capture the current grid snapshot on the callback (main) thread.
             // Reconciliation must not iterate mMedia while a newer scan replaces it.
             val oldMedia = mMedia.filterIsInstance<Medium>().map { it.copy() }

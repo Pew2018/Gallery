@@ -12,7 +12,8 @@ class PhotoProfileMediaLoader internal constructor(
     private val cancellationFetcher: MediaFetcher = MediaFetcher(context),
     private val sessionId: String? = null,
     private val cancelled: () -> Boolean = { false },
-    private val diagnostics: MediaPipelineDiagnostics? = null
+    private val diagnostics: MediaPipelineDiagnostics? = null,
+    private val retainedGridOrder: StagedMediaOrder? = null
 ) {
     companion object {
         const val PATH = "__photo_profiles__"
@@ -77,12 +78,10 @@ class PhotoProfileMediaLoader internal constructor(
             if (stableLockedPreview) lockedPreviewPublished = true
         }
 
-        val randomRanks = HashMap<String, Int>()
+        val order = retainedGridOrder ?: StagedMediaOrder()
         fun sort(media: ArrayList<Medium>) {
-            if (scope.sorting and SORT_BY_RANDOM != 0) {
-                media.forEach { randomRanks.getOrPut(it.path) { java.util.concurrent.ThreadLocalRandom.current().nextInt() } }
-                media.sortWith(compareBy<Medium> { randomRanks[it.path] }.thenBy { it.path })
-            } else fetcher.sortMedia(media, scope.sorting)
+            media.forEach { if (it.taken <= 0L) it.taken = it.modified }
+            order.sort(media, scope.sorting, fetcher)
         }
         fun result(stage: PhotoLoadStage, media: List<Medium>, preserveInputOrder: Boolean = false): PhotoLoadResult {
             checkCurrent(request)
@@ -109,8 +108,8 @@ class PhotoProfileMediaLoader internal constructor(
         if (reusable == null) GalleryPerfTrace.end("viewer_catalog_miss", cacheLookup, 0)
         if (reusable != null) {
             val validationStarted = GalleryPerfTrace.begin()
-            val validated = runCatching { result(PhotoLoadStage.COMPLETE, reusable, preserveInputOrder = true) }
-                .getOrElse { throw it }
+            val validated = result(PhotoLoadStage.COMPLETE, reusable,
+                preserveInputOrder = retainedGridOrder == null || scope.sorting and SORT_BY_RANDOM == 0)
             GalleryPerfTrace.end("viewer_catalog_validation", validationStarted, validated.media.size)
             checkCurrent(request)
             // A generation-stable catalog should validate as the same complete set.
@@ -153,8 +152,8 @@ class PhotoProfileMediaLoader internal constructor(
             sort(sorted)
             preview = PhotoProfileMediaCache.preview(sorted, anchorPath)
             if (preview.isNotEmpty()) {
-                // Preview selection preserves the already-sorted cache order;
-                // access validation only filters rows and does not reorder them.
+                // The cache sample has already had missing capture times normalized.
+                // Access validation only removes rows and updates favorite membership.
                 val validated = result(PhotoLoadStage.CACHE_PREVIEW, preview, preserveInputOrder = true)
                 preview = validated.media
                 preview.forEach { stagedCandidates[it.path] = it }
@@ -169,9 +168,6 @@ class PhotoProfileMediaLoader internal constructor(
             // Keep freshly validated preview-only files until filesystem reconciliation completes.
             // Full-access mode also needs a cheap existence check before showing stale indexed rows.
             val sortedIndex = ArrayList(indexed.mediaByPath.values)
-            // Use the same missing-capture-time fallback as the authorized
-            // grid stage BEFORE indexing the provisional navigation order.
-            sortedIndex.forEach { if (it.taken <= 0L) it.taken = it.modified }
             sort(sortedIndex)
             PhotoSessionViewerCatalogStore.offerIndexedCandidates(context, request, sortedIndex)
             val indexedCandidates = PhotoProfileMediaCache.preview(sortedIndex, anchorPath).filter {

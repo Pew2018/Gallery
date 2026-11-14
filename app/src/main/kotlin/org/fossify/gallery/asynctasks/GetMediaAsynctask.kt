@@ -31,6 +31,7 @@ internal class GetMediaAsynctask(
     private val photoAllowPreview: Boolean = true,
     private val photoAnchorPath: String? = null,
     private val photoReuseProducer: Boolean = false,
+    private val photoOrder: StagedMediaOrder? = null,
     private val onPhotoResult: ((PhotoLoadResult) -> Unit)? = null,
     private val manualRefresh: Boolean = false,
     private val folderSessionId: String? = null,
@@ -132,7 +133,7 @@ internal class GetMediaAsynctask(
             runCatching { FolderReturnCheckpoint.capture(context, mPath) }.getOrNull()
         } else null
         if (mPath == PhotoProfileMediaLoader.PATH || photoProfileId != null) {
-            val loader = PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId, { isCancelled }, pipelineDiagnostics)
+            val loader = PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId, { isCancelled }, pipelineDiagnostics, photoOrder)
             val final = loader.loadStaged(photoProfileId, photoAllowPreview && onPhotoResult != null, photoAnchorPath,
                 forceScan = manualRefresh, reuseActiveProducer = photoReuseProducer) {
                 if (!isCancelled) publishProgress(it.snapshotForUi())
@@ -233,9 +234,7 @@ internal class GetMediaAsynctask(
             fun publishIndex() {
                 if (published || preview.isEmpty()) return
                 published = true
-                val rows = ArrayList(preview.values)
-                mediaFetcher.sortMedia(rows, folderSorting)
-                deliver(DisplayedSourceStage.INDEX_PREVIEW, rows) { true }
+                deliver(DisplayedSourceStage.INDEX_PREVIEW, ArrayList(preview.values)) { true }
             }
             mediaFetcher.queryPageIndex(isPickImage, isPickVideo, favoritePaths, dateTakens,
                 if (showAll) null else setOf(mPath)) { item ->
@@ -425,12 +424,13 @@ internal class GetMediaAsynctask(
             }
         }
         if (progressivePage) {
+            media.forEach { if (it.taken <= 0L) it.taken = it.modified }
             val latestSorting = context.config.getFolderSorting(pathToUse)
             if (latestSorting and SORT_BY_RANDOM == 0) mediaFetcher.sortMedia(media, latestSorting)
             preparedSorting = latestSorting
         }
         val result = if (progressivePage && preparedSorting?.and(SORT_BY_RANDOM) != 0) {
-            // The page retains the displayed random prefix before grouping.
+            // The page applies its request-local random order before grouping.
             ArrayList<ThumbnailItem>(media)
         } else FolderRefreshDiagnostics.measure(requestId, "grouping") { mediaFetcher.groupMedia(media, pathToUse) }
         val safeResult = if (mPath == FAVORITES && favoriteSessionId != null) {

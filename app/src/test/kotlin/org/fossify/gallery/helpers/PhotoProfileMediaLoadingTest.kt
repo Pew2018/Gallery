@@ -201,6 +201,33 @@ class PhotoProfileMediaLoadingTest {
         } finally { root.toFile().deleteRecursively() }
     }
 
+    @Test fun cacheAndIndexedStagesUseTheSameMissingCaptureTimeFallback() {
+        val root = Files.createTempDirectory("photo-cache-date-fallback")
+        try {
+            val older = Files.write(root.resolve("older.jpg"), byteArrayOf(1)).toString()
+            val newer = Files.write(root.resolve("newer.jpg"), byteArrayOf(1)).toString()
+            val id = profile(root.toString())
+            val sorting = org.fossify.commons.helpers.SORT_BY_DATE_TAKEN or org.fossify.commons.helpers.SORT_DESCENDING
+            context.config.saveCustomSorting(PhotoProfileMediaLoader.PATH, sorting)
+            provider.add(older, taken = 100)
+            provider.add(newer, taken = 200)
+            background {
+                context.mediaDB.insertAll(listOf(
+                    Medium(null, "older.jpg", older, root.toString(), 100, 100, 1, TYPE_IMAGES, 0, false, 0, 0),
+                    Medium(null, "newer.jpg", newer, root.toString(), 200, 0, 1, TYPE_IMAGES, 0, false, 0, 0)
+                ))
+            }
+            val stages = arrayListOf<PhotoLoadResult>()
+            val final = background { PhotoProfileMediaLoader(context).loadStaged(id, true) { stages += it } }
+            assertEquals(PhotoLoadStage.CACHE_PREVIEW, stages.first().stage)
+            for (stage in stages + final) {
+                val expected = ArrayList(stage.media).also { MediaFetcher(context).sortMedia(it, sorting) }
+                assertEquals(expected, stage.media)
+            }
+            assertEquals(listOf(newer, older), stages.first().media.map { it.path })
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     @Test fun stagedPublicationComparisonMatchesGridVisibleContentAndKeepsScopeAndAccessStrict() {
         val root = Files.createTempDirectory("photo-publication-policy")
         try {

@@ -8,7 +8,8 @@ import org.fossify.gallery.extensions.isThisOrParentExcluded
 import org.fossify.gallery.extensions.isThisOrParentIncluded
 import org.fossify.gallery.extensions.shouldFolderBeVisible
 import org.fossify.gallery.models.Medium
-import org.fossify.gallery.models.ThumbnailItem
+import org.fossify.commons.helpers.SORT_BY_RANDOM
+import kotlin.random.Random
 
 /** First publication is sized for the grid. Later snapshots grow geometrically and are throttled. */
 internal class MediaPreviewCadence(private val viewportItems: Int, startedAt: Long) {
@@ -30,22 +31,32 @@ internal class MediaPreviewCadence(private val viewportItems: Int, startedAt: Lo
     }
 }
 
-/** Main-thread, request-local presentation. Discovery order is provisional until final sorting. */
+/** Main-thread, request-local accumulation. Newer sources can correct cached sort keys. */
 internal class MediaPagePreview {
     private val byPath = LinkedHashMap<String, Medium>()
     private var stage: DisplayedSourceStage? = null
-    fun add(next: DisplayedSourceStage, rows: List<Medium>, displayed: List<ThumbnailItem> = emptyList()): ArrayList<Medium>? {
+
+    fun add(next: DisplayedSourceStage, rows: List<Medium>): ArrayList<Medium>? {
         if (next.ordinal < (stage?.ordinal ?: 0)) return null
-        val before = byPath.size
         stage = next
-        rows.forEach { byPath.putIfAbsent(it.path, it) }
-        if (byPath.size == before) return null
-        val remaining = LinkedHashMap(byPath)
-        return ArrayList<Medium>(byPath.size).apply {
-            displayed.forEach { item ->
-                if (item is Medium) remaining.remove(item.path)?.let(::add)
-            }
-            addAll(remaining.values)
+        var changed = false
+        rows.forEach { row ->
+            val previous = byPath.put(row.path, row)
+            if (previous == null || !MediaUpdatePolicy.sameContent(previous, row)) changed = true
+        }
+        if (!changed) return null
+        return ArrayList(byPath.values)
+    }
+}
+
+/** A seeded path rank keeps the relative order of known rows as discovery continues. */
+internal class StagedMediaOrder(private val seed: Long = Random.nextLong()) {
+    fun sort(media: ArrayList<Medium>, sorting: Int, fetcher: MediaFetcher) {
+        if (sorting and SORT_BY_RANDOM != 0) {
+            val ranks = media.associate { it.path to Random(seed xor it.path.hashCode().toLong()).nextLong() }
+            media.sortWith(compareBy<Medium> { ranks.getValue(it.path) }.thenBy { it.path })
+        } else {
+            fetcher.sortMedia(media, sorting)
         }
     }
 }

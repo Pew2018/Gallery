@@ -790,8 +790,6 @@ internal fun Context.getMediaPageCache(
         if (!visibility.allowsIndexedFile(item.path)) continue
         preview.add(item)
     }
-    // This orders the verified sample. The scan establishes global rank.
-    MediaFetcher(this).sortMedia(preview, sorting)
     return preview
 }
 

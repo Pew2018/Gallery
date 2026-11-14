@@ -1,9 +1,17 @@
 package org.fossify.gallery.helpers
 
+import org.fossify.commons.helpers.*
 import org.fossify.gallery.models.Medium
+import android.app.Application
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+import org.junit.runner.RunWith
 import org.junit.Assert.*
 import org.junit.Test
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 class MediaPagePreviewTest {
     @Test fun firstPublicationFillsViewportOrMeetsWaitBudget() {
         val cadence = MediaPreviewCadence(24, 0)
@@ -27,15 +35,52 @@ class MediaPagePreviewTest {
         }
     }
 
-    @Test fun lateCacheCannotReplaceIndexAndScanAppendsOnlyNewIdentities() {
+    @Test fun lateCacheCannotReplaceIndexAndScanCanCorrectExistingMetadata() {
         val preview = MediaPagePreview()
         val first = medium(2)
         val second = medium(1)
-        assertEquals(listOf(first, second), preview.add(DisplayedSourceStage.INDEX_PREVIEW, listOf(first, second)))
+        preview.add(DisplayedSourceStage.CACHE_PREVIEW, listOf(second))
+        assertEquals(setOf(first, second), preview.add(DisplayedSourceStage.INDEX_PREVIEW, listOf(first, second))!!.toSet())
         assertNull(preview.add(DisplayedSourceStage.CACHE_PREVIEW, listOf(medium(4))))
+        val corrected = second.copy(taken = 5)
         val third = medium(3)
-        assertEquals(listOf(first, second, third), preview.add(DisplayedSourceStage.SCAN_PARTIAL, listOf(second, third)))
-        assertNull(preview.add(DisplayedSourceStage.SCAN_PARTIAL, listOf(third, second)))
+        assertEquals(setOf(first, corrected, third),
+            preview.add(DisplayedSourceStage.SCAN_PARTIAL, listOf(corrected, third))!!.toSet())
+        assertNull(preview.add(DisplayedSourceStage.SCAN_PARTIAL, listOf(third, corrected)))
+    }
+
+    @Test fun datePreviewsInsertAheadInBothDirectionsAndKeepPathTieBreak() {
+        for (descending in listOf(false, true)) {
+            val sorting = SORT_BY_DATE_TAKEN or if (descending) SORT_DESCENDING else 0
+            val preview = MediaPagePreview()
+            val order = StagedMediaOrder(24)
+            val fetcher = MediaFetcher(RuntimeEnvironment.getApplication())
+            preview.add(DisplayedSourceStage.CACHE_PREVIEW, listOf(medium(2), medium(3)))
+            val first = if (descending) medium(5) else medium(1)
+            val tied = medium(4).copy(taken = first.taken)
+            val known = preview.add(DisplayedSourceStage.SCAN_PARTIAL, listOf(first, tied))!!
+            order.sort(known, sorting, fetcher)
+            assertEquals(if (descending) listOf(first, tied, medium(3), medium(2))
+                else listOf(first, tied, medium(2), medium(3)), known)
+        }
+    }
+
+    @Test fun stagedOrderUsesExistingMetadataSortModesAndKeepsRandomOrderThroughCompletion() {
+        val fetcher = MediaFetcher(RuntimeEnvironment.getApplication())
+        val order = StagedMediaOrder(24)
+        val cache = arrayListOf(medium(2), medium(10))
+        val complete = arrayListOf(medium(8), medium(10), medium(2), medium(1))
+        val modes = listOf(SORT_BY_NAME or SORT_USE_NUMERIC_VALUE, SORT_BY_PATH, SORT_BY_SIZE, SORT_BY_DATE_MODIFIED)
+        for (sorting in modes) {
+            val expected = ArrayList(complete).also { fetcher.sortMedia(it, sorting) }
+            assertEquals(expected, ArrayList(complete).also { order.sort(it, sorting, fetcher) })
+        }
+        order.sort(cache, SORT_BY_RANDOM, fetcher)
+        order.sort(complete, SORT_BY_RANDOM, fetcher)
+        assertEquals(cache, complete.filter { it in cache })
+        val reorderedInput = ArrayList(complete.reversed())
+        order.sort(reorderedInput, SORT_BY_RANDOM, fetcher)
+        assertEquals(complete, reorderedInput)
     }
 
     @Test fun incompleteCacheGrowsWithoutDuplicatesAtAcceptanceCatalogSizes() {
@@ -49,7 +94,6 @@ class MediaPagePreviewTest {
             assertEquals("all discovered records must be retained at $recordCount", recordCount, latest.size)
             assertEquals("partial batches must not duplicate paths at $recordCount", recordCount,
                 latest.map { it.path }.toSet().size)
-            assertEquals("cached prefix must retain its order at $recordCount", first.path, latest.first().path)
         }
     }
 
@@ -62,5 +106,11 @@ class MediaPagePreviewTest {
         assertFalse(MediaUpdatePolicy.isContentAppend(listOf(first), listOf(first)))
     }
 
-    private fun medium(id: Int) = Medium().apply { path = "/album/$id.jpg"; taken = id.toLong() }
+    private fun medium(id: Int) = Medium().apply {
+        name = "$id.jpg"
+        path = "/album/$name"
+        taken = id.toLong()
+        modified = (20 - id).toLong()
+        size = id.toLong()
+    }
 }
