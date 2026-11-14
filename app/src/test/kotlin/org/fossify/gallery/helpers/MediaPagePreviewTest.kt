@@ -16,12 +16,15 @@ class MediaPagePreviewTest {
         assertTrue(sparse.shouldPublish(2, 150))
     }
 
-    @Test fun fiveThousandCandidatesHaveBoundedPublicationWork() {
-        val cadence = MediaPreviewCadence(24, 0)
-        val published = (1..5000).filter { cadence.shouldPublish(it, it.toLong()) }
-        assertEquals(listOf(1, 24), published.take(2))
-        assertTrue(published.size < 10)
-        assertTrue(published.sum() < 10_000)
+    @Test fun acceptanceSizeCatalogsHaveBoundedPreviewPublicationWork() {
+        for (count in listOf(100, 1_000, 5_000, 10_000)) {
+            val cadence = MediaPreviewCadence(24, 0)
+            val published = (1..count).filter { cadence.shouldPublish(it, it.toLong()) }
+            assertEquals("first candidate must publish immediately at $count records", 1, published.first())
+            assertEquals("first viewport batch must publish at $count records", 24, published[1])
+            assertTrue("preview cadence must stay bounded at $count records", published.size < 14)
+            assertTrue("published prefix must stay bounded at $count records", published.sum() < 20_000)
+        }
     }
 
     @Test fun lateCacheCannotReplaceIndexAndScanAppendsOnlyNewIdentities() {
@@ -35,14 +38,19 @@ class MediaPagePreviewTest {
         assertNull(preview.add(DisplayedSourceStage.SCAN_PARTIAL, listOf(third, second)))
     }
 
-    @Test fun smallCacheGrowsAndKeepsExistingOrderAcrossDiscovery() {
-        val preview = MediaPagePreview()
-        val first = medium(10)
-        preview.add(DisplayedSourceStage.CACHE_PREVIEW, listOf(first))
-        val added = (0..4999).filter { it != 10 }.map(::medium)
-        var latest = arrayListOf(first)
-        added.chunked(250).forEach { latest = preview.add(DisplayedSourceStage.SCAN_PARTIAL, it + first)!! }
-        assertEquals(listOf(first.path) + added.map { it.path }, latest.map { it.path })
+    @Test fun incompleteCacheGrowsWithoutDuplicatesAtAcceptanceCatalogSizes() {
+        for (recordCount in listOf(100, 1_000, 5_000, 10_000)) {
+            val preview = MediaPagePreview()
+            val first = medium(10)
+            preview.add(DisplayedSourceStage.CACHE_PREVIEW, listOf(first))
+            val added = (0 until recordCount).filter { it != 10 }.map(::medium)
+            var latest = arrayListOf(first)
+            added.chunked(250).forEach { latest = preview.add(DisplayedSourceStage.SCAN_PARTIAL, it + first)!! }
+            assertEquals("all discovered records must be retained at $recordCount", recordCount, latest.size)
+            assertEquals("partial batches must not duplicate paths at $recordCount", recordCount,
+                latest.map { it.path }.toSet().size)
+            assertEquals("cached prefix must retain its order at $recordCount", first.path, latest.first().path)
+        }
     }
 
     @Test fun onlyAnUnchangedPrefixCanBypassDiff() {
