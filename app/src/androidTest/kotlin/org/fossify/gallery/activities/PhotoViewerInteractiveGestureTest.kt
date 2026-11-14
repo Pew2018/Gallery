@@ -202,46 +202,63 @@ class PhotoViewerInteractiveGestureTest {
             instrumentation.runOnMainSync { grid.scrollToPosition(0) }
             instrumentation.waitForIdleSync()
 
-            val thumbLocation = IntArray(2)
-            val trackLocation = IntArray(2)
             val gridLocation = IntArray(2)
             instrumentation.runOnMainSync {
-                thumb.getLocationOnScreen(thumbLocation)
-                track.getLocationOnScreen(trackLocation)
                 grid.getLocationOnScreen(gridLocation)
             }
-            assertTrue("the track begins within the grid viewport", trackLocation[1] >= gridLocation[1])
-            assertTrue("the track ends within the grid viewport",
-                trackLocation[1] + track.height <= gridLocation[1] + grid.height)
-            assertTrue("the track remains at the grid's right edge",
-                trackLocation[0] + track.width <= gridLocation[0] + grid.width)
             val expectedTouchWidth = (28 * source.resources.displayMetrics.density + 0.5f).toInt()
             assertEquals("the handle uses the 28dp hit target without widening its drawable",
                 expectedTouchWidth, thumb.width)
-            val startX = thumbLocation[0] + thumb.width / 2f
-            val startY = thumbLocation[1] + thumb.height / 2f
-            val endY = (trackLocation[1] + track.height - thumb.height / 2f).toFloat()
-            var originalOffset = 0
-            instrumentation.runOnMainSync { originalOffset = grid.computeVerticalScrollOffset() }
-            val downTime = SystemClock.uptimeMillis()
-            fun inject(action: Int, y: Float): Boolean {
-                val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, startX, y, 0)
-                    .apply { this.source = InputDevice.SOURCE_TOUCHSCREEN }
-                val accepted = instrumentation.uiAutomation.injectInputEvent(event, true)
-                event.recycle()
-                return accepted
+            fun dragTo(fraction: Float): Int {
+                val thumbLocation = IntArray(2)
+                val trackLocation = IntArray(2)
+                instrumentation.runOnMainSync {
+                    thumb.getLocationOnScreen(thumbLocation)
+                    track.getLocationOnScreen(trackLocation)
+                }
+                assertTrue("the track begins within the grid viewport", trackLocation[1] >= gridLocation[1])
+                assertTrue("the track ends within the grid viewport",
+                    trackLocation[1] + track.height <= gridLocation[1] + grid.height)
+                assertTrue("the track remains at the grid's right edge",
+                    trackLocation[0] + track.width <= gridLocation[0] + grid.width)
+                val startX = thumbLocation[0] + thumb.width / 2f
+                val startY = thumbLocation[1] + thumb.height / 2f
+                val endY = (trackLocation[1] + thumb.height / 2f +
+                    (track.height - thumb.height) * fraction).toFloat()
+                val downTime = SystemClock.uptimeMillis()
+                fun inject(action: Int, y: Float): Boolean {
+                    val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, startX, y, 0)
+                        .apply { this.source = InputDevice.SOURCE_TOUCHSCREEN }
+                    val accepted = instrumentation.uiAutomation.injectInputEvent(event, true)
+                    event.recycle()
+                    return accepted
+                }
+                assertTrue("touch down should reach the visible thumb", inject(MotionEvent.ACTION_DOWN, startY))
+                repeat(8) { step ->
+                    SystemClock.sleep(24)
+                    val y = startY + (endY - startY) * (step + 1) / 8f
+                    assertTrue("thumb move should be accepted", inject(MotionEvent.ACTION_MOVE, y))
+                }
+                assertTrue("thumb release should be accepted", inject(MotionEvent.ACTION_UP, endY))
+                instrumentation.waitForIdleSync()
+                return grid.computeVerticalScrollOffset()
             }
-            assertTrue("touch down should reach the visible thumb", inject(MotionEvent.ACTION_DOWN, startY))
-            repeat(8) { step ->
-                SystemClock.sleep(24)
-                val y = startY + (endY - startY) * (step + 1) / 8f
-                assertTrue("thumb move should be accepted", inject(MotionEvent.ACTION_MOVE, y))
-            }
-            assertTrue("thumb release should be accepted", inject(MotionEvent.ACTION_UP, endY))
-            instrumentation.waitForIdleSync()
-            val finalOffset = grid.computeVerticalScrollOffset()
-            assertTrue("dragging the thumb must move the RecyclerView; before=$originalOffset after=$finalOffset",
-                finalOffset > originalOffset + grid.height / 2)
+
+            val range = grid.computeVerticalScrollRange() - grid.computeVerticalScrollExtent()
+            val topOffset = grid.computeVerticalScrollOffset()
+            assertTrue("the known starting anchor is the top of the grid", topOffset <= grid.height / 2)
+            val middleOffset = dragTo(0.5f)
+            assertTrue("dragging to the middle moves the real grid; before=$topOffset after=$middleOffset",
+                middleOffset in (range / 4)..(range * 3 / 4))
+            val bottomOffset = dragTo(0.98f)
+            assertTrue("dragging to the bottom approaches the real range end; offset=$bottomOffset range=$range",
+                bottomOffset >= range - grid.height)
+            val returnedTopOffset = dragTo(0.02f)
+            assertTrue("dragging back to the top resets the real grid offset; offset=$returnedTopOffset",
+                returnedTopOffset <= grid.height / 2)
+            val repeatedBottomOffset = dragTo(0.98f)
+            assertTrue("repeated drags still reach the lower range; offset=$repeatedBottomOffset range=$range",
+                repeatedBottomOffset >= range - grid.height)
         } finally {
             activity?.let { instrumentation.runOnMainSync { it.finish() } }
             fixtures.forEach { fixture -> runCatching { context.contentResolver.delete(fixture.first, null, null) } }
