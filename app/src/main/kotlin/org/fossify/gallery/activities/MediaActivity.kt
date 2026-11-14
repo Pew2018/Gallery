@@ -771,14 +771,33 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
     }
 
-    /** Keep the library thumb hidden while its RecyclerView range is only a partial list. */
+    private var mediaFastScrollerUpdateGeneration = 0L
+
+    /** Use the range of the list currently laid out by RecyclerView, including partial scans. */
     private fun updateMediaFastScrollerVisibility(hasContent: Boolean = mMedia.any { it is Medium }) {
-        val ready = org.fossify.gallery.helpers.MediaFastScrollerPolicy.isReady(
-            hasContent = hasContent,
-            complete = displayedMediaIsFinal && !mIsGettingMedia,
-            emptyStateVisible = binding.mediaEmptyTextPlaceholder.isVisible()
-        )
-        OxygenFastScroller.setRangeAvailable(binding.mediaFastscroller, ready)
+        val generation = ++mediaFastScrollerUpdateGeneration
+        val empty = binding.mediaEmptyTextPlaceholder.isVisible()
+        if (!hasContent || empty) OxygenFastScroller.setRangeAvailable(binding.mediaFastscroller, false)
+        binding.mediaGrid.doOnPreDraw {
+            if (generation != mediaFastScrollerUpdateGeneration || isFinishing || isDestroyed) {
+                return@doOnPreDraw
+            }
+            val vertical = binding.mediaFastscroller.fastScrollDirection ==
+                com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller.FastScrollDirection.VERTICAL
+            val hasScrollableRange = org.fossify.gallery.helpers.MediaFastScrollerPolicy.hasScrollableRange(
+                vertical = vertical,
+                verticalRange = binding.mediaGrid.computeVerticalScrollRange(),
+                verticalExtent = binding.mediaGrid.computeVerticalScrollExtent(),
+                horizontalRange = binding.mediaGrid.computeHorizontalScrollRange(),
+                horizontalExtent = binding.mediaGrid.computeHorizontalScrollExtent(),
+            )
+            val ready = org.fossify.gallery.helpers.MediaFastScrollerPolicy.isReady(
+                hasContent = hasContent,
+                hasScrollableRange = hasScrollableRange,
+                emptyStateVisible = empty,
+            )
+            OxygenFastScroller.setRangeAvailable(binding.mediaFastscroller, ready)
+        }
     }
 
     companion object {

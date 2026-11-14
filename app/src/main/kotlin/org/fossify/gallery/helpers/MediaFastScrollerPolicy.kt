@@ -1,18 +1,24 @@
 package org.fossify.gallery.helpers
 
-/** A loaded prefix is not a trustworthy scroll range for a progressively published media set. */
+/** Only expose the handle when the currently laid-out RecyclerView has a real scroll range. */
 internal object MediaFastScrollerPolicy {
+    fun hasScrollableRange(
+        vertical: Boolean,
+        verticalRange: Int,
+        verticalExtent: Int,
+        horizontalRange: Int,
+        horizontalExtent: Int,
+    ): Boolean = if (vertical) {
+        verticalRange > verticalExtent
+    } else {
+        horizontalRange > horizontalExtent
+    }
+
     fun isReady(
         hasContent: Boolean,
-        complete: Boolean,
+        hasScrollableRange: Boolean,
         emptyStateVisible: Boolean,
-        knownTotalCount: Int? = null,
-        displayedMediaCount: Int = if (hasContent) 1 else 0,
-        adapterMatchesPresentation: Boolean = true,
     ): Boolean {
-        val rangeIsComplete = complete ||
-            (knownTotalCount != null && knownTotalCount > 0 && displayedMediaCount == knownTotalCount &&
-                adapterMatchesPresentation)
-        return hasContent && rangeIsComplete && !emptyStateVisible
+        return hasContent && hasScrollableRange && !emptyStateVisible
     }
 }

@@ -9,7 +9,7 @@ Remote tracking ref at start: same SHA (fetch could not resolve `github.com`).
 | Stage | Status | Evidence / remaining work |
 |---|---|---|
 | 1. Progressive sorting | IN_PROGRESS | Cache preview DAO previously limited rows by `last_modified` regardless of configured sort. It now returns the complete cached candidate set; candidates are normalized and ordered by the active comparator before only the valid preview prefix is published. 5,000-row order-mode regression added; focused suite passed (8 tests). Full suite, emulator validation, final build and remote delivery pending. |
-| 2. Partial fast scrolling | NOT_STARTED | |
+| 2. Partial fast scrolling | IN_PROGRESS | Policy now uses the current RecyclerView scroll range and orientation after layout; empty/non-scrollable grids stay disabled. Focused tests pass and the modified debug app is installed on Pixel_4/API 29 with the 1,000-image test folder visible. Exact partial-scan/UI synchronization remains unverified. |
 | 3. Fast-scroller dragging | NOT_STARTED | |
 | 4. Fast-scroller geometry | NOT_STARTED | |
 | 5. Folder motion | NOT_STARTED | |
@@ -40,3 +40,9 @@ Remote tracking ref at start: same SHA (fetch could not resolve `github.com`).
 - Changed the DAO to return all cached rows matching folder/type, then added `CachedMediaPreviewOrder` to normalize date-taken fallback, sort by the configured comparator, and deterministically choose random cache candidates independent of Room row order. Cache access checks still stop after the requested number of valid preview items.
 - Added a synthetic 5,000-row regression comparing the cached prefix to the actual app comparator for ascending/descending date taken, modified time, name, numeric name, path, numeric path, size, and deterministic random selection. Focused `MediaPagePreviewTest`: 8 tests passed after fixing duplicate paths in the test fixture.
 - Performance risk to measure: complete Room candidate retrieval and in-memory sort now occur for the cache preview, though disk access validation remains bounded to candidates until the preview fills. No measured user-device timing yet.
+
+### Stage 2 investigation notes
+
+- The previous policy tied availability to a complete scan or an exact index/display count. That hid a valid thumb while the currently published rows already occupied a scrollable range.
+- Visibility now waits for the grid's next pre-draw and compares the active orientation's computed range and extent. A generation token prevents stale pre-draw callbacks from exposing the thumb after a later empty-state update.
+- Focused `MediaFastScrollerPolicyTest` passes. `:app:assembleFossDebug` succeeds; the updated APK installs and launches on the API 29 Pixel_4 AVD. The emulator contains the 1,000-image `SortRegression` folder. An accessibility dump confirms a scrollable grid; a screenshot shows the grid after loading, but the current emulator session did not capture a deliberately partial scan or prove range synchronization while rows are being added. Stage remains IN_PROGRESS.
