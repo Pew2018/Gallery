@@ -11,6 +11,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -48,6 +49,7 @@ import org.fossify.gallery.helpers.PhotoProfileMediaLoader
 import org.fossify.gallery.helpers.PhotoProfileRepository
 import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.OxygenSystemBars
+import org.fossify.gallery.helpers.OxygenThemeEngine
 import org.fossify.gallery.helpers.GROUP_BY_NONE
 import org.fossify.gallery.helpers.PhotoSource
 import org.fossify.gallery.helpers.PhotoSourceType
@@ -1254,6 +1256,9 @@ class PhotoViewerInteractiveGestureTest {
                 val viewer = instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
                     ?: error("Gallery did not open aspect-ratio fixture $index")
                 instrumentation.removeMonitor(monitor)
+                val statusSurface = viewer.window.decorView.findViewWithTag<View>(
+                    OxygenSystemBars.STATUS_UNDERLAY
+                ) ?: error("viewer status surface should exist before the first draw")
 
                 val opening = awaitTransitionFrameSamples(instrumentation, viewer)
                 val intermediate = opening.filter { (progress, _) -> progress in 0.05f..0.95f }
@@ -1301,9 +1306,6 @@ class PhotoViewerInteractiveGestureTest {
                 assertTrue("fixture $index opening transition should settle before closing", !transitionRunning)
 
                 if (index == 0) {
-                    val statusSurface = viewer.window.decorView.findViewWithTag<View>(
-                        OxygenSystemBars.STATUS_UNDERLAY
-                    ) ?: error("viewer status surface should exist before the first draw")
                     assertEquals("viewer chrome keeps the status surface visible", View.VISIBLE, statusSurface.visibility)
                     instrumentation.runOnMainSync { viewer.fragmentClicked() }
                     assertTrue("fullscreen hides the status surface", statusSurface.visibility == View.GONE)
@@ -1351,6 +1353,78 @@ class PhotoViewerInteractiveGestureTest {
             context.config.showAll = wasShowingAllMedia
             fixtures.forEach { runCatching { context.contentResolver.delete(it.first, null, null) } }
             source?.let { instrumentation.runOnMainSync { it.finish() } }
+        }
+    }
+
+    @Test
+    fun viewerStatusSurfaceUsesTheSelectedLightAndDarkPaletteOnDevice() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GallerySystemBarThemeTest-${UUID.randomUUID()}"
+        val fixtures = listOf(
+            createFixture(context, album, displayName = "dark-status.png"),
+            createFixture(context, album, displayName = "light-status.png"),
+        )
+        val wasShowingAllMedia = context.config.showAll
+        val wasClassicThemeActive = context.config.oxygenThemeActivated
+        val previousAppearanceMode = context.config.oxygenAppearanceMode
+        var source: MediaActivity? = null
+        var viewer: ViewPagerActivity? = null
+        try {
+            context.config.showAll = false
+            context.config.oxygenThemeActivated = true
+            val openViewer = MediaActivity::class.java
+                .getDeclaredMethod("openInViewPager", String::class.java)
+                .apply { isAccessible = true }
+
+            listOf("dark", "light").forEachIndexed { index, mode ->
+                context.config.oxygenAppearanceMode = mode
+                val fixture = fixtures[index]
+                val sourceIntent = Intent(context, MediaActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    putExtra(DIRECTORY, java.io.File(fixture.second).parent)
+                }
+                val sourceActivity = instrumentation.startActivitySync(sourceIntent) as MediaActivity
+                source = sourceActivity
+                awaitSourceThumbnail(instrumentation, sourceActivity, fixture.second)
+
+                val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
+                instrumentation.runOnMainSync { openViewer.invoke(sourceActivity, fixture.second) }
+                val opened = instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
+                    ?: error("Gallery did not open the $mode status-bar fixture")
+                instrumentation.removeMonitor(monitor)
+                viewer = opened
+
+                val expectedTheme = OxygenThemeEngine.snapshot(context, context.config)
+                val statusSurface = opened.window.decorView.findViewWithTag<View>(
+                    OxygenSystemBars.STATUS_UNDERLAY
+                ) ?: error("$mode viewer status surface should exist before the first draw")
+                assertEquals("the $mode appearance mode resolves to the expected palette",
+                    mode == "dark", expectedTheme.dark)
+                assertEquals("the $mode viewer window uses its page status color",
+                    expectedTheme.statusBarBackground, opened.window.statusBarColor)
+                assertEquals("the $mode visible status surface matches the window color",
+                    expectedTheme.statusBarBackground, (statusSurface.background as ColorDrawable).color)
+                assertEquals("the $mode status surface starts visible", View.VISIBLE, statusSurface.visibility)
+
+                instrumentation.runOnMainSync { opened.finish() }
+                val returnDeadline = SystemClock.uptimeMillis() + 5_000
+                while (!sourceActivity.hasWindowFocus() && SystemClock.uptimeMillis() < returnDeadline) {
+                    SystemClock.sleep(50)
+                }
+                assertTrue("the source folder resumes after $mode viewer", sourceActivity.hasWindowFocus())
+                instrumentation.runOnMainSync { sourceActivity.finish() }
+                source = null
+                viewer = null
+            }
+        } finally {
+            viewer?.let { instrumentation.runOnMainSync { it.finish() } }
+            source?.let { instrumentation.runOnMainSync { it.finish() } }
+            context.config.showAll = wasShowingAllMedia
+            context.config.oxygenAppearanceMode = previousAppearanceMode
+            context.config.oxygenThemeActivated = wasClassicThemeActive
+            fixtures.forEach { runCatching { context.contentResolver.delete(it.first, null, null) } }
         }
     }
 
