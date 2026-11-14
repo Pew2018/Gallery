@@ -83,6 +83,37 @@ class MediaPagePreviewTest {
         assertEquals(complete, reorderedInput)
     }
 
+    @Test fun cachedPreviewSelectsTheConfiguredPrefixFromTheWholeCatalog() {
+        val fetcher = MediaFetcher(RuntimeEnvironment.getApplication())
+        val rows = (1..5_000).map { id ->
+            Medium().apply {
+                name = "IMG_${(5_001 - id) % 113}.jpg"
+                path = "/album/segment${id % 17}/$id-$name"
+                modified = ((id * 37) % 5_000).toLong()
+                taken = if (id % 11 == 0) 0L else ((id * 97) % 4_997).toLong()
+                size = ((id * 53) % 4_999 + 1).toLong()
+            }
+        }
+        val modes = listOf(
+            SORT_BY_DATE_TAKEN, SORT_BY_DATE_TAKEN or SORT_DESCENDING,
+            SORT_BY_DATE_MODIFIED, SORT_BY_DATE_MODIFIED or SORT_DESCENDING,
+            SORT_BY_NAME, SORT_BY_NAME or SORT_DESCENDING,
+            SORT_BY_NAME or SORT_USE_NUMERIC_VALUE,
+            SORT_BY_PATH, SORT_BY_PATH or SORT_DESCENDING,
+            SORT_BY_PATH or SORT_USE_NUMERIC_VALUE,
+            SORT_BY_SIZE, SORT_BY_SIZE or SORT_DESCENDING
+        )
+        for (sorting in modes) {
+            val expected = ArrayList(rows.map { it.copy(taken = if (it.taken > 0L) it.taken else it.modified) })
+            fetcher.sortMedia(expected, sorting)
+            val actual = CachedMediaPreviewOrder.order(rows, sorting, fetcher).take(48)
+            assertEquals("cache preview must be the configured prefix for $sorting", expected.take(48), actual)
+        }
+        val randomA = CachedMediaPreviewOrder.order(rows, SORT_BY_RANDOM, fetcher).take(48)
+        val randomB = CachedMediaPreviewOrder.order(rows.reversed(), SORT_BY_RANDOM, fetcher).take(48)
+        assertEquals("random cache candidates must not inherit Room row order", randomA, randomB)
+    }
+
     @Test fun incompleteCacheGrowsWithoutDuplicatesAtAcceptanceCatalogSizes() {
         for (recordCount in listOf(100, 1_000, 5_000, 10_000)) {
             val preview = MediaPagePreview()

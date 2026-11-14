@@ -779,8 +779,11 @@ internal fun Context.getMediaPageCache(
     val accessByFolder = HashMap<String, () -> Boolean>()
     val preview = ArrayList<Medium>()
     val sorting = config.getFolderSorting(folder ?: SHOW_ALL)
-    val rows = mediaDB.getPreviewMedia(folder, types, sorting and org.fossify.commons.helpers.SORT_DESCENDING == 0, target * 4)
-    for (item in rows) {
+    val candidates = org.fossify.gallery.helpers.CachedMediaPreviewOrder.order(
+        mediaDB.getPreviewMedia(folder, types), sorting,
+        org.fossify.gallery.helpers.MediaFetcher(applicationContext)
+    )
+    for (item in candidates) {
         if (!current() || preview.size == target) break
         if (!visibility.allows(item.path)) continue
         val access = accessByFolder.getOrPut(item.parentPath) {

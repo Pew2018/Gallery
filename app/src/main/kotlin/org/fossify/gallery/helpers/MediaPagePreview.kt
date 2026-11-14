@@ -49,6 +49,28 @@ internal class MediaPagePreview {
     }
 }
 
+/** Select the cached preview only after applying the configured order to all cached rows. */
+internal object CachedMediaPreviewOrder {
+    private const val RANDOM_PREVIEW_SEED = 0x4D45444941434143L
+
+    fun order(rows: List<Medium>, sorting: Int, fetcher: MediaFetcher): ArrayList<Medium> {
+        if (rows.isEmpty()) return arrayListOf()
+        val ordered = rows.mapTo(ArrayList(rows.size)) { row ->
+            row.copy(taken = if (row.taken > 0L) row.taken else row.modified)
+        }
+        if (sorting and SORT_BY_RANDOM != 0) {
+            // Cache selection must not depend on Room's row order. The request's
+            // StagedMediaOrder applies its own rank after these candidates arrive.
+            ordered.sortWith(compareBy<Medium> {
+                Random(RANDOM_PREVIEW_SEED xor it.path.hashCode().toLong()).nextLong()
+            }.thenBy { it.path })
+        } else {
+            fetcher.sortMedia(ordered, sorting)
+        }
+        return ordered
+    }
+}
+
 /** A seeded path rank keeps the relative order of known rows as discovery continues. */
 internal class StagedMediaOrder(private val seed: Long = Random.nextLong()) {
     fun sort(media: ArrayList<Medium>, sorting: Int, fetcher: MediaFetcher) {

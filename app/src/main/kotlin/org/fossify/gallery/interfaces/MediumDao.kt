@@ -14,11 +14,9 @@ interface MediumDao {
     @Query("""
         SELECT * FROM media WHERE deleted_ts = 0 AND (:folder IS NULL OR parent_path = :folder)
         AND (type & :types) != 0
-        ORDER BY CASE WHEN :ascending THEN last_modified END ASC,
-                 CASE WHEN NOT :ascending THEN last_modified END DESC, full_path
-        LIMIT :limit
+        ORDER BY full_path
     """)
-    fun getPreviewMedia(folder: String?, types: Int, ascending: Boolean, limit: Int): List<Medium>
+    fun getPreviewMedia(folder: String?, types: Int): List<Medium>
 
     @Query("SELECT * FROM media WHERE deleted_ts = 0 AND parent_path IN (:folders)")
     fun getCachedMediaFromFolders(folders: List<String>): List<Medium>
