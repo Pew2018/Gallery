@@ -102,3 +102,5 @@ Viewer 先显示 Glide 的 FIT_CENTER 图像，再让覆盖其上的 Subsampling
 All 页此次从打开到事件记录的计时：MediaStore 索引预览 21 项在 176 ms 就绪，首个 Adapter 提交在 208 ms，首张真实缩略图绘制在 409 ms；全量直接扫描于 1,367 ms 结束，并在 1,381 ms 提交 5,227 项。扫描最终状态为 `PARTIAL`：API 29 测试权限不能覆盖所有目录，测试用例确认的 5,000 项目标目录内容都已纳入结果，但这些数据不能代表 Android 16 的“所有照片”权限场景。缩略图绘制发生在扫描结束之前，索引预览先于完整扫描呈现。
 
 该次动画采样仍来自 API 29 模拟器：59 帧中 59 帧被模拟器的帧耗时统计标为 janky，P50 26 ms、P90 38 ms、P95 46 ms、P99 73 ms。这组数据不能证明 60 FPS，也不作为 Pixel 8 Pro 性能验收；该真机尚未连接。上面早期章节提到的“ADB 不可用”及远端仍停留在基线的记录已被本轮恢复连接、通过 8 项测试和推送的新提交所取代；本轮没有新的目标真机证据。
+
+提交 `226e16b11adc0fd8ab3cd5344e60a404c2024fef` 的 GitHub Actions run `43583900632` 已通过 ARM64 FOSS Release 组装和 APK 签名、包名、ABI 校验。下载的 APK 为 `/private/tmp/gallery-ci-artifact-43583900632/gallery-foss-arm64-v8a-release/gallery-foss-arm64-v8a-release.apk`，SHA-256 `694f5289617eecfdfab79c787fe9651fd78d167e57856ba12f3d54c08c41c004`；`apksigner verify` 通过，包名 `org.fossify.gallery`、版本 `1.14.1`、ABI `arm64-v8a`。该次 CI 没有仓库正式签名密钥，因此使用临时测试证书（SHA-256 指纹 `c446b96da6a66b5861c3d992e922869539dac1e5f77e0a45d03c67c1b6b4b98f`）；该包适合干净安装验证，不能升级已安装的正式签名版本。
