@@ -8,6 +8,7 @@ import org.fossify.gallery.extensions.*
 import org.fossify.gallery.models.Directory
 import org.fossify.gallery.models.DirectoryStats
 import org.fossify.gallery.models.Medium
+import org.fossify.gallery.models.ThumbnailSection
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -164,6 +165,38 @@ class HomeDirectoryStatsRegressionTest {
             val default = context.createDirectoryFromMedia(root.path, rows, arrayListOf(), "hidden", mutableSetOf(), true, arrayListOf())
             assertEquals(expected, default.tmb)
         } finally { root.deleteRecursively() }
+    }
+
+    @Test fun dateGroupsFollowGroupingDirectionAndKeepConfiguredMediaOrderWithinEachGroup() {
+        val folder = "/album/grouped-order"
+        val grouping = GROUP_BY_DATE_TAKEN_DAILY or GROUP_DESCENDING
+        context.config.saveFolderGrouping(folder, grouping)
+        val firstDay = 1_700_000_000_000L
+        val secondDay = firstDay + 86_400_000L
+        fun dateKey(timestamp: Long) = java.util.Calendar.getInstance(java.util.Locale.ENGLISH).apply {
+            timeInMillis = timestamp
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val media = arrayListOf(
+            Medium().apply { path = "$folder/z1.jpg"; name = "z1.jpg"; taken = firstDay + 20_000 },
+            Medium().apply { path = "$folder/a2.jpg"; name = "a2.jpg"; taken = secondDay + 10_000 },
+            Medium().apply { path = "$folder/z2.jpg"; name = "z2.jpg"; taken = secondDay + 20_000 },
+            Medium().apply { path = "$folder/a1.jpg"; name = "a1.jpg"; taken = firstDay + 10_000 },
+        )
+        MediaFetcher(context).sortMedia(media, SORT_BY_NAME)
+
+        val grouped = MediaFetcher(context).groupMedia(media, folder)
+
+        assertEquals(listOf(
+            "$grouping:${dateKey(secondDay)}",
+            "$grouping:${dateKey(firstDay)}",
+        ), grouped.filterIsInstance<ThumbnailSection>().map { it.key })
+        assertEquals(listOf("a2.jpg", "z2.jpg", "a1.jpg", "z1.jpg"),
+            grouped.filterIsInstance<Medium>().map { it.name })
+        assertEquals(listOf(0, 1, 0, 1), grouped.filterIsInstance<Medium>().map { it.gridPosition })
     }
 
     @Test fun takenFallbackIsExplicitAndStatisticsDoNotDependOnMediaOrder() {
