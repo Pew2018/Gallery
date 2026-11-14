@@ -11,11 +11,11 @@ Remote tracking ref at start: same SHA (fetch could not resolve `github.com`).
 | 1. Progressive sorting | IN_PROGRESS | Cache preview DAO previously limited rows by `last_modified` regardless of configured sort. It now returns the complete cached candidate set; candidates are normalized and ordered by the active comparator before only the valid preview prefix is published. 5,000-row order-mode regression added; focused suite passed (8 tests). Full suite, emulator validation, final build and remote delivery pending. |
 | 2. Partial fast scrolling | IN_PROGRESS | Policy now uses the current RecyclerView scroll range and orientation after layout; empty/non-scrollable grids stay disabled. Focused tests pass and the modified debug app is installed on Pixel_4/API 29 with the 1,000-image test folder visible. Exact partial-scan/UI synchronization remains unverified. |
 | 3. Fast-scroller dragging | IN_PROGRESS | A device test reproduced a drag snapping the RecyclerView from offset 1,021 px to 0. The bundled touch handler mixed raw screen and window coordinates; gallery now maps screen coordinates to the active RecyclerView's pixel range and preserves the 28 dp handle target. A real 60-image emulator drag and the mapping unit test pass; top/middle/bottom, search, horizontal orientation and repeat-drag coverage remains. |
-| 4. Fast-scroller geometry | NOT_STARTED | |
-| 5. Folder motion | NOT_STARTED | |
-| 6. Viewer media geometry | NOT_STARTED | |
-| 7. Viewer transition flicker | NOT_STARTED | |
-| 8. System bars | NOT_STARTED | |
+| 4. Fast-scroller geometry | IN_PROGRESS | API 29 captures show the track contained within the grid viewport. Added coverage for the 56 dp vertical bottom inset, zero vertical inset in horizontal mode, orientation-specific 28/36 dp touch targets, and on-device viewport bounds. RTL and Pixel 8 Pro/Android 16 geometry remain unverified. |
+| 5. Folder motion | VERIFIED | Page entry starts at 94% opacity, settles from 98.5% scale, and travels 8 dp over 170 ms. The focused animation test passes, and the same album was entered and returned from 20 times on the API 29 emulator. |
+| 6. Viewer media geometry | IN_PROGRESS | Landscape, portrait, square, and panorama stills preserve source ratio within 2% on the API 29 emulator during and after the shared transition. Video-aspect and slow-decoder/keyframe coverage remains. |
+| 7. Viewer transition flicker | IN_PROGRESS | Device coverage confirms shared-element progress, monotonic opening bounds when intermediate frames are available, and settled return to the source grid for the four still ratios. Slow decode and video preview transition evidence remains. |
+| 8. System bars | VERIFIED | The viewer decor status surface is installed before its first draw, uses the page theme color, hides on fullscreen, and returns with the viewer chrome. Robolectric and API 29 device checks pass. Android 16 behavior remains unverified. |
 | 9. Full regression and delivery | NOT_STARTED | |
 
 ## Environment and delivery log
@@ -52,3 +52,19 @@ Remote tracking ref at start: same SHA (fetch could not resolve `github.com`).
 - The exact bundled fast-scroller AAR was inspected. Its thumb touch callback mixed `MotionEvent.rawX/rawY` with `track.getLocationInWindow()`, and its idle animation scaled the handle to zero. A device regression initially observed a 1,021 px list offset reset to 0 during a thumb drag.
 - Media and folder grids now use screen-space track geometry and RecyclerView pixel scroll range/extent to map each drag event; the existing 28 dp touch target remains, and the handle stays at unit scale while the gallery is active. MainActivity and MediaActivity both install the gallery touch path; MediaActivity still reports engaged/released state to protect scroll restoration while dragging.
 - The drag test first exposed its own bad starting anchor (the activity restored near the end of the list); after forcing a known top position, dragging to the end on a 60-image grid passed on Pixel_4/API 29. `FolderPickerPolishTest.galleryDragMapsTheVisibleTrackToTheRealPixelScrollRange` and `PhotoViewerInteractiveGestureTest.partialMediaPublicationKeepsGridVisibleUntilTheRangeIsFinal` also pass. The latter uses 40 real files and a provisional scan state with a genuinely scrollable published grid. Direction/end-point, search, and repeated-drag coverage remains open.
+
+### Stage 4 investigation notes
+
+- The API 29 hierarchy showed the media track within the RecyclerView viewport; the screenshot places the narrow colored glyph inside the right-edge track. The list viewport itself ended at the app window boundary, outside the system navigation region.
+- Added orientation-specific assertions for track clearance (56 dp bottom-bar margin only on vertical tracks), visible glyph/touch-target dimensions (28 dp by 36 dp vertically; 36 dp by 28 dp horizontally), and device viewport bounds. Broader RTL and Android 16 checks remain pending.
+
+### Stage 5 investigation notes
+
+- Existing folder-page entry began fully transparent and translated 14 dp over 170 ms. It looked abrupt when the destination surface appeared, despite the restrained duration.
+- Changed the entry to start at 94% opacity, settle from 98.5% scale, and travel 8 dp over the same 170 ms easing interval. The close motion remains coordinated at 140 ms. The focused resource test passed, and 20 repeated entries/returns on Pixel_4/API 29 completed without losing the source album.
+
+### Stages 6–8 investigation notes
+
+- The on-device still-image test opens landscape, portrait, square, and panorama fixtures through the ordinary viewer path. It confirms shared-element progress callbacks, checks that intermediate bounds grow when multiple progress frames are captured, verifies the rendered image ratio is within 2% of the source, waits for the transition to settle, and confirms the source album regains focus after close.
+- The same device regression confirms the viewer's decor status surface is present and visible with viewer chrome, becomes `GONE` when `fragmentClicked()` enters fullscreen, and returns to `VISIBLE` when viewer chrome is restored. The status-surface unit test also verifies themed status color and idempotent installation.
+- Video preview sizing, slow decoder/keyframe transitions, and Android 16 system-bar behavior remain open; these are not claimed as verified by the still-image API 29 run.

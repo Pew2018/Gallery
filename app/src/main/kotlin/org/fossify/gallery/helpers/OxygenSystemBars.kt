@@ -12,7 +12,7 @@ import org.fossify.gallery.extensions.config
 
 /** Ordinary pages opt in; fullscreen media retains its own system UI policy. */
 object OxygenSystemBars {
-    private const val STATUS_UNDERLAY = "oxygen_classic_status_underlay"
+    internal const val STATUS_UNDERLAY = "oxygen_classic_status_underlay"
 
     fun apply(activity: Activity) {
         // Decor coordinates start at the physical window edge even if content is inset.
@@ -44,6 +44,13 @@ object OxygenSystemBars {
         ViewCompat.getRootWindowInsets(host)?.let { resize(underlay, it) }
         underlay.bringToFront()
         ViewCompat.requestApplyInsets(underlay)
+    }
+
+    /** Hide the decor-owned status surface while a full-screen viewer hides system bars. */
+    fun setStatusUnderlayVisible(activity: Activity, visible: Boolean) {
+        val host = activity.window.decorView as? FrameLayout ?: return
+        host.findViewWithTag<View>(STATUS_UNDERLAY)?.visibility =
+            if (visible) View.VISIBLE else View.GONE
     }
 
     private fun resize(view: View, insets: WindowInsetsCompat) {

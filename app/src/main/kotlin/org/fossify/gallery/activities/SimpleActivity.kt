@@ -71,6 +71,7 @@ open class SimpleActivity : BaseSimpleActivity() {
             ))
         }
         applyClassicOverlay()
+        if (this is ViewPagerActivity) OxygenSystemBars.apply(this)
         org.fossify.gallery.helpers.GalleryBottomBar.restoreRootWindow(this)
         org.fossify.gallery.helpers.GalleryBottomBar.traceWindow(this, "create_after_commons")
         inflatedTheme = OxygenThemeEngine.snapshot(this, config)

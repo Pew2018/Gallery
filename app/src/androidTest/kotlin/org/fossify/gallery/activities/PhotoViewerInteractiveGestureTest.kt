@@ -46,6 +46,7 @@ import org.fossify.gallery.helpers.PhotoProfileMediaCache
 import org.fossify.gallery.helpers.PhotoProfileMediaLoader
 import org.fossify.gallery.helpers.PhotoProfileRepository
 import org.fossify.gallery.helpers.PhotoViewerTransition
+import org.fossify.gallery.helpers.OxygenSystemBars
 import org.fossify.gallery.helpers.PhotoSource
 import org.fossify.gallery.helpers.PhotoSourceType
 import org.fossify.gallery.models.FavoriteFolder
@@ -1152,6 +1153,17 @@ class PhotoViewerInteractiveGestureTest {
                     if (transitionRunning) SystemClock.sleep(25)
                 }
                 assertTrue("fixture $index opening transition should settle before closing", !transitionRunning)
+
+                if (index == 0) {
+                    val statusSurface = viewer.window.decorView.findViewWithTag<View>(
+                        OxygenSystemBars.STATUS_UNDERLAY
+                    ) ?: error("viewer status surface should exist before the first draw")
+                    assertEquals("viewer chrome keeps the status surface visible", View.VISIBLE, statusSurface.visibility)
+                    instrumentation.runOnMainSync { viewer.fragmentClicked() }
+                    assertTrue("fullscreen hides the status surface", statusSurface.visibility == View.GONE)
+                    instrumentation.runOnMainSync { viewer.fragmentClicked() }
+                    assertEquals("leaving fullscreen restores the status surface", View.VISIBLE, statusSurface.visibility)
+                }
 
                 instrumentation.runOnMainSync { viewer.finish() }
                 val returnDeadline = SystemClock.uptimeMillis() + 5_000

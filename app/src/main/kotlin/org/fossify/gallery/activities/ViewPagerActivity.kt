@@ -2447,6 +2447,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun authenticateViewerRequest() {
         showSystemUI()
+        org.fossify.gallery.helpers.OxygenSystemBars.setStatusUnderlayVisible(this, true)
         if (isPhotoProfile) {
             if (isExternalIntent()) { finish(); return }
             if (photoSessionId != null) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -2885,6 +2886,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     }
 
                     hideSystemUI()
+                    org.fossify.gallery.helpers.OxygenSystemBars.setStatusUnderlayVisible(this@ViewPagerActivity, false)
                     if (!mIsFullScreen) {
                         mIsFullScreen = true
                         fullscreenToggled()
@@ -3010,6 +3012,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             binding.viewPager.setPageTransformer(false, DefaultPageTransformer())
             mIsSlideshowActive = false
             showSystemUI()
+            org.fossify.gallery.helpers.OxygenSystemBars.setStatusUnderlayVisible(this, true)
             mSlideshowHandler.removeCallbacksAndMessages(null)
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             mAreSlideShowMediaVisible = false
@@ -4893,6 +4896,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun checkSystemUI() {
+        org.fossify.gallery.helpers.OxygenSystemBars.setStatusUnderlayVisible(this, !mIsFullScreen)
         if (mIsFullScreen) {
             hideSystemUI()
         } else {
