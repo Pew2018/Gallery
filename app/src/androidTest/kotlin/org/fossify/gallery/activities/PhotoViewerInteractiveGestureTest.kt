@@ -1436,7 +1436,7 @@ class PhotoViewerInteractiveGestureTest {
     }
 
     @Test
-    fun landscapeAndPortraitVideoPreviewsKeepTheirAspectRatioOnDevice() {
+    fun landscapePortraitAndUltrawideVideoPreviewsKeepTheirAspectRatioOnDevice() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         grantMediaPermission(context)
@@ -1447,6 +1447,7 @@ class PhotoViewerInteractiveGestureTest {
         try {
             fixtures += createVideoFixture(context, album, "landscape.mp4", "gallery-landscape.mp4")
             fixtures += createVideoFixture(context, album, "portrait.mp4", "gallery-portrait.mp4")
+            fixtures += createVideoFixture(context, album, "ultrawide.mp4", "gallery-ultrawide.mp4")
             context.config.showAll = false
             val sourceIntent = Intent(context, MediaActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -1458,7 +1459,7 @@ class PhotoViewerInteractiveGestureTest {
             val openViewer = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java)
                 .apply { isAccessible = true }
 
-            fixtures.zip(listOf(320 to 180, 180 to 320)).forEachIndexed { index, (fixture, size) ->
+            fixtures.zip(listOf(320 to 180, 180 to 320, 336 to 144)).forEachIndexed { index, (fixture, size) ->
                 val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
                 instrumentation.runOnMainSync { openViewer.invoke(sourceActivity, fixture.second) }
                 val viewer = instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
