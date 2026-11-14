@@ -47,11 +47,13 @@ import org.fossify.gallery.helpers.PhotoProfileMediaLoader
 import org.fossify.gallery.helpers.PhotoProfileRepository
 import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.OxygenSystemBars
+import org.fossify.gallery.helpers.GROUP_BY_NONE
 import org.fossify.gallery.helpers.PhotoSource
 import org.fossify.gallery.helpers.PhotoSourceType
 import org.fossify.gallery.models.FavoriteFolder
 import org.fossify.gallery.models.Medium
 import org.fossify.gallery.views.ProgressivePhotoViewPager
+import org.fossify.commons.helpers.SORT_BY_NAME
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -77,6 +79,69 @@ class PhotoViewerInteractiveGestureTest {
     }
 
     private data class SwipeRun(val thread: Thread, val deviceInjectionWorked: AtomicBoolean)
+
+    @Test
+    fun thousandRealFilesMatchConfiguredNameOrderOnDevice() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GalleryOrderingTest-${UUID.randomUUID()}"
+        val folderPath = "/storage/emulated/0/$album"
+        val fixtures = mutableListOf<Pair<Uri, String>>()
+        val hadCustomSorting = context.config.hasCustomSorting(folderPath)
+        val previousSorting = context.config.getFolderSorting(folderPath)
+        val hadCustomGrouping = context.config.hasCustomGrouping(folderPath)
+        val previousGrouping = context.config.getFolderGrouping(folderPath)
+        var activity: MediaActivity? = null
+        try {
+            repeat(1_000) { index ->
+                fixtures += createFixture(
+                    context, album, width = 24, height = 24,
+                    displayName = "IMG_${(1_000 - index).toString().padStart(4, '0')}.png",
+                )
+            }
+            val rows = fixtures.map { java.io.File(it.second).name to it.second }
+            context.config.saveCustomSorting(folderPath, SORT_BY_NAME)
+            context.config.saveFolderGrouping(folderPath, GROUP_BY_NONE)
+            val intent = Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, folderPath)
+            }
+            val page = instrumentation.startActivitySync(intent) as MediaActivity
+            activity = page
+            val allPaths = rows.mapTo(HashSet()) { it.second }
+            awaitAnySourceThumbnail(instrumentation, page, allPaths)
+            val adapterGetter = MediaActivity::class.java.getDeclaredMethod("getMediaAdapter")
+                .apply { isAccessible = true }
+            val finalFlag = MediaActivity::class.java.getDeclaredField("displayedMediaIsFinal")
+                .apply { isAccessible = true }
+            var adapter: MediaAdapter? = null
+            var displayedFinal = false
+            val deadline = SystemClock.uptimeMillis() + 45_000
+            while (SystemClock.uptimeMillis() < deadline) {
+                instrumentation.runOnMainSync {
+                    adapter = adapterGetter.invoke(page) as? MediaAdapter
+                    displayedFinal = finalFlag.getBoolean(page)
+                }
+                val media = adapter?.media?.filterIsInstance<Medium>().orEmpty()
+                if (media.size == rows.size && displayedFinal) break
+                SystemClock.sleep(100)
+            }
+            val actualNames = adapter?.media?.filterIsInstance<Medium>()?.map { it.name }.orEmpty()
+            val expectedNames = rows.map { it.first }.sorted()
+            assertTrue("the real-file scan reaches its complete terminal result", displayedFinal)
+            assertEquals("the scan reaches the complete real-file catalog", rows.size, actualNames.size)
+            assertEquals("the final 1,000-row grid follows the selected ascending name sort",
+                expectedNames, actualNames)
+        } finally {
+            activity?.let { instrumentation.runOnMainSync { it.finish() } }
+            if (hadCustomSorting) context.config.saveCustomSorting(folderPath, previousSorting)
+            else context.config.removeCustomSorting(folderPath)
+            if (hadCustomGrouping) context.config.saveFolderGrouping(folderPath, previousGrouping)
+            else context.config.removeFolderGrouping(folderPath)
+            fixtures.forEach { fixture -> runCatching { context.contentResolver.delete(fixture.first, null, null) } }
+        }
+    }
 
     @Test
     fun partialMediaPublicationKeepsGridVisibleUntilTheRangeIsFinal() {
@@ -1574,10 +1639,11 @@ class PhotoViewerInteractiveGestureTest {
         relativePath: String,
         width: Int = 960,
         height: Int = 720,
+        displayName: String = "gallery-interactive-${UUID.randomUUID()}.png",
     ): Pair<Uri, String> {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, "gallery-interactive-${UUID.randomUUID()}.png")
+            put(MediaStore.Images.Media.DISPLAY_NAME, displayName)
             put(MediaStore.Images.Media.MIME_TYPE, "image/png")
             put(MediaStore.Images.Media.RELATIVE_PATH, relativePath)
         }
