@@ -203,10 +203,20 @@ class PhotoViewerInteractiveGestureTest {
 
             val thumbLocation = IntArray(2)
             val trackLocation = IntArray(2)
+            val gridLocation = IntArray(2)
             instrumentation.runOnMainSync {
                 thumb.getLocationOnScreen(thumbLocation)
                 track.getLocationOnScreen(trackLocation)
+                grid.getLocationOnScreen(gridLocation)
             }
+            assertTrue("the track begins within the grid viewport", trackLocation[1] >= gridLocation[1])
+            assertTrue("the track ends within the grid viewport",
+                trackLocation[1] + track.height <= gridLocation[1] + grid.height)
+            assertTrue("the track remains at the grid's right edge",
+                trackLocation[0] + track.width <= gridLocation[0] + grid.width)
+            val expectedTouchWidth = (28 * source.resources.displayMetrics.density + 0.5f).toInt()
+            assertEquals("the handle uses the 28dp hit target without widening its drawable",
+                expectedTouchWidth, thumb.width)
             val startX = thumbLocation[0] + thumb.width / 2f
             val startY = thumbLocation[1] + thumb.height / 2f
             val endY = (trackLocation[1] + track.height - thumb.height / 2f).toFloat()

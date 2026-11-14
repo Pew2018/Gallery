@@ -9,6 +9,7 @@ import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.ColorUtils
+import androidx.recyclerview.widget.RecyclerView
 import org.fossify.commons.extensions.baseConfig
 import org.fossify.gallery.R
 import org.junit.Assert.*
@@ -79,6 +80,30 @@ class FolderPickerPolishTest {
         val firstParams = thumb.layoutParams
         OxygenFastScroller.ensureTouchableHandle(scroller)
         assertSame("Touch target setup is idempotent", firstParams, thumb.layoutParams)
+    }
+
+    @Test fun galleryScrollerUsesAxisSpecificInsetsAndHitTargets() {
+        val activity = activity()
+        val scroller = RecyclerViewFastScroller(activity)
+        val grid = RecyclerView(activity)
+        val tokens = OxygenThemeColors.resolve(
+            classic = true, mode = "system", systemDark = false, rawAccent = Color.BLUE,
+            legacyBackground = Color.WHITE, legacyText = Color.BLACK,
+        )
+        val bottomBar = (56 * activity.resources.displayMetrics.density + 0.5f).toInt()
+        val dp = { value: Int -> (value * activity.resources.displayMetrics.density + 0.5f).toInt() }
+
+        scroller.setScrollVertically(true)
+        OxygenFastScroller.apply(scroller, grid, tokens, bottomBar)
+        assertEquals("vertical track clears the bottom bar", bottomBar, scroller.trackMarginEnd)
+        assertEquals("vertical hit target keeps its designed width", dp(28), scroller.handleWidth)
+        assertEquals("vertical hit target keeps its designed height", dp(36), scroller.handleHeight)
+
+        scroller.setScrollVertically(false)
+        OxygenFastScroller.apply(scroller, grid, tokens, bottomBar)
+        assertEquals("horizontal track does not use a vertical bottom inset", 0, scroller.trackMarginEnd)
+        assertEquals("horizontal hit target uses its horizontal width", dp(36), scroller.handleWidth)
+        assertEquals("horizontal hit target uses its horizontal height", dp(28), scroller.handleHeight)
     }
 
     @Test fun pickerDragUsesTrackLocalCoordinatesWithoutStatusBarJump() {
