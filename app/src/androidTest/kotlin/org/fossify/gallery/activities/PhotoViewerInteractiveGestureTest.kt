@@ -32,6 +32,7 @@ import org.fossify.gallery.R
 import org.fossify.gallery.adapters.DirectoryAdapter
 import org.fossify.gallery.adapters.MediaAdapter
 import org.fossify.gallery.fragments.PhotoFragment
+import org.fossify.gallery.fragments.VideoFragment
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.favoriteFoldersDB
 import org.fossify.gallery.extensions.favoritesDB
@@ -1290,6 +1291,93 @@ class PhotoViewerInteractiveGestureTest {
         }
     }
 
+    @Test
+    fun landscapeAndPortraitVideoPreviewsKeepTheirAspectRatioOnDevice() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_MOVIES}/GalleryVideoTransitionTest-${UUID.randomUUID()}"
+        val fixtures = mutableListOf<Pair<Uri, String>>()
+        val wasShowingAllMedia = context.config.showAll
+        var source: MediaActivity? = null
+        try {
+            fixtures += createVideoFixture(context, album, "landscape.mp4", "gallery-landscape.mp4")
+            fixtures += createVideoFixture(context, album, "portrait.mp4", "gallery-portrait.mp4")
+            context.config.showAll = false
+            val sourceIntent = Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, java.io.File(fixtures.first().second).parent)
+            }
+            val sourceActivity = instrumentation.startActivitySync(sourceIntent) as MediaActivity
+            source = sourceActivity
+            awaitAnySourceThumbnail(instrumentation, sourceActivity, fixtures.mapTo(HashSet()) { it.second })
+            val openViewer = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java)
+                .apply { isAccessible = true }
+
+            fixtures.zip(listOf(320 to 180, 180 to 320)).forEachIndexed { index, (fixture, size) ->
+                val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
+                instrumentation.runOnMainSync { openViewer.invoke(sourceActivity, fixture.second) }
+                val viewer = instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
+                    ?: error("Gallery did not open video fixture $index")
+                instrumentation.removeMonitor(monitor)
+
+                val deadline = SystemClock.uptimeMillis() + 15_000
+                var sharedSurface: View? = null
+                var preview: ImageView? = null
+                var videoFragment: VideoFragment? = null
+                var observedState = "not sampled"
+                val currentFragment = ViewPagerActivity::class.java.getDeclaredMethod("getCurrentFragment")
+                    .apply { isAccessible = true }
+                while (SystemClock.uptimeMillis() < deadline && sharedSurface == null) {
+                    instrumentation.runOnMainSync {
+                        preview = viewer.findViewById(R.id.video_preview)
+                        videoFragment = currentFragment.invoke(viewer) as? VideoFragment
+                        val ready = videoFragment?.let {
+                            VideoFragment::class.java.getDeclaredField("previewReady")
+                                .apply { isAccessible = true }.getBoolean(it)
+                        }
+                        val visible = videoFragment?.let {
+                            VideoFragment::class.java.getDeclaredField("mIsFragmentVisible")
+                                .apply { isAccessible = true }.getBoolean(it)
+                        }
+                        observedState = "current=${videoFragment?.javaClass?.simpleName}," +
+                            "fragmentView=${videoFragment?.view?.width}x${videoFragment?.view?.height}," +
+                            "preview=${preview?.drawable?.intrinsicWidth}x${preview?.drawable?.intrinsicHeight}," +
+                            "ready=$ready,visible=$visible"
+                        if (preview?.drawable != null && videoFragment != null) {
+                            sharedSurface = videoFragment?.sharedElementViewFor(fixture.second)
+                        }
+                    }
+                    if (sharedSurface == null) SystemClock.sleep(50)
+                }
+                val actual = sharedSurface ?: error(
+                    "video preview/shared surface did not become ready for fixture $index; $observedState"
+                )
+                val expectedRatio = size.first.toFloat() / size.second
+                val actualRatio = actual.width.toFloat() / actual.height
+                assertTrue(
+                    "video fixture $index shared surface should keep its encoded aspect ratio; " +
+                        "expected=$expectedRatio actual=$actualRatio size=${actual.width}x${actual.height}",
+                    kotlin.math.abs(actualRatio / expectedRatio - 1f) < 0.02f,
+                )
+                instrumentation.runOnMainSync { videoFragment?.finishSharedTransition() }
+                instrumentation.runOnMainSync { viewer.finish() }
+                val returnDeadline = SystemClock.uptimeMillis() + 5_000
+                while (!sourceActivity.hasWindowFocus() && SystemClock.uptimeMillis() < returnDeadline) {
+                    SystemClock.sleep(50)
+                }
+                assertTrue("source album resumes after video fixture $index", sourceActivity.hasWindowFocus())
+                if (index < fixtures.lastIndex) awaitAnySourceThumbnail(
+                    instrumentation, sourceActivity, setOf(fixtures[index + 1].second)
+                )
+            }
+        } finally {
+            context.config.showAll = wasShowingAllMedia
+            source?.let { instrumentation.runOnMainSync { it.finish() } }
+            fixtures.forEach { fixture -> runCatching { context.contentResolver.delete(fixture.first, null, null) } }
+        }
+    }
+
     private fun awaitFrame(
         instrumentation: android.app.Instrumentation,
         activity: ViewPagerActivity,
@@ -1667,6 +1755,30 @@ class PhotoViewerInteractiveGestureTest {
         val path = resolver.query(uri, arrayOf(MediaStore.Images.Media.DATA), null, null, null)?.use { cursor ->
             if (cursor.moveToFirst()) cursor.getString(0) else null
         } ?: error("The emulator did not expose the test image path")
+        return uri to path
+    }
+
+    private fun createVideoFixture(
+        context: Context,
+        relativePath: String,
+        displayName: String,
+        assetName: String,
+    ): Pair<Uri, String> {
+        val videoBytes = InstrumentationRegistry.getInstrumentation().context.assets.open(assetName).use {
+            it.readBytes()
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, displayName)
+            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            put(MediaStore.Video.Media.RELATIVE_PATH, relativePath)
+        }) ?: error("Could not create emulator video fixture")
+        resolver.openOutputStream(uri)?.use { output ->
+            output.write(videoBytes)
+        } ?: error("Could not open video fixture output")
+        val path = resolver.query(uri, arrayOf(MediaStore.Video.Media.DATA), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        } ?: error("The emulator did not expose the test video path")
         return uri to path
     }
 
