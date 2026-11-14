@@ -78,7 +78,7 @@ class PhotoViewerInteractiveGestureTest {
     private data class SwipeRun(val thread: Thread, val deviceInjectionWorked: AtomicBoolean)
 
     @Test
-    fun partialMediaPublicationKeepsFastScrollerHiddenUntilTheRangeIsFinal() {
+    fun partialMediaPublicationKeepsGridVisibleUntilTheRangeIsFinal() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         grantMediaPermission(context)
@@ -98,6 +98,8 @@ class PhotoViewerInteractiveGestureTest {
             awaitAnySourceThumbnail(instrumentation, activity, fixtures.mapTo(HashSet()) { it.second })
 
             val scroller = activity.findViewById<View>(R.id.media_fastscroller)
+            val thumb = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.thumbIV)
+            val track = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.trackView)
             val headerProgress = MediaActivity::class.java.getDeclaredField("mediaHeaderProgress")
                 .apply { isAccessible = true }
             val setMediaLoading = MediaActivity::class.java.getDeclaredMethod(
@@ -131,15 +133,21 @@ class PhotoViewerInteractiveGestureTest {
                 scanning.setBoolean(activity, true)
                 ready.invoke(activity, true)
             }
-            assertEquals("an indexed or disk preview has a provisional scroll range",
-                View.GONE, scroller.visibility)
+            assertEquals("the media grid remains visible while its scroll range is provisional",
+                View.VISIBLE, scroller.visibility)
+            assertEquals("the provisional thumb stays hidden", View.INVISIBLE, thumb.visibility)
+            assertEquals("the provisional track stays hidden", View.INVISIBLE, track.visibility)
+            assertTrue("fast scrolling stays disabled until the final range is known",
+                !activity.findViewById<com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller>(
+                    R.id.media_fastscroller
+                ).isFastScrollEnabled)
 
             instrumentation.runOnMainSync {
                 final.setBoolean(activity, true)
                 ready.invoke(activity, true)
             }
-            assertEquals("a refresh keeps the previous grid but hides its provisional scroll range",
-                View.GONE, scroller.visibility)
+            assertEquals("a refresh keeps the previous grid visible", View.VISIBLE, scroller.visibility)
+            assertEquals("a refresh keeps the provisional thumb hidden", View.INVISIBLE, thumb.visibility)
 
             instrumentation.runOnMainSync {
                 scanning.setBoolean(activity, false)
@@ -147,6 +155,8 @@ class PhotoViewerInteractiveGestureTest {
             }
             assertEquals("the complete non-empty media range should expose the fast scroller",
                 View.VISIBLE, scroller.visibility)
+            assertEquals("the final thumb should be visible", View.VISIBLE, thumb.visibility)
+            assertEquals("the final track should be visible", View.VISIBLE, track.visibility)
         } finally {
             context.config.showAll = wasShowingAllMedia
             source?.let { instrumentation.runOnMainSync { it.finish() } }
@@ -155,7 +165,7 @@ class PhotoViewerInteractiveGestureTest {
     }
 
     @Test
-    fun folderCardEntersAlbumAndReturnsToTheSameCoverOnDevice() {
+    fun folderCardUsesPageMotionAndReturnsToTheSameAlbumOnDevice() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         grantMediaPermission(context)
@@ -199,31 +209,11 @@ class PhotoViewerInteractiveGestureTest {
             instrumentation.removeMonitor(monitor)
             val mediaActivity = media!!
 
-            assertTrue("the album launch should use the shared cover transition",
-                mediaActivity.intent.getBooleanExtra(
+            assertTrue("folder navigation should not depend on a cover shared element",
+                !mediaActivity.intent.getBooleanExtra(
                     org.fossify.gallery.helpers.AlbumPageTransition.EXTRA_ACTIVE, false
                 ))
-            assertEquals("the transition should carry the matching folder cover path", expectedCoverPath,
-                mediaActivity.intent.getStringExtra(
-                    org.fossify.gallery.helpers.AlbumPageTransition.EXTRA_COVER_PATH
-                ))
             awaitSourceThumbnail(instrumentation, mediaActivity, expectedCoverPath)
-            val mappedField = MediaActivity::class.java.getDeclaredField("albumTransitionMapped")
-                .apply { isAccessible = true }
-            val pendingField = MediaActivity::class.java.getDeclaredField("albumTransitionPending")
-                .apply { isAccessible = true }
-            val resolver = MediaActivity::class.java.getDeclaredMethod("resolveAlbumCoverView")
-                .apply { isAccessible = true }
-            val mappingDeadline = SystemClock.uptimeMillis() + 2_000
-            while (!mappedField.getBoolean(mediaActivity) && SystemClock.uptimeMillis() < mappingDeadline) {
-                SystemClock.sleep(16)
-            }
-            val transitionMapped = mappedField.getBoolean(mediaActivity)
-            val transitionPending = pendingField.getBoolean(mediaActivity)
-            val returnTargetReady = resolver.invoke(mediaActivity) != null
-            assertTrue("album transition should either map its decoded cover or settle its bounded fallback " +
-                "(mapped=$transitionMapped, pending=$transitionPending, targetReady=$returnTargetReady)",
-                transitionMapped || (!transitionPending && returnTargetReady))
             instrumentation.runOnMainSync {
                 val grid = mediaActivity.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.media_grid)
                 val visibleRows = (0 until grid.childCount).map(grid::getChildAt)
@@ -256,7 +246,7 @@ class PhotoViewerInteractiveGestureTest {
     }
 
     @Test
-    fun favoriteFolderCardUsesTheSameSharedAlbumRoundTripOnDevice() {
+    fun favoriteFolderCardUsesPageMotionAndReturnsToTheSameAlbumOnDevice() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         grantMediaPermission(context)
@@ -295,13 +285,9 @@ class PhotoViewerInteractiveGestureTest {
                 ?: error("clicking the favorite album card did not open MediaActivity")
             instrumentation.removeMonitor(mediaMonitor)
             val mediaActivity = media!!
-            assertTrue("favorite album should use the shared cover transition",
-                mediaActivity.intent.getBooleanExtra(
+            assertTrue("favorite folder navigation should not depend on a cover shared element",
+                !mediaActivity.intent.getBooleanExtra(
                     org.fossify.gallery.helpers.AlbumPageTransition.EXTRA_ACTIVE, false
-                ))
-            assertEquals("favorite transition should carry the matching folder cover path", fixture.second,
-                mediaActivity.intent.getStringExtra(
-                    org.fossify.gallery.helpers.AlbumPageTransition.EXTRA_COVER_PATH
                 ))
             awaitSourceThumbnail(instrumentation, mediaActivity, fixture.second)
 
@@ -482,7 +468,11 @@ class PhotoViewerInteractiveGestureTest {
                 putExtra(DIRECTORY, PhotoProfileMediaLoader.PATH)
                 putExtra(GalleryNavigation.EXTRA_SECTION, GallerySection.PHOTOS.name)
             }
-            val sourceActivity = instrumentation.startActivitySync(sourceIntent) as MediaActivity
+            val sourceMonitor = instrumentation.addMonitor(MediaActivity::class.java.name, null, false)
+            context.startActivity(sourceIntent)
+            val sourceActivity = instrumentation.waitForMonitorWithTimeout(sourceMonitor, 15_000)
+                as? MediaActivity ?: error("custom photo profile did not launch MediaActivity")
+            instrumentation.removeMonitor(sourceMonitor)
             source = sourceActivity
             awaitAnySourceThumbnail(instrumentation, sourceActivity, fixturePaths)
             // Start near the center of the 41-item catalog so the fixed left-swipe

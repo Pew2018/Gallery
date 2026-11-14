@@ -94,3 +94,11 @@ Viewer 先显示 Glide 的 FIT_CENTER 图像，再让覆盖其上的 Subsampling
 设备测试 1 项通过；两种缓存状态都成功提交全部 5,000 项，并确认首图早于扫描完成。完整 FOSS Debug JVM 套件为 **1,131 项、0 失败、0 错误**，仪器测试 Kotlin 编译成功。此设备是 Android 10 / API 29 Pixel 4 AVD，不代表 Google Pixel 8 Pro / Android 16 的测量；仍需在目标真机上复测布局、动画与帧率。
 
 本次代码的 ARM64 FOSS Release 重新构建成功。未签名 APK SHA-256 为 `3a85fecbbcef79376c750e72b6cb938f1789fc7f84106aaa97106b8d81c85a63`；用一次性本地测试证书签名并通过 `apksigner verify` 的可安装 APK 位于 `/private/tmp/gallery-final-home-gallery-arm64-test-signed.apk`，SHA-256 为 `fb44b9e3d68236fdf37784511973ddd01427366dbd9c00853ebe83407387732d`，包名 `org.fossify.gallery`、版本 `1.14.1`、ABI 为 `arm64-v8a`。该证书仅供本地测试，不能覆盖正式签名安装或用于后续升级。
+
+### All 页索引预览及完整仪器套件复测（2026-11-14）
+
+随后恢复了 Pixel 4 API 29 AVD 的连接，并完成 `:app:connectedFossDebugAndroidTest` 全量复测：8 项通过，0 失败、0 跳过。用例覆盖 5,000 张目录的空缓存/热缓存及 All 页索引预览、部分扫描期间网格可见性、Viewer 比例、打开/关闭和拖动手势、收藏照片与文件夹，以及自定义照片资料夹返回当前照片。自定义资料夹用例改成等待 ActivityMonitor 捕获目标 Activity，避免 `startActivitySync` 等待主线程完全闲置造成的套件级超时；索引样本也在 `finally` 中从 MediaStore 删除。
+
+All 页此次从打开到事件记录的计时：MediaStore 索引预览 21 项在 176 ms 就绪，首个 Adapter 提交在 208 ms，首张真实缩略图绘制在 409 ms；全量直接扫描于 1,367 ms 结束，并在 1,381 ms 提交 5,227 项。扫描最终状态为 `PARTIAL`：API 29 测试权限不能覆盖所有目录，测试用例确认的 5,000 项目标目录内容都已纳入结果，但这些数据不能代表 Android 16 的“所有照片”权限场景。缩略图绘制发生在扫描结束之前，索引预览先于完整扫描呈现。
+
+该次动画采样仍来自 API 29 模拟器：59 帧中 59 帧被模拟器的帧耗时统计标为 janky，P50 26 ms、P90 38 ms、P95 46 ms、P99 73 ms。这组数据不能证明 60 FPS，也不作为 Pixel 8 Pro 性能验收；该真机尚未连接。上面早期章节提到的“ADB 不可用”及远端仍停留在基线的记录已被本轮恢复连接、通过 8 项测试和推送的新提交所取代；本轮没有新的目标真机证据。
