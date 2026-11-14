@@ -924,7 +924,10 @@ class PhotoViewerInteractiveGestureTest {
             instrumentation.removeMonitor(returnMonitor)
             assertTrue("reopened viewer should still be entering before Android Back",
                 reopenedViewer.isMediaTransitionRunning())
-            instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+            assertTrue("system Back must be dispatched during viewer entry",
+                instrumentation.uiAutomation.performGlobalAction(
+                    android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK
+                ))
             val backDeadline = SystemClock.uptimeMillis() + 5_000
             while (!reopenedViewer.isFinishing && SystemClock.uptimeMillis() < backDeadline) {
                 SystemClock.sleep(50)
