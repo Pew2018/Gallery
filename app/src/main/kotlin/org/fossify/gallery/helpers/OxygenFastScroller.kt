@@ -197,6 +197,20 @@ object OxygenFastScroller {
         val hidePopup = Runnable { scroller.popupTextView.visibility = View.INVISIBLE }
         var dragging = false
 
+        fun updatePopup() {
+            val vertical = scroller.fastScrollDirection ==
+                RecyclerViewFastScroller.FastScrollDirection.VERTICAL
+            val range = if (vertical) recycler.computeVerticalScrollRange() else recycler.computeHorizontalScrollRange()
+            val extent = if (vertical) recycler.computeVerticalScrollExtent() else recycler.computeHorizontalScrollExtent()
+            val offset = if (vertical) recycler.computeVerticalScrollOffset() else recycler.computeHorizontalScrollOffset()
+            val position = FastScrollerBubble.adapterPositionForOffset(
+                offset, range, extent, recycler.adapter?.itemCount ?: 0
+            ) ?: return
+            val label = (recycler.adapter as? RecyclerViewFastScroller.OnPopupTextUpdate)?.onChange(position)
+            scroller.popupTextView.text = label ?: (position + 1).toString()
+            scroller.popupTextView.visibility = View.VISIBLE
+        }
+
         fun dragTo(event: MotionEvent) {
             val location = IntArray(2)
             track.getLocationOnScreen(location)
@@ -217,7 +231,7 @@ object OxygenFastScroller {
                 )
                 recycler.scrollBy(target - recycler.computeHorizontalScrollOffset(), 0)
             }
-            scroller.popupTextView.visibility = View.VISIBLE
+            updatePopup()
             handler.removeCallbacks(hidePopup)
             handler.postDelayed(hidePopup, HIDE_DELAY_MS)
         }

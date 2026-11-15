@@ -8,6 +8,15 @@ import org.fossify.gallery.models.ThumbnailItem
  * following medium; a trailing/empty section falls back to the nearest preceding medium.
  */
 internal object FastScrollerBubble {
+    /** Maps the real RecyclerView pixel position to its current adapter snapshot. */
+    fun adapterPositionForOffset(offset: Int, range: Int, extent: Int, itemCount: Int): Int? {
+        if (itemCount <= 0) return null
+        val scrollable = (range - extent).coerceAtLeast(0)
+        if (scrollable == 0 || itemCount == 1) return 0
+        return ((offset.coerceIn(0, scrollable).toFloat() / scrollable) * (itemCount - 1))
+            .toInt().coerceIn(0, itemCount - 1)
+    }
+
     fun findMediaIndex(items: List<ThumbnailItem>, position: Int): Int? {
         if (position !in items.indices) return null
         if (items[position] is Medium) return position

@@ -718,6 +718,7 @@ class MediaAdapter(
     )
     private var pendingUpdate: PendingUpdate? = null
     private var diffRunning = false
+    private var fastScrollActive = false
     private var lastDeferredGeneration = -1
     private val drainUpdates = Runnable { submitPendingUpdate() }
     private val scrollUpdates = object : RecyclerView.OnScrollListener() {
@@ -784,6 +785,10 @@ class MediaAdapter(
         val pending = pendingUpdate ?: return
         if (!canCommit(pending)) {
             pendingUpdate = null
+            return
+        }
+        if (fastScrollActive) {
+            logUpdate(pending, "adapter_update_deferred", "fast_scroll")
             return
         }
         if (recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE || recyclerView.isComputingLayout) {
@@ -885,8 +890,12 @@ class MediaAdapter(
                     return@runOnUiThread
                 }
                 val diff = result.getOrThrow()
+                if (fastScrollActive) {
+                    if (pendingUpdate == null) pendingUpdate = pending
+                    return@runOnUiThread
+                }
                 if (recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE || recyclerView.isComputingLayout) {
-                    pendingUpdate = pending
+                    if (pendingUpdate == null) pendingUpdate = pending
                     recyclerView.postDelayed(drainUpdates, 80)
                     return@runOnUiThread
                 }
@@ -993,6 +1002,21 @@ class MediaAdapter(
     private fun canCommit(pending: PendingUpdate): Boolean {
         if (activity.isFinishing || activity.isDestroyed) return false
         return recyclerView.adapter === this && pending.current()
+    }
+
+    /** A thumb drag can leave RecyclerView.scrollState idle while scrollBy() moves it. */
+    fun setFastScrollActive(active: Boolean, submitPending: Boolean = true) {
+        fastScrollActive = active
+        if (active) {
+            refreshScroll.clear()
+            recyclerView.removeCallbacks(drainUpdates)
+        } else if (submitPending) {
+            submitPendingUpdate()
+        }
+    }
+
+    fun submitPendingUpdateAfterFastScroll() {
+        if (!fastScrollActive) submitPendingUpdate()
     }
 
     private fun rememberRefreshScroll(pending: PendingUpdate) {

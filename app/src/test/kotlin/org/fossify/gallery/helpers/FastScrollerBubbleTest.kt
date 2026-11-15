@@ -10,6 +10,28 @@ import org.junit.Test
 
 class FastScrollerBubbleTest {
     @Test
+    fun pixelOffsetSelectsVisibleSnapshotPositionForEitherScrollAxis() {
+        assertEquals(0, FastScrollerBubble.adapterPositionForOffset(0, 2_000, 500, 100))
+        assertEquals(49, FastScrollerBubble.adapterPositionForOffset(750, 2_000, 500, 100))
+        assertEquals(99, FastScrollerBubble.adapterPositionForOffset(9_000, 2_000, 500, 100))
+        assertEquals(0, FastScrollerBubble.adapterPositionForOffset(250, 500, 500, 100))
+        assertEquals(null, FastScrollerBubble.adapterPositionForOffset(0, 0, 0, 0))
+        // The mapping consumes the active adapter count, so a filtered search labels
+        // its twelve visible results instead of positions in the full catalog.
+        assertEquals(11, FastScrollerBubble.adapterPositionForOffset(1_500, 2_000, 500, 12))
+    }
+
+    @Test
+    fun popupPositionContinuesToResolveDateSectionRowsToMedia() {
+        val items = listOf(section("May"), medium(), section("April"), medium())
+        val firstDrag = FastScrollerBubble.adapterPositionForOffset(0, 300, 100, items.size)!!
+        val laterDrag = FastScrollerBubble.adapterPositionForOffset(200, 300, 100, items.size)!!
+
+        assertEquals(1, FastScrollerBubble.findMediaIndex(items, firstDrag))
+        assertEquals(3, FastScrollerBubble.findMediaIndex(items, laterDrag))
+    }
+
+    @Test
     fun sectionUsesFirstFollowingMedia() {
         val items = listOf(section("2024"), medium(), medium())
 

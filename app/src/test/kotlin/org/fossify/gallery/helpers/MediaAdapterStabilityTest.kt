@@ -239,6 +239,25 @@ class MediaAdapterStabilityTest {
         assertEquals(listOf("29.jpg"), adapter.media.filterIsInstance<Medium>().map { it.name })
     }
 
+    @Test fun fastScrollKeepsNewestPartialToCompleteSnapshotUntilRelease() = withAdapter { adapter, recycler, tasks ->
+        adapter.setFastScrollActive(true)
+        adapter.updateMedia(arrayListOf(item("partial.jpg")), preserveScroll = true,
+            diagnosticSnapshotStage = "SCAN_PARTIAL")
+        adapter.updateMedia(arrayListOf(item("complete.jpg")), preserveScroll = true,
+            diagnosticSnapshotStage = "COMPLETE")
+
+        assertEquals("The grid remains stable throughout the thumb session", listOf("a.jpg"),
+            adapter.media.filterIsInstance<Medium>().map { it.name })
+        assertSame(adapter, recycler.adapter)
+        assertTrue(tasks.isEmpty())
+
+        adapter.setFastScrollActive(false, submitPending = false)
+        adapter.submitPendingUpdateAfterFastScroll()
+        drain(tasks)
+
+        assertEquals(listOf("complete.jpg"), adapter.media.filterIsInstance<Medium>().map { it.name })
+    }
+
     @Test fun confirmedDeletionSupersedesAnInFlightProgressiveDiffByPath() = withAdapter { adapter, _, tasks ->
         val removedNotifications = ArrayList<Pair<Int, Int>>()
         adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {

@@ -67,7 +67,7 @@ class PhotoViewerInitializationTest {
             val context = worker.submit<PhotoProfileLoadContext> { PhotoProfileLoadContext.capture(app, profile.id, null)!! }.get()
             val initial = PhotoLoadResult(context, PhotoLoadStage.INDEXED, listOf(item), PhotoAccessSummary(false, true))
             activity.submitPhotoGridResult(initial, request, key)
-            val gate = field("photoGridPublication").get(activity) as ViewerSwipePublicationGate<*>
+            val gate = field("mediaGridPublication").get(activity) as ViewerSwipePublicationGate<*>
             assertTrue(gate.isMoving)
             assertTrue(gate.hasPending)
             val firstPending = gate.javaClass.getDeclaredField("latest").apply { isAccessible = true }.get(gate)
@@ -85,6 +85,19 @@ class PhotoViewerInitializationTest {
             (gate.onScrollMoving(false) as (() -> Unit)?)?.invoke()
             assertSame("Queued obsolete results never enter publishMedia", visible, field("mMedia").get(activity))
             assertEquals(1, adapter.itemCount)
+
+            // Ordinary folders use the same session gate even though they do not
+            // have the custom-profile scroll-anchor lifecycle.
+            type.getDeclaredMethod("onPhotoFastScrollStateChanged", Boolean::class.javaPrimitiveType)
+                .apply { isAccessible = true }.invoke(activity, false)
+            field("mPath").set(activity, "/Gallery")
+            type.getDeclaredMethod("onPhotoFastScrollStateChanged", Boolean::class.javaPrimitiveType)
+                .apply { isAccessible = true }.invoke(activity, true)
+            assertTrue(field("mediaFastScrollActive").getBoolean(activity))
+            val adapterFastScroll = org.fossify.gallery.adapters.MediaAdapter::class.java
+                .getDeclaredField("fastScrollActive").apply { isAccessible = true }
+            assertTrue("Ordinary media adapters also reject stale in-flight commits",
+                adapterFastScroll.getBoolean(adapter))
         } finally {
             binding.mediaGrid.adapter = null
             worker.shutdownNow()
