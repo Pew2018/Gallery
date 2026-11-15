@@ -262,9 +262,39 @@ androidComponents {
         variant.instrumentation.transformClassesWith(
             org.fossify.gallery.build.ClassicCommonsVisitorFactory::class.java,
             com.android.build.api.instrumentation.InstrumentationScope.ALL
-        ) {}
+        ) {
+            // Invalidate AGP's cached external artifacts when the patch changes.
+            it.patchRevision.set(2)
+        }
         variant.instrumentation.setAsmFramesComputationMode(
             com.android.build.api.instrumentation.FramesComputationMode.COMPUTE_FRAMES_FOR_INSTRUMENTED_METHODS
         )
+
+        // AGP applies external dependency instrumentation for the APK, but host tests
+        // load the original AAR classes. Patch just the resume class with the same visitor.
+        val capitalizedVariant = variant.name.replaceFirstChar { it.uppercaseChar() }
+        val commons = variant.runtimeConfiguration.incoming.artifactView {
+            componentFilter { id ->
+                id is org.gradle.api.artifacts.component.ModuleComponentIdentifier &&
+                    id.group == "org.fossify" && id.module == "commons"
+            }
+            attributes {
+                attribute(org.gradle.api.artifacts.type.ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE,
+                    "android-classes-jar")
+            }
+        }.files
+        val testCommons = tasks.register<org.fossify.gallery.build.TestCommonsResumeClass>(
+            "patch${capitalizedVariant}CommonsResumeForUnitTest"
+        ) {
+            commonsClasses.from(commons)
+            outputDirectory.set(layout.buildDirectory.dir("generated/commonsResumeUnitTest/${variant.name}"))
+        }
+        // AGP assigns the test classpath while registering its tasks.
+        gradle.projectsEvaluated {
+            tasks.withType<Test>().matching { it.name == "test${capitalizedVariant}UnitTest" }.configureEach {
+                classpath = files(testCommons.flatMap { it.outputDirectory }) + classpath
+                dependsOn(testCommons)
+            }
+        }
     }
 }

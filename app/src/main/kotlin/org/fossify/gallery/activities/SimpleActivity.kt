@@ -66,6 +66,7 @@ open class SimpleActivity : BaseSimpleActivity() {
         }
         org.fossify.gallery.helpers.GalleryBottomBar.traceWindow(this, "create_before_commons")
         super.onCreate(savedInstanceState)
+        (this as? ViewPagerActivity)?.traceEntryCanvas("commons_create_after")
         if (this is EditActivity || this is ViewPagerActivity || this is PhotoVideoActivity) {
             window.setBackgroundDrawable(ColorDrawable(
                 if (photoSharedTransition) Color.TRANSPARENT else Color.BLACK
@@ -81,10 +82,14 @@ open class SimpleActivity : BaseSimpleActivity() {
 
     override fun onResume() {
         OxygenThemeEngine.apply(this, config)
+        val viewer = this as? ViewPagerActivity
+        viewer?.traceEntryCanvas("commons_resume_before")
         super.onResume()
+        viewer?.traceEntryCanvas("commons_resume_after")
         // Commons' onResume calls setTheme(); restore the overlay after that call.
         applyClassicOverlay()
         org.fossify.gallery.helpers.GalleryBottomBar.restoreRootWindow(this)
+        viewer?.traceEntryCanvas("classic_resume_after")
         org.fossify.gallery.helpers.GalleryBottomBar.traceWindow(this, "resume_after_commons")
     }
 

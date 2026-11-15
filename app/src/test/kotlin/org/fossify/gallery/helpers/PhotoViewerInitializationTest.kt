@@ -1,6 +1,7 @@
 package org.fossify.gallery.helpers
 
 import android.app.Application
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
@@ -9,7 +10,10 @@ import android.provider.Settings
 import android.view.View
 import android.widget.ImageView
 import androidx.fragment.app.Fragment
+import org.fossify.gallery.R
 import org.fossify.gallery.activities.BaseViewerActivity
+import org.fossify.gallery.activities.SimpleActivity
+import org.fossify.gallery.extensions.config
 import org.fossify.gallery.adapters.MyPagerAdapter
 import org.fossify.gallery.databinding.ActivityMediumBinding
 import org.fossify.gallery.databinding.PagerPhotoItemBinding
@@ -24,6 +28,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
+import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
@@ -38,6 +43,86 @@ class PhotoViewerInitializationTest {
         companion object {
             @JvmStatic @Implementation fun __staticInitializer__() = Unit
         }
+    }
+
+    @Test fun sharedViewerCanvasStaysTransparentAcrossResume() {
+        val controller = viewerWithTransitionIntent().create()
+        val viewer = controller.get()
+        val root = viewer.findViewById<View>(R.id.fragment_holder)
+        val pager = viewer.findViewById<View>(R.id.view_pager)
+        val scrim = viewer.findViewById<View>(R.id.viewer_transition_scrim)
+        fun assertPrepared(stage: String) {
+            listOf(viewer.window.decorView, root, pager).forEach {
+                assertBackground(it, Color.TRANSPARENT, stage)
+            }
+            assertBackground(scrim, Color.BLACK, stage)
+            assertEquals(stage, 0f, scrim.alpha, 0f)
+            assertEquals(stage, View.VISIBLE, scrim.visibility)
+        }
+        try {
+            assertPrepared("create")
+            controller.start()
+            assertPrepared("start")
+            controller.resume()
+            assertPrepared("resume")
+            controller.postResume()
+            assertPrepared("postResume")
+            viewer.window.decorView.viewTreeObserver.dispatchOnPreDraw()
+            assertPrepared("first pre-draw")
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun disabledMotionKeepsTheViewerBlackAcrossResume() {
+        val app = org.robolectric.RuntimeEnvironment.getApplication()
+        Settings.Global.putFloat(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
+        val controller = viewerWithTransitionIntent().setup()
+        try {
+            val viewer = controller.get()
+            assertFalse(viewer.isMediaTransitionRunning())
+            assertBackground(viewer.window.decorView, Color.BLACK)
+            assertBackground(viewer.findViewById(R.id.fragment_holder), Color.BLACK)
+            assertBackground(viewer.findViewById(R.id.view_pager), Color.BLACK)
+        } finally {
+            controller.pause().stop().destroy()
+            Settings.Global.putFloat(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        }
+    }
+
+    @Test fun ordinaryGalleryWindowStillReceivesTheClassicPageColor() {
+        val app = org.robolectric.RuntimeEnvironment.getApplication()
+        app.config.oxygenThemeActivated = true
+        listOf("light" to 0xFFFAFAFA.toInt(), "dark" to 0xFF212121.toInt()).forEach { (mode, color) ->
+            app.config.oxygenAppearanceMode = mode
+            val controller = Robolectric.buildActivity(SimpleActivity::class.java).create().start()
+            try {
+                val decor = controller.get().window.decorView
+                decor.setBackgroundColor(Color.TRANSPARENT)
+                controller.resume().postResume()
+                assertBackground(decor, color, mode)
+            } finally {
+                controller.pause().stop().destroy()
+            }
+        }
+    }
+
+    private fun viewerWithTransitionIntent(): ActivityController<ViewPagerActivity> {
+        val app = org.robolectric.RuntimeEnvironment.getApplication()
+        app.config.oxygenThemeActivated = true
+        app.config.oxygenAppearanceMode = "light"
+        Shadows.shadowOf(app).grantPermissions(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        val path = "/storage/emulated/0/Gallery/entry.jpg"
+        val intent = Intent(app, ViewPagerActivity::class.java)
+            .putExtra(PATH, path)
+            .putExtra(PhotoViewerTransition.EXTRA_PATH, path)
+        return Robolectric.buildActivity(ViewPagerActivity::class.java, intent)
+    }
+
+    private fun assertBackground(view: View, color: Int, stage: String = "") {
+        val background = view.background as ColorDrawable
+        assertEquals(stage, color, background.color)
+        assertEquals(stage, Color.alpha(color), background.alpha)
     }
 
     @Test fun firstLayoutCannotCancelAlreadyScheduledCompleteCatalog() {
@@ -82,6 +167,7 @@ class PhotoViewerInitializationTest {
 
     @Test fun selectedRendererWaitsForPredrawAndSharedCaptureBeforeOwningPixels() {
         val fixture = EntryFixture()
+        fixture.call("setSharedTransitionCanvasTransparent")
         val photo = fixture.setPhoto()
         val image = photo.binding.gesturesView
         val entry = fixture.entry
@@ -109,12 +195,17 @@ class PhotoViewerInitializationTest {
 
         fixture.call("renderPhotoTransitionProgress", args = arrayOf(entry, .4f))
         assertEquals(Stage.SHARED, entry.stage)
+        assertBackground(fixture.activity.window.decorView, Color.TRANSPARENT)
         assertEquals(.4f, fixture.binding.viewerTransitionScrim.alpha, 0f)
         assertEquals(.4f, fixture.binding.mediumViewerAppbar.alpha, 0f)
         fixture.call("onSharedEntryTerminal", args = arrayOf(entry, false))
         assertEquals(Stage.COMPLETE, entry.stage)
         assertFalse(fixture.binding.viewPager.transitionInputLocked)
         assertNull(proxy.parent)
+        assertBackground(fixture.activity.window.decorView, Color.BLACK)
+        assertBackground(fixture.binding.root, Color.BLACK)
+        assertBackground(fixture.binding.viewPager, Color.BLACK)
+        assertEquals(View.GONE, fixture.binding.viewerTransitionScrim.visibility)
         assertEquals(1f, image.alpha, 0f)
         assertEquals(View.GONE, fixture.binding.viewerEntryStatus.visibility)
 
@@ -214,6 +305,13 @@ class PhotoViewerInitializationTest {
             ViewerEntryDiagnostics.event(request, "entry_completed") {
                 mapOf("stage" to "COMPLETE", "mediaPath" to "/storage/emulated/0/a.jpg", "reason" to "/storage/emulated/0/b.jpg")
             }
+            val viewer = Robolectric.buildActivity(ViewPagerActivity::class.java).get()
+            viewer.intent.putExtra(PhotoViewerTransition.EXTRA_ENTRY_ID, request)
+            viewer.window.decorView.setBackgroundColor(Color.TRANSPARENT)
+            viewer.traceEntryCanvas("create")
+            viewer.traceEntryCanvas("same")
+            viewer.window.decorView.setBackgroundColor(Color.BLACK)
+            viewer.traceEntryCanvas("resume")
             var exported = ""
             GalleryDiagnosticLogger.snapshot { text, _ -> exported = text }
             val io = GalleryDiagnosticLogger::class.java.getDeclaredField("io").apply { isAccessible = true }
@@ -223,6 +321,10 @@ class PhotoViewerInitializationTest {
             assertTrue(exported.contains("module=ViewerEntry event=entry_completed"))
             assertTrue(exported.contains("request=$request"))
             assertFalse(exported.contains("should_not_log"))
+            val canvas = exported.lineSequence().filter { "event=entry_canvas_changed" in it }.toList()
+            assertEquals(2, canvas.size)
+            assertTrue(canvas.any { "checkpoint=create" in it && "window=00000000/0" in it })
+            assertTrue(canvas.any { "checkpoint=resume" in it && "window=ff000000/255" in it })
             assertFalse(exported.contains("/storage"))
             assertFalse(exported.contains("mediaPath="))
         } finally {

@@ -1,14 +1,21 @@
 package org.fossify.gallery.fragments
 
 import android.app.Application
+import android.graphics.Bitmap
 import android.graphics.RectF
 import android.view.View
 import android.view.ViewGroup
+import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
+import androidx.fragment.app.FragmentManager
 import org.fossify.gallery.databinding.PagerVideoItemBinding
+import org.fossify.gallery.extensions.config
+import org.fossify.gallery.models.Medium
 import org.fossify.gallery.helpers.MediaTransitionGeometry
 import org.fossify.gallery.helpers.VideoPreviewFrameHandoff
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -30,8 +37,23 @@ class VideoViewerFrameLayerTest {
             controller.get().setContentView(binding.root)
             val fragment = VideoFragment()
             val type = VideoFragment::class.java
-            type.getDeclaredField("binding").apply { isAccessible = true }.set(fragment, binding)
-            type.getDeclaredField("mTextureView").apply { isAccessible = true }.set(fragment, binding.videoSurface)
+            fun videoField(name: String, value: Any) = type.getDeclaredField(name)
+                .apply { isAccessible = true }.set(fragment, value)
+            fun fragmentField(name: String, value: Any) = Fragment::class.java.getDeclaredField(name)
+                .apply { isAccessible = true }.set(fragment, value)
+            val activity = controller.get()
+            val host = FragmentManager::class.java.getDeclaredField("mHost").apply { isAccessible = true }
+                .get(activity.supportFragmentManager)
+            fragmentField("mView", binding.root)
+            fragmentField("mHost", host)
+            fragmentField("mAdded", true)
+            val path = "/Gallery/test.mp4"
+            videoField("mMedium", Medium().apply { this.path = path })
+            videoField("mIsFragmentVisible", true)
+            videoField("binding", binding)
+            videoField("mTextureView", binding.videoSurface)
+            videoField("mConfig", activity.config)
+            binding.videoPreview.setImageBitmap(Bitmap.createBitmap(200, 100, Bitmap.Config.ARGB_8888))
             val setViewport = type.getDeclaredMethod("layoutVideoViewport", Pair::class.java)
                 .apply { isAccessible = true }
             val textureBounds = type.getDeclaredMethod("displayedTextureBounds").apply { isAccessible = true }
@@ -41,6 +63,7 @@ class VideoViewerFrameLayerTest {
             val to = MediaTransitionGeometry.fit(canvasWidth, canvasHeight, 2f)!!
             val frames = ArrayDeque<Runnable>()
             val handoff = VideoPreviewFrameHandoff(binding.videoPreview) { frames.addLast(it) }
+            videoField("videoPreviewFrameHandoff", handoff)
             val player = Any()
             handoff.setTransitionRunning(true)
             handoff.bind(player)
@@ -65,8 +88,22 @@ class VideoViewerFrameLayerTest {
                 assertEquals(View.VISIBLE, cover.visibility)
             }
             val beforeFirstFrame = textureBounds.invoke(fragment) as RectF
-            handoff.setTransitionRunning(false)
-            assertEquals(View.GONE, binding.videoPreview.visibility)
+            val cover = binding.videoPreview
+            assertNull(fragment.sharedElementViewFor(path, deferTakeover = true))
+            videoField("previewReady", true)
+            val proxy = fragment.sharedElementViewFor(path, deferTakeover = true)
+            assertNotNull(proxy)
+            checkNotNull(proxy)
+            val proxyBounds = RectF(proxy.left.toFloat(), proxy.top.toFloat(), proxy.right.toFloat(), proxy.bottom.toFloat())
+            assertTrue(MediaTransitionGeometry.sameBounds(proxyBounds, beforeFirstFrame))
+            assertEquals(1f, cover.alpha, 0f)
+            assertTrue(fragment.takeOverSharedEntry(proxy))
+            assertEquals(0f, cover.alpha, 0f)
+            assertEquals(1f, proxy.alpha, 0f)
+            assertEquals(View.VISIBLE, cover.visibility)
+            fragment.finishSharedTransition()
+            assertNull(proxy.parent)
+            assertEquals(View.GONE, cover.visibility)
             assertEquals(beforeFirstFrame, textureBounds.invoke(fragment))
         } finally {
             controller.pause().stop().destroy()

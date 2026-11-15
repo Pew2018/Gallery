@@ -887,6 +887,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Never restore media fragments before the current password/session
         // flow validates the viewer request.
+        traceEntryCanvas("create_before")
         super.onCreate(null)
         fadeOnlyPhotoFallback = intent.getBooleanExtra(PhotoViewerTransition.EXTRA_FADE_ONLY, false)
         if (fadeOnlyPhotoFallback) window.setWindowAnimations(0)
@@ -955,7 +956,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
         refreshViewerSystemBars()
         binding.viewPager.transitionInputLocked = entry != null
+        traceEntryCanvas("create_canvas_ready")
         logMediaEntry("viewer_created", if (entry == null) "window_fade" else null)
+        if (entry != null && ViewerEntryDiagnostics.enabled(entryRequestId())) {
+            binding.root.doOnPreDraw { traceEntryCanvas("first_pre_draw", updateLifecycle = false) }
+        }
         org.fossify.gallery.helpers.OxygenProgressStyle.apply(this, config, binding.photoBoundaryLoading)
         binding.viewPager.onUnknownBoundary = { forward -> requestViewerBoundary(forward) }
         binding.viewPager.canPageHorizontallyFromCurrentPhoto = {
@@ -1023,6 +1028,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
 
         initFavorites()
+        traceEntryCanvas("create_after")
+    }
+
+    override fun onStart() {
+        super.onStart()
+        traceEntryCanvas("start_after")
     }
 
     override fun onResume() {
@@ -1041,6 +1052,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
         val filename = getCurrentMedium()?.name ?: mPath.getFilenameFromPath()
         binding.mediumViewerToolbar.title = filename
+        traceEntryCanvas("resume_after")
     }
 
     override fun onPostResume() {
@@ -1056,6 +1068,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             if (stillCurrent) updatePagerItems(pending.media, pending.positions)
             else if (!isFinishing && !isDestroyed) refreshViewPager(true)
         }
+        traceEntryCanvas("post_resume_after")
     }
 
     override fun onPause() {
@@ -4916,8 +4929,39 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
     }
 
+    private var entryLifecyclePhase: String? = null
+    private var lastEntryCanvas: Map<String, Any?>? = null
+
+    private fun entryRequestId() = intent.getLongExtra(PhotoViewerTransition.EXTRA_ENTRY_ID, 0L)
+
+    private fun entryCanvasState(): Map<String, Any?> {
+        val decor = window.peekDecorView()
+        return mapOf(
+            // The public Window API exposes the effective background through its Decor.
+            "window" to ViewerEntryDiagnostics.backgroundState(decor?.background),
+            "windowAlpha" to window.attributes.alpha,
+            "decorDrawable" to decor?.background?.javaClass?.simpleName,
+            "decor" to ViewerEntryDiagnostics.viewState(decor),
+            "root" to ViewerEntryDiagnostics.viewState(decor?.findViewById(R.id.fragment_holder)),
+            "pager" to ViewerEntryDiagnostics.viewState(decor?.findViewById(R.id.view_pager)),
+            "scrim" to ViewerEntryDiagnostics.viewState(decor?.findViewById(R.id.viewer_transition_scrim)),
+        )
+    }
+
+    internal fun traceEntryCanvas(checkpoint: String, updateLifecycle: Boolean = true) {
+        val request = entryRequestId()
+        if (!ViewerEntryDiagnostics.enabled(request)) return
+        if (updateLifecycle) entryLifecyclePhase = checkpoint
+        val state = entryCanvasState()
+        if (lastEntryCanvas == state) return
+        lastEntryCanvas = state
+        ViewerEntryDiagnostics.event(request, "entry_canvas_changed") {
+            state + mapOf("checkpoint" to checkpoint, "lifecycle" to entryLifecyclePhase, "stage" to mediaEntry?.stage?.name)
+        }
+    }
+
     private fun logMediaEntry(event: String, reason: String? = null) {
-        ViewerEntryDiagnostics.event(intent.getLongExtra(PhotoViewerTransition.EXTRA_ENTRY_ID, 0L), event) {
+        ViewerEntryDiagnostics.event(entryRequestId(), event) {
             val renderer = currentEntryRenderer()
             val content = (renderer as? ImageView)?.let(org.fossify.gallery.helpers.MediaTransitionGeometry::imageBounds)
             val proxy = photoTransitionMappedView
@@ -4932,13 +4976,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 "proxy" to ViewerEntryDiagnostics.viewState(proxy),
                 "captures" to proxy?.let(::mappedTransitionSurfaceBounds)?.toShortString(),
                 "contentBounds" to (content?.toShortString() ?: renderer?.let(::mappedTransitionSurfaceBounds)?.toShortString()),
-                "window" to ViewerEntryDiagnostics.backgroundState(window.decorView.background),
-                "windowAlpha" to window.attributes.alpha,
-                "decor" to ViewerEntryDiagnostics.viewState(window.decorView),
-                "root" to ViewerEntryDiagnostics.viewState(binding.root),
-                "pager" to ViewerEntryDiagnostics.viewState(binding.viewPager),
-                "scrim" to ViewerEntryDiagnostics.viewState(binding.viewerTransitionScrim),
-            )
+                "lifecycle" to entryLifecyclePhase,
+            ) + entryCanvasState()
         }
     }
 

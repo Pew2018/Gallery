@@ -11,8 +11,10 @@ internal object ViewerEntryDiagnostics {
 
     fun newRequest(): Long = if (GalleryDiagnosticLogger.isEnabled()) requests.incrementAndGet() else 0L
 
+    fun enabled(request: Long) = request != 0L && GalleryDiagnosticLogger.isEnabled()
+
     inline fun event(request: Long, event: String, fields: () -> Map<String, Any?>) {
-        if (request == 0L || !GalleryDiagnosticLogger.isEnabled()) return
+        if (!enabled(request)) return
         GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "ViewerEntry", event, request, fields())
     }
 
