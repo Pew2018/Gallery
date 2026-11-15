@@ -18,13 +18,18 @@ class VideoPreviewFrameHandoffTest {
         val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
         try {
             val cover = FrameLayout(controller.get())
-            val handoff = VideoPreviewFrameHandoff(cover)
+            val frames = ArrayDeque<Runnable>()
+            val handoff = VideoPreviewFrameHandoff(cover) { frames.addLast(it) }
             val player = Any()
             handoff.setTransitionRunning(true)
             handoff.bind(player)
             handoff.onRenderedFirstFrame(player)
             assertEquals(View.VISIBLE, cover.visibility)
             handoff.setTransitionRunning(false)
+            assertEquals(View.VISIBLE, cover.visibility)
+            frames.removeFirst().run()
+            assertEquals(View.VISIBLE, cover.visibility)
+            frames.removeFirst().run()
             assertEquals(View.GONE, cover.visibility)
             handoff.setTransitionRunning(true)
             assertEquals(View.VISIBLE, cover.visibility)
@@ -38,7 +43,8 @@ class VideoPreviewFrameHandoffTest {
         val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
         try {
             val cover = FrameLayout(controller.get())
-            val handoff = VideoPreviewFrameHandoff(cover)
+            val frames = ArrayDeque<Runnable>()
+            val handoff = VideoPreviewFrameHandoff(cover) { frames.addLast(it) }
             val previousPlayer = Any()
             val activePlayer = Any()
 
@@ -51,6 +57,10 @@ class VideoPreviewFrameHandoffTest {
             handoff.keepCoverForError(activePlayer)
             assertEquals(View.VISIBLE, cover.visibility)
             handoff.onRenderedFirstFrame(activePlayer)
+            assertEquals(View.VISIBLE, cover.visibility)
+            frames.removeFirst().run()
+            assertEquals(View.VISIBLE, cover.visibility)
+            frames.removeFirst().run()
             assertEquals(View.GONE, cover.visibility)
 
             handoff.keepCoverForError(previousPlayer)
