@@ -267,6 +267,33 @@ class PhotoViewerInteractiveGestureTest {
                     R.id.media_fastscroller
                 ).isFastScrollEnabled)
 
+            val grid = activity.findViewById<RecyclerView>(R.id.media_grid)
+            instrumentation.runOnMainSync { grid.scrollToPosition(0) }
+            SystemClock.sleep(150)
+            var partialRange = 0
+            instrumentation.runOnMainSync {
+                partialRange = grid.computeVerticalScrollRange() - grid.computeVerticalScrollExtent()
+            }
+            assertTrue("the currently published provisional rows have a real scroll range", partialRange > grid.height)
+            val partialOffset = dragGridFastScrollerOnDevice(
+                instrumentation,
+                grid,
+                activity.findViewById(R.id.media_fastscroller),
+                0.62f,
+                false,
+            )
+            assertTrue("dragging during active media discovery moves the real grid; offset=$partialOffset range=$partialRange",
+                partialOffset in (partialRange / 3)..(partialRange * 4 / 5))
+            val quickRepeatOffset = dragGridFastScrollerOnDevice(
+                instrumentation,
+                grid,
+                activity.findViewById(R.id.media_fastscroller),
+                0.28f,
+                false,
+            )
+            assertTrue("a repeated drag remains effective while discovery is active; offset=$quickRepeatOffset",
+                quickRepeatOffset in (partialRange / 6)..(partialRange / 2))
+
             instrumentation.runOnMainSync {
                 final.setBoolean(activity, true)
                 ready.invoke(activity, true)
