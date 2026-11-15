@@ -72,4 +72,25 @@ class VideoPreviewFrameHandoffTest {
             controller.pause().stop().destroy()
         }
     }
+
+    @Test fun errorAndViewDestructionInvalidateAlreadyQueuedDisplayFrames() {
+        val cover = View(org.robolectric.RuntimeEnvironment.getApplication())
+        val frames = ArrayDeque<Runnable>()
+        val handoff = VideoPreviewFrameHandoff(cover) { frames.addLast(it) }
+        val player = Any()
+        handoff.bind(player)
+        handoff.onRenderedFirstFrame(player)
+        frames.removeFirst().run()
+
+        handoff.keepCoverForError(player)
+        frames.removeFirst().run()
+        assertEquals(View.VISIBLE, cover.visibility)
+
+        handoff.onRenderedFirstFrame(player)
+        frames.removeFirst().run()
+        handoff.clear()
+        frames.removeFirst().run()
+        assertEquals(View.VISIBLE, cover.visibility)
+    }
+
 }

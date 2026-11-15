@@ -228,39 +228,36 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         videoPreviewFrameHandoff?.setTransitionRunning(false)
     }
 
-    fun setSharedChromeVisible(show: Boolean, animate: Boolean) {
+    fun setSharedChromeAlpha(progress: Float) {
         if (!this::binding.isInitialized) return
-        val alpha = if (show && !mIsFullscreen) 1f else 0f
-        val duration = if (show) OxygenClassicMotion.VIEWER_CHROME_ENTER_MS
-            else OxygenClassicMotion.VIEWER_CHROME_EXIT_MS
+        val alpha = if (mIsFullscreen) 0f else progress
         listOf(binding.videoPlayOutline, binding.bottomVideoTimeHolder.root, binding.videoDetails).forEach {
-            it.animate().cancel()
-            if (animate) it.animate().alpha(alpha).setDuration(duration)
-                .setInterpolator(OxygenClassicMotion.easing()).start()
-            else it.alpha = alpha
+            it.alpha = alpha
         }
     }
 
     private fun loadPreview() {
         val path = mMedium.path
+        val preview = binding.videoPreview
+        val root = binding.root
         Glide.with(this).load(path).signature(mMedium.getKey())
             .fitCenter().dontAnimate()
             .listener(object : RequestListener<Drawable> {
                 override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean = false
                 override fun onResourceReady(resource: Drawable, model: Any, target: Target<Drawable>?,
                     dataSource: GlideDataSource, isFirstResource: Boolean): Boolean {
-                    binding.videoPreview.post {
-                        if (view != null && mMedium.path == path && binding.videoPreview.drawable === resource) {
+                    preview.post {
+                        if (view === root && mMedium.path == path && preview.drawable === resource) {
                             previewReady = true
                             setVideoSize()
-                            binding.root.doOnPreDraw {
-                                if (view != null && mMedium.path == path && mIsFragmentVisible) listener?.imageRendered(path)
+                            root.doOnPreDraw {
+                                if (view === root && mMedium.path == path && mIsFragmentVisible) listener?.imageRendered(path)
                             }
                         }
                     }
                     return false
                 }
-            }).into(binding.videoPreview)
+            }).into(preview)
     }
     private lateinit var mView: View
     private lateinit var mMedium: Medium
@@ -378,7 +375,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             }
         }
         if ((activity as? ViewPagerActivity)?.isMediaTransitionRunning() == true) {
-            setSharedChromeVisible(false, false)
+            setSharedChromeAlpha(0f)
         }
         videoPreviewFrameHandoff = VideoPreviewFrameHandoff(binding.videoPreview).also {
             it.setTransitionRunning((activity as? ViewPagerActivity)?.isMediaTransitionRunning() == true)
@@ -544,8 +541,12 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
 
         mIsFragmentVisible = menuVisible
-        if (menuVisible && previewReady) binding.videoPreview.post {
-            if (view != null && mIsFragmentVisible) listener?.imageRendered(mMedium.path)
+        if (menuVisible && previewReady) {
+            val root = binding.root
+            val path = mMedium.path
+            root.post {
+                if (view === root && mIsFragmentVisible && mMedium.path == path) listener?.imageRendered(path)
+            }
         }
         val shouldPlayVideo = mWasFragmentInit && menuVisible && mConfig.autoplayVideos && !mConfig.gestureVideoPlayer
         if (shouldPlayVideo) playVideo()

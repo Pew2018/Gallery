@@ -2,13 +2,10 @@ package org.fossify.gallery.activities
 
 import org.fossify.gallery.helpers.OxygenClassicActivityMotion
 
+import android.content.res.Configuration
 import android.os.Bundle
-import android.graphics.Color
-import android.os.Build
 import android.view.View
-import android.widget.FrameLayout
 import androidx.core.view.ViewCompat
-import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsCompat.Type
 import androidx.lifecycle.Lifecycle
@@ -19,6 +16,9 @@ import kotlinx.coroutines.launch
 import org.fossify.commons.extensions.updateMarginWithBase
 import org.fossify.commons.extensions.updatePaddingWithBase
 import org.fossify.gallery.extensions.config
+import org.fossify.gallery.helpers.OxygenSystemBars
+import org.fossify.gallery.helpers.OxygenThemeEngine
+import org.fossify.gallery.helpers.OxygenThemeTokens
 
 abstract class BaseViewerActivity : SimpleActivity() {
     override val padCutout: Boolean = false
@@ -41,53 +41,28 @@ abstract class BaseViewerActivity : SimpleActivity() {
         registerShowNotchCollector(contentRoot)
     }
 
+    protected open val viewerSystemBarProgress: Float get() = 1f
+    protected open val viewerStatusSurfaceVisible: Boolean get() = true
+
+    private lateinit var viewerBarColors: OxygenThemeTokens
+
     override fun onResume() {
         super.onResume()
-        applyViewerSystemBars()
+        refreshViewerSystemBars()
     }
 
-    private fun applyViewerSystemBars() {
-        val decor = window.decorView
-        val bars = WindowCompat.getInsetsController(window, decor)
-        bars.isAppearanceLightStatusBars = false
-        bars.isAppearanceLightNavigationBars = false
-        if (Build.VERSION.SDK_INT < 35) {
-            @Suppress("DEPRECATION")
-            window.statusBarColor = getColor(org.fossify.gallery.R.color.viewer_status_surface)
-            @Suppress("DEPRECATION")
-            window.navigationBarColor = Color.BLACK
-        } else {
-            val host = decor as? FrameLayout ?: return
-            val underlay = host.findViewWithTag<View>(VIEWER_STATUS_UNDERLAY) ?: View(this).also { view ->
-                view.tag = VIEWER_STATUS_UNDERLAY
-                view.isClickable = false
-                view.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                host.addView(view, 0, FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    0,
-                    android.view.Gravity.TOP
-                ))
-                ViewCompat.setOnApplyWindowInsetsListener(view) { target, insets ->
-                    val top = insets.getInsets(
-                        WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()
-                    ).top
-                    target.layoutParams = (target.layoutParams as FrameLayout.LayoutParams).apply { height = top }
-                    insets
-                }
-            }
-            underlay.setBackgroundColor(getColor(org.fossify.gallery.R.color.viewer_status_surface))
-            ViewCompat.getRootWindowInsets(host)?.let { insets ->
-                val top = insets.getInsets(
-                    WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()
-                ).top
-                underlay.layoutParams = (underlay.layoutParams as FrameLayout.LayoutParams).apply { height = top }
-            }
-            ViewCompat.requestApplyInsets(underlay)
-        }
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        refreshViewerSystemBars()
     }
 
-    private companion object {
-        const val VIEWER_STATUS_UNDERLAY = "gallery_viewer_status_underlay"
+    protected fun refreshViewerSystemBars() {
+        viewerBarColors = OxygenThemeEngine.snapshot(this, config)
+        updateViewerSystemBars()
+    }
+
+    protected fun updateViewerSystemBars() {
+        OxygenSystemBars.applyViewer(this, viewerBarColors, viewerSystemBarProgress, viewerStatusSurfaceVisible)
     }
 
     private fun registerShowNotchCollector(view: View) {

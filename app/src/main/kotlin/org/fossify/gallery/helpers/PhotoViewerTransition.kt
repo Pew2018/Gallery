@@ -40,7 +40,7 @@ internal object PhotoViewerReturnTarget {
     private const val MIN_VISIBLE_AREA_FRACTION_DENOMINATOR = 3L
 }
 
-/** Rejects a delayed entry completion after the viewer has begun its return. */
+/** Allows a single no-animation completion until shared motion starts or entry is abandoned. */
 internal class PhotoTransitionCompletionGate {
     private var generation = 0L
     private var pendingGeneration: Long? = null

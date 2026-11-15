@@ -146,8 +146,10 @@ class PhotoFragment : ViewPagerFragment() {
     private fun reportImageRendered() {
         val path = mMedium.path
         if (mReportedImagePath == path || !mIsFragmentVisible) return
-        binding.gesturesView.post {
-            if (mIsFragmentVisible && mReportedImagePath != path && binding.gesturesView.drawable != null && mMedium.path == path) {
+        val root = binding.root
+        val image = binding.gesturesView
+        image.post {
+            if (view === root && mIsFragmentVisible && mReportedImagePath != path && image.drawable != null && mMedium.path == path) {
                 mReportedImagePath = path
                 listener?.imageRendered(path)
             }
@@ -504,6 +506,7 @@ class PhotoFragment : ViewPagerFragment() {
     }
 
     override fun onDestroyView() {
+        mReportedImagePath = null
         sharedSurface?.clear()
         sharedSurface = null
         org.fossify.gallery.helpers.ViewerChromeMotion.cancel(binding.root)

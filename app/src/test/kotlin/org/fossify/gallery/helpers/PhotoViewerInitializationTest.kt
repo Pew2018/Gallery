@@ -74,6 +74,39 @@ class PhotoViewerInitializationTest {
         assertTrue(running.getBoolean(activity))
     }
 
+    @Test fun sharedProgressMovesCanvasAndChromeTogetherAndReturnRejectsLateEntryFrames() {
+        val activity = Robolectric.buildActivity(ViewPagerActivity::class.java).get()
+        val type = ViewPagerActivity::class.java
+        fun field(name: String) = type.getDeclaredField(name).apply { isAccessible = true }
+        fun frame(method: String, progress: Float) =
+            type.getDeclaredMethod(method, Float::class.javaPrimitiveType).apply { isAccessible = true }
+                .invoke(activity, progress)
+        val binding = type.getDeclaredMethod("getBinding").apply { isAccessible = true }
+            .invoke(activity) as org.fossify.gallery.databinding.ActivityMediumBinding
+        org.fossify.gallery.activities.BaseViewerActivity::class.java
+            .getDeclaredMethod("refreshViewerSystemBars").apply { isAccessible = true }.invoke(activity)
+        field("mediaTransitionRunning").setBoolean(activity, true)
+        val canvas = binding.viewerTransitionScrim
+        val chrome = binding.mediumViewerAppbar
+
+        frame("renderPhotoTransitionProgress", 0.4f)
+        assertEquals(0.4f, canvas.alpha, 0f)
+        assertEquals(canvas.alpha, chrome.alpha, 0f)
+        assertEquals(1f, binding.mediumViewerToolbar.alpha, 0f)
+
+        field("finishAfterSharedTransitionInProgress").setBoolean(activity, true)
+        field("returnViewerLayerProgress").setFloat(activity, 0.4f)
+        frame("renderSharedReturnProgress", 0.5f)
+        assertEquals(0.2f, canvas.alpha, 0f)
+        assertEquals(canvas.alpha, chrome.alpha, 0f)
+
+        frame("renderPhotoTransitionProgress", 1f)
+        assertEquals(0.2f, canvas.alpha, 0f)
+        frame("renderSharedReturnProgress", 1f)
+        assertEquals(0f, canvas.alpha, 0f)
+        assertEquals(canvas.alpha, chrome.alpha, 0f)
+    }
+
     @Test fun actualPhotoGridDefersIdleFastScrollPublicationsBeforeSnapshotWork() {
         val app = org.robolectric.RuntimeEnvironment.getApplication()
         val profile = PhotoProfile(java.util.UUID.randomUUID().toString(), "grid",
