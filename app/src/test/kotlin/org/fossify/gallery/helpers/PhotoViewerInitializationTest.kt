@@ -282,6 +282,34 @@ class PhotoViewerInitializationTest {
         assertNotNull(proxy.parent)
     }
 
+    @Test fun normalReturnTerminalClearsViewerLayersButRetainsMediaUntilPlatformFinish() {
+        val fixture = EntryFixture()
+        val photo = fixture.setPhoto()
+        val renderer = photo.binding.gesturesView
+        val drawable = renderer.drawable
+        val proxy = photo.page.sharedElementViewFor(fixture.path) as ImageView
+        fixture.set("finishAfterSharedTransitionInProgress", true)
+        fixture.set("sharedReturnView", proxy)
+        fixture.set("sharedReturnPage", photo.page)
+        photo.binding.photoDetails.apply { visibility = View.VISIBLE; alpha = .65f }
+        fixture.call("takeOverReturnChrome", args = arrayOf(photo.page))
+        fixture.call("setSharedTransitionCanvasTransparent")
+        fixture.call("renderSharedReturnProgress", args = arrayOf(.55f))
+        fixture.call("onSharedReturnTerminal", args = arrayOf(false))
+        assertEquals(0f, fixture.binding.viewerTransitionScrim.alpha, 0f)
+        assertEquals(0f, fixture.binding.mediumViewerAppbar.alpha, 0f)
+        assertEquals(0f, photo.binding.photoDetails.alpha, 0f)
+        assertBackground(fixture.activity.window.decorView, Color.TRANSPARENT)
+        assertSame(photo.binding.root, proxy.parent)
+        assertSame(drawable, renderer.drawable)
+        assertEquals(0f, renderer.alpha, 0f)
+        assertFalse(fixture.activity.isFinishing)
+        fixture.activity.finish()
+        fixture.activity.finish()
+        assertTrue(fixture.activity.isFinishing)
+        assertSame(photo.binding.root, proxy.parent)
+    }
+
     @Test fun platformFinishWithoutAnimatorRestoresViewerBeforeFade() {
         val fixture = EntryFixture()
         val photo = fixture.setPhoto()

@@ -181,4 +181,27 @@ class MediaSharedSurfaceTest {
         } finally { controller.pause().stop().destroy() }
     }
 
+    @Test fun rendererAlphaUpdatesCannotDrawOverTheMovingProxy() {
+        val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
+        try {
+            val parent = RelativeLayout(controller.get())
+            controller.get().setContentView(parent)
+            val renderer = View(parent.context).apply {
+                alpha = .75f
+                transitionAlpha = .8f
+            }
+            parent.addView(renderer)
+            val surface = MediaSharedSurface(parent)
+            val proxy = surface.prepare(ColorDrawable(Color.BLUE), RectF(0f, 100f, 200f, 250f), renderer)!!
+            renderer.alpha = 1f // Simulate an asynchronous renderer update after the proxy takes over.
+            assertEquals(0f, renderer.transitionAlpha, 0f)
+            assertEquals(1f, proxy.alpha, 0f)
+            assertSame(parent, proxy.parent)
+            surface.clear()
+            assertEquals(.75f, renderer.alpha, 0f)
+            assertEquals(.8f, renderer.transitionAlpha, 0f)
+            assertNull(proxy.drawable)
+        } finally { controller.pause().stop().destroy() }
+    }
+
 }

@@ -3,6 +3,7 @@ package org.fossify.gallery.helpers
 import android.graphics.Matrix
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
+import android.os.Build
 import android.view.View
 import android.widget.ImageView
 import android.widget.RelativeLayout
@@ -14,7 +15,8 @@ internal class MediaSharedSurface(private val parent: RelativeLayout) {
     var currentView: ImageView? = null
         private set
     private var renderers = emptyList<View>()
-    private val hidden = linkedMapOf<View, Float>()
+    private data class RendererState(val alpha: Float, val transitionAlpha: Float)
+    private val hidden = linkedMapOf<View, RendererState>()
 
     fun prepare(
         drawable: Drawable,
@@ -63,7 +65,13 @@ internal class MediaSharedSurface(private val parent: RelativeLayout) {
     fun takeOver(proxy: View): Boolean {
         if (currentView !== proxy || !proxy.isAttachedToWindow) return false
         renderers.forEach { view ->
-            hidden.putIfAbsent(view, view.alpha)
+            if (view !in hidden) {
+                hidden[view] = RendererState(view.alpha, if (Build.VERSION.SDK_INT >= 29) view.transitionAlpha else 1f)
+                view.animate().cancel()
+            }
+            // A renderer can still receive asynchronous alpha updates when a tile or
+            // player frame becomes ready. The proxy remains the only visible surface.
+            if (Build.VERSION.SDK_INT >= 29) view.transitionAlpha = 0f
             view.alpha = 0f
         }
         proxy.alpha = 1f
@@ -72,7 +80,10 @@ internal class MediaSharedSurface(private val parent: RelativeLayout) {
 
     fun clear() {
         renderers = emptyList()
-        hidden.forEach { (view, alpha) -> view.alpha = alpha }
+        hidden.forEach { (view, state) ->
+            view.alpha = state.alpha
+            if (Build.VERSION.SDK_INT >= 29) view.transitionAlpha = state.transitionAlpha
+        }
         hidden.clear()
         currentView?.let {
             it.setLayerType(View.LAYER_TYPE_NONE, null)

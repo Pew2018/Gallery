@@ -105,6 +105,25 @@ class VideoViewerFrameLayerTest {
             assertNull(proxy.parent)
             assertEquals(View.GONE, cover.visibility)
             assertEquals(beforeFirstFrame, textureBounds.invoke(fragment))
+
+            // Return an unplayed video using its real decoded cover and keep the
+            // cover protected if its first frame becomes ready during the return.
+            handoff.bind(player)
+            val returnProxy = fragment.sharedElementViewFor(path) as android.widget.ImageView
+            assertEquals(beforeFirstFrame, RectF(returnProxy.left.toFloat(), returnProxy.top.toFloat(),
+                returnProxy.right.toFloat(), returnProxy.bottom.toFloat()))
+            handoff.onRenderedFirstFrame(player)
+            frames.removeFirst().run()
+            frames.removeFirst().run()
+            assertEquals(View.VISIBLE, cover.visibility)
+            assertEquals(0f, cover.transitionAlpha, 0f)
+            assertEquals(0f, binding.videoSurfaceFrame.transitionAlpha, 0f)
+            assertNotNull(returnProxy.drawable)
+            fragment.finishSharedTransition()
+            assertNull(returnProxy.parent)
+            assertNull(returnProxy.drawable)
+            assertEquals(1f, cover.transitionAlpha, 0f)
+            assertEquals(View.GONE, cover.visibility)
         } finally {
             controller.pause().stop().destroy()
         }

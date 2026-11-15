@@ -106,6 +106,11 @@ class MediaAdapterStabilityTest {
             grid.itemAnimator = null
             grid.adapter = adapter
             controller.visible()
+            // This fixture attaches views without running MediaActivity.onCreate.
+            // Simulate the ViewRoot marking the window visible before a real traversal.
+            val attachment = View::class.java.getDeclaredField("mAttachInfo").apply { isAccessible = true }.get(grid)
+            attachment.javaClass.getDeclaredField("mWindowVisibility").apply { isAccessible = true }
+                .setInt(attachment, View.VISIBLE)
             layout()
         }
 
@@ -115,10 +120,14 @@ class MediaAdapterStabilityTest {
             grid.layout(0, 0, 320, 320)
         }
 
-        fun reenter(path: String, id: Long = 1L) {
+        val launchId: Long
+            get() = type.getDeclaredField("viewerReturnLaunch").apply { isAccessible = true }.getLong(activity)
+
+        fun reenter(path: String, id: Long = 1L, launch: Long = launchId) {
             activity.onActivityReenter(Activity.RESULT_OK, Intent()
                 .putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH, path)
-                .putExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, id))
+                .putExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, id)
+                .putExtra(PhotoViewerTransition.EXTRA_LAUNCH, launch))
         }
 
         fun thumbnail(position: Int, path: String): ImageView {
@@ -137,6 +146,35 @@ class MediaAdapterStabilityTest {
             type.getDeclaredMethod("mapViewerReturnTarget", MutableMap::class.java)
                 .apply { isAccessible = true }.invoke(activity, elements)
             return elements[PhotoViewerTransition.ELEMENT_NAME]
+        }
+
+        fun launch(path: String) {
+            type.getDeclaredMethod("launchPhotoViewerWithSharedElement", Intent::class.java, String::class.java)
+                .apply { isAccessible = true }.invoke(activity, Intent(activity, org.fossify.gallery.activities.ViewPagerActivity::class.java), path)
+        }
+
+        fun terminal(transition: android.transition.Transition = activity.window.sharedElementReenterTransition, cancelled: Boolean = false) {
+            val phases = if (cancelled) listOf("start", "cancel", "end") else listOf("start", "end")
+            phases.forEach { phase ->
+                android.transition.Transition::class.java.getDeclaredMethod(phase)
+                    .apply { isAccessible = true }.invoke(transition)
+            }
+        }
+
+        fun result(path: String, id: Long = 1L, launch: Long = launchId) {
+            type.getDeclaredMethod("onActivityResult", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Intent::class.java)
+                .apply { isAccessible = true }.invoke(activity, PhotoViewerTransition.REQUEST_CODE, Activity.RESULT_OK, Intent()
+                    .putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH, path)
+                    .putExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, id)
+                    .putExtra(PhotoViewerTransition.EXTRA_LAUNCH, launch))
+
+        }
+
+        fun frame() {
+            layout()
+            draw()
+            grid.viewTreeObserver.dispatchOnDraw()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
         }
 
         fun end() {
@@ -259,6 +297,120 @@ class MediaAdapterStabilityTest {
         assertTrue(fixture.adapter.committedVersion > version)
         assertEquals(updated.size, (fixture.adapter.media.single() as Medium).size)
         assertTrue(fixture.grid.findViewHolderForAdapterPosition(0)?.isRecyclable ?: true)
+    }
+
+    @Test fun synchronousGridTransitionKeepsTheExactThumbnailUntilViewerResultAndVisibleDraw() {
+        val row = item("a.jpg")
+        val fixture = ReturnGridFixture(listOf(row))
+        val image = fixture.thumbnail(0, row.path)
+        val drawable = image.drawable
+        val holder = fixture.grid.findViewHolderForAdapterPosition(0)!!
+        fixture.launch(row.path)
+        fixture.reenter(row.path)
+        fixture.draw()
+        assertSame(image, fixture.map())
+
+        val version = fixture.adapter.committedVersion
+        val updated = row.copy(size = row.size + 50)
+        fixture.adapter.updateMedia(arrayListOf(updated))
+        fixture.terminal()
+        fixture.frame()
+        drain(fixture.tasks)
+        assertFalse("A grid Transition can finish before the Viewer", holder.isRecyclable)
+        assertEquals(version, fixture.adapter.committedVersion)
+        assertSame(drawable, image.drawable)
+
+        image.alpha = 0f // The platform still owns the thumbnail's visibility.
+        fixture.result(row.path)
+        fixture.frame()
+        assertFalse(holder.isRecyclable)
+        assertEquals(PhotoViewerTransition.ELEMENT_NAME, image.transitionName)
+
+        image.alpha = 1f
+        assertTrue(image.isShown)
+        assertEquals(View.VISIBLE, image.windowVisibility)
+        fixture.draw()
+        assertFalse("Pre-draw can be cancelled and is not a drawing acknowledgement", holder.isRecyclable)
+        fixture.frame()
+        drain(fixture.tasks)
+        assertTrue(holder.isRecyclable)
+        assertNull(image.transitionName)
+        assertEquals(version + 1, fixture.adapter.committedVersion)
+        assertEquals(updated.size, (fixture.adapter.media.single() as Medium).size)
+    }
+
+    @Test fun staleViewerResultAndCancelledTransitionCannotReleaseTheNextLaunch() {
+        val row = item("a.jpg")
+        val fixture = ReturnGridFixture(listOf(row))
+        val image = fixture.thumbnail(0, row.path)
+        val holder = fixture.grid.findViewHolderForAdapterPosition(0)!!
+        fixture.launch(row.path)
+        val previousLaunch = fixture.launchId
+        val previousTransition = fixture.activity.window.sharedElementReenterTransition
+        fixture.reenter(row.path, id = 0L)
+        fixture.draw()
+        assertSame(image, fixture.map())
+        fixture.end()
+
+        fixture.launch(row.path)
+        fixture.reenter(row.path, id = 0L)
+        fixture.draw()
+        assertSame(image, fixture.map())
+        fixture.terminal(previousTransition, cancelled = true)
+        fixture.result(row.path, id = 0L, launch = previousLaunch)
+        fixture.frame()
+        assertFalse(holder.isRecyclable)
+
+        // The current result can also precede the local transition's termination.
+        fixture.result(row.path, id = 0L)
+        fixture.frame()
+        assertFalse(holder.isRecyclable)
+        fixture.terminal(cancelled = true)
+        fixture.frame()
+        assertTrue(holder.isRecyclable)
+        fixture.result(row.path, id = 0L)
+        fixture.frame()
+        assertNull(image.transitionName)
+        assertSame(holder, fixture.grid.findViewHolderForAdapterPosition(0))
+    }
+
+    @Test fun aReplacedDrawableCannotAcknowledgeThePreviousThumbnailHandoff() {
+        val row = item("a.jpg")
+        val fixture = ReturnGridFixture(listOf(row))
+        val image = fixture.thumbnail(0, row.path)
+        val holder = fixture.grid.findViewHolderForAdapterPosition(0)!!
+        fixture.launch(row.path)
+        fixture.reenter(row.path)
+        fixture.draw()
+        assertSame(image, fixture.map())
+        fixture.terminal()
+        fixture.result(row.path)
+
+        val replacement = ColorDrawable(android.graphics.Color.GREEN)
+        image.setImageDrawable(replacement)
+        fixture.layout()
+        fixture.frame()
+        assertTrue(holder.isRecyclable)
+        assertSame(replacement, image.drawable)
+        assertNull(image.transitionName)
+    }
+
+    @Test fun anUndrawnMappedTargetTimesOutAndReleasesItsHolder() {
+        val row = item("a.jpg")
+        val fixture = ReturnGridFixture(listOf(row))
+        val image = fixture.thumbnail(0, row.path)
+        val holder = fixture.grid.findViewHolderForAdapterPosition(0)!!
+        fixture.launch(row.path)
+        fixture.reenter(row.path)
+        fixture.draw()
+        assertSame(image, fixture.map())
+        fixture.terminal()
+        fixture.result(row.path)
+        assertFalse(holder.isRecyclable)
+        fixture.timeout()
+        fixture.frame()
+        assertTrue(holder.isRecyclable)
+        assertNull(image.transitionName)
     }
 
     private fun drain(tasks: ArrayDeque<Runnable>) {

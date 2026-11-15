@@ -10,6 +10,7 @@ object PhotoViewerTransition {
     const val FADE_DURATION_MS = OxygenClassicMotion.MEDIA_SCRIM_FADE_MS
     const val READY_TIMEOUT_MS = 1_200L
     const val REQUEST_CODE = 9_071
+    internal const val EXTRA_LAUNCH = "org.fossify.gallery.extra.VIEWER_LAUNCH"
     const val EXTRA_RETURN_PATH = "org.fossify.gallery.extra.MEDIA_RETURN_PATH"
 }
 
