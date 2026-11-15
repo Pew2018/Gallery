@@ -44,9 +44,9 @@ object OxygenSystemBars {
     @Suppress("DEPRECATION")
     fun applyViewer(activity: Activity, colors: OxygenThemeTokens, progress: Float, statusVisible: Boolean) {
         val host = activity.window.decorView as? FrameLayout ?: return
-        val status = ColorUtils.blendARGB(colors.statusBarBackground,
+        val status = blendOpaqueSurface(colors.statusBarBackground,
             activity.getColor(R.color.viewer_status_surface), progress)
-        val nav = ColorUtils.blendARGB(colors.navigationBarBackground, Color.BLACK, progress)
+        val nav = blendOpaqueSurface(colors.navigationBarBackground, Color.BLACK, progress)
         val bars = WindowCompat.getInsetsController(activity.window, host)
         bars.isAppearanceLightStatusBars = useDarkIcons(status)
         bars.isAppearanceLightNavigationBars = useDarkIcons(nav)
@@ -61,6 +61,10 @@ object OxygenSystemBars {
             }
         }
     }
+
+    // Float interpolation can truncate 255 to 254 even when both endpoints are opaque.
+    private fun blendOpaqueSurface(start: Int, end: Int, progress: Float) =
+        OxygenThemeColors.opaque(ColorUtils.blendARGB(start, end, progress))
 
     private fun useDarkIcons(background: Int) =
         ColorUtils.calculateContrast(Color.BLACK, background) >

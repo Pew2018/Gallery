@@ -53,6 +53,33 @@ class OxygenSystemBarsTest {
     }
 
     @Test
+    @Config(sdk = [29, 36])
+    fun viewerBarColorsStayOpaqueAtFractionalProgress() {
+        val controller = Robolectric.buildActivity(AppCompatActivity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val window = activity.window
+            val colors = OxygenThemeEngine.snapshot(activity, activity.config).copy(
+                statusBarBackground = Color.WHITE, navigationBarBackground = Color.WHITE)
+            // Float interpolation followed by truncation can turn alpha 255 into 254 here.
+            OxygenSystemBars.applyViewer(activity, colors, 0.008f, true)
+            val statusColor = if (android.os.Build.VERSION.SDK_INT < 35) {
+                assertEquals(Color.rgb(252, 252, 252), window.navigationBarColor)
+                window.statusBarColor
+            } else {
+                val underlay = window.decorView.findViewWithTag<View>(OxygenSystemBars.STATUS_UNDERLAY)
+                (underlay.background as ColorDrawable).color
+            }
+            assertEquals(Color.rgb(253, 253, 253), statusColor)
+            val bars = WindowCompat.getInsetsController(window, window.decorView)
+            assertEquals(true, bars.isAppearanceLightStatusBars)
+            assertEquals(true, bars.isAppearanceLightNavigationBars)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test
     @Config(sdk = [35, 36])
     fun edgeToEdgeReusesOneStatusSurfaceAndPreservesInsetsThroughImmersion() {
         val controller = Robolectric.buildActivity(AppCompatActivity::class.java).setup()
