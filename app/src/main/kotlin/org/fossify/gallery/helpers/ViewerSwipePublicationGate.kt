@@ -14,9 +14,11 @@ internal class ViewerSwipePublicationGate<T> {
     val isMoving: Boolean get() = moving
     val hasPending: Boolean get() = latest != null
 
-    fun deferIfMoving(value: T): Boolean {
+    fun deferIfMoving(value: T): Boolean = deferIfMoving(value) { true }
+
+    fun deferIfMoving(value: T, supersedes: (T) -> Boolean): Boolean {
         if (!moving) return false
-        latest = value
+        if (latest?.let(supersedes) != false) latest = value
         return true
     }
 

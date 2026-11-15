@@ -257,4 +257,31 @@ class FavoritesScrollRestorerTest {
         assertNotNull(restorer.pending)
     }
 
+    @Test fun removedAnchorUsesSurvivingNeighborEvenWhenRowsMoveAcrossSections() {
+        manager.scrollToPositionWithOffset(240, -27)
+        frame()
+        restorer.remember(recycler, paths, keepNeighbors = true)
+        val anchor = requireNotNull(restorer.pending)
+        val next = anchor.neighbors.first()
+        val modified = paths.filterNot { it == anchor.path || it == next }.toMutableList()
+        modified.add(102, next)
+        modified.add(102, null)
+        replace(modified)
+        restorer.restore(recycler, paths, true) { true }
+        frame()
+        assertRestored(anchor, next)
+    }
+
+    @Test fun fastDragCancelsAlreadyQueuedLayoutManagerOffset() {
+        remember(15)
+        val anchor = requireNotNull(restorer.pending)
+        val moved = paths.filterNot { it == anchor.path }.toMutableList().apply { add(360, anchor.path) }
+        replace(moved)
+        restorer.restore(recycler, paths, true) { true }
+        restorer.clear()
+        frame()
+        assertNull(restorer.pending)
+        assertNull(manager.findViewByPosition(360))
+    }
+
 }

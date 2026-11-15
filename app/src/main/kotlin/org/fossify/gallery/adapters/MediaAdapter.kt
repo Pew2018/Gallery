@@ -20,7 +20,6 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.gallery.helpers.FavoritesScrollRestorer
-import org.fossify.gallery.helpers.PhotoProfileMediaLoader
 import com.bumptech.glide.Glide
 import com.bumptech.glide.Priority
 import com.squareup.picasso.Picasso
@@ -813,6 +812,7 @@ class MediaAdapter(
                     pending.requestId, mapOf("itemCount" to incoming.size, "diffGeneration" to pending.generation,
                         "adapterId" to System.identityHashCode(this), "adapterVersion" to committedVersion)
                 )
+            restoreRefreshScroll(pending)
             logUpdate(pending, "adapter_snapshot_fast_commit", "same_content")
             pending.committed()
             return
@@ -827,6 +827,7 @@ class MediaAdapter(
             currentMediaHash = media.hashCode()
             listener?.updateMediaGridDecoration(media)
             notifyItemRangeInserted(oldCount, incoming.size - oldCount)
+            restoreRefreshScroll(pending)
             logUpdate(pending, "adapter_snapshot_fast_commit", "append", oldCount)
             pending.committed()
             return
@@ -885,20 +886,17 @@ class MediaAdapter(
                     submitPendingUpdate()
                     return@runOnUiThread
                 }
+                if (fastScrollActive || recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE ||
+                    recyclerView.isComputingLayout) {
+                    if (pendingUpdate == null) pendingUpdate = pending.copy(forceReplace = result.isFailure)
+                    if (!fastScrollActive) recyclerView.postDelayed(drainUpdates, 80)
+                    return@runOnUiThread
+                }
                 if (result.isFailure) {
                     recoverDiff(pending, result.exceptionOrNull()!!)
                     return@runOnUiThread
                 }
                 val diff = result.getOrThrow()
-                if (fastScrollActive) {
-                    if (pendingUpdate == null) pendingUpdate = pending
-                    return@runOnUiThread
-                }
-                if (recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE || recyclerView.isComputingLayout) {
-                    if (pendingUpdate == null) pendingUpdate = pending
-                    recyclerView.postDelayed(drainUpdates, 80)
-                    return@runOnUiThread
-                }
                 // Details may have completed while the background diff ran.
                 applyDurationOverrides(incoming)
                 rememberRefreshScroll(pending)
@@ -926,11 +924,7 @@ class MediaAdapter(
                             "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(path)
                         )
                     )
-                if (refreshScroll.pending != null) refreshScroll.restore(recyclerView,
-                    media.map { (it as? Medium)?.path }, true, isCurrent = {
-                        pending.generation == diffGeneration && recyclerView.adapter === this && pending.current() &&
-                            recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE
-                    })
+                restoreRefreshScroll(pending)
                 pending.committed()
                 submitPendingUpdate()
             }
@@ -961,11 +955,7 @@ class MediaAdapter(
         currentMediaHash = media.hashCode()
         listener?.updateMediaGridDecoration(media)
         notifyItemRangeChanged(0, incoming.size)
-        if (refreshScroll.pending != null) refreshScroll.restore(recyclerView,
-            media.map { (it as? Medium)?.path }, true, isCurrent = {
-                pending.generation == diffGeneration && canCommit(pending) &&
-                    recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE
-            })
+        restoreRefreshScroll(pending)
         if (pending.diagnosticsEnabled)
             org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
                 org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_reorder_commit",
@@ -990,12 +980,7 @@ class MediaAdapter(
         listener?.updateMediaGridDecoration(media)
         notifyDataSetChanged()
         logUpdate(pending, "adapter_snapshot_fast_commit", "replace", oldCount)
-        if (refreshScroll.pending != null) refreshScroll.restore(recyclerView,
-            media.map { (it as? Medium)?.path }, true, isCurrent = {
-                pending.generation == diffGeneration && recyclerView.adapter === this && pending.current() &&
-                    !activity.isFinishing && !activity.isDestroyed &&
-                    recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE
-            })
+        restoreRefreshScroll(pending)
         pending.committed()
     }
 
@@ -1020,10 +1005,27 @@ class MediaAdapter(
     }
 
     private fun rememberRefreshScroll(pending: PendingUpdate) {
-        refreshScroll.clear()
-        if (!pending.preserveScroll || pending.reason == MediaUpdateReason.USER_SORT) return
-        if (path == FAVORITES || path == PhotoProfileMediaLoader.PATH) return
-        refreshScroll.remember(recyclerView, media.map { (it as? Medium)?.path })
+        if (!pending.preserveScroll || pending.reason == MediaUpdateReason.USER_SORT) {
+            refreshScroll.clear()
+            return
+        }
+        // Two commits can arrive before RecyclerView lays out the first one.
+        // In that window the attached holders still describe the prior list.
+        if (!recyclerView.hasPendingAdapterUpdates()) refreshScroll.clear()
+        refreshScroll.remember(recyclerView, media.map { (it as? Medium)?.path }, keepNeighbors = true)
+    }
+
+    private fun restoreRefreshScroll(pending: PendingUpdate) {
+        if (refreshScroll.pending == null) return
+        if (!pending.preserveScroll || pending.reason == MediaUpdateReason.USER_SORT) {
+            refreshScroll.clear()
+            return
+        }
+        val version = committedVersion
+        refreshScroll.restore(recyclerView, media.map { (it as? Medium)?.path }, true, isCurrent = {
+            !fastScrollActive && version == committedVersion && canCommit(pending) &&
+                recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE
+        })
     }
 
     private fun logUpdate(pending: PendingUpdate, event: String, strategy: String, oldCount: Int = media.size,

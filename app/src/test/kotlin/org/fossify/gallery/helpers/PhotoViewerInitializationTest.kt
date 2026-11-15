@@ -81,15 +81,13 @@ class PhotoViewerInitializationTest {
             assertSame(visible, field("mMedia").get(activity))
             assertEquals(1, adapter.itemCount)
             PhotoContentRevision.changed()
-            @Suppress("UNCHECKED_CAST")
-            (gate.onScrollMoving(false) as (() -> Unit)?)?.invoke()
+            type.getDeclaredMethod("onPhotoFastScrollStateChanged", Boolean::class.javaPrimitiveType)
+                .apply { isAccessible = true }.invoke(activity, false)
+            assertFalse(gate.hasPending)
             assertSame("Queued obsolete results never enter publishMedia", visible, field("mMedia").get(activity))
             assertEquals(1, adapter.itemCount)
 
-            // Ordinary folders use the same session gate even though they do not
-            // have the custom-profile scroll-anchor lifecycle.
-            type.getDeclaredMethod("onPhotoFastScrollStateChanged", Boolean::class.javaPrimitiveType)
-                .apply { isAccessible = true }.invoke(activity, false)
+            // Ordinary folders use the same session gate.
             field("mPath").set(activity, "/Gallery")
             type.getDeclaredMethod("onPhotoFastScrollStateChanged", Boolean::class.javaPrimitiveType)
                 .apply { isAccessible = true }.invoke(activity, true)

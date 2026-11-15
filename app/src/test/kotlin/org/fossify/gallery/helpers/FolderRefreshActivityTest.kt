@@ -74,6 +74,15 @@ class FolderRefreshActivityTest {
         }
         assertTrue("Activity/Adapter did not reach the expected state", condition())
     }
+    private fun publish(activity: MediaActivity, rows: ArrayList<org.fossify.gallery.models.ThumbnailItem>,
+                        cache: Boolean, request: Long, stage: DisplayedSourceStage? = null,
+                        access: (() -> Boolean)? = null) {
+        MediaActivity::class.java.getDeclaredMethod("publishMedia", ArrayList::class.java,
+            Boolean::class.javaPrimitiveType, Long::class.javaPrimitiveType, DisplayedSourceStage::class.java,
+            Function0::class.java, Function0::class.java).apply { isAccessible = true }
+            .invoke(activity, rows, cache, request, stage, access, null)
+    }
+
     private fun refresh(activity: MediaActivity) {
         val swipe = activity.findViewById<SwipeRefreshLayout>(R.id.media_refresh_layout)
         val listener = SwipeRefreshLayout::class.java.getDeclaredField("mListener").apply { isAccessible = true }
@@ -208,9 +217,7 @@ class FolderRefreshActivityTest {
             val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
             val stale = requests.begin()
             requests.begin()
-            MediaActivity::class.java.getDeclaredMethod("publishMedia", ArrayList::class.java,
-                Boolean::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
-                .invoke(activity, arrayListOf<org.fossify.gallery.models.ThumbnailItem>(Medium().apply { path = "${root.path}/stale.jpg" }), false, stale)
+            publish(activity, arrayListOf(Medium().apply { path = "${root.path}/stale.jpg" }), false, stale)
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             assertEquals(setOf(fresh.path), paths(activity))
         }
@@ -439,12 +446,47 @@ class FolderRefreshActivityTest {
             val media = arrayListOf<org.fossify.gallery.models.ThumbnailItem>(Medium().apply {
                 path = photo.path; parentPath = root.path; name = photo.name; type = TYPE_IMAGES
             })
-            MediaActivity::class.java.getDeclaredMethod("publishMedia", ArrayList::class.java,
-                Boolean::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
-                .invoke(activity, media, false, request)
+            publish(activity, media, false, request)
             await { !field(activity, "mIsGettingMedia").getBoolean(activity) }
             assertFalse(field(activity, "displayedMediaIsFinal").getBoolean(activity))
             assertEquals(setOf(photo.path), paths(activity))
+        }
+    }
+
+    @Test fun ordinaryFolderPublishesOnlyTheLatestScanStageAfterFastScrollerAndGridAreIdle() {
+        val initial = photo("old.jpg")
+        val partial = photo("partial.jpg")
+        val complete = photo("complete.jpg")
+        fun row(file: File) = Medium().apply {
+            path = file.path
+            parentPath = root.path
+            name = file.name
+            type = TYPE_IMAGES
+        }
+        withActivity { activity ->
+            val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
+            val request = requests.begin()
+            (field(activity, "mediaScanTerminals").get(activity) as GalleryScanTerminalGate).begin(request)
+            val grid = activity.findViewById<MyRecyclerView>(R.id.media_grid)
+            val setState = androidx.recyclerview.widget.RecyclerView::class.java
+                .getDeclaredMethod("setScrollState", Int::class.javaPrimitiveType).apply { isAccessible = true }
+            val drag = MediaActivity::class.java.getDeclaredMethod("onPhotoFastScrollStateChanged",
+                Boolean::class.javaPrimitiveType).apply { isAccessible = true }
+            publish(activity, arrayListOf(row(initial)), true, request, DisplayedSourceStage.CACHE_PREVIEW) { true }
+            val adapter = grid.adapter
+            drag.invoke(activity, true)
+            publish(activity, arrayListOf(row(partial)), true, request, DisplayedSourceStage.SCAN_PARTIAL) { true }
+            publish(activity, arrayListOf(row(complete), row(initial)), false, request,
+                DisplayedSourceStage.SCAN_COMPLETE) { true }
+            publish(activity, arrayListOf(row(partial)), true, request, DisplayedSourceStage.INDEX_PREVIEW) { true }
+            assertEquals(setOf(initial.path), paths(activity))
+
+            setState.invoke(grid, androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_SETTLING)
+            drag.invoke(activity, false)
+            assertEquals(setOf(initial.path), paths(activity))
+            setState.invoke(grid, androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE)
+            await { paths(activity) == setOf(complete.path, initial.path) }
+            assertSame(adapter, grid.adapter)
         }
     }
 
@@ -873,9 +915,7 @@ class FolderRefreshActivityTest {
             })
             MediaActivity::class.java.getDeclaredMethod("armMediaRefreshDeadline", Long::class.javaPrimitiveType)
                 .apply { isAccessible = true }.invoke(activity, request)
-            MediaActivity::class.java.getDeclaredMethod("publishMedia", ArrayList::class.java,
-                Boolean::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
-                .invoke(activity, media, true, request)
+            publish(activity, media, true, request)
             assertTrue(field(activity, "mIsGettingMedia").getBoolean(activity))
             Shadows.shadowOf(Looper.getMainLooper()).idleFor(46, TimeUnit.SECONDS)
             assertFalse(field(activity, "mIsGettingMedia").getBoolean(activity))

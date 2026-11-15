@@ -3,6 +3,7 @@ package org.fossify.gallery.helpers
 import android.app.Application
 import android.graphics.drawable.ColorDrawable
 import android.os.Looper
+import android.view.View
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.commons.views.MyRecyclerView
@@ -59,7 +60,7 @@ class MediaAdapterStabilityTest {
     private fun item(name: String) = Medium(null, name, "/photos/$name", "/photos", 10, 10, 100,
         TYPE_IMAGES, 0, false, 0, 1)
 
-    private fun withAdapter(block: (MediaAdapter, MyRecyclerView, ArrayDeque<Runnable>) -> Unit) {
+    private fun withAdapter(path: String = "/photos", block: (MediaAdapter, MyRecyclerView, ArrayDeque<Runnable>) -> Unit) {
         val controller = Robolectric.buildActivity(SimpleActivity::class.java).setup()
         try {
             val activity = controller.get()
@@ -67,7 +68,7 @@ class MediaAdapterStabilityTest {
             activity.setContentView(recycler)
             val tasks = ArrayDeque<Runnable>()
             val adapter = MediaAdapter(activity, arrayListOf(item("a.jpg")), null, false, false,
-                "/photos", recycler, Executor { tasks.addLast(it) }) {}
+                path, recycler, Executor { tasks.addLast(it) }) {}
             recycler.adapter = adapter
             controller.visible()
             block(adapter, recycler, tasks)
@@ -256,6 +257,53 @@ class MediaAdapterStabilityTest {
         drain(tasks)
 
         assertEquals(listOf("complete.jpg"), adapter.media.filterIsInstance<Medium>().map { it.name })
+    }
+
+    @Test fun secondDragKeepsNewDiffPendingAndRestoresFinalPathInBothMediaScopes() {
+        for (path in listOf("/photos", PhotoProfileMediaLoader.PATH)) withAdapter(path) { adapter, recycler, tasks ->
+            val manager = recycler.layoutManager as LinearLayoutManager
+            fun layout(draw: Boolean = true) {
+                val exact = View.MeasureSpec.EXACTLY
+                recycler.measure(View.MeasureSpec.makeMeasureSpec(480, exact),
+                    View.MeasureSpec.makeMeasureSpec(600, exact))
+                recycler.layout(0, 0, 480, 600)
+                if (draw) recycler.viewTreeObserver.dispatchOnPreDraw()
+            }
+            val full = ArrayList<ThumbnailItem>((0 until 80).map { item("image-$it.jpg") })
+            adapter.updateMedia(full, preserveScroll = false)
+            drain(tasks)
+            layout()
+            val commits = mutableListOf<String>()
+            adapter.updateMedia(ArrayList(full.drop(1)), onCommitted = { commits += "in-flight" })
+            adapter.setFastScrollActive(true)
+            manager.scrollToPositionWithOffset(20, -23)
+            layout()
+            drain(tasks)
+            assertTrue(commits.isEmpty())
+            adapter.updateMedia(ArrayList(full.drop(2)), onCommitted = { commits += "partial" })
+            adapter.updateMedia(ArrayList(full.drop(3)), onCommitted = { commits += "complete" })
+            adapter.setFastScrollActive(false)
+            drain(tasks)
+
+            // A second thumb gesture arrives before the first restore is laid out.
+            adapter.setFastScrollActive(true)
+            layout()
+            manager.scrollToPositionWithOffset(35, -17)
+            layout()
+            val position = manager.findFirstVisibleItemPosition()
+            val anchor = adapter.media[position] as Medium
+            val offset = manager.getDecoratedTop(requireNotNull(manager.findViewByPosition(position)))
+            val latest = ArrayList<ThumbnailItem>(adapter.media.drop(5) + item("new.jpg"))
+            adapter.updateMedia(latest, onCommitted = { commits += "latest" })
+            adapter.setFastScrollActive(false)
+            drain(tasks)
+            layout()
+
+            assertEquals(listOf("complete", "latest"), commits)
+            assertEquals(latest, adapter.media)
+            val restored = requireNotNull(manager.findViewByPosition(adapter.media.indexOf(anchor)))
+            assertEquals(offset, manager.getDecoratedTop(restored))
+        }
     }
 
     @Test fun confirmedDeletionSupersedesAnInFlightProgressiveDiffByPath() = withAdapter { adapter, _, tasks ->

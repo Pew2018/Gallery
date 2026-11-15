@@ -4,28 +4,29 @@ import android.annotation.SuppressLint
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
-import android.os.Handler
-import android.os.Looper
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewTreeObserver
 import android.widget.ImageView
 import android.widget.LinearLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 import kotlin.math.roundToInt
+import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 
 /**
  * Classic fast-scroller styling and picker-local scroll synchronization.
- * Main Gallery scrollers keep the library's existing behaviour; the dialog
- * pickers use pixel scroll metrics because their row heights can vary.
+ * Gallery and its dialog pickers use RecyclerView pixel scroll metrics.
  */
 object OxygenFastScroller {
+    private val galleryStates = WeakHashMap<RecyclerViewFastScroller, WeakReference<GalleryDrag>>()
     private val pickerStates = WeakHashMap<RecyclerViewFastScroller, PickerScrollState>()
     private const val HIDE_DELAY_MS = 650L
     private const val FADE_DURATION_MS = 180L
@@ -52,8 +53,10 @@ object OxygenFastScroller {
             visibility = childVisibility
             isEnabled = available
         }
-        scroller.popupTextView.visibility = childVisibility
-        scroller.popupTextView.isEnabled = available
+        val galleryDrag = galleryStates[scroller]?.get()
+        if (available) galleryDrag?.syncThumb()
+        else if (galleryDrag != null) galleryDrag.endDrag()
+        else FastScrollerBubble.hide(scroller.popupTextView)
     }
 
     // Keep the existing call signature so no unrelated Activity code has to change.
@@ -140,8 +143,6 @@ object OxygenFastScroller {
             ?: return
         val track = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.trackView)
             ?: return
-        val popup = scroller.popupTextView
-
         fun apply(insets: WindowInsetsCompat) {
             val navigation = if (vertical) 0 else
                 insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
@@ -150,7 +151,6 @@ object OxygenFastScroller {
             // moves the handle, so a second translation would detach it.
             thumb.translationY = 0f
             track.translationY = offset
-            popup.translationY = offset
         }
 
         ViewCompat.setOnApplyWindowInsetsListener(scroller) { _, insets ->
@@ -187,82 +187,162 @@ object OxygenFastScroller {
             ?: return
         val track = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.trackView)
             ?: return
-        val vertical = scroller.fastScrollDirection ==
+        val existing = galleryStates[scroller]?.get()
+        if (existing?.recycler === recycler) return
+        existing?.dispose()
+        val state = GalleryDrag(scroller, recycler, thumb, track, onDragStateChanged)
+        galleryStates[scroller] = WeakReference(state)
+    }
+
+    fun disposeGalleryTouchHandling(scroller: RecyclerViewFastScroller) {
+        galleryStates.remove(scroller)?.get()?.dispose()
+    }
+
+    private class GalleryDrag(
+        private val scroller: RecyclerViewFastScroller,
+        val recycler: RecyclerView,
+        private val thumb: View,
+        private val track: View,
+        private val onDragStateChanged: (Boolean) -> Unit,
+    ) : View.OnTouchListener, View.OnAttachStateChangeListener, ViewTreeObserver.OnPreDrawListener {
+        private val popup = scroller.popupTextView
+        private val hidePopup = Runnable { hidePopup() }
+        private val bindTouch = Runnable { bindTouch() }
+        private val trackLocation = IntArray(2)
+        private val thumbLocation = IntArray(2)
+        private var activePointer = MotionEvent.INVALID_POINTER_ID
+        private var grabOffset = 0f
+        private var popupObserver: ViewTreeObserver? = null
+        private val vertical get() = scroller.fastScrollDirection ==
             RecyclerViewFastScroller.FastScrollDirection.VERTICAL
-        val handler = Handler(Looper.getMainLooper())
-        scroller.handleVisibilityDuration = 0
-        thumb.animate().cancel()
-        thumb.scaleX = 1f
-        thumb.scaleY = 1f
-        val hidePopup = Runnable { scroller.popupTextView.visibility = View.INVISIBLE }
-        var dragging = false
 
-        fun updatePopup() {
-            val vertical = scroller.fastScrollDirection ==
-                RecyclerViewFastScroller.FastScrollDirection.VERTICAL
-            val range = if (vertical) recycler.computeVerticalScrollRange() else recycler.computeHorizontalScrollRange()
-            val extent = if (vertical) recycler.computeVerticalScrollExtent() else recycler.computeHorizontalScrollExtent()
-            val offset = if (vertical) recycler.computeVerticalScrollOffset() else recycler.computeHorizontalScrollOffset()
-            val position = FastScrollerBubble.adapterPositionForOffset(
-                offset, range, extent, recycler.adapter?.itemCount ?: 0
-            ) ?: return
-            val label = (recycler.adapter as? RecyclerViewFastScroller.OnPopupTextUpdate)?.onChange(position)
-            scroller.popupTextView.text = label ?: (position + 1).toString()
-            scroller.popupTextView.visibility = View.VISIBLE
+        init {
+            scroller.handleVisibilityDuration = 0
+            FastScrollerBubble.hide(popup)
+            scroller.addOnAttachStateChangeListener(this)
+            bindTouch()
+            // The library posts its initial thumb listener during inflation.
+            scroller.post(bindTouch)
         }
 
-        fun dragTo(event: MotionEvent) {
-            val location = IntArray(2)
-            track.getLocationOnScreen(location)
-            if (vertical) {
-                val range = recycler.computeVerticalScrollRange()
-                val extent = recycler.computeVerticalScrollExtent()
-                if (range <= extent) return
-                val target = scrollOffsetForDrag(
-                    event.rawY, location[1], track.height, thumb.height, range, extent
-                )
-                recycler.scrollBy(0, target - recycler.computeVerticalScrollOffset())
-            } else {
-                val range = recycler.computeHorizontalScrollRange()
-                val extent = recycler.computeHorizontalScrollExtent()
-                if (range <= extent) return
-                val target = scrollOffsetForDrag(
-                    event.rawX, location[0], track.width, thumb.width, range, extent
-                )
-                recycler.scrollBy(target - recycler.computeHorizontalScrollOffset(), 0)
-            }
-            updatePopup()
-            handler.removeCallbacks(hidePopup)
-            handler.postDelayed(hidePopup, HIDE_DELAY_MS)
+        private fun bindTouch() {
+            thumb.setOnTouchListener(this)
+            track.setOnTouchListener(this)
         }
 
-        thumb.setOnTouchListener { touched, event ->
+        override fun onTouch(touched: View, event: MotionEvent): Boolean {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    dragging = true
-                    handler.removeCallbacks(hidePopup)
+                    if (!scroller.isFastScrollEnabled || recycler.adapter == null) return false
+                    activePointer = event.getPointerId(0)
+                    val axis = if (vertical) 1 else 0
+                    thumb.getLocationOnScreen(thumbLocation)
+                    val length = if (vertical) thumb.height else thumb.width
+                    grabOffset = if (touched === thumb) coordinate(event, 0) - thumbLocation[axis] - length / 2f else 0f
+                    scroller.removeCallbacks(hidePopup)
+                    track.parent?.requestDisallowInterceptTouchEvent(true)
                     onDragStateChanged(true)
-                    touched.parent?.requestDisallowInterceptTouchEvent(true)
-                    scroller.parent?.requestDisallowInterceptTouchEvent(true)
                     recycler.stopScroll()
                     dragTo(event)
-                    true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    touched.parent?.requestDisallowInterceptTouchEvent(true)
-                    scroller.parent?.requestDisallowInterceptTouchEvent(true)
-                    if (dragging) dragTo(event)
-                    dragging
+                    if (activePointer == MotionEvent.INVALID_POINTER_ID) return false
+                    dragTo(event)
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (dragging) onDragStateChanged(false)
-                    dragging = false
-                    handler.removeCallbacks(hidePopup)
-                    handler.postDelayed(hidePopup, HIDE_DELAY_MS)
-                    true
+                MotionEvent.ACTION_POINTER_UP -> {
+                    if (activePointer == MotionEvent.INVALID_POINTER_ID) return false
+                    if (event.getPointerId(event.actionIndex) == activePointer) endDrag()
                 }
-                else -> false
+                MotionEvent.ACTION_UP -> {
+                    if (activePointer == MotionEvent.INVALID_POINTER_ID) return false
+                    endDrag(delayHide = true)
+                }
+                MotionEvent.ACTION_CANCEL -> endDrag()
+                else -> return activePointer != MotionEvent.INVALID_POINTER_ID
             }
+            return true
+        }
+
+        private fun coordinate(event: MotionEvent, index: Int): Float =
+            if (vertical) event.rawY + event.getY(index) - event.y
+            else event.rawX + event.getX(index) - event.x
+
+        private fun dragTo(event: MotionEvent) {
+            val index = event.findPointerIndex(activePointer)
+            if (index < 0) return
+            val range = if (vertical) recycler.computeVerticalScrollRange() else recycler.computeHorizontalScrollRange()
+            val extent = if (vertical) recycler.computeVerticalScrollExtent() else recycler.computeHorizontalScrollExtent()
+            if (range <= extent) return
+            track.getLocationOnScreen(trackLocation)
+            val target = scrollOffsetForDrag(
+                coordinate(event, index) - grabOffset,
+                trackLocation[if (vertical) 1 else 0],
+                if (vertical) track.height else track.width,
+                if (vertical) thumb.height else thumb.width,
+                range, extent,
+            )
+            if (vertical) recycler.scrollBy(0, target - recycler.computeVerticalScrollOffset())
+            else recycler.scrollBy(target - recycler.computeHorizontalScrollOffset(), 0)
+            syncThumb()
+
+            val manager = recycler.layoutManager as? LinearLayoutManager ?: return
+            val position = manager.findFirstVisibleItemPosition()
+            val label = (recycler.adapter as? RecyclerViewFastScroller.OnPopupTextUpdate)
+                ?.onChange(position) ?: return
+            if (popup.text.toString() != label) popup.text = label
+            FastScrollerBubble.show(popup)
+            if (popupObserver == null) {
+                popupObserver = scroller.viewTreeObserver.also { it.addOnPreDrawListener(this) }
+            }
+            FastScrollerBubble.position(popup, thumb, scroller, vertical)
+        }
+
+        fun syncThumb() {
+            val range = if (vertical) recycler.computeVerticalScrollRange() else recycler.computeHorizontalScrollRange()
+            val extent = if (vertical) recycler.computeVerticalScrollExtent() else recycler.computeHorizontalScrollExtent()
+            val maxOffset = range - extent
+            if (maxOffset <= 0) return
+            val offset = if (vertical) recycler.computeVerticalScrollOffset() else recycler.computeHorizontalScrollOffset()
+            val fraction = offset.coerceIn(0, maxOffset).toFloat() / maxOffset
+            if (vertical) thumb.y = (track.height - thumb.height).coerceAtLeast(0) * fraction
+            else thumb.x = (track.width - thumb.width).coerceAtLeast(0) * fraction
+        }
+
+        override fun onPreDraw(): Boolean {
+            syncThumb()
+            FastScrollerBubble.position(popup, thumb, scroller, vertical)
+            return true
+        }
+
+        fun endDrag(delayHide: Boolean = false) {
+            val wasDragging = activePointer != MotionEvent.INVALID_POINTER_ID
+            activePointer = MotionEvent.INVALID_POINTER_ID
+            scroller.removeCallbacks(hidePopup)
+            if (delayHide) scroller.postDelayed(hidePopup, HIDE_DELAY_MS) else hidePopup()
+            if (wasDragging) {
+                track.parent?.requestDisallowInterceptTouchEvent(false)
+                onDragStateChanged(false)
+            }
+        }
+
+        private fun hidePopup() {
+            FastScrollerBubble.hide(popup)
+            popupObserver?.takeIf { it.isAlive }?.removeOnPreDrawListener(this)
+            popupObserver = null
+        }
+
+        override fun onViewAttachedToWindow(view: View) { scroller.post(bindTouch) }
+
+        override fun onViewDetachedFromWindow(view: View) {
+            scroller.removeCallbacks(bindTouch)
+            endDrag()
+        }
+
+        fun dispose() {
+            scroller.removeOnAttachStateChangeListener(this)
+            thumb.setOnTouchListener(null)
+            track.setOnTouchListener(null)
+            onViewDetachedFromWindow(scroller)
         }
     }
 
