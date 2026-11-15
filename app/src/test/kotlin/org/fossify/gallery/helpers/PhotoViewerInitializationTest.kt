@@ -31,6 +31,49 @@ class PhotoViewerInitializationTest {
         assertEquals("The singleton layout callback must not create a newer request", 4L, generation.getLong(activity))
     }
 
+    @Test fun selectedRendererOrTimeoutReleasesEntryAndFastBackCancelsReturnCapture() {
+        for (rendererReadyBeforeTimeout in listOf(true, false)) {
+            val activity = Robolectric.buildActivity(ViewPagerActivity::class.java).get()
+            val type = ViewPagerActivity::class.java
+            fun state(name: String) = type.getDeclaredField(name).apply { isAccessible = true }
+            val pending = state("pendingPhotoSharedElement")
+            val running = state("mediaTransitionRunning")
+            val selected = "/Gallery/selected.jpg"
+            state("photoSharedElementPath").set(activity, selected)
+            pending.setBoolean(activity, true)
+            running.setBoolean(activity, true)
+
+            activity.imageRendered("/Gallery/adjacent.jpg")
+            assertTrue(pending.getBoolean(activity))
+            if (rendererReadyBeforeTimeout) {
+                activity.imageRendered(selected)
+            } else {
+                (state("photoSharedElementTimeout").get(activity) as Runnable).run()
+                assertFalse(pending.getBoolean(activity))
+                activity.imageRendered(selected)
+            }
+            assertFalse(pending.getBoolean(activity))
+            assertTrue(running.getBoolean(activity))
+
+            activity.onBackPressed()
+            assertTrue(activity.isFinishing)
+            assertFalse(running.getBoolean(activity))
+            assertFalse(state("photoSharedElementMapped").getBoolean(activity))
+        }
+    }
+
+    @Test fun lateEntryCompletionLeavesReturnCaptureRunning() {
+        val activity = Robolectric.buildActivity(ViewPagerActivity::class.java).get()
+        val type = ViewPagerActivity::class.java
+        val running = type.getDeclaredField("mediaTransitionRunning").apply { isAccessible = true }
+        running.setBoolean(activity, true)
+        type.getDeclaredField("finishAfterSharedTransitionInProgress").apply { isAccessible = true }
+            .setBoolean(activity, true)
+
+        type.getDeclaredMethod("finishMediaEntryTransition").apply { isAccessible = true }.invoke(activity)
+        assertTrue(running.getBoolean(activity))
+    }
+
     @Test fun actualPhotoGridDefersIdleFastScrollPublicationsBeforeSnapshotWork() {
         val app = org.robolectric.RuntimeEnvironment.getApplication()
         val profile = PhotoProfile(java.util.UUID.randomUUID().toString(), "grid",

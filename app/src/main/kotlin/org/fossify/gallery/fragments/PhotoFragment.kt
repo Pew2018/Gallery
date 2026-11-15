@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.RectF
 import android.graphics.Matrix
+import android.graphics.PointF
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
@@ -88,6 +89,8 @@ import org.fossify.gallery.helpers.ColorModeHelper
 import org.fossify.gallery.helpers.HIGH_TILE_DPI
 import org.fossify.gallery.helpers.LOW_TILE_DPI
 import org.fossify.gallery.helpers.MAX_ZOOM_EQUALITY_TOLERANCE
+import org.fossify.gallery.helpers.MediaSharedSurface
+import org.fossify.gallery.helpers.MediaTransitionGeometry
 import org.fossify.gallery.helpers.MediaTransitionGestureController
 import org.fossify.gallery.helpers.MEDIUM
 import org.fossify.gallery.helpers.MyGlideImageDecoder
@@ -151,7 +154,7 @@ class PhotoFragment : ViewPagerFragment() {
         }
     }
 
-    private var sharedSurface: org.fossify.gallery.helpers.MediaSharedSurface? = null
+    private var sharedSurface: MediaSharedSurface? = null
 
     /** Share pixels, not the full-screen renderer and its black letterboxes. */
     fun sharedElementViewFor(path: String): View? {
@@ -162,18 +165,27 @@ class PhotoFragment : ViewPagerFragment() {
         if (!mIsFragmentVisible || !::mMedium.isInitialized || mMedium.path != path) return reject(1)
         if (mReportedImagePath != path) return reject(2)
         if (mCurrentRotationDegrees != 0) return reject(3)
-        if (abs(mCurrentGestureViewZoom - mInitialZoom) > MAX_ZOOM_EQUALITY_TOLERANCE) return reject(4)
+        if (!gestureImageIsAtFit()) return reject(4)
         if (binding.gifViewFrame.visibility == View.VISIBLE) return reject(5)
         val drawable = binding.gesturesView.drawable ?: return reject(6)
-        val settings = binding.gesturesView.controller.settings
-        if (!settings.hasImageSize() || !settings.hasViewportSize()) return reject(7)
-        val bounds = RectF(0f, 0f, settings.imageWidth.toFloat(), settings.imageHeight.toFloat())
-        val matrix = Matrix()
-        binding.gesturesView.controller.state.get(matrix)
-        matrix.mapRect(bounds)
-        bounds.offset(binding.gesturesView.left.toFloat(), binding.gesturesView.top.toFloat())
-        if (mIsSubsamplingVisible && !binding.subsamplingView.isZoomedOut()) return reject(8)
-        val surface = sharedSurface ?: org.fossify.gallery.helpers.MediaSharedSurface(binding.root).also { sharedSurface = it }
+        val gestureBounds = MediaTransitionGeometry.imageBounds(binding.gesturesView) ?: return reject(7)
+        val bounds = if (mIsSubsamplingVisible) {
+            val tiles = binding.subsamplingView
+            if (!tiles.isZoomedOut()) return reject(8)
+            val quarterTurn = tiles.orientation == 90 || tiles.orientation == 270
+            val width = if (quarterTurn) tiles.sHeight else tiles.sWidth
+            val height = if (quarterTurn) tiles.sWidth else tiles.sHeight
+            val start = tiles.sourceToViewCoord(PointF(0f, 0f)) ?: return reject(9)
+            val end = tiles.sourceToViewCoord(PointF(width.toFloat(), height.toFloat())) ?: return reject(9)
+            val tileBounds = RectF(start.x, start.y, end.x, end.y).apply {
+                offset(tiles.left.toFloat(), tiles.top.toFloat())
+            }
+            // The Glide drawable can stand in for the tile renderer only at
+            // its matching fitted rectangle. Zoomed/panned media fades out.
+            if (!MediaTransitionGeometry.sameBounds(gestureBounds, tileBounds)) return reject(9)
+            tileBounds
+        } else gestureBounds
+        val surface = sharedSurface ?: MediaSharedSurface(binding.root).also { sharedSurface = it }
         return surface.prepare(drawable, bounds, binding.gesturesView, binding.subsamplingView)
     }
 

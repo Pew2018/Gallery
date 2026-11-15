@@ -3800,8 +3800,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (position < 0) { launchViewerWithoutSharedElement(intent); return }
         val holder = binding.mediaGrid.findViewHolderForAdapterPosition(position)
             ?: run { launchViewerWithoutSharedElement(intent); return }
-        if (holder.bindingAdapterPosition != position ||
-            (adapter.media.getOrNull(position) as? Medium)?.path != path) {
+        val medium = adapter.media.getOrNull(position) as? Medium
+        // These dedicated renderers do not publish a fitted bitmap for shared capture.
+        if (holder.bindingAdapterPosition != position || medium?.path != path || medium.isGIF() || medium.isSVG()) {
             launchViewerWithoutSharedElement(intent); return
         }
         val thumbnail = holder.itemView.findViewById<ImageView>(R.id.medium_thumbnail)
@@ -3817,8 +3818,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         return runCatching {
-            val snapshotToken = java.util.UUID.randomUUID().toString()
-            org.fossify.gallery.helpers.PhotoViewerTransitionSnapshotStore.put(snapshotToken, thumbnail.drawable)
             pendingViewerReturnPath = path
             releaseViewerSourceLease()
             holder.setIsRecyclable(false)
@@ -3826,7 +3825,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             OxygenClassicActivityMotion.configureShared(this)
             thumbnail.transitionName = PhotoViewerTransition.ELEMENT_NAME
             intent.putExtra(PhotoViewerTransition.EXTRA_PATH, path)
-            intent.putExtra(PhotoViewerTransition.EXTRA_SNAPSHOT_TOKEN, snapshotToken)
             window.sharedElementExitTransition = OxygenClassicActivityMotion.mediaTransition(
                 PhotoViewerTransition.DURATION_MS, ::releaseViewerSourceLease)
             window.sharedElementReenterTransition = OxygenClassicActivityMotion.mediaTransition(
@@ -3867,9 +3865,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             startActivityForResult(intent, PhotoViewerTransition.REQUEST_CODE, options.toBundle())
             Unit
         }.getOrElse {
-            org.fossify.gallery.helpers.PhotoViewerTransitionSnapshotStore.clear(
-                intent.getStringExtra(PhotoViewerTransition.EXTRA_SNAPSHOT_TOKEN)
-            )
             releaseViewerSourceLease()
             thumbnail.transitionName = null
             pendingViewerReturnPath = null

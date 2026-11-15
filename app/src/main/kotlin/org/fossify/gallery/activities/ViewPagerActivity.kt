@@ -30,7 +30,6 @@ import android.content.pm.ShortcutManager
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
-import android.graphics.drawable.Drawable
 import android.graphics.drawable.Icon
 import androidx.core.view.doOnPreDraw
 import android.os.Bundle
@@ -41,8 +40,6 @@ import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.widget.Toast
-import android.widget.ImageView
-import android.widget.RelativeLayout
 import androidx.exifinterface.media.ExifInterface
 import androidx.print.PrintHelper
 import androidx.viewpager.widget.ViewPager
@@ -241,7 +238,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var photoTransitionMappedView: View? = null
     fun isMediaTransitionRunning() = mediaTransitionRunning || pendingPhotoSharedElement || interactivePhotoDragActive
 
-    fun shouldKeepPhotoCanvasTransparent() = pendingPhotoSharedElement || photoSharedElementSnapshotView != null
+    fun shouldKeepPhotoCanvasTransparent() = pendingPhotoSharedElement || mediaTransitionRunning
 
     private fun animateSharedChrome(show: Boolean, animate: Boolean = true) {
         val alpha = if (show && !mIsFullScreen) 1f else 0f
@@ -287,7 +284,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             photoTransitionProgressTimes += android.os.SystemClock.uptimeMillis()
             // Keep diagnostics tied to the exact mapped surface instead of
             // re-resolving it by path while the fragment renderer is binding.
-            val sharedSurface = photoTransitionMappedView ?: photoSharedElementSnapshotView
+            val sharedSurface = photoTransitionMappedView
             val bounds = sharedSurface?.let(::mappedTransitionSurfaceBounds)
             if (bounds != null) {
                 if (photoTransitionFrameSamples.size == 64) photoTransitionFrameSamples.removeAt(0)
@@ -461,40 +458,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
     }
 
-    private fun installPhotoSharedElementSnapshot() {
-        val drawable = photoSharedElementSnapshot ?: return
-        val snapshot = ImageView(this).apply {
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            setImageDrawable(drawable)
-            transitionName = PhotoViewerTransition.ELEMENT_NAME
+    private fun finishMediaEntryTransition() {
+        if (mediaTransitionRunning && !finishAfterSharedTransitionInProgress && !isFinishing && !isDestroyed) {
+            finishMediaTransition()
         }
-        // Keep the snapshot above the pager's opaque page surface, while leaving
-        // the toolbar and bottom actions above the moving image.
-        val pagerIndex = binding.root.indexOfChild(binding.viewPager)
-        binding.root.addView(snapshot, pagerIndex + 1, RelativeLayout.LayoutParams(
-            RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.MATCH_PARENT
-        ))
-        photoSharedElementSnapshotView = snapshot
-    }
-
-    private fun clearPhotoSharedElementSnapshot() {
-        photoSharedElementSnapshotView?.let { snapshot ->
-            (snapshot.parent as? android.view.ViewGroup)?.removeView(snapshot)
-            snapshot.setImageDrawable(null)
-        }
-        photoSharedElementSnapshotView = null
-        photoTransitionMappedView = null
-        photoSharedElementSnapshot = null
-    }
-
-    private fun handoffPhotoSharedElementSnapshot() {
-        val snapshot = photoSharedElementSnapshotView ?: return
-        snapshot.animate().cancel()
-        snapshot.animate().alpha(0f).setDuration(PhotoViewerTransition.FADE_DURATION_MS.coerceAtMost(140L))
-            .setInterpolator(OxygenClassicMotion.easing())
-            .withEndAction { clearPhotoSharedElementSnapshot() }
-            .start()
     }
 
     private fun finishMediaTransition() {
@@ -503,6 +470,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 // The same shared-element transition clock already reached its
                 // endpoint; hand the transparent canvas to the normal black viewer.
                 renderPhotoTransitionProgress(1f)
+                completeMediaTransition()
+                return
+            }
+            if (photoSharedElementFadeFallback) {
                 completeMediaTransition()
                 return
             }
@@ -546,9 +517,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         binding.viewPager.transitionInputLocked = initialViewerPublicationAwaitingAdapter
         if (!finishAfterSharedTransitionInProgress) {
             restoreBlackViewerCanvas()
-            if (photoSharedElementTargetRendered) clearPhotoSharedElementSnapshot()
-            else if (photoSharedElementSnapshotView != null) {
-                photoSharedElementHandler.postDelayed({ handoffPhotoSharedElementSnapshot() }, 1_800L)
+            if (photoSharedElementFadeFallback) {
+                if (OxygenClassicMotion.enabled(this)) {
+                    binding.fragmentHolder.animate().alpha(1f)
+                        .setDuration(PhotoViewerTransition.FADE_DURATION_MS)
+                        .setInterpolator(OxygenClassicMotion.easing()).start()
+                } else binding.fragmentHolder.alpha = 1f
             }
         }
         if (!isFinishing && !isDestroyed && !finishAfterSharedTransitionInProgress) animateSharedChrome(true, false)
@@ -583,9 +557,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var pendingPhotoSharedElement = false
     private var photoSharedElementMapped = false
     private var photoSharedElementFadeFallback = false
-    private var photoSharedElementSnapshotView: ImageView? = null
-    private var photoSharedElementSnapshot: Drawable? = null
-    private var photoSharedElementTargetRendered = false
     private var finishAfterSharedTransitionInProgress = false
     private var photoSharedElementPath: String? = null
     private val photoSharedElementHandler = Handler()
@@ -930,16 +901,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         photoSharedElementPath = intent.getStringExtra(PhotoViewerTransition.EXTRA_PATH)
             ?.takeIf { OxygenClassicMotion.enabled(this) }
         pendingPhotoSharedElement = photoSharedElementPath != null
-        val snapshotToken = intent.getStringExtra(PhotoViewerTransition.EXTRA_SNAPSHOT_TOKEN)
-        photoSharedElementSnapshot = if (pendingPhotoSharedElement)
-            org.fossify.gallery.helpers.PhotoViewerTransitionSnapshotStore.take(snapshotToken) else null
-        org.fossify.gallery.helpers.PhotoViewerTransitionSnapshotStore.clear(snapshotToken)
         if (pendingPhotoSharedElement) {
             mediaTransitionRunning = true
             org.fossify.gallery.helpers.OxygenClassicActivityMotion.configureShared(this)
             postponeEnterTransition()
             window.sharedElementEnterTransition = org.fossify.gallery.helpers.OxygenClassicActivityMotion.mediaTransition(
-                PhotoViewerTransition.DURATION_MS, ::finishMediaTransition, ::renderPhotoTransitionProgress)
+                PhotoViewerTransition.DURATION_MS, ::finishMediaEntryTransition, ::renderPhotoTransitionProgress)
             window.sharedElementReturnTransition = org.fossify.gallery.helpers.OxygenClassicActivityMotion.mediaTransition(
                 PhotoViewerTransition.DURATION_MS)
             // Keep the underlying grid visible outside the moving image. The
@@ -952,19 +919,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     val name = PhotoViewerTransition.ELEMENT_NAME
                     if (name !in names) return
                     val path = photoSharedElementPath
-                    val view = path?.let { selected -> getCurrentSharedElementView(selected) }
-                        ?: photoSharedElementSnapshotView
+                    val view = path?.let(::getCurrentSharedElementView)
                     if (view == null) {
                         sharedElements.remove(name)
                         photoSharedElementFadeFallback = true
                         binding.fragmentHolder.alpha = 0f
                     } else {
-                        // Keep a single visible representation of the photo.
-                        // The full-window fallback snapshot otherwise remains
-                        // above the pager while the content-sized renderer proxy
-                        // is also animating, which creates a doubled image.
-                        photoSharedElementSnapshotView?.visibility =
-                            if (view === photoSharedElementSnapshotView) View.VISIBLE else View.GONE
                         view.transitionName = name
                         sharedElements[name] = view
                         photoTransitionMappedView = view
@@ -995,20 +955,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             binding.viewerTransitionScrim.setBackgroundColor(Color.BLACK)
             binding.viewerTransitionScrim.visibility = View.VISIBLE
             binding.viewerTransitionScrim.alpha = 0f
-            installPhotoSharedElementSnapshot()
-            // The source snapshot already contains the selected image's decoded
-            // pixels. Start the shared transition as soon as that bounded proxy
-            // has real screen bounds; waiting for the destination fragment's
-            // full image decode needlessly leaves the source Activity on screen.
-            binding.root.doOnPreDraw {
-                val snapshot = photoSharedElementSnapshotView
-                if (pendingPhotoSharedElement && snapshot?.drawable != null &&
-                    snapshot.width > 0 && snapshot.height > 0) {
-                    releasePhotoSharedElement()
-                }
-            }
-        }
-        else {
+        } else {
             binding.root.setBackgroundColor(Color.BLACK)
             binding.fragmentHolder.setBackgroundColor(Color.BLACK)
             binding.viewPager.setBackgroundColor(Color.BLACK)
@@ -1125,7 +1072,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override fun onDestroy() {
         clearInteractivePhotoDrag(restoreViewer = false)
         photoSharedElementHandler.removeCallbacksAndMessages(null)
-        clearPhotoSharedElementSnapshot()
+        photoTransitionMappedView = null
         finishMediaTransition()
         photoSharedElementHandler.removeCallbacksAndMessages(null)
         if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
@@ -1211,7 +1158,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     // mapping before the framework captures its return, not after that return finishes.
     override fun finishAfterTransition() { finish() }
 
-    override fun onBackPressed() {
+    private fun finishDuringMediaEntry(): Boolean {
         if (mediaTransitionRunning && !finishAfterSharedTransitionInProgress) {
             // A back request during entry settles to a fade close; do not start a
             // second bounds transition while the first one is still in flight.
@@ -1221,9 +1168,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             finishMediaTransition()
             super.finish()
             overridePendingTransition(0, if (OxygenClassicMotion.enabled(this)) R.anim.photo_viewer_fade_out else 0)
-            return
+            return true
         }
-        super.onBackPressed()
+        return false
+    }
+
+    override fun onBackPressed() {
+        if (!finishDuringMediaEntry()) super.onBackPressed()
     }
 
     override fun finish() {
@@ -1238,7 +1189,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             super.finish()
             return
         }
-        releasePhotoSharedElement()
+        if (finishDuringMediaEntry()) return
         val returnPath = getCurrentPath()
         val canReturn = photoSharedElementMapped && returnPath.isNotEmpty() &&
             getCurrentSharedElementView(returnPath) != null
@@ -1247,15 +1198,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         setResult(RESULT_OK, Intent().putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH,
             returnPath.takeIf { it.isNotEmpty() }))
         if (canReturn) {
-            // Preserve the content-only proxy until Android finishes the
-            // reverse shared-element transition. Entry's canvas fade can
-            // still be pending if the user presses Back immediately.
+            // Keep the content proxy attached until Android finishes return capture and motion.
             cancelPendingPhotoCanvasCompletion()
-            // A full-window loading snapshot is useful only while the target
-            // renderer is unavailable. Once the real renderer can be mapped,
-            // keeping both layers during return produces a small duplicate at
-            // the grid endpoint.
-            clearPhotoSharedElementSnapshot()
             setSharedTransitionCanvasTransparent()
             binding.viewerTransitionScrim.visibility = View.GONE
             animateSharedChrome(false)
@@ -1266,7 +1210,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         } else {
             finishMediaTransition()
             super.finish()
-            if ((fadeOnlyPhotoFallback || photoSharedElementMapped) && OxygenClassicMotion.enabled(this)) {
+            if ((fadeOnlyPhotoFallback || photoSharedElementFadeFallback || photoSharedElementMapped) && OxygenClassicMotion.enabled(this)) {
                 overridePendingTransition(0, R.anim.photo_viewer_fade_out)
             }
         }
@@ -2783,9 +2727,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         binding.viewPager.onGlobalLayout {
             // A ready catalog can arrive before the first layout. Its publication
             // owns initialization; a late singleton callback must not cancel it.
-            if (!isDestroyed && initialPublication == mediaPublicationGeneration && activePagerAdapter == null) {
+            if (!isFinishing && !isDestroyed && initialPublication == mediaPublicationGeneration && activePagerAdapter == null) {
                 if (mMediaFiles.isNotEmpty()) {
-                    if (mediaTransitionRunning) {
+                    // Publish the selected page while entry is postponed so
+                    // capture can use the renderer's laid-out content bounds.
+                    if (mediaTransitionRunning && !pendingPhotoSharedElement) {
                         initialViewerPublicationPending = true
                     } else {
                         gotMedia(mMediaFiles as ArrayList<ThumbnailItem>, refetchViewPagerPosition = true)
@@ -4581,10 +4527,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             else refreshViewPager(true)
             return
         }
-        if (mediaTransitionRunning && activePagerAdapter == null) {
-            // The source snapshot is already a complete first frame. Defer
-            // fragment creation/binding until it reaches fullscreen so image
-            // decoding and pager setup cannot stall the shared motion.
+        if (mediaTransitionRunning && (!pendingPhotoSharedElement || activePagerAdapter != null)) {
+            // Only the initial publication may create a page while entry is
+            // postponed. Keep that renderer alive through capture and handoff.
             transitionPendingSwipePublication = publication
             return
         }
@@ -4807,12 +4752,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override fun isFullScreen() = mIsFullScreen
 
     override fun imageRendered(path: String) {
-        if (path == photoSharedElementPath) {
-            photoSharedElementTargetRendered = true
-            if (!pendingPhotoSharedElement && photoSharedElementSnapshotView != null) {
-                handoffPhotoSharedElementSnapshot()
-            }
-        }
         if (pendingPhotoSharedElement && path == photoSharedElementPath) releasePhotoSharedElement()
         if (path == viewerInitialSelectedPath && !selectedImageRenderedLogged) {
             selectedImageRenderedLogged = true
@@ -4832,22 +4771,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         photoSharedElementHandler.removeCallbacks(photoSharedElementTimeout)
         if (!isFinishing && !isDestroyed) {
             binding.viewPager.doOnPreDraw {
-                if (!isFinishing && !isDestroyed) {
+                if (!isFinishing && !isDestroyed && !finishAfterSharedTransitionInProgress) {
                     (getCurrentFragment() as? PhotoFragment)?.setTransitionCanvasTransparent(true)
                     startPostponedEnterTransition()
-                    if (photoSharedElementFadeFallback) {
-                        animateSharedChrome(true, false)
-                        binding.fragmentHolder.animate().cancel()
-                        binding.fragmentHolder.animate().alpha(1f)
-                            .setDuration(PhotoViewerTransition.FADE_DURATION_MS)
-                            .setInterpolator(OxygenClassicMotion.easing()).start()
-                    }
                     // Also clean up if a platform transition has no animators/targets.
                     photoSharedElementHandler.postDelayed({
-                        if (!isFinishing && mediaTransitionRunning) finishMediaTransition()
+                        finishMediaEntryTransition()
                     }, PhotoViewerTransition.DURATION_MS + PhotoViewerTransition.FADE_DURATION_MS)
                 }
             }
+            // A timed-out decode can leave the pager idle with no traversal queued.
+            binding.viewPager.invalidate()
         }
     }
 
