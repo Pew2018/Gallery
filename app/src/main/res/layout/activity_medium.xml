@@ -20,6 +20,15 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <TextView
+        android:id="@+id/viewer_entry_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true"
+        android:accessibilityLiveRegion="polite"
+        android:textColor="@android:color/white"
+        android:visibility="gone" />
+
     <com.google.android.material.progressindicator.LinearProgressIndicator
         android:id="@+id/photo_boundary_loading"
         android:layout_width="match_parent"

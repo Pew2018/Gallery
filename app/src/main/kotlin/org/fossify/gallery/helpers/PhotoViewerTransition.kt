@@ -3,6 +3,7 @@ package org.fossify.gallery.helpers
 /** Intent and timing contract for a photo grid to full-screen shared element. */
 object PhotoViewerTransition {
     const val EXTRA_PATH = "org.fossify.gallery.extra.PHOTO_VIEWER_TRANSITION_PATH"
+    internal const val EXTRA_ENTRY_ID = "org.fossify.gallery.extra.MEDIA_ENTRY_ID"
     const val EXTRA_FADE_ONLY = "org.fossify.gallery.extra.PHOTO_VIEWER_FADE_ONLY"
     const val ELEMENT_NAME = "gallery_photo_content"
     const val DURATION_MS = OxygenClassicMotion.MEDIA_SHARED_ELEMENT_MS
@@ -40,24 +41,28 @@ internal object PhotoViewerReturnTarget {
     private const val MIN_VISIBLE_AREA_FRACTION_DENOMINATOR = 3L
 }
 
-/** Allows a single no-animation completion until shared motion starts or entry is abandoned. */
+/** One instance per Activity entry. Only captured shared elements can drive the shared clock. */
 internal class PhotoTransitionCompletionGate {
-    private var generation = 0L
-    private var pendingGeneration: Long? = null
+    enum class Stage { WAITING, RELEASE_REQUESTED, RELEASED, MAPPED, REJECTED, CAPTURED, SHARED, FALLBACK, COMPLETE, CANCELLED }
 
-    fun begin(): Long? {
-        if (pendingGeneration != null) return null
-        return (++generation).also { pendingGeneration = it }
-    }
+    var stage = Stage.WAITING
+        private set
+    val active get() = stage != Stage.COMPLETE && stage != Stage.CANCELLED
+    val awaitingRelease get() = stage == Stage.WAITING || stage == Stage.RELEASE_REQUESTED
 
-    fun cancel() {
-        generation++
-        pendingGeneration = null
-    }
+    fun requestRelease() = advance(Stage.WAITING, Stage.RELEASE_REQUESTED)
+    fun release() = awaitingRelease && advance(stage, Stage.RELEASED)
+    fun map() = advance(Stage.RELEASED, Stage.MAPPED)
+    fun reject() = (stage == Stage.RELEASED || stage == Stage.MAPPED) && advance(stage, Stage.REJECTED)
+    fun capture() = advance(Stage.MAPPED, Stage.CAPTURED)
+    fun startMotion() = advance(Stage.CAPTURED, Stage.SHARED)
+    fun startFallback() = active && !awaitingRelease && stage != Stage.FALLBACK && advance(stage, Stage.FALLBACK)
+    fun complete() = (stage == Stage.SHARED || stage == Stage.FALLBACK) && advance(stage, Stage.COMPLETE)
+    fun cancel() = active && advance(stage, Stage.CANCELLED)
 
-    fun complete(token: Long): Boolean {
-        if (pendingGeneration != token) return false
-        pendingGeneration = null
+    private fun advance(from: Stage, to: Stage): Boolean {
+        if (stage != from) return false
+        stage = to
         return true
     }
 }

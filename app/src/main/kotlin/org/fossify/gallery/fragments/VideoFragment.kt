@@ -181,10 +181,12 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
 
     private var sharedSurface: MediaSharedSurface? = null
     private var previewReady = false
+    private var previewGeneration = 0L
+    private var sharedEntryPreviewGeneration = -1L
     private var sharedTransitionRunning = false
 
     /** Use a frozen, content-only frame throughout the transition. */
-    fun sharedElementViewFor(path: String): View? {
+    fun sharedElementViewFor(path: String, deferTakeover: Boolean = false): View? {
         if (!::mMedium.isInitialized || mMedium.path != path || !mIsFragmentVisible ||
             !isAdded || view == null || !previewReady ||
             videoBoundsAnimator?.isRunning == true ||
@@ -203,10 +205,21 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
             val frame = runCatching { mTextureView.bitmap }.getOrNull() ?: return null
             BitmapDrawable(resources, frame) to displayedTextureBounds()
         }
-        return surface.prepare(drawable, bounds, preview, binding.videoSurfaceFrame)?.also {
+        return surface.prepare(drawable, bounds, preview, binding.videoSurfaceFrame, deferTakeover = deferTakeover)?.also {
             sharedTransitionRunning = true
+            if (deferTakeover) sharedEntryPreviewGeneration = previewGeneration
             if (preview.isVisible()) videoPreviewFrameHandoff?.setTransitionRunning(true)
         }
+    }
+
+    internal fun takeOverSharedEntry(proxy: View) = sharedEntryPreviewGeneration == previewGeneration &&
+        entryRenderer()?.isAttachedToWindow == true && sharedSurface?.takeOver(proxy) == true
+
+    internal fun entryRenderer(): View? {
+        if (view == null) return null
+        val preview = binding.videoPreview
+        if (previewReady && preview.isVisible() && preview.drawable != null) return preview
+        return mTextureView.takeIf { it.isAvailable && !preview.isVisible() }
     }
 
     private fun displayedTextureBounds(): RectF {
@@ -220,9 +233,13 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         return rect
     }
 
-    fun finishSharedTransition() {
+    internal fun clearSharedEntrySurface() {
         sharedSurface?.clear()
         sharedSurface = null
+    }
+
+    fun finishSharedTransition() {
+        clearSharedEntrySurface()
         sharedTransitionRunning = false
         if (view != null) setVideoSize(animateAspectChange = true)
         videoPreviewFrameHandoff?.setTransitionRunning(false)
@@ -237,21 +254,33 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     }
 
     private fun loadPreview() {
+        val request = ++previewGeneration
+        previewReady = false
         val path = mMedium.path
         val preview = binding.videoPreview
         val root = binding.root
         Glide.with(this).load(path).signature(mMedium.getKey())
             .fitCenter().dontAnimate()
             .listener(object : RequestListener<Drawable> {
-                override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean = false
+                override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
+                    if (request != previewGeneration) return true
+                    preview.post {
+                        if (request == previewGeneration && view === root && mMedium.path == path && mIsFragmentVisible) {
+                            listener?.entryMediaLoadFailed(path, this@VideoFragment)
+                        }
+                    }
+                    return false
+                }
                 override fun onResourceReady(resource: Drawable, model: Any, target: Target<Drawable>?,
                     dataSource: GlideDataSource, isFirstResource: Boolean): Boolean {
+                    if (request != previewGeneration) return true
                     preview.post {
-                        if (view === root && mMedium.path == path && preview.drawable === resource) {
+                        if (request == previewGeneration && view === root && mMedium.path == path && preview.drawable === resource) {
                             previewReady = true
                             setVideoSize()
                             root.doOnPreDraw {
-                                if (view === root && mMedium.path == path && mIsFragmentVisible) listener?.imageRendered(path)
+                                if (request == previewGeneration && view === root && mMedium.path == path &&
+                                    mIsFragmentVisible && preview.drawable === resource) listener?.imageRendered(path, this@VideoFragment)
                             }
                         }
                     }
@@ -377,7 +406,10 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         if ((activity as? ViewPagerActivity)?.isMediaTransitionRunning() == true) {
             setSharedChromeAlpha(0f)
         }
-        videoPreviewFrameHandoff = VideoPreviewFrameHandoff(binding.videoPreview).also {
+        val previewRoot = binding.root
+        videoPreviewFrameHandoff = VideoPreviewFrameHandoff(binding.videoPreview, onFrameVisible = {
+            if (view === previewRoot && mIsFragmentVisible) listener?.imageRendered(mMedium.path, this)
+        }).also {
             it.setTransitionRunning((activity as? ViewPagerActivity)?.isMediaTransitionRunning() == true)
         }
 
@@ -514,8 +546,8 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     }
 
     override fun onDestroyView() {
-        sharedSurface?.clear()
-        sharedSurface = null
+        previewGeneration++
+        clearSharedEntrySurface()
         previewReady = false
         decodedAspect = null
         targetVideoBounds = null
@@ -544,8 +576,10 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         if (menuVisible && previewReady) {
             val root = binding.root
             val path = mMedium.path
+            val request = previewGeneration
             root.post {
-                if (view === root && mIsFragmentVisible && mMedium.path == path) listener?.imageRendered(path)
+                if (request == previewGeneration && view === root && mIsFragmentVisible &&
+                    mMedium.path == path && entryRenderer() != null) listener?.imageRendered(path, this)
             }
         }
         val shouldPlayVideo = mWasFragmentInit && menuVisible && mConfig.autoplayVideos && !mConfig.gestureVideoPlayer

@@ -5,6 +5,7 @@ import android.view.View
 /** Covers an empty TextureView until the active player's first decoded frame is rendered. */
 internal class VideoPreviewFrameHandoff(
     private val cover: View,
+    private val onFrameVisible: () -> Unit = {},
     private val postDisplayFrame: ((Runnable) -> Unit) = { callback -> cover.postOnAnimation(callback) },
 ) {
     private var activePlayer: Any? = null
@@ -18,7 +19,10 @@ internal class VideoPreviewFrameHandoff(
     }
 
     private fun publish() {
-        cover.visibility = if (frameReady && !transitionRunning) View.GONE else View.VISIBLE
+        val visibility = if (frameReady && !transitionRunning) View.GONE else View.VISIBLE
+        if (cover.visibility == visibility) return
+        cover.visibility = visibility
+        if (visibility == View.GONE) onFrameVisible()
     }
 
     fun bind(player: Any) {

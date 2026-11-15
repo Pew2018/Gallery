@@ -143,28 +143,55 @@ class PhotoFragment : ViewPagerFragment() {
     private var dismissGestureClaimed = false
     private var dismissGestureInterruptedSettle = false
 
-    private fun reportImageRendered() {
+    private var imageRequestGeneration = 0L
+    private var deliveredImage: Drawable? = null
+    private var hasPicassoRequest = false
+
+    private fun beginImageRequest(): Long {
+        val request = ++imageRequestGeneration
+        deliveredImage = null
+        mReportedImagePath = null
+        if (hasPicassoRequest) {
+            hasPicassoRequest = false
+            Picasso.get().cancelRequest(binding.gesturesView)
+        }
+        return request
+    }
+
+    private fun reportImageRendered(resource: Drawable? = deliveredImage) {
+        if (resource == null) return
+        deliveredImage = resource
         val path = mMedium.path
         if (mReportedImagePath == path || !mIsFragmentVisible) return
+        val request = imageRequestGeneration
         val root = binding.root
         val image = binding.gesturesView
         image.post {
-            if (view === root && mIsFragmentVisible && mReportedImagePath != path && image.drawable != null && mMedium.path == path) {
+            if (request == imageRequestGeneration && view === root && mIsFragmentVisible &&
+                mReportedImagePath != path && image.drawable === resource && mMedium.path == path) {
                 mReportedImagePath = path
-                listener?.imageRendered(path)
+                listener?.imageRendered(path, this)
             }
         }
     }
 
+    internal fun entryRenderer(): View? = if (view != null && ::binding.isInitialized &&
+        deliveredImage != null && binding.gesturesView.drawable === deliveredImage) binding.gesturesView else null
+
+    internal fun takeOverSharedEntry(proxy: View) = sharedEntryImageGeneration == imageRequestGeneration &&
+        entryRenderer()?.isAttachedToWindow == true && sharedSurface?.takeOver(proxy) == true
+
     private var sharedSurface: MediaSharedSurface? = null
+    private var sharedEntryImageGeneration = -1L
+    private var subsamplingGeneration = 0L
 
     /** Share pixels, not the full-screen renderer and its black letterboxes. */
-    fun sharedElementViewFor(path: String): View? {
+    fun sharedElementViewFor(path: String, deferTakeover: Boolean = false): View? {
         fun reject(reason: Int): View? {
             org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_transition_photo_unavailable", reason)
             return null
         }
-        if (!mIsFragmentVisible || !::mMedium.isInitialized || mMedium.path != path) return reject(1)
+        if (!mIsFragmentVisible || view == null || !::mMedium.isInitialized || mMedium.path != path) return reject(1)
         if (mReportedImagePath != path) return reject(2)
         if (mCurrentRotationDegrees != 0) return reject(3)
         if (!gestureImageIsAtFit()) return reject(4)
@@ -188,12 +215,17 @@ class PhotoFragment : ViewPagerFragment() {
             tileBounds
         } else gestureBounds
         val surface = sharedSurface ?: MediaSharedSurface(binding.root).also { sharedSurface = it }
-        return surface.prepare(drawable, bounds, binding.gesturesView, binding.subsamplingView)
+        return surface.prepare(drawable, bounds, binding.gesturesView, binding.subsamplingView, deferTakeover = deferTakeover)
+            ?.also { if (deferTakeover) sharedEntryImageGeneration = imageRequestGeneration }
+    }
+
+    internal fun clearSharedEntrySurface() {
+        sharedSurface?.clear()
+        sharedSurface = null
     }
 
     fun finishSharedTransition() {
-        sharedSurface?.clear()
-        sharedSurface = null
+        clearSharedEntrySurface()
         if (view != null && mIsFragmentVisible) {
             revealReadySubsamplingImage()
             scheduleZoomableView()
@@ -474,6 +506,7 @@ class PhotoFragment : ViewPagerFragment() {
                 mSubsamplingImageLoading = false
                 mSubsamplingImageReady = false
                 binding.subsamplingView.animate().cancel()
+                subsamplingGeneration++
                 binding.subsamplingView.recycle()
                 binding.subsamplingView.beGone()
                 loadImage()
@@ -506,9 +539,9 @@ class PhotoFragment : ViewPagerFragment() {
     }
 
     override fun onDestroyView() {
-        mReportedImagePath = null
-        sharedSurface?.clear()
-        sharedSurface = null
+        beginImageRequest()
+        subsamplingGeneration++
+        clearSharedEntrySurface()
         org.fossify.gallery.helpers.ViewerChromeMotion.cancel(binding.root)
         detailsGeneration++
         super.onDestroyView()
@@ -624,6 +657,8 @@ class PhotoFragment : ViewPagerFragment() {
     }
 
     private fun loadImage() {
+        val request = beginImageRequest()
+        val root = binding.root
         mHasInitialZoom = false
         checkScreenDimensions()
 
@@ -632,8 +667,10 @@ class PhotoFragment : ViewPagerFragment() {
         }
 
         ensureBackgroundThread {
-            mImageOrientation = getImageOrientation()
+            val orientation = getImageOrientation()
             activity?.runOnUiThread {
+                if (request != imageRequestGeneration || binding.root !== root) return@runOnUiThread
+                mImageOrientation = orientation
                 when {
                     mMedium.isGIF() -> loadGif()
                     mMedium.isSVG() -> loadSVG()
@@ -683,7 +720,7 @@ class PhotoFragment : ViewPagerFragment() {
         if (context != null) {
             val drawable = APNGDrawable.fromFile(mMedium.path)
             binding.gesturesView.setImageDrawable(drawable)
-            reportImageRendered()
+            reportImageRendered(drawable)
         }
     }
 
@@ -696,28 +733,29 @@ class PhotoFragment : ViewPagerFragment() {
             }
 
             binding.gesturesView.setImageDrawable(drawable)
-            reportImageRendered()
+            reportImageRendered(drawable)
         }
     }
 
     private fun loadBitmap(addZoomableView: Boolean = true) {
+        val request = beginImageRequest()
         mHasInitialZoom = false
         if (context == null) return
         val path = getFilePathToShow()
         if (path.isWebP()) {
             val drawable = WebPDrawable.fromFile(path)
             if (drawable.intrinsicWidth == 0) {
-                loadWithGlide(path, addZoomableView)
+                loadWithGlide(path, addZoomableView, request)
             } else {
                 binding.gesturesView.setImageDrawable(drawable)
-                reportImageRendered()
+                reportImageRendered(drawable)
             }
         } else {
-            loadWithGlide(path, addZoomableView)
+            loadWithGlide(path, addZoomableView, request)
         }
     }
 
-    private fun loadWithGlide(path: String, addZoomableView: Boolean) {
+    private fun loadWithGlide(path: String, addZoomableView: Boolean, request: Long) {
         val priority = if (mIsFragmentVisible) Priority.IMMEDIATE else Priority.NORMAL
         val options = RequestOptions()
             .signature(mMedium.getKey())
@@ -739,9 +777,10 @@ class PhotoFragment : ViewPagerFragment() {
             .apply(options)
             .listener(object : RequestListener<Drawable> {
                 override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
+                    if (request != imageRequestGeneration) return true
                     resetColorModeIfVisible()
                     if (activity != null && !activity!!.isDestroyed && !activity!!.isFinishing) {
-                        tryLoadingWithPicasso(addZoomableView)
+                        tryLoadingWithPicasso(addZoomableView, request)
                     }
                     return false
                 }
@@ -753,19 +792,20 @@ class PhotoFragment : ViewPagerFragment() {
                     dataSource: DataSource,
                     isFirstResource: Boolean
                 ): Boolean {
+                    if (request != imageRequestGeneration) return true
                     applyProperColorMode(resource)
                     val allowZoomingImages = context?.config?.allowZoomingImages ?: true
                     binding.gesturesView.controller.settings.isZoomEnabled = mMedium.isRaw() || mCurrentRotationDegrees != 0 || allowZoomingImages == false
                     if (mIsFragmentVisible && addZoomableView) {
                         scheduleZoomableView()
                     }
-                    reportImageRendered()
+                    reportImageRendered(resource)
                     return false
                 }
             }).into(binding.gesturesView)
     }
 
-    private fun tryLoadingWithPicasso(addZoomableView: Boolean) {
+    private fun tryLoadingWithPicasso(addZoomableView: Boolean, request: Long) {
         var pathToLoad = if (getFilePathToShow().startsWith("content://")) getFilePathToShow() else "file://${getFilePathToShow()}"
         pathToLoad = pathToLoad.replace("%", "%25").replace("#", "%23")
 
@@ -782,18 +822,23 @@ class PhotoFragment : ViewPagerFragment() {
                 degreesForRotation(mImageOrientation).toFloat()
             }
 
+            hasPicassoRequest = true
             picasso.into(binding.gesturesView, object : Callback {
                 override fun onSuccess() {
+                    if (request != imageRequestGeneration) return
+                    hasPicassoRequest = false
                     applyProperColorMode(binding.gesturesView.drawable)
                     binding.gesturesView.controller.settings.isZoomEnabled =
                         mMedium.isRaw() || mCurrentRotationDegrees != 0 || context?.config?.allowZoomingImages == false
                     if (mIsFragmentVisible && addZoomableView) {
                         scheduleZoomableView()
                     }
-                    reportImageRendered()
+                    reportImageRendered(binding.gesturesView.drawable)
                 }
 
                 override fun onError(e: Exception?) {
+                    if (request != imageRequestGeneration) return
+                    hasPicassoRequest = false
                     resetColorModeIfVisible()
                     if (mMedium.path != mOriginalPath) {
                         mMedium.path = mOriginalPath
@@ -801,14 +846,22 @@ class PhotoFragment : ViewPagerFragment() {
                         // TODO: Implement panorama using a FOSS library
                         // checkIfPanorama()
                     } else {
-                        binding.errorMessageHolder.errorMessage.apply {
-                            setTextColor(Color.WHITE)
-                            fadeIn()
-                        }
+                        showImageLoadError(request)
                     }
                 }
             })
-        } catch (ignored: Exception) {
+        } catch (_: Exception) {
+            hasPicassoRequest = false
+            showImageLoadError(request)
+        }
+    }
+
+    private fun showImageLoadError(request: Long) {
+        if (request != imageRequestGeneration || view !== binding.root) return
+        listener?.entryMediaLoadFailed(mMedium.path, this)
+        binding.errorMessageHolder.errorMessage.apply {
+            setTextColor(Color.WHITE)
+            fadeIn()
         }
     }
 
@@ -966,6 +1019,8 @@ class PhotoFragment : ViewPagerFragment() {
         if ((activity as? org.fossify.gallery.activities.ViewPagerActivity)?.isMediaTransitionRunning() == true ||
             mSubsamplingImageLoading || mIsSubsamplingVisible || !gestureImageIsAtFit()) return
         val rotation = degreesForRotation(mImageOrientation)
+        val generation = ++subsamplingGeneration
+        val root = binding.root
         mSubsamplingImageLoading = true
         mSubsamplingImageReady = false
         val config = requireContext().config
@@ -1004,6 +1059,7 @@ class PhotoFragment : ViewPagerFragment() {
 
             onImageEventListener = object : SubsamplingScaleImageView.OnImageEventListener {
                 override fun onReady() {
+                    if (generation != subsamplingGeneration || view !== root) return
                     // Async decoder readiness must not overwrite the black letterbox
                     // with the current (potentially light) gallery theme surface.
                     background = ColorDrawable(Color.BLACK)
@@ -1017,6 +1073,7 @@ class PhotoFragment : ViewPagerFragment() {
                 }
 
                 override fun onImageLoadError(e: Exception) {
+                    if (generation != subsamplingGeneration || view !== root) return
                     binding.gesturesView.controller.settings.isZoomEnabled = true
                     background = ColorDrawable(Color.TRANSPARENT)
                     animate().cancel()
@@ -1028,6 +1085,7 @@ class PhotoFragment : ViewPagerFragment() {
                 }
 
                 override fun onImageRotation(degrees: Int) {
+                    if (generation != subsamplingGeneration || view !== root) return
                     val fullRotation = (rotation + degrees) % 360
                     val useWidth = if (fullRotation == 90 || fullRotation == 270) sHeight else sWidth
                     val useHeight = if (fullRotation == 90 || fullRotation == 270) sWidth else sHeight
@@ -1041,6 +1099,7 @@ class PhotoFragment : ViewPagerFragment() {
                 }
 
                 override fun onUpEvent() {
+                    if (generation != subsamplingGeneration || view !== root) return
                     mShouldResetImage = false
                 }
             }
@@ -1192,6 +1251,7 @@ class PhotoFragment : ViewPagerFragment() {
             mSubsamplingImageReady = false
             binding.subsamplingView.animate().cancel()
             binding.subsamplingView.alpha = 1f
+            subsamplingGeneration++
             binding.subsamplingView.recycle()
             binding.subsamplingView.beGone()
             mLoadZoomableViewHandler.removeCallbacksAndMessages(null)

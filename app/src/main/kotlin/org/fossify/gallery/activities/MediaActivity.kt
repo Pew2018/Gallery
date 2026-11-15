@@ -28,6 +28,7 @@ import org.fossify.gallery.extensions.prepareFavoritePasswordProtection
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import org.fossify.gallery.helpers.ViewerAccessCoordinator
+import org.fossify.gallery.helpers.ViewerEntryDiagnostics
 import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.OxygenClassicMotion
 import org.fossify.gallery.helpers.FolderReturnCheckpoint
@@ -3790,23 +3791,42 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     /** Launch from a validated thumbnail; stale targets use a short fade with no window scale. */
     private fun launchPhotoViewerWithSharedElement(intent: Intent, path: String) {
-        if (!OxygenClassicMotion.enabled(this)) {
+        val entryId = ViewerEntryDiagnostics.newRequest()
+        if (entryId != 0L) {
+            val type = getMediaAdapter()?.media?.firstOrNull { it is Medium && it.path == path } as? Medium
+            intent.putExtra(PhotoViewerTransition.EXTRA_ENTRY_ID, entryId)
+            intent.putExtra(ViewerEntryDiagnostics.EXTRA_MEDIA_TYPE, type?.type ?: 0)
+            ViewerEntryDiagnostics.event(entryId, "entry_requested") {
+                mapOf("media" to type?.type, "source" to when {
+                    isPhotoProfiles -> "PHOTO_PROFILE"
+                    mPath == FAVORITES -> "FAVORITES"
+                    else -> "FOLDER"
+                })
+            }
+        }
+
+        fun fallback(reason: String) {
+            ViewerEntryDiagnostics.event(entryId, "source_rejected") { mapOf("reason" to reason) }
             launchViewerWithoutSharedElement(intent)
+        }
+
+        if (!OxygenClassicMotion.enabled(this)) {
+            fallback("animations_disabled")
             return
         }
-        val adapter = getMediaAdapter() ?: run { launchViewerWithoutSharedElement(intent); return }
+        val adapter = getMediaAdapter() ?: run { fallback("adapter_unavailable"); return }
         viewerReentryObservedForCurrentLaunch = false
         val position = adapter.media.indexOfFirst { (it as? Medium)?.path == path }
-        if (position < 0) { launchViewerWithoutSharedElement(intent); return }
+        if (position < 0) { fallback("position_unavailable"); return }
         val holder = binding.mediaGrid.findViewHolderForAdapterPosition(position)
-            ?: run { launchViewerWithoutSharedElement(intent); return }
+            ?: run { fallback("holder_unavailable"); return }
         val medium = adapter.media.getOrNull(position) as? Medium
         // These dedicated renderers do not publish a fitted bitmap for shared capture.
         if (holder.bindingAdapterPosition != position || medium?.path != path || medium.isGIF() || medium.isSVG()) {
-            launchViewerWithoutSharedElement(intent); return
+            fallback("unsupported_or_stale"); return
         }
         val thumbnail = holder.itemView.findViewById<ImageView>(R.id.medium_thumbnail)
-            ?: run { launchViewerWithoutSharedElement(intent); return }
+            ?: run { fallback("thumbnail_view_unavailable"); return }
         if (!thumbnail.isAttachedToWindow || thumbnail.width <= 0 || thumbnail.height <= 0 ||
             thumbnail.drawable == null || !org.fossify.gallery.helpers.PhotoViewerReturnTarget.isLoadedFor(
                 path,
@@ -3814,9 +3834,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 thumbnail.getTag(R.id.thumbnail_request_key),
                 thumbnail.getTag(R.id.thumbnail_loaded_key)
             )) {
-            launchViewerWithoutSharedElement(intent); return
+            fallback("thumbnail_not_ready"); return
         }
 
+        ViewerEntryDiagnostics.event(entryId, "source_validated") {
+            mapOf(
+                "matchesBound" to true,
+                "drawable" to true,
+                "thumbnail" to ViewerEntryDiagnostics.viewState(thumbnail),
+                "visibleBounds" to android.graphics.Rect().takeIf(thumbnail::getGlobalVisibleRect)?.toShortString(),
+                "sourceDecor" to ViewerEntryDiagnostics.viewState(window.decorView),
+            )
+        }
         return runCatching {
             pendingViewerReturnPath = path
             releaseViewerSourceLease()
@@ -3868,7 +3897,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             releaseViewerSourceLease()
             thumbnail.transitionName = null
             pendingViewerReturnPath = null
-            launchViewerWithoutSharedElement(intent)
+            fallback("launch_failed")
         }
     }
 

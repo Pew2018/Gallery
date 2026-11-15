@@ -45,8 +45,10 @@ abstract class ViewPagerFragment : Fragment() {
 
         fun isFullScreen(): Boolean
 
-        /** Called after a photo drawable has been installed; paths remain in-process only. */
-        fun imageRendered(path: String) {}
+        /** Called after this page has installed its current request's media surface. */
+        fun imageRendered(path: String, page: ViewPagerFragment) {}
+
+        fun entryMediaLoadFailed(path: String, page: ViewPagerFragment) {}
 
         /** The current photo owns a downward drag; progress is derived from live pointer position. */
         fun photoDismissProgress(progress: Float, deltaX: Float, deltaY: Float) {}

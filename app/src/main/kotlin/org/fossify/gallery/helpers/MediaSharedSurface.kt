@@ -13,10 +13,19 @@ import kotlin.math.roundToInt
 internal class MediaSharedSurface(private val parent: RelativeLayout) {
     var currentView: ImageView? = null
         private set
+    private var renderers = emptyList<View>()
     private val hidden = linkedMapOf<View, Float>()
 
-    fun prepare(drawable: Drawable, bounds: RectF, vararg renderedViews: View): ImageView? {
-        currentView?.let { return it }
+    fun prepare(
+        drawable: Drawable,
+        bounds: RectF,
+        vararg renderedViews: View,
+        deferTakeover: Boolean = false,
+    ): ImageView? {
+        currentView?.let {
+            if (!deferTakeover) takeOver(it)
+            return it
+        }
         if (!MediaTransitionGeometry.isUsable(bounds) || !parent.isAttachedToWindow) return null
         val proxy = ImageView(parent.context).apply {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -39,12 +48,30 @@ internal class MediaSharedSurface(private val parent: RelativeLayout) {
         proxy.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
         proxy.layout(left, top, left + width, top + height)
-        renderedViews.forEach { view -> hidden.putIfAbsent(view, view.alpha); view.alpha = 0f }
+        renderers = renderedViews.toList()
         currentView = proxy
+        if (deferTakeover) {
+            // Leave the real renderer visible until the framework restores transitionAlpha
+            // and is ready to capture the shared start state. Keep the proxy discoverable.
+            proxy.alpha = 0f
+        } else {
+            takeOver(proxy)
+        }
         return proxy
     }
 
+    fun takeOver(proxy: View): Boolean {
+        if (currentView !== proxy || !proxy.isAttachedToWindow) return false
+        renderers.forEach { view ->
+            hidden.putIfAbsent(view, view.alpha)
+            view.alpha = 0f
+        }
+        proxy.alpha = 1f
+        return true
+    }
+
     fun clear() {
+        renderers = emptyList()
         hidden.forEach { (view, alpha) -> view.alpha = alpha }
         hidden.clear()
         currentView?.let {

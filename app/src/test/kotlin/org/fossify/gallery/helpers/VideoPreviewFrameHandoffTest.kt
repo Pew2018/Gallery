@@ -19,18 +19,21 @@ class VideoPreviewFrameHandoffTest {
         try {
             val cover = FrameLayout(controller.get())
             val frames = ArrayDeque<Runnable>()
-            val handoff = VideoPreviewFrameHandoff(cover) { frames.addLast(it) }
+            var visibleFrames = 0
+            val handoff = VideoPreviewFrameHandoff(cover, onFrameVisible = { visibleFrames++ }) { frames.addLast(it) }
             val player = Any()
             handoff.setTransitionRunning(true)
             handoff.bind(player)
             handoff.onRenderedFirstFrame(player)
             assertEquals(View.VISIBLE, cover.visibility)
+            assertEquals(0, visibleFrames)
             handoff.setTransitionRunning(false)
             assertEquals(View.VISIBLE, cover.visibility)
             frames.removeFirst().run()
             assertEquals(View.VISIBLE, cover.visibility)
             frames.removeFirst().run()
             assertEquals(View.GONE, cover.visibility)
+            assertEquals(1, visibleFrames)
             handoff.setTransitionRunning(true)
             assertEquals(View.VISIBLE, cover.visibility)
             handoff.keepCoverForError(player)

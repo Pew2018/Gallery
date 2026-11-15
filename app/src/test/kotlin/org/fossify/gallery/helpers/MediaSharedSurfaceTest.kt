@@ -146,4 +146,39 @@ class MediaSharedSurfaceTest {
             assertEquals(1, parent.childCount)
         } finally { controller.pause().stop().destroy() }
     }
+    @Test fun enteringProxyWaitsForCaptureAndRestoresOriginalVisibilityAndAlpha() {
+        val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
+        try {
+            val parent = RelativeLayout(controller.get())
+            controller.get().setContentView(parent)
+            val renderer = View(controller.get()).apply { alpha = .7f }
+            val tiles = View(controller.get()).apply {
+                alpha = .4f
+                visibility = View.INVISIBLE
+            }
+            parent.addView(renderer)
+            parent.addView(tiles)
+            val surface = MediaSharedSurface(parent)
+            val bounds = RectF(15f, 80f, 315f, 280f)
+            val image = surface.prepare(ColorDrawable(Color.RED), bounds, renderer, tiles, deferTakeover = true)!!
+            assertEquals(.7f, renderer.alpha)
+            assertEquals(.4f, tiles.alpha)
+            assertEquals(0f, image.alpha)
+            assertEquals(View.VISIBLE, image.visibility)
+            assertEquals(bounds, RectF(image.left.toFloat(), image.top.toFloat(), image.right.toFloat(), image.bottom.toFloat()))
+            assertFalse(surface.takeOver(View(controller.get())))
+            assertEquals(.7f, renderer.alpha)
+            assertTrue(surface.takeOver(image))
+            assertTrue(surface.takeOver(image))
+            assertEquals(1f, image.alpha)
+            assertEquals(0f, renderer.alpha)
+            assertEquals(View.INVISIBLE, tiles.visibility)
+            surface.clear()
+            assertFalse(image.isAttachedToWindow)
+            assertEquals(.7f, renderer.alpha)
+            assertEquals(.4f, tiles.alpha)
+            assertEquals(View.INVISIBLE, tiles.visibility)
+        } finally { controller.pause().stop().destroy() }
+    }
+
 }
