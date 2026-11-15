@@ -29,6 +29,8 @@ import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import org.fossify.gallery.helpers.ViewerAccessCoordinator
 import org.fossify.gallery.helpers.ViewerEntryDiagnostics
+import org.fossify.gallery.helpers.ViewerReturnDiagnostics
+import org.fossify.gallery.helpers.PhotoViewerReturnTarget
 import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.OxygenClassicMotion
 import org.fossify.gallery.helpers.FolderReturnCheckpoint
@@ -207,6 +209,30 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var viewerSourceLease: androidx.recyclerview.widget.RecyclerView.ViewHolder? = null
     private var viewerLaunchInProgress = false
     private var viewerReentryObservedForCurrentLaunch = false
+    private var viewerReturnMapped = false
+    private var viewerReturnLaunch = 0L
+    private var viewerReturn: GridReturn? = null
+
+    private data class GridReturnPosition(val adapter: MediaAdapter, val version: Long, val index: Int)
+    private data class GridReturnTarget(
+        val position: GridReturnPosition,
+        val holder: RecyclerView.ViewHolder,
+        val image: ImageView,
+        val drawable: android.graphics.drawable.Drawable,
+        val loadedKey: Any,
+        val bounds: android.graphics.Rect,
+        val visible: android.graphics.Rect,
+    )
+
+    private class GridReturn(val path: String, val requestId: Long, val folder: String, val query: String, val profileId: String?) {
+        var requestedPosition: GridReturnPosition? = null
+        var reportedPosition: GridReturnPosition? = null
+        var readiness: String? = null
+        var origin: FavoritesScrollRestorer.Anchor? = null
+        var target: GridReturnTarget? = null
+        var released = false
+        var timeout: Runnable? = null
+    }
 
     private fun releaseViewerSourceLease() {
         viewerSourceLease?.setIsRecyclable(true)
@@ -216,84 +242,192 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     override fun onActivityReenter(resultCode: Int, data: Intent?) {
         super.onActivityReenter(resultCode, data)
         val path = data?.getStringExtra(PhotoViewerTransition.EXTRA_RETURN_PATH)
-        pendingViewerReturnPath = path
+        if (resultCode != RESULT_OK || path.isNullOrEmpty() || isFinishing || isDestroyed) return
+        val requestId = data.getLongExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, 0L)
+        if (viewerReturn?.let { it.path == path && it.requestId == requestId } == true) return
+        endViewerReturn("superseded")
+        viewerReturnGeneration++
         viewerReentryObservedForCurrentLaunch = true
-        org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_transition_reenter", if (path != null) 1 else 0)
-        if (resultCode != RESULT_OK || path == null || isFinishing || isDestroyed) return
-        // The Viewer may have moved from A to B. Do not let the pre-viewer profile
-        // anchor restore A after this return has positioned B.
+        viewerReturnMapped = false
+        pendingViewerReturnPath = path
+        val request = GridReturn(path, requestId, mPath, mCommittedSearchText, photoProfileId)
+        viewerReturn = request
         if (isPhotoProfiles) photoScroll.clear()
+        ViewerReturnDiagnostics.event(requestId, "grid_reenter") {
+            mapOf("mediaId" to GalleryDiagnosticLogger.anonymousId(path), "scrollState" to binding.mediaGrid.scrollState)
+        }
+        org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_transition_reenter", 1)
         postponeEnterTransition()
-        val generation = ++viewerReturnGeneration
-        val deadline = android.os.SystemClock.uptimeMillis() + PhotoViewerTransition.READY_TIMEOUT_MS
-        var positionedReturnTarget = -1
-        var releasedTransition = false
-        var timeoutRunnable: Runnable? = null
-        fun releaseTransition(useFadeFallback: Boolean) {
-            if (releasedTransition || generation != viewerReturnGeneration || isFinishing || isDestroyed) return
-            releasedTransition = true
-            timeoutRunnable?.let(albumTransitionHandler::removeCallbacks)
-            if (useFadeFallback) pendingViewerReturnPath = null
-            else if (isPhotoProfiles) rememberPhotoScrollAnchor("viewer_return")
-            startPostponedEnterTransition()
+        request.timeout = Runnable { releaseViewerReturn(request, null, "timeout") }.also {
+            albumTransitionHandler.postDelayed(it, PhotoViewerTransition.READY_TIMEOUT_MS)
         }
-        timeoutRunnable = Runnable { releaseTransition(useFadeFallback = true) }
-        albumTransitionHandler.postDelayed(timeoutRunnable!!, PhotoViewerTransition.READY_TIMEOUT_MS)
-        fun awaitTarget() {
-            if (generation != viewerReturnGeneration || isFinishing || isDestroyed) return
-            val adapter = getMediaAdapter()
-            val position = adapter?.media?.indexOfFirst { (it as? Medium)?.path == path } ?: -1
-            val holder = if (position >= 0) binding.mediaGrid.findViewHolderForAdapterPosition(position) else null
-            val image = findLoadedViewerReturnThumbnail(path)
-            if (image != null && holder?.bindingAdapterPosition == position && hasUsableViewerReturnBounds(image)) {
-                binding.mediaGrid.doOnPreDraw {
-                    releaseTransition(useFadeFallback = false)
-                }
-                binding.mediaGrid.invalidate()
-            } else if ((position < 0 && displayedMediaIsFinal) ||
-                android.os.SystemClock.uptimeMillis() >= deadline) {
-                releaseTransition(useFadeFallback = true)
-            } else {
-                // A holder may exist while only a 1–10 px sliver is inside the grid.
-                // Position by the resolved media identity once, then wait for layout and
-                // thumbnail readiness instead of mapping that clipped sliver as the end.
-                if (position >= 0 && positionedReturnTarget != position) {
-                    positionedReturnTarget = position
-                    binding.mediaGrid.scrollToPosition(position)
-                }
-                binding.mediaGrid.postDelayed({ awaitTarget() }, 16L)
-            }
-        }
-        awaitTarget()
+        awaitViewerReturnTarget(request)
     }
 
-    private fun hasUsableViewerReturnBounds(image: ImageView): Boolean {
-        val visible = android.graphics.Rect()
-        if (!image.getGlobalVisibleRect(visible)) return false
-        return org.fossify.gallery.helpers.PhotoViewerReturnTarget.hasUsableVisibleArea(
-            image.width,
-            image.height,
-            visible.width(),
-            visible.height(),
-        )
-    }
+    private fun isViewerReturnCurrent(request: GridReturn): Boolean =
+        viewerReturn === request && !isFinishing && !isDestroyed
 
-    private fun findLoadedViewerReturnThumbnail(path: String): ImageView? {
+    private fun viewerReturnScopeMatches(request: GridReturn): Boolean =
+        mPath == request.folder && mCommittedSearchText == request.query && photoProfileId == request.profileId
+
+    private fun viewerReturnPosition(path: String): GridReturnPosition? {
         val adapter = getMediaAdapter() ?: return null
         val position = adapter.media.indexOfFirst { (it as? Medium)?.path == path }
-        if (position < 0) return null
-        val holder = binding.mediaGrid.findViewHolderForAdapterPosition(position) ?: return null
-        if (holder.bindingAdapterPosition != position ||
-            (adapter.media.getOrNull(position) as? Medium)?.path != path) return null
-        return holder.itemView.findViewById<ImageView>(R.id.medium_thumbnail)?.takeIf { image ->
-            image.isAttachedToWindow && image.width > 0 && image.height > 0 && image.drawable != null &&
-                org.fossify.gallery.helpers.PhotoViewerReturnTarget.isLoadedFor(
-                    path,
-                    image.getTag(R.id.media_bound_path) as? String,
-                    image.getTag(R.id.thumbnail_request_key),
-                    image.getTag(R.id.thumbnail_loaded_key)
-                )
+        return GridReturnPosition(adapter, adapter.committedVersion, position)
+    }
+
+    private fun awaitViewerReturnTarget(request: GridReturn) {
+        if (!isViewerReturnCurrent(request) || request.released) return
+        if (!viewerReturnScopeMatches(request)) {
+            releaseViewerReturn(request, null, "scope_changed")
+            return
         }
+        val grid = binding.mediaGrid
+        val position = viewerReturnPosition(request.path)
+        if (request.reportedPosition != position) {
+            request.reportedPosition = position
+            ViewerReturnDiagnostics.event(request.requestId, "grid_position") {
+                mapOf("index" to position?.index, "version" to position?.version, "scrollState" to grid.scrollState)
+            }
+        }
+        if (position != null && position.index < 0 && displayedMediaIsFinal) {
+            releaseViewerReturn(request, null, "target_absent")
+            return
+        }
+        val image = position?.let { findViewerReturnHolder(request.path, it)?.itemView?.findViewById<ImageView>(R.id.medium_thumbnail) }
+        if (position != null && position.index >= 0 && !isMediaGridMoving &&
+            !grid.isLayoutRequested && !grid.hasPendingAdapterUpdates() &&
+            (image == null || !hasUsableViewerReturnBounds(image)) && request.requestedPosition != position) {
+            if (request.requestedPosition == null) {
+                request.origin = FavoritesScrollRestorer().capture(grid, position.adapter.media.map { (it as? Medium)?.path })
+            }
+            request.requestedPosition = position
+            grid.scrollToPosition(position.index)
+            ViewerReturnDiagnostics.event(request.requestId, "grid_position_requested") {
+                mapOf("index" to position.index, "version" to position.version)
+            }
+        }
+        grid.doOnPreDraw {
+            if (!isViewerReturnCurrent(request) || request.released) return@doOnPreDraw
+            val target = readViewerReturnTarget(request, position)
+            if (target != null) releaseViewerReturn(request, target, "target_ready")
+            else albumTransitionHandler.postDelayed({ awaitViewerReturnTarget(request) }, 16L)
+        }
+        grid.postInvalidateOnAnimation()
+    }
+
+    private fun releaseViewerReturn(request: GridReturn, target: GridReturnTarget?, reason: String) {
+        if (!isViewerReturnCurrent(request) || request.released) return
+        request.released = true
+        request.timeout?.let(albumTransitionHandler::removeCallbacks)
+        request.timeout = null
+        if (target == null) {
+            pendingViewerReturnPath = null
+            if (viewerReturnScopeMatches(request) && (viewerReturnPosition(request.path)?.index ?: -1) < 0) {
+                restoreViewerReturnOrigin(request)
+            }
+        } else {
+            releaseViewerSourceLease()
+            request.target = target
+            target.holder.setIsRecyclable(false)
+            target.position.adapter.setViewerReturnPublicationHeld(true)
+            if (isPhotoProfiles) rememberPhotoScrollAnchor("viewer_return")
+            if (mPath == FAVORITES) favoritesScroll.clear()
+            request.timeout = Runnable {
+                if (viewerReturn === request) endViewerReturn("lease_timeout")
+            }.also { albumTransitionHandler.postDelayed(it, PhotoViewerTransition.READY_TIMEOUT_MS) }
+        }
+        ViewerReturnDiagnostics.event(request.requestId, "grid_released") {
+            mapOf("reason" to reason, "index" to target?.position?.index, "version" to target?.position?.version,
+                "bounds" to target?.bounds?.toShortString(), "visible" to target?.visible?.toShortString())
+        }
+        startPostponedEnterTransition()
+    }
+
+    private fun restoreViewerReturnOrigin(request: GridReturn) {
+        val origin = request.origin ?: return
+        val grid = binding.mediaGrid
+        val manager = grid.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return
+        if (isMediaGridMoving || manager.orientation != origin.orientation) return
+        val position = viewerReturnPosition(origin.path)?.index ?: -1
+        if (position >= 0) manager.scrollToPositionWithOffset(position, origin.offset)
+    }
+
+    private fun endViewerReturn(reason: String) {
+        val request = viewerReturn ?: return
+        viewerReturn = null
+        request.timeout?.let(albumTransitionHandler::removeCallbacks)
+        pendingViewerReturnPath = null
+        request.target?.let { target ->
+            target.holder.setIsRecyclable(true)
+            if (target.image.transitionName == PhotoViewerTransition.ELEMENT_NAME) target.image.transitionName = null
+            target.position.adapter.setViewerReturnPublicationHeld(false)
+            // The Transition listener can run while the last frame is still being drawn.
+            albumTransitionHandler.post { releaseMediaGridPublicationIfIdle() }
+        }
+        ViewerReturnDiagnostics.event(request.requestId, "grid_return_closed") { mapOf("reason" to reason) }
+        if (!request.released && reason != "destroyed") startPostponedEnterTransition()
+    }
+
+    private fun hasUsableViewerReturnBounds(image: ImageView, visible: android.graphics.Rect = android.graphics.Rect()): Boolean =
+        image.getGlobalVisibleRect(visible) &&
+            PhotoViewerReturnTarget.hasUsableVisibleArea(image.width, image.height, visible.width(), visible.height())
+
+    private fun findViewerReturnHolder(path: String, position: GridReturnPosition): RecyclerView.ViewHolder? {
+        val grid = binding.mediaGrid
+        val adapter = position.adapter
+        val index = position.index
+        if (index < 0 || grid.adapter !== adapter || adapter.committedVersion != position.version ||
+            (adapter.media.getOrNull(index) as? Medium)?.path != path) return null
+        return grid.findViewHolderForAdapterPosition(index)?.takeIf {
+            it.bindingAdapter === adapter && it.bindingAdapterPosition == index && it.itemView.parent === grid
+        }
+    }
+
+    private fun readViewerReturnTarget(request: GridReturn, position: GridReturnPosition?): GridReturnTarget? {
+        fun report(reason: String, image: ImageView? = null, visible: android.graphics.Rect? = null) {
+            if (request.readiness == reason) return
+            request.readiness = reason
+            ViewerReturnDiagnostics.event(request.requestId, "grid_target") {
+                mapOf("readiness" to reason, "index" to position?.index, "version" to position?.version,
+                    "boundMatches" to image?.let { it.getTag(R.id.media_bound_path) == request.path },
+                    "drawable" to image?.let { it.drawable != null }, "visible" to visible?.toShortString(),
+                    "width" to image?.width, "height" to image?.height)
+            }
+        }
+        val grid = binding.mediaGrid
+        if (position == null || position.index < 0 || !viewerReturnScopeMatches(request)) {
+            report("no_position")
+            return null
+        }
+        if (isMediaGridMoving || grid.isLayoutRequested || grid.isComputingLayout ||
+            grid.hasPendingAdapterUpdates() || grid.isAnimating) {
+            report("grid_unsettled")
+            return null
+        }
+        val holder = findViewerReturnHolder(request.path, position)
+        val image = holder?.itemView?.findViewById<ImageView>(R.id.medium_thumbnail)
+        if (image == null) {
+            report("holder_unavailable")
+            return null
+        }
+        val drawable = image.drawable
+        val loadedKey = image.getTag(R.id.thumbnail_loaded_key)
+        if (drawable == null || loadedKey == null ||
+            !PhotoViewerReturnTarget.isLoadedFor(request.path, image.getTag(R.id.media_bound_path) as? String,
+                image.getTag(R.id.thumbnail_request_key), loadedKey)) {
+            report("pixels_unavailable", image)
+            return null
+        }
+        val visible = android.graphics.Rect()
+        if (!image.isAttachedToWindow || image.isLayoutRequested || !hasUsableViewerReturnBounds(image, visible)) {
+            report("bounds_unavailable", image, visible)
+            return null
+        }
+        report("ready", image, visible)
+        val location = IntArray(2).also(image::getLocationOnScreen)
+        val bounds = android.graphics.Rect(location[0], location[1], location[0] + image.width, location[1] + image.height)
+        return GridReturnTarget(position, holder, image, drawable, loadedKey, bounds, visible)
     }
     private val albumTransitionHandler = Handler()
     private var photoReturnProbeGeneration = 0L
@@ -313,7 +447,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         get() = mediaFastScrollActive || binding.mediaGrid.scrollState != RecyclerView.SCROLL_STATE_IDLE
 
     private fun deferMediaGridPublication(stage: Int, apply: () -> Unit): Boolean {
-        if (!isMediaGridMoving || getMediaAdapter()?.media?.isNotEmpty() != true) return false
+        if ((!isMediaGridMoving && viewerReturn?.target == null) || getMediaAdapter()?.media?.isNotEmpty() != true) return false
+        if (viewerReturn?.target != null) ViewerReturnDiagnostics.event(viewerReturn?.requestId ?: 0L, "grid_publication_deferred") {
+            mapOf("stage" to stage)
+        }
         mediaGridPublication.onScrollMoving(true)
         return mediaGridPublication.deferIfMoving(GridPublication(stage, apply)) { stage >= it.stage }
     }
@@ -340,6 +477,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (active) {
             if (mediaFastScrollActive) return
             mediaFastScrollActive = true
+            viewerReturn?.origin = null
             // Fast-scroller calls can leave RecyclerView.scrollState at IDLE.
             // A new thumb gesture supersedes any saved restore request.
             val hadAnchor = isPhotoProfiles && photoScroll.pending != null
@@ -359,7 +497,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun releaseMediaGridPublicationIfIdle() {
-        if (isMediaGridMoving || isFinishing || isDestroyed) return
+        if (isMediaGridMoving || viewerReturn?.target != null || isFinishing || isDestroyed) return
         val publication = mediaGridPublication.onScrollMoving(false)
         getMediaAdapter()?.setFastScrollActive(false, submitPending = false)
         publication?.apply?.invoke()
@@ -953,6 +1091,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 if (isMediaGridMoving) mediaGridPublication.onScrollMoving(true)
                 else releaseMediaGridPublicationIfIdle()
                 if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                    viewerReturn?.origin = null
                     favoritesScroll.clear()
                     if (!isPhotoProfiles) photoScroll.clear()
                 }
@@ -1403,6 +1542,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun onDestroy() {
         viewerReturnGeneration++
+        endViewerReturn("destroyed")
         releaseViewerSourceLease()
         albumTransitionHandler.removeCallbacksAndMessages(null)
         mediaFastScrollActive = false
@@ -1478,7 +1618,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 "viewer_return_result_received",
                 if (resultCode == RESULT_OK && !returnPath.isNullOrEmpty()) 1 else 0
             )
-            if (resultCode == RESULT_OK && !viewerReentryObservedForCurrentLaunch &&
+            val requestId = resultData?.getLongExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, 0L) ?: 0L
+            ViewerReturnDiagnostics.event(requestId, "grid_activity_result") {
+                mapOf("sharedMapped" to viewerReturnMapped, "reentryObserved" to viewerReentryObservedForCurrentLaunch)
+            }
+            val scopeMatches = viewerReturn?.let(::viewerReturnScopeMatches) != false
+            if (!viewerReturnMapped) endViewerReturn("activity_result")
+            if (resultCode == RESULT_OK && !viewerReturnMapped && scopeMatches &&
                 !returnPath.isNullOrEmpty() && !isFinishing && !isDestroyed) {
                 // The Viewer can legitimately fall back to a fade when its current
                 // renderer is unavailable. Activity reenter callbacks are then not
@@ -1487,6 +1633,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 restoreViewerReturnPositionWithoutTransition(returnPath)
             }
             viewerReentryObservedForCurrentLaunch = false
+            viewerReturnMapped = false
         }
         if (requestCode == REQUEST_EDIT_IMAGE) {
             if (resultCode == RESULT_OK && resultData != null) {
@@ -1514,27 +1661,34 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val sourcePath = mPath
         val sourceQuery = mCommittedSearchText
         val deadline = android.os.SystemClock.uptimeMillis() + PhotoViewerTransition.READY_TIMEOUT_MS
+        var requestedPosition: GridReturnPosition? = null
         fun awaitTarget() {
             if (generation != viewerReturnGeneration || isFinishing || isDestroyed) return
             if (mPath != sourcePath || mCommittedSearchText != sourceQuery) {
                 if (pendingViewerReturnPath == path) pendingViewerReturnPath = null
                 return
             }
-            val adapter = getMediaAdapter()
-            val position = adapter?.media?.indexOfFirst { (it as? Medium)?.path == path } ?: -1
-            org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_return_fallback_position", position)
-            if (position >= 0) {
-                binding.mediaGrid.scrollToPosition(position)
-                binding.mediaGrid.doOnPreDraw {
-                    if (generation != viewerReturnGeneration || isFinishing || isDestroyed) return@doOnPreDraw
+            val position = viewerReturnPosition(path)
+            org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_return_fallback_position", position?.index ?: -1)
+            val expired = android.os.SystemClock.uptimeMillis() >= deadline
+            val grid = binding.mediaGrid
+            if (expired || (position != null && position.index < 0 && displayedMediaIsFinal) || isMediaGridMoving) {
+                if (pendingViewerReturnPath == path) pendingViewerReturnPath = null
+                return
+            }
+            if (position != null && position.index >= 0 && !grid.isLayoutRequested && !grid.hasPendingAdapterUpdates()) {
+                val image = findViewerReturnHolder(path, position)?.itemView?.findViewById<ImageView>(R.id.medium_thumbnail)
+                if (image != null && hasUsableViewerReturnBounds(image)) {
                     if (isPhotoProfiles) rememberPhotoScrollAnchor("viewer_fade_return")
                     if (pendingViewerReturnPath == path) pendingViewerReturnPath = null
+                    return
                 }
-            } else if (displayedMediaIsFinal || android.os.SystemClock.uptimeMillis() >= deadline) {
-                if (pendingViewerReturnPath == path) pendingViewerReturnPath = null
-            } else {
-                binding.mediaGrid.postDelayed({ awaitTarget() }, 32L)
+                if (position != requestedPosition) {
+                    requestedPosition = position
+                    grid.scrollToPosition(position.index)
+                }
             }
+            albumTransitionHandler.postDelayed({ awaitTarget() }, 32L)
         }
         awaitTarget()
     }
@@ -3791,6 +3945,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     /** Launch from a validated thumbnail; stale targets use a short fade with no window scale. */
     private fun launchPhotoViewerWithSharedElement(intent: Intent, path: String) {
+        endViewerReturn("next_launch")
+        viewerReturnGeneration++
+        viewerReturnMapped = false
+        val returnLaunch = ++viewerReturnLaunch
         val entryId = ViewerEntryDiagnostics.newRequest()
         if (entryId != 0L) {
             val type = getMediaAdapter()?.media?.firstOrNull { it is Medium && it.path == path } as? Medium
@@ -3857,36 +4015,46 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             window.sharedElementExitTransition = OxygenClassicActivityMotion.mediaTransition(
                 PhotoViewerTransition.DURATION_MS, ::releaseViewerSourceLease)
             window.sharedElementReenterTransition = OxygenClassicActivityMotion.mediaTransition(
-                PhotoViewerTransition.DURATION_MS, ::releaseViewerSourceLease)
-            // Keep the shared-element bounds animation as the single transition;
-            // layering a window fade causes a flash on return.
+                PhotoViewerTransition.DURATION_MS,
+                onStart = {
+                    viewerReturn?.takeIf { returnLaunch == viewerReturnLaunch }?.let {
+                        ViewerReturnDiagnostics.event(it.requestId, "grid_transition_start")
+                    }
+                },
+                onTerminal = { cancelled ->
+                    if (returnLaunch == viewerReturnLaunch) endViewerReturn(if (cancelled) "transition_cancel" else "transition_end")
+                },
+            )
+            // Android uses this callback for the grid's original exit and its reentry.
             setExitSharedElementCallback(object : SharedElementCallback() {
                 override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
                     val name = PhotoViewerTransition.ELEMENT_NAME
                     if (name !in names) return
-                    val adapter = getMediaAdapter()
-                    if (adapter == null) { sharedElements.remove(name); return }
-                    val returnPath = pendingViewerReturnPath
-                    val returnPosition = returnPath?.let { selected ->
-                        adapter.media.indexOfFirst { (it as? Medium)?.path == selected }
-                    } ?: -1
-                    val returnHolder = if (returnPosition >= 0)
-                        binding.mediaGrid.findViewHolderForAdapterPosition(returnPosition) else null
-                    val returnImage = returnHolder?.itemView?.findViewById<ImageView>(R.id.medium_thumbnail)
-                    if (returnHolder == null || returnHolder.bindingAdapterPosition != returnPosition ||
-                        (adapter.media.getOrNull(returnPosition) as? Medium)?.path != returnPath ||
-                        returnImage?.drawable == null || !returnImage.isAttachedToWindow ||
-                        !hasUsableViewerReturnBounds(returnImage) ||
-                        returnPath == null || !org.fossify.gallery.helpers.PhotoViewerReturnTarget.isLoadedFor(
-                            returnPath,
-                            returnImage?.getTag(R.id.media_bound_path) as? String,
-                            returnImage?.getTag(R.id.thumbnail_request_key),
-                            returnImage?.getTag(R.id.thumbnail_loaded_key)
-                        )) {
+                    if (returnLaunch != viewerReturnLaunch) {
                         sharedElements.remove(name)
-                    } else {
-                        returnImage.transitionName = name
-                        sharedElements[name] = returnImage
+                        return
+                    }
+                    if (!viewerReentryObservedForCurrentLaunch && viewerReturn == null) {
+                        val position = viewerReturnPosition(path)
+                        if (position != null && findViewerReturnHolder(path, position) === holder &&
+                            thumbnail.isAttachedToWindow && thumbnail.drawable != null &&
+                            hasUsableViewerReturnBounds(thumbnail) &&
+                            PhotoViewerReturnTarget.isLoadedFor(path, thumbnail.getTag(R.id.media_bound_path) as? String,
+                                thumbnail.getTag(R.id.thumbnail_request_key), thumbnail.getTag(R.id.thumbnail_loaded_key))) {
+                            sharedElements[name] = thumbnail
+                        } else sharedElements.remove(name)
+                    } else mapViewerReturnTarget(sharedElements)
+                }
+
+                override fun onSharedElementStart(names: MutableList<String>, elements: MutableList<View>, snapshots: MutableList<View>) {
+                    if (returnLaunch == viewerReturnLaunch) viewerReturn?.let {
+                        ViewerReturnDiagnostics.event(it.requestId, "grid_capture_start")
+                    }
+                }
+
+                override fun onSharedElementEnd(names: MutableList<String>, elements: MutableList<View>, snapshots: MutableList<View>) {
+                    if (returnLaunch == viewerReturnLaunch) viewerReturn?.let {
+                        ViewerReturnDiagnostics.event(it.requestId, "grid_capture_end")
                     }
                 }
             })
@@ -3898,6 +4066,26 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             thumbnail.transitionName = null
             pendingViewerReturnPath = null
             fallback("launch_failed")
+        }
+    }
+
+    private fun mapViewerReturnTarget(elements: MutableMap<String, View>) {
+        val name = PhotoViewerTransition.ELEMENT_NAME
+        val request = viewerReturn
+        val expected = request?.target
+        val current = if (request != null && expected != null) readViewerReturnTarget(request, expected.position) else null
+        viewerReturnMapped = current != null && current == expected
+        if (viewerReturnMapped && current != null) {
+            current.image.transitionName = name
+            elements[name] = current.image
+        } else elements.remove(name)
+        if (request != null) {
+            ViewerReturnDiagnostics.event(request.requestId, "grid_map") {
+                mapOf("accepted" to viewerReturnMapped, "expectedVersion" to expected?.position?.version,
+                    "adapterVersion" to getMediaAdapter()?.committedVersion, "scrollState" to binding.mediaGrid.scrollState,
+                    "pendingLayout" to binding.mediaGrid.isLayoutRequested)
+            }
+            if (expected != null && !viewerReturnMapped) endViewerReturn("target_changed_before_mapping")
         }
     }
 

@@ -28,3 +28,12 @@ internal object ViewerEntryDiagnostics {
         "${if (it.isAttachedToWindow) 1 else 0}/${it.visibility}/${it.alpha}/${backgroundState(it.background) ?: "none"}"
     }
 }
+
+internal object ViewerReturnDiagnostics {
+    const val EXTRA_REQUEST_ID = "org.fossify.gallery.extra.MEDIA_RETURN_ID"
+
+    inline fun event(request: Long, event: String, fields: () -> Map<String, Any?> = { emptyMap() }) {
+        if (!ViewerEntryDiagnostics.enabled(request)) return
+        GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "ViewerReturn", event, request, fields())
+    }
+}

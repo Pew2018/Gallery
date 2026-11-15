@@ -31,6 +31,7 @@ object OxygenClassicActivityMotion {
         onEnd: (() -> Unit)? = null,
         onProgress: ((Float) -> Unit)? = null,
         onTerminal: ((cancelled: Boolean) -> Unit)? = null,
+        onStart: (() -> Unit)? = null,
     ): android.transition.Transition =
         android.transition.TransitionSet().apply {
             ordering = android.transition.TransitionSet.ORDERING_TOGETHER
@@ -42,7 +43,7 @@ object OxygenClassicActivityMotion {
             if (onProgress != null) addTransition(SharedElementProgress(durationMs, onProgress))
             duration = durationMs
             interpolator = OxygenClassicMotion.easing()
-            if (onEnd != null || onTerminal != null) addListener(object : android.transition.Transition.TransitionListener {
+            if (onEnd != null || onTerminal != null || onStart != null) addListener(object : android.transition.Transition.TransitionListener {
                 private var ended = false
                 private fun complete(cancelled: Boolean) {
                     if (ended) return
@@ -50,7 +51,7 @@ object OxygenClassicActivityMotion {
                     onEnd?.invoke()
                     onTerminal?.invoke(cancelled)
                 }
-                override fun onTransitionStart(transition: android.transition.Transition) = Unit
+                override fun onTransitionStart(transition: android.transition.Transition) { onStart?.invoke() }
                 override fun onTransitionEnd(transition: android.transition.Transition) = complete(false)
                 override fun onTransitionCancel(transition: android.transition.Transition) = complete(true)
                 override fun onTransitionPause(transition: android.transition.Transition) = Unit

@@ -718,6 +718,7 @@ class MediaAdapter(
     private var pendingUpdate: PendingUpdate? = null
     private var diffRunning = false
     private var fastScrollActive = false
+    private var viewerReturnPublicationHeld = false
     private var lastDeferredGeneration = -1
     private val drainUpdates = Runnable { submitPendingUpdate() }
     private val scrollUpdates = object : RecyclerView.OnScrollListener() {
@@ -786,8 +787,8 @@ class MediaAdapter(
             pendingUpdate = null
             return
         }
-        if (fastScrollActive) {
-            logUpdate(pending, "adapter_update_deferred", "fast_scroll")
+        if (fastScrollActive || viewerReturnPublicationHeld) {
+            logUpdate(pending, "adapter_update_deferred", if (viewerReturnPublicationHeld) "viewer_return" else "fast_scroll")
             return
         }
         if (recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE || recyclerView.isComputingLayout) {
@@ -886,10 +887,10 @@ class MediaAdapter(
                     submitPendingUpdate()
                     return@runOnUiThread
                 }
-                if (fastScrollActive || recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE ||
-                    recyclerView.isComputingLayout) {
+                if (fastScrollActive || viewerReturnPublicationHeld ||
+                    recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE || recyclerView.isComputingLayout) {
                     if (pendingUpdate == null) pendingUpdate = pending.copy(forceReplace = result.isFailure)
-                    if (!fastScrollActive) recyclerView.postDelayed(drainUpdates, 80)
+                    if (!fastScrollActive && !viewerReturnPublicationHeld) recyclerView.postDelayed(drainUpdates, 80)
                     return@runOnUiThread
                 }
                 if (result.isFailure) {
@@ -997,6 +998,14 @@ class MediaAdapter(
             recyclerView.removeCallbacks(drainUpdates)
         } else if (submitPending) {
             submitPendingUpdate()
+        }
+    }
+
+    internal fun setViewerReturnPublicationHeld(held: Boolean) {
+        viewerReturnPublicationHeld = held
+        if (held) {
+            refreshScroll.clear()
+            recyclerView.removeCallbacks(drainUpdates)
         }
     }
 

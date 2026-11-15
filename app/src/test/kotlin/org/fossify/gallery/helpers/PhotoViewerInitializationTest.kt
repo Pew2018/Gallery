@@ -219,6 +219,106 @@ class PhotoViewerInitializationTest {
         assertTrue(fixture.activity.isMediaTransitionRunning())
     }
 
+    @Test fun viewerEnterCallbackMapsCurrentPhotoForPlatformReturn() {
+        val fixture = EntryFixture(viewerWithTransitionIntent().create())
+        val photo = fixture.setPhoto()
+        val proxy = photo.page.sharedElementViewFor(fixture.path)!!
+        fixture.set("photoSharedElementPath", fixture.path)
+        fixture.set("finishAfterSharedTransitionInProgress", true)
+        fixture.set("sharedReturnView", proxy)
+        fixture.set("sharedReturnPage", photo.page)
+        val name = PhotoViewerTransition.ELEMENT_NAME
+        val elements = linkedMapOf<String, View>()
+
+        val callback = android.app.Activity::class.java.getDeclaredField("mEnterTransitionListener")
+            .apply { isAccessible = true }.get(fixture.activity) as android.app.SharedElementCallback
+        callback.onMapSharedElements(mutableListOf(name), elements)
+        assertSame(proxy, elements[name])
+    }
+
+    @Test fun toolbarAndSystemBackIgnoreFurtherCloseRequestsDuringReturn() {
+        val fixture = EntryFixture()
+        val photo = fixture.setPhoto()
+        val proxy = photo.page.sharedElementViewFor(fixture.path)!!
+        fixture.set("sharedReturnView", proxy)
+        fixture.set("sharedReturnPage", photo.page)
+        fixture.set("finishAfterSharedTransitionInProgress", true)
+        fixture.call("setupOptionsMenu")
+        val toolbar = fixture.binding.mediumViewerToolbar
+        val navigation = (0 until toolbar.childCount).map(toolbar::getChildAt)
+            .filterIsInstance<android.widget.ImageButton>().single()
+        assertTrue(navigation.performClick())
+        fixture.activity.onBackPressed()
+        fixture.activity.finishAfterTransition()
+        assertFalse(fixture.activity.isFinishing)
+        assertFalse(fixture.field("sharedReturnFinishRequested") as Boolean)
+        assertNotNull(proxy.parent)
+    }
+
+    @Test fun sharedReturnAnimatorDrivesLayersAndLateCallbacksKeepTheFinalFrame() {
+        val fixture = EntryFixture()
+        val photo = fixture.setPhoto()
+        val proxy = photo.page.sharedElementViewFor(fixture.path)!!
+        fixture.set("finishAfterSharedTransitionInProgress", true)
+        fixture.set("sharedReturnView", proxy)
+        fixture.set("sharedReturnPage", photo.page)
+        val transition = OxygenClassicActivityMotion.mediaTransition(PhotoViewerTransition.DURATION_MS,
+            onProgress = { fixture.call("renderSharedReturnProgress", arrayOf(it)) }) as android.transition.TransitionSet
+        val progress = transition.getTransitionAt(transition.transitionCount - 1)
+        val start = android.transition.TransitionValues().apply { view = proxy }.also(progress::captureStartValues)
+        val end = android.transition.TransitionValues().apply { view = proxy }.also(progress::captureEndValues)
+        val animator = progress.createAnimator(fixture.binding.root, start, end) as android.animation.ValueAnimator
+        animator.start()
+        animator.setCurrentFraction(.5f)
+        val mid = fixture.binding.viewerTransitionScrim.alpha
+        assertTrue(mid > 0f && mid < 1f)
+        animator.setCurrentFraction(.8f)
+        val last = fixture.binding.viewerTransitionScrim.alpha
+        assertTrue(last < mid)
+        fixture.call("onSharedReturnTerminal", arrayOf(true))
+        fixture.call("onSharedReturnTerminal", arrayOf(false))
+        animator.end()
+        assertEquals(last, fixture.binding.viewerTransitionScrim.alpha, 0f)
+        assertNotNull(proxy.parent)
+    }
+
+    @Test fun platformFinishWithoutAnimatorRestoresViewerBeforeFade() {
+        val fixture = EntryFixture()
+        val photo = fixture.setPhoto()
+        val proxy = photo.page.sharedElementViewFor(fixture.path)!!
+        fixture.set("sharedReturnView", proxy)
+        fixture.set("sharedReturnPage", photo.page)
+        fixture.set("finishAfterSharedTransitionInProgress", true)
+        // This fixture supplies a rendered fragment without starting FragmentManager.
+        fixture.binding.viewPager.visibility = View.GONE
+        fixture.activity.finish()
+        fixture.activity.finish()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(fixture.activity.isFinishing)
+        assertBackground(fixture.binding.root, Color.BLACK)
+        assertEquals(1f, photo.binding.gesturesView.alpha, 0f)
+        assertNull(proxy.parent)
+    }
+
+    @Test fun backWithSystemAnimationsDisabledReturnsSelectionImmediately() {
+        val fixture = EntryFixture()
+        fixture.setPhoto()
+        fixture.set("mediaTransitionRunning", false)
+        fixture.set("photoSharedElementMapped", true)
+        val resolver = fixture.activity.contentResolver
+        val scale = Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        try {
+            Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
+            fixture.activity.finishAfterTransition()
+            assertTrue(fixture.activity.isFinishing)
+            val result = Shadows.shadowOf(fixture.activity).resultIntent
+            assertEquals(fixture.path, result.getStringExtra(PhotoViewerTransition.EXTRA_RETURN_PATH))
+            assertNull(fixture.field("sharedReturnView"))
+        } finally {
+            Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, scale)
+        }
+    }
+
     @Test fun noAnimatorAfterCaptureFallsBackAndDisabledMotionFinishesImmediately() {
         val fixture = EntryFixture()
         fixture.runCallback("entryReadyTimeout")
@@ -333,8 +433,9 @@ class PhotoViewerInitializationTest {
         }
     }
 
-    private class EntryFixture {
-        val controller = Robolectric.buildActivity(ViewPagerActivity::class.java)
+    private class EntryFixture(
+        val controller: ActivityController<ViewPagerActivity> = Robolectric.buildActivity(ViewPagerActivity::class.java),
+    ) {
         val activity = controller.get()
         val entry = PhotoTransitionCompletionGate()
         val path = "/storage/emulated/0/Gallery/fixture-entry.jpg"
@@ -342,7 +443,7 @@ class PhotoViewerInitializationTest {
 
         init {
             activity.intent.putExtra(PhotoViewerTransition.EXTRA_PATH, path)
-            activity.window.setContentView(binding.root)
+            if (binding.root.parent == null) activity.window.setContentView(binding.root)
             controller.visible()
             BaseViewerActivity::class.java.getDeclaredMethod("refreshViewerSystemBars").apply { isAccessible = true }.invoke(activity)
             set("mediaEntry", entry)

@@ -186,30 +186,37 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     private var sharedTransitionRunning = false
 
     /** Use a frozen, content-only frame throughout the transition. */
-    fun sharedElementViewFor(path: String, deferTakeover: Boolean = false): View? {
-        if (!::mMedium.isInitialized || mMedium.path != path || !mIsFragmentVisible ||
-            !isAdded || view == null || !previewReady ||
-            videoBoundsAnimator?.isRunning == true ||
-            binding.videoSurfaceFrame.controller.state.zoom != 1f) return null
+    fun sharedElementViewFor(path: String, deferTakeover: Boolean = false, returnRequestId: Long = 0L): View? {
+        fun reject(reason: String): View? {
+            org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(returnRequestId, "video_proxy_rejected") {
+                mapOf("reason" to reason)
+            }
+            return null
+        }
+        if (!::mMedium.isInitialized || mMedium.path != path) return reject("identity")
+        if (!mIsFragmentVisible || !isAdded || view == null) return reject("fragment")
+        if (!previewReady) return reject("preview_pending")
+        if (videoBoundsAnimator?.isRunning == true) return reject("geometry_running")
+        if (binding.videoSurfaceFrame.controller.state.zoom != 1f) return reject("zoom")
         val surface = sharedSurface ?: MediaSharedSurface(binding.root).also { sharedSurface = it }
-        if (sharedTransitionRunning) return surface.currentView
+        if (sharedTransitionRunning) return surface.currentView ?: reject("proxy_missing")
         val preview = binding.videoPreview
         val (drawable, bounds) = if (preview.isVisible()) {
-            val image = preview.drawable ?: return null
+            val image = preview.drawable ?: return reject("preview_drawable")
             val rect = if (preview.scaleType == ImageView.ScaleType.CENTER_CROP) {
                 RectF(preview.left.toFloat(), preview.top.toFloat(), preview.right.toFloat(), preview.bottom.toFloat())
-            } else MediaTransitionGeometry.imageBounds(preview) ?: return null
+            } else MediaTransitionGeometry.imageBounds(preview) ?: return reject("preview_bounds")
             image to rect
         } else {
-            if (!mTextureView.isAvailable || mTextureView.width <= 0 || mTextureView.height <= 0) return null
-            val frame = runCatching { mTextureView.bitmap }.getOrNull() ?: return null
+            if (!mTextureView.isAvailable || mTextureView.width <= 0 || mTextureView.height <= 0) return reject("texture_unavailable")
+            val frame = runCatching { mTextureView.bitmap }.getOrNull() ?: return reject("texture_frame")
             BitmapDrawable(resources, frame) to displayedTextureBounds()
         }
         return surface.prepare(drawable, bounds, preview, binding.videoSurfaceFrame, deferTakeover = deferTakeover)?.also {
             sharedTransitionRunning = true
             if (deferTakeover) sharedEntryPreviewGeneration = previewGeneration
             if (preview.isVisible()) videoPreviewFrameHandoff?.setTransitionRunning(true)
-        }
+        } ?: reject("proxy_prepare")
     }
 
     internal fun takeOverSharedEntry(proxy: View) = sharedEntryPreviewGeneration == previewGeneration &&

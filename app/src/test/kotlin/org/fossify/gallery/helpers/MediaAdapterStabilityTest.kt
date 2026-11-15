@@ -1,15 +1,20 @@
 package org.fossify.gallery.helpers
 
+import android.app.Activity
 import android.app.Application
+import android.content.Intent
 import android.graphics.drawable.ColorDrawable
 import android.os.Looper
 import android.view.View
+import android.widget.ImageView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.commons.views.MyRecyclerView
 import org.fossify.commons.adapters.MyRecyclerViewAdapter
 import org.fossify.gallery.R
 import org.fossify.gallery.activities.SimpleActivity
+import org.fossify.gallery.activities.MediaActivity
+import org.fossify.gallery.databinding.ActivityMediaBinding
 import org.fossify.gallery.adapters.MediaAdapter
 import org.fossify.gallery.models.Medium
 import org.fossify.gallery.models.ThumbnailItem
@@ -73,6 +78,187 @@ class MediaAdapterStabilityTest {
             controller.visible()
             block(adapter, recycler, tasks)
         } finally { controller.pause().stop().destroy() }
+    }
+
+    private class ReturnGridFixture(rows: List<Medium>) {
+        val controller = Robolectric.buildActivity(MediaActivity::class.java)
+        val activity = controller.get()
+        val type = MediaActivity::class.java
+        val grid: MyRecyclerView
+        val adapter: MediaAdapter
+        val tasks = ArrayDeque<Runnable>()
+        private val transitionState = Activity::class.java.getDeclaredField("mActivityTransitionState")
+            .apply { isAccessible = true }.get(activity)
+        val postponed: Boolean
+            get() = transitionState.javaClass.getDeclaredField("mIsEnterPostponed").apply { isAccessible = true }
+                .getBoolean(transitionState)
+
+        init {
+            activity.setTheme(R.style.AppTheme)
+            activity.delegate.installViewFactory()
+            val binding = type.getDeclaredMethod("getBinding")
+                .apply { isAccessible = true }.invoke(activity) as ActivityMediaBinding
+            activity.window.setContentView(binding.root)
+            grid = binding.mediaGrid
+            adapter = MediaAdapter(activity, ArrayList(rows), null, false, false, "/photos", grid,
+                Executor { tasks.addLast(it) }) {}
+            grid.layoutManager = LinearLayoutManager(activity)
+            grid.itemAnimator = null
+            grid.adapter = adapter
+            controller.visible()
+            layout()
+        }
+
+        fun layout() {
+            grid.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY))
+            grid.layout(0, 0, 320, 320)
+        }
+
+        fun reenter(path: String, id: Long = 1L) {
+            activity.onActivityReenter(Activity.RESULT_OK, Intent()
+                .putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH, path)
+                .putExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, id))
+        }
+
+        fun thumbnail(position: Int, path: String): ImageView {
+            val image = grid.findViewHolderForAdapterPosition(position)!!.itemView.findViewById<ImageView>(R.id.medium_thumbnail)
+            image.setImageDrawable(ColorDrawable(android.graphics.Color.BLUE))
+            image.setTag(R.id.media_bound_path, path)
+            image.setTag(R.id.thumbnail_request_key, "ready")
+            image.setTag(R.id.thumbnail_loaded_key, "ready")
+            layout()
+            assertTrue(image.getGlobalVisibleRect(android.graphics.Rect()))
+            return image
+        }
+
+        fun map(): View? {
+            val elements = mutableMapOf<String, View>()
+            type.getDeclaredMethod("mapViewerReturnTarget", MutableMap::class.java)
+                .apply { isAccessible = true }.invoke(activity, elements)
+            return elements[PhotoViewerTransition.ELEMENT_NAME]
+        }
+
+        fun end() {
+            type.getDeclaredMethod("endViewerReturn", String::class.java)
+                .apply { isAccessible = true }.invoke(activity, "test_end")
+        }
+
+        fun timeout() {
+            val request = type.getDeclaredField("viewerReturn").apply { isAccessible = true }.get(activity)
+            val timeout = request.javaClass.getDeclaredField("timeout").apply { isAccessible = true }.get(request) as Runnable
+            timeout.run()
+        }
+
+        fun draw() = grid.viewTreeObserver.dispatchOnPreDraw()
+    }
+
+    @Test fun viewerReentryDoesNotReleaseWhenReadyThumbnailIsReboundBeforePredraw() {
+        val target = item("a.jpg")
+        val fixture = ReturnGridFixture(listOf(target))
+        val image = fixture.thumbnail(0, target.path)
+        fixture.reenter(target.path)
+        assertTrue(fixture.postponed)
+        image.setTag(R.id.media_bound_path, "/photos/other.jpg")
+        fixture.draw()
+        assertTrue("A rebound thumbnail must not release Android's postponed return", fixture.postponed)
+    }
+
+    @Test fun returnRemapsTheSelectedVisiblePhotoAndRejectsBoundsThatChangedAfterPredraw() {
+        val rows = listOf(item("a.jpg"), item("b.jpg"))
+        val fixture = ReturnGridFixture(rows)
+        fixture.grid.scrollToPosition(1)
+        fixture.layout()
+        val image = fixture.thumbnail(1, rows[1].path)
+        fixture.reenter(rows[1].path)
+        fixture.draw()
+        assertFalse(fixture.postponed)
+        assertSame(image, fixture.map())
+        image.translationY = 200f
+        assertNull(fixture.map())
+    }
+
+    @Test fun returnWaitsForLayoutAndPixelsForTargetsAboveAndBelowTheViewport() {
+        val rows = List(7) { item("photo-$it.jpg") }
+        for (target in listOf(0, rows.lastIndex)) {
+            val fixture = ReturnGridFixture(rows)
+            fixture.grid.scrollToPosition(3)
+            fixture.layout()
+            assertNull(fixture.grid.findViewHolderForAdapterPosition(target))
+            fixture.reenter(rows[target].path)
+            assertTrue(fixture.postponed)
+            fixture.draw()
+            assertTrue(fixture.postponed)
+            fixture.layout()
+            val image = fixture.grid.findViewHolderForAdapterPosition(target)!!.itemView
+                .findViewById<ImageView>(R.id.medium_thumbnail)
+            image.setTag(R.id.thumbnail_loaded_key, null)
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(16))
+            fixture.draw()
+            assertTrue(fixture.postponed)
+            fixture.thumbnail(target, rows[target].path)
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(32))
+            fixture.draw()
+            assertFalse(fixture.postponed)
+            assertSame(image, fixture.map())
+            fixture.end()
+        }
+    }
+
+    @Test fun returnRechecksAdapterVersionAndOldCallbacksCannotReleaseTheNextRequest() {
+        val row = item("a.jpg")
+        val fixture = ReturnGridFixture(listOf(row))
+        fixture.thumbnail(0, row.path)
+        fixture.reenter(row.path)
+        val version = fixture.adapter.committedVersion
+        fixture.adapter.updateMedia(arrayListOf(row.copy(id = 17)))
+        assertTrue(fixture.adapter.committedVersion > version)
+        fixture.draw()
+        assertTrue(fixture.postponed)
+
+        val absent = "/photos/absent.jpg"
+        fixture.reenter(absent, id = 2L)
+        fixture.draw()
+        assertTrue(fixture.postponed)
+        fixture.timeout()
+        assertFalse(fixture.postponed)
+        assertNull(fixture.map())
+    }
+
+    @Test fun aTargetRemovedByTheCommittedSearchDoesNotMap() {
+        val row = item("a.jpg")
+        val fixture = ReturnGridFixture(listOf(row))
+        val image = fixture.thumbnail(0, row.path)
+        fixture.reenter(row.path)
+        fixture.draw()
+        assertSame(image, fixture.map())
+        fixture.type.getDeclaredField("mCommittedSearchText").apply { isAccessible = true }
+            .set(fixture.activity, "different query")
+        assertNull(fixture.map())
+        assertTrue(fixture.grid.findViewHolderForAdapterPosition(0)!!.isRecyclable)
+    }
+
+    @Test fun returningThumbnailHoldsAnInFlightDiffUntilTransitionFinishes() {
+        val row = item("a.jpg")
+        val fixture = ReturnGridFixture(listOf(row))
+        fixture.thumbnail(0, row.path)
+        val version = fixture.adapter.committedVersion
+        val updated = row.copy(size = row.size + 50)
+        fixture.adapter.updateMedia(arrayListOf(updated))
+        assertEquals(1, fixture.tasks.size)
+
+        fixture.reenter(row.path)
+        fixture.draw()
+        assertNotNull(fixture.map())
+        drain(fixture.tasks)
+        assertEquals(version, fixture.adapter.committedVersion)
+
+        fixture.end()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        drain(fixture.tasks)
+        assertTrue(fixture.adapter.committedVersion > version)
+        assertEquals(updated.size, (fixture.adapter.media.single() as Medium).size)
+        assertTrue(fixture.grid.findViewHolderForAdapterPosition(0)?.isRecyclable ?: true)
     }
 
     private fun drain(tasks: ArrayDeque<Runnable>) {
