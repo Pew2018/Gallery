@@ -2,19 +2,22 @@ package org.fossify.gallery.helpers
 
 import android.annotation.SuppressLint
 import android.graphics.Color
-import android.view.MotionEvent
-import android.view.View
+import android.graphics.Rect
+import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
-import android.widget.LinearLayout
-import kotlin.math.roundToInt
-import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
 import android.widget.ImageView
+import android.widget.LinearLayout
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
+import kotlin.math.roundToInt
 import java.util.WeakHashMap
 
 /**
@@ -127,6 +130,46 @@ object OxygenFastScroller {
         thumb.scaleType = ImageView.ScaleType.CENTER
         if (scroller.handleWidth != hitWidth) scroller.handleWidth = hitWidth
         if (scroller.handleHeight != hitHeight) scroller.handleHeight = hitHeight
+    }
+
+    /** Keep a horizontal Gallery thumb above the translucent navigation and app bars. */
+    fun applyGalleryBottomInsets(scroller: RecyclerViewFastScroller, bottomBar: Int = 0) {
+        val vertical = scroller.fastScrollDirection ==
+            RecyclerViewFastScroller.FastScrollDirection.VERTICAL
+        val thumb = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.thumbIV)
+            ?: return
+        val track = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.trackView)
+            ?: return
+        val popup = scroller.popupTextView
+
+        fun apply(insets: WindowInsetsCompat) {
+            val navigation = if (vertical) 0 else
+                insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+            val offset = -(navigation + if (vertical) 0 else bottomBar).toFloat()
+            // The thumb is a child of trackView; translating the rail also
+            // moves the handle, so a second translation would detach it.
+            thumb.translationY = 0f
+            track.translationY = offset
+            popup.translationY = offset
+        }
+
+        ViewCompat.setOnApplyWindowInsetsListener(scroller) { _, insets ->
+            apply(insets)
+            insets
+        }
+        ViewCompat.getRootWindowInsets(scroller)?.let(::apply)
+        ViewCompat.requestApplyInsets(scroller)
+
+        fun updateGestureExclusion() {
+            val rects = if (!vertical && thumb.width > 0 && thumb.height > 0) {
+                listOf(Rect(0, 0, thumb.width, thumb.height))
+            } else {
+                emptyList()
+            }
+            ViewCompat.setSystemGestureExclusionRects(thumb, rects)
+        }
+        updateGestureExclusion()
+        thumb.post { updateGestureExclusion() }
     }
 
     /**

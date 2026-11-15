@@ -2122,9 +2122,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 override fun onReleased() = onPhotoFastScrollStateChanged(false)
             }
         )
+        val bottomBar = if (mGallerySection == null) 0 else
+            resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height)
         OxygenFastScroller.apply(binding.mediaFastscroller, binding.mediaGrid,
-            OxygenThemeEngine.snapshot(this, config),
-            if (mGallerySection == null) 0 else resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height))
+            OxygenThemeEngine.snapshot(this, config), bottomBar)
+        OxygenFastScroller.applyGalleryBottomInsets(binding.mediaFastscroller, bottomBar)
         OxygenFastScroller.installGalleryTouchHandling(
             binding.mediaFastscroller,
             binding.mediaGrid,

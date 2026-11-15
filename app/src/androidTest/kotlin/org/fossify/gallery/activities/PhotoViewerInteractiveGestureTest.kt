@@ -387,6 +387,124 @@ class PhotoViewerInteractiveGestureTest {
     }
 
     @Test
+    fun fastScrollerThumbDragMovesAHorizontalGridOnDevice() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GalleryHorizontalFastScroller-${UUID.randomUUID()}"
+        val fixtures = List(60) { createFixture(context, album) }
+        val wasScrollHorizontally = context.config.scrollHorizontally
+        var activity: MediaActivity? = null
+        try {
+            context.config.scrollHorizontally = true
+            val intent = Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, java.io.File(fixtures.first().second).parent)
+            }
+            val source = instrumentation.startActivitySync(intent) as MediaActivity
+            activity = source
+            awaitAnySourceThumbnail(instrumentation, source, fixtures.mapTo(HashSet()) { it.second })
+            val grid = source.findViewById<RecyclerView>(R.id.media_grid)
+            val scroller = source.findViewById<com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller>(
+                R.id.media_fastscroller
+            )
+            assertEquals("the horizontal gallery configures a horizontal fast scroller",
+                com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller.FastScrollDirection.HORIZONTAL,
+                scroller.fastScrollDirection)
+            val thumb = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.thumbIV)
+            val track = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.trackView)
+            val gridLocation = IntArray(2)
+            instrumentation.runOnMainSync { grid.getLocationOnScreen(gridLocation) }
+            val deadline = SystemClock.uptimeMillis() + 15_000
+            var scrollable = false
+            while (!scrollable && SystemClock.uptimeMillis() < deadline) {
+                instrumentation.runOnMainSync {
+                    scrollable = grid.computeHorizontalScrollRange() > grid.computeHorizontalScrollExtent()
+                }
+                if (!scrollable) SystemClock.sleep(100)
+            }
+            assertTrue("the horizontal 60-file fixture grid should have a real range", scrollable)
+            assertTrue("the horizontal fast-scroller thumb should be visible for a scrollable range", thumb.isShown)
+            assertTrue("the horizontal fast-scroller thumb remains at unit scale; scale=(${thumb.scaleX},${thumb.scaleY})",
+                thumb.scaleX > 0.99f && thumb.scaleY > 0.99f)
+            instrumentation.runOnMainSync { grid.scrollToPosition(0) }
+            instrumentation.waitForIdleSync()
+
+            var dragGeometry = "not sampled"
+            fun dragTo(fraction: Float): Int {
+                val thumbLocation = IntArray(2)
+                val trackLocation = IntArray(2)
+                instrumentation.runOnMainSync {
+                    thumb.getLocationOnScreen(thumbLocation)
+                    track.getLocationOnScreen(trackLocation)
+                }
+                assertTrue("the horizontal track begins within the grid viewport",
+                    trackLocation[0] >= gridLocation[0])
+                assertTrue("the horizontal track ends within the grid viewport",
+                    trackLocation[0] + track.width <= gridLocation[0] + grid.width)
+                // The centered start exercises the handle's system-gesture exclusion.
+                val startX = thumbLocation[0] + thumb.width / 2f
+                val startY = thumbLocation[1] + thumb.height / 2f
+                val navBottom = androidx.core.view.ViewCompat.getRootWindowInsets(source.window.decorView)
+                    ?.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars())?.bottom ?: -1
+                val displayHeight = source.resources.displayMetrics.heightPixels
+                val thumbVisibleRect = android.graphics.Rect()
+                val scrollerVisibleRect = android.graphics.Rect()
+                val rootVisibleRect = android.graphics.Rect()
+                instrumentation.runOnMainSync {
+                    thumb.getGlobalVisibleRect(thumbVisibleRect)
+                    scroller.getGlobalVisibleRect(scrollerVisibleRect)
+                    source.window.decorView.getGlobalVisibleRect(rootVisibleRect)
+                }
+                val endX = trackLocation[0] + thumb.width / 2f + (track.width - thumb.width) * fraction
+                val expectedOffset = org.fossify.gallery.helpers.OxygenFastScroller.scrollOffsetForDrag(
+                    endX, trackLocation[0], track.width, thumb.width,
+                    grid.computeHorizontalScrollRange(), grid.computeHorizontalScrollExtent(),
+                )
+                dragGeometry = "direction=${scroller.fastScrollDirection},start=($startX,$startY)," +
+                    "endX=$endX,track=${trackLocation.contentToString()} ${track.width}x${track.height}," +
+                    "thumb=${thumbLocation.contentToString()} ${thumb.width}x${thumb.height}," +
+                    "thumbTranslationY=${thumb.translationY},navBottom=$navBottom,displayHeight=$displayHeight," +
+                    "thumbRect=$thumbVisibleRect,scrollerRect=$scrollerVisibleRect,rootRect=$rootVisibleRect," +
+                    "scale=(${thumb.scaleX},${thumb.scaleY}),alpha=${thumb.alpha},visibility=${thumb.visibility}," +
+                    "expectedOffset=$expectedOffset"
+                val downTime = SystemClock.uptimeMillis()
+                fun inject(action: Int, x: Float): Boolean {
+                    val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, startY, 0)
+                        .apply { this.source = InputDevice.SOURCE_TOUCHSCREEN }
+                    val accepted = instrumentation.uiAutomation.injectInputEvent(event, true)
+                    event.recycle()
+                    return accepted
+                }
+                assertTrue("touch down should reach the horizontal thumb", inject(MotionEvent.ACTION_DOWN, startX))
+                repeat(8) { step ->
+                    SystemClock.sleep(24)
+                    val x = startX + (endX - startX) * (step + 1) / 8f
+                    assertTrue("horizontal thumb move should be accepted", inject(MotionEvent.ACTION_MOVE, x))
+                }
+                assertTrue("horizontal thumb release should be accepted", inject(MotionEvent.ACTION_UP, endX))
+                instrumentation.waitForIdleSync()
+                return grid.computeHorizontalScrollOffset()
+            }
+
+            val range = grid.computeHorizontalScrollRange() - grid.computeHorizontalScrollExtent()
+            val topOffset = grid.computeHorizontalScrollOffset()
+            assertTrue("the horizontal grid begins at its first item", topOffset <= grid.width / 2)
+            val middleOffset = dragTo(0.5f)
+            assertTrue("horizontal dragging reaches the real middle; offset=$middleOffset range=$range $dragGeometry",
+                middleOffset in (range / 4)..(range * 3 / 4))
+            val endOffset = dragTo(0.98f)
+            assertTrue("horizontal dragging reaches the real end; offset=$endOffset range=$range",
+                endOffset >= range - grid.width)
+            assertTrue("horizontal dragging returns to the start", dragTo(0.02f) <= grid.width / 2)
+        } finally {
+            activity?.let { instrumentation.runOnMainSync { it.finish() } }
+            context.config.scrollHorizontally = wasScrollHorizontally
+            fixtures.forEach { fixture -> runCatching { context.contentResolver.delete(fixture.first, null, null) } }
+        }
+    }
+
+    @Test
     fun folderCardUsesPageMotionAndReturnsToTheSameAlbumOnDevice() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
