@@ -21,6 +21,7 @@ import android.provider.MediaStore
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.ViewGroup
+import android.widget.EditText
 import androidx.recyclerview.widget.RecyclerView
 import android.widget.ImageView
 import android.view.MotionEvent
@@ -50,6 +51,7 @@ import org.fossify.gallery.helpers.PhotoProfileMediaLoader
 import org.fossify.gallery.helpers.PhotoProfileRepository
 import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.OxygenSystemBars
+import org.fossify.gallery.helpers.OxygenSearchNavigation
 import org.fossify.gallery.helpers.OxygenThemeEngine
 import org.fossify.gallery.helpers.GROUP_BY_NONE
 import org.fossify.gallery.helpers.PhotoSource
@@ -505,6 +507,123 @@ class PhotoViewerInteractiveGestureTest {
     }
 
     @Test
+    fun searchFastScrollerThumbDragMovesHorizontalResultsOnDevice() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val token = "GallerySearchDrag-${UUID.randomUUID()}"
+        val album = "${Environment.DIRECTORY_PICTURES}/$token"
+        val fixtures = List(60) { index ->
+            createFixture(context, album, displayName = "$token-${index.toString().padStart(3, '0')}.png")
+        }
+        val wasScrollHorizontally = context.config.scrollHorizontally
+        var activity: SearchActivity? = null
+        try {
+            context.config.scrollHorizontally = true
+            val intent = Intent(context, SearchActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val monitor = instrumentation.addMonitor(SearchActivity::class.java.name, null, false)
+            context.startActivity(intent)
+            val source = instrumentation.waitForMonitorWithTimeout(monitor, 15_000) as? SearchActivity
+                ?: error("SearchActivity did not launch")
+            instrumentation.removeMonitor(monitor)
+            activity = source
+            val grid = source.findViewById<RecyclerView>(R.id.search_grid)
+            val scroller = source.findViewById<com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller>(
+                R.id.search_fastscroller
+            )
+            val input = source.findViewById<EditText>(org.fossify.commons.R.id.top_toolbar_search)
+                ?: error("SearchActivity did not expose its search field")
+            instrumentation.runOnMainSync { source.findViewById<android.view.View>(R.id.search_menu)?.let {
+                (it as? org.fossify.commons.views.MySearchMenu)?.focusView()
+            } }
+            val cacheField = SearchActivity::class.java.getDeclaredField("mAllMedia")
+                .apply { isAccessible = true }
+            val expectedPaths = fixtures.mapTo(HashSet()) { it.second }
+            val loadDeadline = SystemClock.uptimeMillis() + 20_000
+            var fixtureCached = false
+            while (SystemClock.uptimeMillis() < loadDeadline) {
+                instrumentation.runOnMainSync {
+                    val loaded = cacheField.get(source) as ArrayList<*>
+                    fixtureCached = loaded.any { row ->
+                        runCatching { row?.javaClass?.getMethod("getPath")?.invoke(row) as? String }
+                            .getOrNull() in expectedPaths
+                    }
+                }
+                if (fixtureCached) break
+                SystemClock.sleep(100)
+            }
+            instrumentation.runOnMainSync { input.setText(token) }
+            instrumentation.runOnMainSync { OxygenSearchNavigation.hideImeAndClearFocus(source, source.findViewById(R.id.search_menu)) }
+
+            val resultDeadline = SystemClock.uptimeMillis() + 20_000
+            var resultCount = 0
+            var visibleMediaCount = 0
+            var scrollable = false
+            var lastRange = -1
+            var lastExtent = -1
+            var stableRangeSamples = 0
+            while (SystemClock.uptimeMillis() < resultDeadline &&
+                (!scrollable || resultCount != fixtures.size || visibleMediaCount != fixtures.size || stableRangeSamples < 3)) {
+                instrumentation.runOnMainSync {
+                    val adapter = grid.adapter as? MediaAdapter
+                    resultCount = adapter?.media?.count { (it as? Medium)?.path in expectedPaths } ?: 0
+                    visibleMediaCount = adapter?.media?.count { it is Medium } ?: 0
+                    val range = grid.computeHorizontalScrollRange()
+                    val extent = grid.computeHorizontalScrollExtent()
+                    scrollable = range > extent
+                    if (visibleMediaCount == fixtures.size && range == lastRange && extent == lastExtent) {
+                        stableRangeSamples++
+                    } else {
+                        stableRangeSamples = 0
+                    }
+                    lastRange = range
+                    lastExtent = extent
+                }
+                if (!scrollable || resultCount != fixtures.size || visibleMediaCount != fixtures.size || stableRangeSamples < 3) {
+                    SystemClock.sleep(100)
+                }
+            }
+            assertEquals("the search query should return all 60 generated media", fixtures.size, resultCount)
+            assertEquals("the query should replace the full catalog with only its matching media",
+                fixtures.size, visibleMediaCount)
+            assertTrue("horizontal search results should have a real scroll range", scrollable)
+            assertEquals("SearchActivity should configure a horizontal fast scroller",
+                com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller.FastScrollDirection.HORIZONTAL,
+                scroller.fastScrollDirection)
+            instrumentation.runOnMainSync { grid.scrollToPosition(0) }
+            SystemClock.sleep(150)
+            var scrollRange = 0
+            var scrollExtent = 0
+            var viewportWidth = 0
+            var geometry = "grid not sampled"
+            instrumentation.runOnMainSync {
+                scrollRange = grid.computeHorizontalScrollRange()
+                scrollExtent = grid.computeHorizontalScrollExtent()
+                viewportWidth = grid.width
+                val layoutManager = grid.layoutManager as? androidx.recyclerview.widget.GridLayoutManager
+                geometry = "range=$scrollRange extent=$scrollExtent viewport=${grid.width}x${grid.height}," +
+                    "items=${grid.adapter?.itemCount},span=${layoutManager?.spanCount}," +
+                    "orientation=${layoutManager?.orientation},adapterMedia=${(grid.adapter as? MediaAdapter)?.media?.size}"
+            }
+            val range = scrollRange - scrollExtent
+            val middleOffset = dragGridFastScrollerOnDevice(instrumentation, grid, scroller, 0.5f, true)
+            assertTrue("search drag should move to the middle; offset=$middleOffset $geometry",
+                middleOffset in (range / 4)..(range * 3 / 4))
+            val endOffset = dragGridFastScrollerOnDevice(instrumentation, grid, scroller, 0.98f, true)
+            assertTrue("search drag should reach the end; offset=$endOffset range=$range",
+                endOffset >= range - viewportWidth)
+            val startOffset = dragGridFastScrollerOnDevice(instrumentation, grid, scroller, 0.02f, true)
+            assertTrue("search drag should return to the start; offset=$startOffset", startOffset <= viewportWidth / 2)
+        } finally {
+            activity?.let { instrumentation.runOnMainSync { it.finish() } }
+            context.config.scrollHorizontally = wasScrollHorizontally
+            fixtures.forEach { fixture -> runCatching { context.contentResolver.delete(fixture.first, null, null) } }
+        }
+    }
+
+    @Test
     fun folderCardUsesPageMotionAndReturnsToTheSameAlbumOnDevice() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -784,6 +903,89 @@ class PhotoViewerInteractiveGestureTest {
             fixtures.forEach { fixture ->
                 runCatching { context.contentResolver.delete(fixture.first, null, null) }
             }
+        }
+    }
+
+    @Test
+    fun customPhotoProfileFastScrollerDragMovesGridOnDevice() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GalleryProfileFastScroller-${UUID.randomUUID()}"
+        val fixtures = List(24) { index ->
+            createFixture(context, album, displayName = "profile-scroll-${index.toString().padStart(3, '0')}.png")
+        }
+        val paths = fixtures.mapTo(HashSet()) { it.second }
+        val store = PhotoProfileRepository.of(context)
+        val previousState = store.state()
+        val profileId = UUID.randomUUID().toString()
+        val profileKey = PhotoProfileMediaLoader.PATH
+        val hadProfileSorting = context.config.hasCustomSorting(profileKey)
+        val previousProfileSorting = context.config.getFolderSorting(profileKey)
+        val wasShowingAllMedia = context.config.showAll
+        val wasScrollHorizontally = context.config.scrollHorizontally
+        var activity: MediaActivity? = null
+        try {
+            store.save(PhotoProfile(profileId, "Fast scroll test", listOf(
+                PhotoSource(PhotoSourceType.FOLDER, java.io.File(fixtures.first().second).parent)
+            )))
+            context.config.saveCustomSorting(profileKey, SORT_BY_NAME)
+            context.config.showAll = false
+            context.config.scrollHorizontally = false
+            val intent = Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, PhotoProfileMediaLoader.PATH)
+                putExtra(GalleryNavigation.EXTRA_SECTION, GallerySection.PHOTOS.name)
+                putExtra(PhotoProfileMediaLoader.EXTRA_ID, profileId)
+            }
+            val monitor = instrumentation.addMonitor(MediaActivity::class.java.name, null, false)
+            context.startActivity(intent)
+            val source = instrumentation.waitForMonitorWithTimeout(monitor, 15_000) as? MediaActivity
+                ?: error("custom photo profile did not launch MediaActivity")
+            instrumentation.removeMonitor(monitor)
+            activity = source
+            awaitAnySourceThumbnail(instrumentation, source, paths)
+            val grid = source.findViewById<RecyclerView>(R.id.media_grid)
+            val scroller = source.findViewById<com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller>(
+                R.id.media_fastscroller
+            )
+            val deadline = SystemClock.uptimeMillis() + 20_000
+            var matchedRows = 0
+            var scrollRange = 0
+            var scrollExtent = 0
+            while (SystemClock.uptimeMillis() < deadline) {
+                instrumentation.runOnMainSync {
+                    matchedRows = (grid.adapter as? MediaAdapter)?.media?.count { (it as? Medium)?.path in paths } ?: 0
+                    scrollRange = grid.computeVerticalScrollRange()
+                    scrollExtent = grid.computeVerticalScrollExtent()
+                }
+                if (matchedRows == fixtures.size && scrollRange > scrollExtent) break
+                SystemClock.sleep(100)
+            }
+            assertEquals("the custom profile should publish all generated media", fixtures.size, matchedRows)
+            assertTrue("the custom profile should have a real vertical scroll range", scrollRange > scrollExtent)
+            assertEquals("custom profile configures a vertical fast scroller",
+                com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller.FastScrollDirection.VERTICAL,
+                scroller.fastScrollDirection)
+            instrumentation.runOnMainSync { grid.scrollToPosition(0) }
+            SystemClock.sleep(150)
+            var range = 0
+            instrumentation.runOnMainSync {
+                range = grid.computeVerticalScrollRange() - grid.computeVerticalScrollExtent()
+            }
+            val offset = dragGridFastScrollerOnDevice(instrumentation, grid, scroller, 0.5f, false)
+            assertTrue("custom-profile fast scroll should move the grid to its middle; offset=$offset range=$range",
+                offset in (range / 4)..(range * 3 / 4))
+        } finally {
+            activity?.let { instrumentation.runOnMainSync { it.finish() } }
+            store.delete(profileId)
+            previousState.selectedId?.let(store::select)
+            PhotoProfileMediaCache.invalidate()
+            context.config.showAll = wasShowingAllMedia
+            context.config.scrollHorizontally = wasScrollHorizontally
+            if (hadProfileSorting) context.config.saveCustomSorting(profileKey, previousProfileSorting)
+            else context.config.removeCustomSorting(profileKey)
+            fixtures.forEach { fixture -> runCatching { context.contentResolver.delete(fixture.first, null, null) } }
         }
     }
 
@@ -1807,6 +2009,7 @@ class PhotoViewerInteractiveGestureTest {
                         java.io.File(itemPath).canonicalPath == java.io.File(path).canonicalPath
                     }.getOrDefault(false)
                 }
+                if (position >= 0) grid?.scrollToPosition(position)
                 val holder = if (position >= 0) grid?.findViewHolderForAdapterPosition(position) else null
                 val item = holder?.itemView
                 val image = item?.findViewById<ImageView>(R.id.dir_thumbnail)
@@ -2010,6 +2213,57 @@ class PhotoViewerInteractiveGestureTest {
             SystemClock.sleep(45)
         }
         return injected
+    }
+
+    private fun dragGridFastScrollerOnDevice(
+        instrumentation: android.app.Instrumentation,
+        grid: RecyclerView,
+        scroller: com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller,
+        fraction: Float,
+        horizontal: Boolean,
+    ): Int {
+        val thumb = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.thumbIV)
+        val track = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.trackView)
+        val thumbLocation = IntArray(2)
+        val trackLocation = IntArray(2)
+        instrumentation.runOnMainSync {
+            thumb.getLocationOnScreen(thumbLocation)
+            track.getLocationOnScreen(trackLocation)
+        }
+        val startX = thumbLocation[0] + thumb.width / 2f
+        val startY = thumbLocation[1] + thumb.height / 2f
+        val endX = if (horizontal) trackLocation[0] + thumb.width / 2f +
+            (track.width - thumb.width) * fraction else startX
+        val endY = if (horizontal) startY else trackLocation[1] + thumb.height / 2f +
+            (track.height - thumb.height) * fraction
+        val downTime = SystemClock.uptimeMillis()
+        fun inject(action: Int, x: Float, y: Float): Boolean {
+            val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, y, 0)
+                .apply { this.source = InputDevice.SOURCE_TOUCHSCREEN }
+            val accepted = instrumentation.uiAutomation.injectInputEvent(event, true)
+            event.recycle()
+            return accepted
+        }
+        assertTrue("fast-scroller touch down should be accepted",
+            inject(MotionEvent.ACTION_DOWN, startX, startY))
+        repeat(8) { step ->
+            SystemClock.sleep(24)
+            val stepFraction = (step + 1) / 8f
+            val x = startX + (endX - startX) * stepFraction
+            val y = startY + (endY - startY) * stepFraction
+            assertTrue("fast-scroller move should be accepted", inject(MotionEvent.ACTION_MOVE, x, y))
+        }
+        assertTrue("fast-scroller release should be accepted",
+            inject(MotionEvent.ACTION_UP, endX, endY))
+        // Progress indicators can keep the UI queue continuously active while a
+        // staged profile is still finalizing. Sample the actual RecyclerView after
+        // the injected gesture without waiting for global queue idleness.
+        SystemClock.sleep(120)
+        var offset = 0
+        instrumentation.runOnMainSync {
+            offset = if (horizontal) grid.computeHorizontalScrollOffset() else grid.computeVerticalScrollOffset()
+        }
+        return offset
     }
 
     private fun createFixture(

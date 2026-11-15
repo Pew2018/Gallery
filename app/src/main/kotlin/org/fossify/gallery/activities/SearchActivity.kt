@@ -260,10 +260,14 @@ class SearchActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun styleFastScroller() {
+        val scroller = binding.searchFastscroller
+        val recycler = binding.searchGrid
         org.fossify.gallery.helpers.OxygenFastScroller.apply(
-            binding.searchFastscroller, binding.searchGrid,
+            scroller, recycler,
             org.fossify.gallery.helpers.OxygenThemeEngine.snapshot(this, config)
         )
+        org.fossify.gallery.helpers.OxygenFastScroller.applyGalleryBottomInsets(scroller)
+        org.fossify.gallery.helpers.OxygenFastScroller.installGalleryTouchHandling(scroller, recycler)
     }
 
     private fun getAllMedia() {
