@@ -1469,12 +1469,15 @@ class PhotoViewerInteractiveGestureTest {
             assertTrue("dismiss drag must use device-level touchscreen injection",
                 dismissSwipe.deviceInjectionWorked.get())
             assertTrue("a committed drag should dismiss the viewer", viewer.isFinishing)
-            val dismissProgress = ViewPagerActivity::class.java
-                .getDeclaredField("interactivePhotoProgress").apply { isAccessible = true }
+            // Finish may destroy the Activity and reset the live gesture state
+            // before the test thread observes it. The captured return opacity
+            // records the actual progress handed to the shared transition.
+            val committedScrimAlpha = ViewPagerActivity::class.java
+                .getDeclaredField("returnScrimAlpha").apply { isAccessible = true }
                 .getFloat(viewer)
             assertTrue(
-                "a committed drag must hand its live transform to the shared return before an arbitrary settle endpoint",
-                dismissProgress in 0.05f..0.99f,
+                "a committed drag must keep its intermediate opacity through the shared handoff; alpha=$committedScrimAlpha",
+                committedScrimAlpha in 0.01f..0.95f,
             )
             val returnPath = viewer.javaClass.getDeclaredField("photoSharedElementPath").apply { isAccessible = true }
                 .get(viewer) as? String
@@ -1783,6 +1786,91 @@ class PhotoViewerInteractiveGestureTest {
     }
 
     @Test
+    fun photoDragShowsTheAlbumBeforeRelease() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GalleryPhotoReturn-${UUID.randomUUID()}"
+        val fixtures = List(4) { createFixture(context, album) }
+        val wasZoomingEnabled = context.config.allowZoomingImages
+        val wasShowingAllMedia = context.config.showAll
+        var source: MediaActivity? = null
+        var viewer: ViewPagerActivity? = null
+        try {
+            context.config.allowZoomingImages = false
+            context.config.showAll = false
+            val sourceActivity = instrumentation.startActivitySync(Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, java.io.File(fixtures.first().second).parent)
+            }) as MediaActivity
+            source = sourceActivity
+            val (path, _) = awaitAnySourceThumbnail(instrumentation, sourceActivity, fixtures.mapTo(HashSet()) { it.second })
+            val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
+            val openViewer = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java)
+                .apply { isAccessible = true }
+            instrumentation.runOnMainSync { openViewer.invoke(sourceActivity, path) }
+            val photoViewer = instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
+                ?: error("Gallery did not open the photo")
+            instrumentation.removeMonitor(monitor)
+            viewer = photoViewer
+            val initial = awaitFrame(instrumentation, photoViewer, requireProxy = false)
+            val entryDeadline = SystemClock.uptimeMillis() + 5_000
+            while (photoViewer.isMediaTransitionRunning() && SystemClock.uptimeMillis() < entryDeadline) {
+                SystemClock.sleep(30)
+            }
+            val fragment = photoViewer.supportFragmentManager.fragments.filterIsInstance<PhotoFragment>()
+                .first { it.isVisible && it.isResumed }
+            val touchHandler = PhotoFragment::class.java
+                .getDeclaredMethod("handlePhotoDismissTouch", View::class.java, MotionEvent::class.java)
+                .apply { isAccessible = true }
+            val checkpoint = GestureCheckpoint()
+            val x = initial.image.width / 2f
+            val y = initial.image.height / 2f
+            val swipe = startSwipe(instrumentation, fragment, touchHandler, initial.image, x, y,
+                y + initial.image.height * .30f, 700, listOf(checkpoint))
+            try {
+                assertTrue(checkpoint.reached.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                val dragFrame = awaitFrame(instrumentation, photoViewer, requireProxy = true)
+                assertTrue(dragFrame.translationY > 0f && dragFrame.scaleY < 1f)
+                var gridPixels = 0
+                val deadline = SystemClock.uptimeMillis() + 1_500
+                while (gridPixels < 20 && SystemClock.uptimeMillis() < deadline) {
+                    val screenshot = instrumentation.uiAutomation.takeScreenshot()
+                        ?: error("Could not capture the album behind the dragged photo")
+                    for (py in screenshot.height / 8 until screenshot.height / 3 step 8) {
+                        for (px in 0 until screenshot.width step 8) {
+                            val sample = screenshot.getPixel(px, py)
+                            if (Color.green(sample) > Color.red(sample) + 20 &&
+                                Color.green(sample) > Color.blue(sample) + 20) gridPixels++
+                        }
+                    }
+                    screenshot.recycle()
+                    if (gridPixels < 20) SystemClock.sleep(30)
+                }
+                assertTrue("the fixture's green thumbnail stripes should show above the moving photo", gridPixels >= 20)
+            } finally {
+                checkpoint.resume.countDown()
+                swipe.thread.join(6_000)
+            }
+            assertTrue(swipe.deviceInjectionWorked.get())
+            val returnDeadline = SystemClock.uptimeMillis() + 5_000
+            while (!sourceActivity.hasWindowFocus() && SystemClock.uptimeMillis() < returnDeadline) {
+                SystemClock.sleep(40)
+            }
+            assertTrue("the original album gains focus after the drag", sourceActivity.hasWindowFocus())
+            awaitSourceThumbnail(instrumentation, sourceActivity, path)
+        } finally {
+            instrumentation.runOnMainSync {
+                viewer?.takeUnless { it.isFinishing }?.finish()
+                source?.finish()
+            }
+            context.config.allowZoomingImages = wasZoomingEnabled
+            context.config.showAll = wasShowingAllMedia
+            fixtures.forEach { runCatching { context.contentResolver.delete(it.first, null, null) } }
+        }
+    }
+
+    @Test
     fun landscapePortraitAndUltrawideVideoPreviewsKeepTheirAspectRatioOnDevice() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -1880,7 +1968,38 @@ class PhotoViewerInteractiveGestureTest {
                     kotlin.math.abs(actualRatio / expectedRatio - 1f) < 0.02f,
                 )
                 instrumentation.runOnMainSync { videoFragment?.finishSharedTransition() }
-                instrumentation.runOnMainSync { viewer.finish() }
+                val touchTarget = viewer.findViewById<View>(R.id.video_surface_frame)
+                val location = IntArray(2)
+                instrumentation.runOnMainSync { touchTarget.getLocationOnScreen(location) }
+                val x = location[0] + touchTarget.width * .33f
+                val y = location[1] + touchTarget.height * .27f
+                val downTime = SystemClock.uptimeMillis()
+                fun inject(action: Int, offset: Float) {
+                    val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, y + offset, 0)
+                    event.source = InputDevice.SOURCE_TOUCHSCREEN
+                    try {
+                        assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true))
+                    } finally {
+                        event.recycle()
+                    }
+                }
+                val proxyField = ViewPagerActivity::class.java.getDeclaredField("interactiveDismissSurface")
+                    .apply { isAccessible = true }
+                inject(MotionEvent.ACTION_DOWN, 0f)
+                try {
+                    inject(MotionEvent.ACTION_MOVE, touchTarget.height * .12f)
+                    instrumentation.runOnMainSync {
+                        val moving = proxyField.get(viewer) as? View
+                            ?: error("video should start moving before the finger is lifted")
+                        assertTrue(moving.translationY > 0f)
+                        assertTrue(moving.scaleX < 1f)
+                        assertEquals(moving.scaleX, moving.scaleY, .001f)
+                        assertEquals(actualRatio, moving.width.toFloat() / moving.height, .001f)
+                    }
+                    inject(MotionEvent.ACTION_MOVE, touchTarget.height * .30f)
+                } finally {
+                    inject(MotionEvent.ACTION_UP, touchTarget.height * .30f)
+                }
                 val returnDeadline = SystemClock.uptimeMillis() + 5_000
                 while (!sourceActivity.hasWindowFocus() && SystemClock.uptimeMillis() < returnDeadline) {
                     SystemClock.sleep(50)

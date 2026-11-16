@@ -397,16 +397,27 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                     }
                 })
 
+            var playbackGestureCancelled = false
             videoSurfaceFrame.setOnTouchListener { view, event ->
-                if (videoSurfaceFrame.controller.state.zoom == 1f) {
-                    handleEvent(event)
-                }
+                val zoomedOut = videoSurfaceFrame.controller.state.zoom == 1f
+                if (activity !is ViewPagerActivity && zoomedOut) handleEvent(event)
                 handleTouchHoldEvent(event)
-                if (mIsLongPressActive) {
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) playbackGestureCancelled = false
+                val dismissing = activity is ViewPagerActivity && handleMediaDismissTouch(view, event) {
+                    zoomedOut && previewReady && !mIsLongPressActive
+                }
+                if (dismissing || mIsLongPressActive) {
+                    mTimerHandler.removeCallbacks(mTouchHoldRunnable)
+                    if (!playbackGestureCancelled) {
+                        playbackGestureCancelled = true
+                        val cancel = MotionEvent.obtain(event)
+                        cancel.action = MotionEvent.ACTION_CANCEL
+                        gestureDetector.onTouchEvent(cancel)
+                        cancel.recycle()
+                    }
                     return@setOnTouchListener true
                 }
-
-                gestureDetector.onTouchEvent(event)
+                if (!playbackGestureCancelled) gestureDetector.onTouchEvent(event)
                 false
             }
         }

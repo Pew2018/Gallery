@@ -20,9 +20,7 @@ import android.util.DisplayMetrics
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewConfiguration
 import android.view.ViewGroup
-import android.view.VelocityTracker
 import android.view.WindowManager
 import androidx.core.graphics.drawable.toBitmapOrNull
 import androidx.core.view.ViewCompat
@@ -91,7 +89,6 @@ import org.fossify.gallery.helpers.LOW_TILE_DPI
 import org.fossify.gallery.helpers.MAX_ZOOM_EQUALITY_TOLERANCE
 import org.fossify.gallery.helpers.MediaSharedSurface
 import org.fossify.gallery.helpers.MediaTransitionGeometry
-import org.fossify.gallery.helpers.MediaTransitionGestureController
 import org.fossify.gallery.helpers.MEDIUM
 import org.fossify.gallery.helpers.MyGlideImageDecoder
 import org.fossify.gallery.helpers.NORMAL_TILE_DPI
@@ -138,10 +135,6 @@ class PhotoFragment : ViewPagerFragment() {
     private var mHasInitialZoom = false
     private var mReportedImagePath: String? = null
     private var detailsGeneration = 0L
-    private var dismissGestureController: MediaTransitionGestureController? = null
-    private var dismissVelocityTracker: VelocityTracker? = null
-    private var dismissGestureClaimed = false
-    private var dismissGestureInterruptedSettle = false
 
     private var imageRequestGeneration = 0L
     private var deliveredImage: Drawable? = null
@@ -389,102 +382,19 @@ class PhotoFragment : ViewPagerFragment() {
         return mView
     }
 
-    @SuppressLint("ClickableViewAccessibility")
     private fun handlePhotoDismissTouch(view: View, event: MotionEvent): Boolean {
-        // Standalone PhotoActivity still uses the Commons viewer lifecycle. Keep
-        // its existing close gesture until it has the shared-grid host contract.
         if (activity !is ViewPagerActivity) {
             handleEvent(event)
             return false
         }
-        val context = context ?: return false
-        val controller = dismissGestureController ?: MediaTransitionGestureController(
-            touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat(),
-            dismissDistance = (resources.displayMetrics.heightPixels * 0.42f).coerceAtLeast(320f),
-        ).also { dismissGestureController = it }
-
-        fun isEligible(): Boolean = context.config.allowDownGesture && mCurrentRotationDegrees == 0 && when (view) {
-            binding.gesturesView -> abs(mCurrentGestureViewZoom - mInitialZoom) < MAX_ZOOM_EQUALITY_TOLERANCE
-            binding.subsamplingView -> binding.subsamplingView.isZoomedOut()
-            binding.gifView -> binding.gifViewFrame.controller.state.zoom <= 1.001f
-            else -> false
-        }
-
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                val index = event.actionIndex
-                val pointerId = event.getPointerId(index)
-                val eligible = isEligible()
-                val baseProgress = if (eligible) listener?.photoDismissGestureBegin() else null
-                dismissGestureInterruptedSettle = baseProgress != null
-                controller.down(pointerId, event.getX(index), event.getY(index), eligible,
-                    baseProgress ?: 0f)
-                dismissGestureClaimed = false
-                dismissVelocityTracker?.recycle()
-                dismissVelocityTracker = if (eligible) VelocityTracker.obtain().also { it.addMovement(event) } else null
-                return false
-            }
-            MotionEvent.ACTION_MOVE -> {
-                dismissVelocityTracker?.addMovement(event)
-                val pointerId = event.getPointerId(event.actionIndex.coerceAtMost(event.pointerCount - 1))
-                val pointerIndex = event.findPointerIndex(pointerId)
-                if (pointerIndex < 0) return dismissGestureClaimed
-                val frame = controller.move(pointerId, event.getX(pointerIndex), event.getY(pointerIndex))
-                if (frame != null) {
-                    if (frame.began) view.parent?.requestDisallowInterceptTouchEvent(true)
-                    dismissGestureClaimed = true
-                    listener?.photoDismissProgress(frame.progress, frame.deltaX, frame.deltaY)
-                    return true
-                }
-                return dismissGestureClaimed
-            }
-            MotionEvent.ACTION_POINTER_DOWN -> {
-                if (controller.pointerChanged() == MediaTransitionGestureController.Release.RESTORE) {
-                    listener?.photoDismissSettled(false)
-                } else if (dismissGestureInterruptedSettle) {
-                    listener?.photoDismissSettled(false)
-                }
-                dismissVelocityTracker?.recycle()
-                dismissVelocityTracker = null
-                view.parent?.requestDisallowInterceptTouchEvent(false)
-                dismissGestureClaimed = false
-                dismissGestureInterruptedSettle = false
-                return false
-            }
-            MotionEvent.ACTION_UP -> {
-                dismissVelocityTracker?.addMovement(event)
-                val pointerIndex = event.actionIndex.coerceAtMost(event.pointerCount - 1)
-                val pointerId = event.getPointerId(pointerIndex)
-                dismissVelocityTracker?.computeCurrentVelocity(1000)
-                val velocityY = dismissVelocityTracker?.getYVelocity(pointerId) ?: 0f
-                val release = controller.release(pointerId, velocityY)
-                val wasClaimed = dismissGestureClaimed
-                if (wasClaimed) listener?.photoDismissSettled(release == MediaTransitionGestureController.Release.DISMISS)
-                else if (dismissGestureInterruptedSettle) listener?.photoDismissSettled(false)
-                dismissVelocityTracker?.recycle()
-                dismissVelocityTracker = null
-                view.parent?.requestDisallowInterceptTouchEvent(false)
-                dismissGestureClaimed = false
-                dismissGestureInterruptedSettle = false
-                return wasClaimed
-            }
-            MotionEvent.ACTION_CANCEL -> {
-                val release = controller.cancel()
-                val wasClaimed = dismissGestureClaimed
-                if (wasClaimed || release == MediaTransitionGestureController.Release.RESTORE) {
-                    listener?.photoDismissSettled(false)
-                } else if (dismissGestureInterruptedSettle) {
-                    listener?.photoDismissSettled(false)
-                }
-                dismissVelocityTracker?.recycle()
-                dismissVelocityTracker = null
-                view.parent?.requestDisallowInterceptTouchEvent(false)
-                dismissGestureClaimed = false
-                dismissGestureInterruptedSettle = false
-                return wasClaimed
+        return handleMediaDismissTouch(view, event) {
+            mCurrentRotationDegrees == 0 && when (view) {
+                binding.gesturesView -> abs(mCurrentGestureViewZoom - mInitialZoom) < MAX_ZOOM_EQUALITY_TOLERANCE
+                binding.subsamplingView -> binding.subsamplingView.isZoomedOut()
+                binding.gifView -> binding.gifViewFrame.controller.state.zoom <= 1.001f
+                else -> false
             }
         }
-        return dismissGestureClaimed
     }
 
     override fun onPause() {

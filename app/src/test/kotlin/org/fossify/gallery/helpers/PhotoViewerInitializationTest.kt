@@ -238,50 +238,50 @@ class PhotoViewerInitializationTest {
         assertEquals(.5f, fixture.binding.viewerTransitionScrim.alpha, 0f)
     }
 
-    @Test fun continuousDragKeepsGridCoveredThroughTheCommittedReturnHandshake() {
+    @Test fun continuousDragRevealsGridWithoutChangingOpacityWhenReleased() {
         val fixture = EntryFixture()
         val photo = fixture.setPhoto()
         fixture.set("mediaTransitionRunning", false)
         fixture.set("photoSharedElementMapped", true)
         val scrim = fixture.binding.viewerTransitionScrim
 
-        fixture.activity.photoDismissProgress(.4f, 0f, 150f)
+        fixture.activity.mediaDismissProgress(.4f, 0f, 150f)
 
         assertBackground(fixture.activity.window.decorView, Color.TRANSPARENT)
-        assertEquals(1f, scrim.alpha, 0f)
+        assertEquals(.6f, scrim.alpha, 0f)
         assertEquals(.6f, fixture.field("viewerSystemBarProgress") as Float, 0f)
         assertEquals(.6f, fixture.binding.mediumViewerAppbar.alpha, 0f)
-        val surface = fixture.field("interactivePhotoSurface") as View
+        val surface = fixture.field("interactiveDismissSurface") as View
         assertEquals(150f, surface.translationY, .01f)
 
-        fixture.activity.photoDismissSettled(dismiss = true)
+        fixture.activity.mediaDismissSettled(dismiss = true)
 
         assertTrue(fixture.field("finishAfterSharedTransitionInProgress") as Boolean)
         assertSame(surface, fixture.field("sharedReturnView"))
         assertSame(photo.binding.root, surface.parent)
         assertEquals(150f, surface.translationY, .01f)
-        assertEquals(1f, scrim.alpha, 0f)
+        assertEquals(.6f, scrim.alpha, 0f)
         assertEquals(.6f, fixture.field("viewerSystemBarProgress") as Float, 0f)
         assertEquals(.6f, fixture.binding.mediumViewerAppbar.alpha, 0f)
         fixture.call("renderSharedReturnProgress", args = arrayOf(.5f))
-        assertEquals(.5f, scrim.alpha, 0f)
+        assertEquals(.3f, scrim.alpha, 0f)
         assertEquals(.3f, fixture.field("viewerSystemBarProgress") as Float, 0f)
         assertEquals(.3f, fixture.binding.mediumViewerAppbar.alpha, 0f)
     }
 
-    @Test fun interruptedDragAndCancelKeepTheGridCovered() {
+    @Test fun interruptedDragContinuesFromItsCurrentOpacityAndCancelRestoresViewer() {
         val fixture = EntryFixture()
         fixture.setPhoto()
         fixture.set("mediaTransitionRunning", false)
 
-        fixture.activity.photoDismissProgress(.4f, 0f, 150f)
-        fixture.activity.photoDismissSettled(dismiss = false)
-        assertEquals(.4f, fixture.activity.photoDismissGestureBegin()!!, 0f)
-        fixture.activity.photoDismissProgress(.45f, 0f, 25f)
-        assertEquals(1f, fixture.binding.viewerTransitionScrim.alpha, 0f)
+        fixture.activity.mediaDismissProgress(.4f, 0f, 150f)
+        fixture.activity.mediaDismissSettled(dismiss = false)
+        assertEquals(.4f, fixture.activity.mediaDismissGestureBegin()!!, 0f)
+        fixture.activity.mediaDismissProgress(.45f, 0f, 25f)
+        assertEquals(.55f, fixture.binding.viewerTransitionScrim.alpha, .001f)
 
-        fixture.activity.photoDismissSettled(dismiss = false)
-        val settle = fixture.field("interactivePhotoSettleAnimator") as android.animation.ValueAnimator
+        fixture.activity.mediaDismissSettled(dismiss = false)
+        val settle = fixture.field("interactiveDismissSettleAnimator") as android.animation.ValueAnimator
         settle.end()
         assertEquals(View.GONE, fixture.binding.viewerTransitionScrim.visibility)
         assertBackground(fixture.activity.window.decorView, Color.BLACK)

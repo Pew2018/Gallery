@@ -2,6 +2,7 @@ package org.fossify.gallery.fragments
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.graphics.RectF
 import android.view.View
 import android.view.ViewGroup
@@ -27,6 +28,20 @@ import org.robolectric.annotation.GraphicsMode
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], application = Application::class)
 class VideoViewerFrameLayerTest {
+    @Test fun returnCropKeepsVideoUniformAndFillsTheChangingAperture() {
+        val matrix = Matrix()
+        val frame = RectF(0f, 0f, 180f, 320f)
+        listOf(180f to 320f, 150f to 220f, 120f to 120f).forEach { (width, height) ->
+            MediaTransitionGeometry.centerCrop(matrix, width, height, 180, 320)
+            val content = RectF(frame)
+            matrix.mapRect(content)
+            assertEquals(frame.width() / frame.height(), content.width() / content.height(), .001f)
+            assertEquals(width / 2f, content.centerX(), .001f)
+            assertEquals(height / 2f, content.centerY(), .001f)
+            assertEquals(1f, minOf(content.width() / width, content.height() / height), .001f)
+        }
+    }
+
     @Test
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Config(sdk = [29])

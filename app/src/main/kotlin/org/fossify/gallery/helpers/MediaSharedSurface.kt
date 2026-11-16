@@ -134,4 +134,10 @@ internal object MediaTransitionGeometry {
                 width / 2f, height / 2f)
         }
     }
+
+    fun centerCrop(matrix: Matrix, width: Float, height: Float, contentWidth: Int, contentHeight: Int) {
+        val scale = maxOf(width / contentWidth, height / contentHeight)
+        matrix.setScale(scale, scale)
+        matrix.postTranslate((width - contentWidth * scale) / 2f, (height - contentHeight * scale) / 2f)
+    }
 }

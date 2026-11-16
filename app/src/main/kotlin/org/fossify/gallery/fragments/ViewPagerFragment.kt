@@ -5,6 +5,9 @@ import android.provider.MediaStore
 import android.provider.MediaStore.Files
 import android.provider.MediaStore.Images
 import android.view.MotionEvent
+import android.view.VelocityTracker
+import android.view.View
+import android.view.ViewConfiguration
 import androidx.exifinterface.media.ExifInterface
 import androidx.fragment.app.Fragment
 import org.fossify.commons.extensions.*
@@ -28,6 +31,11 @@ abstract class ViewPagerFragment : Fragment() {
     private var mCloseDownThreshold = 100f
     private var mIgnoreCloseDown = false
 
+    private var dismissGestureController: MediaTransitionGestureController? = null
+    private var dismissVelocityTracker: VelocityTracker? = null
+    private var dismissGestureClaimed = false
+    private var dismissGestureInterruptedSettle = false
+
     abstract fun fullscreenToggled(isFullscreen: Boolean)
 
     interface FragmentListener {
@@ -50,14 +58,24 @@ abstract class ViewPagerFragment : Fragment() {
 
         fun entryMediaLoadFailed(path: String, page: ViewPagerFragment) {}
 
-        /** The current photo owns a downward drag; progress is derived from live pointer position. */
-        fun photoDismissProgress(progress: Float, deltaX: Float, deltaY: Float) {}
+        /** The current media page owns a downward drag; progress is derived from live pointer position. */
+        fun mediaDismissProgress(progress: Float, deltaX: Float, deltaY: Float): Boolean = false
 
         /** Cancels a settling frame and returns its progress so a new pointer can take over. */
-        fun photoDismissGestureBegin(): Float? = null
+        fun mediaDismissGestureBegin(): Float? = null
 
-        /** Ends a live photo drag and asks the host to settle or close from its current frame. */
-        fun photoDismissSettled(dismiss: Boolean) {}
+        /** Ends a live media drag and asks the host to settle or close from its current frame. */
+        fun mediaDismissSettled(dismiss: Boolean) {}
+    }
+
+    override fun onDestroyView() {
+        dismissGestureController?.cancel()
+        dismissGestureController = null
+        dismissVelocityTracker?.recycle()
+        dismissVelocityTracker = null
+        dismissGestureClaimed = false
+        dismissGestureInterruptedSettle = false
+        super.onDestroyView()
     }
 
     override fun onDestroy() {
@@ -179,6 +197,94 @@ abstract class ViewPagerFragment : Fragment() {
         }
 
         return result.trimStart(',').trim()
+    }
+
+    protected fun handleMediaDismissTouch(view: View, event: MotionEvent, canDismiss: () -> Boolean): Boolean {
+        val context = context ?: return false
+        val controller = dismissGestureController ?: MediaTransitionGestureController(
+            touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat(),
+            dismissDistance = (resources.displayMetrics.heightPixels * 0.42f).coerceAtLeast(320f),
+        ).also { dismissGestureController = it }
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                val index = event.actionIndex
+                val pointerId = event.getPointerId(index)
+                val eligible = context.config.allowDownGesture && canDismiss()
+                val baseProgress = if (eligible) listener?.mediaDismissGestureBegin() else null
+                dismissGestureInterruptedSettle = baseProgress != null
+                controller.down(pointerId, event.getX(index), event.getY(index), eligible, baseProgress ?: 0f)
+                dismissGestureClaimed = false
+                dismissVelocityTracker?.recycle()
+                dismissVelocityTracker = if (eligible) VelocityTracker.obtain().also { it.addMovement(event) } else null
+                return false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                dismissVelocityTracker?.addMovement(event)
+                val pointerId = event.getPointerId(event.actionIndex.coerceAtMost(event.pointerCount - 1))
+                val pointerIndex = event.findPointerIndex(pointerId)
+                if (pointerIndex < 0) return dismissGestureClaimed
+                val frame = controller.move(pointerId, event.getX(pointerIndex), event.getY(pointerIndex))
+                if (frame != null) {
+                    if (frame.began) {
+                        if (!canDismiss() || listener?.mediaDismissProgress(frame.progress, frame.deltaX, frame.deltaY) != true) {
+                            controller.cancel()
+                            return false
+                        }
+                        view.parent?.requestDisallowInterceptTouchEvent(true)
+                        dismissGestureClaimed = true
+                    } else {
+                        listener?.mediaDismissProgress(frame.progress, frame.deltaX, frame.deltaY)
+                    }
+                    return true
+                }
+                return dismissGestureClaimed
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                if (controller.pointerChanged() == MediaTransitionGestureController.Release.RESTORE ||
+                    dismissGestureInterruptedSettle) {
+                    listener?.mediaDismissSettled(false)
+                }
+                dismissVelocityTracker?.recycle()
+                dismissVelocityTracker = null
+                view.parent?.requestDisallowInterceptTouchEvent(false)
+                dismissGestureClaimed = false
+                dismissGestureInterruptedSettle = false
+                return false
+            }
+            MotionEvent.ACTION_UP -> {
+                dismissVelocityTracker?.addMovement(event)
+                val pointerIndex = event.actionIndex.coerceAtMost(event.pointerCount - 1)
+                val pointerId = event.getPointerId(pointerIndex)
+                dismissVelocityTracker?.computeCurrentVelocity(1000)
+                val velocityY = dismissVelocityTracker?.getYVelocity(pointerId) ?: 0f
+                val release = controller.release(pointerId, velocityY)
+                val wasClaimed = dismissGestureClaimed
+                if (wasClaimed || dismissGestureInterruptedSettle) {
+                    listener?.mediaDismissSettled(wasClaimed && release == MediaTransitionGestureController.Release.DISMISS)
+                }
+                dismissVelocityTracker?.recycle()
+                dismissVelocityTracker = null
+                view.parent?.requestDisallowInterceptTouchEvent(false)
+                dismissGestureClaimed = false
+                dismissGestureInterruptedSettle = false
+                return wasClaimed
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                val release = controller.cancel()
+                val wasClaimed = dismissGestureClaimed
+                if (wasClaimed || release == MediaTransitionGestureController.Release.RESTORE || dismissGestureInterruptedSettle) {
+                    listener?.mediaDismissSettled(false)
+                }
+                dismissVelocityTracker?.recycle()
+                dismissVelocityTracker = null
+                view.parent?.requestDisallowInterceptTouchEvent(false)
+                dismissGestureClaimed = false
+                dismissGestureInterruptedSettle = false
+                return wasClaimed
+            }
+        }
+        return dismissGestureClaimed
     }
 
     protected fun handleEvent(event: MotionEvent) {

@@ -2,7 +2,7 @@ package org.fossify.gallery.helpers
 
 import kotlin.math.abs
 
-/** Decides when a single-pointer vertical drag owns photo-viewer input. */
+/** Decides when a single-pointer vertical drag owns media-viewer input. */
 internal class MediaTransitionGestureController(
     private val touchSlop: Float,
     private val dismissDistance: Float,

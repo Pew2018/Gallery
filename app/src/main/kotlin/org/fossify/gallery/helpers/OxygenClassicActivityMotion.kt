@@ -1,9 +1,14 @@
 package org.fossify.gallery.helpers
 
-import android.app.Activity
 import android.animation.ValueAnimator
-import android.view.ViewGroup
+import android.app.Activity
+import android.graphics.Matrix
+import android.graphics.Point
+import android.os.Build
+import android.transition.ChangeImageTransform
 import android.transition.TransitionValues
+import android.view.ViewGroup
+import android.widget.ImageView
 import org.fossify.gallery.R
 
 /** Installs the shared Activity Window transition contract for folder and Viewer layers. */
@@ -32,14 +37,15 @@ object OxygenClassicActivityMotion {
         onProgress: ((Float) -> Unit)? = null,
         onTerminal: ((cancelled: Boolean) -> Unit)? = null,
         onStart: (() -> Unit)? = null,
+        cropVideoToBounds: Boolean = false,
     ): android.transition.Transition =
         android.transition.TransitionSet().apply {
             ordering = android.transition.TransitionSet.ORDERING_TOGETHER
             addTransition(android.transition.ChangeBounds())
-            // Drag-to-dismiss leaves the shared photo surface translated and scaled.
+            // Drag-to-dismiss leaves the shared media surface translated and scaled.
             // Capture those properties so the reverse handoff can start at the live frame.
             addTransition(android.transition.ChangeTransform())
-            addTransition(android.transition.ChangeImageTransform())
+            addTransition(if (cropVideoToBounds && Build.VERSION.SDK_INT >= 29) VideoReturnCrop() else ChangeImageTransform())
             if (onProgress != null) addTransition(SharedElementProgress(durationMs, onProgress))
             duration = durationMs
             interpolator = OxygenClassicMotion.easing()
@@ -58,6 +64,60 @@ object OxygenClassicActivityMotion {
                 override fun onTransitionResume(transition: android.transition.Transition) = Unit
             })
         }
+
+    @androidx.annotation.RequiresApi(29)
+    private class VideoReturnCrop : ChangeImageTransform() {
+        override fun captureStartValues(transitionValues: TransitionValues) {
+            super.captureStartValues(transitionValues)
+            captureViewport(transitionValues)
+        }
+
+        override fun captureEndValues(transitionValues: TransitionValues) {
+            super.captureEndValues(transitionValues)
+            captureViewport(transitionValues)
+        }
+
+        private fun captureViewport(values: TransitionValues) {
+            val image = values.view as? ImageView ?: return
+            if (image.scaleType == ImageView.ScaleType.CENTER_CROP && image.width > 0 && image.height > 0) {
+                values.values[VIEWPORT] = Point(image.width, image.height)
+            }
+        }
+
+        override fun createAnimator(
+            sceneRoot: ViewGroup,
+            startValues: TransitionValues?,
+            endValues: TransitionValues?,
+        ): android.animation.Animator? {
+            val start = startValues?.values?.get(VIEWPORT) as? Point
+            val end = endValues?.values?.get(VIEWPORT) as? Point
+            val image = endValues?.view as? ImageView
+            val drawable = image?.drawable
+            if (start == null || end == null || image == null || drawable == null ||
+                drawable.intrinsicWidth <= 0 || drawable.intrinsicHeight <= 0) {
+                return super.createAnimator(sceneRoot, startValues, endValues)
+            }
+            val matrix = Matrix()
+            val contentWidth = drawable.intrinsicWidth
+            val contentHeight = drawable.intrinsicHeight
+            // Derive the crop from the current aperture and this video's frame.
+            // The destination thumbnail can have different drawable dimensions.
+            fun applyCrop(fraction: Float) {
+                val width = start.x + (end.x - start.x) * fraction
+                val height = start.y + (end.y - start.y) * fraction
+                MediaTransitionGeometry.centerCrop(matrix, width, height, contentWidth, contentHeight)
+                image.animateTransform(matrix)
+            }
+            applyCrop(0f)
+            return ValueAnimator.ofFloat(0f, 1f).apply {
+                addUpdateListener { applyCrop(it.animatedFraction) }
+            }
+        }
+
+        private companion object {
+            const val VIEWPORT = "gallery_video_return_viewport"
+        }
+    }
 
     /** Drives the viewer scrim on the same transition clock as shared image geometry. */
     private class SharedElementProgress(
