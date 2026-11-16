@@ -1929,17 +1929,26 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             } else {
                 endViewerReturn("activity_result")
             }
-            if (resultCode == RESULT_OK && !viewerReturnMapped && scopeMatches &&
-                !returnPath.isNullOrEmpty() && !isFinishing && !isDestroyed) {
+            val canRestoreReturnedPath = resultCode == RESULT_OK && !viewerReturnMapped && scopeMatches &&
+                !returnPath.isNullOrEmpty() && !isFinishing && !isDestroyed
+            val deletedPaths = resultData?.getStringArrayListExtra(PhotoViewerTransition.EXTRA_DELETED_PATHS)
+                .orEmpty().toSet()
+            if (resultCode == RESULT_OK && request == null && scopeMatches && !isFinishing && !isDestroyed &&
+                deletedPaths.any { it !in viewerDeletedPathTombstones }) {
+                // Even an empty Viewer has a meaningful deletion result. Apply it
+                // when there is no return target to restore.
+                applyViewerDeletedPaths(deletedPaths) {
+                    if (canRestoreReturnedPath) {
+                        pendingViewerReturnPath = returnPath
+                        restoreViewerReturnPositionWithoutTransition(requireNotNull(returnPath))
+                    }
+                }
+            } else if (canRestoreReturnedPath) {
                 // The Viewer can legitimately fall back to a fade when its current
                 // renderer is unavailable. Activity reenter callbacks are then not
                 // guaranteed, so restore the returned media identity from the result.
                 pendingViewerReturnPath = returnPath
-                val deletedPaths = resultData?.getStringArrayListExtra(PhotoViewerTransition.EXTRA_DELETED_PATHS)
-                    .orEmpty().toSet()
-                if (request == null && deletedPaths.any { it !in viewerDeletedPathTombstones }) {
-                    applyViewerDeletedPaths(deletedPaths) { restoreViewerReturnPositionWithoutTransition(returnPath) }
-                } else restoreViewerReturnPositionWithoutTransition(returnPath)
+                restoreViewerReturnPositionWithoutTransition(requireNotNull(returnPath))
             }
             viewerReentryObservedForCurrentLaunch = false
         }

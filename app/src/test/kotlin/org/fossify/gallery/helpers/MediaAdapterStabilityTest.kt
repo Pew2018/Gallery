@@ -181,10 +181,11 @@ class MediaAdapterStabilityTest {
             }
         }
 
-        fun result(path: String, id: Long = 1L, launch: Long = launchId) {
+        fun result(path: String?, id: Long = 1L, launch: Long = launchId, deletedPaths: List<String> = emptyList()) {
             type.getDeclaredMethod("onActivityResult", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Intent::class.java)
                 .apply { isAccessible = true }.invoke(activity, PhotoViewerTransition.REQUEST_CODE, Activity.RESULT_OK, Intent()
                     .putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH, path)
+                    .putStringArrayListExtra(PhotoViewerTransition.EXTRA_DELETED_PATHS, ArrayList(deletedPaths))
                     .putExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, id)
                     .putExtra(PhotoViewerTransition.EXTRA_LAUNCH, launch))
 
@@ -692,6 +693,13 @@ class MediaAdapterStabilityTest {
         assertEquals(listOf("b.jpg", "c.jpg"), fixture.adapter.media.filterIsInstance<Medium>().map { it.name })
         assertEquals("The surviving return identity stays in the source grid", 0,
             fixture.adapter.media.filterIsInstance<Medium>().indexOfFirst { it.path == "/photos/b.jpg" })
+    }
+
+    @Test fun confirmedViewerDeletionWithoutReturnPathStillRemovesLastGridItem() {
+        val fixture = ReturnGridFixture(listOf(item("only.jpg")))
+        fixture.result(path = null, deletedPaths = listOf("/photos/only.jpg"))
+        drain(fixture.tasks)
+        assertTrue(fixture.adapter.media.filterIsInstance<Medium>().isEmpty())
     }
 
     @Test fun deletedPathFilteringDropsEmptyGroupingHeaders() {
