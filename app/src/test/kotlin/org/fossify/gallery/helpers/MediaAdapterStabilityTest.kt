@@ -192,16 +192,19 @@ class MediaAdapterStabilityTest {
         fun frame() {
             layout()
             draw()
-            val observer = grid.viewTreeObserver
-            observer.dispatchOnDraw()
-            if (android.os.Build.VERSION.SDK_INT >= 29 && grid.isHardwareAccelerated) {
-                // A Robolectric traversal has no render thread to acknowledge the buffer.
-                @Suppress("UNCHECKED_CAST")
-                val callbacks = observer.javaClass.getDeclaredMethod("captureFrameCommitCallbacks")
-                    .apply { isAccessible = true }.invoke(observer) as? List<Runnable>
-                callbacks?.forEach(Runnable::run)
-            }
+            val callbacks = captureFrameCommits()
+            grid.viewTreeObserver.dispatchOnDraw()
+            callbacks.forEach(Runnable::run)
             Shadows.shadowOf(Looper.getMainLooper()).idle()
+        }
+
+        @Suppress("UNCHECKED_CAST")
+        fun captureFrameCommits(): List<Runnable> {
+            if (android.os.Build.VERSION.SDK_INT < 29 || !grid.isHardwareAccelerated) return emptyList()
+            // A Robolectric traversal has no render thread to acknowledge the buffer.
+            val observer = grid.viewTreeObserver
+            return (observer.javaClass.getDeclaredMethod("captureFrameCommitCallbacks")
+                .apply { isAccessible = true }.invoke(observer) as? List<Runnable>).orEmpty()
         }
 
         fun end() {
@@ -216,6 +219,67 @@ class MediaAdapterStabilityTest {
         }
 
         fun draw() = grid.viewTreeObserver.dispatchOnPreDraw()
+    }
+
+    @Config(sdk = [36])
+    @Test fun firstGridFrameCanCommitWithTheTargetHiddenAndLateCallbacksAreIgnored() {
+        val app = RuntimeEnvironment.getApplication()
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        GalleryDiagnosticLogger.initialize(app)
+        GalleryDiagnosticLogger.setEnabled(app, true)
+        try {
+            val row = item("a.jpg")
+            val fixture = ReturnGridFixture(listOf(row))
+            val image = fixture.thumbnail(0, row.path)
+            val attachment = View::class.java.getDeclaredField("mAttachInfo").apply { isAccessible = true }.get(fixture.grid)
+            attachment.javaClass.getDeclaredField("mHardwareAccelerated").apply { isAccessible = true }
+                .setBoolean(attachment, true)
+            assertTrue(fixture.grid.isHardwareAccelerated)
+
+            fun firstFrameEvents(): List<String> {
+                var exported = ""
+                GalleryDiagnosticLogger.snapshot { text, _ -> exported = text }
+                val io = GalleryDiagnosticLogger::class.java.getDeclaredField("io").apply { isAccessible = true }
+                    .get(GalleryDiagnosticLogger) as java.util.concurrent.ExecutorService
+                io.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS)
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                return exported.lineSequence().filter { "event=grid_first_return_frame " in it }.toList()
+            }
+
+            fixture.launch(row.path)
+            fixture.reenter(row.path, id = 901L)
+            fixture.draw()
+            assertSame(image, fixture.map())
+            image.alpha = 0f
+            image.transitionAlpha = 0f
+            fixture.draw()
+            assertTrue(firstFrameEvents().isEmpty())
+            fixture.frame()
+            fixture.frame()
+            val event = firstFrameEvents().single()
+            assertTrue("request=901 " in event)
+            assertTrue("ack=frame_commit" in event)
+            assertTrue("firstVisibleIndex=0" in event)
+            assertTrue("targetAlpha=0.0" in event && "targetTransitionAlpha=0.0" in event)
+            fixture.end()
+
+            image.alpha = 1f
+            image.transitionAlpha = 1f
+            fixture.launch(row.path)
+            fixture.reenter(row.path, id = 902L)
+            fixture.draw()
+            assertSame(image, fixture.map())
+            fixture.draw()
+            val obsoleteCallbacks = fixture.captureFrameCommits()
+            assertEquals(1, obsoleteCallbacks.size)
+            fixture.grid.viewTreeObserver.dispatchOnDraw()
+            fixture.timeout()
+            obsoleteCallbacks.forEach(Runnable::run)
+            assertEquals(listOf(event), firstFrameEvents())
+        } finally {
+            GalleryDiagnosticLogger.setEnabled(app, false)
+            Thread.setDefaultUncaughtExceptionHandler(previousHandler)
+        }
     }
 
     @Config(sdk = [36])

@@ -261,6 +261,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         var released = false
         var resultDelivered = false
         var transitionTerminal: String? = null
+        var stopObservingFirstFrame: (() -> Unit)? = null
+        var firstFrameReported = false
         var stopWaitingForDraw: (() -> Unit)? = null
         var timeout: Runnable? = null
     }
@@ -429,6 +431,80 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         awaitViewerReturnDraw(request)
     }
 
+    private fun observeFirstViewerReturnFrame(request: GridReturn, target: GridReturnTarget) {
+        if (!ViewerEntryDiagnostics.enabled(request.requestId) ||
+            request.firstFrameReported || request.stopObservingFirstFrame != null) return
+        val grid = binding.mediaGrid
+        val observer = grid.viewTreeObserver
+        if (!observer.isAlive) return
+        val launch = viewerReturnLaunch
+        val useFrameCommit = Build.VERSION.SDK_INT >= 29 && grid.isHardwareAccelerated
+        var awaitingCommit = false
+        var frameFields: Map<String, Any?>? = null
+
+        val afterDraw = Runnable {
+            if (!isViewerReturnCurrent(request) || launch != viewerReturnLaunch ||
+                request.stopObservingFirstFrame == null) return@Runnable
+            awaitingCommit = false
+            val fields = frameFields ?: return@Runnable
+            request.firstFrameReported = true
+            request.stopObservingFirstFrame?.invoke()
+            ViewerReturnDiagnostics.event(request.requestId, "grid_first_return_frame") { fields }
+        }
+
+        val preDraw = ViewTreeObserver.OnPreDrawListener {
+            if (!awaitingCommit && isViewerReturnCurrent(request)) {
+                awaitingCommit = true
+                frameFields = null
+                if (Build.VERSION.SDK_INT >= 29) observer.registerFrameCommitCallback(afterDraw)
+            }
+            true
+        }
+        val draw = ViewTreeObserver.OnDrawListener {
+            if (!isViewerReturnCurrent(request) || frameFields != null || !grid.isShown ||
+                grid.windowVisibility != View.VISIBLE || grid.isLayoutRequested || grid.hasPendingAdapterUpdates() ||
+                !viewerReturnScopeMatches(request) ||
+                findViewerReturnHolder(request.path, target.position) !== target.holder) return@OnDrawListener
+            // The grid can draw its new viewport while Android still hides the mapped thumbnail.
+            val first = (grid.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager)
+                ?.findFirstVisibleItemPosition()
+            val source = viewerSourceTrace?.image?.get()
+            val image = target.image
+            frameFields = mapOf(
+                "launchId" to launch,
+                "ack" to if (useFrameCommit) "frame_commit" else "after_draw",
+                "drawElapsedMs" to android.os.SystemClock.elapsedRealtime(),
+                "firstVisibleIndex" to first,
+                "version" to target.position.version,
+                "index" to target.position.index,
+                "mediaId" to GalleryDiagnosticLogger.anonymousId(request.path),
+                "targetBounds" to android.graphics.Rect().takeIf(image::getGlobalVisibleRect)?.toShortString(),
+                "targetAlpha" to image.alpha,
+                "targetTransitionAlpha" to image.takeIf { Build.VERSION.SDK_INT >= 29 }?.transitionAlpha,
+                "targetVisibility" to image.visibility,
+                "targetDrawableMatches" to (image.drawable === target.drawable),
+                "sourceBoundMediaId" to (source?.getTag(R.id.media_bound_path) as? String)
+                    ?.let(GalleryDiagnosticLogger::anonymousId),
+                "sourceAlpha" to source?.alpha,
+                "sourceTransitionAlpha" to source?.takeIf { Build.VERSION.SDK_INT >= 29 }?.transitionAlpha,
+                "sourceAttached" to source?.isAttachedToWindow,
+            )
+            if (!useFrameCommit) albumTransitionHandler.post(afterDraw)
+        }
+        request.stopObservingFirstFrame = {
+            request.stopObservingFirstFrame = null
+            if (observer.isAlive) {
+                observer.removeOnDrawListener(draw)
+                if (useFrameCommit) observer.removeOnPreDrawListener(preDraw)
+                if (Build.VERSION.SDK_INT >= 29 && useFrameCommit) observer.unregisterFrameCommitCallback(afterDraw)
+            }
+            albumTransitionHandler.removeCallbacks(afterDraw)
+        }
+        // Pre-draw only registers the acknowledgement. OnDraw supplies the actual viewport state.
+        if (useFrameCommit) observer.addOnPreDrawListener(preDraw)
+        observer.addOnDrawListener(draw)
+    }
+
     private fun awaitViewerReturnDraw(request: GridReturn) {
         val target = request.target ?: return
         if (!isViewerReturnCurrent(request) || !request.resultDelivered ||
@@ -454,7 +530,19 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             if (!isViewerReturnCurrent(request)) return@Runnable
             when {
                 !hasSamePixels() || !viewerReturnScopeMatches(request) -> endViewerReturn("target_changed_at_handoff")
-                isReadyToDraw() -> endViewerReturn("target_drawn")
+                isReadyToDraw() -> {
+                    ViewerReturnDiagnostics.event(request.requestId, "grid_target_return_frame") {
+                        ViewerReturnDiagnostics.thumbnailState(target.image) + mapOf(
+                            "launchId" to viewerReturnLaunch,
+                            "ack" to if (useFrameCommit) "frame_commit" else "after_draw",
+                            "index" to target.position.index,
+                            "version" to target.position.version,
+                            "scaleType" to target.image.scaleType,
+                            "matrix" to target.image.imageMatrix.toShortString(),
+                        )
+                    }
+                    endViewerReturn("target_drawn")
+                }
                 else -> {
                     awaitingCommit = false
                     target.image.postInvalidateOnAnimation()
@@ -497,6 +585,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun endViewerReturn(reason: String) {
         val request = viewerReturn ?: return
         viewerReturn = null
+        request.stopObservingFirstFrame?.invoke()
         request.stopWaitingForDraw?.invoke()
         request.stopWaitingForDraw = null
         request.timeout?.let(albumTransitionHandler::removeCallbacks)
@@ -511,7 +600,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
         ViewerReturnDiagnostics.event(request.requestId, "grid_return_closed") {
             ViewerReturnDiagnostics.thumbnailState(request.target?.image) + mapOf(
-                "reason" to reason, "transitionTerminal" to request.transitionTerminal, "viewerResult" to request.resultDelivered)
+                "reason" to reason, "transitionTerminal" to request.transitionTerminal, "viewerResult" to request.resultDelivered,
+                "firstGridFrameObserved" to request.firstFrameReported)
         }
         logViewerGridSource("grid_source_return_closed", request.requestId)
         if (!request.released && reason != "destroyed") startPostponedEnterTransition()
@@ -4287,9 +4377,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val expected = request?.target
         val current = if (request != null && expected != null) readViewerReturnTarget(request, expected.position) else null
         viewerReturnMapped = expected?.matches(current) == true
-        if (viewerReturnMapped && current != null) {
+        if (viewerReturnMapped && current != null && request != null) {
             current.image.transitionName = name
             elements[name] = current.image
+            observeFirstViewerReturnFrame(request, current)
         } else elements.remove(name)
         if (request != null) {
             logViewerGridSource("grid_source_return_map", request.requestId)

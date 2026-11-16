@@ -458,6 +458,14 @@ class PhotoViewerInitializationTest {
             viewer.traceEntryCanvas("same")
             viewer.window.decorView.setBackgroundColor(Color.BLACK)
             viewer.traceEntryCanvas("resume")
+            val returnFixture = EntryFixture()
+            returnFixture.set("viewerReturnId", request)
+            returnFixture.set("returnViewerLayerProgress", .8f)
+            returnFixture.call("renderSharedReturnLayers", args = arrayOf(1f))
+            returnFixture.set("finishAfterSharedTransitionInProgress", true)
+            returnFixture.call("renderSharedReturnProgress", args = arrayOf(0f))
+            returnFixture.call("renderSharedReturnProgress", args = arrayOf(.5f))
+            returnFixture.call("renderSharedReturnProgress", args = arrayOf(.75f))
             var exported = ""
             GalleryDiagnosticLogger.snapshot { text, _ -> exported = text }
             val io = GalleryDiagnosticLogger::class.java.getDeclaredField("io").apply { isAccessible = true }
@@ -471,6 +479,8 @@ class PhotoViewerInitializationTest {
             assertEquals(2, canvas.size)
             assertTrue(canvas.any { "checkpoint=create" in it && "window=00000000/0" in it })
             assertTrue(canvas.any { "checkpoint=resume" in it && "window=ff000000/255" in it })
+            val fade = exported.lineSequence().single { "event=viewer_return_scrim_fade " in it }
+            assertTrue("request=$request " in fade && "fromAlpha=0.8" in fade && "alpha=0.4" in fade)
             assertFalse(exported.contains("/storage"))
             assertFalse(exported.contains("mediaPath="))
         } finally {

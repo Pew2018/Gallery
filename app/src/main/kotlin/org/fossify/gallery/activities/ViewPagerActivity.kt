@@ -312,8 +312,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun renderSharedReturnLayers(remaining: Float) {
+        val previousAlpha = binding.viewerTransitionScrim.alpha
         renderSharedViewerCanvas(returnViewerLayerProgress * remaining)
         returnOverlayAlphas.forEach { (view, alpha) -> view.alpha = alpha * remaining }
+        val alpha = binding.viewerTransitionScrim.alpha
+        if (finishAfterSharedTransitionInProgress && !sharedReturnScrimFadeReported && alpha < previousAlpha &&
+            ViewerEntryDiagnostics.enabled(viewerReturnId)) {
+            sharedReturnScrimFadeReported = true
+            ViewerReturnDiagnostics.event(viewerReturnId, "viewer_return_scrim_fade") {
+                mapOf("launchId" to intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L),
+                    "fromAlpha" to previousAlpha, "alpha" to alpha, "remaining" to remaining)
+            }
+        }
     }
 
     private fun renderSharedReturnProgress(progress: Float) {
@@ -330,7 +340,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (!finishAfterSharedTransitionInProgress || sharedReturnTerminal || isDestroyed) return
         sharedReturnTerminal = true
         ViewerReturnDiagnostics.event(viewerReturnId, if (cancelled) "viewer_transition_cancel" else "viewer_transition_end") {
-            mapOf("animatorStarted" to sharedReturnAnimatorStarted, "finishing" to isFinishing)
+            val proxy = sharedReturnView
+            mapOf("animatorStarted" to sharedReturnAnimatorStarted, "finishing" to isFinishing,
+                "launchId" to intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L),
+                "proxyBounds" to proxy?.let(::mappedTransitionSurfaceBounds)?.toShortString(),
+                "proxyAlpha" to proxy?.alpha,
+                "proxyScaleType" to (proxy as? ImageView)?.scaleType,
+                "proxyMatrix" to (proxy as? ImageView)?.imageMatrix?.toShortString())
         }
         if (!cancelled && sharedReturnAnimatorStarted) renderSharedReturnLayers(0f)
         // Android still needs the proxy at its destination until the grid can draw it.
@@ -583,6 +599,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var sharedReturnView: View? = null
     private var sharedReturnPage: ViewPagerFragment? = null
     private var sharedReturnAnimatorStarted = false
+    private var sharedReturnScrimFadeReported = false
     private var sharedReturnTerminal = false
     private var sharedReturnFinishRequested = false
     private var returnOverlayAlphas = emptyMap<View, Float>()
@@ -1287,6 +1304,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         binding.viewerTransitionScrim.visibility = View.VISIBLE
         takeOverReturnChrome(page)
         renderSharedReturnLayers(1f)
+        ViewerReturnDiagnostics.event(viewerReturnId, "viewer_return_scrim_armed") {
+            mapOf("launchId" to intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L),
+                "alpha" to binding.viewerTransitionScrim.alpha)
+        }
         setSharedTransitionCanvasTransparent()
         mediaTransitionRunning = true
         binding.viewPager.transitionInputLocked = true
