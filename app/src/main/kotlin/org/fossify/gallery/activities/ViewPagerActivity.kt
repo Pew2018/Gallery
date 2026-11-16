@@ -259,8 +259,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun renderSharedViewerLayers(progress: Float) {
-        binding.viewerTransitionScrim.alpha = progress
         setSharedChromeAlpha(progress)
+        renderSharedViewerCanvas(progress)
+    }
+
+    private fun renderSharedViewerCanvas(progress: Float) {
+        binding.viewerTransitionScrim.alpha = progress
         if (viewerSystemBarProgress != progress) {
             viewerSystemBarProgress = progress
             updateViewerSystemBars()
@@ -298,18 +302,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val standardChrome = listOf(binding.topShadow, binding.bottomActions.root, binding.mediumViewerAppbar) +
             listOfNotNull(root?.findViewById(R.id.video_play_outline), root?.findViewById(R.id.bottom_video_time_holder),
                 root?.findViewById(R.id.video_details))
-        standardChrome.forEach(org.fossify.gallery.helpers.ViewerChromeMotion::cancel)
         val pageOverlays = listOf(R.id.photo_details, R.id.photo_portrait_stripe_wrapper, R.id.panorama_outline,
             R.id.slide_info, R.id.playback_speed_pill, R.id.bottom_actions_dummy)
             .mapNotNull { root?.findViewById<View>(it) }
-        returnOverlayAlphas = (pageOverlays + binding.photoBoundaryLoading).associateWith {
+        returnOverlayAlphas = (standardChrome + pageOverlays + binding.photoBoundaryLoading).associateWith {
             org.fossify.gallery.helpers.ViewerChromeMotion.cancel(it)
             it.alpha
         }
     }
 
     private fun renderSharedReturnLayers(remaining: Float) {
-        renderSharedViewerLayers(returnViewerLayerProgress * remaining)
+        renderSharedViewerCanvas(returnViewerLayerProgress * remaining)
         returnOverlayAlphas.forEach { (view, alpha) -> view.alpha = alpha * remaining }
     }
 
@@ -1256,6 +1259,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 "entryMapped" to photoSharedElementMapped, "motion" to motionEnabled,
                 "hasSelection" to returnPath.isNotEmpty(), "canReturn" to canReturn,
                 "hasProxy" to (proxy != null), "proxyAttached" to proxy?.isAttachedToWindow,
+                "launchId" to intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L),
                 "mediaId" to returnPath.takeIf(String::isNotEmpty)?.let(org.fossify.gallery.helpers.GalleryDiagnosticLogger::anonymousId),
                 "window" to ViewerEntryDiagnostics.backgroundState(window.decorView.background),
                 "decor" to ViewerEntryDiagnostics.viewState(window.decorView),
@@ -1304,7 +1308,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     clearReturnSurface(restoreRenderer = true)
                     returnOverlayAlphas.forEach { (view, alpha) -> view.alpha = alpha }
                     returnOverlayAlphas = emptyMap()
-                    renderSharedViewerLayers(1f)
+                    renderSharedViewerCanvas(1f)
                     restoreBlackViewerCanvas()
                     binding.viewPager.transitionInputLocked = false
                     super.finish()
@@ -5369,6 +5373,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     viewerDiagnosticRequestId,
                     fields = mapOf(
                         "index" to position, "count" to getCurrentMedia().size,
+                        "launchId" to intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L),
                         "firstPageBoundMs" to viewerDiagnosticFirstPageBoundMs,
                         "mediaId" to selected?.path?.let(org.fossify.gallery.helpers.GalleryDiagnosticLogger::anonymousId),
                         "revision" to org.fossify.gallery.helpers.PhotoContentRevision.current(),

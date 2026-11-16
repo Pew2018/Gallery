@@ -93,6 +93,7 @@ import org.fossify.gallery.extensions.updateFavoritePaths
 import org.fossify.gallery.extensions.ensureFavoriteAddAllowed
 import org.fossify.gallery.helpers.FastScrollerBubble
 import org.fossify.gallery.helpers.OxygenThumbnailPlaceholder
+import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.OxygenSelectionMode
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
@@ -276,6 +277,7 @@ class MediaAdapter(
             val itemView = holder.itemView
             val tmb = itemView.allViews.firstOrNull { it.id == R.id.medium_thumbnail }
             if (tmb is ImageView) {
+                if (tmb.transitionName == PhotoViewerTransition.ELEMENT_NAME) tmb.transitionName = null
                 tmb.tag = null
                 tmb.setTag(R.id.media_bound_path, null)
                 tmb.setTag(R.id.thumbnail_request_key, null)
@@ -1210,6 +1212,10 @@ class MediaAdapter(
             }
 
             val signature = medium.getKey()
+            if (mediumThumbnail.getTag(R.id.media_bound_path) != medium.path &&
+                mediumThumbnail.transitionName == PhotoViewerTransition.ELEMENT_NAME) {
+                mediumThumbnail.transitionName = null
+            }
             mediumThumbnail.setTag(R.id.media_bound_path, medium.path)
             val requestKey = listOf(path, signature, medium.type, cropThumbnails, roundedCorners, animateGifs,
                 scrollHorizontally, rotatedImagePaths.contains(path))

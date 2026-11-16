@@ -219,6 +219,24 @@ class PhotoViewerInitializationTest {
         assertTrue(fixture.activity.isMediaTransitionRunning())
     }
 
+    @Test fun sharedReturnFadesFromTheChromeAlreadyOnScreen() {
+        val fixture = EntryFixture()
+        val photo = fixture.setPhoto()
+        val toolbar = fixture.binding.mediumViewerAppbar
+        val actions = fixture.binding.bottomActions.root
+        toolbar.alpha = .4f
+        actions.alpha = 0f
+        fixture.call("takeOverReturnChrome", args = arrayOf(photo.page))
+        fixture.call("renderSharedReturnLayers", args = arrayOf(1f))
+        assertEquals(.4f, toolbar.alpha, 0f)
+        assertEquals(0f, actions.alpha, 0f)
+        fixture.call("renderSharedReturnLayers", args = arrayOf(.5f))
+        assertEquals(.2f, toolbar.alpha, 0f)
+        assertEquals(0f, actions.alpha, 0f)
+        fixture.call("renderSharedReturnLayers", args = arrayOf(0f))
+        assertEquals(0f, toolbar.alpha, 0f)
+    }
+
     @Test fun viewerEnterCallbackMapsCurrentPhotoForPlatformReturn() {
         val fixture = EntryFixture(viewerWithTransitionIntent().create())
         val photo = fixture.setPhoto()
