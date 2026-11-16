@@ -128,11 +128,12 @@ class MediaAdapterStabilityTest {
         val launchId: Long
             get() = type.getDeclaredField("viewerReturnLaunch").apply { isAccessible = true }.getLong(activity)
 
-        fun reenter(path: String, id: Long = 1L, launch: Long = launchId) {
+        fun reenter(path: String, id: Long = 1L, launch: Long = launchId, deletedPaths: List<String> = emptyList()) {
             activity.onActivityReenter(Activity.RESULT_OK, Intent()
                 .putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH, path)
                 .putExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, id)
-                .putExtra(PhotoViewerTransition.EXTRA_LAUNCH, launch))
+                .putExtra(PhotoViewerTransition.EXTRA_LAUNCH, launch)
+                .putStringArrayListExtra(PhotoViewerTransition.EXTRA_DELETED_PATHS, ArrayList(deletedPaths)))
         }
 
         fun thumbnail(position: Int, path: String): ImageView {
@@ -681,6 +682,25 @@ class MediaAdapterStabilityTest {
         assertTrue(MediaUpdatePolicy.sameDisplayedContent(first, internalRefresh))
         assertFalse(MediaUpdatePolicy.sameDisplayedContent(first, moved))
         assertFalse(MediaUpdatePolicy.sameDisplayedContent(first, changedSection))
+    }
+
+    @Test fun confirmedViewerDeletionReachesSourceGridBeforeReturnTargetIsMapped() {
+        val rows = listOf(item("a.jpg"), item("b.jpg"), item("c.jpg"))
+        val fixture = ReturnGridFixture(rows, columns = 2)
+        fixture.reenter("b.jpg", deletedPaths = listOf("/photos/a.jpg"))
+        drain(fixture.tasks)
+        assertEquals(listOf("b.jpg", "c.jpg"), fixture.adapter.media.filterIsInstance<Medium>().map { it.name })
+        assertEquals("The surviving return identity stays in the source grid", 0,
+            fixture.adapter.media.filterIsInstance<Medium>().indexOfFirst { it.path == "/photos/b.jpg" })
+    }
+
+    @Test fun deletedPathFilteringDropsEmptyGroupingHeaders() {
+        val rows = arrayListOf<ThumbnailItem>(item("a.jpg"), ThumbnailSection("March", "2026-03"), item("b.jpg"))
+        val onlySectionMedia = MediaUpdatePolicy.withoutDeletedPaths(rows, setOf("/photos/a.jpg"))
+        assertEquals(listOf("March", "b.jpg"), onlySectionMedia.map {
+            when (it) { is Medium -> it.name; is ThumbnailSection -> it.title; else -> "unexpected" }
+        })
+        assertTrue(MediaUpdatePolicy.withoutDeletedPaths(rows, setOf("/photos/a.jpg", "/photos/b.jpg")).isEmpty())
     }
 
     @Test fun adapterCommitsNewSortOrderWithoutRecreatingAdapter() = withAdapter { adapter, recycler, tasks ->

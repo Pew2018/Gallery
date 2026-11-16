@@ -12,6 +12,8 @@ object PhotoViewerTransition {
     const val REQUEST_CODE = 9_071
     internal const val EXTRA_LAUNCH = "org.fossify.gallery.extra.VIEWER_LAUNCH"
     const val EXTRA_RETURN_PATH = "org.fossify.gallery.extra.MEDIA_RETURN_PATH"
+    /** Paths whose deletion succeeded during this Viewer session. */
+    const val EXTRA_DELETED_PATHS = "org.fossify.gallery.extra.MEDIA_DELETED_PATHS"
 }
 
 /** A return thumbnail is usable only while its bound media identity and pixels agree. */

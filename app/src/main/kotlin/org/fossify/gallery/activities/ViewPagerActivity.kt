@@ -643,6 +643,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var userSwipeInProgress = false
     private var explicitUserNavigationPending = false
     private var photoDeleteGeneration = 0L
+    private val successfullyDeletedViewerPaths = LinkedHashSet<String>()
     private data class ViewerDeleteSnapshot(
         val deletedPath: String,
         val previousMedia: List<Medium>,
@@ -1285,6 +1286,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_transition_return", if (canReturn) 1 else 0)
         setResult(RESULT_OK, Intent()
             .putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH, returnPath.takeIf(String::isNotEmpty))
+            .putStringArrayListExtra(PhotoViewerTransition.EXTRA_DELETED_PATHS,
+                ArrayList(successfullyDeletedViewerPaths))
             .putExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, viewerReturnId)
             .putExtra(PhotoViewerTransition.EXTRA_LAUNCH, intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L)))
         if (!canReturn) {
@@ -3882,6 +3885,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         deleteSnapshot: ViewerDeleteSnapshot? = null,
         photoRevisionAlreadyChanged: Boolean = false
     ) {
+        successfullyDeletedViewerPaths.add(path)
         org.fossify.gallery.helpers.ViewerContentInvalidationRegistry.invalidate(path)
         if (path !in mIgnoredPaths) mIgnoredPaths.add(path)
         if (isPhotoProfile) {

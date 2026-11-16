@@ -29,6 +29,24 @@ internal object MediaUpdatePolicy {
             before.isFavorite == after.isFavorite && before.deletedTS == after.deletedTS &&
             before.takenIsFallback == after.takenIsFallback
 
+    /** Remove only confirmed media identities and discard now-empty date headers. */
+    fun withoutDeletedPaths(items: List<ThumbnailItem>, deletedPaths: Set<String>): ArrayList<ThumbnailItem> {
+        if (deletedPaths.isEmpty()) return ArrayList(items)
+        val result = ArrayList<ThumbnailItem>(items.size)
+        var pendingSection: ThumbnailSection? = null
+        for (item in items) {
+            when (item) {
+                is ThumbnailSection -> pendingSection = item
+                is Medium -> if (item.path !in deletedPaths) {
+                    pendingSection?.let(result::add)
+                    pendingSection = null
+                    result.add(item)
+                }
+            }
+        }
+        return result
+    }
+
     /** Appending an unchanged prefix preserves RecyclerView's current anchor and bindings. */
     fun isContentAppend(before: List<ThumbnailItem>, after: List<ThumbnailItem>): Boolean =
         after.size > before.size && sameDisplayedContent(before, after.subList(0, before.size))

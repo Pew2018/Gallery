@@ -218,6 +218,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var viewerReturnLaunch = 0L
     private var viewerResultDelivered = false
     private var viewerReturn: GridReturn? = null
+    /** Successful Viewer deletions remain hidden across cache/partial scan publications. */
+    private val viewerDeletedPathTombstones = LinkedHashSet<String>()
 
     private class GridViewerSource(
         val path: String,
@@ -265,6 +267,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         var firstFrameReported = false
         var stopWaitingForDraw: (() -> Unit)? = null
         var timeout: Runnable? = null
+        var deletionCommitPending = false
     }
 
     private fun isCurrentViewerLaunch(data: Intent?): Boolean =
@@ -318,7 +321,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         viewerReentryObservedForCurrentLaunch = true
         viewerReturnMapped = false
         pendingViewerReturnPath = path
+        val deletedPaths = data?.getStringArrayListExtra(PhotoViewerTransition.EXTRA_DELETED_PATHS)
+            .orEmpty().toSet()
         val request = GridReturn(path, requestId, mPath, mCommittedSearchText, photoProfileId)
+        request.deletionCommitPending = deletedPaths.any { it !in viewerDeletedPathTombstones }
         viewerReturn = request
         if (isPhotoProfiles) photoScroll.clear()
         ViewerReturnDiagnostics.event(requestId, "grid_reenter") {
@@ -330,7 +336,28 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         request.timeout = Runnable { releaseViewerReturn(request, null, "timeout") }.also {
             albumTransitionHandler.postDelayed(it, PhotoViewerTransition.READY_TIMEOUT_MS)
         }
-        awaitViewerReturnTarget(request)
+        if (request.deletionCommitPending) {
+            applyViewerDeletedPaths(deletedPaths) {
+                if (viewerReturn === request) {
+                    request.deletionCommitPending = false
+                    awaitViewerReturnTarget(request)
+                }
+            }
+        } else awaitViewerReturnTarget(request)
+    }
+
+    /** Apply the confirmed deletion before mapping the return thumbnail. */
+    private fun applyViewerDeletedPaths(paths: Set<String>, onCommitted: () -> Unit) {
+        val fresh = paths - viewerDeletedPathTombstones
+        if (fresh.isEmpty()) {
+            onCommitted()
+            return
+        }
+        viewerDeletedPathTombstones.addAll(fresh)
+        mMedia = org.fossify.gallery.helpers.MediaUpdatePolicy.withoutDeletedPaths(mMedia, fresh)
+        val adapter = getMediaAdapter()
+        if (adapter == null) onCommitted()
+        else adapter.removeMediaPaths(fresh, onCommitted)
     }
 
     private fun isViewerReturnCurrent(request: GridReturn): Boolean =
@@ -1908,7 +1935,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 // renderer is unavailable. Activity reenter callbacks are then not
                 // guaranteed, so restore the returned media identity from the result.
                 pendingViewerReturnPath = returnPath
-                restoreViewerReturnPositionWithoutTransition(returnPath)
+                val deletedPaths = resultData?.getStringArrayListExtra(PhotoViewerTransition.EXTRA_DELETED_PATHS)
+                    .orEmpty().toSet()
+                if (request == null && deletedPaths.any { it !in viewerDeletedPathTombstones }) {
+                    applyViewerDeletedPaths(deletedPaths) { restoreViewerReturnPositionWithoutTransition(returnPath) }
+                } else restoreViewerReturnPositionWithoutTransition(returnPath)
             }
             viewerReentryObservedForCurrentLaunch = false
         }
@@ -4678,11 +4709,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun publishMedia(
-        media: ArrayList<ThumbnailItem>, isFromCache: Boolean, request: Long,
+        mediaSnapshot: ArrayList<ThumbnailItem>, isFromCache: Boolean, request: Long,
         stage: DisplayedSourceStage? = null, access: (() -> Boolean)? = null,
         select: (() -> Boolean)? = null,
     ) {
         runOnUiThread {
+            val media = org.fossify.gallery.helpers.MediaUpdatePolicy.withoutDeletedPaths(
+                mediaSnapshot, viewerDeletedPathTombstones
+            )
             if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed ||
                 (isFromCache && (completedMediaRequest == request ||
                     (!isPhotoProfiles && mediaScanTerminals.result(request) != null)))) return@runOnUiThread

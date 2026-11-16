@@ -688,14 +688,14 @@ class MediaAdapter(
         !activity.isFinishing && !activity.isDestroyed && recyclerView.adapter === this
 
     /** Apply confirmed deletions by stable path through the normal single-flight diff path. */
-    internal fun removeMediaPaths(paths: Set<String>) {
+    internal fun removeMediaPaths(paths: Set<String>, onCommitted: () -> Unit = {}) {
         if (paths.isEmpty() || recyclerView.adapter !== this) return
         ++diffGeneration
         pendingUpdate = null
         recyclerView.removeCallbacks(drainUpdates)
-        val remaining = media.filterNot { it is Medium && it.path in paths }
-            .toCollection(ArrayList<ThumbnailItem>())
-        updateMedia(remaining, preserveScroll = false, updateReason = MediaUpdateReason.DELETE_RESULT)
+        val remaining = org.fossify.gallery.helpers.MediaUpdatePolicy.withoutDeletedPaths(media, paths)
+        updateMedia(remaining, preserveScroll = false, onCommitted = onCommitted,
+            updateReason = MediaUpdateReason.DELETE_RESULT)
     }
 
     private fun getSelectedItems() = selectedKeys.mapNotNull { getItemWithKey(it) } as ArrayList<Medium>
