@@ -4,12 +4,15 @@ package org.fossify.gallery.helpers
  * No target paths, preferences, private buffer, Logcat output or manual controls.
  */
 internal object FolderRefreshDiagnostics {
-    fun event(request: Long, stage: String, paths: Collection<String> = emptyList(), detail: String = "") {
+    fun event(request: Long, stage: String, paths: Collection<String> = emptyList(), detail: String = "",
+              diagnosticRequest: Long? = null, evidence: FrameEvidence? = null) {
         if (!GalleryDiagnosticLogger.isEnabled()) return
         GalleryDiagnosticLogger.event(
             if (stage.contains("fail", true) || stage.contains("error", true)) DiagnosticLevel.ERROR else DiagnosticLevel.INFO,
             "FolderRefresh", stage, request,
-            mapOf("count" to paths.size, "anonymousId" to paths.singleOrNull()?.let(GalleryDiagnosticLogger::anonymousId), "detail" to detail)
+            mapOf("count" to paths.size, "anonymousId" to paths.singleOrNull()?.let(GalleryDiagnosticLogger::anonymousId),
+                "detail" to detail, "traceRequestId" to diagnosticRequest,
+                "frameEvidence" to evidence?.name, "presented" to evidence?.presented)
         )
     }
     inline fun <T> measure(request: Long, stage: String, block: () -> T): T {

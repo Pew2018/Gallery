@@ -44,7 +44,7 @@ internal object GalleryDiagnosticLogger {
 
     @Volatile private var enabled = false
     @Volatile private var expiresAtMillis = 0L
-    @Volatile private var sessionId = UUID.randomUUID().toString().take(8)
+    @Volatile private var sessionId = UUID.randomUUID().toString()
     @Volatile private var hashSalt = UUID.randomUUID().toString()
     @Volatile private var directory: File? = null
     @Volatile private var prefs: SharedPreferences? = null
@@ -59,7 +59,7 @@ internal object GalleryDiagnosticLogger {
         val app = context.applicationContext
         prefs = app.getSharedPrefs()
         directory = File(app.filesDir, DIRECTORY).apply { mkdirs() }
-        sessionId = UUID.randomUUID().toString().take(8)
+        sessionId = UUID.randomUUID().toString()
         hashSalt = UUID.randomUUID().toString()
         syncEnabledFromPreferences()
         installCrashHandler()
@@ -126,6 +126,10 @@ internal object GalleryDiagnosticLogger {
                 }
             }
         } catch (_: RuntimeException) { dropped.incrementAndGet() }
+    }
+
+    inline fun observe(block: () -> Unit) {
+        if (isEnabled()) block()
     }
 
     fun snapshot(callback: (String, String?) -> Unit) {

@@ -8,6 +8,8 @@ import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.PhotoTransitionCompletionGate
 import org.fossify.gallery.helpers.PhotoTransitionCompletionGate.Stage
 import org.fossify.gallery.helpers.ViewerEntryDiagnostics
+import org.fossify.gallery.helpers.GalleryDiagnosticLogger
+import org.fossify.gallery.helpers.FrameEvidence
 import org.fossify.gallery.helpers.ViewerReturnDiagnostics
 import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.OxygenClassicMotion
@@ -601,6 +603,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var returnSystemBarProgress = 1f
     private var returnScrimAlpha = 1f
     private var viewerReturnId = 0L
+    private var viewerSessionId = 0L
+    private var viewerRendererObserved = false
     private var sharedReturnView: View? = null
     private var sharedReturnPage: ViewPagerFragment? = null
     private var sharedReturnAnimatorStarted = false
@@ -957,6 +961,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         // flow validates the viewer request.
         traceEntryCanvas("create_before")
         super.onCreate(null)
+        val correlatedEntryId = ViewerEntryDiagnostics.entryId(
+            intent.getStringExtra(ViewerEntryDiagnostics.EXTRA_DIAGNOSTIC_PROCESS), entryRequestId()
+        )
+        viewerSessionId = correlatedEntryId.takeIf { it != 0L } ?: ViewerEntryDiagnostics.newRequest()
         fadeOnlyPhotoFallback = intent.getBooleanExtra(PhotoViewerTransition.EXTRA_FADE_ONLY, false)
         if (fadeOnlyPhotoFallback) window.setWindowAnimations(0)
         photoSharedElementPath = intent.getStringExtra(PhotoViewerTransition.EXTRA_PATH)
@@ -1018,6 +1026,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         binding.viewPager.transitionInputLocked = entry != null
         traceEntryCanvas("create_canvas_ready")
         logMediaEntry("viewer_created", if (entry == null) "window_fade" else null)
+        ViewerEntryDiagnostics.event(viewerSessionId, "viewer_launch_accepted") {
+            mapOf("viewerSessionId" to viewerSessionId, "entryRequestId" to correlatedEntryId.takeIf { it != 0L },
+                "sharedCandidate" to (entry != null))
+        }
         if (entry != null && ViewerEntryDiagnostics.enabled(entryRequestId())) {
             binding.root.doOnPreDraw { traceEntryCanvas("first_pre_draw", updateLifecycle = false) }
         }
@@ -1211,7 +1223,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         orientationExecutor.shutdownNow()
         super.onDestroy()
         ColorModeHelper.resetColorMode(this)
-
         if (intent.extras?.containsKey(IS_VIEW_INTENT) == true) {
             config.temporarilyShowHidden = false
         }
@@ -1223,6 +1234,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 mMediaFiles = arrayListOf()
             }
         }
+        ViewerEntryDiagnostics.event(viewerSessionId, "viewer_cleanup_completed") {
+            mapOf("viewerSessionId" to viewerSessionId, "returnRequestId" to viewerReturnId.takeIf { it != 0L })
+        }
     }
 
     // System back also reaches this directly on framework-dispatched back.
@@ -1233,6 +1247,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun finishDuringMediaEntry(): Boolean {
         if (mediaTransitionRunning && !finishAfterSharedTransitionInProgress) {
             // Close with one fade while the entry still owns the shared element.
+            ViewerEntryDiagnostics.event(viewerSessionId, "viewer_closed_during_entry") { emptyMap() }
             finishAfterSharedTransitionInProgress = true
             photoSharedElementMapped = false
             abandonMediaEntry("closed")
@@ -1273,6 +1288,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         ViewerReturnDiagnostics.event(viewerReturnId, "viewer_requested") {
             mapOf(
                 "reason" to reason, "kind" to if (getCurrentMedium()?.isVideo() == true) "video" else "image",
+                "viewerSessionId" to viewerSessionId.takeIf { it != 0L },
                 "entryMapped" to photoSharedElementMapped, "motion" to motionEnabled,
                 "hasSelection" to returnPath.isNotEmpty(), "canReturn" to canReturn,
                 "hasProxy" to (proxy != null), "proxyAttached" to proxy?.isAttachedToWindow,
@@ -1289,8 +1305,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             .putStringArrayListExtra(PhotoViewerTransition.EXTRA_DELETED_PATHS,
                 ArrayList(successfullyDeletedViewerPaths))
             .putExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, viewerReturnId)
+            .putExtra(ViewerEntryDiagnostics.EXTRA_VIEWER_SESSION_ID, viewerSessionId)
             .putExtra(PhotoViewerTransition.EXTRA_LAUNCH, intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L)))
         if (!canReturn) {
+            ViewerReturnDiagnostics.event(viewerReturnId, "viewer_return_fallback") {
+                mapOf("eligible" to eligible, "proxyAttached" to false)
+            }
             super.finish()
             if ((fadeOnlyPhotoFallback || photoSharedElementFadeFallback || photoSharedElementMapped) && motionEnabled) {
                 overridePendingTransition(0, R.anim.photo_viewer_fade_out)
@@ -1585,6 +1605,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             return
         }
 
+        ViewerEntryDiagnostics.event(viewerSessionId, "viewer_selection_resolved") {
+            mapOf("mediaId" to GalleryDiagnosticLogger.anonymousId(mPath))
+        }
         if (mPath.isPortrait() && getPortraitPath() == "") {
             val newIntent = Intent(this, ViewPagerActivity::class.java)
             newIntent.putExtras(intent!!.extras!!)
@@ -4821,6 +4844,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "Viewer", "media_viewer_publication", requestId,
             fields = mapOf(
                 "scopeKey" to viewerDiagnosticScopeKey,
+                "viewerSessionId" to viewerSessionId.takeIf { it != 0L },
+                "catalogState" to if (appliedViewerCatalogComplete) "FINAL"
+                    else if (media.size > 1) "PARTIAL" else "PREVIEW",
                 "publicationCount" to viewerDiagnosticPublicationCount,
                 "itemCount" to media.size,
                 "positionIndex" to mPos,
@@ -4921,6 +4947,22 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override fun isFullScreen() = mIsFullScreen
 
     override fun imageRendered(path: String, page: ViewPagerFragment) {
+        if (!viewerRendererObserved && ViewerEntryDiagnostics.enabled(viewerSessionId) &&
+            !isFinishing && !isDestroyed && page === getCurrentFragment() && path == getCurrentPath()) {
+            val renderer = currentEntryRenderer()
+            viewerRendererObserved = true
+            ViewerEntryDiagnostics.event(viewerSessionId, "viewer_first_renderer_signal") {
+                mapOf("mediaId" to GalleryDiagnosticLogger.anonymousId(path),
+                    "renderer" to when {
+                        renderer == null -> "UNKNOWN"
+                        page is VideoFragment && renderer is ImageView -> "VIDEO_PREVIEW"
+                        else -> renderer.javaClass.simpleName
+                    },
+                    "drawableReady" to if (renderer is ImageView) renderer.drawable != null else "UNKNOWN",
+                    "frameEvidence" to (if (renderer is ImageView) FrameEvidence.READY else FrameEvidence.UNKNOWN).name,
+                    "presented" to FrameEvidence.READY.presented)
+            }
+        }
         val entry = mediaEntry
         if (entry != null && !isFinishing && !isDestroyed && page === getCurrentFragment() &&
             path == intent.getStringExtra(PhotoViewerTransition.EXTRA_PATH)) {
@@ -5092,7 +5134,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var entryLifecyclePhase: String? = null
     private var lastEntryCanvas: Map<String, Any?>? = null
 
-    private fun entryRequestId() = intent.getLongExtra(PhotoViewerTransition.EXTRA_ENTRY_ID, 0L)
+    private fun entryRequestId(): Long {
+        val id = intent.getLongExtra(PhotoViewerTransition.EXTRA_ENTRY_ID, 0L)
+        val process = intent.getStringExtra(ViewerEntryDiagnostics.EXTRA_DIAGNOSTIC_PROCESS)
+        return if (process == null) id else ViewerEntryDiagnostics.entryId(process, id)
+    }
 
     private fun entryCanvasState(): Map<String, Any?> {
         val decor = window.peekDecorView()
@@ -5409,6 +5455,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         "index" to position, "count" to getCurrentMedia().size,
                         "launchId" to intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L),
                         "firstPageBoundMs" to viewerDiagnosticFirstPageBoundMs,
+                        "viewerSessionId" to viewerSessionId.takeIf { it != 0L },
                         "mediaId" to selected?.path?.let(org.fossify.gallery.helpers.GalleryDiagnosticLogger::anonymousId),
                         "revision" to org.fossify.gallery.helpers.PhotoContentRevision.current(),
                         "collection" to if (isPhotoProfile) "photo_profile" else if (mDirectory == SHOW_ALL) "all_media" else "folder"

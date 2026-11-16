@@ -29,6 +29,11 @@ import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import org.fossify.gallery.helpers.ViewerAccessCoordinator
 import org.fossify.gallery.helpers.ViewerEntryDiagnostics
+import org.fossify.gallery.helpers.DiagnosticLevel
+import org.fossify.gallery.helpers.FrameEvidence
+import org.fossify.gallery.helpers.MediaPublicationStage
+import org.fossify.gallery.helpers.MediaRequestDiagnostics
+import org.fossify.gallery.helpers.ViewerScopeType
 import org.fossify.gallery.helpers.ViewerReturnDiagnostics
 import org.fossify.gallery.helpers.PhotoViewerReturnTarget
 import org.fossify.gallery.helpers.PhotoViewerTransition
@@ -329,7 +334,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (isPhotoProfiles) photoScroll.clear()
         ViewerReturnDiagnostics.event(requestId, "grid_reenter") {
             mapOf("mediaId" to GalleryDiagnosticLogger.anonymousId(path), "launchId" to viewerReturnLaunch,
-                "scrollState" to binding.mediaGrid.scrollState)
+                "scrollState" to binding.mediaGrid.scrollState,
+                "viewerSessionId" to data.getLongExtra(ViewerEntryDiagnostics.EXTRA_VIEWER_SESSION_ID, 0L).takeIf { it != 0L })
         }
         org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_transition_reenter", 1)
         postponeEnterTransition()
@@ -503,6 +509,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             frameFields = mapOf(
                 "launchId" to launch,
                 "ack" to if (useFrameCommit) "frame_commit" else "after_draw",
+                "frameEvidence" to FrameEvidence.gridAcknowledgement(useFrameCommit).name,
+                "presented" to FrameEvidence.DRAW.presented,
                 "drawElapsedMs" to android.os.SystemClock.elapsedRealtime(),
                 "firstVisibleIndex" to first,
                 "version" to target.position.version,
@@ -516,11 +524,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 "sourceBoundMediaId" to (source?.getTag(R.id.media_bound_path) as? String)
                     ?.let(GalleryDiagnosticLogger::anonymousId),
                 "sourceAlpha" to source?.alpha,
-                "sourceTransitionAlpha" to source?.takeIf { Build.VERSION.SDK_INT >= 29 }?.transitionAlpha,
-                "sourceAttached" to source?.isAttachedToWindow,
             )
             layerFields = mapOf(
                 "launchId" to launch,
+                "sourceTransitionAlpha" to source?.takeIf { Build.VERSION.SDK_INT >= 29 }?.transitionAlpha,
+                "sourceAttached" to source?.isAttachedToWindow,
                 "thumbnail" to ViewerEntryDiagnostics.viewState(image),
                 "holder" to ViewerEntryDiagnostics.viewState(target.holder.itemView),
                 "grid" to ViewerEntryDiagnostics.viewState(grid),
@@ -573,6 +581,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         ViewerReturnDiagnostics.thumbnailState(target.image) + mapOf(
                             "launchId" to viewerReturnLaunch,
                             "ack" to if (useFrameCommit) "frame_commit" else "after_draw",
+                            "frameEvidence" to FrameEvidence.gridAcknowledgement(useFrameCommit).name,
+                            "presented" to FrameEvidence.DRAW.presented,
                             "index" to target.position.index,
                             "version" to target.position.version,
                             "scaleType" to target.image.scaleType,
@@ -887,7 +897,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         photoProfileId = profile?.id
         val request = mediaLoadRequests.begin()
         photoActiveRequestId = request
-        mCurrAsyncTask?.stopFetching()
+        beginMediaDiagnostic(request, reason.name)
+        mCurrAsyncTask?.stopFetching("superseded")
         if (photoScroll.pending != null && photoScrollProfileId != profile?.id) {
             photoScroll.clear()
             photoScrollProfileId = null
@@ -920,6 +931,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mLoadedInitialPhotos = true
         updateMenuColors()
         if (profile == null) {
+            mediaDiagnostic(request)?.skip("profile_missing")
             photoLoadCompleted = true
             photoLoadedKey = photoDisplayKey()
             photoLoadedRevision = org.fossify.gallery.helpers.PhotoContentRevision.current()
@@ -995,7 +1007,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     }
                 }
             }) { /* Photos publish through the stage-aware callback above. */ }
-            .also { it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR) }
+            .also {
+                it.requestDiagnostics = mediaDiagnostic(request)
+                it.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR)
+            }
     }
 
     internal fun submitPhotoGridResult(result: org.fossify.gallery.helpers.PhotoLoadResult, request: Long, requestedKey: String) {
@@ -1027,7 +1042,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             val complete = result.stage == org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE
             logPhotoScrollEvent("photo_grid_publication_committed", "stage" to result.stage.name,
                 "mediaCount" to result.media.size)
-            publishMedia(ArrayList<ThumbnailItem>(result.media), !complete, request)
+            publishMediaSnapshot(ArrayList<ThumbnailItem>(result.media), !complete, request, null, null, null,
+                diagnosticStage = when (result.stage) {
+                    org.fossify.gallery.helpers.PhotoLoadStage.CACHE_PREVIEW -> MediaPublicationStage.PREVIEW
+                    org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE -> MediaPublicationStage.FINAL
+                    else -> MediaPublicationStage.PARTIAL
+                })
             if (accessChanged) refreshMenuItems()
             if (!complete) {
                 photoLoadedKey = requestedKey
@@ -1127,6 +1147,37 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private var mediaRefreshRequest = -1L
+    private var diagnosticMediaRequest: MediaRequestDiagnostics? = null
+
+    private fun mediaDiagnostic(request: Long) = diagnosticMediaRequest?.takeIf { it.generation == request }
+
+    private fun beginMediaDiagnostic(request: Long, trigger: String) {
+        val previous = diagnosticMediaRequest
+        previous?.skipIfUnadmitted("superseded")
+        diagnosticMediaRequest = null
+        if (!GalleryDiagnosticLogger.isEnabled()) return
+        val source = when {
+            isPhotoProfiles -> ViewerScopeType.PHOTO_PROFILE
+            mShowAll -> ViewerScopeType.ALL_MEDIA
+            mPath == FAVORITES -> ViewerScopeType.FAVORITES
+            mPath == RECYCLE_BIN -> ViewerScopeType.RECYCLE_BIN
+            else -> ViewerScopeType.FOLDER
+        }
+        val locator = if (isPhotoProfiles) photoProfileId.orEmpty() else if (mShowAll) SHOW_ALL else mPath
+        val revision = when (source) {
+            ViewerScopeType.PHOTO_PROFILE -> org.fossify.gallery.helpers.PhotoContentRevision.current()
+            ViewerScopeType.FAVORITES -> favoriteRelationshipRevision.get()
+            ViewerScopeType.RECYCLE_BIN -> org.fossify.gallery.helpers.RecycleBinMembershipRevision.current()
+            ViewerScopeType.FOLDER -> org.fossify.gallery.helpers.FolderContentRevision.current()
+            else -> null
+        }
+        diagnosticMediaRequest = MediaRequestDiagnostics.start(
+            request, source, locator, revision, trigger,
+            previous?.id, android.os.SystemClock::elapsedRealtime
+        ) { event, id, fields ->
+            GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaPipeline", event, id, fields)
+        }
+    }
     private val mediaRefreshWatchdog = org.fossify.gallery.helpers.RefreshWatchdog()
     /** A deadline spans cache lookup, queue wait and scan, including ALL files. */
     private fun armMediaRefreshDeadline(request: Long) {
@@ -1140,6 +1191,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             // A deadline may only retire the request when it wins the terminal gate.
             if (!renderMediaScanState(request, org.fossify.gallery.helpers.GalleryScanResult(
                     org.fossify.gallery.helpers.GalleryScanState.TIMED_OUT))) return@arm
+            mediaDiagnostic(request)?.skipIfUnadmitted("timed_out")
             mCurrAsyncTask?.reportTimedOut()
             mediaLoadRequests.invalidate()
             mediaScanGeneration++
@@ -1623,6 +1675,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             val path = mPath
             val token = folderUnlockSessionId
             val app = applicationContext
+            val checkpointTraceId = mediaDiagnostic(displayedMediaRequest)?.id
             ensureBackgroundThread {
                 val protectedFolder = FolderUnlockSessionManager.findProtectedAncestor(
                     path, app.config::isFolderProtected
@@ -1635,6 +1688,22 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     FolderReturnCheckpoint.isCurrent(app, path, returnCheckpoint)
                 runOnUiThread {
                     if (request != folderAuthGeneration || isFinishing || isDestroyed) return@runOnUiThread
+                    if (returningFromViewer && GalleryDiagnosticLogger.isEnabled()) {
+                        GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaPipeline", "folder_checkpoint_evaluated",
+                            checkpointTraceId, mapOf(
+                                "scopeId" to MediaRequestDiagnostics.scopeId(ViewerScopeType.FOLDER, path),
+                                "result" to if (canReuse) "HIT" else "MISS",
+                                "reason" to when {
+                                    !authorized -> "access_required"
+                                    protectedFolder != null -> "protected"
+                                    returnCheckpoint == null -> "checkpoint_missing"
+                                    !completePublicDisplay -> "display_incomplete"
+                                    mShowAll || isRandomSorting -> "scope_or_order_ineligible"
+                                    canReuse -> "current"
+                                    else -> "checkpoint_invalid_or_stale"
+                                }
+                            ))
+                    }
                     if (authorized) {
                         if (canReuse) {
                             // The normal permission gate remains mandatory even
@@ -1692,7 +1761,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         binding.mediaRefreshLayout.isRefreshing = false
         storeStateVariables()
         mLastMediaHandler.removeCallbacksAndMessages(null)
-        if (!isPhotoProfiles || !photoViewerTransition) mCurrAsyncTask?.stopFetching()
+        if (!isPhotoProfiles || !photoViewerTransition) {
+            diagnosticMediaRequest?.skipIfUnadmitted("activity_pause")
+            mCurrAsyncTask?.stopFetching("activity_pause")
+        }
     }
 
     override fun onStop() {
@@ -2376,6 +2448,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         restoreFavoritesScrollAnchor(request, finalResult)
                         onCommitted()
                     }, diagnosticRequestId = request, updateReason = MediaUpdateReason.USER_SEARCH,
+                        diagnosticTraceId = mediaDiagnostic(request)?.id,
                         effectiveSorting = searchSorting, diagnosticSnapshotVersion = sourceVersion,
                         diagnosticSnapshotStage = displayedFolderSnapshot?.stage?.name ?: dataStage)
                 }
@@ -2527,6 +2600,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 sorting = config.getFolderSorting(if (mShowAll) SHOW_ALL else mPath)
                 setupZoomListener(mZoomListener)
                 binding.mediaGrid.adapter = this
+                logInitialSnapshot(displayedMediaRequest, mediaDiagnostic(displayedMediaRequest)?.id)
             }
 
             val viewType = config.getFolderViewType(if (mShowAll) SHOW_ALL else mPath)
@@ -2573,6 +2647,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 if (completedMediaRequest == request && !mIsGettingMedia) setMediaLoading(false)
                 completeCommit()
             }, diagnosticRequestId = request, updateReason = updateReason, effectiveSorting = effectiveSorting,
+                diagnosticTraceId = mediaDiagnostic(request)?.id,
                 diagnosticSnapshotVersion = sourceVersion,
                 diagnosticSnapshotStage = displayedFolderSnapshot?.stage?.name)
         } else {
@@ -3228,16 +3303,28 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
             org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
                 org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaPipeline",
-                "scan_restart_requested", mediaRefreshRequest,
-                mapOf("reason" to reason, "scanInProgress" to mIsGettingMedia,
+                "scan_restart_requested",
+                fields = mapOf("reason" to reason, "scanInProgress" to mIsGettingMedia,
+                    "previousGeneration" to mediaRefreshRequest, "previousRequestId" to diagnosticMediaRequest?.id,
                     "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath)))
         mediaSortOperations.invalidate()
         if (isPhotoProfiles) { getPhotoProfileMedia(); return }
         if (mPath == FAVORITES && favoriteSessionId != null) {
             favoriteAccessPaths = FavoriteAccessSessionManager.getCapturedPaths(favoriteSessionId)
-            if (favoriteAccessPaths == null) { finish(); return }
+            if (favoriteAccessPaths == null) {
+                GalleryDiagnosticLogger.observe {
+                    GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaPipeline", "media_request_not_created",
+                        fields = mapOf("reason" to "favorites_access_expired"))
+                }
+                finish()
+                return
+            }
         }
         if (mPath == FAVORITES && favoriteAccessPaths == null) {
+            GalleryDiagnosticLogger.observe {
+                GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaPipeline", "media_request_not_created",
+                    fields = mapOf("reason" to "awaiting_favorites_access"))
+            }
             resolveFavoriteAccess { allowedPaths ->
                 favoriteAccessPaths = allowedPaths
                 if (!isFinishing && !isDestroyed) getMedia()
@@ -3251,6 +3338,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val request = mediaLoadRequests.begin()
         mediaGridPublication.clear()
         mediaRefreshRequest = request
+        beginMediaDiagnostic(request, if (manualRefresh) "manual_refresh" else reason)
         if (mPath == FAVORITES) favoriteLoadRevision = favoriteRelationshipRevision.get()
         if (mPath == RECYCLE_BIN) recycleBinLoadRevision =
             org.fossify.gallery.helpers.RecycleBinMembershipRevision.current()
@@ -3260,7 +3348,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             favoritesReturnCover?.pause()
             favoritesReturnCover?.armTimeout({ isFavoritesReturnCurrent(request, token) }, ::retryFavoritesReturn)
         }
-        mCurrAsyncTask?.stopFetching()
+        mCurrAsyncTask?.stopFetching("superseded")
         clearRevokedMediaPage()
         mIsGettingMedia = true
         if (manualRefresh) binding.mediaRefreshLayout.isRefreshing = true
@@ -3347,7 +3435,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun logMediaPage(request: Long, event: String, detail: String = "") {
         if (mediaPageRequest != request || !GalleryDiagnosticLogger.isEnabled()) return
         val elapsed = android.os.SystemClock.elapsedRealtime() - mediaPageOpenedAt
-        FolderRefreshDiagnostics.event(request, event, detail = "elapsedMs=$elapsed $detail")
+        FolderRefreshDiagnostics.event(request, event, detail = "elapsedMs=$elapsed $detail",
+            diagnosticRequest = mediaDiagnostic(request)?.id,
+            evidence = when (event) {
+                "media_first_thumbnail_resource_ready" -> FrameEvidence.READY
+                "media_first_thumbnail_rendered" -> FrameEvidence.PRE_DRAW
+                else -> null
+            })
     }
 
     private fun watchForFirstMediaThumbnailDraw(
@@ -3581,7 +3675,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun startAsyncTask(request: Long, manualRefresh: Boolean = false,
         retainedMedia: List<Medium> = getMediaAdapter()?.let { mMedia.filterIsInstance<Medium>() }.orEmpty(),
         pagePreviewTarget: Int = 0) {
-        if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return
+        if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) {
+            mediaDiagnostic(request)?.skip("stale_or_inactive")
+            return
+        }
         // A canceled or superseded scan must not change the visible list or cached data.
         val scanGeneration = ++mediaScanGeneration
         mCurrAsyncTask?.stopFetching()
@@ -3766,6 +3863,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         val task = scanTask ?: return
+        task.requestDiagnostics = mediaDiagnostic(request)
         mCurrAsyncTask = task
         try {
             org.fossify.gallery.helpers.FolderRefreshDiagnostics.event(request, "folder_queued")
@@ -4274,13 +4372,19 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (entryId != 0L) {
             val type = getMediaAdapter()?.media?.firstOrNull { it is Medium && it.path == path } as? Medium
             intent.putExtra(PhotoViewerTransition.EXTRA_ENTRY_ID, entryId)
+            intent.putExtra(ViewerEntryDiagnostics.EXTRA_DIAGNOSTIC_PROCESS, GalleryDiagnosticLogger.session())
             intent.putExtra(ViewerEntryDiagnostics.EXTRA_MEDIA_TYPE, type?.type ?: 0)
             ViewerEntryDiagnostics.event(entryId, "entry_requested") {
-                mapOf("media" to type?.type, "source" to when {
+                val origin = mediaDiagnostic(displayedMediaRequest)
+                mapOf("viewerSessionId" to entryId, "media" to type?.type, "source" to when {
                     isPhotoProfiles -> "PHOTO_PROFILE"
                     mPath == FAVORITES -> "FAVORITES"
+                    mPath == RECYCLE_BIN -> "RECYCLE_BIN"
+                    mShowAll -> "ALL_MEDIA"
                     else -> "FOLDER"
-                })
+                }, "sourceRequestId" to origin?.id, "scopeId" to origin?.scopeId,
+                    "adapterVersion" to getMediaAdapter()?.committedVersion,
+                    "mediaId" to GalleryDiagnosticLogger.anonymousId(path))
             }
         }
 
@@ -4332,6 +4436,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             viewerSourceLease = source
             if (entryId != 0L) {
                 viewerSourceTrace = GridViewerSourceTrace(path, entryId, System.identityHashCode(holder), WeakReference(thumbnail))
+                ViewerEntryDiagnostics.event(entryId, "grid_source_lease_acquired") {
+                    mapOf("adapterVersion" to adapter.committedVersion)
+                }
             }
             OxygenClassicActivityMotion.configureShared(this)
             thumbnail.transitionName = PhotoViewerTransition.ELEMENT_NAME
@@ -4721,6 +4828,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         mediaSnapshot: ArrayList<ThumbnailItem>, isFromCache: Boolean, request: Long,
         stage: DisplayedSourceStage? = null, access: (() -> Boolean)? = null,
         select: (() -> Boolean)? = null,
+    ) = publishMediaSnapshot(mediaSnapshot, isFromCache, request, stage, access, select, null)
+
+    private fun publishMediaSnapshot(
+        mediaSnapshot: ArrayList<ThumbnailItem>, isFromCache: Boolean, request: Long,
+        stage: DisplayedSourceStage?, access: (() -> Boolean)?, select: (() -> Boolean)?,
+        diagnosticStage: MediaPublicationStage?,
     ) {
         runOnUiThread {
             val media = org.fossify.gallery.helpers.MediaUpdatePolicy.withoutDeletedPaths(
@@ -4768,7 +4881,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 deferMediaGridPublication(priority) {
                     if (mediaLoadRequests.isCurrent(request) && !isFinishing && !isDestroyed) {
                         if (sorting == config.getFolderSorting(scope) && grouping == config.getFolderGrouping(scope)) {
-                            publishMedia(media, isFromCache, request, stage, access, select)
+                            publishMediaSnapshot(media, isFromCache, request, stage, access, select, diagnosticStage)
                         } else getMedia(reason = "publication_configuration_changed")
                     }
                 }) return@runOnUiThread
@@ -4806,6 +4919,19 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             if (isPhotoProfiles && displayedContentChanged) mediaSearchGeneration++
             displayedSourceVersion++
             mMedia = ArrayList(media)
+            mediaDiagnostic(request)?.published(
+                diagnosticStage ?: when {
+                    stage == DisplayedSourceStage.SCAN_PARTIAL || (!isFromCache && !outcome.complete) -> MediaPublicationStage.PARTIAL
+                    isFromCache -> MediaPublicationStage.PREVIEW
+                    else -> MediaPublicationStage.FINAL
+                },
+                media.size, displayedSourceVersion, when {
+                    stage == DisplayedSourceStage.CACHE_PREVIEW ||
+                        diagnosticStage == MediaPublicationStage.PREVIEW -> "METADATA_PREVIEW"
+                    stage == DisplayedSourceStage.INDEX_PREVIEW -> "INDEX_PREVIEW"
+                    else -> "UNKNOWN"
+                }
+            )
             if (isPhotoProfiles && !isFromCache) {
                 photoLoadCompleted = true
                 photoLoadedKey = photoDisplayKey()

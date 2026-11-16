@@ -8,19 +8,23 @@ import android.os.Build
 import android.view.View
 import android.widget.ImageView
 import org.fossify.gallery.R
-import java.util.concurrent.atomic.AtomicLong
 
 internal object ViewerEntryDiagnostics {
     const val EXTRA_MEDIA_TYPE = "org.fossify.gallery.extra.MEDIA_ENTRY_TYPE"
-    private val requests = AtomicLong()
+    const val EXTRA_DIAGNOSTIC_PROCESS = "org.fossify.gallery.extra.MEDIA_DIAGNOSTIC_PROCESS"
+    const val EXTRA_VIEWER_SESSION_ID = "org.fossify.gallery.extra.MEDIA_DIAGNOSTIC_VIEWER_SESSION"
 
-    fun newRequest(): Long = if (GalleryDiagnosticLogger.isEnabled()) requests.incrementAndGet() else 0L
+    fun newRequest(): Long = if (GalleryDiagnosticLogger.isEnabled()) DiagnosticSequence.next() else 0L
+
+    fun entryId(process: String?, id: Long): Long = if (process == GalleryDiagnosticLogger.session()) id else 0L
 
     fun enabled(request: Long) = request != 0L && GalleryDiagnosticLogger.isEnabled()
 
     inline fun event(request: Long, event: String, fields: () -> Map<String, Any?>) {
-        if (!enabled(request)) return
-        GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "ViewerEntry", event, request, fields())
+        if (request == 0L) return
+        GalleryDiagnosticLogger.observe {
+            GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "ViewerEntry", event, request, fields())
+        }
     }
 
     fun backgroundState(drawable: Drawable?): String? = when (drawable) {

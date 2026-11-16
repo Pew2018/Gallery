@@ -67,6 +67,7 @@ internal class GetMediaAsynctask(
                 else -> "SCOPED_STORAGE"
             }
         ) else null
+    internal var requestDiagnostics: MediaRequestDiagnostics? = null
     private val createdAtElapsedMs = android.os.SystemClock.elapsedRealtime()
     private var queuedAtElapsedMs = createdAtElapsedMs
     private var workerStartedElapsedMs = createdAtElapsedMs
@@ -114,6 +115,7 @@ internal class GetMediaAsynctask(
     override fun onPreExecute() {
         super.onPreExecute()
         queuedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
+        requestDiagnostics?.admit()
     }
 
     private fun folderAllowed(path: String): Boolean {
@@ -123,11 +125,13 @@ internal class GetMediaAsynctask(
     }
     override fun doInBackground(vararg params: Void): ArrayList<ThumbnailItem> {
         workerStartedElapsedMs = android.os.SystemClock.elapsedRealtime()
+        requestDiagnostics?.workerStarted()
         FolderRefreshDiagnostics.event(requestId, "scan_started", detail = "source=${if (photoProfileId != null) "photo_profile" else if (showAll) "all_media" else if (mPath == FAVORITES) "favorites" else "folder"}")
         FolderRefreshDiagnostics.event(requestId, "worker_started")
         return try {
         val noMediaFolder = !showAll && mPath.startsWith('/') && photoProfileId == null &&
             mPath != PhotoProfileMediaLoader.PATH && mediaFetcher.noMediaSnapshot.contains(mPath)
+        if (noMediaFolder) requestDiagnostics?.workerSource(ViewerScopeType.NOMEDIA_FOLDER)
         val folderCheckpointStarted = if (!noMediaFolder && !showAll && mPath.startsWith('/') && mPath != FAVORITES &&
             mPath != RECYCLE_BIN && photoProfileId == null) {
             runCatching { FolderReturnCheckpoint.capture(context, mPath) }.getOrNull()
@@ -474,6 +478,7 @@ internal class GetMediaAsynctask(
             ArrayList()
         } finally {
             workerFinishedElapsedMs = android.os.SystemClock.elapsedRealtime()
+            requestDiagnostics?.workerFinished(scanResult.state, isCancelled)
         }
     }
 
@@ -557,6 +562,7 @@ internal class GetMediaAsynctask(
 
     override fun onCancelled(media: ArrayList<ThumbnailItem>?) {
         super.onCancelled(media)
+        requestDiagnostics?.skip("cancelled_before_start")
         finishPipelineDiagnostics("CANCELLED", media.orEmpty())
         onScanCancelled?.invoke()
     }
@@ -578,15 +584,18 @@ internal class GetMediaAsynctask(
 
     /** A timed-out business request must not be diagnosed as just CANCELLED. */
     fun reportTimedOut() {
+        requestDiagnostics?.cancellationRequested("timed_out")
         finishPipelineDiagnostics("TIMED_OUT", emptyList())
     }
 
     /** A rejected executor never started the scan, and has no post-execute result. */
     fun reportRejectedExecution() {
+        requestDiagnostics?.skip("executor_rejected")
         finishPipelineDiagnostics("FAILED", emptyList())
     }
 
-    fun stopFetching() {
+    fun stopFetching(diagnosticReason: String = "stop_fetching") {
+        requestDiagnostics?.cancellationRequested(diagnosticReason)
         scanResult = GalleryScanResult(GalleryScanState.CANCELLED)
         FolderRefreshDiagnostics.event(requestId, "scan_cancelled", detail = "reason=stop_fetching")
         mediaFetcher.shouldStop = true

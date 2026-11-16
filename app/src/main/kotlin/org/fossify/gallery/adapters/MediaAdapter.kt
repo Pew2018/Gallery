@@ -1,6 +1,11 @@
 package org.fossify.gallery.adapters
 
 import java.util.concurrent.Executor
+import org.fossify.gallery.helpers.AdapterCommitKind
+import org.fossify.gallery.helpers.AdapterSubmission
+import org.fossify.gallery.helpers.DiagnosticLevel
+import org.fossify.gallery.helpers.DiagnosticSequence
+import org.fossify.gallery.helpers.GalleryDiagnosticLogger
 import org.fossify.gallery.helpers.GalleryListDiffExecutor
 import org.fossify.gallery.helpers.MediaUpdatePolicy
 import org.fossify.gallery.helpers.MediaUpdateReason
@@ -708,6 +713,11 @@ class MediaAdapter(
 
     var committedVersion: Long = 1L
         private set
+    private var diagnosticAdapterId = 0L
+    private var diagnosticGridRequest: Long? = null
+    private var diagnosticSampleWindow = 0L
+    private var diagnosticSamples = 0
+
     @Volatile private var diffGeneration = 0
     private val refreshScroll = FavoritesScrollRestorer()
     private data class PendingUpdate(
@@ -715,7 +725,8 @@ class MediaAdapter(
         val current: () -> Boolean, val committed: () -> Unit, val generation: Int,
         val requestId: Long?, val diagnosticsEnabled: Boolean,
         val reason: MediaUpdateReason, val sorting: Int, val submittedAt: Long,
-        val snapshotVersion: Long?, val snapshotStage: String?, val forceReplace: Boolean = false
+        val snapshotVersion: Long?, val snapshotStage: String?, val forceReplace: Boolean = false,
+        val diagnosticSubmission: AdapterSubmission? = null
     )
     private var pendingUpdate: PendingUpdate? = null
     private var diffRunning = false
@@ -759,8 +770,16 @@ class MediaAdapter(
                     isCurrent: () -> Boolean = { true }, onCommitted: () -> Unit = {},
                     diagnosticRequestId: Long? = null, updateReason: MediaUpdateReason = MediaUpdateReason.SCAN,
                     effectiveSorting: Int = config.getFolderSorting(if (config.showAll) SHOW_ALL else path),
-                    diagnosticSnapshotVersion: Long? = null, diagnosticSnapshotStage: String? = null) {
-        if (!isCurrent()) return
+                    diagnosticSnapshotVersion: Long? = null, diagnosticSnapshotStage: String? = null,
+                    diagnosticTraceId: Long? = null) {
+        if (!isCurrent()) {
+            if (GalleryDiagnosticLogger.isEnabled()) GalleryDiagnosticLogger.event(
+                DiagnosticLevel.DEBUG, "MediaUI", "adapter_update_skipped", diagnosticTraceId,
+                mapOf("adapterId" to diagnosticId(), "reason" to "stale_at_submit",
+                    "requestGeneration" to diagnosticRequestId, "adapterVersion" to committedVersion)
+            )
+            return
+        }
         val diagnosticsEnabled = org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()
         if (diagnosticsEnabled) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
             org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_submit", diagnosticRequestId,
@@ -769,6 +788,7 @@ class MediaAdapter(
                 "adapterVersion" to committedVersion, "snapshotVersion" to diagnosticSnapshotVersion,
                 "snapshotStage" to diagnosticSnapshotStage, "updateReason" to updateReason.name)
         )
+        pendingUpdate?.let { logAdapterObservation(it, "adapter_update_skipped", "replaced") }
         if (diagnosticsEnabled && pendingUpdate != null) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
             org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_submit_replaced", diagnosticRequestId,
             mapOf("itemCount" to newMedia.size, "replacedGeneration" to pendingUpdate?.generation,
@@ -777,7 +797,11 @@ class MediaAdapter(
         pendingUpdate = PendingUpdate(snapshot(newMedia), preserveScroll, isCurrent, onCommitted, ++diffGeneration,
             diagnosticRequestId, diagnosticsEnabled, updateReason, effectiveSorting,
             android.os.SystemClock.elapsedRealtime(),
-            diagnosticSnapshotVersion, diagnosticSnapshotStage)
+            diagnosticSnapshotVersion, diagnosticSnapshotStage,
+            diagnosticSubmission = if (diagnosticsEnabled) AdapterSubmission(
+                diagnosticId(), diffGeneration, diagnosticTraceId
+            ) else null)
+        pendingUpdate?.let { logAdapterObservation(it, "adapter_update_submitted", "submitted") }
         recyclerView.removeCallbacks(drainUpdates)
         submitPendingUpdate()
     }
@@ -786,6 +810,7 @@ class MediaAdapter(
     private fun submitPendingUpdate() {
         val pending = pendingUpdate ?: return
         if (!canCommit(pending)) {
+            logAdapterObservation(pending, "adapter_update_skipped", "stale_or_detached")
             pendingUpdate = null
             return
         }
@@ -817,6 +842,7 @@ class MediaAdapter(
                 )
             restoreRefreshScroll(pending)
             logUpdate(pending, "adapter_snapshot_fast_commit", "same_content")
+            logAdapterCommit(pending, AdapterCommitKind.NO_OP)
             pending.committed()
             return
         }
@@ -832,6 +858,7 @@ class MediaAdapter(
             notifyItemRangeInserted(oldCount, incoming.size - oldCount)
             restoreRefreshScroll(pending)
             logUpdate(pending, "adapter_snapshot_fast_commit", "append", oldCount)
+            logAdapterCommit(pending, AdapterCommitKind.APPEND)
             pending.committed()
             return
         }
@@ -879,6 +906,7 @@ class MediaAdapter(
                 logUpdate(pending, "adapter_diff_finished", if (result.isSuccess) "diff" else "failed_or_cancelled",
                     old.size, diffMs = diffFinished - diffStarted)
                 if (pending.generation != diffGeneration || !canCommit(pending)) {
+                    logAdapterObservation(pending, "adapter_update_skipped", "stale_diff")
                     if (pending.diagnosticsEnabled)
                         org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
                             org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_diff_dropped",
@@ -911,6 +939,7 @@ class MediaAdapter(
                 if (selectedKeys.isEmpty()) finishActMode() else actMode?.invalidate()
                 listener?.updateMediaGridDecoration(media)
                 diff.dispatchUpdatesTo(this)
+                logAdapterCommit(pending, AdapterCommitKind.DIFF)
                 if (pending.diagnosticsEnabled)
                     org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
                         org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_commit",
@@ -966,6 +995,7 @@ class MediaAdapter(
                     "diffGeneration" to pending.generation, "adapterId" to System.identityHashCode(this))
             )
         logUpdate(pending, "adapter_snapshot_fast_commit", "reorder")
+        logAdapterCommit(pending, AdapterCommitKind.REORDER)
         pending.committed()
     }
 
@@ -983,6 +1013,7 @@ class MediaAdapter(
         listener?.updateMediaGridDecoration(media)
         notifyDataSetChanged()
         logUpdate(pending, "adapter_snapshot_fast_commit", "replace", oldCount)
+        logAdapterCommit(pending, AdapterCommitKind.REPLACE)
         restoreRefreshScroll(pending)
         pending.committed()
     }
@@ -1037,6 +1068,53 @@ class MediaAdapter(
             !fastScrollActive && version == committedVersion && canCommit(pending) &&
                 recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE
         })
+    }
+
+    private fun diagnosticId(): Long {
+        if (diagnosticAdapterId == 0L) diagnosticAdapterId = DiagnosticSequence.next()
+        return diagnosticAdapterId
+    }
+
+    internal fun logInitialSnapshot(request: Long?, traceId: Long?) {
+        if (!GalleryDiagnosticLogger.isEnabled()) return
+        diagnosticGridRequest = traceId
+        GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", "adapter_initial_snapshot", traceId,
+            mapOf("adapterId" to diagnosticId(), "adapterVersion" to committedVersion,
+                "requestGeneration" to request, "itemCount" to media.size))
+    }
+
+    private fun logAdapterCommit(pending: PendingUpdate, kind: AdapterCommitKind) {
+        diagnosticGridRequest = pending.diagnosticSubmission?.requestId
+        logAdapterObservation(pending, "adapter_update_committed", kind.name, kind.visibleListChanged)
+    }
+
+    private fun logAdapterObservation(pending: PendingUpdate, event: String, strategy: String,
+                                      visibleListChanged: Boolean? = null) {
+        val submission = pending.diagnosticSubmission ?: return
+        if (!GalleryDiagnosticLogger.isEnabled()) return
+        GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", event, submission.requestId,
+            mapOf("adapterId" to submission.adapterId, "diffGeneration" to submission.generation,
+                "adapterVersion" to committedVersion, "requestGeneration" to pending.requestId,
+                "itemCount" to pending.items.size, "strategy" to strategy, "visibleListChanged" to visibleListChanged,
+                "snapshotVersion" to pending.snapshotVersion, "snapshotStage" to pending.snapshotStage,
+                "elapsedMs" to (android.os.SystemClock.elapsedRealtime() - pending.submittedAt)))
+    }
+
+    private fun logVisibleDrawable(image: ImageView, medium: Medium, key: Any, event: String, reason: String) {
+        if (!GalleryDiagnosticLogger.isEnabled() || !image.isAttachedToWindow || !image.isShown ||
+            recyclerView.windowVisibility != View.VISIBLE) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - diagnosticSampleWindow >= 1_000L) {
+            diagnosticSampleWindow = now
+            diagnosticSamples = 0
+        }
+        if (diagnosticSamples >= 8 || !image.getLocalVisibleRect(android.graphics.Rect())) return
+        diagnosticSamples++
+        GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", event, diagnosticGridRequest,
+            mapOf("adapterId" to diagnosticId(), "adapterVersion" to committedVersion,
+                "holderId" to System.identityHashCode(image), "reason" to reason,
+                "mediaId" to GalleryDiagnosticLogger.anonymousId(medium.path),
+                "drawableKeyId" to GalleryDiagnosticLogger.anonymousId(key.toString())))
     }
 
     private fun logUpdate(pending: PendingUpdate, event: String, strategy: String, oldCount: Int = media.size,
@@ -1226,6 +1304,7 @@ class MediaAdapter(
                 Picasso.get().cancelRequest(mediumThumbnail)
                 Glide.with(activity).clear(mediumThumbnail)
                 mediumThumbnail.setImageDrawable(null)
+                logVisibleDrawable(mediumThumbnail, medium, requestKey, "visible_drawable_cleared", "binding_key_changed")
                 mediumThumbnail.tag = path
                 OxygenThumbnailPlaceholder.apply(activity, mediumThumbnail, roundedCorners)
                 mediumThumbnail.scaleType = if (cropThumbnails) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
@@ -1246,6 +1325,7 @@ class MediaAdapter(
                             if (mediumThumbnail.getTag(R.id.thumbnail_request_key) == requestKey &&
                                 mediumThumbnail.drawable != null) {
                                 mediumThumbnail.setTag(R.id.thumbnail_loaded_key, requestKey)
+                                logVisibleDrawable(mediumThumbnail, medium, requestKey, "visible_drawable_ready", "current_load")
                                 onThumbnailLoaded?.invoke(medium.path, mediumThumbnail)
                             }
                         }
