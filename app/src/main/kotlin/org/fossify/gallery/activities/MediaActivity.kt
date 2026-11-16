@@ -441,6 +441,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val useFrameCommit = Build.VERSION.SDK_INT >= 29 && grid.isHardwareAccelerated
         var awaitingCommit = false
         var frameFields: Map<String, Any?>? = null
+        var layerFields: Map<String, Any?>? = null
 
         val afterDraw = Runnable {
             if (!isViewerReturnCurrent(request) || launch != viewerReturnLaunch ||
@@ -450,12 +451,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             request.firstFrameReported = true
             request.stopObservingFirstFrame?.invoke()
             ViewerReturnDiagnostics.event(request.requestId, "grid_first_return_frame") { fields }
+            ViewerReturnDiagnostics.event(request.requestId, "grid_first_return_layers") { layerFields.orEmpty() }
         }
 
         val preDraw = ViewTreeObserver.OnPreDrawListener {
             if (!awaitingCommit && isViewerReturnCurrent(request)) {
                 awaitingCommit = true
                 frameFields = null
+                layerFields = null
                 if (Build.VERSION.SDK_INT >= 29) observer.registerFrameCommitCallback(afterDraw)
             }
             true
@@ -488,6 +491,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 "sourceAlpha" to source?.alpha,
                 "sourceTransitionAlpha" to source?.takeIf { Build.VERSION.SDK_INT >= 29 }?.transitionAlpha,
                 "sourceAttached" to source?.isAttachedToWindow,
+            )
+            layerFields = mapOf(
+                "launchId" to launch,
+                "thumbnail" to ViewerEntryDiagnostics.viewState(image),
+                "holder" to ViewerEntryDiagnostics.viewState(target.holder.itemView),
+                "grid" to ViewerEntryDiagnostics.viewState(grid),
+                "root" to ViewerEntryDiagnostics.viewState(binding.root),
+                "decor" to ViewerEntryDiagnostics.viewState(window.decorView),
             )
             if (!useFrameCommit) albumTransitionHandler.post(afterDraw)
         }
@@ -539,6 +550,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             "version" to target.position.version,
                             "scaleType" to target.image.scaleType,
                             "matrix" to target.image.imageMatrix.toShortString(),
+                            "boundsOnScreen" to target.bounds.toShortString(),
+                            "visibleOnScreen" to ViewerReturnDiagnostics.visibleOnScreen(target.image),
+                            "drawableSize" to ViewerReturnDiagnostics.drawableSize(target.image),
                         )
                     }
                     endViewerReturn("target_drawn")
@@ -4335,18 +4349,22 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 }
 
                 override fun onSharedElementStart(names: MutableList<String>, elements: MutableList<View>, snapshots: MutableList<View>) {
-                    logReturnCapture("grid_capture_start", elements, snapshots.size)
+                    logReturnCapture("grid_capture_start", elements, snapshots)
                 }
 
                 override fun onSharedElementEnd(names: MutableList<String>, elements: MutableList<View>, snapshots: MutableList<View>) {
-                    logReturnCapture("grid_capture_end", elements, snapshots.size)
+                    logReturnCapture("grid_capture_end", elements, snapshots)
                 }
 
-                private fun logReturnCapture(event: String, elements: List<View>, snapshotSlots: Int) {
+                private fun logReturnCapture(event: String, elements: List<View>, snapshots: List<View>) {
                     val request = viewerReturn?.takeIf { returnLaunch == viewerReturnLaunch } ?: return
                     ViewerReturnDiagnostics.event(request.requestId, event) {
                         val image = request.target?.image?.takeIf { target -> elements.any { it === target } }
-                        ViewerReturnDiagnostics.thumbnailState(image) + mapOf("snapshotSlots" to snapshotSlots,
+                        val snapshot = snapshots.firstOrNull()
+                        ViewerReturnDiagnostics.thumbnailState(image) + mapOf(
+                            "launchId" to returnLaunch, "snapshotSlots" to snapshots.size,
+                            "snapshot" to ViewerEntryDiagnostics.viewState(snapshot),
+                            "snapshotDrawable" to (snapshot as? ImageView)?.drawable?.javaClass?.simpleName,
                             "bounds" to image?.let { "${it.left},${it.top},${it.right},${it.bottom}" },
                             "scaleType" to image?.scaleType, "matrix" to image?.imageMatrix?.toShortString())
                     }

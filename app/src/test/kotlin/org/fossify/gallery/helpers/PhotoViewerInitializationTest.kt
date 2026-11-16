@@ -211,12 +211,81 @@ class PhotoViewerInitializationTest {
 
         fixture.set("finishAfterSharedTransitionInProgress", true)
         fixture.set("mediaTransitionRunning", true)
-        fixture.set("returnViewerLayerProgress", .4f)
+        fixture.set("returnSystemBarProgress", .4f)
         fixture.call("renderSharedReturnProgress", args = arrayOf(.5f))
         fixture.call("renderPhotoTransitionProgress", args = arrayOf(entry, 1f))
         fixture.call("onSharedEntryTerminal", args = arrayOf(entry, true))
-        assertEquals(.2f, fixture.binding.viewerTransitionScrim.alpha, 0f)
+        assertEquals(.5f, fixture.binding.viewerTransitionScrim.alpha, 0f)
+        assertEquals(.2f, fixture.field("viewerSystemBarProgress") as Float, 0f)
         assertTrue(fixture.activity.isMediaTransitionRunning())
+    }
+
+    @Test fun ordinaryCloseCoversGridUntilThePlatformReturnStarts() {
+        val fixture = EntryFixture()
+        fixture.setPhoto()
+        fixture.set("mediaTransitionRunning", false)
+        fixture.set("photoSharedElementMapped", true)
+        fixture.call("renderSharedViewerLayers", args = arrayOf(1f))
+        fixture.call("restoreBlackViewerCanvas")
+
+        fixture.activity.finishAfterTransition()
+
+        assertTrue(fixture.field("finishAfterSharedTransitionInProgress") as Boolean)
+        assertBackground(fixture.activity.window.decorView, Color.TRANSPARENT)
+        assertEquals(View.VISIBLE, fixture.binding.viewerTransitionScrim.visibility)
+        assertEquals(1f, fixture.binding.viewerTransitionScrim.alpha, 0f)
+        fixture.call("renderSharedReturnProgress", args = arrayOf(.5f))
+        assertEquals(.5f, fixture.binding.viewerTransitionScrim.alpha, 0f)
+    }
+
+    @Test fun continuousDragKeepsGridCoveredThroughTheCommittedReturnHandshake() {
+        val fixture = EntryFixture()
+        val photo = fixture.setPhoto()
+        fixture.set("mediaTransitionRunning", false)
+        fixture.set("photoSharedElementMapped", true)
+        val scrim = fixture.binding.viewerTransitionScrim
+
+        fixture.activity.photoDismissProgress(.4f, 0f, 150f)
+
+        assertBackground(fixture.activity.window.decorView, Color.TRANSPARENT)
+        assertEquals(1f, scrim.alpha, 0f)
+        assertEquals(.6f, fixture.field("viewerSystemBarProgress") as Float, 0f)
+        assertEquals(.6f, fixture.binding.mediumViewerAppbar.alpha, 0f)
+        val surface = fixture.field("interactivePhotoSurface") as View
+        assertEquals(150f, surface.translationY, .01f)
+
+        fixture.activity.photoDismissSettled(dismiss = true)
+
+        assertTrue(fixture.field("finishAfterSharedTransitionInProgress") as Boolean)
+        assertSame(surface, fixture.field("sharedReturnView"))
+        assertSame(photo.binding.root, surface.parent)
+        assertEquals(150f, surface.translationY, .01f)
+        assertEquals(1f, scrim.alpha, 0f)
+        assertEquals(.6f, fixture.field("viewerSystemBarProgress") as Float, 0f)
+        assertEquals(.6f, fixture.binding.mediumViewerAppbar.alpha, 0f)
+        fixture.call("renderSharedReturnProgress", args = arrayOf(.5f))
+        assertEquals(.5f, scrim.alpha, 0f)
+        assertEquals(.3f, fixture.field("viewerSystemBarProgress") as Float, 0f)
+        assertEquals(.3f, fixture.binding.mediumViewerAppbar.alpha, 0f)
+    }
+
+    @Test fun interruptedDragAndCancelKeepTheGridCovered() {
+        val fixture = EntryFixture()
+        fixture.setPhoto()
+        fixture.set("mediaTransitionRunning", false)
+
+        fixture.activity.photoDismissProgress(.4f, 0f, 150f)
+        fixture.activity.photoDismissSettled(dismiss = false)
+        assertEquals(.4f, fixture.activity.photoDismissGestureBegin()!!, 0f)
+        fixture.activity.photoDismissProgress(.45f, 0f, 25f)
+        assertEquals(1f, fixture.binding.viewerTransitionScrim.alpha, 0f)
+
+        fixture.activity.photoDismissSettled(dismiss = false)
+        val settle = fixture.field("interactivePhotoSettleAnimator") as android.animation.ValueAnimator
+        settle.end()
+        assertEquals(View.GONE, fixture.binding.viewerTransitionScrim.visibility)
+        assertBackground(fixture.activity.window.decorView, Color.BLACK)
+        assertEquals(1f, fixture.field("viewerSystemBarProgress") as Float, 0f)
     }
 
     @Test fun sharedReturnFadesFromTheChromeAlreadyOnScreen() {
@@ -460,7 +529,7 @@ class PhotoViewerInitializationTest {
             viewer.traceEntryCanvas("resume")
             val returnFixture = EntryFixture()
             returnFixture.set("viewerReturnId", request)
-            returnFixture.set("returnViewerLayerProgress", .8f)
+            returnFixture.set("returnSystemBarProgress", .8f)
             returnFixture.call("renderSharedReturnLayers", args = arrayOf(1f))
             returnFixture.set("finishAfterSharedTransitionInProgress", true)
             returnFixture.call("renderSharedReturnProgress", args = arrayOf(0f))
@@ -480,7 +549,7 @@ class PhotoViewerInitializationTest {
             assertTrue(canvas.any { "checkpoint=create" in it && "window=00000000/0" in it })
             assertTrue(canvas.any { "checkpoint=resume" in it && "window=ff000000/255" in it })
             val fade = exported.lineSequence().single { "event=viewer_return_scrim_fade " in it }
-            assertTrue("request=$request " in fade && "fromAlpha=0.8" in fade && "alpha=0.4" in fade)
+            assertTrue("request=$request " in fade && "fromAlpha=1.0" in fade && "alpha=0.5" in fade)
             assertFalse(exported.contains("/storage"))
             assertFalse(exported.contains("mediaPath="))
         } finally {

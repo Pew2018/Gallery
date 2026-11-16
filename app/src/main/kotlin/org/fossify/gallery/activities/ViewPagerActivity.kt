@@ -263,8 +263,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         renderSharedViewerCanvas(progress)
     }
 
-    private fun renderSharedViewerCanvas(progress: Float) {
-        binding.viewerTransitionScrim.alpha = progress
+    private fun renderSharedViewerCanvas(progress: Float, scrimAlpha: Float = progress) {
+        binding.viewerTransitionScrim.alpha = scrimAlpha
         if (viewerSystemBarProgress != progress) {
             viewerSystemBarProgress = progress
             updateViewerSystemBars()
@@ -313,7 +313,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun renderSharedReturnLayers(remaining: Float) {
         val previousAlpha = binding.viewerTransitionScrim.alpha
-        renderSharedViewerCanvas(returnViewerLayerProgress * remaining)
+        renderSharedViewerCanvas(returnSystemBarProgress * remaining, scrimAlpha = remaining)
         returnOverlayAlphas.forEach { (view, alpha) -> view.alpha = alpha * remaining }
         val alpha = binding.viewerTransitionScrim.alpha
         if (finishAfterSharedTransitionInProgress && !sharedReturnScrimFadeReported && alpha < previousAlpha &&
@@ -345,6 +345,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 "launchId" to intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L),
                 "proxyBounds" to proxy?.let(::mappedTransitionSurfaceBounds)?.toShortString(),
                 "proxyAlpha" to proxy?.alpha,
+                "proxyVisibleOnScreen" to proxy?.let(ViewerReturnDiagnostics::visibleOnScreen),
+                "proxyDrawableSize" to ViewerReturnDiagnostics.drawableSize(proxy as? ImageView),
                 "proxyScaleType" to (proxy as? ImageView)?.scaleType,
                 "proxyMatrix" to (proxy as? ImageView)?.imageMatrix?.toShortString())
         }
@@ -396,7 +398,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         surface.scaleY = scale
         surface.translationX = interactivePhotoDeltaXSlope * p
         surface.translationY = interactivePhotoDeltaYSlope * p
-        renderSharedViewerLayers(1f - p)
+        // The grid still shows the launch viewport during a drag. It can only
+        // position the selected target once the platform starts reentry.
+        setSharedChromeAlpha(1f - p)
+        renderSharedViewerCanvas(1f - p, scrimAlpha = 1f)
         interactivePhotoProgress = p
     }
 
@@ -452,6 +457,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             surface.setLayerType(View.LAYER_TYPE_HARDWARE, null)
             binding.viewerTransitionScrim.setBackgroundColor(Color.BLACK)
             binding.viewerTransitionScrim.visibility = View.VISIBLE
+            binding.viewerTransitionScrim.alpha = 1f
             interactivePhotoSurface = surface
             interactivePhotoDragActive = true
             interactivePhotoGestureBaseX = 0f
@@ -594,7 +600,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var photoSharedElementMapped = false
     private var photoSharedElementFadeFallback = false
     private var finishAfterSharedTransitionInProgress = false
-    private var returnViewerLayerProgress = 1f
+    private var returnSystemBarProgress = 1f
     private var viewerReturnId = 0L
     private var sharedReturnView: View? = null
     private var sharedReturnPage: ViewPagerFragment? = null
@@ -1298,15 +1304,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         photoSharedElementPath = returnPath
         sharedReturnView = proxy
         sharedReturnPage = page
-        // Cover the canvas during the grid handshake, retaining a committed drag's opacity.
-        returnViewerLayerProgress = viewerSystemBarProgress
+        // Keep the grid covered until the platform shared return runs. Continue
+        // fading the bars and chrome from the committed drag's current progress.
+        returnSystemBarProgress = viewerSystemBarProgress
         binding.viewerTransitionScrim.setBackgroundColor(Color.BLACK)
         binding.viewerTransitionScrim.visibility = View.VISIBLE
         takeOverReturnChrome(page)
         renderSharedReturnLayers(1f)
         ViewerReturnDiagnostics.event(viewerReturnId, "viewer_return_scrim_armed") {
             mapOf("launchId" to intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L),
-                "alpha" to binding.viewerTransitionScrim.alpha)
+                "alpha" to binding.viewerTransitionScrim.alpha,
+                "systemBarProgress" to returnSystemBarProgress,
+                "dragProgress" to interactivePhotoProgress)
         }
         setSharedTransitionCanvasTransparent()
         mediaTransitionRunning = true

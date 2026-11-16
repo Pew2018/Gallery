@@ -1,7 +1,9 @@
 package org.fossify.gallery.helpers
 
+import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.view.View
 import android.widget.ImageView
@@ -24,6 +26,8 @@ internal object ViewerEntryDiagnostics {
     fun backgroundState(drawable: Drawable?): String? = when (drawable) {
         null -> null
         is ColorDrawable -> "%08x/%d".format(drawable.color, drawable.alpha)
+        is GradientDrawable -> drawable.color?.let { "GradientDrawable/%08x/%d".format(it.defaultColor, drawable.alpha) }
+            ?: "GradientDrawable/${drawable.alpha}"
         else -> "${drawable.javaClass.simpleName}/${drawable.alpha}"
     }
 
@@ -49,6 +53,19 @@ internal object ViewerReturnDiagnostics {
                 android.graphics.Rect().takeIf(view::getGlobalVisibleRect)?.toShortString()
             },
         )
+    }
+
+    // View-hierarchy clipping in screen coordinates. The compositor may present a different frame.
+    fun visibleOnScreen(view: View): String? {
+        val clip = Rect()
+        if (!view.getGlobalVisibleRect(clip)) return null
+        val origin = IntArray(2).also(view.rootView::getLocationOnScreen)
+        clip.offset(origin[0], origin[1])
+        return clip.toShortString()
+    }
+
+    fun drawableSize(image: ImageView?): String? = image?.drawable?.let {
+        "${it.intrinsicWidth}x${it.intrinsicHeight}"
     }
 
     inline fun event(request: Long, event: String, fields: () -> Map<String, Any?> = { emptyMap() }) {
