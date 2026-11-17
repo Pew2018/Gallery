@@ -10,9 +10,13 @@ import android.os.Build
 import android.os.Environment
 import android.os.SystemClock
 import android.util.Log
+import android.widget.CheckBox
 import android.widget.ImageView
+import android.view.View
+import android.view.inspector.WindowInspector
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
 import org.fossify.commons.views.MyRecyclerView
 import org.fossify.gallery.R
@@ -21,6 +25,7 @@ import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.mediaDB
 import org.fossify.gallery.helpers.DIRECTORY
 import org.fossify.gallery.helpers.TYPE_IMAGES
+import org.fossify.gallery.helpers.TYPE_VIDEOS
 import org.fossify.gallery.models.Medium
 import org.junit.Assert.*
 import org.junit.Test
@@ -34,13 +39,14 @@ class ThumbnailFastScrollTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context = instrumentation.targetContext
 
-    @Test fun stableGridsRecoverAfterColdJumpsAndWarmReversals() {
+    private fun grantMediaAccess() {
         val permissions = if (Build.VERSION.SDK_INT >= 33) {
             listOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
         } else {
             listOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
-        permissions.forEach { instrumentation.uiAutomation.grantRuntimePermission(context.packageName, it) }
+        val required = if (Build.VERSION.SDK_INT >= 30) permissions + Manifest.permission.ACCESS_MEDIA_LOCATION else permissions
+        required.forEach { instrumentation.uiAutomation.grantRuntimePermission(context.packageName, it) }
         if (Build.VERSION.SDK_INT >= 30) {
             val command = "appops set ${context.packageName} MANAGE_EXTERNAL_STORAGE allow"
             android.os.ParcelFileDescriptor.AutoCloseInputStream(
@@ -48,6 +54,10 @@ class ThumbnailFastScrollTest {
             ).use { it.readBytes() }
             assertTrue(Environment.isExternalStorageManager())
         }
+    }
+
+    @Test fun stableGridsRecoverAfterColdJumpsAndWarmReversals() {
+        grantMediaAccess()
         val previousShowAll = context.config.showAll
         val previousFilter = context.config.filterMedia
         try {
@@ -58,6 +68,117 @@ class ThumbnailFastScrollTest {
         } finally {
             context.config.showAll = previousShowAll
             context.config.filterMedia = previousFilter
+        }
+    }
+
+    @SdkSuppress(minSdkVersion = 29)
+    @Test fun filtering3080To288KeepsTheVideoGridAndReloadsAuthority() {
+        grantMediaAccess()
+        val previousShowAll = context.config.showAll
+        val previousFilter = context.config.filterMedia
+        val folder = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+            "GalleryFilterStageR-${UUID.randomUUID()}")
+        assertTrue(folder.mkdirs())
+        try {
+            context.config.showAll = false
+            context.config.filterMedia = TYPE_IMAGES or TYPE_VIDEOS
+            File(folder, ".nomedia").createNewFile()
+            val photo = jpeg(Color.RED)
+            val video = instrumentation.context.assets.open("gallery-landscape.mp4").use { it.readBytes() }
+            repeat(2792) { File(folder, "image-$it.jpg").writeBytes(photo) }
+            repeat(288) { File(folder, "video-$it.mp4").writeBytes(video) }
+
+            val activity = instrumentation.startActivitySync(Intent(context, MediaActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra(DIRECTORY, folder.path)) as MediaActivity
+            try {
+                val grid = activity.findViewById<MyRecyclerView>(R.id.media_grid)
+                val complete = MediaActivity::class.java.getDeclaredField("displayedMediaIsFinal").apply { isAccessible = true }
+                val showFilter = MediaActivity::class.java.getDeclaredMethod("showFilterMediaDialog").apply { isAccessible = true }
+                assertTrue("Initial complete mixed folder", await(30_000) {
+                    complete.getBoolean(activity) && (grid.adapter as? MediaAdapter)
+                        ?.media?.count { it is Medium } == 3080
+                })
+                val adapter = grid.adapter as MediaAdapter
+                val firstVideo = adapter.media.indexOfFirst { it is Medium && it.type == TYPE_VIDEOS }
+                assertTrue(firstVideo >= 0)
+                instrumentation.runOnMainSync {
+                    (grid.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(firstVideo, 0)
+                }
+                assertTrue("A video thumbnail is loaded before filtering", await(4_000) {
+                    grid.findViewHolderForAdapterPosition(firstVideo)?.itemView
+                        ?.findViewById<ImageView>(R.id.medium_thumbnail)?.getTag(R.id.thumbnail_loaded_key) != null
+                })
+
+                fun filterDialog(): View? = WindowInspector.getGlobalWindowViews().lastOrNull {
+                    it.isShown && it.findViewById<View>(R.id.filter_media_dialog_holder) != null
+                }
+
+                fun toggleImages(): Long {
+                    instrumentation.runOnMainSync { showFilter.invoke(activity) }
+                    assertTrue("Filter dialog is visible", await(3_000) { filterDialog() != null })
+                    var confirmedAt = 0L
+                    instrumentation.runOnMainSync {
+                        val dialog = requireNotNull(filterDialog())
+                        val images = dialog.findViewById<CheckBox>(R.id.filter_media_images)
+                        val previous = images.isChecked
+                        assertTrue((images.parent as View).performClick())
+                        assertEquals(!previous, images.isChecked)
+                        confirmedAt = SystemClock.elapsedRealtime()
+                        assertTrue(dialog.findViewById<View>(android.R.id.button1).performClick())
+                    }
+                    return confirmedAt
+                }
+
+                val started = toggleImages()
+                assertTrue("Filtered view contains only the 288 surviving videos and retains the adapter", await(1_000) {
+                    assertSame(adapter, grid.adapter)
+                    val rows = adapter.media.filterIsInstance<Medium>()
+                    rows.size == 288 && rows.all { it.type == TYPE_VIDEOS }
+                })
+                val projectedMs = SystemClock.elapsedRealtime() - started
+                var visibleCount = 0
+                var loadedCount = 0
+                var halfReadyMs: Long? = null
+                val recovered = await(3_000) {
+                    val visible = (0 until grid.childCount).mapNotNull { index ->
+                        val child = grid.getChildAt(index)
+                        val image = child.findViewById<ImageView>(R.id.medium_thumbnail)
+                        if (image == null || !image.isShown || !image.getLocalVisibleRect(Rect())) null
+                        else adapter.media.getOrNull(grid.getChildAdapterPosition(child)) as? Medium to image
+                    }
+                    visibleCount = visible.size
+                    loadedCount = visible.count { (row, image) ->
+                        val loaded = image.getTag(R.id.thumbnail_loaded_key)
+                        row?.type == TYPE_VIDEOS && image.getTag(R.id.media_bound_path) == row.path &&
+                            loaded != null && loaded === image.getTag(R.id.thumbnail_request_key)
+                    }
+                    if (visibleCount > 0 && loadedCount * 2 >= visibleCount && halfReadyMs == null) {
+                        halfReadyMs = SystemClock.elapsedRealtime() - started
+                    }
+                    visibleCount > 0 && loadedCount == visibleCount
+                }
+                val recoveredMs = SystemClock.elapsedRealtime() - started
+                Log.i("GalleryStageR", "filter3080To288 projectedMs=$projectedMs halfReadyMs=$halfReadyMs " +
+                    "viewportMs=$recoveredMs loadedCount=$loadedCount visibleCount=$visibleCount")
+                assertTrue("Filtered viewport has only matching, loaded thumbnails ($loadedCount/$visibleCount)", recovered)
+                assertTrue("Narrowed scan reaches authoritative completion", await(15_000) {
+                    complete.getBoolean(activity) && adapter.media.count { it is Medium } == 288
+                })
+
+                toggleImages()
+                assertTrue("Broader filter discovers previously excluded rows", await(15_000) {
+                    assertSame(adapter, grid.adapter)
+                    complete.getBoolean(activity) && adapter.media.count { it is Medium } == 3080
+                })
+            } finally {
+                instrumentation.runOnMainSync { activity.finish() }
+                instrumentation.waitForIdleSync()
+            }
+        } finally {
+            context.config.showAll = previousShowAll
+            context.config.filterMedia = previousFilter
+            context.mediaDB.getMediaFromPath(folder.path).forEach { context.mediaDB.deleteMediumPath(it.path) }
+            folder.deleteRecursively()
         }
     }
 
@@ -84,8 +205,13 @@ class ThumbnailFastScrollTest {
                 }
 
                 fun jumpAndMeasure(position: Int): Long {
-                    val start = SystemClock.elapsedRealtime()
+                    instrumentation.runOnMainSync { adapter.setFastScrollActive(true) }
+                    jump(positions[count / 8])
+                    assertTrue(await(1_000) { grid.findViewHolderForAdapterPosition(positions[count / 8]) != null })
                     jump(position)
+                    assertTrue(await(1_000) { grid.findViewHolderForAdapterPosition(position) != null })
+                    val start = SystemClock.elapsedRealtime()
+                    instrumentation.runOnMainSync { adapter.setFastScrollActive(false) }
                     assertTrue("Visible thumbnails after jump to $position/$count", await(3_000) {
                         assertSame(adapter, grid.adapter)
                         assertEquals(version, adapter.committedVersion)

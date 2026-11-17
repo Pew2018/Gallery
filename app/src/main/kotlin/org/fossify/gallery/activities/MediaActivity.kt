@@ -3282,12 +3282,47 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun showFilterMediaDialog() {
-        FilterMediaDialog(this, photoProfile = isPhotoProfiles) {
+        FilterMediaDialog(this, photoProfile = isPhotoProfiles) { filter ->
+            val confirmedAt = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+            org.fossify.gallery.helpers.GalleryPerfTrace.event("media_filter_confirmed")
             mLoadedInitialPhotos = false
             binding.mediaRefreshLayout.isRefreshing = true
-            binding.mediaGrid.adapter = null
-            getMedia()
+            if (!projectCurrentFolderToFilter(filter, confirmedAt)) binding.mediaGrid.adapter = null
+            getMedia(reason = "filter_change")
         }
+    }
+
+    private fun projectCurrentFolderToFilter(filter: Int, confirmedAt: Long): Boolean {
+        val grid = binding.mediaGrid
+        val source = displayedFolderSnapshot ?: return false
+        val read = folderReadResult ?: return false
+        val checkScope = mCurrAsyncTask?.pageAccessCurrentAfterFilterChange ?: return false
+        if (mShowAll || !mPath.startsWith('/') || isPhotoProfiles || mPath == RECYCLE_BIN ||
+            folderUnlockSessionId != null || mIsGetAnyIntent || mIsGetImageIntent || mIsGetVideoIntent ||
+            !displayedMediaIsFinal || mIsGettingMedia || source.stage != DisplayedSourceStage.SCAN_COMPLETE ||
+            source.request != displayedMediaRequest || folderReadRequest != source.request ||
+            read.status != org.fossify.gallery.helpers.FolderReadStatus.COMPLETE || read.method != "direct" ||
+            mLastSearchedText.isNotEmpty() || mCommittedSearchText.isNotEmpty() || getMediaAdapter() == null ||
+            viewerReturn != null || viewerFallbackReturning || mediaFastScrollActive || grid.isComputingLayout) return false
+
+        val access = { config.filterMedia == filter && checkScope() && read.accessCurrent() }
+        if (!access()) return false
+        grid.stopScroll()
+        mediaSearchGeneration++
+        displayedSourceVersion++
+        displayedMediaIsFinal = false
+        displayedFolderSnapshot = DisplayedFolderSnapshot(
+            source.request, displayedSourceVersion, DisplayedSourceStage.SCAN_PARTIAL, access
+        )
+        // The committed catalog proves only these previously visible survivors.
+        // The new scan can find newly included types and publish the authoritative list.
+        mMedia = org.fossify.gallery.helpers.MediaUpdatePolicy.retainMedia(mMedia) { it.type and filter != 0 }
+        var committed = false
+        setupAdapter(MediaUpdateReason.USER_FILTER) {
+            committed = true
+            org.fossify.gallery.helpers.GalleryPerfTrace.end("media_filter_projection_committed", confirmedAt, mMedia.size)
+        }
+        return committed
     }
 
     private fun emptyRecycleBin() {

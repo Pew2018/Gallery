@@ -4,7 +4,7 @@ import org.fossify.gallery.models.Medium
 import org.fossify.gallery.models.ThumbnailItem
 import org.fossify.gallery.models.ThumbnailSection
 
-enum class MediaUpdateReason { SCAN, USER_SORT, USER_SEARCH, DELETE_RESULT }
+enum class MediaUpdateReason { SCAN, USER_SORT, USER_SEARCH, USER_FILTER, DELETE_RESULT }
 
 /** Layout/database identity is not rendered thumbnail content. */
 internal object MediaUpdatePolicy {
@@ -32,12 +32,16 @@ internal object MediaUpdatePolicy {
     /** Remove only confirmed media identities and discard now-empty date headers. */
     fun withoutDeletedPaths(items: List<ThumbnailItem>, deletedPaths: Set<String>): ArrayList<ThumbnailItem> {
         if (deletedPaths.isEmpty()) return ArrayList(items)
+        return retainMedia(items) { it.path !in deletedPaths }
+    }
+
+    fun retainMedia(items: List<ThumbnailItem>, keep: (Medium) -> Boolean): ArrayList<ThumbnailItem> {
         val result = ArrayList<ThumbnailItem>(items.size)
         var pendingSection: ThumbnailSection? = null
         for (item in items) {
             when (item) {
                 is ThumbnailSection -> pendingSection = item
-                is Medium -> if (item.path !in deletedPaths) {
+                is Medium -> if (keep(item)) {
                     pendingSection?.let(result::add)
                     pendingSection = null
                     result.add(item)
@@ -82,6 +86,7 @@ internal object MediaUpdatePolicy {
      * refreshes and small edits retain granular notifications even on huge lists. */
     fun shouldReplace(before: List<ThumbnailItem>, after: List<ThumbnailItem>,
                       reason: MediaUpdateReason, diffRunning: Boolean): Boolean {
+        if (reason == MediaUpdateReason.USER_FILTER) return true
         if (diffRunning && reason in setOf(MediaUpdateReason.USER_SORT, MediaUpdateReason.USER_SEARCH)) return true
         if (maxOf(before.size, after.size) < LARGE_EDIT_WINDOW) return false
         fun identity(item: ThumbnailItem): String = when (item) {

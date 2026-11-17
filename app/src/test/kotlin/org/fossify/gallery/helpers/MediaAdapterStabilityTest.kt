@@ -606,6 +606,8 @@ class MediaAdapterStabilityTest {
         fixture.layout()
         val target = fixture.thumbnail(position, b.path)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(32))
+        // A real traversal measures any asynchronous thumbnail invalidation before pre-draw.
+        fixture.layout()
         fixture.draw()
         assertSame(target, fixture.map())
         assertEquals(b.path, photoScroll.pending?.path)
@@ -1273,6 +1275,76 @@ class MediaAdapterStabilityTest {
         blocked.run()
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         assertEquals(grouped, adapter.media)
+    }
+
+    @Test fun thumbDragOnlyStartsRequestsForTheSettledViewport() = withAdapter { adapter, recycler, tasks ->
+        val layoutManager = recycler.layoutManager as LinearLayoutManager
+        val rows = ArrayList<ThumbnailItem>((0 until 3080).map { item("photo-$it.jpg") })
+        adapter.updateMedia(rows, preserveScroll = false)
+        drain(tasks)
+        val version = adapter.committedVersion
+
+        fun jump(position: Int): ImageView {
+            layoutManager.scrollToPositionWithOffset(position, 0)
+            recycler.measure(View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY))
+            recycler.layout(0, 0, 480, 800)
+            return recycler.findViewHolderForAdapterPosition(position)!!.itemView.findViewById(R.id.medium_thumbnail)
+        }
+        fun request(image: ImageView) = com.bumptech.glide.request.target.DrawableImageViewTarget(image).request
+
+        jump(0)
+        adapter.setFastScrollActive(true)
+        val intermediate = jump(2700)
+        assertNull("Do not submit Glide for a transient thumb position", request(intermediate))
+        val landing = jump(1200)
+        assertNull(request(landing))
+        adapter.setFastScrollActive(false)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(32))
+        assertEquals("/photos/photo-1200.jpg", landing.getTag(R.id.media_bound_path))
+        assertNotNull("Release must start the current visible request", request(landing))
+        adapter.setFastScrollActive(true)
+        val paused = jump(1700)
+        assertNull(request(paused))
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(64))
+        val pausedRequest = request(paused)
+        assertNotNull("A thumb pause still loads its visible viewport", pausedRequest)
+        adapter.setFastScrollActive(false)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(32))
+        assertSame(pausedRequest, request(paused))
+        assertEquals(version, adapter.committedVersion)
+        assertTrue(tasks.isEmpty())
+    }
+
+    @Test fun filterProjectionPreservesTheAttachedSurvivorsDrawable() = withAdapter { adapter, recycler, tasks ->
+        val video = item("retained.mp4").copy(type = TYPE_VIDEOS)
+        val rows = arrayListOf<ThumbnailItem>(video, item("excluded.jpg"))
+        adapter.updateMedia(rows, preserveScroll = false)
+        drain(tasks)
+        fun layout() {
+            recycler.measure(View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY))
+            recycler.layout(0, 0, 480, 800)
+        }
+        layout()
+        val image = recycler.findViewHolderForAdapterPosition(0)!!.itemView.findViewById<ImageView>(R.id.medium_thumbnail)
+        com.bumptech.glide.Glide.with(recycler.context).clear(image)
+        val drawable = ColorDrawable(android.graphics.Color.BLUE)
+        val key = requireNotNull(image.getTag(R.id.thumbnail_request_key))
+        image.setTag(R.id.thumbnail_loaded_key, key)
+        image.setImageDrawable(drawable)
+
+        val filtered = MediaUpdatePolicy.retainMedia(rows) { it.type and TYPE_VIDEOS != 0 }
+        adapter.updateMedia(filtered, updateReason = MediaUpdateReason.USER_FILTER)
+        assertTrue("A filter should publish without queuing DiffUtil", tasks.isEmpty())
+        layout()
+
+        val retained = recycler.findViewHolderForAdapterPosition(0)!!.itemView.findViewById<ImageView>(R.id.medium_thumbnail)
+        assertSame(adapter, recycler.adapter)
+        assertEquals(listOf(video), adapter.media)
+        assertEquals(video.path, retained.getTag(R.id.media_bound_path))
+        assertSame(key, retained.getTag(R.id.thumbnail_request_key))
+        assertSame(drawable, retained.drawable)
     }
 
     @Test fun distantVisibleHoldersStartWithHighPriorityWithoutAListUpdate() = withAdapter { adapter, recycler, tasks ->

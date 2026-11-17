@@ -91,6 +91,8 @@ internal class GetMediaAsynctask(
         private set
     internal var pageAccessCurrent: (() -> Boolean)? = null
         private set
+    internal var pageAccessCurrentAfterFilterChange: (() -> Boolean)? = null
+        private set
     private var sortingMetadataRefreshRequired = false
         private set
     /** Captured before cache fallback/group headers; never use an Adapter for directory counts. */
@@ -238,11 +240,16 @@ internal class GetMediaAsynctask(
         }
 
         val access = if (progressivePage) DirectoryAccessState.capture(context) else null
-        fun accessCurrent() = runCatching {
-            (access == null || access == DirectoryAccessState.capture(context)) &&
-                (folderSessionId == null || FolderUnlockSessionManager.isActive(folderSessionId))
+        fun accessCurrent(ignoreMediaTypeFilter: Boolean = false) = runCatching {
+            val sameAccess = access == null || DirectoryAccessState.capture(context).let { current ->
+                (if (ignoreMediaTypeFilter) access.copy(filter = current.filter) else access) == current
+            }
+            sameAccess && (folderSessionId == null || FolderUnlockSessionManager.isActive(folderSessionId))
         }.getOrDefault(false)
-        if (progressivePage) pageAccessCurrent = ::accessCurrent
+        if (progressivePage) {
+            pageAccessCurrent = { accessCurrent() }
+            pageAccessCurrentAfterFilterChange = { accessCurrent(ignoreMediaTypeFilter = true) }
+        }
         val visibility = MediaPageVisibility(context, showAll, ::folderAllowed)
         if (ordinaryFolder && !folderAllowed(java.io.File(mPath, "access-probe").path)) {
             throw SecurityException("Folder authorization required")

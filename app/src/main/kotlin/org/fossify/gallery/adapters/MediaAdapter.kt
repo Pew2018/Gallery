@@ -279,7 +279,7 @@ class MediaAdapter(
     override fun onViewAttachedToWindow(holder: ViewHolder) {
         super.onViewAttachedToWindow(holder)
         val image = holder.itemView.findViewById<ImageView>(R.id.medium_thumbnail) ?: return
-        thumbnailLoad(image)?.start(Priority.HIGH)
+        if (!fastScrollActive) thumbnailLoad(image)?.start(Priority.HIGH)
     }
 
     override fun onViewRecycled(holder: ViewHolder) {
@@ -745,7 +745,13 @@ class MediaAdapter(
     private var viewerReturnPublicationHeld = false
     private var lastDeferredGeneration = -1
     private val drainUpdates = Runnable { submitPendingUpdate() }
+    private val admitThumbViewport = Runnable { startPendingVisibleThumbnails() }
+    private var thumbAdmissionAfterLayout: androidx.core.view.OneShotPreDrawListener? = null
     private val scrollUpdates = object : RecyclerView.OnScrollListener() {
+        override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+            if (fastScrollActive) waitForThumbViewport()
+        }
+
         override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
             if (newState == RecyclerView.SCROLL_STATE_DRAGGING) refreshScroll.clear()
             if (newState != RecyclerView.SCROLL_STATE_DRAGGING) {
@@ -1052,12 +1058,66 @@ class MediaAdapter(
 
     /** A thumb drag can leave RecyclerView.scrollState idle while scrollBy() moves it. */
     fun setFastScrollActive(active: Boolean, submitPending: Boolean = true) {
+        val wasActive = fastScrollActive
         fastScrollActive = active
+        if (wasActive != active && GalleryDiagnosticLogger.isEnabled()) {
+            GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", "thumbnail_thumb_state",
+                diagnosticGridRequest, mapOf("adapterId" to diagnosticId(), "adapterVersion" to committedVersion,
+                    "active" to active, "scrollState" to recyclerView.scrollState))
+        }
         if (active) {
             refreshScroll.clear()
             recyclerView.removeCallbacks(drainUpdates)
-        } else if (submitPending) {
-            submitPendingUpdate()
+            thumbAdmissionAfterLayout?.removeListener()
+            thumbAdmissionAfterLayout = null
+            waitForThumbViewport()
+        } else {
+            if (submitPending) submitPendingUpdate()
+            if (wasActive) {
+                recyclerView.removeCallbacks(admitThumbViewport)
+                // Let a pending list commit and its layout choose the final set of holders.
+                recyclerView.postOnAnimation(admitThumbViewport)
+            }
+        }
+    }
+
+    private fun waitForThumbViewport() {
+        recyclerView.removeCallbacks(admitThumbViewport)
+        // Allow previews when the thumb pauses, while coalescing consecutive positions.
+        recyclerView.postDelayed(admitThumbViewport, THUMB_VIEWPORT_QUIET_MS)
+    }
+
+    private fun startPendingVisibleThumbnails() {
+        if (recyclerView.adapter !== this || activity.isFinishing || activity.isDestroyed) return
+        if (recyclerView.isLayoutRequested && recyclerView.hasPendingAdapterUpdates()) {
+            // No work may escape into the previous viewport before the queued layout.
+            if (!fastScrollActive && thumbAdmissionAfterLayout == null) {
+                thumbAdmissionAfterLayout = androidx.core.view.OneShotPreDrawListener.add(recyclerView) {
+                    thumbAdmissionAfterLayout = null
+                    if (!fastScrollActive) startPendingVisibleThumbnails()
+                }
+            }
+            return
+        }
+        val bounds = android.graphics.Rect()
+        var started = 0
+        for (index in 0 until recyclerView.childCount) {
+            val child = recyclerView.getChildAt(index)
+            val image = child.findViewById<ImageView>(R.id.medium_thumbnail) ?: continue
+            val load = thumbnailLoad(image) ?: continue
+            val position = recyclerView.getChildAdapterPosition(child)
+            val row = media.getOrNull(position) as? Medium ?: continue
+            if (load.pending != null && image.getTag(R.id.media_bound_path) == row.path &&
+                image.getTag(R.id.thumbnail_request_key) === load.token &&
+                image.isShown && image.getLocalVisibleRect(bounds)) {
+                load.start(Priority.HIGH)
+                started++
+            }
+        }
+        if (GalleryDiagnosticLogger.isEnabled()) {
+            GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", "thumbnail_viewport_admitted",
+                diagnosticGridRequest, mapOf("adapterId" to diagnosticId(), "adapterVersion" to committedVersion,
+                    "phase" to if (fastScrollActive) "THUMB_PAUSE" else "THUMB_RELEASE", "started" to started))
         }
     }
 
@@ -1289,6 +1349,10 @@ class MediaAdapter(
         ++diffGeneration
         pendingUpdate = null
         recyclerView.removeCallbacks(drainUpdates)
+        recyclerView.removeCallbacks(admitThumbViewport)
+        thumbAdmissionAfterLayout?.removeListener()
+        thumbAdmissionAfterLayout = null
+        fastScrollActive = false
         recyclerView.removeOnScrollListener(scrollUpdates)
         durationOverrides.clear()
         refreshScroll.clear()
@@ -1468,8 +1532,9 @@ class MediaAdapter(
                     )
                 }
                 // RecyclerView binds distant landing positions before its visible range updates.
-                // Keep near/initial high-priority work, but defer other holders until attachment.
-                if (mediumThumbnail.isAttachedToWindow || thumbnailPriority == Priority.HIGH) {
+                // Keep near/initial high-priority work outside a moving thumb gesture.
+                // Other holders start when attached or admitted with the settled thumb viewport.
+                if (!fastScrollActive && (mediumThumbnail.isAttachedToWindow || thumbnailPriority == Priority.HIGH)) {
                     load.start(Priority.HIGH)
                 }
             }
@@ -1510,4 +1575,8 @@ class MediaAdapter(
             }
         }
     }
+    private companion object {
+        const val THUMB_VIEWPORT_QUIET_MS = 48L
+    }
+
 }
