@@ -106,6 +106,31 @@ internal class GetMediaAsynctask(
     /** Non-null only when a public single-folder scan was stable at start and completion. */
     internal var folderCatalogCheckpoint: FolderReturnCheckpoint? = null
         private set
+    @Volatile internal var viewerScanCheckpoint: FolderReturnCheckpoint? = null
+        private set
+    @Volatile private var viewerFolderObservation: org.fossify.gallery.helpers.FolderScanObservation? = null
+    internal val viewerFolderUnchanged get() = viewerFolderObservation?.unchanged == true
+
+    private fun observeViewerFolder() {
+        if (isCancelled || mediaFetcher.shouldStop) return
+        val checkpoint = FolderReturnCheckpoint.captureForViewerScan(context, mPath) ?: return
+        val observation = runCatching {
+            org.fossify.gallery.helpers.FolderScanObservation(java.io.File(checkpoint.canonicalFolder))
+        }.getOrNull() ?: return
+        synchronized(this) {
+            if (isCancelled || mediaFetcher.shouldStop) {
+                observation.stop()
+            } else {
+                viewerFolderObservation = observation
+                viewerScanCheckpoint = checkpoint
+            }
+        }
+    }
+
+    @Synchronized internal fun stopWatchingViewerFolder() {
+        viewerFolderObservation?.stop()
+        viewerFolderObservation = null
+    }
     @Volatile var favoriteRelationshipSnapshot: Set<String>? = null
         private set
 
@@ -136,6 +161,10 @@ internal class GetMediaAsynctask(
             mPath != RECYCLE_BIN && photoProfileId == null) {
             runCatching { FolderReturnCheckpoint.capture(context, mPath) }.getOrNull()
         } else null
+        if (!noMediaFolder && !showAll && !isPickImage && !isPickVideo && folderSessionId == null &&
+            onPagePreview != null && mPath.startsWith('/') && mPath != RECYCLE_BIN && photoProfileId == null) {
+            observeViewerFolder()
+        }
         if (mPath == PhotoProfileMediaLoader.PATH || photoProfileId != null) {
             val loader = PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId, { isCancelled }, pipelineDiagnostics, photoOrder)
             val final = loader.loadStaged(photoProfileId, photoAllowPreview && onPhotoResult != null, photoAnchorPath,
@@ -561,6 +590,7 @@ internal class GetMediaAsynctask(
     }
 
     override fun onCancelled(media: ArrayList<ThumbnailItem>?) {
+        stopWatchingViewerFolder()
         super.onCancelled(media)
         requestDiagnostics?.skip("cancelled_before_start")
         finishPipelineDiagnostics("CANCELLED", media.orEmpty())
@@ -599,6 +629,7 @@ internal class GetMediaAsynctask(
         scanResult = GalleryScanResult(GalleryScanState.CANCELLED)
         FolderRefreshDiagnostics.event(requestId, "scan_cancelled", detail = "reason=stop_fetching")
         mediaFetcher.shouldStop = true
+        stopWatchingViewerFolder()
         cancel(true)
         delivery.removeCallbacksAndMessages(null)
     }

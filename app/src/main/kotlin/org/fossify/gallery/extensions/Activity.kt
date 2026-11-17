@@ -513,6 +513,8 @@ fun BaseSimpleActivity.restoreRecycleBinPaths(paths: ArrayList<String>, callback
                 if (File(source).length() == copiedSize) {
                     mediaDB.updateDeleted(destination.removePrefix(recycleBinPath), 0, "$RECYCLE_BIN${source.removePrefix(recycleBinPath)}")
                     org.fossify.gallery.helpers.RecycleBinMembershipRevision.changed()
+                    org.fossify.gallery.helpers.FolderContentRevision.changed()
+                    org.fossify.gallery.helpers.PhotoContentRevision.changed()
                 }
                 newPaths.add(destination)
 

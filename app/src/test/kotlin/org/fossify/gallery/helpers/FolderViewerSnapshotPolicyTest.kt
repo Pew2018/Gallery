@@ -26,6 +26,14 @@ class FolderViewerSnapshotPolicyTest {
         assertFalse(FolderReturnCheckpoint.sameSnapshot(before, same.copy(directoryModified = 43)))
         assertFalse(FolderReturnCheckpoint.sameSnapshot(before, same.copy(configuration = "changed")))
         assertFalse(FolderReturnCheckpoint.sameSnapshot(before, same.copy(revision = 8)))
+        assertFalse(FolderReturnCheckpoint.sameSnapshot(before, same.copy(canonicalFolder = "/different")))
+        val authorized = before.copy(access = DirectoryAccessState(
+            listOf(0), false, emptySet(), 1, false, emptySet(), emptySet(), false, emptyMap()
+        ))
+        assertTrue(FolderReturnCheckpoint.sameSnapshot(authorized, authorized.copy(capturedAt = 900)))
+        assertFalse(FolderReturnCheckpoint.sameSnapshot(authorized, authorized.copy(
+            access = authorized.access?.copy(permissions = listOf(-1))
+        )))
         assertFalse(FolderReturnCheckpoint.sameSnapshot(before, null))
     }
 }

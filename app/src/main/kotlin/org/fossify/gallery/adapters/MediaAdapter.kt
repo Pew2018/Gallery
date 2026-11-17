@@ -726,7 +726,11 @@ class MediaAdapter(
         val requestId: Long?, val diagnosticsEnabled: Boolean,
         val reason: MediaUpdateReason, val sorting: Int, val submittedAt: Long,
         val snapshotVersion: Long?, val snapshotStage: String?, val forceReplace: Boolean = false,
-        val diagnosticSubmission: AdapterSubmission? = null
+        val diagnosticSubmission: AdapterSubmission? = null,
+        val preparedDiff: PreparedDiff? = null,
+    )
+    private data class PreparedDiff(
+        val result: DiffUtil.DiffResult, val oldCount: Int, val elapsedMs: Long, val finishedAt: Long,
     )
     private var pendingUpdate: PendingUpdate? = null
     private var diffRunning = false
@@ -737,7 +741,7 @@ class MediaAdapter(
     private val scrollUpdates = object : RecyclerView.OnScrollListener() {
         override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
             if (newState == RecyclerView.SCROLL_STATE_DRAGGING) refreshScroll.clear()
-            if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+            if (newState != RecyclerView.SCROLL_STATE_DRAGGING) {
                 recyclerView.removeCallbacks(drainUpdates)
                 submitPendingUpdate()
             }
@@ -814,17 +818,12 @@ class MediaAdapter(
             pendingUpdate = null
             return
         }
-        if (fastScrollActive || viewerReturnPublicationHeld) {
-            logUpdate(pending, "adapter_update_deferred", if (viewerReturnPublicationHeld) "viewer_return" else "fast_scroll")
-            return
-        }
-        if (recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE || recyclerView.isComputingLayout) {
-            logUpdate(pending, "adapter_update_deferred", "layout_or_scroll")
-            recyclerView.removeCallbacks(drainUpdates)
-            recyclerView.postDelayed(drainUpdates, 80)
-            return
-        }
+        if (deferCommit(pending)) return
         pendingUpdate = null
+        pending.preparedDiff?.let {
+            commitDiff(pending, it)
+            return
+        }
         val incoming = pending.items
         applyDurationOverrides(incoming)
         if (MediaUpdatePolicy.sameDisplayedContent(media, incoming)) {
@@ -917,47 +916,13 @@ class MediaAdapter(
                     submitPendingUpdate()
                     return@runOnUiThread
                 }
-                if (fastScrollActive || viewerReturnPublicationHeld ||
-                    recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE || recyclerView.isComputingLayout) {
-                    if (pendingUpdate == null) pendingUpdate = pending.copy(forceReplace = result.isFailure)
-                    if (!fastScrollActive && !viewerReturnPublicationHeld) recyclerView.postDelayed(drainUpdates, 80)
+                val prepared = result.getOrElse {
+                    recoverDiff(pending, it)
                     return@runOnUiThread
                 }
-                if (result.isFailure) {
-                    recoverDiff(pending, result.exceptionOrNull()!!)
-                    return@runOnUiThread
-                }
-                val diff = result.getOrThrow()
-                // Details may have completed while the background diff ran.
-                applyDurationOverrides(incoming)
-                rememberRefreshScroll(pending)
-                sorting = pending.sorting
-                media = incoming
-                committedVersion++
-                currentMediaHash = media.hashCode()
-                selectedKeys.retainAll(media.filterIsInstance<Medium>().map { it.path.hashCode() }.toSet())
-                if (selectedKeys.isEmpty()) finishActMode() else actMode?.invalidate()
-                listener?.updateMediaGridDecoration(media)
-                diff.dispatchUpdatesTo(this)
-                logAdapterCommit(pending, AdapterCommitKind.DIFF)
-                if (pending.diagnosticsEnabled)
-                    org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
-                        org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_commit",
-                        pending.requestId, mapOf(
-                            "itemCount" to incoming.size, "gridVersion" to committedVersion,
-                            "diffGeneration" to pending.generation, "adapterId" to System.identityHashCode(this),
-                            "oldCount" to old.size,
-                            "diffMs" to (diffFinished - diffStarted).coerceAtLeast(0L),
-                            "publicationWaitMs" to (android.os.SystemClock.elapsedRealtime() - diffFinished),
-                            "elapsedMs" to (android.os.SystemClock.elapsedRealtime() - pending.submittedAt),
-                            "updateReason" to pending.reason.name, "commitStrategy" to "diff",
-                            "snapshotVersion" to pending.snapshotVersion, "snapshotStage" to pending.snapshotStage,
-                            "adapterVersion" to committedVersion,
-                            "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(path)
-                        )
-                    )
-                restoreRefreshScroll(pending)
-                pending.committed()
+                pendingUpdate = pending.copy(preparedDiff = PreparedDiff(
+                    prepared, old.size, (diffFinished - diffStarted).coerceAtLeast(0L), diffFinished
+                ))
                 submitPendingUpdate()
             }
         }
@@ -965,6 +930,61 @@ class MediaAdapter(
             diffRunning = false
             recoverDiff(pending, error)
         }
+    }
+
+    private fun permitsFlingCommit(pending: PendingUpdate): Boolean =
+        pending.reason == MediaUpdateReason.SCAN && pending.preserveScroll
+
+    private fun deferCommit(pending: PendingUpdate): Boolean {
+        if (fastScrollActive || viewerReturnPublicationHeld) {
+            logUpdate(pending, "adapter_update_deferred", if (viewerReturnPublicationHeld) "viewer_return" else "fast_scroll")
+            return true
+        }
+        val computingLayout = recyclerView.isComputingLayout
+        val scrolling = recyclerView.scrollState == RecyclerView.SCROLL_STATE_DRAGGING ||
+            recyclerView.scrollState == RecyclerView.SCROLL_STATE_SETTLING && !permitsFlingCommit(pending)
+        if (!computingLayout && !scrolling) return false
+        logUpdate(pending, "adapter_update_deferred", "layout_or_scroll")
+        // Touch/return ownership releases via its listener. A layout boundary
+        // needs only one frame callback, with the already computed diff intact.
+        if (computingLayout && !scrolling) {
+            recyclerView.removeCallbacks(drainUpdates)
+            recyclerView.postOnAnimation(drainUpdates)
+        }
+        return true
+    }
+
+    private fun commitDiff(pending: PendingUpdate, prepared: PreparedDiff) {
+        val incoming = pending.items
+        // Details may have completed while the background diff ran.
+        applyDurationOverrides(incoming)
+        rememberRefreshScroll(pending)
+        sorting = pending.sorting
+        media = incoming
+        committedVersion++
+        currentMediaHash = media.hashCode()
+        selectedKeys.retainAll(media.filterIsInstance<Medium>().map { it.path.hashCode() }.toSet())
+        if (selectedKeys.isEmpty()) finishActMode() else actMode?.invalidate()
+        listener?.updateMediaGridDecoration(media)
+        prepared.result.dispatchUpdatesTo(this)
+        logAdapterCommit(pending, AdapterCommitKind.DIFF)
+        if (pending.diagnosticsEnabled)
+            GalleryDiagnosticLogger.event(
+                DiagnosticLevel.DEBUG, "MediaUI", "adapter_commit",
+                pending.requestId, mapOf(
+                    "itemCount" to incoming.size, "gridVersion" to committedVersion,
+                    "diffGeneration" to pending.generation, "adapterId" to System.identityHashCode(this),
+                    "oldCount" to prepared.oldCount, "diffMs" to prepared.elapsedMs,
+                    "publicationWaitMs" to (android.os.SystemClock.elapsedRealtime() - prepared.finishedAt),
+                    "elapsedMs" to (android.os.SystemClock.elapsedRealtime() - pending.submittedAt),
+                    "updateReason" to pending.reason.name, "commitStrategy" to "diff",
+                    "snapshotVersion" to pending.snapshotVersion, "snapshotStage" to pending.snapshotStage,
+                    "adapterVersion" to committedVersion, "scopeKey" to GalleryDiagnosticLogger.anonymousId(path)
+                )
+            )
+        restoreRefreshScroll(pending)
+        pending.committed()
+        submitPendingUpdate()
     }
 
     private fun recoverDiff(pending: PendingUpdate, error: Throwable) {
@@ -1046,6 +1066,8 @@ class MediaAdapter(
         if (!fastScrollActive) submitPendingUpdate()
     }
 
+    internal fun clearRefreshScroll() = refreshScroll.clear()
+
     private fun rememberRefreshScroll(pending: PendingUpdate) {
         if (!pending.preserveScroll || pending.reason == MediaUpdateReason.USER_SORT) {
             refreshScroll.clear()
@@ -1054,7 +1076,8 @@ class MediaAdapter(
         // Two commits can arrive before RecyclerView lays out the first one.
         // In that window the attached holders still describe the prior list.
         if (!recyclerView.hasPendingAdapterUpdates()) refreshScroll.clear()
-        refreshScroll.remember(recyclerView, media.map { (it as? Medium)?.path }, keepNeighbors = true)
+        refreshScroll.remember(recyclerView, media.map { (it as? Medium)?.path }, keepNeighbors = true,
+            allowFling = permitsFlingCommit(pending))
     }
 
     private fun restoreRefreshScroll(pending: PendingUpdate) {
@@ -1063,8 +1086,13 @@ class MediaAdapter(
             refreshScroll.clear()
             return
         }
+        val paths = media.map { (it as? Medium)?.path }
+        if (recyclerView.scrollState == RecyclerView.SCROLL_STATE_SETTLING) {
+            refreshScroll.restoreDuringFling(recyclerView, paths)
+            return
+        }
         val version = committedVersion
-        refreshScroll.restore(recyclerView, media.map { (it as? Medium)?.path }, true, isCurrent = {
+        refreshScroll.restore(recyclerView, paths, true, isCurrent = {
             !fastScrollActive && version == committedVersion && canCommit(pending) &&
                 recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE
         })
@@ -1108,11 +1136,16 @@ class MediaAdapter(
             diagnosticSampleWindow = now
             diagnosticSamples = 0
         }
-        if (diagnosticSamples >= 8 || !image.getLocalVisibleRect(android.graphics.Rect())) return
+        if (diagnosticSamples >= 8) return
+        val visible = android.graphics.Rect()
+        if (!image.getLocalVisibleRect(visible)) return
         diagnosticSamples++
         GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", event, diagnosticGridRequest,
             mapOf("adapterId" to diagnosticId(), "adapterVersion" to committedVersion,
                 "holderId" to System.identityHashCode(image), "reason" to reason,
+                "width" to image.width, "height" to image.height,
+                "visibleWidth" to visible.width(), "visibleHeight" to visible.height(),
+                "scrollState" to recyclerView.scrollState, "computingLayout" to recyclerView.isComputingLayout,
                 "mediaId" to GalleryDiagnosticLogger.anonymousId(medium.path),
                 "drawableKeyId" to GalleryDiagnosticLogger.anonymousId(key.toString())))
     }
@@ -1322,7 +1355,7 @@ class MediaAdapter(
                     priority = thumbnailPriority,
                     onLoaded = {
                         mediumThumbnail.post {
-                            if (mediumThumbnail.getTag(R.id.thumbnail_request_key) == requestKey &&
+                            if (mediumThumbnail.getTag(R.id.thumbnail_request_key) === requestKey &&
                                 mediumThumbnail.drawable != null) {
                                 mediumThumbnail.setTag(R.id.thumbnail_loaded_key, requestKey)
                                 logVisibleDrawable(mediumThumbnail, medium, requestKey, "visible_drawable_ready", "current_load")
@@ -1331,7 +1364,7 @@ class MediaAdapter(
                         }
                     },
                     onError = {
-                        if (mediumThumbnail.getTag(R.id.thumbnail_request_key) == requestKey) {
+                        if (mediumThumbnail.getTag(R.id.thumbnail_request_key) === requestKey) {
                             mediumThumbnail.scaleType = ImageView.ScaleType.CENTER
                             mediumThumbnail.setImageDrawable(AppCompatResources.getDrawable(activity, R.drawable.ic_vector_warning_colored))
                         }

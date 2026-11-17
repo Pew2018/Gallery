@@ -4,7 +4,9 @@ import android.content.Context
 import android.os.Environment
 import android.os.SystemClock
 import android.provider.MediaStore
+import org.fossify.commons.extensions.hasAllPermissions
 import org.fossify.commons.extensions.isPathOnOTG
+import org.fossify.commons.extensions.isRestrictedWithSAFSdk30
 import org.fossify.commons.helpers.isRPlus
 import org.fossify.gallery.extensions.config
 import java.io.File
@@ -20,7 +22,9 @@ internal data class FolderReturnCheckpoint(
     val generations: Map<String, String>,
     val directoryModified: Long,
     val revision: Long,
-    val capturedAt: Long
+    val capturedAt: Long,
+    val canonicalFolder: String = folder,
+    val access: DirectoryAccessState? = null,
 ) {
     companion object {
         private fun configuration(context: Context, path: String): String {
@@ -33,8 +37,8 @@ internal data class FolderReturnCheckpoint(
             ).joinToString("|")
         }
 
-        fun capture(context: Context, folder: String): FolderReturnCheckpoint? {
-            if (!isRPlus() || Environment.isExternalStorageManager() ||
+        fun capture(context: Context, folder: String, allowManager: Boolean = false): FolderReturnCheckpoint? {
+            if (!isRPlus() || (!allowManager && Environment.isExternalStorageManager()) ||
                 !folder.startsWith('/') || folder.contains("/.")) return null
             return runCatching {
                 val cfg = context.config
@@ -43,6 +47,7 @@ internal data class FolderReturnCheckpoint(
                     FavoriteFolderRules.isExcluded(folder, cfg.excludedFolders)) return null
                 val directory = File(folder)
                 if (!directory.isDirectory || !directory.canRead()) return null
+                if (context.isRestrictedWithSAFSdk30(folder) || NoMediaSnapshot().contains(folder)) return null
                 val modified = directory.lastModified()
                 if (modified <= 0L) return null
                 val volumes = MediaStore.getExternalVolumeNames(context)
@@ -55,6 +60,18 @@ internal data class FolderReturnCheckpoint(
                     modified, FolderContentRevision.current(),
                     SystemClock.elapsedRealtime()
                 )
+            }.getOrNull()
+        }
+
+        // A partial catalog may outlive the host's pause only with full media
+        // access. A selected-media grant or a SAF grant is intentionally ineligible.
+        fun captureForViewerScan(context: Context, folder: String): FolderReturnCheckpoint? {
+            if (!isRPlus() || (!Environment.isExternalStorageManager() &&
+                !context.hasAllPermissions(getPermissionsToRequest()))) return null
+            return runCatching {
+                val checkpoint = capture(context, folder, allowManager = true) ?: return null
+                checkpoint.copy(canonicalFolder = File(folder).canonicalPath,
+                    access = DirectoryAccessState.capture(context))
             }.getOrNull()
         }
 
@@ -75,6 +92,7 @@ internal data class FolderReturnCheckpoint(
         /** Compares a scan's before/after proof, intentionally ignoring capture time. */
         fun sameSnapshot(first: FolderReturnCheckpoint?, second: FolderReturnCheckpoint?): Boolean =
             first != null && second != null && first.folder == second.folder &&
+                first.canonicalFolder == second.canonicalFolder && first.access == second.access &&
                 first.configuration == second.configuration && first.generations == second.generations &&
                 first.directoryModified == second.directoryModified && first.revision == second.revision
     }

@@ -32,7 +32,9 @@ internal class FavoritesScrollRestorer {
         }
     }
 
-    fun capture(recycler: RecyclerView, paths: List<String?>, keepNeighbors: Boolean = false): Anchor? {
+    fun capture(
+        recycler: RecyclerView, paths: List<String?>, keepNeighbors: Boolean = false, target: String? = null
+    ): Anchor? {
         val manager = recycler.layoutManager as? LinearLayoutManager ?: return null
         val axis = OrientationHelper.createOrientationHelper(manager, manager.orientation)
         // Use attached, visible media and the adapter's actual rows (including search results).
@@ -40,7 +42,7 @@ internal class FavoritesScrollRestorer {
             .filter { axis.getDecoratedEnd(it) > axis.startAfterPadding &&
                 axis.getDecoratedStart(it) < axis.endAfterPadding }
             .map { recycler.getChildAdapterPosition(it) }
-            .filter { it >= 0 && paths.getOrNull(it) != null }
+            .filter { it >= 0 && paths.getOrNull(it)?.let { path -> target == null || path == target } == true }
             .minOrNull() ?: return null
         val view = manager.findViewByPosition(position) ?: return null
         val preceding = paths.subList(0, position)
@@ -61,14 +63,18 @@ internal class FavoritesScrollRestorer {
         if (fromEnd) axis.endAfterPadding - axis.getDecoratedEnd(view)
         else axis.getDecoratedStart(view) - axis.startAfterPadding
 
-    fun remember(recycler: RecyclerView, paths: List<String?>, keepNeighbors: Boolean = false) {
+    fun remember(
+        recycler: RecyclerView, paths: List<String?>, keepNeighbors: Boolean = false, allowFling: Boolean = false,
+        target: String? = null,
+    ) {
         cancelLayout()
-        if (recycler.scrollState != RecyclerView.SCROLL_STATE_IDLE) {
+        if (recycler.scrollState != RecyclerView.SCROLL_STATE_IDLE &&
+            !(allowFling && recycler.scrollState == RecyclerView.SCROLL_STATE_SETTLING)) {
             clear()
             return
         }
         // Never overwrite the pre-viewer anchor with an empty or provisional return layout.
-        if (pending == null) pending = capture(recycler, paths, keepNeighbors)
+        if (pending == null || target != null) pending = capture(recycler, paths, keepNeighbors, target)
         watchUserScroll(recycler)
         if (BuildConfig.DEBUG) Log.d("GalleryFavorites", "Scroll anchor present=${pending != null}, rows=${paths.size}")
     }
@@ -114,6 +120,23 @@ internal class FavoritesScrollRestorer {
         }
     }
 
+    private fun Anchor.positionIn(paths: List<String?>, mediaPositions: List<Int>): Int =
+        paths.indexOf(path).takeIf { it >= 0 }
+            ?: neighbors.firstNotNullOfOrNull { neighbor -> paths.indexOf(neighbor).takeIf { it >= 0 } }
+            ?: mediaPositions[ordinal.coerceIn(0, mediaPositions.lastIndex)]
+
+    /** Set the next layout's anchor once. A moving viewport must never get a later pre-draw correction. */
+    fun restoreDuringFling(recycler: RecyclerView, paths: List<String?>) {
+        val anchor = pending ?: return
+        clear()
+        val manager = recycler.layoutManager as? LinearLayoutManager ?: return
+        val mediaPositions = paths.indices.filter { paths[it] != null }
+        if (mediaPositions.isNotEmpty()) {
+            val offset = if (anchor.orientation == manager.orientation) anchor.offset else 0
+            manager.scrollToPositionWithOffset(anchor.positionIn(paths, mediaPositions), offset)
+        }
+    }
+
     fun restore(recycler: RecyclerView, paths: List<String?>, finalResult: Boolean,
                 onResult: (RestoreResult) -> Unit = {}, isCurrent: () -> Boolean) {
         cancelLayout()
@@ -128,11 +151,7 @@ internal class FavoritesScrollRestorer {
             if (finalResult) { clear(); onResult(RestoreResult.EMPTY) }
             return
         }
-        val position = anchor?.let {
-            paths.indexOf(it.path).takeIf { index -> index >= 0 }
-                ?: it.neighbors.firstNotNullOfOrNull { path -> paths.indexOf(path).takeIf { index -> index >= 0 } }
-                ?: mediaPositions[it.ordinal.coerceIn(0, mediaPositions.lastIndex)]
-        }
+        val position = anchor?.positionIn(paths, mediaPositions)
         val manager = recycler.layoutManager as? LinearLayoutManager ?: return
         val adapter = recycler.adapter ?: return
         if (anchor != null) watchUserScroll(recycler)

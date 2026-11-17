@@ -523,7 +523,7 @@ fun Context.loadImageBase(
             isFirstResource: Boolean
         ): Boolean {
             // A recycled ImageView must never receive a failed request's fallback.
-            if (target.tag != path || target.getTag(R.id.thumbnail_request_key) != bindingToken) return true
+            if (target.tag != path || target.getTag(R.id.thumbnail_request_key) !== bindingToken) return true
             if (tryLoadingWithPicasso) {
                 tryLoadingWithPicasso(path, target, cropThumbnails, roundCorners, signature, onError)
             } else {
@@ -540,9 +540,9 @@ fun Context.loadImageBase(
             dataSource: DataSource,
             isFirstResource: Boolean,
         ): Boolean {
-            if (target.tag == path && target.getTag(R.id.thumbnail_request_key) == bindingToken) {
+            if (target.tag == path && target.getTag(R.id.thumbnail_request_key) === bindingToken) {
                 target.post {
-                    if (target.tag == path && target.getTag(R.id.thumbnail_request_key) == bindingToken &&
+                    if (target.tag == path && target.getTag(R.id.thumbnail_request_key) === bindingToken &&
                         target.drawable != null) onLoaded?.invoke()
                 }
             }
@@ -599,9 +599,9 @@ fun Context.loadSVG(
             resource: PictureDrawable, model: Any, targetBitmap: Target<PictureDrawable>,
             dataSource: DataSource, isFirstResource: Boolean
         ): Boolean {
-            if (target.getTag(R.id.thumbnail_request_key) == bindingToken) {
+            if (target.getTag(R.id.thumbnail_request_key) === bindingToken) {
                 target.post {
-                    if (target.getTag(R.id.thumbnail_request_key) == bindingToken && target.drawable != null) {
+                    if (target.getTag(R.id.thumbnail_request_key) === bindingToken && target.drawable != null) {
                         onLoaded?.invoke()
                     }
                 }
@@ -647,11 +647,11 @@ fun Context.tryLoadingWithPicasso(
         builder.into(view, object : com.squareup.picasso.Callback {
             override fun onSuccess() = Unit
             override fun onError(e: Exception?) {
-                if (view.tag == path && view.getTag(R.id.thumbnail_request_key) == bindingToken) onError?.invoke()
+                if (view.tag == path && view.getTag(R.id.thumbnail_request_key) === bindingToken) onError?.invoke()
             }
         })
     } catch (e: Exception) {
-        if (view.tag == path && view.getTag(R.id.thumbnail_request_key) == bindingToken) onError?.invoke()
+        if (view.tag == path && view.getTag(R.id.thumbnail_request_key) === bindingToken) onError?.invoke()
     }
 }
 

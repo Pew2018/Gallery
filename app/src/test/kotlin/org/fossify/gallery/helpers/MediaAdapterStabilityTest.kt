@@ -527,6 +527,91 @@ class MediaAdapterStabilityTest {
         assertTrue(fixture.grid.findViewHolderForAdapterPosition(0)?.isRecyclable ?: true)
     }
 
+    @Config(sdk = [36])
+    @Test fun fiftyViewerPausesRejoinOneOrdinaryFolderRequestAndRevocationCancelsIt() {
+        val fixture = ReturnGridFixture(listOf(item("a.jpg")))
+        fun field(name: String) = fixture.type.getDeclaredField(name).apply { isAccessible = true }
+        val requests = field("mediaLoadRequests").get(fixture.activity) as FavoriteMediaLoadRequests
+        val request = requests.begin()
+        field("mediaRefreshRequest").setLong(fixture.activity, request)
+        val app = RuntimeEnvironment.getApplication()
+        val task = org.fossify.gallery.asynctasks.GetMediaAsynctask(app, "/photos",
+            isPickImage = false, isPickVideo = false, showAll = false) {}
+        field("mCurrAsyncTask").set(fixture.activity, task)
+        val checkpoint = FolderReturnCheckpoint(
+            "/photos", "sort", mapOf("external" to "1:2"), 1, FolderContentRevision.current(), 0
+        )
+        val watcher = FolderScanObservation(app.cacheDir)
+        var accessCurrent = true
+        fun taskField(name: String) = task.javaClass.getDeclaredField(name).apply { isAccessible = true }
+        taskField("viewerScanCheckpoint").set(task, checkpoint)
+        taskField("viewerFolderObservation").set(task, watcher)
+        taskField("pageAccessCurrent").set(task, { accessCurrent })
+        val detach = fixture.type.getDeclaredMethod("detachFolderViewerScan").apply { isAccessible = true }
+        val retained = field("retainedFolderScan")
+        try {
+            fun rejoin(): Boolean {
+                field("mWasFullscreenViewOpen").setBoolean(fixture.activity, true)
+                assertEquals(true, detach.invoke(fixture.activity))
+                val scan = requireNotNull(retained.get(fixture.activity))
+                val resume = fixture.type.getDeclaredMethod("resumeFolderViewerScan",
+                    scan.javaClass, Boolean::class.javaPrimitiveType).apply { isAccessible = true }
+                return resume.invoke(fixture.activity, scan, true) as Boolean
+            }
+            val version = fixture.adapter.committedVersion
+            repeat(50) {
+                assertTrue(rejoin())
+                assertNull(retained.get(fixture.activity))
+                assertSame(task, field("mCurrAsyncTask").get(fixture.activity))
+                assertTrue(requests.isCurrent(request))
+                assertEquals(version, fixture.adapter.committedVersion)
+            }
+            accessCurrent = false
+            assertFalse(rejoin())
+            assertFalse(requests.isCurrent(request))
+            assertTrue(task.isCancelled)
+            assertNull(fixture.grid.adapter)
+            assertFalse(watcher.unchanged)
+        } finally {
+            watcher.stop()
+        }
+    }
+
+    @Test fun profileReturnMapsTheLastSelectionAfterLargeProgressiveCatalogReplacement() {
+        val initial = List(160) { item("preview-$it.jpg") }
+        val partial = initial + List(113) { item("partial-$it.jpg") }
+        val complete = List(4708) { item("final-$it.jpg") } + partial
+        val a = initial.first()
+        val b = partial[219]
+        val fixture = ReturnGridFixture(initial, columns = 2, folder = PhotoProfileMediaLoader.PATH)
+        val photoScroll = fixture.type.getDeclaredField("photoScroll").apply { isAccessible = true }
+            .get(fixture.activity) as FavoritesScrollRestorer
+        photoScroll.remember(fixture.grid, initial.map { it.path })
+        assertEquals(a.path, photoScroll.pending?.path)
+        fixture.thumbnail(0, a.path)
+        fixture.launch(a.path)
+        fixture.adapter.updateMedia(ArrayList<ThumbnailItem>(partial))
+        drain(fixture.tasks)
+        fixture.layout()
+        val partialVersion = fixture.adapter.committedVersion
+        fixture.adapter.updateMedia(ArrayList<ThumbnailItem>(complete))
+        drain(fixture.tasks)
+        fixture.layout()
+        assertEquals(partialVersion + 1, fixture.adapter.committedVersion)
+
+        val position = complete.indexOf(b)
+        assertNull(fixture.grid.findViewHolderForAdapterPosition(position))
+        fixture.reenter(b.path)
+        assertNull("The pre-Viewer anchor must be retired before resolving the last selection", photoScroll.pending)
+        fixture.layout()
+        val target = fixture.thumbnail(position, b.path)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(32))
+        fixture.draw()
+        assertSame(target, fixture.map())
+        assertEquals(b.path, photoScroll.pending?.path)
+        fixture.end()
+    }
+
     @Test fun synchronousGridTransitionKeepsTheExactThumbnailUntilViewerResultAndVisibleDraw() {
         val row = item("a.jpg")
         val fixture = ReturnGridFixture(listOf(row))
@@ -956,6 +1041,64 @@ class MediaAdapterStabilityTest {
         setState.invoke(recycler, RecyclerView.SCROLL_STATE_IDLE)
         drain(tasks)
         assertEquals("new.jpg", (adapter.media.single() as Medium).name)
+    }
+
+    @Test fun authoritativeDiffSurvivesLayoutAndFlingWithoutRecomputing() = withAdapter { adapter, recycler, tasks ->
+        val manager = recycler.layoutManager as LinearLayoutManager
+        val setState = RecyclerView::class.java.getDeclaredMethod("setScrollState", Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }
+        val layoutCounter = RecyclerView::class.java.getDeclaredField("mLayoutOrScrollCounter")
+            .apply { isAccessible = true }
+        fun layout() {
+            recycler.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY))
+            recycler.layout(0, 0, 320, 320)
+        }
+        val preview = ArrayList<ThumbnailItem>((0 until 1454).map { item("preview-$it.jpg") })
+        val complete = ArrayList<ThumbnailItem>((0 until 1626).map { item("added-$it.jpg") } + preview)
+        adapter.updateMedia(preview, preserveScroll = false)
+        drain(tasks)
+        manager.scrollToPositionWithOffset(325, -17)
+        layout()
+        val anchor = manager.findFirstVisibleItemPosition()
+        val anchorView = requireNotNull(manager.findViewByPosition(anchor))
+        val offset = manager.getDecoratedTop(anchorView)
+        val image = anchorView.findViewById<ImageView>(R.id.medium_thumbnail)
+        // Model a completed image request without the host decoder racing an error
+        // for the fixture's nonexistent media path.
+        com.bumptech.glide.Glide.with(recycler.context).clear(image)
+        image.setTag(R.id.thumbnail_loaded_key, image.getTag(R.id.thumbnail_request_key))
+        val drawable = ColorDrawable(android.graphics.Color.BLUE)
+        image.setImageDrawable(drawable)
+        val height = image.height
+        val version = adapter.committedVersion
+
+        var commits = 0
+        adapter.updateMedia(complete, onCommitted = { commits++ },
+            diagnosticSnapshotStage = DisplayedSourceStage.SCAN_COMPLETE.name)
+        setState.invoke(recycler, RecyclerView.SCROLL_STATE_SETTLING)
+        assertEquals(1, tasks.size)
+        layoutCounter.setInt(recycler, 1)
+        try {
+            tasks.removeFirst().run()
+            assertEquals(version, adapter.committedVersion)
+            assertSame(drawable, image.drawable)
+        } finally {
+            layoutCounter.setInt(recycler, 0)
+        }
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(32))
+        assertEquals(1, commits)
+        assertEquals(version + 1, adapter.committedVersion)
+        assertTrue("The completed diff must not be scheduled again", tasks.isEmpty())
+
+        layout()
+        val moved = complete.indexOf(preview[anchor])
+        val restored = requireNotNull(manager.findViewByPosition(moved))
+        assertEquals(offset, manager.getDecoratedTop(restored))
+        val restoredImage = restored.findViewById<ImageView>(R.id.medium_thumbnail)
+        assertEquals((preview[anchor] as Medium).path, restoredImage.getTag(R.id.media_bound_path))
+        assertEquals(height, restoredImage.height)
+        assertSame(drawable, restoredImage.drawable)
     }
 
     @Test fun expiredRequestAndDetachedAdapterCannotPublish() = withAdapter { adapter, recycler, tasks ->
