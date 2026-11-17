@@ -126,7 +126,7 @@ internal class MediaPipelineDiagnostics(
         ): MediaPipelineDiagnostics? {
             if (!GalleryDiagnosticLogger.isEnabled()) return null
             val safeSource = sourceType.takeIf { it in setOf("HOME", "FOLDER", "CATEGORIZED", "FAVORITES", "RECYCLE_BIN", "PHOTO_PROFILE") } ?: "UNKNOWN"
-            val safeReason = loadReason.takeIf { it in setOf("INITIAL", "REFRESH", "RETURN", "CONFIG_SWITCH", "EXTERNAL_CHANGE") } ?: "UNKNOWN"
+            val safeReason = loadReason.takeIf { it in setOf("INITIAL", "REFRESH", "RETURN", "CONFIG_SWITCH", "EXTERNAL_CHANGE", "VIEWER") } ?: "UNKNOWN"
             val safePermission = permissionMode.takeIf { it in setOf("ALL_FILES", "SCOPED_STORAGE", "LEGACY", "SAF", "MIXED", "UNKNOWN") } ?: "UNKNOWN"
             return MediaPipelineDiagnostics(
                 "ml-${UUID.randomUUID()}", safeSource, safeReason, safePermission,

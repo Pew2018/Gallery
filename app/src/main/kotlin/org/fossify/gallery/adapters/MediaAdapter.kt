@@ -276,6 +276,12 @@ class MediaAdapter(
 
     override fun onActionModeDestroyed() {}
 
+    override fun onViewAttachedToWindow(holder: ViewHolder) {
+        super.onViewAttachedToWindow(holder)
+        val image = holder.itemView.findViewById<ImageView>(R.id.medium_thumbnail) ?: return
+        thumbnailLoad(image)?.start(Priority.HIGH)
+    }
+
     override fun onViewRecycled(holder: ViewHolder) {
         super.onViewRecycled(holder)
         if (!activity.isDestroyed) {
@@ -283,6 +289,7 @@ class MediaAdapter(
             val tmb = itemView.allViews.firstOrNull { it.id == R.id.medium_thumbnail }
             if (tmb is ImageView) {
                 if (tmb.transitionName == PhotoViewerTransition.ELEMENT_NAME) tmb.transitionName = null
+                cancelThumbnailLoad(tmb, "holder_recycled")
                 tmb.tag = null
                 tmb.setTag(R.id.media_bound_path, null)
                 tmb.setTag(R.id.thumbnail_request_key, null)
@@ -1128,6 +1135,74 @@ class MediaAdapter(
                 "elapsedMs" to (android.os.SystemClock.elapsedRealtime() - pending.submittedAt)))
     }
 
+    private var thumbnailRequestSequence = 0L
+    private var thumbnailTraceWindow = 0L
+    private var thumbnailTraceSamples = 0
+
+    private class ThumbnailLoad(
+        val token: Any,
+        val trace: ((String, String?, Priority?, String?) -> Unit)?,
+        var pending: ((Priority) -> Unit)? = null
+    ) {
+        var priority: Priority? = null
+            private set
+        var finished = false
+
+        fun start(priority: Priority) {
+            val request = pending ?: return
+            pending = null
+            this.priority = priority
+            trace?.invoke("REQUEST_STARTED", null, priority, null)
+            request(priority)
+        }
+    }
+
+    private fun thumbnailLoad(image: ImageView) =
+        image.getTag(R.id.media_thumbnail_load) as? ThumbnailLoad
+
+    private fun cancelThumbnailLoad(image: ImageView, reason: String) {
+        val load = thumbnailLoad(image) ?: return
+        if (!load.finished) load.trace?.invoke("REQUEST_CANCELLED", reason, load.priority, null)
+        load.pending = null
+        image.setTag(R.id.media_thumbnail_load, null)
+    }
+
+    private fun thumbnailTrace(
+        image: ImageView, path: String, bindPriority: Priority
+    ): ((String, String?, Priority?, String?) -> Unit)? {
+        if (!GalleryDiagnosticLogger.isEnabled()) return null
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - thumbnailTraceWindow >= 1_000L) {
+            thumbnailTraceWindow = now
+            thumbnailTraceSamples = 0
+        }
+        if (thumbnailTraceSamples >= 4) return null
+        thumbnailTraceSamples++
+        val mediaId = GalleryDiagnosticLogger.anonymousId(path)
+        val token = ++thumbnailRequestSequence
+        val version = committedVersion
+        val sourceRequest = diagnosticGridRequest
+        return { stage, reason, priority, cache ->
+            if (GalleryDiagnosticLogger.isEnabled()) {
+                val bounds = android.graphics.Rect()
+                val viewState = when {
+                    !image.isAttachedToWindow -> "DETACHED"
+                    image.isShown && image.getLocalVisibleRect(bounds) -> "VISIBLE"
+                    else -> "ATTACHED"
+                }
+                val scrollState = if (fastScrollActive) "FAST_${recyclerView.scrollState}" else recyclerView.scrollState.toString()
+                GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", "thumbnail_request", sourceRequest,
+                    mapOf("stage" to stage, "reason" to reason, "adapterId" to diagnosticId(),
+                        "adapterVersion" to version, "holderId" to System.identityHashCode(image),
+                        "bindGeneration" to token, "thumbnailToken" to token, "mediaId" to mediaId,
+                        "priority" to priority?.name, "bindPriority" to bindPriority.name, "cache" to cache,
+                        "viewState" to viewState, "size" to "${image.width}x${image.height}",
+                        "visibleSize" to "${bounds.width()}x${bounds.height()}", "scrollState" to scrollState,
+                        "presented" to "NOT_OBSERVABLE"))
+            }
+        }
+    }
+
     private fun logVisibleDrawable(image: ImageView, medium: Medium, key: Any, event: String, reason: String) {
         if (!GalleryDiagnosticLogger.isEnabled() || !image.isAttachedToWindow || !image.isShown ||
             recyclerView.windowVisibility != View.VISIBLE) return
@@ -1331,6 +1406,7 @@ class MediaAdapter(
             val requestKey = listOf(path, signature, medium.type, cropThumbnails, roundedCorners, animateGifs,
                 scrollHorizontally, rotatedImagePaths.contains(path))
             if (mediumThumbnail.getTag(R.id.thumbnail_request_key) != requestKey) {
+                cancelThumbnailLoad(mediumThumbnail, "binding_key_changed")
                 // Change the token before cancellation so an obsolete failure cannot start a fallback.
                 mediumThumbnail.setTag(R.id.thumbnail_request_key, requestKey)
                 mediumThumbnail.setTag(R.id.thumbnail_loaded_key, null)
@@ -1341,35 +1417,61 @@ class MediaAdapter(
                 mediumThumbnail.tag = path
                 OxygenThumbnailPlaceholder.apply(activity, mediumThumbnail, roundedCorners)
                 mediumThumbnail.scaleType = if (cropThumbnails) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
-                activity.loadImage(
-                    type = medium.type,
-                    path = path,
-                    target = mediumThumbnail,
-                    horizontalScroll = scrollHorizontally,
-                    animateGifs = animateGifs,
-                    cropThumbnails = cropThumbnails,
-                    roundCorners = roundedCorners,
-                    signature = signature,
-                    skipMemoryCacheAtPaths = rotatedImagePaths,
-                    crossFadeDuration = 0,
-                    priority = thumbnailPriority,
-                    onLoaded = {
-                        mediumThumbnail.post {
-                            if (mediumThumbnail.getTag(R.id.thumbnail_request_key) === requestKey &&
+                val trace = thumbnailTrace(mediumThumbnail, medium.path, thumbnailPriority)
+                val load = ThumbnailLoad(requestKey, trace)
+                mediumThumbnail.setTag(R.id.media_thumbnail_load, load)
+                trace?.invoke("REQUEST_CREATED", null, null, null)
+                load.pending = { priority ->
+                    activity.loadImage(
+                        type = medium.type,
+                        path = path,
+                        target = mediumThumbnail,
+                        horizontalScroll = scrollHorizontally,
+                        animateGifs = animateGifs,
+                        cropThumbnails = cropThumbnails,
+                        roundCorners = roundedCorners,
+                        signature = signature,
+                        skipMemoryCacheAtPaths = rotatedImagePaths,
+                        crossFadeDuration = 0,
+                        priority = priority,
+                        onLoadStage = trace?.let {
+                            { stage, reason, cache ->
+                                if (stage == "REQUEST_FAILED") load.finished = true
+                                it(stage, reason, priority, cache)
+                            }
+                        },
+                        onLoaded = {
+                            if (mediumThumbnail.getTag(R.id.thumbnail_request_key) === load.token &&
                                 mediumThumbnail.drawable != null) {
-                                mediumThumbnail.setTag(R.id.thumbnail_loaded_key, requestKey)
-                                logVisibleDrawable(mediumThumbnail, medium, requestKey, "visible_drawable_ready", "current_load")
+                                load.finished = true
+                                mediumThumbnail.setTag(R.id.thumbnail_loaded_key, load.token)
+                                trace?.invoke("DRAWABLE_BOUND", null, priority, null)
+                                if (trace != null && mediumThumbnail.isAttachedToWindow) {
+                                    androidx.core.view.OneShotPreDrawListener.add(mediumThumbnail) {
+                                        if (mediumThumbnail.getTag(R.id.thumbnail_loaded_key) === load.token &&
+                                            mediumThumbnail.isShown &&
+                                            mediumThumbnail.getLocalVisibleRect(android.graphics.Rect())) {
+                                            trace("FRAME_OBSERVED", "pre_draw", priority, null)
+                                        }
+                                    }
+                                }
+                                logVisibleDrawable(mediumThumbnail, medium, load.token, "visible_drawable_ready", "current_load")
                                 onThumbnailLoaded?.invoke(medium.path, mediumThumbnail)
                             }
+                        },
+                        onError = {
+                            if (mediumThumbnail.getTag(R.id.thumbnail_request_key) === load.token) {
+                                mediumThumbnail.scaleType = ImageView.ScaleType.CENTER
+                                mediumThumbnail.setImageDrawable(AppCompatResources.getDrawable(activity, R.drawable.ic_vector_warning_colored))
+                            }
                         }
-                    },
-                    onError = {
-                        if (mediumThumbnail.getTag(R.id.thumbnail_request_key) === requestKey) {
-                            mediumThumbnail.scaleType = ImageView.ScaleType.CENTER
-                            mediumThumbnail.setImageDrawable(AppCompatResources.getDrawable(activity, R.drawable.ic_vector_warning_colored))
-                        }
-                    }
-                )
+                    )
+                }
+                // RecyclerView binds distant landing positions before its visible range updates.
+                // Keep near/initial high-priority work, but defer other holders until attachment.
+                if (mediumThumbnail.isAttachedToWindow || thumbnailPriority == Priority.HIGH) {
+                    load.start(Priority.HIGH)
+                }
             }
 
             if (isListViewType) {

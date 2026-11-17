@@ -3917,20 +3917,22 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             org.fossify.gallery.helpers.DirectoryMetadataRepository.defer(requestedFolder, metadataVersion)
                         }
                     }
-                    val folderCheckpoint = scanTask?.folderCatalogCheckpoint
-                    if (folderCheckpoint != null && !mShowAll && requestedFolder.isNotEmpty() &&
+                    val catalogTask = scanTask
+                    val folderCheckpoint = catalogTask?.folderCatalogCheckpoint
+                    val catalogObservation = catalogTask?.folderCatalogObservation
+                    if (folderCheckpoint != null && catalogObservation != null && !mShowAll && requestedFolder.isNotEmpty() &&
                         requestedFolder != FAVORITES && requestedFolder != RECYCLE_BIN) {
                         val catalogStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
-                        org.fossify.gallery.helpers.FolderViewerSnapshotStore.prepare(
-                            applicationContext, requestedFolder, folderCheckpoint, folderCheckpoint,
-                            scannedMedia.filterIsInstance<Medium>()
+                        val catalogId = org.fossify.gallery.helpers.FolderViewerSnapshotStore.prepare(
+                            applicationContext, requestedFolder, catalogTask.viewerScanCheckpoint, folderCheckpoint,
+                            scannedMedia.filterIsInstance<Medium>(), catalogObservation
                         ) {
                             scanGeneration == mediaScanGeneration && mediaLoadRequests.isCurrent(request) &&
                                 requestedFolder == mPath && !isFinishing && !isDestroyed
                         }
                         org.fossify.gallery.helpers.GalleryPerfTrace.end(
-                            "viewer_catalog_handoff", catalogStarted,
-                            scannedMedia.count { it is Medium }
+                            if (catalogId == null) "viewer_catalog_prepare_rejected" else "viewer_catalog_prepared",
+                            catalogStarted, if (catalogId == null) 0 else scannedMedia.count { it is Medium }
                         )
                     }
                     // A filtered/partial/permission-limited scan is NOT evidence that an
@@ -4406,6 +4408,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
         val completePublicFolder = !showAll && folderToken == null && source.isNotEmpty() &&
             source != FAVORITES && source != RECYCLE_BIN && displayedMediaIsFinal && !mIsGettingMedia &&
+            displayedMediaRequest == completedMediaRequest && mediaLoadRequests.isCurrent(displayedMediaRequest) &&
             getMediaAdapter() != null
         val catalogLookupStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
         prepareViewerHandoff(request, neighborId, worker = {

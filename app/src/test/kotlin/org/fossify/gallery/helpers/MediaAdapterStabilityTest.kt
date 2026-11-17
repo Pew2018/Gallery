@@ -1275,6 +1275,62 @@ class MediaAdapterStabilityTest {
         assertEquals(grouped, adapter.media)
     }
 
+    @Test fun distantVisibleHoldersStartWithHighPriorityWithoutAListUpdate() = withAdapter { adapter, recycler, tasks ->
+        val layoutManager = recycler.layoutManager as LinearLayoutManager
+        adapter.updateMedia(ArrayList((0 until 3080).map { item("photo-$it.jpg") }), preserveScroll = false)
+        drain(tasks)
+        val version = adapter.committedVersion
+        layoutManager.scrollToPositionWithOffset(2600, 0)
+        recycler.measure(View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY))
+        recycler.layout(0, 0, 480, 800)
+
+        val holder = recycler.findViewHolderForAdapterPosition(2600)!!
+        val image = holder.itemView.findViewById<ImageView>(R.id.medium_thumbnail)
+        val request = com.bumptech.glide.request.target.DrawableImageViewTarget(image).request!!
+        val priority = request.javaClass.getDeclaredField("priority").apply { isAccessible = true }.get(request)
+        assertTrue(image.height > 0)
+        assertEquals("/photos/photo-2600.jpg", image.getTag(R.id.media_bound_path))
+        assertEquals(version, adapter.committedVersion)
+        assertTrue(tasks.isEmpty())
+        assertEquals(com.bumptech.glide.Priority.HIGH, priority)
+    }
+
+    @Test fun oldGlideCallbacksCannotPublishAfterAToBToARebind() = withAdapter { adapter, recycler, tasks ->
+        val rows = arrayListOf<ThumbnailItem>(item("a.jpg"), item("b.jpg"))
+        adapter.updateMedia(rows, preserveScroll = false)
+        drain(tasks)
+        recycler.measure(View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY))
+        recycler.layout(0, 0, 480, 800)
+        val holder = recycler.findViewHolderForAdapterPosition(0) as MyRecyclerViewAdapter.ViewHolder
+        val image = holder.itemView.findViewById<ImageView>(R.id.medium_thumbnail)
+        val target = com.bumptech.glide.request.target.DrawableImageViewTarget(image)
+
+        fun bind(position: Int): Pair<Any, com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>> {
+            adapter.onBindViewHolder(holder, position)
+            val request = target.request!!
+            val field = request.javaClass.getDeclaredField("requestListeners").apply { isAccessible = true }
+            @Suppress("UNCHECKED_CAST")
+            val listener = (field.get(request) as List<com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>>).last()
+            return image.getTag(R.id.thumbnail_request_key) to listener
+        }
+
+        val firstA = bind(0)
+        val b = bind(1)
+        val currentA = bind(0)
+        assertEquals(firstA.first, currentA.first)
+        assertNotSame(firstA.first, currentA.first)
+        val stale = ColorDrawable(android.graphics.Color.RED)
+        for (old in listOf(firstA, b)) {
+            assertTrue("Stale delivery must be consumed before Glide updates the ImageView",
+                old.second.onResourceReady(stale, "old", target, com.bumptech.glide.load.DataSource.LOCAL, true))
+        }
+        assertSame(currentA.first, image.getTag(R.id.thumbnail_request_key))
+        assertNotSame(stale, image.drawable)
+        assertNull(image.getTag(R.id.thumbnail_loaded_key))
+    }
+
     @Test fun unchangedFullBindKeepsDrawableAndRequestToken() = withAdapter { adapter, recycler, _ ->
         val holder = adapter.onCreateViewHolder(recycler, adapter.getItemViewType(0))
         adapter.onBindViewHolder(holder, 0)

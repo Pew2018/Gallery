@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <item name="thumbnail_request_key" type="id" />
+    <item name="media_thumbnail_load" type="id" />
     <item name="thumbnail_loaded_key" type="id" />
     <item name="directory_bound_path" type="id" />
     <item name="media_bound_path" type="id" />

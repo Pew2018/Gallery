@@ -381,7 +381,8 @@ fun Context.loadImage(
     onError: (() -> Unit)? = null,
     onLoaded: (() -> Unit)? = null,
     crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
-    priority: Priority = Priority.LOW
+    priority: Priority = Priority.LOW,
+    onLoadStage: ((String, String?, String?) -> Unit)? = null
 ) {
     target.isHorizontalScrolling = horizontalScroll
     if (type == TYPE_SVGS) {
@@ -393,7 +394,8 @@ fun Context.loadImage(
             signature = signature,
             crossFadeDuration = crossFadeDuration,
             onLoaded = onLoaded,
-            priority = priority
+            priority = priority,
+            onLoadStage = onLoadStage
         )
     } else {
         loadImageBase(
@@ -408,7 +410,8 @@ fun Context.loadImage(
             onError = onError,
             onLoaded = onLoaded,
             crossFadeDuration = crossFadeDuration,
-            priority = priority
+            priority = priority,
+            onLoadStage = onLoadStage
         )
     }
 }
@@ -459,7 +462,8 @@ fun Context.loadImageBase(
     crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
     onError: (() -> Unit)? = null,
     onLoaded: (() -> Unit)? = null,
-    priority: Priority = Priority.LOW
+    priority: Priority = Priority.LOW,
+    onLoadStage: ((String, String?, String?) -> Unit)? = null
 ) {
     val bindingToken = target.getTag(R.id.thumbnail_request_key)
     val options = RequestOptions()
@@ -523,10 +527,16 @@ fun Context.loadImageBase(
             isFirstResource: Boolean
         ): Boolean {
             // A recycled ImageView must never receive a failed request's fallback.
-            if (target.tag != path || target.getTag(R.id.thumbnail_request_key) !== bindingToken) return true
+            if (target.tag != path || target.getTag(R.id.thumbnail_request_key) !== bindingToken) {
+                onLoadStage?.invoke("STALE_CALLBACK_REJECTED", "glide_failure", null)
+                return true
+            }
             if (tryLoadingWithPicasso) {
-                tryLoadingWithPicasso(path, target, cropThumbnails, roundCorners, signature, onError)
+                onLoadStage?.invoke("FALLBACK_STARTED", "glide_failure", null)
+                tryLoadingWithPicasso(path, target, cropThumbnails, roundCorners, signature, onError,
+                    onLoaded, onLoadStage)
             } else {
+                onLoadStage?.invoke("REQUEST_FAILED", "glide_failure", null)
                 onError?.invoke()
             }
 
@@ -540,10 +550,16 @@ fun Context.loadImageBase(
             dataSource: DataSource,
             isFirstResource: Boolean,
         ): Boolean {
-            if (target.tag == path && target.getTag(R.id.thumbnail_request_key) === bindingToken) {
+            if (target.tag != path || target.getTag(R.id.thumbnail_request_key) !== bindingToken) {
+                onLoadStage?.invoke("STALE_CALLBACK_REJECTED", "glide_resource", dataSource.name)
+                return true
+            }
+            onLoadStage?.invoke("RESOURCE_READY", "glide", dataSource.name)
+            if (onLoaded != null) {
                 target.post {
                     if (target.tag == path && target.getTag(R.id.thumbnail_request_key) === bindingToken &&
-                        target.drawable != null) onLoaded?.invoke()
+                        target.drawable != null) onLoaded()
+                    else onLoadStage?.invoke("STALE_CALLBACK_REJECTED", "drawable_callback", dataSource.name)
                 }
             }
             return false
@@ -562,6 +578,7 @@ fun Context.loadSVG(
     crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
     onLoaded: (() -> Unit)? = null,
     priority: Priority = Priority.LOW,
+    onLoadStage: ((String, String?, String?) -> Unit)? = null,
 ) {
     target.scaleType = if (cropThumbnails) {
         ImageView.ScaleType.CENTER_CROP
@@ -593,17 +610,25 @@ fun Context.loadSVG(
     builder.listener(object : RequestListener<PictureDrawable> {
         override fun onLoadFailed(
             e: GlideException?, model: Any?, targetBitmap: Target<PictureDrawable>, isFirstResource: Boolean
-        ): Boolean = false
+        ): Boolean {
+            val stale = target.getTag(R.id.thumbnail_request_key) !== bindingToken
+            onLoadStage?.invoke(if (stale) "STALE_CALLBACK_REJECTED" else "REQUEST_FAILED", "svg_failure", null)
+            return stale
+        }
 
         override fun onResourceReady(
             resource: PictureDrawable, model: Any, targetBitmap: Target<PictureDrawable>,
             dataSource: DataSource, isFirstResource: Boolean
         ): Boolean {
-            if (target.getTag(R.id.thumbnail_request_key) === bindingToken) {
+            if (target.getTag(R.id.thumbnail_request_key) !== bindingToken) {
+                onLoadStage?.invoke("STALE_CALLBACK_REJECTED", "svg_resource", dataSource.name)
+                return true
+            }
+            onLoadStage?.invoke("RESOURCE_READY", "glide_svg", dataSource.name)
+            if (onLoaded != null) {
                 target.post {
-                    if (target.getTag(R.id.thumbnail_request_key) === bindingToken && target.drawable != null) {
-                        onLoaded?.invoke()
-                    }
+                    if (target.getTag(R.id.thumbnail_request_key) === bindingToken && target.drawable != null) onLoaded()
+                    else onLoadStage?.invoke("STALE_CALLBACK_REJECTED", "drawable_callback", dataSource.name)
                 }
             }
             return false
@@ -618,7 +643,9 @@ fun Context.tryLoadingWithPicasso(
     cropThumbnails: Boolean,
     roundCorners: Int,
     signature: ObjectKey,
-    onError: (() -> Unit)? = null
+    onError: (() -> Unit)? = null,
+    onLoaded: (() -> Unit)? = null,
+    onLoadStage: ((String, String?, String?) -> Unit)? = null
 ) {
     val bindingToken = view.getTag(R.id.thumbnail_request_key)
     var pathToLoad = "file://$path"
@@ -645,13 +672,28 @@ fun Context.tryLoadingWithPicasso(
         // Picasso is a fallback: its own failure must terminate loading, and
         // an outdated callback must never replace a newer holder's image.
         builder.into(view, object : com.squareup.picasso.Callback {
-            override fun onSuccess() = Unit
+            override fun onSuccess() {
+                if (view.tag != path || view.getTag(R.id.thumbnail_request_key) !== bindingToken) {
+                    onLoadStage?.invoke("STALE_CALLBACK_REJECTED", "picasso_resource", null)
+                    return
+                }
+                // Picasso's callback runs after the ImageView is updated.
+                onLoadStage?.invoke("RESOURCE_READY", "picasso_callback", "UNKNOWN")
+                onLoaded?.invoke()
+            }
+
             override fun onError(e: Exception?) {
-                if (view.tag == path && view.getTag(R.id.thumbnail_request_key) === bindingToken) onError?.invoke()
+                if (view.tag == path && view.getTag(R.id.thumbnail_request_key) === bindingToken) {
+                    onLoadStage?.invoke("REQUEST_FAILED", "picasso_failure", null)
+                    onError?.invoke()
+                } else onLoadStage?.invoke("STALE_CALLBACK_REJECTED", "picasso_failure", null)
             }
         })
     } catch (e: Exception) {
-        if (view.tag == path && view.getTag(R.id.thumbnail_request_key) === bindingToken) onError?.invoke()
+        if (view.tag == path && view.getTag(R.id.thumbnail_request_key) === bindingToken) {
+            onLoadStage?.invoke("REQUEST_FAILED", "picasso_exception", null)
+            onError?.invoke()
+        }
     }
 }
 

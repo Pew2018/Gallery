@@ -186,6 +186,44 @@ class RefreshRepairTest {
         } finally { release.countDown(); pool.shutdownNow(); root.toFile().deleteRecursively() }
     }
 
+    @Test fun completeCatalogCanBeCopiedFiftyTimesAndRejectsStaleOrUnauthorizedEntries() {
+        val root = Files.createTempDirectory("reusable-catalog")
+        val observation = FolderScanObservation(root.toFile())
+        val permissions = arrayOf(android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            android.Manifest.permission.ACCESS_MEDIA_LOCATION)
+        val application = org.robolectric.Shadows.shadowOf(context)
+        application.grantPermissions(*permissions)
+        try {
+            val folder = root.toString()
+            val first = Medium().apply { path = "$folder/a.jpg"; mediaStoreId = 1 }
+            val second = Medium().apply { path = "$folder/b.jpg"; mediaStoreId = 2 }
+            val rows = listOf(first, second)
+            background {
+                val proof = FolderReturnCheckpoint.captureForViewerScan(context, folder)!!
+                assertNull(FolderViewerSnapshotStore.prepare(context, folder, proof, null, rows, observation))
+                val id = FolderViewerSnapshotStore.prepare(context, folder, proof, proof, rows, observation)!!
+                repeat(50) {
+                    assertEquals(id, FolderViewerSnapshotStore.handoffId(context, folder))
+                    val catalog = FolderViewerSnapshotStore.copyForViewer(context, id, folder, first.path)!!
+                    assertEquals(rows.map { it.path }, catalog.items.map { it.path })
+                    catalog.items[0].path = "$folder/modified-in-viewer.jpg"
+                }
+                assertNull(FolderViewerSnapshotStore.copyForViewer(context, id, folder, "$folder/absent.jpg"))
+                assertNull(FolderViewerSnapshotStore.copyForViewer(context, id, "$folder/other", first.path))
+                application.denyPermissions(android.Manifest.permission.ACCESS_MEDIA_LOCATION)
+                assertNull(FolderViewerSnapshotStore.copyForViewer(context, id, folder, first.path))
+                application.grantPermissions(android.Manifest.permission.ACCESS_MEDIA_LOCATION)
+                assertNotNull(FolderViewerSnapshotStore.copyForViewer(context, id, folder, first.path))
+                FolderContentRevision.changed()
+                assertNull(FolderViewerSnapshotStore.copyForViewer(context, id, folder, first.path))
+            }
+        } finally {
+            observation.stop()
+            application.denyPermissions(*permissions)
+            root.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun cacheFailureAndRejectedExecutorDeliverExactlyOneFailure() {
         var callbacks = 0
         var failures = 0

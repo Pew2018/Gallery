@@ -110,6 +110,7 @@ internal class GetMediaAsynctask(
         private set
     @Volatile private var viewerFolderObservation: org.fossify.gallery.helpers.FolderScanObservation? = null
     internal val viewerFolderUnchanged get() = viewerFolderObservation?.unchanged == true
+    internal val folderCatalogObservation get() = viewerFolderObservation
 
     private fun observeViewerFolder() {
         if (isCancelled || mediaFetcher.shouldStop) return
@@ -157,10 +158,6 @@ internal class GetMediaAsynctask(
         val noMediaFolder = !showAll && mPath.startsWith('/') && photoProfileId == null &&
             mPath != PhotoProfileMediaLoader.PATH && mediaFetcher.noMediaSnapshot.contains(mPath)
         if (noMediaFolder) requestDiagnostics?.workerSource(ViewerScopeType.NOMEDIA_FOLDER)
-        val folderCheckpointStarted = if (!noMediaFolder && !showAll && mPath.startsWith('/') && mPath != FAVORITES &&
-            mPath != RECYCLE_BIN && photoProfileId == null) {
-            runCatching { FolderReturnCheckpoint.capture(context, mPath) }.getOrNull()
-        } else null
         if (!noMediaFolder && !showAll && !isPickImage && !isPickVideo && folderSessionId == null &&
             onPagePreview != null && mPath.startsWith('/') && mPath != RECYCLE_BIN && photoProfileId == null) {
             observeViewerFolder()
@@ -479,11 +476,15 @@ internal class GetMediaAsynctask(
         if (mPath == FAVORITES && context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             android.util.Log.d("GalleryFavorites", "savedPaths=${favoritePaths.size}, scannedMedia=${safeResult.count { it is Medium }}")
         }
-        if (folderCheckpointStarted != null && folderFailures.isEmpty() && !isCancelled && scanFailure == null) {
+        val scanCheckpoint = viewerScanCheckpoint
+        val folderRead = folderReadResult
+        if (scanCheckpoint != null && scanResult.complete && folderRead?.status == FolderReadStatus.COMPLETE &&
+            folderRead.method == "direct" && folderRead.accessCurrent() && viewerFolderUnchanged &&
+            preparedSorting?.and(SORT_BY_RANDOM) == 0 && !isCancelled) {
             val freshnessStarted = GalleryPerfTrace.begin()
-            val finished = runCatching { FolderReturnCheckpoint.capture(context, mPath) }.getOrNull()
+            val finished = FolderReturnCheckpoint.captureForViewerScan(context, mPath)
             folderCatalogCheckpoint = finished.takeIf {
-                FolderReturnCheckpoint.sameSnapshot(folderCheckpointStarted, it)
+                viewerFolderUnchanged && FolderReturnCheckpoint.sameSnapshot(scanCheckpoint, it)
             }
             GalleryPerfTrace.end("viewer_catalog_freshness", freshnessStarted, if (folderCatalogCheckpoint != null) 1 else 0)
         }
