@@ -268,6 +268,25 @@ class PhotoViewerInitializationTest {
         assertEquals(.3f, fixture.binding.mediumViewerAppbar.alpha, 0f)
     }
 
+    @Test fun replacingTheRendererDuringDragRetiresTheOldProxyBeforeReturn() {
+        val fixture = EntryFixture()
+        fixture.setPhoto()
+        fixture.finishEntry()
+        fixture.set("photoSharedElementMapped", true)
+        assertTrue(fixture.activity.mediaDismissProgress(.4f, 0f, 150f))
+        val oldProxy = fixture.field("interactiveDismissSurface") as View
+        val newPhoto = fixture.setPhoto()
+
+        fixture.activity.mediaDismissSettled(dismiss = true)
+
+        val returnProxy = fixture.field("sharedReturnView") as View
+        assertNull(oldProxy.parent)
+        assertEquals(View.LAYER_TYPE_NONE, oldProxy.layerType)
+        assertSame(newPhoto.binding.root, returnProxy.parent)
+        assertEquals(0f, returnProxy.translationY, 0f)
+        assertEquals(1f, fixture.binding.viewerTransitionScrim.alpha, 0f)
+    }
+
     @Test fun interruptedDragContinuesFromItsCurrentOpacityAndCancelRestoresViewer() {
         val fixture = EntryFixture()
         fixture.setPhoto()

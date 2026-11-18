@@ -244,6 +244,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var visualTitlePending = false
     private var interactiveDismissSurface: View? = null
     private var interactiveDismissPage: ViewPagerFragment? = null
+    private var interactiveDismissPath: String? = null
     private var interactiveDismissDragActive = false
     private var interactiveDismissSettleAnimator: ValueAnimator? = null
     private var interactiveDismissProgress = 0f
@@ -428,6 +429,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         interactiveDismissGeneration++
         interactiveDismissSurface = null
         interactiveDismissPage = null
+        interactiveDismissPath = null
         interactiveDismissDragActive = false
         interactiveDismissProgress = 0f
         interactiveDismissDeltaXSlope = 0f
@@ -457,7 +459,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (interactiveDismissSurface == null) {
             val fragment = getCurrentFragment() ?: return false
             val operation = transitionSession.beginGesture() ?: return false
-            val surface = getCurrentSharedElementView(getCurrentPath()) ?: run {
+            val path = getCurrentPath()
+            val surface = getCurrentSharedElementView(path) ?: run {
                 transitionSession.cancelGesture(operation)
                 return false
             }
@@ -479,6 +482,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             binding.viewerTransitionScrim.alpha = 1f
             interactiveDismissSurface = surface
             interactiveDismissPage = fragment
+            interactiveDismissPath = path
             interactiveDismissDragActive = true
             interactiveDismissGestureBaseX = 0f
             interactiveDismissGestureBaseY = 0f
@@ -1339,12 +1343,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             return
         }
         if (finishDuringMediaEntry()) return
+        val returnPath = getCurrentPath()
+        val page = getCurrentFragment()
+        val dragSurface = interactiveDismissSurface
+        if (dragSurface != null && (!dragSurface.isAttachedToWindow ||
+                interactiveDismissPath != returnPath || interactiveDismissPage !== page)) {
+            val gesture = transitionSession.returnOperation ?: return
+            if (transitionSession.cancelGesture(gesture)) returnLeases.releaseAll()
+        }
         val operation = transitionSession.beginReturn() ?: return
         viewerReturnId = ViewerEntryDiagnostics.newRequest()
-        val returnPath = getCurrentPath()
         val motionEnabled = OxygenClassicMotion.enabled(this)
         val eligible = photoSharedElementMapped && motionEnabled && returnPath.isNotEmpty()
-        val page = getCurrentFragment()
         val proxy = if (eligible) getCurrentSharedElementView(returnPath, returnRequestId = viewerReturnId) else null
         val canReturn = proxy?.isAttachedToWindow == true
         ViewerReturnDiagnostics.event(viewerReturnId, "viewer_requested") {
