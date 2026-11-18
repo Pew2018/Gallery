@@ -31,7 +31,7 @@ Session 身份由随机 ID、运行时代际及操作 ID 组成。诊断请求 I
 |---|---|
 | Grid source Holder 与名称 | 验证源绑定和像素后注册。平台退场结束或名称超时清除名称。Grid stop、reenter 或恢复后的 result 释放 Holder |
 | Grid target Holder、名称及 Adapter hold | 返回目标通过路径、Adapter 版本、Holder/布局、缩略图键、drawable、可见区域和目录作用域核对后取得。映射时重新核对并登记名称。回位确认、目标失效、取消、超时、结果异常或 Grid 销毁时统一释放 |
-| Viewer 代理、drawable、renderer | Fragment 及 MediaSharedSurface 执行交接。先移除代理、名称、drawable 和硬件层，再恢复实际 renderer 的 alpha。拖拽提交沿用当前代理及变换 |
+| Viewer 代理、drawable、renderer | Fragment 及 MediaSharedSurface 执行交接。先移除代理、名称、drawable 和硬件层，再恢复实际 renderer 的 alpha。拖拽提交会复验路径、Fragment 和代理附着状态，通过后沿用代理及变换 |
 | Viewer chrome、scrim、系统栏与输入 | 入场在 renderer 交接或淡入完成时恢复，返回和拖拽由同一操作登记并在回弹、退出退化或窗口销毁时释放 |
 | Handler、Animator、绘制与 frame commit 监听 | 在所属入场或返回操作登记，释放时取消。已进入消息队列的回调再核对操作、状态或所属监听。Grid 释放延期的平台入场，避免目标失效后窗口等待 |
 
