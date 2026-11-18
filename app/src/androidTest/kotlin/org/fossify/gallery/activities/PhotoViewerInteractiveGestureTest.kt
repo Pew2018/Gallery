@@ -1959,23 +1959,45 @@ class PhotoViewerInteractiveGestureTest {
             var toolbarBottom = 0
             val photoPath = photos.first().second
             awaitSourceThumbnail(instrumentation, source, photoPath)
-            val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
-            val opened = try {
-                val open = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java).apply { isAccessible = true }
-                instrumentation.runOnMainSync { open.invoke(source, photoPath) }
-                instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as ViewPagerActivity
-            } finally {
-                instrumentation.removeMonitor(monitor)
+            val open = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java).apply { isAccessible = true }
+            val entryMapped = ViewPagerActivity::class.java.getDeclaredField("photoSharedElementMapped").apply { isAccessible = true }
+            var sharedViewer: ViewPagerActivity? = null
+            for (attempt in 1..3) {
+                val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
+                val candidate = try {
+                    instrumentation.runOnMainSync { open.invoke(source, photoPath) }
+                    instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as ViewPagerActivity
+                } finally {
+                    instrumentation.removeMonitor(monitor)
+                }
+                viewer = candidate
+                awaitFrame(instrumentation, candidate, requireProxy = false)
+                val entryDeadline = SystemClock.uptimeMillis() + 8_000
+                var entered = false
+                var mapped = false
+                do {
+                    instrumentation.runOnMainSync {
+                        entered = !candidate.isMediaTransitionRunning()
+                        mapped = entryMapped.getBoolean(candidate)
+                    }
+                    if (!entered) SystemClock.sleep(30)
+                } while (!entered && SystemClock.uptimeMillis() < entryDeadline)
+                assertTrue("Photo entry settles before the page switch", entered)
+                if (mapped) {
+                    sharedViewer = candidate
+                    break
+                }
+                // A cold emulator can time out waiting for its first photo renderer.
+                // A fallback entry cannot drive a native shared return.
+                instrumentation.runOnMainSync { candidate.finish() }
+                val restoreDeadline = SystemClock.uptimeMillis() + 8_000
+                while ((!source.hasWindowFocus() || !candidate.isDestroyed) && SystemClock.uptimeMillis() < restoreDeadline) {
+                    SystemClock.sleep(30)
+                }
+                assertTrue("The grid recovers after entry fallback on attempt $attempt", source.hasWindowFocus() && candidate.isDestroyed)
+                awaitSourceThumbnail(instrumentation, source, photoPath)
             }
-            viewer = opened
-            awaitFrame(instrumentation, opened, requireProxy = false)
-            val entryDeadline = SystemClock.uptimeMillis() + 8_000
-            var entered = false
-            do {
-                instrumentation.runOnMainSync { entered = !opened.isMediaTransitionRunning() }
-                if (!entered) SystemClock.sleep(30)
-            } while (!entered && SystemClock.uptimeMillis() < entryDeadline)
-            assertTrue("Photo entry settles before the page switch", entered)
+            val opened = requireNotNull(sharedViewer) { "A native photo entry is required to verify the shared video return" }
             instrumentation.runOnMainSync {
                 recycler.scrollBy(0, thumbnail.height / 2)
                 toolbar.getLocationOnScreen(toolbarLocation)
