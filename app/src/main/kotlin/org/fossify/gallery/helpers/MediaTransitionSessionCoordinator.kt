@@ -1,0 +1,212 @@
+package org.fossify.gallery.helpers
+
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
+
+/** UI-thread arbiter for one viewer visit. It holds no Activity, View or callback references. */
+internal class MediaTransitionSessionCoordinator(
+    private val observer: ((event: String, token: Token, detail: String) -> Unit)? = null,
+) {
+    enum class State {
+        PREPARING, ENTRY_CAPTURED, ENTERING, ENTRY_FALLBACK, VIEWING, INTERACTIVE_RETURN,
+        RETURN_PREPARING, RETURNING, COMPLETE, CANCELLED, FALLBACK, CLEANED
+    }
+
+    enum class Resource {
+        SOURCE, SOURCE_NAME, TARGET, TARGET_NAME, PUBLICATION, PROXY, RENDERER_HANDOFF, CHROME, INPUT, CALLBACKS,
+        TARGET_PROBE, FIRST_FRAME, TARGET_DRAW, TIMEOUT, INTERACTIVE_ANIMATOR, WINDOW_POSTPONE
+    }
+
+    data class Token(val sessionId: String, val generation: Long, val operationId: Long)
+
+    private fun token(operationId: Long) = Token(id, generation, operationId)
+
+    private val generation = generations.incrementAndGet()
+    private val id = UUID.randomUUID().toString()
+    val entry = token(1)
+    val entryGate = PhotoTransitionCompletionGate()
+    var state = State.PREPARING
+        private set
+    var outcome: State? = null
+        private set
+    var returnOperation: Token? = null
+        private set
+    var gridAttached = false
+        private set
+    var viewerAttached = false
+        private set
+    var resultAccepted = false
+        private set
+    private var reenterAccepted = false
+    var viewerMotionOutcome: State? = null
+        private set
+    private var operation = 1L
+    private var leaseCount = 0
+    private val current get() = returnOperation ?: entry
+
+    init { emit("session_created", entry, state.name) }
+
+    fun attachGrid() { gridAttached = true }
+    fun detachGrid() { gridAttached = false }
+
+    fun attachViewer(): Boolean {
+        if (outcome != null || viewerAttached || state != State.PREPARING) return false
+        viewerAttached = true
+        return true
+    }
+
+    val entryActive get() = state in ENTRY_STATES
+
+    fun capture(token: Token) = update(token, State.ENTRY_CAPTURED, State.PREPARING)
+    fun beginMotion(token: Token) = update(token, State.ENTERING, State.ENTRY_CAPTURED)
+
+    fun entryFallback(token: Token, reason: String): Boolean {
+        if (!update(token, State.ENTRY_FALLBACK, State.PREPARING, State.ENTRY_CAPTURED, State.ENTERING)) return false
+        emit("transition_fallback", token, reason)
+        return true
+    }
+
+    fun entryFinished(token: Token, withoutSharedEntry: Boolean = false) =
+        if (withoutSharedEntry) update(token, State.VIEWING, State.PREPARING)
+        else update(token, State.VIEWING, State.ENTERING, State.ENTRY_FALLBACK)
+
+    fun beginGesture(): Token? {
+        if (state != State.VIEWING) return null
+        return token(++operation).also {
+            returnOperation = it
+            change(State.INTERACTIVE_RETURN, it)
+        }
+    }
+
+    fun cancelGesture(token: Token): Boolean {
+        if (!update(token, State.VIEWING, State.INTERACTIVE_RETURN)) return false
+        returnOperation = null
+        return true
+    }
+
+    fun beginReturn(): Token? {
+        if (state != State.VIEWING && state != State.INTERACTIVE_RETURN) return null
+        return (returnOperation ?: token(++operation)).also {
+            returnOperation = it
+            change(State.RETURN_PREPARING, it)
+        }
+    }
+
+    fun isReturning(token: Token) = returnOperation == token &&
+        (state == State.RETURN_PREPARING || state == State.RETURNING)
+
+    fun acceptReenter(token: Token): Boolean {
+        if (reenterAccepted || resultAccepted || !isReturning(token)) return rejected(token, "reenter")
+        reenterAccepted = true
+        return true
+    }
+
+    fun finishViewerMotion(token: Token, cancelled: Boolean): Boolean {
+        if (!isReturning(token) || viewerMotionOutcome != null) return rejected(token, "viewer_motion_end")
+        viewerMotionOutcome = if (cancelled) State.CANCELLED else State.COMPLETE
+        return true
+    }
+
+    fun targetReady(token: Token) = update(token, State.RETURNING, State.RETURN_PREPARING)
+
+    fun acceptResult(token: Token): Boolean {
+        // Android can deliver the result after the platform animation or a local fallback.
+        if (resultAccepted || current != token || (returnOperation == null && outcome != State.CANCELLED) ||
+            (outcome == null && !isReturning(token))) return rejected(token, "result")
+        resultAccepted = true
+        return true
+    }
+
+    fun acceptFrameworkCancellation(): Boolean {
+        // A launch that fails before the Viewer takes its ticket can produce RESULT_CANCELED
+        // without an Intent. Once claimed, the Viewer always installs a stamped result.
+        if (viewerAttached || resultAccepted || state != State.PREPARING) return false
+        cancel("framework_cancelled")
+        return acceptResult(entry)
+    }
+
+    fun terminate(token: Token, terminal: State, reason: String): Boolean {
+        val permitted = when (terminal) {
+            State.COMPLETE -> state == State.RETURNING
+            State.FALLBACK -> state == State.RETURN_PREPARING || state == State.RETURNING
+            State.CANCELLED -> true
+            else -> false
+        }
+        if (outcome != null || current != token || !permitted) return rejected(token, "terminal")
+        entryGate.cancel()
+        outcome = terminal
+        change(terminal, token)
+        if (terminal == State.FALLBACK) emit("transition_fallback", token, reason)
+        emit("transition_terminal", token, "${terminal.name}:$reason")
+        return true
+    }
+
+    fun cancel(reason: String) = terminate(current, State.CANCELLED, reason)
+
+    fun clean(): Boolean {
+        if (outcome == null || leaseCount != 0 || state == State.CLEANED) return false
+        change(State.CLEANED, current)
+        emit("transition_cleanup_completed", current, requireNotNull(outcome).name)
+        return true
+    }
+
+    fun leases() = Leases()
+
+    /** Activity-owned cleanup actions. The coordinator only counts and admits leases. */
+    inner class Leases {
+        private val owned = linkedMapOf<Resource, Pair<Token, () -> Unit>>()
+
+        fun acquire(token: Token, resource: Resource, release: () -> Unit): Boolean {
+            val active = if (token == entry) entryActive else state == State.INTERACTIVE_RETURN || isReturning(token)
+            if (!active || current != token || resource in owned) return rejected(token, resource.name)
+            owned[resource] = token to release
+            leaseCount++
+            emit("transition_lease_acquired", token, resource.name)
+            return true
+        }
+
+        fun release(token: Token, resource: Resource): Boolean {
+            if (owned[resource]?.first != token) return false
+            val (_, action) = requireNotNull(owned.remove(resource))
+            try {
+                action()
+            } finally {
+                leaseCount--
+                emit("transition_lease_released", token, resource.name)
+            }
+            return true
+        }
+
+        fun releaseAll() {
+            owned.entries.toList().asReversed().forEach { (kind, lease) -> release(lease.first, kind) }
+        }
+    }
+
+    private fun update(token: Token, to: State, vararg from: State): Boolean {
+        if (!valid(token, *from)) return rejected(token, to.name)
+        change(to, token)
+        return true
+    }
+
+    private fun valid(token: Token, vararg from: State) = outcome == null && token == current && state in from
+
+    private fun change(to: State, token: Token) {
+        val from = state
+        state = to
+        if (observer != null) emit("transition_state_changed", token, "${from.name}->${to.name}")
+    }
+
+    private fun rejected(token: Token, detail: String): Boolean {
+        emit("stale_transition_callback_ignored", token, detail)
+        return false
+    }
+
+    private fun emit(event: String, token: Token, detail: String) {
+        observer?.invoke(event, token, detail)
+    }
+
+    private companion object {
+        val generations = AtomicLong()
+        val ENTRY_STATES = setOf(State.PREPARING, State.ENTRY_CAPTURED, State.ENTERING, State.ENTRY_FALLBACK)
+    }
+}

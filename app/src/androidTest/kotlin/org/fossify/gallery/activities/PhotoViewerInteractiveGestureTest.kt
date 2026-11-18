@@ -45,6 +45,7 @@ import org.fossify.gallery.helpers.GalleryNavigation
 import org.fossify.gallery.helpers.GallerySection
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.SHOW_FAVORITES
+import org.fossify.gallery.helpers.TYPE_IMAGES
 import org.fossify.gallery.helpers.PhotoProfile
 import org.fossify.gallery.helpers.PhotoProfileMediaCache
 import org.fossify.gallery.helpers.PhotoProfileMediaLoader
@@ -67,7 +68,9 @@ import org.fossify.commons.helpers.SORT_BY_SIZE
 import org.fossify.commons.helpers.SORT_DESCENDING
 import org.fossify.commons.helpers.SORT_USE_NUMERIC_VALUE
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -874,7 +877,7 @@ class PhotoViewerInteractiveGestureTest {
                     viewerActivity.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(viewerActivity)
                 }.getOrNull()
                 listOf(
-                    "mediaTransitionRunning=${state("mediaTransitionRunning")}",
+                    "mediaTransitionRunning=${viewerActivity.isMediaTransitionRunning()}",
                     "pendingAdjacent=${(state("transitionPendingAdjacentMedia") as? List<*>)?.size}",
                     "pendingSwipe=${state("transitionPendingSwipePublication")}",
                     "initialPending=${state("initialViewerPublicationPending")}",
@@ -1652,12 +1655,10 @@ class PhotoViewerInteractiveGestureTest {
                     kotlin.math.abs(renderedRatio / expectedRatio - 1f) < 0.02f,
                 )
 
-                val transitionRunningField = ViewPagerActivity::class.java.getDeclaredField("mediaTransitionRunning")
-                    .apply { isAccessible = true }
                 val transitionDeadline = SystemClock.uptimeMillis() + 5_000
                 var transitionRunning = true
                 while (transitionRunning && SystemClock.uptimeMillis() < transitionDeadline) {
-                    instrumentation.runOnMainSync { transitionRunning = transitionRunningField.getBoolean(viewer) }
+                    instrumentation.runOnMainSync { transitionRunning = viewer.isMediaTransitionRunning() }
                     if (transitionRunning) SystemClock.sleep(25)
                 }
                 assertTrue("fixture $index opening transition should settle before closing", !transitionRunning)
@@ -1782,6 +1783,108 @@ class PhotoViewerInteractiveGestureTest {
             context.config.oxygenAppearanceMode = previousAppearanceMode
             context.config.oxygenThemeActivated = wasClassicThemeActive
             fixtures.forEach { runCatching { context.contentResolver.delete(it.first, null, null) } }
+        }
+    }
+
+    @Test
+    fun fiftyViewerReturnsCleanTheirSessionAndRestoreTheSelectedThumbnail() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GallerySession-${UUID.randomUUID()}"
+        val fixtures = List(3) { createFixture(context, album, width = 480, height = 360) }
+        val previousShowAll = context.config.showAll
+        val previousFilter = context.config.filterMedia
+        var source: MediaActivity? = null
+        var viewer: ViewPagerActivity? = null
+        try {
+            context.config.showAll = false
+            context.config.filterMedia = TYPE_IMAGES
+            val grid = instrumentation.startActivitySync(Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, java.io.File(fixtures.first().second).parent)
+            }) as MediaActivity
+            source = grid
+            val open = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java).apply { isAccessible = true }
+            val sessionField = ViewPagerActivity::class.java.getDeclaredField("transitionSession").apply { isAccessible = true }
+            val currentPath = ViewPagerActivity::class.java.getDeclaredMethod("getCurrentPath").apply { isAccessible = true }
+            val recycler = grid.findViewById<RecyclerView>(R.id.media_grid)
+            val launchInProgress = MediaActivity::class.java.getDeclaredField("viewerLaunchInProgress").apply { isAccessible = true }
+            val paths = fixtures.mapTo(HashSet()) { it.second }
+            val (startPath, _) = awaitAnySourceThumbnail(instrumentation, grid, paths)
+            val sessionIds = mutableSetOf<Any>()
+            val outcomes = mutableMapOf<String, Int>()
+            repeat(50) { cycle ->
+                awaitSourceThumbnail(instrumentation, grid, startPath)
+                val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
+                val opened = try {
+                    instrumentation.runOnMainSync { open.invoke(grid, startPath) }
+                    instrumentation.waitForMonitorWithTimeout(monitor, 8_000) as? ViewPagerActivity
+                        ?: error("Viewer did not open in cycle $cycle")
+                } finally {
+                    instrumentation.removeMonitor(monitor)
+                }
+                viewer = opened
+                val session = sessionField.get(opened)
+                assertTrue("Viewer cycle $cycle has a fresh Session", sessionIds.add(session))
+                val fields = session.javaClass
+                val state = fields.getDeclaredField("state").apply { isAccessible = true }
+                val outcome = fields.getDeclaredField("outcome").apply { isAccessible = true }
+
+                fun awaitState(expected: String) {
+                    val deadline = SystemClock.uptimeMillis() + 8_000
+                    var actual = ""
+                    do {
+                        instrumentation.runOnMainSync { actual = state.get(session).toString() }
+                        if (actual == expected) return
+                        SystemClock.sleep(25)
+                    } while (SystemClock.uptimeMillis() < deadline)
+                    assertEquals("Session in Viewer cycle $cycle", expected, actual)
+                }
+
+                awaitState("VIEWING")
+                var selectedPath = startPath
+                if (cycle % 2 == 0) {
+                    instrumentation.runOnMainSync {
+                        val rows = (recycler.adapter as MediaAdapter).media.filterIsInstance<Medium>()
+                        if (rows.last().path == startPath) opened.goToPrevItem() else opened.goToNextItem()
+                    }
+                    val deadline = SystemClock.uptimeMillis() + 5_000
+                    while (selectedPath == startPath && SystemClock.uptimeMillis() < deadline) {
+                        instrumentation.runOnMainSync { selectedPath = currentPath.invoke(opened) as String }
+                        if (selectedPath == startPath) SystemClock.sleep(25)
+                    }
+                    assertFalse("Cycle $cycle must return a different thumbnail", selectedPath == startPath)
+                }
+                instrumentation.runOnMainSync { opened.finish() }
+
+                awaitState("CLEANED")
+                val focusDeadline = SystemClock.uptimeMillis() + 5_000
+                while ((!grid.hasWindowFocus() || launchInProgress.getBoolean(grid)) &&
+                    SystemClock.uptimeMillis() < focusDeadline) SystemClock.sleep(25)
+                assertTrue("The grid accepts new launches after cycle $cycle",
+                    grid.hasWindowFocus() && !launchInProgress.getBoolean(grid))
+                val terminal = outcome.get(session).toString()
+                assertTrue("Cycle $cycle must close with a single return outcome", terminal == "COMPLETE" || terminal == "FALLBACK")
+                outcomes[terminal] = (outcomes[terminal] ?: 0) + 1
+                val image = awaitSourceThumbnail(instrumentation, grid, selectedPath)
+                instrumentation.runOnMainSync {
+                    assertNull("No transition name leaks after cycle $cycle", image.transitionName)
+                    assertTrue(recycler.findContainingViewHolder(image)!!.isRecyclable)
+                    assertFalse(opened.findViewById<ProgressivePhotoViewPager>(R.id.view_pager).transitionInputLocked)
+                }
+                viewer = null
+            }
+            assertTrue("Expected a shared-element handoff. Outcomes: $outcomes", (outcomes["COMPLETE"] ?: 0) > 0)
+            android.util.Log.i("GallerySessionTest", "50 cycles: $outcomes")
+        } finally {
+            instrumentation.runOnMainSync {
+                viewer?.takeUnless { it.isFinishing }?.finish()
+                source?.finish()
+            }
+            context.config.showAll = previousShowAll
+            context.config.filterMedia = previousFilter
+            fixtures.forEach { context.contentResolver.delete(it.first, null, null) }
         }
     }
 

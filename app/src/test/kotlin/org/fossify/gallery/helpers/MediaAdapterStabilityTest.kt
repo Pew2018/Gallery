@@ -128,12 +128,36 @@ class MediaAdapterStabilityTest {
         val launchId: Long
             get() = type.getDeclaredField("viewerReturnLaunch").apply { isAccessible = true }.getLong(activity)
 
+        private var session: MediaTransitionSessionCoordinator? = null
+        private val operationsByLaunch = mutableMapOf<Long, MediaTransitionSessionCoordinator.Token>()
+        private var requestId: Long? = null
+
+        private fun beginReturn(id: Long): MediaTransitionSessionCoordinator.Token {
+            if (session == null || requestId != null && requestId != id) {
+                session = MediaTransitionSessionCoordinator().also {
+                    it.attachGrid()
+                    check(it.attachViewer())
+                    check(it.entryFinished(it.entry, withoutSharedEntry = true))
+                    type.getDeclaredField("transitionSession").apply { isAccessible = true }.set(activity, it)
+                }
+            }
+            val current = requireNotNull(session)
+            requestId = id
+            if (current.state == MediaTransitionSessionCoordinator.State.PREPARING) {
+                check(current.entryFinished(current.entry, withoutSharedEntry = true))
+            }
+            return (current.returnOperation ?: requireNotNull(current.beginReturn())).also {
+                operationsByLaunch[launchId] = it
+            }
+        }
+
         fun reenter(path: String, id: Long = 1L, launch: Long = launchId, deletedPaths: List<String> = emptyList()) {
-            activity.onActivityReenter(Activity.RESULT_OK, Intent()
+            val intent = Intent()
                 .putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH, path)
                 .putExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, id)
                 .putExtra(PhotoViewerTransition.EXTRA_LAUNCH, launch)
-                .putStringArrayListExtra(PhotoViewerTransition.EXTRA_DELETED_PATHS, ArrayList(deletedPaths)))
+                .putStringArrayListExtra(PhotoViewerTransition.EXTRA_DELETED_PATHS, ArrayList(deletedPaths))
+            activity.onActivityReenter(Activity.RESULT_OK, MediaTransitionHandoff.write(intent, beginReturn(id)))
         }
 
         fun thumbnail(position: Int, path: String): ImageView {
@@ -169,8 +193,11 @@ class MediaAdapterStabilityTest {
         }
 
         fun launch(path: String) {
+            val intent = Intent(activity, org.fossify.gallery.activities.ViewPagerActivity::class.java)
             type.getDeclaredMethod("launchPhotoViewerWithSharedElement", Intent::class.java, String::class.java)
-                .apply { isAccessible = true }.invoke(activity, Intent(activity, org.fossify.gallery.activities.ViewPagerActivity::class.java), path)
+                .apply { isAccessible = true }.invoke(activity, intent, path)
+            session = requireNotNull(MediaTransitionHandoff.claim(intent))
+            requestId = null
         }
 
         fun terminal(transition: android.transition.Transition = activity.window.sharedElementReenterTransition, cancelled: Boolean = false) {
@@ -182,13 +209,15 @@ class MediaAdapterStabilityTest {
         }
 
         fun result(path: String?, id: Long = 1L, launch: Long = launchId, deletedPaths: List<String> = emptyList()) {
+            val operation = operationsByLaunch[launch] ?: beginReturn(id)
+            val intent = Intent()
+                .putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH, path)
+                .putStringArrayListExtra(PhotoViewerTransition.EXTRA_DELETED_PATHS, ArrayList(deletedPaths))
+                .putExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, id)
+                .putExtra(PhotoViewerTransition.EXTRA_LAUNCH, launch)
             type.getDeclaredMethod("onActivityResult", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Intent::class.java)
-                .apply { isAccessible = true }.invoke(activity, PhotoViewerTransition.REQUEST_CODE, Activity.RESULT_OK, Intent()
-                    .putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH, path)
-                    .putStringArrayListExtra(PhotoViewerTransition.EXTRA_DELETED_PATHS, ArrayList(deletedPaths))
-                    .putExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, id)
-                    .putExtra(PhotoViewerTransition.EXTRA_LAUNCH, launch))
-
+                .apply { isAccessible = true }.invoke(activity, PhotoViewerTransition.REQUEST_CODE, Activity.RESULT_OK,
+                    MediaTransitionHandoff.write(intent, operation))
         }
 
         fun frame() {
@@ -687,6 +716,20 @@ class MediaAdapterStabilityTest {
         fixture.frame()
         assertNull(image.transitionName)
         assertSame(holder, fixture.grid.findViewHolderForAdapterPosition(0))
+    }
+
+    @Test fun resultBeforeReenterDoesNotAcquireAHolderOrPublicationHold() {
+        val row = item("a.jpg")
+        val fixture = ReturnGridFixture(listOf(row))
+        val image = fixture.thumbnail(0, row.path)
+        val holder = fixture.grid.findViewHolderForAdapterPosition(0)!!
+        fixture.result(row.path, id = 0L)
+        fixture.reenter(row.path, id = 0L)
+        fixture.frame()
+        assertFalse(fixture.postponed)
+        assertTrue(holder.isRecyclable)
+        assertNull(image.transitionName)
+        assertNull(fixture.map())
     }
 
     @Test fun aReplacedDrawableCannotAcknowledgeThePreviousThumbnailHandoff() {

@@ -79,18 +79,21 @@ internal class MediaSharedSurface(private val parent: RelativeLayout) {
     }
 
     fun clear() {
+        val proxy = currentView
+        currentView = null
+        proxy?.let {
+            it.transitionName = null
+            it.animate().cancel()
+            it.setLayerType(View.LAYER_TYPE_NONE, null)
+            parent.removeView(it)
+            it.setImageDrawable(null)
+        }
         renderers = emptyList()
         hidden.forEach { (view, state) ->
             view.alpha = state.alpha
             if (Build.VERSION.SDK_INT >= 29) view.transitionAlpha = state.transitionAlpha
         }
         hidden.clear()
-        currentView?.let {
-            it.setLayerType(View.LAYER_TYPE_NONE, null)
-            parent.removeView(it)
-            it.setImageDrawable(null)
-        }
-        currentView = null
     }
 }
 

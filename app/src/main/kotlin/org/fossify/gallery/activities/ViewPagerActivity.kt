@@ -11,6 +11,11 @@ import org.fossify.gallery.helpers.ViewerEntryDiagnostics
 import org.fossify.gallery.helpers.GalleryDiagnosticLogger
 import org.fossify.gallery.helpers.FrameEvidence
 import org.fossify.gallery.helpers.ViewerReturnDiagnostics
+import org.fossify.gallery.helpers.MediaTransitionHandoff
+import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator
+import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator.Resource
+import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator.State
+import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator.Token
 import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.OxygenClassicMotion
 import org.fossify.gallery.extensions.favoriteProtection
@@ -228,7 +233,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private var mPath = ""
     private var viewerInitialSelectedPath = ""
-    private var mediaTransitionRunning = false
+    private lateinit var transitionSession: MediaTransitionSessionCoordinator
+    private lateinit var entryLeases: MediaTransitionSessionCoordinator.Leases
+    private lateinit var returnLeases: MediaTransitionSessionCoordinator.Leases
+    private var entryReleaseDraw: androidx.core.view.OneShotPreDrawListener? = null
+    private var entryDiagnosticDraw: androidx.core.view.OneShotPreDrawListener? = null
+    private val mediaTransitionRunning get() = ::transitionSession.isInitialized &&
+        (transitionSession.entryActive || transitionSession.returnOperation?.let(transitionSession::isReturning) == true)
     private var fadeOnlyPhotoFallback = false
     private var visualTitlePending = false
     private var interactiveDismissSurface: View? = null
@@ -280,6 +291,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun renderPhotoTransitionProgress(entry: PhotoTransitionCompletionGate, progress: Float) {
         if (!isCurrentEntry(entry)) return
         if (entry.startMotion()) {
+            check(transitionSession.beginMotion(transitionSession.entry))
             photoSharedElementHandler.removeCallbacks(entryWatchdog)
             logMediaEntry("shared_animation_started")
         }
@@ -332,8 +344,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
     }
 
-    private fun renderSharedReturnProgress(progress: Float) {
-        if (!mediaTransitionRunning || !finishAfterSharedTransitionInProgress ||
+    private fun renderSharedReturnProgress(operation: Token, progress: Float) {
+        if (!transitionSession.isReturning(operation) ||
             sharedReturnTerminal || isFinishing || isDestroyed) return
         if (!sharedReturnAnimatorStarted) {
             sharedReturnAnimatorStarted = true
@@ -342,9 +354,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         renderSharedReturnLayers(1f - progress.coerceIn(0f, 1f))
     }
 
-    private fun onSharedReturnTerminal(cancelled: Boolean) {
-        if (!finishAfterSharedTransitionInProgress || sharedReturnTerminal || isDestroyed) return
-        sharedReturnTerminal = true
+    private fun onSharedReturnTerminal(operation: Token, cancelled: Boolean) {
+        if (isDestroyed || !transitionSession.finishViewerMotion(operation, cancelled)) return
         ViewerReturnDiagnostics.event(viewerReturnId, if (cancelled) "viewer_transition_cancel" else "viewer_transition_end") {
             val proxy = sharedReturnView
             mapOf("animatorStarted" to sharedReturnAnimatorStarted, "finishing" to isFinishing,
@@ -358,6 +369,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
         if (!cancelled && sharedReturnAnimatorStarted) renderSharedReturnLayers(0f)
         // Android still needs the proxy at its destination until the grid can draw it.
+        // Release the Viewer leases once the framework calls finish or destroys this window.
     }
 
     private fun mappedTransitionSurfaceBounds(view: View): android.graphics.Rect? {
@@ -408,17 +420,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         interactiveDismissProgress = p
     }
 
-    private fun clearInteractiveDismissDrag(restoreViewer: Boolean) {
+    private fun clearInteractiveDismissDrag() {
         interactiveDismissSettleAnimator?.removeAllUpdateListeners()
         interactiveDismissSettleAnimator?.removeAllListeners()
         interactiveDismissSettleAnimator?.cancel()
         interactiveDismissSettleAnimator = null
         interactiveDismissGeneration++
-        if (restoreViewer) {
-            finishSharedEntryPage(interactiveDismissPage)
-            restoreBlackViewerCanvas()
-            renderSharedViewerLayers(1f)
-        }
         interactiveDismissSurface = null
         interactiveDismissPage = null
         interactiveDismissDragActive = false
@@ -430,6 +437,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun mediaDismissGestureBegin(): Float? {
+        if (transitionSession.state != State.INTERACTIVE_RETURN) return null
         val animator = interactiveDismissSettleAnimator ?: return null
         val progress = interactiveDismissProgress
         interactiveDismissGeneration++
@@ -444,10 +452,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     override fun mediaDismissProgress(progress: Float, deltaX: Float, deltaY: Float): Boolean {
-        if (isFinishing || isDestroyed || mediaTransitionRunning) return false
+        if (isFinishing || isDestroyed || (transitionSession.state != State.VIEWING &&
+                transitionSession.state != State.INTERACTIVE_RETURN)) return false
         if (interactiveDismissSurface == null) {
             val fragment = getCurrentFragment() ?: return false
-            val surface = getCurrentSharedElementView(getCurrentPath()) ?: return false
+            val operation = transitionSession.beginGesture() ?: return false
+            val surface = getCurrentSharedElementView(getCurrentPath()) ?: run {
+                transitionSession.cancelGesture(operation)
+                return false
+            }
+            ownReturnSurface(operation, fragment)
+            returnLeases.acquire(operation, Resource.INTERACTIVE_ANIMATOR, ::clearInteractiveDismissDrag)
+            ownReturnChrome(operation, fragment)
             interactiveDismissSettleAnimator?.cancel()
             surface.animate().cancel()
             surface.pivotX = surface.width / 2f
@@ -478,7 +494,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     override fun mediaDismissSettled(dismiss: Boolean) {
         val surface = interactiveDismissSurface ?: return
-        if (!interactiveDismissDragActive || isDestroyed || isFinishing) return
+        val operation = transitionSession.returnOperation ?: return
+        if (transitionSession.state != State.INTERACTIVE_RETURN ||
+            !interactiveDismissDragActive || isDestroyed || isFinishing) return
         interactiveDismissSettleAnimator?.cancel()
         if (dismiss) {
             // Hand the live gesture transform directly to the Activity shared
@@ -496,7 +514,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             this.duration = duration
             interpolator = OxygenClassicMotion.easing()
             addUpdateListener { animator ->
-                if (generation == interactiveDismissGeneration && surface === interactiveDismissSurface) {
+                if (transitionSession.state == State.INTERACTIVE_RETURN && transitionSession.returnOperation == operation &&
+                    generation == interactiveDismissGeneration && surface === interactiveDismissSurface) {
                     renderInteractiveDismissProgress(animator.animatedValue as Float)
                 }
             }
@@ -505,8 +524,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 override fun onAnimationCancel(animation: Animator) { cancelled = true }
                 override fun onAnimationEnd(animation: Animator) {
                     if (cancelled || generation != interactiveDismissGeneration) return
-                    interactiveDismissSettleAnimator = null
-                    clearInteractiveDismissDrag(restoreViewer = true)
+                    if (transitionSession.cancelGesture(operation)) returnLeases.releaseAll()
                 }
             })
             start()
@@ -515,13 +533,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun finishMediaEntryTransition(entry: PhotoTransitionCompletionGate) {
         if (!isCurrentEntry(entry) || !entry.complete()) return
-        renderSharedViewerLayers(1f)
-        restoreBlackViewerCanvas()
-        binding.viewPager.alpha = 1f
-        mediaTransitionRunning = false
+        check(transitionSession.entryFinished(transitionSession.entry))
         val mappedPage = entryMappedPage
-        finishSharedEntryPage(mappedPage)
-        cancelMediaEntryCallbacks()
+        entryLeases.releaseAll()
         logMediaEntry("entry_completed", if (photoSharedElementMapped) "shared" else "fallback")
         val pendingPublication = transitionPendingSwipePublication
         transitionPendingSwipePublication = null
@@ -534,7 +548,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             (initialViewerPublicationPending && mMediaFiles.isNotEmpty())
         initialViewerPublicationPending = false
         initialViewerPublicationAwaitingAdapter = hasDeferredContent && activePagerAdapter == null
-        binding.viewPager.transitionInputLocked = false
         supportFragmentManager.fragments.forEach { if (it !== mappedPage) finishSharedEntryPage(it) }
         // Transition end listeners run during the final shared-element frame.
         // Pager publication can synchronously create fragments and bind their
@@ -542,7 +555,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (pendingPublication != null || transitionPendingAdjacentMedia != null ||
             (initialViewerPublicationAwaitingAdapter && mMediaFiles.isNotEmpty())) {
             binding.root.postOnAnimation {
-                if (finishAfterSharedTransitionInProgress || isFinishing || isDestroyed) return@postOnAnimation
+                if (transitionSession.outcome != null || finishAfterSharedTransitionInProgress ||
+                    isFinishing || isDestroyed) return@postOnAnimation
                 when {
                     pendingPublication != null -> {
                         transitionPendingAdjacentMedia = null
@@ -565,10 +579,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var entryFailedPage: ViewPagerFragment? = null
     private var entryShowsLoadStatus = false
 
-    private fun isCurrentEntry(entry: PhotoTransitionCompletionGate) = mediaEntry === entry && entry.active &&
+    private fun isCurrentEntry(entry: PhotoTransitionCompletionGate) = mediaEntry === entry && transitionSession.entryActive && entry.active &&
         !finishAfterSharedTransitionInProgress && !isFinishing && !isDestroyed
 
     private fun cancelMediaEntryCallbacks() {
+        entryReleaseDraw?.removeListener()
+        entryReleaseDraw = null
+        entryDiagnosticDraw?.removeListener()
+        entryDiagnosticDraw = null
         photoSharedElementHandler.removeCallbacksAndMessages(null)
         entryFallbackAnimator?.removeAllListeners()
         entryFallbackAnimator?.removeAllUpdateListeners()
@@ -579,10 +597,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun abandonMediaEntry(reason: String) {
-        if (mediaEntry?.cancel() != true) return
+        if (!transitionSession.entryActive) return
+        transitionSession.cancel(reason)
         logMediaEntry("entry_cancelled", reason)
-        clearEntryProxy()
-        cancelMediaEntryCallbacks()
+        entryLeases.releaseAll()
+        transitionSession.clean()
     }
 
     private fun finishSharedEntryPage(page: androidx.fragment.app.Fragment?) {
@@ -592,27 +611,27 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
     }
 
-    private fun clearEntryProxy() {
-        when (val page = entryMappedPage) {
+    private fun clearSharedTransitionSurface(page: ViewPagerFragment?) {
+        when (page) {
             is PhotoFragment -> page.clearSharedEntrySurface()
             is VideoFragment -> page.clearSharedEntrySurface()
         }
-        photoTransitionMappedView = null
     }
 
     private var photoSharedElementMapped = false
     private var photoSharedElementFadeFallback = false
-    private var finishAfterSharedTransitionInProgress = false
+    private val finishAfterSharedTransitionInProgress get() = ::transitionSession.isInitialized &&
+        (transitionSession.outcome != null || transitionSession.returnOperation?.let(transitionSession::isReturning) == true)
     private var returnSystemBarProgress = 1f
     private var returnScrimAlpha = 1f
     private var viewerReturnId = 0L
-    private var viewerSessionId = 0L
+    private var viewerDiagnosticSessionId = 0L
     private var viewerRendererObserved = false
     private var sharedReturnView: View? = null
     private var sharedReturnPage: ViewPagerFragment? = null
     private var sharedReturnAnimatorStarted = false
     private var sharedReturnScrimFadeReported = false
-    private var sharedReturnTerminal = false
+    private val sharedReturnTerminal get() = transitionSession.viewerMotionOutcome != null
     private var sharedReturnFinishRequested = false
     private var returnOverlayAlphas = emptyMap<View, Float>()
     private var photoSharedElementPath: String? = null
@@ -967,23 +986,32 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        // Never restore media fragments before the current password/session
-        // flow validates the viewer request.
-        traceEntryCanvas("create_before")
-        super.onCreate(null)
-        val correlatedEntryId = ViewerEntryDiagnostics.entryId(
-            intent.getStringExtra(ViewerEntryDiagnostics.EXTRA_DIAGNOSTIC_PROCESS), entryRequestId()
-        )
-        viewerSessionId = correlatedEntryId.takeIf { it != 0L } ?: ViewerEntryDiagnostics.newRequest()
+    private fun configureMediaTransitionSession() {
+        val offeredEntry = MediaTransitionHandoff.read(intent)
+        val sharedSession = MediaTransitionHandoff.claim(intent)
+        transitionSession = sharedSession ?: MediaTransitionHandoff.create()
+        entryLeases = transitionSession.leases()
+        returnLeases = transitionSession.leases()
+        // A recreated window cannot claim a second copy of the original platform entry.
+        if (offeredEntry != null) {
+            setResult(RESULT_CANCELED, MediaTransitionHandoff.write(Intent()
+                .putExtra(PhotoViewerTransition.EXTRA_LAUNCH, intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L)),
+                offeredEntry))
+        }
         fadeOnlyPhotoFallback = intent.getBooleanExtra(PhotoViewerTransition.EXTRA_FADE_ONLY, false)
         if (fadeOnlyPhotoFallback) window.setWindowAnimations(0)
         photoSharedElementPath = intent.getStringExtra(PhotoViewerTransition.EXTRA_PATH)
-            ?.takeIf { OxygenClassicMotion.enabled(this) }
-        val entry = photoSharedElementPath?.let { PhotoTransitionCompletionGate() }
+            ?.takeIf { OxygenClassicMotion.enabled(this) && (offeredEntry == null || sharedSession != null) }
+        val entry = transitionSession.entryGate.takeIf { photoSharedElementPath != null }
         if (entry != null) {
             mediaEntry = entry
-            mediaTransitionRunning = true
+            entryLeases.acquire(transitionSession.entry, Resource.INPUT) { binding.viewPager.transitionInputLocked = false }
+            entryLeases.acquire(transitionSession.entry, Resource.CHROME) {
+                renderSharedViewerLayers(1f)
+                restoreBlackViewerCanvas()
+                binding.viewPager.alpha = 1f
+            }
+            entryLeases.acquire(transitionSession.entry, Resource.CALLBACKS, ::cancelMediaEntryCallbacks)
             org.fossify.gallery.helpers.OxygenClassicActivityMotion.configureShared(this)
             postponeEnterTransition()
             window.sharedElementEnterTransition = org.fossify.gallery.helpers.OxygenClassicActivityMotion.mediaTransition(
@@ -993,17 +1021,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             )
             setEnterSharedElementCallback(object : SharedElementCallback() {
                 override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
-                    if (finishAfterSharedTransitionInProgress) mapReturnSharedElement(names, sharedElements)
-                    else mapEntrySharedElement(entry, names, sharedElements)
+                    mapEntrySharedElement(entry, names, sharedElements)
                 }
 
                 override fun onSharedElementStart(names: MutableList<String>, elements: MutableList<View>, snapshots: MutableList<View>) {
-                    if (finishAfterSharedTransitionInProgress) logReturnCapture("viewer_capture_start", elements)
-                    else captureEntrySharedElement(entry, names, elements)
-                }
-
-                override fun onSharedElementEnd(names: MutableList<String>, elements: MutableList<View>, snapshots: MutableList<View>) {
-                    if (finishAfterSharedTransitionInProgress) logReturnCapture("viewer_capture_end", elements)
+                    captureEntrySharedElement(entry, names, elements)
                 }
 
                 override fun onRejectSharedElements(rejectedSharedElements: MutableList<View>) {
@@ -1016,6 +1038,21 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             })
             photoSharedElementHandler.postDelayed(entryReadyTimeout, PhotoViewerTransition.READY_TIMEOUT_MS)
         }
+        if (entry == null) check(transitionSession.entryFinished(transitionSession.entry, withoutSharedEntry = true))
+        binding.viewPager.transitionInputLocked = entry != null
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // Never restore media fragments before the current password/session
+        // flow validates the viewer request.
+        traceEntryCanvas("create_before")
+        super.onCreate(null)
+        val correlatedEntryId = ViewerEntryDiagnostics.entryId(
+            intent.getStringExtra(ViewerEntryDiagnostics.EXTRA_DIAGNOSTIC_PROCESS), entryRequestId()
+        )
+        viewerDiagnosticSessionId = correlatedEntryId.takeIf { it != 0L } ?: ViewerEntryDiagnostics.newRequest()
+        configureMediaTransitionSession()
+        val entry = mediaEntry
         supportFragmentManager.registerFragmentLifecycleCallbacks(slideshowFragments, false)
         setContentView(binding.root)
         // The media canvas must not inherit the app's light theme while pages load
@@ -1034,15 +1071,19 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             setSharedChromeAlpha(0f)
         }
         refreshViewerSystemBars()
-        binding.viewPager.transitionInputLocked = entry != null
         traceEntryCanvas("create_canvas_ready")
         logMediaEntry("viewer_created", if (entry == null) "window_fade" else null)
-        ViewerEntryDiagnostics.event(viewerSessionId, "viewer_launch_accepted") {
-            mapOf("viewerSessionId" to viewerSessionId, "entryRequestId" to correlatedEntryId.takeIf { it != 0L },
+        ViewerEntryDiagnostics.event(viewerDiagnosticSessionId, "viewer_launch_accepted") {
+            mapOf("viewerSessionId" to viewerDiagnosticSessionId, "entryRequestId" to correlatedEntryId.takeIf { it != 0L },
+                "runtimeSessionId" to transitionSession.entry.sessionId,
+                "runtimeOperationId" to transitionSession.entry.operationId,
                 "sharedCandidate" to (entry != null))
         }
         if (entry != null && ViewerEntryDiagnostics.enabled(entryRequestId())) {
-            binding.root.doOnPreDraw { traceEntryCanvas("first_pre_draw", updateLifecycle = false) }
+            entryDiagnosticDraw = binding.root.doOnPreDraw {
+                entryDiagnosticDraw = null
+                if (isCurrentEntry(entry)) traceEntryCanvas("first_pre_draw", updateLifecycle = false)
+            }
         }
         org.fossify.gallery.helpers.OxygenProgressStyle.apply(this, config, binding.photoBoundaryLoading)
         binding.viewPager.onUnknownBoundary = { forward -> requestViewerBoundary(forward) }
@@ -1165,12 +1206,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         ViewerReturnDiagnostics.event(viewerReturnId, "viewer_destroyed") {
             mapOf("animatorStarted" to sharedReturnAnimatorStarted, "transitionTerminal" to sharedReturnTerminal)
         }
-        clearReturnSurface()
-        returnOverlayAlphas = emptyMap()
-        binding.viewPager.transitionInputLocked = false
-        clearInteractiveDismissDrag(restoreViewer = false)
         abandonMediaEntry("destroyed")
-        mediaTransitionRunning = false
+        val returning = transitionSession.returnOperation
+        if (returning != null && transitionSession.isReturning(returning) && !transitionSession.gridAttached) {
+            concludeStandaloneReturn(returning)
+        } else if (returning == null || transitionSession.state == State.INTERACTIVE_RETURN) {
+            transitionSession.cancel("destroyed")
+        }
+        returnLeases.releaseAll()
+        entryLeases.releaseAll()
+        transitionSession.clean()
+        setEnterSharedElementCallback(null as SharedElementCallback?)
         if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
             org.fossify.gallery.helpers.DiagnosticLevel.INFO, "Viewer", "viewer_close",
             viewerDiagnosticRequestId,
@@ -1247,8 +1293,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 mMediaFiles = arrayListOf()
             }
         }
-        ViewerEntryDiagnostics.event(viewerSessionId, "viewer_cleanup_completed") {
-            mapOf("viewerSessionId" to viewerSessionId, "returnRequestId" to viewerReturnId.takeIf { it != 0L })
+        ViewerEntryDiagnostics.event(viewerDiagnosticSessionId, "viewer_cleanup_completed") {
+            mapOf("viewerSessionId" to viewerDiagnosticSessionId, "returnRequestId" to viewerReturnId.takeIf { it != 0L })
         }
     }
 
@@ -1258,13 +1304,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun finishDuringMediaEntry(): Boolean {
-        if (mediaTransitionRunning && !finishAfterSharedTransitionInProgress) {
+        if (::transitionSession.isInitialized && transitionSession.entryActive) {
             // Close with one fade while the entry still owns the shared element.
-            ViewerEntryDiagnostics.event(viewerSessionId, "viewer_closed_during_entry") { emptyMap() }
-            finishAfterSharedTransitionInProgress = true
+            ViewerEntryDiagnostics.event(viewerDiagnosticSessionId, "viewer_closed_during_entry") { emptyMap() }
             photoSharedElementMapped = false
             abandonMediaEntry("closed")
-            mediaTransitionRunning = false
             super.finish()
             overridePendingTransition(0, if (OxygenClassicMotion.enabled(this)) R.anim.photo_viewer_fade_out else 0)
             return true
@@ -1286,11 +1330,16 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun requestViewerClose(reason: String) {
         if (isFinishing || isDestroyed || finishAfterSharedTransitionInProgress) return
+        if (!::transitionSession.isInitialized) {
+            super.finish()
+            return
+        }
         if (interactiveDismissDragActive) {
             mediaDismissSettled(dismiss = true)
             return
         }
         if (finishDuringMediaEntry()) return
+        val operation = transitionSession.beginReturn() ?: return
         viewerReturnId = ViewerEntryDiagnostics.newRequest()
         val returnPath = getCurrentPath()
         val motionEnabled = OxygenClassicMotion.enabled(this)
@@ -1301,7 +1350,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         ViewerReturnDiagnostics.event(viewerReturnId, "viewer_requested") {
             mapOf(
                 "reason" to reason, "kind" to if (getCurrentMedium()?.isVideo() == true) "video" else "image",
-                "viewerSessionId" to viewerSessionId.takeIf { it != 0L },
+                "viewerSessionId" to viewerDiagnosticSessionId.takeIf { it != 0L },
+                "runtimeSessionId" to operation.sessionId, "runtimeOperationId" to operation.operationId,
                 "entryMapped" to photoSharedElementMapped, "motion" to motionEnabled,
                 "hasSelection" to returnPath.isNotEmpty(), "canReturn" to canReturn,
                 "hasProxy" to (proxy != null), "proxyAttached" to proxy?.isAttachedToWindow,
@@ -1313,28 +1363,41 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             )
         }
         org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_transition_return", if (canReturn) 1 else 0)
-        setResult(RESULT_OK, Intent()
+        val result = Intent()
             .putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH, returnPath.takeIf(String::isNotEmpty))
             .putStringArrayListExtra(PhotoViewerTransition.EXTRA_DELETED_PATHS,
                 ArrayList(successfullyDeletedViewerPaths))
             .putExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, viewerReturnId)
-            .putExtra(ViewerEntryDiagnostics.EXTRA_VIEWER_SESSION_ID, viewerSessionId)
-            .putExtra(PhotoViewerTransition.EXTRA_LAUNCH, intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L)))
+            .putExtra(ViewerEntryDiagnostics.EXTRA_VIEWER_SESSION_ID, viewerDiagnosticSessionId)
+            .putExtra(PhotoViewerTransition.EXTRA_LAUNCH, intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L))
+        val offeredEntry = MediaTransitionHandoff.read(intent)
+        setResult(RESULT_OK, MediaTransitionHandoff.write(result,
+            if (offeredEntry != null && !transitionSession.viewerAttached) offeredEntry else operation))
+        if (proxy != null && interactiveDismissSurface == null) ownReturnSurface(operation, page)
         if (!canReturn) {
             ViewerReturnDiagnostics.event(viewerReturnId, "viewer_return_fallback") {
                 mapOf("eligible" to eligible, "proxyAttached" to false)
             }
+            transitionSession.terminate(operation, State.FALLBACK, "viewer_no_proxy")
+            returnLeases.releaseAll()
+            transitionSession.clean()
             super.finish()
             if ((fadeOnlyPhotoFallback || photoSharedElementFadeFallback || photoSharedElementMapped) && motionEnabled) {
                 overridePendingTransition(0, R.anim.photo_viewer_fade_out)
             }
             return
         }
+        if (interactiveDismissSurface == null) ownReturnChrome(operation, page)
+        returnLeases.acquire(operation, Resource.INPUT) { binding.viewPager.transitionInputLocked = false }
+        returnLeases.acquire(operation, Resource.CALLBACKS) { photoSharedElementHandler.removeCallbacksAndMessages(null) }
+        if (!transitionSession.gridAttached) transitionSession.targetReady(operation)
         window.sharedElementReturnTransition = org.fossify.gallery.helpers.OxygenClassicActivityMotion.mediaTransition(
             PhotoViewerTransition.DURATION_MS,
-            onProgress = ::renderSharedReturnProgress,
-            onTerminal = ::onSharedReturnTerminal,
-            onStart = { ViewerReturnDiagnostics.event(viewerReturnId, "viewer_transition_start") },
+            onProgress = { progress -> renderSharedReturnProgress(operation, progress) },
+            onTerminal = { cancelled -> onSharedReturnTerminal(operation, cancelled) },
+            onStart = {
+                if (transitionSession.isReturning(operation)) ViewerReturnDiagnostics.event(viewerReturnId, "viewer_transition_start")
+            },
             cropVideoToBounds = page is VideoFragment,
         )
         photoSharedElementPath = returnPath
@@ -1354,31 +1417,29 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 "dragProgress" to interactiveDismissProgress)
         }
         setSharedTransitionCanvasTransparent()
-        mediaTransitionRunning = true
         binding.viewPager.transitionInputLocked = true
-        finishAfterSharedTransitionInProgress = true
+        installViewerReturnCallback(operation)
+        photoSharedElementHandler.postDelayed({
+            if (!isFinishing && !isDestroyed && transitionSession.returnOperation == operation) {
+                finishReturnFallback(operation, "viewer_return_timeout")
+            }
+        }, 2 * PhotoViewerTransition.READY_TIMEOUT_MS + PhotoViewerTransition.DURATION_MS)
         super.finishAfterTransition()
     }
 
     private fun finishPlatformReturn() {
         if (isFinishing || isDestroyed || sharedReturnFinishRequested) return
+        val operation = transitionSession.returnOperation ?: return
         sharedReturnFinishRequested = true
         ViewerReturnDiagnostics.event(viewerReturnId, "viewer_platform_finish") {
             mapOf("animatorStarted" to sharedReturnAnimatorStarted, "transitionTerminal" to sharedReturnTerminal)
         }
-        if (sharedReturnView != null && !sharedReturnAnimatorStarted) {
+        if (sharedReturnView != null && (!sharedReturnAnimatorStarted || transitionSession.outcome == State.FALLBACK)) {
             // Android may call finish immediately or close after the grid rejected the
             // destination. Let its coordinator unwind before applying the fallback fade.
             photoSharedElementHandler.post {
                 if (!isFinishing && !isDestroyed) {
-                    clearReturnSurface(restoreRenderer = true)
-                    returnOverlayAlphas.forEach { (view, alpha) -> view.alpha = alpha }
-                    returnOverlayAlphas = emptyMap()
-                    renderSharedViewerCanvas(1f)
-                    restoreBlackViewerCanvas()
-                    binding.viewPager.transitionInputLocked = false
-                    super.finish()
-                    overridePendingTransition(0, if (OxygenClassicMotion.enabled(this)) R.anim.photo_viewer_fade_out else 0)
+                    finishReturnFallback(operation, "platform_finished_without_motion")
                 }
             }
         } else {
@@ -1386,13 +1447,58 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
     }
 
-    private fun clearReturnSurface(restoreRenderer: Boolean = false) {
-        when (val page = sharedReturnPage) {
-            is PhotoFragment -> page.clearSharedEntrySurface()
-            is VideoFragment -> if (restoreRenderer) page.finishSharedTransition() else page.clearSharedEntrySurface()
+    private fun finishReturnFallback(operation: Token, reason: String) {
+        if (transitionSession.outcome == null) transitionSession.terminate(operation, State.FALLBACK, reason)
+        returnLeases.releaseAll()
+        transitionSession.clean()
+        super.finish()
+        overridePendingTransition(0, if (OxygenClassicMotion.enabled(this)) R.anim.photo_viewer_fade_out else 0)
+    }
+
+    private fun concludeStandaloneReturn(operation: Token) {
+        when {
+            transitionSession.viewerMotionOutcome == State.CANCELLED -> transitionSession.terminate(operation, State.CANCELLED, "viewer_motion_cancelled")
+            sharedReturnAnimatorStarted && sharedReturnTerminal ->
+                transitionSession.terminate(operation, State.COMPLETE, "viewer_motion_ended")
+            else -> transitionSession.terminate(operation, State.FALLBACK, "viewer_destroyed")
         }
-        sharedReturnView = null
-        sharedReturnPage = null
+    }
+
+    private fun ownReturnSurface(operation: Token, page: ViewPagerFragment?) {
+        returnLeases.acquire(operation, Resource.PROXY) {
+            if (isFinishing || isDestroyed) clearSharedTransitionSurface(page)
+            else finishSharedEntryPage(page)
+            sharedReturnView = null
+            sharedReturnPage = null
+        }
+    }
+
+    private fun ownReturnChrome(operation: Token, page: ViewPagerFragment?) {
+        takeOverReturnChrome(page)
+        val alphas = returnOverlayAlphas
+        returnLeases.acquire(operation, Resource.CHROME) {
+            alphas.forEach { (view, alpha) -> view.alpha = alpha }
+            returnOverlayAlphas = emptyMap()
+            restoreBlackViewerCanvas()
+            renderSharedViewerCanvas(1f)
+        }
+    }
+
+    private fun installViewerReturnCallback(operation: Token) {
+        setEnterSharedElementCallback(object : SharedElementCallback() {
+            override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
+                if (transitionSession.isReturning(operation)) mapReturnSharedElement(names, sharedElements)
+                else sharedElements.remove(PhotoViewerTransition.ELEMENT_NAME)
+            }
+
+            override fun onSharedElementStart(names: MutableList<String>, elements: MutableList<View>, snapshots: MutableList<View>) {
+                if (transitionSession.isReturning(operation)) logReturnCapture("viewer_capture_start", elements)
+            }
+
+            override fun onSharedElementEnd(names: MutableList<String>, elements: MutableList<View>, snapshots: MutableList<View>) {
+                if (transitionSession.isReturning(operation)) logReturnCapture("viewer_capture_end", elements)
+            }
+        })
     }
 
     private fun mapReturnSharedElement(names: List<String>, elements: MutableMap<String, View>) {
@@ -1618,7 +1724,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             return
         }
 
-        ViewerEntryDiagnostics.event(viewerSessionId, "viewer_selection_resolved") {
+        ViewerEntryDiagnostics.event(viewerDiagnosticSessionId, "viewer_selection_resolved") {
             mapOf("mediaId" to GalleryDiagnosticLogger.anonymousId(mPath))
         }
         if (mPath.isPortrait() && getPortraitPath() == "") {
@@ -4768,7 +4874,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         )
         if (initialViewerPublicationAwaitingAdapter && (activePagerAdapter?.count ?: 0) > 0) {
             initialViewerPublicationAwaitingAdapter = false
-            binding.viewPager.transitionInputLocked = false
+            if (!mediaTransitionRunning) binding.viewPager.transitionInputLocked = false
         }
         if (publication.fullCatalog && photoCatalogMode && pendingPagerPublication == null) {
             validatePhotoPageWindow(mPos)
@@ -4858,7 +4964,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "Viewer", "media_viewer_publication", requestId,
             fields = mapOf(
                 "scopeKey" to viewerDiagnosticScopeKey,
-                "viewerSessionId" to viewerSessionId.takeIf { it != 0L },
+                "viewerSessionId" to viewerDiagnosticSessionId.takeIf { it != 0L },
                 "catalogState" to if (appliedViewerCatalogComplete) "FINAL"
                     else if (media.size > 1) "PARTIAL" else "PREVIEW",
                 "publicationCount" to viewerDiagnosticPublicationCount,
@@ -4961,11 +5067,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override fun isFullScreen() = mIsFullScreen
 
     override fun imageRendered(path: String, page: ViewPagerFragment) {
-        if (!viewerRendererObserved && ViewerEntryDiagnostics.enabled(viewerSessionId) &&
+        if (!viewerRendererObserved && ViewerEntryDiagnostics.enabled(viewerDiagnosticSessionId) &&
             !isFinishing && !isDestroyed && page === getCurrentFragment() && path == getCurrentPath()) {
             val renderer = currentEntryRenderer()
             viewerRendererObserved = true
-            ViewerEntryDiagnostics.event(viewerSessionId, "viewer_first_renderer_signal") {
+            ViewerEntryDiagnostics.event(viewerDiagnosticSessionId, "viewer_first_renderer_signal") {
                 mapOf("mediaId" to GalleryDiagnosticLogger.anonymousId(path),
                     "renderer" to when {
                         renderer == null -> "UNKNOWN"
@@ -5012,7 +5118,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun requestMediaEntryRelease(entry: PhotoTransitionCompletionGate, reason: String) {
         if (!isCurrentEntry(entry) || !entry.requestRelease()) return
         logMediaEntry("entry_release_requested", reason)
-        binding.viewPager.doOnPreDraw { releasePhotoSharedElement(entry) }
+        entryReleaseDraw = binding.viewPager.doOnPreDraw {
+            entryReleaseDraw = null
+            releasePhotoSharedElement(entry)
+        }
         binding.viewPager.invalidate()
     }
 
@@ -5043,7 +5152,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             candidate.transitionName = name
             sharedElements[name] = candidate
             photoTransitionMappedView = candidate
-            entryMappedPage = getCurrentFragment()
+            val mappedPage = getCurrentFragment()
+            entryMappedPage = mappedPage
+            entryLeases.acquire(transitionSession.entry, Resource.RENDERER_HANDOFF) {
+                if (transitionSession.outcome == null) finishSharedEntryPage(mappedPage)
+            }
+            entryLeases.acquire(transitionSession.entry, Resource.PROXY) { clearSharedTransitionSurface(mappedPage) }
             logMediaEntry("shared_map_accepted")
         } else {
             sharedElements.remove(name)
@@ -5066,8 +5180,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             is VideoFragment -> page.takeOverSharedEntry(proxy)
             else -> false
         }
-        if (taken && entry.capture()) logMediaEntry("shared_start_captured")
-        else rejectSharedEntry(entry, "renderer_unavailable_at_capture")
+        if (taken && entry.capture()) {
+            check(transitionSession.capture(transitionSession.entry))
+            logMediaEntry("shared_start_captured")
+        } else rejectSharedEntry(entry, "renderer_unavailable_at_capture")
     }
 
     private fun rejectSharedEntry(entry: PhotoTransitionCompletionGate, reason: String) {
@@ -5093,10 +5209,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun startEntryFallback(entry: PhotoTransitionCompletionGate, reason: String) {
         if (!isCurrentEntry(entry) || !entry.startFallback()) return
+        check(transitionSession.entryFallback(transitionSession.entry, reason))
         photoSharedElementHandler.removeCallbacks(entryWatchdog)
         photoSharedElementFadeFallback = true
         logMediaEntry("entry_fallback_started", reason)
-        clearEntryProxy()
+        entryLeases.release(transitionSession.entry, Resource.PROXY)
+        photoTransitionMappedView = null
         entryShowsLoadStatus = true
         val hasMedia = currentEntryRenderer()?.let {
             it.isAttachedToWindow && it.isShown && it.alpha > 0f && it.width > 0 && it.height > 0
@@ -5469,7 +5587,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                         "index" to position, "count" to getCurrentMedia().size,
                         "launchId" to intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L),
                         "firstPageBoundMs" to viewerDiagnosticFirstPageBoundMs,
-                        "viewerSessionId" to viewerSessionId.takeIf { it != 0L },
+                        "viewerSessionId" to viewerDiagnosticSessionId.takeIf { it != 0L },
                         "mediaId" to selected?.path?.let(org.fossify.gallery.helpers.GalleryDiagnosticLogger::anonymousId),
                         "revision" to org.fossify.gallery.helpers.PhotoContentRevision.current(),
                         "collection" to if (isPhotoProfile) "photo_profile" else if (mDirectory == SHOW_ALL) "all_media" else "folder"
