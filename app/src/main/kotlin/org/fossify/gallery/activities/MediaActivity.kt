@@ -4871,7 +4871,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val session = transitionSession ?: return
         transitionSession = null
         MediaTransitionHandoff.withdraw(session)
-        if (reason != "grid_destroyed" || !session.viewerAttached || session.returnOperation != null) {
+        if (reason != "grid_destroyed" || !session.viewerAttached) {
             if (session.outcome == null) session.cancel(reason)
             session.clean()
         }

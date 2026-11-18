@@ -134,4 +134,30 @@ class MediaTransitionSessionCoordinatorTest {
         assertFalse(session.attachViewer())
         assertTrue(session.clean())
     }
+
+    @Test fun gridDetachDuringGestureLeavesViewerAbleToSettleAndClose() {
+        val session = MediaTransitionSessionCoordinator()
+        session.attachGrid()
+        assertTrue(session.attachViewer())
+        assertTrue(session.entryFinished(session.entry, withoutSharedEntry = true))
+        val gesture = requireNotNull(session.beginGesture())
+        session.detachGrid()
+        assertTrue(session.cancelGesture(gesture))
+        val returning = requireNotNull(session.beginReturn())
+        assertTrue(session.targetReady(returning))
+        assertTrue(session.terminate(returning, State.COMPLETE, "standalone_return"))
+        assertTrue(session.clean())
+    }
+
+    @Test fun destroyedUncommittedGestureAcceptsOnlyTheDefaultEntryResult() {
+        val session = MediaTransitionSessionCoordinator()
+        assertTrue(session.attachViewer())
+        assertTrue(session.entryFinished(session.entry, withoutSharedEntry = true))
+        val gesture = requireNotNull(session.beginGesture())
+        assertTrue(session.terminate(gesture, State.CANCELLED, "viewer_recreated"))
+        assertFalse(session.acceptResult(gesture))
+        assertTrue(session.acceptResult(session.entry))
+        assertFalse(session.acceptResult(session.entry))
+        assertTrue(session.clean())
+    }
 }

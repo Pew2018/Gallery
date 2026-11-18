@@ -37,6 +37,7 @@ internal class MediaTransitionSessionCoordinator(
         private set
     var resultAccepted = false
         private set
+    private var expectedResult = entry
     private var reenterAccepted = false
     var viewerMotionOutcome: State? = null
         private set
@@ -88,6 +89,7 @@ internal class MediaTransitionSessionCoordinator(
         if (state != State.VIEWING && state != State.INTERACTIVE_RETURN) return null
         return (returnOperation ?: token(++operation)).also {
             returnOperation = it
+            expectedResult = it
             change(State.RETURN_PREPARING, it)
         }
     }
@@ -111,8 +113,10 @@ internal class MediaTransitionSessionCoordinator(
 
     fun acceptResult(token: Token): Boolean {
         // Android can deliver the result after the platform animation or a local fallback.
-        if (resultAccepted || current != token || (returnOperation == null && outcome != State.CANCELLED) ||
-            (outcome == null && !isReturning(token))) return rejected(token, "result")
+        if (resultAccepted || expectedResult != token ||
+            (token == entry && outcome != State.CANCELLED) || (outcome == null && !isReturning(token))) {
+            return rejected(token, "result")
+        }
         resultAccepted = true
         return true
     }

@@ -1434,7 +1434,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         ViewerReturnDiagnostics.event(viewerReturnId, "viewer_platform_finish") {
             mapOf("animatorStarted" to sharedReturnAnimatorStarted, "transitionTerminal" to sharedReturnTerminal)
         }
-        if (sharedReturnView != null && (!sharedReturnAnimatorStarted || transitionSession.outcome == State.FALLBACK)) {
+        val interrupted = transitionSession.outcome == State.FALLBACK || transitionSession.outcome == State.CANCELLED
+        if (sharedReturnView != null && (!sharedReturnAnimatorStarted || interrupted)) {
             // Android may call finish immediately or close after the grid rejected the
             // destination. Let its coordinator unwind before applying the fallback fade.
             photoSharedElementHandler.post {
@@ -1458,7 +1459,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun concludeStandaloneReturn(operation: Token) {
         when {
             transitionSession.viewerMotionOutcome == State.CANCELLED -> transitionSession.terminate(operation, State.CANCELLED, "viewer_motion_cancelled")
-            sharedReturnAnimatorStarted && sharedReturnTerminal ->
+            sharedReturnAnimatorStarted && sharedReturnTerminal && transitionSession.state == State.RETURNING ->
                 transitionSession.terminate(operation, State.COMPLETE, "viewer_motion_ended")
             else -> transitionSession.terminate(operation, State.FALLBACK, "viewer_destroyed")
         }
