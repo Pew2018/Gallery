@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
 import android.view.View
@@ -30,6 +31,40 @@ import java.io.File
 @Config(sdk = [29], manifest = Config.NONE, application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MediaSharedSurfaceTest {
+    @Test fun returningProxyClipsAgainstScreenToolbarWithoutMovingItsEndpoint() {
+        val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
+        try {
+            val parent = RelativeLayout(controller.get())
+            controller.get().setContentView(parent)
+            val surface = MediaSharedSurface(parent)
+            val proxy = requireNotNull(surface.prepare(ColorDrawable(Color.BLUE), RectF(5f, 20f, 105f, 120f)))
+            proxy.clipBounds = Rect(2, 3, 98, 97)
+            proxy.pivotY = 0f
+            proxy.scaleY = .5f
+            proxy.translationY = 17f
+            val location = IntArray(2).also(proxy::getLocationOnScreen)
+            val clip = MediaReturnToolbarClip(proxy)
+
+            clip.update(location[1] + 23)
+            assertEquals(Rect(2, 46, 98, 97), proxy.clipBounds)
+            assertEquals(20, proxy.top)
+            assertEquals(120, proxy.bottom)
+            assertEquals(17f, proxy.translationY, 0f)
+
+            clip.update(location[1] + 100)
+            assertTrue(requireNotNull(proxy.clipBounds).isEmpty)
+            proxy.translationY += 35f
+            clip.update(location[1] + 23)
+            assertEquals(Rect(2, 3, 98, 97), proxy.clipBounds)
+
+            clip.update(location[1] + 55)
+            assertEquals(Rect(2, 40, 98, 97), proxy.clipBounds)
+            clip.update(null)
+            clip.update(null)
+            assertEquals(Rect(2, 3, 98, 97), proxy.clipBounds)
+        } finally { controller.pause().stop().destroy() }
+    }
+
     @Test fun fitUsesTheAvailableCanvasAndNeverChangesAspectRatio() {
         assertEquals(RectF(0f, 300f, 400f, 500f), MediaTransitionGeometry.fit(400, 800, 2f))
         assertEquals(RectF(100f, 0f, 300f, 800f), MediaTransitionGeometry.fit(400, 800, .25f))

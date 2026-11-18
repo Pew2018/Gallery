@@ -15,12 +15,13 @@ internal class MediaTransitionSessionCoordinator(
 
     enum class Resource {
         SOURCE, SOURCE_NAME, TARGET, TARGET_NAME, PUBLICATION, PROXY, RENDERER_HANDOFF, CHROME, INPUT, CALLBACKS,
-        TARGET_PROBE, GRID_PREVIEW, FIRST_FRAME, TARGET_DRAW, TIMEOUT, INTERACTIVE_ANIMATOR, WINDOW_POSTPONE
+        TARGET_PROBE, GRID_PREVIEW, RETURN_TOOLBAR_CLIP, FIRST_FRAME, TARGET_DRAW, TIMEOUT, INTERACTIVE_ANIMATOR, WINDOW_POSTPONE
     }
 
     interface GridPreview {
         fun show(token: Token, path: String)
         fun release(token: Token)
+        fun toolbarBottomOnScreen(token: Token): Int? = null
     }
 
     data class Token(val sessionId: String, val generation: Long, val operationId: Long)
@@ -68,6 +69,11 @@ internal class MediaTransitionSessionCoordinator(
 
     fun showGridPreview(token: Token, path: String) {
         if (valid(token, State.INTERACTIVE_RETURN)) gridPreview?.get()?.show(token, path)
+    }
+
+    fun gridToolbarBottomOnScreen(token: Token): Int? {
+        if (!valid(token, State.INTERACTIVE_RETURN, State.RETURN_PREPARING, State.RETURNING)) return null
+        return gridPreview?.get()?.toolbarBottomOnScreen(token)
     }
 
     fun gridPreviewEvent(token: Token, detail: String) {

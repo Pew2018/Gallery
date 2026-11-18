@@ -269,6 +269,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private val gridPreview = object : MediaTransitionSessionCoordinator.GridPreview {
         override fun show(token: Token, path: String) = showInteractiveGridTarget(token, path)
+        override fun toolbarBottomOnScreen(token: Token): Int? {
+            if (transitionSession?.returnOperation != token || isFinishing || isDestroyed ||
+                !viewerLaunchOriginMatches() || (isPhotoProfiles && photoNeedsUnlock)) return null
+            val toolbar = binding.mediaMenu.requireToolbar()
+            if (!toolbar.isAttachedToWindow || !toolbar.isShown || toolbar.alpha <= 0f) return null
+            val visible = android.graphics.Rect()
+            if (!toolbar.getLocalVisibleRect(visible)) return null
+            val location = IntArray(2)
+            toolbar.getLocationOnScreen(location)
+            return location[1] + visible.bottom
+        }
+
         override fun release(token: Token) {
             interactiveGridTarget?.takeIf { it.operation == token }?.leases?.release(token, Resource.GRID_PREVIEW)
         }

@@ -268,6 +268,38 @@ class PhotoViewerInitializationTest {
         assertEquals(.3f, fixture.binding.mediumViewerAppbar.alpha, 0f)
     }
 
+    @Test fun visibleGridOwnsTheToolbarDuringDragAndCancelRestoresViewerChrome() {
+        val fixture = EntryFixture()
+        fixture.setPhoto()
+        fixture.finishEntry()
+        fixture.attachGridToolbar()
+        val toolbar = fixture.binding.mediumViewerAppbar
+        toolbar.alpha = .8f
+
+        assertTrue(fixture.activity.mediaDismissProgress(.4f, 0f, 150f))
+        assertEquals(.6f, fixture.binding.viewerTransitionScrim.alpha, .001f)
+        assertEquals(0f, toolbar.alpha, 0f)
+
+        fixture.activity.mediaDismissSettled(dismiss = false)
+        (fixture.field("interactiveDismissSettleAnimator") as android.animation.ValueAnimator).end()
+        assertEquals(.8f, toolbar.alpha, 0f)
+    }
+
+    @Test fun visibleGridOwnsTheToolbarFromTheFirstExposedReturnFrame() {
+        val fixture = EntryFixture()
+        fixture.setPhoto()
+        fixture.finishEntry()
+        fixture.attachGridToolbar()
+        fixture.set("photoSharedElementMapped", true)
+        fixture.call("renderSharedViewerLayers", args = arrayOf(1f))
+
+        fixture.activity.finishAfterTransition()
+        assertEquals(1f, fixture.binding.mediumViewerAppbar.alpha, 0f)
+        fixture.call("renderSharedReturnProgress", args = arrayOf(.1f))
+        assertEquals(.9f, fixture.binding.viewerTransitionScrim.alpha, .001f)
+        assertEquals(0f, fixture.binding.mediumViewerAppbar.alpha, 0f)
+    }
+
     @Test fun replacingTheRendererDuringDragRetiresTheOldProxyBeforeReturn() {
         val fixture = EntryFixture()
         fixture.setPhoto()
@@ -599,6 +631,14 @@ class PhotoViewerInitializationTest {
             set("photoSharedElementPath", path)
             set("viewerSystemBarProgress", 0f)
         }
+
+        private val gridToolbar = object : MediaTransitionSessionCoordinator.GridPreview {
+            override fun show(token: MediaTransitionSessionCoordinator.Token, path: String) = Unit
+            override fun release(token: MediaTransitionSessionCoordinator.Token) = Unit
+            override fun toolbarBottomOnScreen(token: MediaTransitionSessionCoordinator.Token) = 100
+        }
+
+        fun attachGridToolbar() = session.attachGrid(gridToolbar)
 
         fun finishEntry() {
             if (!session.entryActive) return

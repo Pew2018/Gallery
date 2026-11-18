@@ -10,6 +10,8 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Matrix
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
@@ -21,6 +23,7 @@ import android.provider.MediaStore
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.widget.EditText
 import androidx.recyclerview.widget.RecyclerView
 import android.widget.ImageView
@@ -1861,6 +1864,9 @@ class PhotoViewerInteractiveGestureTest {
                 center(imageA, centerA)
                 center(imageB, centerB)
             }
+            val viewerToolbar = opened.findViewById<View>(R.id.medium_viewer_appbar)
+            var initialToolbarAlpha = 0f
+            instrumentation.runOnMainSync { initialToolbarAlpha = viewerToolbar.alpha }
             fun startDrag() {
                 val readyDeadline = SystemClock.uptimeMillis() + 8_000
                 var accepted = false
@@ -1874,6 +1880,7 @@ class PhotoViewerInteractiveGestureTest {
                 instrumentation.runOnMainSync {
                     assertEquals("A remains visible while B owns the moving image", 1f, imageA.alpha, 0f)
                     assertEquals("B alone gives up its grid pixels", 0f, imageB.alpha, 0f)
+                    assertEquals("The Viewer toolbar must yield while the grid is exposed", 0f, viewerToolbar.alpha, 0f)
                 }
             }
             startDrag()
@@ -1898,6 +1905,9 @@ class PhotoViewerInteractiveGestureTest {
                 if (!restored) SystemClock.sleep(30)
             } while (!restored && SystemClock.uptimeMillis() < settleDeadline)
             assertTrue("Cancel restores the destination and leaves the Viewer usable", restored)
+            instrumentation.runOnMainSync {
+                assertEquals("Cancel restores the previous Viewer toolbar alpha", initialToolbarAlpha, viewerToolbar.alpha, 0f)
+            }
             startDrag()
             instrumentation.runOnMainSync { opened.mediaDismissSettled(dismiss = true) }
             val returnDeadline = SystemClock.uptimeMillis() + 8_000
@@ -1914,6 +1924,136 @@ class PhotoViewerInteractiveGestureTest {
             context.config.showAll = previousShowAll
             context.config.filterMedia = previousFilter
             listOf(a, b).forEach { context.contentResolver.delete(it.first, null, null) }
+        }
+    }
+
+    @Test
+    @androidx.test.filters.SdkSuppress(minSdkVersion = 29)
+    fun videoReturnToPartiallyVisibleFirstRowClipsTheMovingProxyBelowTheGridToolbar() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_DCIM}/GalleryToolbarReturn-${UUID.randomUUID()}"
+        val video = createVideoFixture(context, album, "00-blue.mp4", "gallery-portrait.mp4")
+        val photos = List(24) { createFixture(context, album, 32, 32, "photo-$it.png") }
+        val folder = java.io.File(video.second).parent!!
+        val previousShowAll = context.config.showAll
+        val previousFilter = context.config.filterMedia
+        var grid: MediaActivity? = null
+        var viewer: ViewPagerActivity? = null
+        try {
+            context.config.showAll = false
+            context.config.filterMedia = TYPE_IMAGES or TYPE_VIDEOS
+            context.config.saveCustomSorting(folder, SORT_BY_NAME)
+            context.config.saveFolderGrouping(folder, GROUP_BY_NONE)
+            val source = instrumentation.startActivitySync(Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, folder)
+            }) as MediaActivity
+            grid = source
+            val thumbnail = awaitSourceThumbnail(instrumentation, source, video.second)
+            val recycler = source.findViewById<RecyclerView>(R.id.media_grid)
+            val toolbar = source.findViewById<org.fossify.commons.views.MySearchMenu>(R.id.media_menu).requireToolbar()
+            val toolbarLocation = IntArray(2)
+            val thumbnailLocation = IntArray(2)
+            var toolbarBottom = 0
+            val photoPath = photos.first().second
+            awaitSourceThumbnail(instrumentation, source, photoPath)
+            val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
+            val opened = try {
+                val open = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java).apply { isAccessible = true }
+                instrumentation.runOnMainSync { open.invoke(source, photoPath) }
+                instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as ViewPagerActivity
+            } finally {
+                instrumentation.removeMonitor(monitor)
+            }
+            viewer = opened
+            awaitFrame(instrumentation, opened, requireProxy = false)
+            val entryDeadline = SystemClock.uptimeMillis() + 8_000
+            var entered = false
+            do {
+                instrumentation.runOnMainSync { entered = !opened.isMediaTransitionRunning() }
+                if (!entered) SystemClock.sleep(30)
+            } while (!entered && SystemClock.uptimeMillis() < entryDeadline)
+            assertTrue("Photo entry settles before the page switch", entered)
+            instrumentation.runOnMainSync {
+                recycler.scrollBy(0, thumbnail.height / 2)
+                toolbar.getLocationOnScreen(toolbarLocation)
+                toolbarBottom = toolbarLocation[1] + toolbar.height
+                thumbnail.getLocationOnScreen(thumbnailLocation)
+                val visible = Rect()
+                assertTrue("The first row must remain partially visible", thumbnail.getLocalVisibleRect(visible))
+                assertTrue("The raw shared endpoint must extend above the toolbar bottom", thumbnailLocation[1] < toolbarBottom)
+                assertTrue("The visible part of the destination must lie below the toolbar", thumbnailLocation[1] + visible.top >= toolbarBottom - 1)
+            }
+
+            instrumentation.runOnMainSync { opened.goToPrevItem() }
+            val currentPath = ViewPagerActivity::class.java.getDeclaredMethod("getCurrentPath").apply { isAccessible = true }
+            val readyDeadline = SystemClock.uptimeMillis() + 10_000
+            val scrim = opened.findViewById<View>(R.id.viewer_transition_scrim)
+            var accepted = false
+            do {
+                instrumentation.runOnMainSync {
+                    if (currentPath.invoke(opened) == video.second && !opened.isMediaTransitionRunning()) {
+                        accepted = opened.mediaDismissProgress(.45f, 0f, 130f)
+                    }
+                }
+                if (!accepted) SystemClock.sleep(30)
+            } while (!accepted && SystemClock.uptimeMillis() < readyDeadline)
+            assertTrue("The video must be ready for a shared return", accepted)
+
+            val proxyField = ViewPagerActivity::class.java.getDeclaredField("sharedReturnView").apply { isAccessible = true }
+            var drawCount = 0
+            var minProxyY = Float.POSITIVE_INFINITY
+            val sawOverlap = AtomicBoolean()
+            val sawUnclipped = AtomicBoolean()
+            val matrix = Matrix()
+            val point = FloatArray(2)
+            val listener = ViewTreeObserver.OnDrawListener {
+                val proxy = proxyField.get(opened) as? View
+                if (proxy != null && proxy.isAttachedToWindow && scrim.alpha < 1f) {
+                    matrix.reset()
+                    proxy.transformMatrixToGlobal(matrix)
+                    point[0] = 0f
+                    point[1] = 0f
+                    matrix.mapPoints(point)
+                    drawCount++
+                    minProxyY = minOf(minProxyY, point[1])
+                    if (point[1] < toolbarBottom - 1f) {
+                        sawOverlap.set(true)
+                        point[0] = 0f
+                        point[1] = (proxy.clipBounds?.top ?: 0).toFloat()
+                        matrix.mapPoints(point)
+                        if (point[1] < toolbarBottom - 1f) sawUnclipped.set(true)
+                    }
+                }
+            }
+            instrumentation.runOnMainSync {
+                opened.window.decorView.viewTreeObserver.addOnDrawListener(listener)
+                opened.mediaDismissSettled(dismiss = true)
+            }
+            try {
+                val returnDeadline = SystemClock.uptimeMillis() + 8_000
+                while ((!source.hasWindowFocus() || !opened.isDestroyed) && SystemClock.uptimeMillis() < returnDeadline) {
+                    SystemClock.sleep(30)
+                }
+                assertTrue("The grid regains focus after native return", source.hasWindowFocus())
+                assertTrue("A native return draw must intersect the toolbar without the clip (frames=$drawCount, min=$minProxyY, bottom=$toolbarBottom)", sawOverlap.get())
+                assertFalse("The video proxy must be clipped on every overlapping return draw", sawUnclipped.get())
+                assertEquals(1f, awaitSourceThumbnail(instrumentation, source, video.second).alpha, 0f)
+            } finally {
+                instrumentation.runOnMainSync { opened.window.decorView.viewTreeObserver.removeOnDrawListener(listener) }
+            }
+        } finally {
+            instrumentation.runOnMainSync {
+                viewer?.takeUnless { it.isFinishing }?.finish()
+                grid?.finish()
+            }
+            context.config.showAll = previousShowAll
+            context.config.filterMedia = previousFilter
+            context.config.removeCustomSorting(folder)
+            context.config.removeFolderGrouping(folder)
+            (photos + video).forEach { (uri, _) -> context.contentResolver.delete(uri, null, null) }
         }
     }
 

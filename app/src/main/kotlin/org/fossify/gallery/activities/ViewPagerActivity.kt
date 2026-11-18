@@ -13,6 +13,7 @@ import org.fossify.gallery.helpers.FrameEvidence
 import org.fossify.gallery.helpers.ViewerReturnDiagnostics
 import org.fossify.gallery.helpers.MediaTransitionHandoff
 import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator
+import org.fossify.gallery.helpers.MediaReturnToolbarClip
 import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator.Resource
 import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator.State
 import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator.Token
@@ -332,8 +333,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun renderSharedReturnLayers(remaining: Float) {
         val previousAlpha = binding.viewerTransitionScrim.alpha
-        renderSharedViewerCanvas(returnSystemBarProgress * remaining, scrimAlpha = returnScrimAlpha * remaining)
+        val scrimAlpha = returnScrimAlpha * remaining
         returnOverlayAlphas.forEach { (view, alpha) -> view.alpha = alpha * remaining }
+        hideViewerToolbarWhenGridIsExposed(scrimAlpha)
+        renderSharedViewerCanvas(returnSystemBarProgress * remaining, scrimAlpha = scrimAlpha)
         val alpha = binding.viewerTransitionScrim.alpha
         if (finishAfterSharedTransitionInProgress && !sharedReturnScrimFadeReported && alpha < previousAlpha &&
             ViewerEntryDiagnostics.enabled(viewerReturnId)) {
@@ -417,8 +420,35 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         surface.scaleY = scale
         surface.translationX = interactiveDismissDeltaXSlope * p
         surface.translationY = interactiveDismissDeltaYSlope * p
-        renderSharedViewerLayers(1f - p)
+        setSharedChromeAlpha(1f - p)
+        hideViewerToolbarWhenGridIsExposed(1f - p)
+        renderSharedViewerCanvas(1f - p)
         interactiveDismissProgress = p
+    }
+
+    private fun hideViewerToolbarWhenGridIsExposed(scrimAlpha: Float) {
+        if (scrimAlpha >= 1f) return
+        val operation = transitionSession.returnOperation ?: return
+        if (transitionSession.gridToolbarBottomOnScreen(operation) != null) binding.mediumViewerAppbar.alpha = 0f
+    }
+
+    private fun protectGridToolbarDuringVideoReturn(operation: Token, proxy: View) {
+        val clip = MediaReturnToolbarClip(proxy)
+        val observer = proxy.viewTreeObserver
+        val beforeDraw = android.view.ViewTreeObserver.OnPreDrawListener {
+            if (transitionSession.isReturning(operation)) {
+                val bottom = if (binding.viewerTransitionScrim.alpha < 1f)
+                    transitionSession.gridToolbarBottomOnScreen(operation) else null
+                clip.update(bottom)
+            }
+            true
+        }
+        if (!returnLeases.acquire(operation, Resource.RETURN_TOOLBAR_CLIP) {
+                val activeObserver = if (observer.isAlive) observer else proxy.viewTreeObserver
+                if (activeObserver.isAlive) activeObserver.removeOnPreDrawListener(beforeDraw)
+                clip.update(null)
+            }) return
+        observer.addOnPreDrawListener(beforeDraw)
     }
 
     private fun clearInteractiveDismissDrag() {
@@ -1414,6 +1444,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         photoSharedElementPath = returnPath
         sharedReturnView = proxy
         sharedReturnPage = page
+        if (page is VideoFragment) protectGridToolbarDuringVideoReturn(operation, proxy)
         // Keep the opacity already on screen while the grid prepares its target.
         returnScrimAlpha = if (proxy === interactiveDismissSurface) binding.viewerTransitionScrim.alpha else 1f
         returnSystemBarProgress = viewerSystemBarProgress
