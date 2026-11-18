@@ -1,9 +1,10 @@
 package org.fossify.gallery.helpers
 
+import java.lang.ref.WeakReference
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
-/** UI-thread arbiter for one viewer visit. It holds no Activity, View or callback references. */
+/** UI-thread arbiter for one viewer visit. The grid owns its own UI endpoint and leases. */
 internal class MediaTransitionSessionCoordinator(
     private val observer: ((event: String, token: Token, detail: String) -> Unit)? = null,
 ) {
@@ -14,7 +15,12 @@ internal class MediaTransitionSessionCoordinator(
 
     enum class Resource {
         SOURCE, SOURCE_NAME, TARGET, TARGET_NAME, PUBLICATION, PROXY, RENDERER_HANDOFF, CHROME, INPUT, CALLBACKS,
-        TARGET_PROBE, FIRST_FRAME, TARGET_DRAW, TIMEOUT, INTERACTIVE_ANIMATOR, WINDOW_POSTPONE
+        TARGET_PROBE, GRID_PREVIEW, FIRST_FRAME, TARGET_DRAW, TIMEOUT, INTERACTIVE_ANIMATOR, WINDOW_POSTPONE
+    }
+
+    interface GridPreview {
+        fun show(token: Token, path: String)
+        fun release(token: Token)
     }
 
     data class Token(val sessionId: String, val generation: Long, val operationId: Long)
@@ -47,8 +53,30 @@ internal class MediaTransitionSessionCoordinator(
 
     init { emit("session_created", entry, state.name) }
 
-    fun attachGrid() { gridAttached = true }
-    fun detachGrid() { gridAttached = false }
+    private var gridPreview: WeakReference<GridPreview>? = null
+
+    fun attachGrid(preview: GridPreview? = null) {
+        gridAttached = true
+        gridPreview = preview?.let { WeakReference(it) }
+    }
+
+    fun detachGrid() {
+        returnOperation?.let(::releaseGridPreview)
+        gridPreview = null
+        gridAttached = false
+    }
+
+    fun showGridPreview(token: Token, path: String) {
+        if (valid(token, State.INTERACTIVE_RETURN)) gridPreview?.get()?.show(token, path)
+    }
+
+    fun gridPreviewEvent(token: Token, detail: String) {
+        emit("grid_interactive_preview", token, detail)
+    }
+
+    fun releaseGridPreview(token: Token) {
+        if (token == returnOperation) gridPreview?.get()?.release(token)
+    }
 
     fun attachViewer(): Boolean {
         if (outcome != null || viewerAttached || state != State.PREPARING) return false
@@ -81,6 +109,7 @@ internal class MediaTransitionSessionCoordinator(
 
     fun cancelGesture(token: Token): Boolean {
         if (!update(token, State.VIEWING, State.INTERACTIVE_RETURN)) return false
+        releaseGridPreview(token)
         returnOperation = null
         return true
     }
@@ -140,6 +169,7 @@ internal class MediaTransitionSessionCoordinator(
         entryGate.cancel()
         outcome = terminal
         change(terminal, token)
+        releaseGridPreview(token)
         if (terminal == State.FALLBACK) emit("transition_fallback", token, reason)
         emit("transition_terminal", token, "${terminal.name}:$reason")
         return true

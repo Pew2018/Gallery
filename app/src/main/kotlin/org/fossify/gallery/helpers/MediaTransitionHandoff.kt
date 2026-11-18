@@ -28,8 +28,8 @@ internal object MediaTransitionHandoff {
         return MediaTransitionSessionCoordinator(observer)
     }
 
-    fun offer(intent: Intent, session: MediaTransitionSessionCoordinator) {
-        session.attachGrid()
+    fun offer(intent: Intent, session: MediaTransitionSessionCoordinator, preview: MediaTransitionSessionCoordinator.GridPreview) {
+        session.attachGrid(preview)
         pending[session.entry.sessionId] = WeakReference(session)
         write(intent, session.entry)
     }

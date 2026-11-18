@@ -98,6 +98,7 @@ import org.fossify.gallery.extensions.updateFavoritePaths
 import org.fossify.gallery.extensions.ensureFavoriteAddAllowed
 import org.fossify.gallery.helpers.FastScrollerBubble
 import org.fossify.gallery.helpers.OxygenThumbnailPlaceholder
+import org.fossify.gallery.helpers.InteractiveGridThumbnail
 import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.OxygenSelectionMode
 import org.fossify.gallery.helpers.PATH
@@ -288,6 +289,7 @@ class MediaAdapter(
             val itemView = holder.itemView
             val tmb = itemView.allViews.firstOrNull { it.id == R.id.medium_thumbnail }
             if (tmb is ImageView) {
+                InteractiveGridThumbnail.restoreBeforeRebind(tmb)
                 if (tmb.transitionName == PhotoViewerTransition.ELEMENT_NAME) tmb.transitionName = null
                 cancelThumbnailLoad(tmb, "holder_recycled")
                 tmb.tag = null
@@ -1462,14 +1464,15 @@ class MediaAdapter(
             }
 
             val signature = medium.getKey()
-            if (mediumThumbnail.getTag(R.id.media_bound_path) != medium.path &&
-                mediumThumbnail.transitionName == PhotoViewerTransition.ELEMENT_NAME) {
-                mediumThumbnail.transitionName = null
-            }
-            mediumThumbnail.setTag(R.id.media_bound_path, medium.path)
             val requestKey = listOf(path, signature, medium.type, cropThumbnails, roundedCorners, animateGifs,
                 scrollHorizontally, rotatedImagePaths.contains(path))
+            if (mediumThumbnail.getTag(R.id.media_bound_path) != medium.path) {
+                InteractiveGridThumbnail.restoreBeforeRebind(mediumThumbnail)
+                if (mediumThumbnail.transitionName == PhotoViewerTransition.ELEMENT_NAME) mediumThumbnail.transitionName = null
+            }
+            mediumThumbnail.setTag(R.id.media_bound_path, medium.path)
             if (mediumThumbnail.getTag(R.id.thumbnail_request_key) != requestKey) {
+                InteractiveGridThumbnail.restoreBeforeRebind(mediumThumbnail)
                 cancelThumbnailLoad(mediumThumbnail, "binding_key_changed")
                 // Change the token before cancellation so an obsolete failure cannot start a fallback.
                 mediumThumbnail.setTag(R.id.thumbnail_request_key, requestKey)

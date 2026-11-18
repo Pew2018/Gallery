@@ -146,7 +146,8 @@ class MediaAdapterStabilityTest {
             if (current.state == MediaTransitionSessionCoordinator.State.PREPARING) {
                 check(current.entryFinished(current.entry, withoutSharedEntry = true))
             }
-            return (current.returnOperation ?: requireNotNull(current.beginReturn())).also {
+            return (current.returnOperation?.takeIf { current.isReturning(it) || current.outcome != null }
+                ?: requireNotNull(current.beginReturn())).also {
                 operationsByLaunch[launchId] = it
             }
         }
@@ -185,6 +186,22 @@ class MediaAdapterStabilityTest {
             val elements = mutableMapOf(name to candidate)
             callback.onMapSharedElements(mutableListOf(name), elements)
             return elements[name]
+        }
+
+        fun drag(path: String): MediaTransitionSessionCoordinator.Token {
+            val current = requireNotNull(session)
+            if (current.state == MediaTransitionSessionCoordinator.State.PREPARING) {
+                check(current.entryFinished(current.entry, withoutSharedEntry = true))
+            }
+            val token = requireNotNull(current.beginGesture())
+            // Invoke the same operation-scoped border that the Viewer calls while the finger is down.
+            current.javaClass.getDeclaredMethod("showGridPreview", token.javaClass, String::class.java)
+                .invoke(current, token, path)
+            return token
+        }
+
+        fun cancelDrag(token: MediaTransitionSessionCoordinator.Token) {
+            check(requireNotNull(session).cancelGesture(token))
         }
 
         fun sourceTimeout(): Runnable {
@@ -514,8 +531,6 @@ class MediaAdapterStabilityTest {
         val absent = "/photos/absent.jpg"
         fixture.reenter(absent, id = 2L)
         fixture.draw()
-        assertTrue(fixture.postponed)
-        fixture.timeout()
         assertFalse(fixture.postponed)
         assertNull(fixture.map())
     }
@@ -716,6 +731,100 @@ class MediaAdapterStabilityTest {
         fixture.frame()
         assertNull(image.transitionName)
         assertSame(holder, fixture.grid.findViewHolderForAdapterPosition(0))
+    }
+
+    @Config(sdk = [36])
+    @Test fun whileFingerIsDownSwitchedTargetAloneMakesRoomForTheProxy() {
+        val rows = listOf(item("a.jpg"), item("b.jpg"))
+        val fixture = ReturnGridFixture(rows, columns = 2)
+        val source = fixture.thumbnail(0, rows[0].path)
+        val target = fixture.thumbnail(1, rows[1].path)
+        fixture.launch(rows[0].path)
+        // AOSP's outbound coordinator has hidden the original source thumbnail.
+        source.alpha = 0f
+        source.transitionAlpha = 0f
+
+        val first = fixture.drag(rows[1].path)
+        assertEquals(1f, source.alpha, 0f)
+        assertEquals(1f, source.transitionAlpha, 0f)
+        assertEquals(0f, target.alpha, 0f)
+        fixture.cancelDrag(first)
+        assertEquals(1f, target.alpha, 0f)
+
+        val second = fixture.drag(rows[1].path)
+        assertNotEquals(first, second)
+        fixture.reenter(rows[1].path)
+        fixture.draw()
+        assertSame(target, fixture.map())
+        assertEquals(1f, target.alpha, 0f)
+        fixture.end()
+        assertEquals(1f, source.alpha, 0f)
+    }
+
+    @Test fun recyclingTheHeldDestinationClearsItsAlphaBeforeTheNextBinding() {
+        val rows = listOf(item("a.jpg"), item("b.jpg"))
+        val fixture = ReturnGridFixture(rows, columns = 2)
+        fixture.thumbnail(0, rows[0].path)
+        val target = fixture.thumbnail(1, rows[1].path)
+        fixture.launch(rows[0].path)
+        val token = fixture.drag(rows[1].path)
+        assertEquals(0f, target.alpha, 0f)
+
+        val holder = fixture.grid.findViewHolderForAdapterPosition(1) as MyRecyclerViewAdapter.ViewHolder
+        fixture.adapter.onViewRecycled(holder)
+        assertEquals(1f, target.alpha, 0f)
+        target.alpha = .5f
+        fixture.cancelDrag(token)
+        assertEquals(.5f, target.alpha, 0f)
+    }
+
+    @Test fun absentPartialTargetUnblocksTheGridWithoutWaitingForTheSharedTimeout() {
+        val row = item("a.jpg")
+        val fixture = ReturnGridFixture(listOf(row), columns = 2)
+        fixture.thumbnail(0, row.path)
+        val target = "/photos/b.jpg"
+        fixture.reenter(target)
+        assertFalse(fixture.postponed)
+        assertNull(fixture.map())
+        val session = fixture.type.getDeclaredField("transitionSession").apply { isAccessible = true }
+            .get(fixture.activity) as MediaTransitionSessionCoordinator
+        assertEquals(MediaTransitionSessionCoordinator.State.FALLBACK, session.outcome)
+        fixture.result(target)
+        val pending = fixture.type.getDeclaredField("pendingViewerReturnPath").apply { isAccessible = true }
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1_500))
+        assertEquals(target, pending.get(fixture.activity))
+        val retryAfterCommit = fixture.type.getDeclaredMethod("retryFallbackViewerPositionAfterCommit")
+            .apply { isAccessible = true }
+        fixture.adapter.updateMedia(arrayListOf(row, item("b.jpg")), onCommitted = {
+            retryAfterCommit.invoke(fixture.activity)
+        })
+        drain(fixture.tasks)
+        fixture.layout()
+        assertEquals(2, fixture.adapter.itemCount)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(64))
+        assertNull(pending.get(fixture.activity))
+        assertFalse(fixture.postponed)
+    }
+
+    @Test fun latePartialTargetDoesNotTakeOverAfterTheFastScrollerStarts() {
+        val row = item("a.jpg")
+        val target = item("b.jpg")
+        val fixture = ReturnGridFixture(listOf(row))
+        fixture.reenter(target.path)
+        fixture.result(target.path)
+        val pending = fixture.type.getDeclaredField("pendingViewerReturnPath").apply { isAccessible = true }
+        assertEquals(target.path, pending.get(fixture.activity))
+
+        val fastScroll = fixture.type.getDeclaredMethod("onPhotoFastScrollStateChanged", Boolean::class.javaPrimitiveType)
+            .apply { isAccessible = true }
+        fastScroll.invoke(fixture.activity, true)
+        fastScroll.invoke(fixture.activity, false)
+        fixture.adapter.updateMedia(arrayListOf(row, target))
+        fixture.type.getDeclaredMethod("retryFallbackViewerPositionAfterCommit")
+            .apply { isAccessible = true }.invoke(fixture.activity)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertNull(pending.get(fixture.activity))
+        assertEquals(0, (fixture.grid.layoutManager as LinearLayoutManager).findFirstVisibleItemPosition())
     }
 
     @Test fun resultBeforeReenterDoesNotAcquireAHolderOrPublicationHold() {

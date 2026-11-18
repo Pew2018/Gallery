@@ -486,6 +486,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             interactiveDismissDragActive = true
             interactiveDismissGestureBaseX = 0f
             interactiveDismissGestureBaseY = 0f
+            transitionSession.showGridPreview(operation, path)
             setSharedTransitionCanvasTransparent()
         }
         interactiveDismissDeltaXSlope = if (progress > 0f)
@@ -1477,6 +1478,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun ownReturnSurface(operation: Token, page: ViewPagerFragment?) {
         returnLeases.acquire(operation, Resource.PROXY) {
+            transitionSession.releaseGridPreview(operation)
             if (isFinishing || isDestroyed) clearSharedTransitionSurface(page)
             else finishSharedEntryPage(page)
             sharedReturnView = null

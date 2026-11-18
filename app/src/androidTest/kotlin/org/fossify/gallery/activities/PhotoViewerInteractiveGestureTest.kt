@@ -46,6 +46,7 @@ import org.fossify.gallery.helpers.GallerySection
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.SHOW_FAVORITES
 import org.fossify.gallery.helpers.TYPE_IMAGES
+import org.fossify.gallery.helpers.TYPE_VIDEOS
 import org.fossify.gallery.helpers.PhotoProfile
 import org.fossify.gallery.helpers.PhotoProfileMediaCache
 import org.fossify.gallery.helpers.PhotoProfileMediaLoader
@@ -1787,6 +1788,136 @@ class PhotoViewerInteractiveGestureTest {
     }
 
     @Test
+    fun switchedPhotoKeepsSourcePixelsAndHidesOnlyDestinationWhileDragIsHeld() =
+        verifyHeldDragAfterSwitch(videoDestination = false)
+
+    @Test
+    fun switchedVideoKeepsSourcePixelsAndHidesOnlyDestinationWhileDragIsHeld() =
+        verifyHeldDragAfterSwitch(videoDestination = true)
+
+    private fun verifyHeldDragAfterSwitch(videoDestination: Boolean) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_DCIM}/GalleryInteractiveTarget-${UUID.randomUUID()}"
+        val a = createFixture(context, album, solidColor = Color.RED)
+        val b = if (videoDestination) createVideoFixture(context, album, displayName = "blue-target.mp4", assetName = "gallery-portrait.mp4")
+            else createFixture(context, album, solidColor = Color.GREEN)
+        val previousShowAll = context.config.showAll
+        val previousFilter = context.config.filterMedia
+        var grid: MediaActivity? = null
+        var viewer: ViewPagerActivity? = null
+        try {
+            context.config.showAll = false
+            context.config.filterMedia = if (videoDestination) TYPE_IMAGES or TYPE_VIDEOS else TYPE_IMAGES
+            val source = instrumentation.startActivitySync(Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, java.io.File(a.second).parent)
+            }) as MediaActivity
+            grid = source
+            val imageA = awaitSourceThumbnail(instrumentation, source, a.second)
+            val imageB = awaitSourceThumbnail(instrumentation, source, b.second)
+            val request = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java)
+                .apply { isAccessible = true }
+            val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
+            val opened = try {
+                instrumentation.runOnMainSync { request.invoke(source, a.second) }
+                instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as ViewPagerActivity
+            } finally {
+                instrumentation.removeMonitor(monitor)
+            }
+            viewer = opened
+            awaitFrame(instrumentation, opened, requireProxy = false)
+            val deadline = SystemClock.uptimeMillis() + 8_000
+            var isRunning = true
+            while (isRunning && SystemClock.uptimeMillis() < deadline) {
+                instrumentation.runOnMainSync { isRunning = opened.isMediaTransitionRunning() }
+                if (isRunning) SystemClock.sleep(30)
+            }
+            assertFalse("The entry must settle before changing pages", isRunning)
+            instrumentation.runOnMainSync {
+                val adapter = source.findViewById<RecyclerView>(R.id.media_grid).adapter as MediaAdapter
+                if ((adapter.media.first { it is Medium } as Medium).path == a.second) opened.goToNextItem()
+                else opened.goToPrevItem()
+            }
+            val currentPath = ViewPagerActivity::class.java.getDeclaredMethod("getCurrentPath").apply { isAccessible = true }
+            val pageDeadline = SystemClock.uptimeMillis() + 8_000
+            var selected: Any? = null
+            while (selected != b.second && SystemClock.uptimeMillis() < pageDeadline) {
+                instrumentation.runOnMainSync { selected = currentPath.invoke(opened) }
+                if (selected != b.second) SystemClock.sleep(30)
+            }
+            assertEquals(b.second, selected)
+            if (!videoDestination) awaitFrame(instrumentation, opened, requireProxy = false)
+
+            val centerA = IntArray(2)
+            val centerB = IntArray(2)
+            instrumentation.runOnMainSync {
+                fun center(image: ImageView, xy: IntArray) {
+                    image.getLocationOnScreen(xy)
+                    xy[0] += image.width / 2
+                    xy[1] += image.height / 2
+                }
+                center(imageA, centerA)
+                center(imageB, centerB)
+            }
+            fun startDrag() {
+                val readyDeadline = SystemClock.uptimeMillis() + 8_000
+                var accepted = false
+                do {
+                    instrumentation.runOnMainSync {
+                        accepted = opened.mediaDismissProgress(.6f, 0f, opened.window.decorView.height * .45f)
+                    }
+                    if (!accepted) SystemClock.sleep(30)
+                } while (!accepted && SystemClock.uptimeMillis() < readyDeadline)
+                assertTrue("B must have a fitted renderer to begin drag", accepted)
+                instrumentation.runOnMainSync {
+                    assertEquals("A remains visible while B owns the moving image", 1f, imageA.alpha, 0f)
+                    assertEquals("B alone gives up its grid pixels", 0f, imageB.alpha, 0f)
+                }
+            }
+            startDrag()
+            var sawExpectedPixels = false
+            val drawDeadline = SystemClock.uptimeMillis() + 2_000
+            do {
+                val frame = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+                val pixelA = frame.getPixel(centerA[0], centerA[1])
+                val pixelB = frame.getPixel(centerB[0], centerB[1])
+                frame.recycle()
+                val targetColor = if (videoDestination) Color.blue(pixelB) else Color.green(pixelB)
+                sawExpectedPixels = Color.red(pixelA) > Color.green(pixelA) + 40 &&
+                    targetColor <= Color.red(pixelB) + 15
+                if (!sawExpectedPixels) SystemClock.sleep(30)
+            } while (!sawExpectedPixels && SystemClock.uptimeMillis() < drawDeadline)
+            assertTrue("The held frame must show the red A, with no B pixels in its grid slot", sawExpectedPixels)
+            instrumentation.runOnMainSync { opened.mediaDismissSettled(dismiss = false) }
+            val settleDeadline = SystemClock.uptimeMillis() + 5_000
+            var restored = false
+            do {
+                instrumentation.runOnMainSync { restored = !opened.isMediaTransitionRunning() && imageB.alpha == 1f }
+                if (!restored) SystemClock.sleep(30)
+            } while (!restored && SystemClock.uptimeMillis() < settleDeadline)
+            assertTrue("Cancel restores the destination and leaves the Viewer usable", restored)
+            startDrag()
+            instrumentation.runOnMainSync { opened.mediaDismissSettled(dismiss = true) }
+            val returnDeadline = SystemClock.uptimeMillis() + 8_000
+            while ((!source.hasWindowFocus() || !opened.isDestroyed) && SystemClock.uptimeMillis() < returnDeadline) {
+                SystemClock.sleep(30)
+            }
+            assertTrue("The grid regains focus after the repeated drag is committed", source.hasWindowFocus())
+            assertEquals(1f, awaitSourceThumbnail(instrumentation, source, b.second).alpha, 0f)
+        } finally {
+            instrumentation.runOnMainSync {
+                viewer?.takeUnless { it.isFinishing }?.finish()
+                grid?.finish()
+            }
+            context.config.showAll = previousShowAll
+            context.config.filterMedia = previousFilter
+            listOf(a, b).forEach { context.contentResolver.delete(it.first, null, null) }
+        }
+    }
+
+    @Test
     fun fiftyViewerReturnsCleanTheirSessionAndRestoreTheSelectedThumbnail() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -2521,6 +2652,7 @@ class PhotoViewerInteractiveGestureTest {
         width: Int = 960,
         height: Int = 720,
         displayName: String = "gallery-interactive-${UUID.randomUUID()}.png",
+        solidColor: Int? = null,
     ): Pair<Uri, String> {
         val resolver = context.contentResolver
         val values = ContentValues().apply {
@@ -2531,15 +2663,19 @@ class PhotoViewerInteractiveGestureTest {
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
             ?: error("Could not create emulator image fixture")
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        Canvas(bitmap).apply {
-            drawColor(Color.BLUE)
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-            paint.color = Color.RED
-            drawRect(0f, 0f, width / 3f, height.toFloat(), paint)
-            paint.color = Color.GREEN
-            drawRect(width / 3f, 0f, width * 2f / 3f, height.toFloat(), paint)
-            paint.color = Color.YELLOW
-            drawRect(width * 2f / 3f, 0f, width.toFloat(), height.toFloat(), paint)
+        if (solidColor != null) {
+            bitmap.eraseColor(solidColor)
+        } else {
+            Canvas(bitmap).apply {
+                drawColor(Color.BLUE)
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+                paint.color = Color.RED
+                drawRect(0f, 0f, width / 3f, height.toFloat(), paint)
+                paint.color = Color.GREEN
+                drawRect(width / 3f, 0f, width * 2f / 3f, height.toFloat(), paint)
+                paint.color = Color.YELLOW
+                drawRect(width * 2f / 3f, 0f, width.toFloat(), height.toFloat(), paint)
+            }
         }
         resolver.openOutputStream(uri)?.use { output ->
             check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) { "could not write image fixture" }
