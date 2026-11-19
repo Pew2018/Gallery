@@ -83,7 +83,8 @@ class SelectionToolbarHeightTest {
                     val bar = host.findViewById<ActionBarContextView>(androidx.appcompat.R.id.action_mode_bar)
                     assertEquals(normalHeight, bar.height)
                     assertEquals(initialBottom, menu.bottom)
-                    assertEquals(View.INVISIBLE, menu.visibility)
+                    assertEquals(View.VISIBLE, menu.visibility)
+                    assertEquals(View.INVISIBLE, menu.binding.toolbarContainer.visibility)
                     assertTrue(callback.onActionItemClicked(mode, mode.menu.findItem(123)))
                     mode.finish()
                     org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
@@ -91,7 +92,7 @@ class SelectionToolbarHeightTest {
                     measure()
                     menu.viewTreeObserver.dispatchOnPreDraw()
                     assertEquals(initialBottom, menu.bottom)
-                    assertEquals(View.VISIBLE, menu.visibility)
+                    assertEquals(View.VISIBLE, menu.binding.toolbarContainer.visibility)
                 }
                 assertEquals(3, clicks)
                 assertEquals(3, destroyed)

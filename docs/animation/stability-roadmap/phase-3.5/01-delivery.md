@@ -6,7 +6,7 @@
 
 - Commons 7.1.3 的 AppTheme.Base 继承 Material3，actionModeStyle 为 AppCompat.ActionMode → Widget.Material3.ActionMode，内容高度通过 height → actionBarSize 解析，默认 64dp。此前 OxygenToolbarStyle 的普通行自定为 56dp。
 - 普通 MySearchMenu 改读同一 ActionMode 样式高度；共同取该高度与 20sp 文本加 24dp 纵向空间的较大值。选择态保持原默认高度，只在字体需要更高空间时一同适配。Insets 仍由原系统栏机制处理，不叠加状态栏高度。
-- 选择期间普通行 INVISIBLE 保持测量和网格位置；CAB 真正退出后在预绘制恢复，快速反向切换会撤销旧恢复监听。退出/分离均清理监听。Commons 仍负责选择、数量、全选和操作回调。
+- 选择期间仅普通栏内容容器 INVISIBLE，普通栏表面继续绘制，保持测量和网格位置并避免 CAB 淡出时露出页面底色；CAB 真正退出后在预绘制恢复，快速反向切换会撤销旧恢复监听。退出/分离均清理监听。Commons 仍负责选择、数量、全选和操作回调。
 - MainActivity 删除 directoryHeaderProgress 的创建、挂载、样式、显示及销毁引用；保留 setDirectoryLoading 的 watchdog、超时、取消、错误及重试。主页转场 frameState 使用实际加载状态，不再通过进度条判断。MediaActivity、Viewer、对话框和下拉刷新提示未改。
 - Viewer/编辑器顶栏、Session、来源资格、几何计算、Glide 交接、缩放曲线及扫描链路未改。
 
@@ -26,7 +26,7 @@
 | Lint FossDebug | 非零：15 errors、806 warnings、2 hints；原提交生产代码同目录、同 JDK/任务重新构建对照，按级别/规则/文件/消息多重集比较，新增 0、移除 0 |
 | Detekt | 非零：原提交与最终版均 3,463 条、4,031 weighted issues；无新增规则或问题位置，原有 OxygenToolbarStyle TooManyFunctions 指标从 13 变为 15，其他问题完全一致，未更新/扩大 baseline |
 
-初轮与合并原生检查保留失败记录：ALL_MEDIA 出现夹具不可见/共享路线或 Glide 降级断言失败；一次完整下拖在双击放大断言失败，空闲条件单独复核通过。原提交 ALL_MEDIA 对照通过后继续排查，发现既有夹具只滚动一次，后续渐进发布会改变真实位置。仅修补 Android 测试：按当前路径/位置重新驱动真实 RecyclerView，等布局与 Adapter 更新完成后捕获当前缩略图；保持原 15 秒预算、全部 20 个组合、共享路线和 Glide 断言。修补后的 ALL_MEDIA 全部通过；未修改生产扫描、位置保留、资格校验或几何算法。
+初轮与合并原生检查保留失败记录：ALL_MEDIA 出现夹具不可见/共享路线或 Glide 降级断言失败；一次完整下拖在双击放大断言失败，空闲条件单独复核通过。原提交 ALL_MEDIA 对照通过后继续排查，发现既有夹具只滚动一次，后续渐进发布会改变真实位置。仅修补 Android 测试：按当前路径/位置重新驱动真实 RecyclerView，等布局与 Adapter 更新完成后捕获当前缩略图；保持原 15 秒预算、全部 20 个组合、共享路线和 Glide 断言。修补后的 ALL_MEDIA 全部通过；未修改生产扫描、位置保留、资格校验或几何算法。最终背景保留修补后，合并运行另有两组矩阵遇到目标 renderer 晚于既有就绪预算到达，诊断确认来源几何有效、应用按原策略降级；无编译负载定向复核两组均通过，未调整超时或断言。最终普通文件夹矩阵、完整下拖及三种顶栏配置也通过。
 
 API 29 使用软件渲染模拟器。未连接真机；Pixel 8 Pro/API 36、本轮现代 API 原生测试及真机视觉效果未验证。文件夹/照片/收藏/列表的真实操作与视觉组合仍按下方一次合并验收检查。
 

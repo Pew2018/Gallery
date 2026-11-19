@@ -80,7 +80,8 @@ class SelectionToolbarHeightTest {
                     assertEquals(normalBottom, bottom(bar))
                     val grid = activity.findViewById<View>(R.id.directories_grid)
                     assertEquals(gridTop, bottom(grid) - grid.height)
-                    assertEquals(View.INVISIBLE, menu.visibility)
+                    assertEquals(View.VISIBLE, menu.visibility)
+                    assertEquals(View.INVISIBLE, menu.binding.toolbarContainer.visibility)
                     assertTrue(callback.onActionItemClicked(mode!!, mode!!.menu.findItem(123)))
                     mode!!.finish()
                     // Reverse before the previous CAB exit animation can restore normal chrome.
@@ -90,7 +91,7 @@ class SelectionToolbarHeightTest {
             settle()
             instrumentation.runOnMainSync {
                 val menu = activity.findViewById<MySearchMenu>(R.id.main_menu)
-                assertEquals(View.VISIBLE, menu.visibility)
+                assertEquals(View.VISIBLE, menu.binding.toolbarContainer.visibility)
                 assertEquals(normalBottom, bottom(menu.binding.searchBarContainer))
                 assertEquals(3, actions)
             }

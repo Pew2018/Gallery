@@ -285,18 +285,18 @@ object OxygenToolbarStyle {
         return maxOf(themedHeight, (20 * metrics.scaledDensity + 24 * metrics.density + 0.5f).toInt())
     }
 
-    /** Keep the row measured while the separate CAB fades, so titles never draw over each other. */
+    /** Keep the opaque row measured while the separate CAB fades; hide only its foreground. */
     internal fun selectionVisibility(activity: Activity, active: Boolean, contextBar: View? = null) {
         hooked.entries.filter { it.key.context === activity }.forEach { (menu, state) ->
             state.restoreListener?.let { menu.viewTreeObserver.removeOnPreDrawListener(it) }
             state.restoreListener = null
             state.selectionActive = active
             if (active) {
-                menu.visibility = View.INVISIBLE
+                menu.binding.toolbarContainer.visibility = View.INVISIBLE
                 return@forEach
             }
             if (contextBar == null || !contextBar.isShown) {
-                menu.visibility = View.VISIBLE
+                menu.binding.toolbarContainer.visibility = View.VISIBLE
                 return@forEach
             }
             val listener = object : android.view.ViewTreeObserver.OnPreDrawListener {
@@ -304,7 +304,7 @@ object OxygenToolbarStyle {
                     if (contextBar.isShown) return true
                     menu.viewTreeObserver.removeOnPreDrawListener(this)
                     state.restoreListener = null
-                    if (!state.selectionActive) menu.visibility = View.VISIBLE
+                    if (!state.selectionActive) menu.binding.toolbarContainer.visibility = View.VISIBLE
                     return true
                 }
             }
