@@ -1,6 +1,9 @@
 package org.fossify.gallery.helpers
 
+import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Matrix
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.os.Build
@@ -36,6 +39,24 @@ internal class MediaSharedSurface(private val parent: RelativeLayout) {
             scaleType = ImageView.ScaleType.CENTER_CROP
             setImageDrawable(drawable.constantState?.newDrawable()?.mutate() ?: drawable)
         }
+        attach(proxy, bounds, renderedViews.toList(), deferTakeover)
+        return proxy
+    }
+
+    fun prepareStaticEntry(drawable: Drawable, geometry: StaticPhotoEntryGeometry, renderer: ImageView): StaticPhotoEntryView? {
+        if (currentView != null || !parent.isAttachedToWindow) return null
+        val copy = drawable.constantState?.newDrawable(parent.resources)?.mutate() ?: return null
+        val inverse = Matrix()
+        if (!StaticPhotoViewGeometry.localToScreen(parent).invert(inverse)) return null
+        val bounds = geometry.target.pixels.rect()
+        if (!inverse.mapRect(bounds) || !MediaTransitionGeometry.isUsable(bounds)) return null
+        return StaticPhotoEntryView(parent.context, copy, geometry).also {
+            it.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            attach(it, bounds, listOf(renderer), deferTakeover = true)
+        }
+    }
+
+    private fun attach(proxy: ImageView, bounds: RectF, renderedViews: List<View>, deferTakeover: Boolean) {
         val left = bounds.left.roundToInt()
         val top = bounds.top.roundToInt()
         val width = bounds.right.roundToInt() - left
@@ -50,7 +71,7 @@ internal class MediaSharedSurface(private val parent: RelativeLayout) {
         proxy.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
         proxy.layout(left, top, left + width, top + height)
-        renderers = renderedViews.toList()
+        renderers = renderedViews
         currentView = proxy
         if (deferTakeover) {
             // Leave the real renderer visible until the framework restores transitionAlpha
@@ -59,7 +80,6 @@ internal class MediaSharedSurface(private val parent: RelativeLayout) {
         } else {
             takeOver(proxy)
         }
-        return proxy
     }
 
     fun takeOver(proxy: View): Boolean {
@@ -82,6 +102,7 @@ internal class MediaSharedSurface(private val parent: RelativeLayout) {
         val proxy = currentView
         currentView = null
         proxy?.let {
+            (it as? StaticPhotoEntryView)?.dispose()
             it.transitionName = null
             it.animate().cancel()
             it.setLayerType(View.LAYER_TYPE_NONE, null)
@@ -94,6 +115,63 @@ internal class MediaSharedSurface(private val parent: RelativeLayout) {
             if (Build.VERSION.SDK_INT >= 29) view.transitionAlpha = state.transitionAlpha
         }
         hidden.clear()
+    }
+}
+
+/** Draws the existing Glide resource using explicit screen endpoints, independent of platform scaleType. */
+internal class StaticPhotoEntryView(
+    context: Context, private var image: Drawable?, val geometry: StaticPhotoEntryGeometry,
+) : ImageView(context) {
+    private val screenToLocal = Matrix()
+    private val mask = Path()
+    private val pixels = RectF()
+    private val clip = RectF()
+    private val rounded = RectF()
+    private var progress = 1f
+    var animationCompleted = false
+        private set
+
+    fun showFrame(progress: Float) {
+        if (image == null) return
+        this.progress = progress
+        invalidate()
+    }
+
+    fun animateFrame(progress: Float) {
+        if (image == null) return
+        animationCompleted = progress >= 1f
+        showFrame(progress)
+    }
+
+    fun dispose() {
+        image = null
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val drawable = image ?: return
+        if (!StaticPhotoViewGeometry.localToScreen(this).invert(screenToLocal)) return
+        pixels.set(geometry.pixelsAt(progress).rect())
+        clip.set(geometry.clipAt(progress).rect())
+        if (!screenToLocal.mapRect(pixels) || !screenToLocal.mapRect(clip)) return
+        val save = canvas.save()
+        canvas.clipRect(clip)
+        val radius = geometry.radiusAt(progress)
+        if (radius > 0f) {
+            rounded.set(geometry.maskAt(progress).rect())
+            screenToLocal.mapRect(rounded)
+            val radii = floatArrayOf(radius, 0f, 0f, radius)
+            screenToLocal.mapVectors(radii)
+            mask.rewind()
+            mask.addRoundRect(rounded, kotlin.math.abs(radii[0]), kotlin.math.abs(radii[3]), Path.Direction.CW)
+            canvas.clipPath(mask)
+        }
+        canvas.translate(pixels.left, pixels.top)
+        val width = drawable.intrinsicWidth.coerceAtLeast(1)
+        val height = drawable.intrinsicHeight.coerceAtLeast(1)
+        canvas.scale(pixels.width() / width, pixels.height() / height)
+        drawable.setBounds(0, 0, width, height)
+        drawable.draw(canvas)
+        canvas.restoreToCount(save)
     }
 }
 

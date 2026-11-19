@@ -38,6 +38,7 @@ object OxygenClassicActivityMotion {
         onTerminal: ((cancelled: Boolean) -> Unit)? = null,
         onStart: (() -> Unit)? = null,
         cropVideoToBounds: Boolean = false,
+        staticPhotoEntry: Boolean = false,
     ): android.transition.Transition =
         android.transition.TransitionSet().apply {
             ordering = android.transition.TransitionSet.ORDERING_TOGETHER
@@ -45,7 +46,11 @@ object OxygenClassicActivityMotion {
             // Drag-to-dismiss leaves the shared media surface translated and scaled.
             // Capture those properties so the reverse handoff can start at the live frame.
             addTransition(android.transition.ChangeTransform())
-            addTransition(if (cropVideoToBounds && Build.VERSION.SDK_INT >= 29) VideoReturnCrop() else ChangeImageTransform())
+            addTransition(when {
+                staticPhotoEntry -> StaticPhotoEntryTransform()
+                cropVideoToBounds && Build.VERSION.SDK_INT >= 29 -> VideoReturnCrop()
+                else -> ChangeImageTransform()
+            })
             if (onProgress != null) addTransition(SharedElementProgress(durationMs, onProgress))
             duration = durationMs
             interpolator = OxygenClassicMotion.easing()
@@ -64,6 +69,36 @@ object OxygenClassicActivityMotion {
                 override fun onTransitionResume(transition: android.transition.Transition) = Unit
             })
         }
+
+    private class StaticPhotoEntryTransform : android.transition.Transition() {
+        override fun captureStartValues(transitionValues: TransitionValues) = capture(transitionValues, false)
+
+        override fun captureEndValues(transitionValues: TransitionValues) = capture(transitionValues, true)
+
+        private fun capture(values: TransitionValues, end: Boolean) {
+            val proxy = values.view as? StaticPhotoEntryView ?: return
+            val expected = if (end) proxy.geometry.target.pixels else proxy.geometry.source.view.layout
+            if (StaticPhotoViewGeometry.layout(proxy)?.near(expected) == true) values.values[END] = end
+        }
+
+        override fun getTransitionProperties() = arrayOf(END)
+
+        override fun createAnimator(
+            sceneRoot: ViewGroup,
+            startValues: TransitionValues?,
+            endValues: TransitionValues?,
+        ): ValueAnimator? {
+            val proxy = endValues?.view as? StaticPhotoEntryView ?: return null
+            if (startValues?.view !== proxy || startValues.values[END] != false || endValues.values[END] != true) return null
+            return ValueAnimator.ofFloat(0f, 1f).apply {
+                addUpdateListener { proxy.animateFrame(it.animatedValue as Float) }
+            }
+        }
+
+        private companion object {
+            const val END = "gallery:staticPhotoEntry:end"
+        }
+    }
 
     @androidx.annotation.RequiresApi(29)
     private class VideoReturnCrop : ChangeImageTransform() {

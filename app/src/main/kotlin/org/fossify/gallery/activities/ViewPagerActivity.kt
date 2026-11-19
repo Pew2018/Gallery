@@ -18,6 +18,8 @@ import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator.Resource
 import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator.State
 import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator.Token
 import org.fossify.gallery.helpers.PhotoViewerTransition
+import org.fossify.gallery.helpers.StaticPhotoEntryView
+import org.fossify.gallery.helpers.StaticPhotoViewGeometry
 import org.fossify.gallery.helpers.OxygenClassicMotion
 import org.fossify.gallery.extensions.favoriteProtection
 import org.fossify.gallery.helpers.FAVORITE_ACCESS_SESSION
@@ -1053,6 +1055,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 PhotoViewerTransition.DURATION_MS,
                 onProgress = { renderPhotoTransitionProgress(entry, it) },
                 onTerminal = { cancelled -> onSharedEntryTerminal(entry, cancelled) },
+                staticPhotoEntry = intent.getBooleanExtra(PhotoViewerTransition.EXTRA_STATIC_PHOTO, false),
             )
             setEnterSharedElementCallback(object : SharedElementCallback() {
                 override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
@@ -5178,6 +5181,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         startPostponedEnterTransition()
     }
 
+    internal fun staticPhotoEntrySource(path: String) =
+        if (::transitionSession.isInitialized && intent.getBooleanExtra(PhotoViewerTransition.EXTRA_STATIC_PHOTO, false)) {
+            transitionSession.readStaticPhotoSource(transitionSession.entry)?.takeIf { it.path == path }
+        } else null
+
     private fun mapEntrySharedElement(entry: PhotoTransitionCompletionGate, names: List<String>, sharedElements: MutableMap<String, View>) {
         val name = PhotoViewerTransition.ELEMENT_NAME
         if (!isCurrentEntry(entry)) {
@@ -5191,7 +5199,20 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             return
         }
         val candidate = photoSharedElementPath?.takeIf { name in names && entry.stage == Stage.RELEASED }
-            ?.let { getCurrentSharedElementView(it, deferTakeover = true) }
+            ?.let { path ->
+                if (intent.getBooleanExtra(PhotoViewerTransition.EXTRA_STATIC_PHOTO, false)) {
+                    val source = transitionSession.readStaticPhotoSource(transitionSession.entry)
+                    val photo = getCurrentFragment() as? PhotoFragment
+                    if (source == null || photo == null) {
+                        logMediaEntry("static_target_rejected", "static_source_or_fragment_unavailable")
+                        null
+                    } else {
+                        photo.prepareStaticPhotoEntry(path, source) { logMediaEntry("static_target_rejected", it) }
+                    }
+                } else {
+                    getCurrentSharedElementView(path, deferTakeover = true)
+                }
+            }
         if (candidate != null && entry.map()) {
             candidate.transitionName = name
             sharedElements[name] = candidate
@@ -5202,6 +5223,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 if (transitionSession.outcome == null) finishSharedEntryPage(mappedPage)
             }
             entryLeases.acquire(transitionSession.entry, Resource.PROXY) { clearSharedTransitionSurface(mappedPage) }
+            (candidate as? StaticPhotoEntryView)?.geometry?.let { geometry ->
+                ViewerEntryDiagnostics.event(entryRequestId(), "static_photo_endpoints") {
+                    mapOf("sourceContent" to geometry.sourcePhoto.rect().toShortString(),
+                        "sourceClip" to geometry.source.view.visible.rect().toShortString(),
+                        "targetContent" to geometry.target.pixels.rect().toShortString(),
+                        "targetClip" to geometry.target.visible.rect().toShortString(),
+                        "crop" to geometry.source.thumbnail.cropped, "radius" to geometry.source.thumbnail.radius)
+                }
+            }
             logMediaEntry("shared_map_accepted")
         } else {
             sharedElements.remove(name)
@@ -5216,6 +5246,20 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (elements.getOrNull(index) !== proxy || getCurrentFragment() !== entryMappedPage) {
             rejectSharedEntry(entry, "platform_rejected_target")
             return
+        }
+        if (proxy is StaticPhotoEntryView) {
+            val source = transitionSession.readStaticPhotoSource(transitionSession.entry, requireConfirmed = true)
+            val failure = when {
+                source == null || !proxy.geometry.source.near(source) -> "static_source_capture_unconfirmed"
+                StaticPhotoViewGeometry.layout(proxy)?.near(source.view.layout) != true -> "static_platform_source_mismatch"
+                (entryMappedPage as? PhotoFragment)?.validatesStaticPhotoHandoff(proxy) != true -> "static_target_changed_at_capture"
+                else -> null
+            }
+            if (failure != null) {
+                rejectSharedEntry(entry, failure)
+                return
+            }
+            proxy.showFrame(0f)
         }
         // AOSP shows accepted elements immediately before applying source state and calling
         // onSharedElementStart. This is the last synchronous point before start capture.
@@ -5239,11 +5283,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun onSharedEntryTerminal(entry: PhotoTransitionCompletionGate, cancelled: Boolean) {
         if (!isCurrentEntry(entry) || entry.stage == Stage.FALLBACK) return
         logMediaEntry(if (cancelled) "shared_transition_cancelled" else "shared_transition_ended")
+        val staticProxy = photoTransitionMappedView as? StaticPhotoEntryView
         when {
             cancelled -> startEntryFallback(entry, "platform_cancelled")
             entry.stage != Stage.SHARED -> startEntryFallback(entry, "no_animator")
             entryMappedPage !== getCurrentFragment() || currentEntryRenderer()?.isAttachedToWindow != true ->
                 startEntryFallback(entry, "renderer_lost")
+            staticProxy != null && !staticProxy.animationCompleted -> startEntryFallback(entry, "static_geometry_not_animated")
+            staticProxy != null && (entryMappedPage as? PhotoFragment)?.validatesStaticPhotoHandoff(staticProxy) != true ->
+                startEntryFallback(entry, "handoff_geometry_changed")
             else -> {
                 photoSharedElementMapped = true
                 finishMediaEntryTransition(entry)

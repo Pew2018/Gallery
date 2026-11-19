@@ -2080,6 +2080,89 @@ class PhotoViewerInteractiveGestureTest {
     }
 
     @Test
+    fun staticPhotoEntrySharesAllFourAspectsAndBothThumbnailModes() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GalleryStaticEntry-${UUID.randomUUID()}"
+        val fixtures = listOf(481 to 481, 963 to 541, 541 to 963, 381 to 1907).mapIndexed { index, size ->
+            createFixture(context, album, size.first, size.second, "entry-$index.png")
+        } + createExifRotatedFixture(context, album, 963, 541, ExifInterface.ORIENTATION_TRANSVERSE)
+        val folder = java.io.File(fixtures.first().second).parent
+        val config = context.config
+        val oldShowAll = config.showAll
+        val oldFilter = config.filterMedia
+        val oldCrop = config.cropThumbnails
+        val oldRounded = config.fileRoundedCorners
+        val diagnosticsPreviouslyEnabled = org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.setEnabled(context, true)
+        var grid: MediaActivity? = null
+        var viewer: ViewPagerActivity? = null
+        try {
+            config.showAll = false
+            config.filterMedia = TYPE_IMAGES
+            val mapped = ViewPagerActivity::class.java.getDeclaredField("photoSharedElementMapped").apply { isAccessible = true }
+            val open = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java).apply { isAccessible = true }
+            val launchInProgress = MediaActivity::class.java.getDeclaredField("viewerLaunchInProgress").apply { isAccessible = true }
+            for ((crop, rounded) in listOf(false to false, true to false, false to true, true to true)) {
+                config.cropThumbnails = crop
+                config.fileRoundedCorners = rounded
+                val source = instrumentation.startActivitySync(Intent(context, MediaActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    putExtra(DIRECTORY, folder)
+                }) as MediaActivity
+                grid = source
+                fixtures.forEach { (_, path) ->
+                    val label = "${java.io.File(path).name}, crop=$crop, rounded=$rounded"
+                    awaitSourceThumbnail(instrumentation, source, path)
+                    val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
+                    val opened = try {
+                        instrumentation.runOnMainSync { open.invoke(source, path) }
+                        instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
+                            ?: error("Viewer did not launch for $label")
+                    } finally {
+                        instrumentation.removeMonitor(monitor)
+                    }
+                    viewer = opened
+                    awaitFrame(instrumentation, opened, requireProxy = false)
+                    val deadline = SystemClock.uptimeMillis() + 7_000
+                    var complete = false
+                    do {
+                        instrumentation.runOnMainSync {
+                            complete = !opened.findViewById<ProgressivePhotoViewPager>(R.id.view_pager).transitionInputLocked
+                        }
+                        if (!complete) SystemClock.sleep(20)
+                    } while (!complete && SystemClock.uptimeMillis() < deadline)
+                    instrumentation.runOnMainSync {
+                        assertTrue("static geometry route selected for $label",
+                            opened.intent.getBooleanExtra(PhotoViewerTransition.EXTRA_STATIC_PHOTO, false))
+                        assertTrue("shared Glide handoff, not fallback, for $label", complete && mapped.getBoolean(opened))
+                        opened.finish()
+                    }
+                    val returnDeadline = SystemClock.uptimeMillis() + 6_000
+                    while ((!source.hasWindowFocus() || launchInProgress.getBoolean(source)) &&
+                        SystemClock.uptimeMillis() < returnDeadline) SystemClock.sleep(25)
+                    assertTrue("Grid ready after $label", source.hasWindowFocus() && !launchInProgress.getBoolean(source))
+                    viewer = null
+                }
+                instrumentation.runOnMainSync { source.finish() }
+                grid = null
+            }
+        } finally {
+            instrumentation.runOnMainSync {
+                viewer?.takeUnless { it.isFinishing }?.finish()
+                grid?.finish()
+            }
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.setEnabled(context, diagnosticsPreviouslyEnabled)
+            config.showAll = oldShowAll
+            config.filterMedia = oldFilter
+            config.cropThumbnails = oldCrop
+            config.fileRoundedCorners = oldRounded
+            fixtures.forEach { context.contentResolver.delete(it.first, null, null) }
+        }
+    }
+
+    @Test
     fun fiftyViewerReturnsCleanTheirSessionAndRestoreTheSelectedThumbnail() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -2854,6 +2937,7 @@ class PhotoViewerInteractiveGestureTest {
         relativePath: String,
         width: Int,
         height: Int,
+        orientation: Int = ExifInterface.ORIENTATION_ROTATE_90,
     ): Pair<Uri, String> {
         val resolver = context.contentResolver
         val temporaryFile = java.io.File(context.cacheDir, "gallery-exif-${UUID.randomUUID()}.jpg")
@@ -2864,7 +2948,7 @@ class PhotoViewerInteractiveGestureTest {
         }
         bitmap.recycle()
         ExifInterface(temporaryFile.absolutePath).apply {
-            setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_ROTATE_90.toString())
+            setAttribute(ExifInterface.TAG_ORIENTATION, orientation.toString())
             saveAttributes()
         }
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, ContentValues().apply {

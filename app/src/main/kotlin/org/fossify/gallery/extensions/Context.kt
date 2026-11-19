@@ -1,6 +1,7 @@
 package org.fossify.gallery.extensions
 
 import org.fossify.gallery.helpers.FavoriteAccessSessionManager
+import org.fossify.gallery.helpers.StaticPhotoThumbnail
 
 import android.annotation.SuppressLint
 import android.appwidget.AppWidgetManager
@@ -10,6 +11,7 @@ import android.content.Intent
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.Bitmap.CompressFormat
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.PictureDrawable
 import android.media.AudioManager
@@ -34,6 +36,8 @@ import com.bumptech.glide.load.resource.bitmap.FitCenter
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
 import com.bumptech.glide.request.RequestListener
 import com.bumptech.glide.request.RequestOptions
+import com.bumptech.glide.request.target.DrawableImageViewTarget
+import com.bumptech.glide.request.target.SizeReadyCallback
 import com.bumptech.glide.request.target.Target
 import com.bumptech.glide.signature.ObjectKey
 import com.squareup.picasso.Picasso
@@ -368,7 +372,7 @@ fun Context.getFolderNameFromPath(path: String): String {
     }
 }
 
-fun Context.loadImage(
+internal fun Context.loadImage(
     type: Int,
     path: String,
     target: MySquareImageView,
@@ -382,7 +386,8 @@ fun Context.loadImage(
     onLoaded: (() -> Unit)? = null,
     crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
     priority: Priority = Priority.LOW,
-    onLoadStage: ((String, String?, String?) -> Unit)? = null
+    onLoadStage: ((String, String?, String?) -> Unit)? = null,
+    onStaticThumbnail: ((Drawable, StaticPhotoThumbnail) -> Unit)? = null
 ) {
     target.isHorizontalScrolling = horizontalScroll
     if (type == TYPE_SVGS) {
@@ -411,7 +416,8 @@ fun Context.loadImage(
             onLoaded = onLoaded,
             crossFadeDuration = crossFadeDuration,
             priority = priority,
-            onLoadStage = onLoadStage
+            onLoadStage = onLoadStage,
+            onStaticThumbnail = onStaticThumbnail
         )
     }
 }
@@ -450,7 +456,7 @@ fun Context.getPathLocation(path: String): Int {
 }
 
 @SuppressLint("CheckResult")
-fun Context.loadImageBase(
+internal fun Context.loadImageBase(
     path: String,
     target: MySquareImageView,
     cropThumbnails: Boolean,
@@ -463,7 +469,8 @@ fun Context.loadImageBase(
     onError: (() -> Unit)? = null,
     onLoaded: (() -> Unit)? = null,
     priority: Priority = Priority.LOW,
-    onLoadStage: ((String, String?, String?) -> Unit)? = null
+    onLoadStage: ((String, String?, String?) -> Unit)? = null,
+    onStaticThumbnail: ((Drawable, StaticPhotoThumbnail) -> Unit)? = null
 ) {
     val bindingToken = target.getTag(R.id.thumbnail_request_key)
     val options = RequestOptions()
@@ -495,10 +502,12 @@ fun Context.loadImageBase(
         options.decode(Bitmap::class.java)
     }
 
+    var thumbnailRadius = 0
     if (roundCorners != ROUNDED_CORNERS_NONE) {
         val cornerSize =
             if (roundCorners == ROUNDED_CORNERS_SMALL) org.fossify.commons.R.dimen.rounded_corner_radius_small else org.fossify.commons.R.dimen.rounded_corner_radius_big
         val cornerRadius = resources.getDimension(cornerSize).toInt()
+        thumbnailRadius = cornerRadius
         val roundedCornersTransform = RoundedCorners(cornerRadius)
         options.optionalTransform(MultiTransformation(CenterCrop(), roundedCornersTransform))
         options.optionalTransform(
@@ -519,6 +528,7 @@ fun Context.loadImageBase(
             if (crossFadeDuration > 0) transition(getOptionalCrossFadeTransition(crossFadeDuration)) else transition(com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions().dontTransition())
         }
 
+    val measuredTarget = onStaticThumbnail?.let { StaticThumbnailTarget(target) }
     builder = builder.listener(object : RequestListener<Drawable> {
         override fun onLoadFailed(
             e: GlideException?,
@@ -558,15 +568,47 @@ fun Context.loadImageBase(
             if (onLoaded != null) {
                 target.post {
                     if (target.tag == path && target.getTag(R.id.thumbnail_request_key) === bindingToken &&
-                        target.drawable != null) onLoaded()
-                    else onLoadStage?.invoke("STALE_CALLBACK_REJECTED", "drawable_callback", dataSource.name)
+                        target.drawable != null && (measuredTarget == null || target.drawable === resource)) {
+                        val size = measuredTarget?.requestedSize
+                        if (size != null && resource is BitmapDrawable) {
+                            onStaticThumbnail?.invoke(resource, StaticPhotoThumbnail.read(
+                                resource, size.first, size.second, cropThumbnails || thumbnailRadius > 0, thumbnailRadius,
+                            ))
+                        }
+                        onLoaded()
+                    } else onLoadStage?.invoke("STALE_CALLBACK_REJECTED", "drawable_callback", dataSource.name)
                 }
             }
             return false
         }
     })
 
-    builder.into(target)
+    if (measuredTarget == null) builder.into(target) else builder.into(measuredTarget)
+}
+
+private class StaticThumbnailTarget(view: ImageView) : DrawableImageViewTarget(view) {
+    var requestedSize: Pair<Int, Int>? = null
+        private set
+    private var callback: SizeReadyCallback? = null
+    private var forwarded: SizeReadyCallback? = null
+
+    override fun getSize(cb: SizeReadyCallback) {
+        val delegate = SizeReadyCallback { width, height ->
+            requestedSize = width to height
+            cb.onSizeReady(width, height)
+        }
+        callback = cb
+        forwarded = delegate
+        super.getSize(delegate)
+    }
+
+    override fun removeCallback(cb: SizeReadyCallback) {
+        if (callback === cb) {
+            forwarded?.let { super.removeCallback(it) }
+            callback = null
+            forwarded = null
+        }
+    }
 }
 
 fun Context.loadSVG(

@@ -56,6 +56,29 @@ internal class MediaTransitionSessionCoordinator(
 
     private var gridPreview: WeakReference<GridPreview>? = null
 
+    private var staticPhotoSource: StaticPhotoSource? = null
+    private var staticPhotoSourceConfirmed = false
+
+    fun publishStaticPhotoSource(token: Token, source: StaticPhotoSource) {
+        if (valid(token, State.PREPARING) && staticPhotoSource == null) staticPhotoSource = source
+    }
+
+    fun readStaticPhotoSource(token: Token, requireConfirmed: Boolean = false): StaticPhotoSource? =
+        staticPhotoSource.takeIf { token == entry && entryActive && (!requireConfirmed || staticPhotoSourceConfirmed) }
+
+    fun confirmStaticPhotoSource(token: Token, actual: StaticPhotoSource?) {
+        if (token != entry || !entryActive) return
+        val offered = staticPhotoSource
+        if (actual == null || offered == null || actual.adapterVersion < offered.adapterVersion || !offered.near(actual)) {
+            staticPhotoSource = null
+            staticPhotoSourceConfirmed = false
+        } else {
+            // Progressive publication may advance the adapter without rebinding or moving the tapped pixels.
+            staticPhotoSource = actual
+            staticPhotoSourceConfirmed = true
+        }
+    }
+
     fun attachGrid(preview: GridPreview? = null) {
         gridAttached = true
         gridPreview = preview?.let { WeakReference(it) }
@@ -233,6 +256,10 @@ internal class MediaTransitionSessionCoordinator(
     private fun change(to: State, token: Token) {
         val from = state
         state = to
+        if (!entryActive) {
+            staticPhotoSource = null
+            staticPhotoSourceConfirmed = false
+        }
         if (observer != null) emit("transition_state_changed", token, "${from.name}->${to.name}")
     }
 

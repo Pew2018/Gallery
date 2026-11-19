@@ -141,6 +141,62 @@ class MediaSharedSurfaceTest {
         } finally { controller.pause().stop().destroy() }
     }
 
+    @Test fun staticEntryDrawsRealGlideCropAndThenTheFullRendererPixels() {
+        val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val parent = RelativeLayout(activity)
+            activity.setContentView(parent)
+            val photo = Bitmap.createBitmap(200, 100, Bitmap.Config.ARGB_8888)
+            val paint = android.graphics.Paint()
+            android.graphics.Canvas(photo).apply {
+                paint.color = Color.RED
+                drawRect(0f, 0f, 80f, 100f, paint)
+                paint.color = Color.GREEN
+                drawRect(80f, 0f, 120f, 100f, paint)
+                paint.color = Color.BLUE
+                drawRect(120f, 0f, 200f, 100f, paint)
+            }
+            val bitmap = TransformationUtils.centerCrop(BitmapPoolAdapter(), photo, 100, 100)
+            val screen = StaticPhotoViewGeometry.localToScreen(parent)
+            fun onScreen(rect: RectF): PhotoBox = PhotoBox(rect.apply { screen.mapRect(this) })
+            val tile = onScreen(RectF(0f, 0f, 100f, 100f))
+            val partial = onScreen(RectF(0f, 20f, 100f, 100f))
+            val full = onScreen(RectF(0f, 100f, 200f, 200f))
+            val window = PhotoWindowGeometry(full, emptyList())
+            val thumbnail = StaticPhotoThumbnail(100, 100, 100, 100, true, 0)
+            val source = StaticPhotoSource("item", "v1", 1, thumbnail, PhotoViewGeometry(tile, tile, partial, window))
+            val target = PhotoViewGeometry(full, full, full, window)
+            val crop = requireNotNull(thumbnail.project(tile, StaticPhotoHeader(200, 100, 1, jpeg = false)))
+            val surface = MediaSharedSurface(parent)
+            val renderer = ImageView(activity)
+            val proxy = requireNotNull(surface.prepareStaticEntry(
+                BitmapDrawable(parent.resources, photo), StaticPhotoEntryGeometry(source, target, crop), renderer,
+            ))
+            assertTrue(surface.takeOver(proxy))
+
+            proxy.layout(0, 0, 100, 100)
+            proxy.showFrame(0f)
+            val first = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+            proxy.draw(android.graphics.Canvas(first))
+            assertEquals(Color.TRANSPARENT, first.getPixel(50, 10))
+            for (x in listOf(10, 29, 31, 50, 69, 71, 90)) {
+                assertEquals("crop pixel at x=$x", bitmap.getPixel(x, 50), first.getPixel(x, 50))
+            }
+
+            proxy.layout(0, 100, 200, 200)
+            proxy.showFrame(1f)
+            val last = Bitmap.createBitmap(200, 100, Bitmap.Config.ARGB_8888)
+            proxy.draw(android.graphics.Canvas(last))
+            for (x in listOf(10, 79, 81, 119, 121, 190)) {
+                assertEquals("Glide handoff pixel at x=$x", photo.getPixel(x, 50), last.getPixel(x, 50))
+            }
+            surface.clear()
+            assertEquals(1f, renderer.alpha)
+            assertNull(proxy.parent)
+        } finally { controller.pause().stop().destroy() }
+    }
+
     @Test fun decodedVideoAndCoverUseOneViewportAsDisplayAspectChanges() {
         val preview = MediaTransitionGeometry.fit(400, 800, 1f)!!
         val decoded = MediaTransitionGeometry.fit(400, 800, 2f)!!

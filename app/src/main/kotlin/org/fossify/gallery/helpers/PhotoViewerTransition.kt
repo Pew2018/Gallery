@@ -2,6 +2,7 @@ package org.fossify.gallery.helpers
 
 /** Intent and timing contract for a photo grid to full-screen shared element. */
 object PhotoViewerTransition {
+    const val EXTRA_STATIC_PHOTO = "org.fossify.gallery.extra.STATIC_PHOTO_ENTRY"
     const val EXTRA_PATH = "org.fossify.gallery.extra.PHOTO_VIEWER_TRANSITION_PATH"
     internal const val EXTRA_ENTRY_ID = "org.fossify.gallery.extra.MEDIA_ENTRY_ID"
     const val EXTRA_FADE_ONLY = "org.fossify.gallery.extra.PHOTO_VIEWER_FADE_ONLY"

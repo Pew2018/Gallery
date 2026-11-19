@@ -22,6 +22,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.ImageView
 import androidx.core.graphics.drawable.toBitmapOrNull
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat.Type
@@ -88,6 +89,12 @@ import org.fossify.gallery.helpers.HIGH_TILE_DPI
 import org.fossify.gallery.helpers.LOW_TILE_DPI
 import org.fossify.gallery.helpers.MAX_ZOOM_EQUALITY_TOLERANCE
 import org.fossify.gallery.helpers.MediaSharedSurface
+import org.fossify.gallery.helpers.PhotoViewerTransition
+import org.fossify.gallery.helpers.StaticPhotoEntryGeometry
+import org.fossify.gallery.helpers.StaticPhotoEntryView
+import org.fossify.gallery.helpers.StaticPhotoHeader
+import org.fossify.gallery.helpers.StaticPhotoSource
+import org.fossify.gallery.helpers.StaticPhotoViewGeometry
 import org.fossify.gallery.helpers.MediaTransitionGeometry
 import org.fossify.gallery.helpers.MEDIUM
 import org.fossify.gallery.helpers.MyGlideImageDecoder
@@ -139,6 +146,9 @@ class PhotoFragment : ViewPagerFragment() {
     private var imageRequestGeneration = 0L
     private var deliveredImage: Drawable? = null
     private var hasPicassoRequest = false
+    private var staticPhotoHeader: Pair<String, StaticPhotoHeader>? = null
+    private var staticGlideGeneration = -1L
+    private var staticGlideSignature: String? = null
 
     private fun beginImageRequest(): Long {
         val request = ++imageRequestGeneration
@@ -176,6 +186,47 @@ class PhotoFragment : ViewPagerFragment() {
 
     private var sharedSurface: MediaSharedSurface? = null
     private var sharedEntryImageGeneration = -1L
+    internal fun prepareStaticPhotoEntry(
+        path: String, source: StaticPhotoSource, onRejected: (String) -> Unit,
+    ): StaticPhotoEntryView? {
+        fun reject(reason: String): StaticPhotoEntryView? {
+            onRejected(reason)
+            return null
+        }
+
+        if (!mIsFragmentVisible || view == null || !::mMedium.isInitialized || mMedium.path != path ||
+            source.path != path || mReportedImagePath != path) return reject("selection")
+        if (source.signature != staticGlideSignature ||
+            source.invalidation != org.fossify.gallery.helpers.ViewerContentInvalidationRegistry.current(path)) {
+            return reject("content_version")
+        }
+        if (mCurrentRotationDegrees != 0 || (mHasInitialZoom && !gestureImageIsAtFit()) || mIsSubsamplingVisible) {
+            return reject("renderer_transform")
+        }
+        if (staticGlideGeneration != imageRequestGeneration) return reject("glide_generation")
+        val header = staticPhotoHeader?.takeIf { it.first == getFilePathToShow() }?.second ?: return reject("image_header")
+        val renderer = entryRenderer() as? ImageView ?: return reject("renderer")
+        val drawable = renderer.drawable as? BitmapDrawable ?: return reject("renderer_drawable")
+        val target = StaticPhotoViewGeometry.read(renderer, onRejected = onRejected) ?: return null
+        val photo = source.thumbnail.project(source.view.pixels, header) ?: return reject("thumbnail_projection")
+        if (!MediaTransitionGeometry.isUsable(photo.rect())) return reject("thumbnail_pixels")
+        if (!photo.matchesOrientedAspect(header) || !target.pixels.matchesOrientedAspect(header)) {
+            return reject("oriented_aspect")
+        }
+        val surface = sharedSurface ?: MediaSharedSurface(binding.root).also { sharedSurface = it }
+        return surface.prepareStaticEntry(drawable, StaticPhotoEntryGeometry(source, target, photo), renderer)?.also {
+            sharedEntryImageGeneration = imageRequestGeneration
+        }
+    }
+
+    internal fun validatesStaticPhotoHandoff(proxy: StaticPhotoEntryView): Boolean {
+        val renderer = entryRenderer() as? ImageView ?: return false
+        return sharedSurface?.currentView === proxy && mIsFragmentVisible && mMedium.path == proxy.geometry.source.path &&
+            sharedEntryImageGeneration == imageRequestGeneration && staticGlideGeneration == imageRequestGeneration &&
+            proxy.geometry.source.invalidation == org.fossify.gallery.helpers.ViewerContentInvalidationRegistry.current(mMedium.path) &&
+            renderer.isAttachedToWindow && StaticPhotoViewGeometry.read(renderer)?.near(proxy.geometry.target) == true
+    }
+
     private var subsamplingGeneration = 0L
 
     /** Share pixels, not the full-screen renderer and its black letterboxes. */
@@ -576,10 +627,15 @@ class PhotoFragment : ViewPagerFragment() {
             showPortraitStripe()
         }
 
+        val entryPath = activity?.intent?.takeIf { it.getBooleanExtra(PhotoViewerTransition.EXTRA_STATIC_PHOTO, false) }
+            ?.getStringExtra(PhotoViewerTransition.EXTRA_PATH)
+        val staticPath = getFilePathToShow().takeIf { entryPath == mMedium.path }
         ensureBackgroundThread {
             val orientation = getImageOrientation()
+            val header = staticPath?.let { path -> StaticPhotoHeader.read(path, orientation)?.let { path to it } }
             activity?.runOnUiThread {
                 if (request != imageRequestGeneration || binding.root !== root) return@runOnUiThread
+                staticPhotoHeader = header
                 mImageOrientation = orientation
                 when {
                     mMedium.isGIF() -> loadGif()
@@ -666,9 +722,15 @@ class PhotoFragment : ViewPagerFragment() {
     }
 
     private fun loadWithGlide(path: String, addZoomableView: Boolean, request: Long) {
+        val source = (activity as? ViewPagerActivity)?.staticPhotoEntrySource(mMedium.path)
+        val verifiedSignature = source?.takeIf {
+            val version = staticPhotoHeader?.takeIf { header -> header.first == path }?.second?.fileVersion
+            version?.matchesGrid(it) == true &&
+                version.invalidation == org.fossify.gallery.helpers.ViewerContentInvalidationRegistry.current(mMedium.path)
+        }?.signature
         val priority = if (mIsFragmentVisible) Priority.IMMEDIATE else Priority.NORMAL
         val options = RequestOptions()
-            .signature(mMedium.getKey())
+            .signature(verifiedSignature?.let { com.bumptech.glide.signature.ObjectKey(it) } ?: mMedium.getKey())
             .format(DecodeFormat.PREFER_ARGB_8888)
             .priority(priority)
             .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
@@ -703,6 +765,8 @@ class PhotoFragment : ViewPagerFragment() {
                     isFirstResource: Boolean
                 ): Boolean {
                     if (request != imageRequestGeneration) return true
+                    staticGlideGeneration = request
+                    staticGlideSignature = verifiedSignature
                     applyProperColorMode(resource)
                     val allowZoomingImages = context?.config?.allowZoomingImages ?: true
                     binding.gesturesView.controller.settings.isZoomEnabled = mMedium.isRaw() || mCurrentRotationDegrees != 0 || allowZoomingImages == false

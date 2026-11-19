@@ -43,6 +43,9 @@ import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator.Resource
 import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator.State
 import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator.Token
 import org.fossify.gallery.helpers.PhotoViewerTransition
+import org.fossify.gallery.helpers.StaticPhotoHeader
+import org.fossify.gallery.helpers.StaticPhotoSource
+import org.fossify.gallery.helpers.StaticPhotoViewGeometry
 import org.fossify.gallery.helpers.OxygenClassicMotion
 import org.fossify.gallery.helpers.FolderReturnCheckpoint
 import org.fossify.gallery.extensions.isThisOrParentExcluded
@@ -4874,6 +4877,38 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 "sourceDecor" to ViewerEntryDiagnostics.viewState(window.decorView),
             )
         }
+        val staticPhoto = medium.isImage() && !medium.isApng() && StaticPhotoHeader.isCandidate(path)
+        val sourceDrawable = thumbnail.drawable
+        val sourceKey = thumbnail.getTag(R.id.thumbnail_loaded_key)
+        fun readStaticSource(): StaticPhotoSource? {
+            val boundMedium = adapter.media.getOrNull(holder.bindingAdapterPosition) as? Medium
+            if (getMediaAdapter() !== adapter || thumbnail.drawable !== sourceDrawable ||
+                thumbnail.getTag(R.id.thumbnail_loaded_key) !== sourceKey ||
+                thumbnail.getTag(R.id.thumbnail_request_key) !== sourceKey ||
+                thumbnail.getTag(R.id.media_bound_path) != path ||
+                boundMedium?.path != path || boundMedium.getSignature() != medium.getSignature()) return null
+            val evidence = adapter.staticThumbnail(thumbnail) ?: return null
+            val toolbar = binding.mediaMenu.requireToolbar()
+            val toolbarBottom = toolbar.takeIf { it.isShown && it.alpha > 0f }
+                ?.let(StaticPhotoViewGeometry::layout)?.bottom?.toInt()
+            val geometry = StaticPhotoViewGeometry.read(thumbnail, toolbarBottom) { reason ->
+                ViewerEntryDiagnostics.event(entryId, "static_source_geometry_rejected") { mapOf("reason" to reason) }
+            } ?: return null
+            return StaticPhotoSource(
+                path, medium.getSignature(), adapter.committedVersion, evidence, geometry, medium.size, medium.modified,
+                org.fossify.gallery.helpers.ViewerContentInvalidationRegistry.current(path),
+            )
+        }
+        val staticSnapshot = if (staticPhoto) readStaticSource() else null
+        if (staticPhoto) {
+            staticSnapshot?.let { session.publishStaticPhotoSource(session.entry, it) }
+            ViewerEntryDiagnostics.event(entryId, "static_source_geometry") {
+                mapOf("evidence" to (adapter.staticThumbnail(thumbnail) != null),
+                    "available" to (staticSnapshot != null), "clip" to staticSnapshot?.view?.visible?.rect()?.toShortString())
+            }
+            intent.putExtra(PhotoViewerTransition.EXTRA_STATIC_PHOTO, true)
+        }
+
         return runCatching {
             pendingViewerReturnPath = path
             val source = GridViewerSource(path, holder, thumbnail, session.entry, session.leases())
@@ -4935,9 +4970,28 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                         image.isAttachedToWindow && image.drawable != null && hasUsableViewerReturnBounds(image) &&
                         PhotoViewerReturnTarget.isLoadedFor(currentSource.path, image.getTag(R.id.media_bound_path) as? String,
                             image.getTag(R.id.thumbnail_request_key), image.getTag(R.id.thumbnail_loaded_key))) {
+                        if (staticSnapshot != null && readStaticSource()?.let {
+                                session.readStaticPhotoSource(session.entry)?.near(it)
+                            } != true) {
+                            session.confirmStaticPhotoSource(session.entry, null)
+                            sharedElements.remove(name)
+                            return
+                        }
                         sharedElements[name] = image
                         logViewerGridSource("grid_source_map")
                     } else sharedElements.remove(name)
+                }
+
+                override fun onCaptureSharedElementSnapshot(
+                    sharedElement: View, viewToGlobalMatrix: android.graphics.Matrix, screenBounds: android.graphics.RectF,
+                ): android.os.Parcelable? {
+                    if (staticSnapshot != null && sharedElement === thumbnail && session === transitionSession) {
+                        session.confirmStaticPhotoSource(session.entry, readStaticSource())
+                        ViewerEntryDiagnostics.event(entryId, "static_source_capture") {
+                            mapOf("confirmed" to (session.readStaticPhotoSource(session.entry, requireConfirmed = true) != null))
+                        }
+                    }
+                    return super.onCaptureSharedElementSnapshot(sharedElement, viewToGlobalMatrix, screenBounds)
                 }
 
                 override fun onSharedElementsArrived(names: MutableList<String>, elements: MutableList<View>,
@@ -5051,6 +5105,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         viewerReentryObservedForCurrentLaunch = false
         releaseViewerSourceLease()
         pendingViewerReturnPath = null
+        intent.removeExtra(PhotoViewerTransition.EXTRA_STATIC_PHOTO)
         intent.removeExtra(PhotoViewerTransition.EXTRA_PATH)
         intent.putExtra(PhotoViewerTransition.EXTRA_FADE_ONLY, true)
         startActivityForResult(intent, PhotoViewerTransition.REQUEST_CODE)

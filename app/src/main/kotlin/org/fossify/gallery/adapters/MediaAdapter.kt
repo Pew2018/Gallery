@@ -1,5 +1,6 @@
 package org.fossify.gallery.adapters
 
+import java.lang.ref.WeakReference
 import java.util.concurrent.Executor
 import org.fossify.gallery.helpers.AdapterCommitKind
 import org.fossify.gallery.helpers.AdapterSubmission
@@ -17,6 +18,7 @@ import android.graphics.drawable.Icon
 import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
+import android.graphics.drawable.Drawable
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.appcompat.content.res.AppCompatResources
@@ -100,6 +102,8 @@ import org.fossify.gallery.helpers.FastScrollerBubble
 import org.fossify.gallery.helpers.OxygenThumbnailPlaceholder
 import org.fossify.gallery.helpers.InteractiveGridThumbnail
 import org.fossify.gallery.helpers.PhotoViewerTransition
+import org.fossify.gallery.helpers.StaticPhotoHeader
+import org.fossify.gallery.helpers.StaticPhotoThumbnail
 import org.fossify.gallery.helpers.OxygenSelectionMode
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
@@ -1201,6 +1205,11 @@ class MediaAdapter(
     private var thumbnailTraceWindow = 0L
     private var thumbnailTraceSamples = 0
 
+    internal fun staticThumbnail(image: ImageView): StaticPhotoThumbnail? =
+        (image.getTag(R.id.media_thumbnail_load) as? ThumbnailLoad)?.takeIf {
+            it.token === image.getTag(R.id.thumbnail_loaded_key)
+        }?.staticThumbnail?.takeIf { it.first.get() === image.drawable }?.second
+
     private class ThumbnailLoad(
         val token: Any,
         val trace: ((String, String?, Priority?, String?) -> Unit)?,
@@ -1209,6 +1218,7 @@ class MediaAdapter(
         var priority: Priority? = null
             private set
         var finished = false
+        var staticThumbnail: Pair<WeakReference<Drawable>, StaticPhotoThumbnail>? = null
 
         fun start(priority: Priority) {
             val request = pending ?: return
@@ -1507,6 +1517,9 @@ class MediaAdapter(
                                 it(stage, reason, priority, cache)
                             }
                         },
+                        onStaticThumbnail = if (medium.isImage() && !medium.isApng() && StaticPhotoHeader.isCandidate(path)) {
+                            { drawable, evidence -> load.staticThumbnail = WeakReference(drawable) to evidence }
+                        } else null,
                         onLoaded = {
                             if (mediumThumbnail.getTag(R.id.thumbnail_request_key) === load.token &&
                                 mediumThumbnail.drawable != null) {
