@@ -143,11 +143,14 @@ class ToolbarQuickActionsDialogUiTest {
         assertTrue(body.isClickable)
         assertFalse(checkbox.isFocusable)
         assertTrue(body.isFocusable)
-        val fixed = views.filterIsInstance<CheckBox>().first {
+        assertFalse("removed browse switch is absent from home settings", views.filterIsInstance<CheckBox>().any {
             it.text == activity.getString(R.string.quick_toolbar_browse_view)
-        }
-        assertFalse(fixed.isClickable)
-        assertNull(fixed.background)
+        })
+        views.filterIsInstance<TextView>().first {
+            it.text == activity.getString(R.string.quick_toolbar_folder)
+        }.performClick()
+        assertFalse("removed browse switch is absent from folder settings", descendants(dialog.window!!.decorView)
+            .filterIsInstance<CheckBox>().any { it.text == activity.getString(R.string.quick_toolbar_browse_view) })
         dialog.dismiss()
         activity.finish()
     }

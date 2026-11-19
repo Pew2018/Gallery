@@ -50,7 +50,7 @@ class GalleryRootTransitionTest {
             val destination = GalleryNavigation.bottomDestination(to, allFiles)
             assertEquals(to, destination.section)
             assertEquals(to, destination.bottomSelection)
-            if (to == GallerySection.ALL) assertEquals(allFiles, destination.isAllFiles)
+            if (to == GallerySection.ALL) assertFalse(destination.isAllFiles)
             assertNotEquals(from, to)
         }
     }

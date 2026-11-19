@@ -508,15 +508,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 intent.getStringExtra(GalleryNavigation.EXTRA_SECTION),
                 intent.getBooleanExtra(EXTRA_FOLDER_FAVORITES, false)
             )
-        // The launcher honors the last All Photos / folder-view choice. Only
-        // explicit navigation requests override it; never reset it on cold start.
-        when {
-            mShowingFolderFavorites -> config.showAll = false
-            intent.getBooleanExtra(EXTRA_SHOW_FOLDERS, false) -> {
-                config.showAll = false
-                if (!mIsThirdPartyIntent) config.lastMainViewAll = false
-            }
-            !mIsThirdPartyIntent -> config.showAll = config.lastMainViewAll
+        // The normal home is always the album list. Retire the saved all-files
+        // choice without changing the separate third-party chooser contract.
+        if (!mIsThirdPartyIntent) {
+            config.lastMainViewAll = false
+            config.showAll = false
+        } else if (intent.getBooleanExtra(EXTRA_SHOW_FOLDERS, false)) {
+            config.showAll = false
         }
 
         setupOptionsMenu()
@@ -843,9 +841,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun refreshMenuItems() {
         if (!mIsThirdPartyIntent) {
             binding.mainMenu.requireToolbar().menu.apply {
-                findItem(R.id.show_all).isVisible = !mShowingFolderFavorites
-                findItem(R.id.show_all).title = if (mShowingFolderFavorites)
-                    getString(R.string.gallery_file_view) else getString(R.string.show_all)
+                findItem(R.id.show_all).isVisible = false
                 findItem(R.id.manage_unavailable_folder_favorites).isVisible = mShowingFolderFavorites
                 findItem(R.id.favorite_always_show_excluded).apply {
                     isVisible = mShowingFolderFavorites
@@ -957,7 +953,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     if (next) promptProtectedFavoriteFilters(force = true)
                 }
                 R.id.open_camera -> launchCamera()
-                R.id.show_all -> showAllMedia()
                 R.id.change_view_type -> changeViewType()
                 R.id.temporarily_show_hidden -> tryToggleTemporarilyShowHidden()
                 R.id.stop_showing_hidden -> tryToggleTemporarilyShowHidden()
@@ -987,14 +982,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             }
         )
         if (!mIsThirdPartyIntent) {
-            val fixedBrowseActionCount = if (
-                binding.mainMenu.requireToolbar().menu.findItem(R.id.show_all).isVisible
-            ) 1 else 0
             org.fossify.gallery.helpers.ToolbarQuickActions.apply(
                 this, binding.mainMenu,
                 org.fossify.gallery.helpers.ToolbarQuickScope.HOME,
                 config.toolbarHomeActions, hasBack = false,
-                fixedActionCount = fixedBrowseActionCount,
                 supported = { action ->
                     action != org.fossify.gallery.helpers.ToolbarQuickActions.SLIDESHOW &&
                         (action != org.fossify.gallery.helpers.ToolbarQuickActions.COLUMNS ||
@@ -1104,7 +1095,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             checkOTGPath()
             checkDefaultSpamFolders()
 
-            if (config.showAll) {
+            if (mIsThirdPartyIntent && config.showAll) {
                 showAllMedia()
             } else {
                 getDirectories()
@@ -1734,10 +1725,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     private fun showAllMedia() {
-        if (!mIsThirdPartyIntent) {
-            openGalleryRoot(GalleryScreen(mGallerySection, GalleryContentView.FILES))
-            return
-        }
         // Legacy chooser/wallpaper flow: no bottom navigation or remembered tab.
         config.showAll = true
         Intent(this, MediaActivity::class.java).apply {

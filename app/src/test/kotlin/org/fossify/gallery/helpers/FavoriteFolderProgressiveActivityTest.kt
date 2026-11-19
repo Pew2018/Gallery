@@ -98,7 +98,7 @@ class FavoriteFolderProgressiveActivityTest {
             repeat(3) {
                 favoritesField.set(activity, GallerySection.ALL)
                 refreshMenu.invoke(activity)
-                assertTrue(menuBinding.mainMenu.requireToolbar().menu.findItem(R.id.show_all).isVisible)
+                assertFalse(menuBinding.mainMenu.requireToolbar().menu.findItem(R.id.show_all).isVisible)
                 favoritesField.set(activity, GallerySection.FAVORITES)
                 refreshMenu.invoke(activity)
                 assertFalse(menuBinding.mainMenu.requireToolbar().menu.findItem(R.id.show_all).isVisible)

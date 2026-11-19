@@ -74,15 +74,15 @@ object GalleryNavigation {
     fun launchDestination(order: List<String>, lastAllFiles: Boolean): GalleryScreen =
         bottomDestination(GallerySection.valueOf(NavigationOrder.normalize(order).first()), lastAllFiles)
 
-    /** Bottom Favorites always means favorite FOLDERS; the pinned album owns favorite FILES. */
+    /** Root Albums and Favorites always open folders, including old all-files preferences. */
+    @Suppress("UNUSED_PARAMETER")
     fun bottomDestination(section: GallerySection, lastAllFiles: Boolean): GalleryScreen =
         if (section == GallerySection.PHOTOS) {
             GalleryScreen(GallerySection.PHOTOS, GalleryContentView.FILES)
         } else if (section == GallerySection.FAVORITES) {
             GalleryScreen(GallerySection.FAVORITES, GalleryContentView.FOLDERS)
         } else {
-            GalleryScreen(GallerySection.ALL,
-                if (lastAllFiles) GalleryContentView.FILES else GalleryContentView.FOLDERS)
+            GalleryScreen(GallerySection.ALL, GalleryContentView.FOLDERS)
         }
 }
 

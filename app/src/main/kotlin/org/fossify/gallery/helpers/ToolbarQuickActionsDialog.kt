@@ -119,24 +119,7 @@ object ToolbarQuickActionsDialog {
         val searchBody = ClassicToolbarChoiceBody(activity, searchCheck, palette.interactiveAccent)
         searchRow.addView(searchBody, LinearLayout.LayoutParams(-1, -2))
 
-        val browseRow = controlRow().apply {
-            contentDescription = activity.getString(R.string.quick_toolbar_fixed_browse_accessibility)
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }
-        val browseCheck = createCheckBox().apply {
-            text = activity.getString(R.string.quick_toolbar_browse_view)
-            isChecked = true
-            background = null
-            isClickable = false
-            isFocusable = false
-            contentDescription = activity.getString(R.string.quick_toolbar_fixed_browse_accessibility)
-        }
-        val browseBody = ClassicToolbarChoiceBody(activity, browseCheck, palette.interactiveAccent).apply {
-            setInteractive(false)
-        }
-        browseRow.addView(browseBody, LinearLayout.LayoutParams(0, -2, 1f))
         fixedRows.addView(searchRow)
-        fixedRows.addView(browseRow)
 
         val list = RecyclerView(activity).apply {
             layoutManager = LinearLayoutManager(activity)
@@ -225,7 +208,6 @@ object ToolbarQuickActionsDialog {
             searchCheck.isChecked = ToolbarQuickActions.SEARCH in current()
             searchBody.setInteractive(!homeScope)
             if (!homeScope) searchCheck.setOnCheckedChangeListener { _, checked -> updateSearch(checked) }
-            browseRow.visibility = if (homeScope) View.VISIBLE else View.GONE
             homeTabLabel.typeface = if (scope == ToolbarQuickScope.HOME)
                 Typeface.create("sans-serif-medium", Typeface.NORMAL) else Typeface.DEFAULT
             folderTabLabel.typeface = if (scope == ToolbarQuickScope.FOLDER)

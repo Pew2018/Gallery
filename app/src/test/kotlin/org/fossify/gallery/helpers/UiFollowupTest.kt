@@ -110,15 +110,9 @@ class UiFollowupTest {
         val after = check.isChecked
         drag.performClick()
         assertEquals("handle is not a selection toggle", after, check.isChecked)
-        val fixed = all(dialog.window!!.decorView).filterIsInstance<CheckBox>().first {
+        assertFalse(all(dialog.window!!.decorView).filterIsInstance<CheckBox>().any {
             it.text == activity.getString(R.string.quick_toolbar_browse_view)
-        }
-        val fixedBody = fixed.parent as ClassicToolbarChoiceBody
-        assertNull(fixedBody.background)
-        assertFalse(fixedBody.isClickable)
-        assertEquals(View.GONE, fixedBody.getChildAt(1).visibility)
-        fixedBody.performClick()
-        assertTrue(fixed.isChecked)
+        })
         dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
         assertEquals(before, activity.config.toolbarHomeActions)
         activity.finish()
