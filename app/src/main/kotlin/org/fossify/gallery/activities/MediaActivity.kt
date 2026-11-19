@@ -272,6 +272,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private val gridPreview = object : MediaTransitionSessionCoordinator.GridPreview {
         override fun show(token: Token, path: String) = showInteractiveGridTarget(token, path)
+        override fun photoTargetIsCropped(token: Token, path: String): Boolean {
+            val request = viewerReturn?.takeIf { it.operation == token && it.path == path } ?: return false
+            val target = request.target ?: return false
+            return target.image.drawable === target.drawable &&
+                target.position.adapter.staticThumbnail(target.image)?.cropped == true
+        }
+
         override fun toolbarBottomOnScreen(token: Token): Int? {
             if (transitionSession?.returnOperation != token || isFinishing || isDestroyed ||
                 !viewerLaunchOriginMatches() || (isPhotoProfiles && photoNeedsUnlock)) return null
@@ -2291,6 +2298,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 awaitViewerReturnDraw(request)
             } else {
                 endViewerReturn("activity_result")
+                if (request == null) pendingViewerReturnPath = null
             }
             if (request == null && session.outcome == null) {
                 val operation = session.returnOperation
@@ -4977,6 +4985,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                             sharedElements.remove(name)
                             return
                         }
+                        if (staticSnapshot != null) session.confirmStaticPhotoSource(session.entry, readStaticSource())
                         sharedElements[name] = image
                         logViewerGridSource("grid_source_map")
                     } else sharedElements.remove(name)
@@ -4998,11 +5007,15 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     listener: OnSharedElementsReadyListener) {
                     if (session === transitionSession && session.entryActive &&
                         viewerSourceLease?.image?.let { image -> elements.any { it === image } } == true) {
+                        if (staticSnapshot != null) session.confirmStaticPhotoSource(session.entry, readStaticSource())
                         logViewerGridSource("grid_source_exit_captured")
                     }
                     listener.onSharedElementsReady()
                 }
             })
+            // Snapshot callbacks may be skipped for partially clipped views. The source lease,
+            // loaded drawable and exact screen aperture are validated independently of snapshot creation.
+            if (staticSnapshot != null) session.confirmStaticPhotoSource(session.entry, readStaticSource())
             val options = ActivityOptions.makeSceneTransitionAnimation(this, thumbnail, PhotoViewerTransition.ELEMENT_NAME)
             startActivityForResult(intent, PhotoViewerTransition.REQUEST_CODE, options.toBundle())
             if (viewerSourceLease === source && source.nameOwned) {

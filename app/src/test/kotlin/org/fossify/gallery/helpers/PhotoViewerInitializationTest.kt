@@ -143,6 +143,56 @@ class PhotoViewerInitializationTest {
         assertEquals("The singleton layout callback must not create a newer request", 4L, generation.getLong(activity))
     }
 
+    @Test fun allMediaNeighborPublicationCanCreateTheSelectedPageDuringPostponedEntry() {
+        val fixture = EntryFixture()
+        val selected = Medium().apply { path = fixture.path; name = "entry.jpg"; type = TYPE_IMAGES }
+        val neighbor = selected.copy(path = "/storage/emulated/0/Gallery/neighbor.jpg", name = "neighbor.jpg")
+        fixture.set("mPath", fixture.path)
+        fixture.call("setupOptionsMenu")
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        fixture.set("mMediaFiles", arrayListOf(selected))
+        androidx.viewpager.widget.ViewPager::class.java.getDeclaredField("mFirstLayout")
+            .apply { isAccessible = true }.setBoolean(fixture.binding.viewPager, true)
+        fixture.call("publishAdjacent", arrayOf(listOf(selected, neighbor)))
+        (fixture.field("mediaPublicationTask") as java.util.concurrent.Future<*>).get(10, java.util.concurrent.TimeUnit.SECONDS)
+        val main = Shadows.shadowOf(Looper.getMainLooper())
+        var tasks = 0
+        while (fixture.binding.viewPager.adapter == null && tasks++ < 30) main.runOneTask()
+        assertNull("initial page publication cannot be held behind entry completion", fixture.field("transitionPendingAdjacentMedia"))
+        assertNotNull("the selected page adapter exists while entry is still waiting", fixture.binding.viewPager.adapter)
+        assertEquals(Stage.WAITING, fixture.entry.stage)
+    }
+
+    @Test fun identicalSelectedSnapshotStillBuildsTheFirstAdapter() {
+        val fixture = EntryFixture()
+        val selected = Medium().apply { path = fixture.path; name = "entry.jpg"; type = TYPE_IMAGES }
+        fixture.set("mPath", fixture.path)
+        fixture.call("setupOptionsMenu")
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        fixture.set("mMediaFiles", arrayListOf(selected))
+        fixture.set("publishedFolderRevision", FolderContentRevision.current())
+        fixture.set("publishedPhotoRevision", PhotoContentRevision.current())
+        androidx.viewpager.widget.ViewPager::class.java.getDeclaredField("mFirstLayout")
+            .apply { isAccessible = true }.setBoolean(fixture.binding.viewPager, true)
+        fixture.call("gotMedia", arrayOf(arrayListOf<org.fossify.gallery.models.ThumbnailItem>(selected), false, true, false))
+        (fixture.field("mediaPublicationTask") as java.util.concurrent.Future<*>).get(10, java.util.concurrent.TimeUnit.SECONDS)
+        Shadows.shadowOf(Looper.getMainLooper()).runOneTask()
+        assertNotNull("unchanged catalog still needs its first rendered page", fixture.binding.viewPager.adapter)
+    }
+
+    @Test fun missingRendererFallbackKeepsTheSessionWaitingUntilLoadFailureIsReported() {
+        val fixture = EntryFixture()
+        fixture.entry.release()
+        fixture.entry.map()
+        fixture.call("startEntryFallback", arrayOf(fixture.entry, "renderer_missing"))
+        fixture.assertFallbackLoading()
+        val photo = fixture.setPhoto()
+        fixture.activity.entryMediaLoadFailed(fixture.path, photo.page)
+        assertEquals(Stage.COMPLETE, fixture.entry.stage)
+        assertFalse(fixture.activity.isMediaTransitionRunning())
+        assertFalse(fixture.binding.viewPager.transitionInputLocked)
+    }
+
     @Test fun timeoutBeforeLayoutReleasesAndRejectedMappingClearsInputWithStableLoading() {
         val fixture = EntryFixture()
         val entry = fixture.entry
@@ -159,6 +209,8 @@ class PhotoViewerInitializationTest {
         fixture.assertFallbackLoading()
         fixture.setPhoto().also {
             fixture.activity.imageRendered(fixture.path, it.page)
+            fixture.binding.viewPager.viewTreeObserver.dispatchOnPreDraw()
+            (fixture.field("entryFallbackAnimator") as android.animation.ValueAnimator).end()
             assertEquals(View.GONE, fixture.binding.viewerEntryStatus.visibility)
         }
         fixture.runCallback("entryWatchdog")
@@ -722,11 +774,9 @@ class PhotoViewerInitializationTest {
         }
 
         fun assertFallbackLoading() {
-            assertEquals(Stage.COMPLETE, entry.stage)
-            assertFalse(activity.isMediaTransitionRunning())
-            assertFalse(binding.viewPager.transitionInputLocked)
-            assertEquals(Color.BLACK, (binding.root.background as ColorDrawable).color)
-            assertEquals(View.GONE, binding.viewerTransitionScrim.visibility)
+            assertEquals(Stage.FALLBACK, entry.stage)
+            assertTrue(activity.isMediaTransitionRunning())
+            assertTrue(field("entryWaitingForRenderer") as Boolean)
             assertEquals(View.VISIBLE, binding.viewerEntryStatus.visibility)
         }
     }

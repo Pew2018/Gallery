@@ -22,6 +22,7 @@ internal class MediaTransitionSessionCoordinator(
         fun show(token: Token, path: String)
         fun release(token: Token)
         fun toolbarBottomOnScreen(token: Token): Int? = null
+        fun photoTargetIsCropped(token: Token, path: String): Boolean = false
     }
 
     data class Token(val sessionId: String, val generation: Long, val operationId: Long)
@@ -98,6 +99,10 @@ internal class MediaTransitionSessionCoordinator(
         if (!valid(token, State.INTERACTIVE_RETURN, State.RETURN_PREPARING, State.RETURNING)) return null
         return gridPreview?.get()?.toolbarBottomOnScreen(token)
     }
+
+    fun photoTargetIsCropped(token: Token, path: String): Boolean =
+        valid(token, State.RETURN_PREPARING, State.RETURNING) &&
+            gridPreview?.get()?.photoTargetIsCropped(token, path) == true
 
     fun gridPreviewEvent(token: Token, detail: String) {
         emit("grid_interactive_preview", token, detail)

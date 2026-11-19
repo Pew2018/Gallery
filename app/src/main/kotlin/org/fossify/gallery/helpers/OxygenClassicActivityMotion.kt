@@ -37,7 +37,8 @@ object OxygenClassicActivityMotion {
         onProgress: ((Float) -> Unit)? = null,
         onTerminal: ((cancelled: Boolean) -> Unit)? = null,
         onStart: (() -> Unit)? = null,
-        cropVideoToBounds: Boolean = false,
+        cropMediaToBounds: Boolean = false,
+        forceMediaCropToBounds: (() -> Boolean)? = null,
         staticPhotoEntry: Boolean = false,
     ): android.transition.Transition =
         android.transition.TransitionSet().apply {
@@ -48,7 +49,7 @@ object OxygenClassicActivityMotion {
             addTransition(android.transition.ChangeTransform())
             addTransition(when {
                 staticPhotoEntry -> StaticPhotoEntryTransform()
-                cropVideoToBounds && Build.VERSION.SDK_INT >= 29 -> VideoReturnCrop()
+                cropMediaToBounds && Build.VERSION.SDK_INT >= 29 -> MediaReturnCrop(forceMediaCropToBounds)
                 else -> ChangeImageTransform()
             })
             if (onProgress != null) addTransition(SharedElementProgress(durationMs, onProgress))
@@ -101,7 +102,7 @@ object OxygenClassicActivityMotion {
     }
 
     @androidx.annotation.RequiresApi(29)
-    private class VideoReturnCrop : ChangeImageTransform() {
+    private class MediaReturnCrop(private val forceCrop: (() -> Boolean)?) : ChangeImageTransform() {
         override fun captureStartValues(transitionValues: TransitionValues) {
             super.captureStartValues(transitionValues)
             captureViewport(transitionValues)
@@ -114,7 +115,8 @@ object OxygenClassicActivityMotion {
 
         private fun captureViewport(values: TransitionValues) {
             val image = values.view as? ImageView ?: return
-            if (image.scaleType == ImageView.ScaleType.CENTER_CROP && image.width > 0 && image.height > 0) {
+            if ((image.scaleType == ImageView.ScaleType.CENTER_CROP || forceCrop?.invoke() == true) &&
+                image.width > 0 && image.height > 0) {
                 values.values[VIEWPORT] = Point(image.width, image.height)
             }
         }
@@ -135,7 +137,7 @@ object OxygenClassicActivityMotion {
             val matrix = Matrix()
             val contentWidth = drawable.intrinsicWidth
             val contentHeight = drawable.intrinsicHeight
-            // Derive the crop from the current aperture and this video's frame.
+            // Derive the crop from the current aperture and this media frame.
             // The destination thumbnail can have different drawable dimensions.
             fun applyCrop(fraction: Float) {
                 val width = start.x + (end.x - start.x) * fraction

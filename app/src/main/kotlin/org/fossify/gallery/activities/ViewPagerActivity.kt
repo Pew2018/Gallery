@@ -434,7 +434,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (transitionSession.gridToolbarBottomOnScreen(operation) != null) binding.mediumViewerAppbar.alpha = 0f
     }
 
-    private fun protectGridToolbarDuringVideoReturn(operation: Token, proxy: View) {
+    private fun protectGridToolbarDuringReturn(operation: Token, proxy: View) {
         val clip = MediaReturnToolbarClip(proxy)
         val observer = proxy.viewTreeObserver
         val beforeDraw = android.view.ViewTreeObserver.OnPreDrawListener {
@@ -615,11 +615,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var entryReadyReported = false
     private var entryFailedPage: ViewPagerFragment? = null
     private var entryShowsLoadStatus = false
+    private var entryWaitingForRenderer = false
 
     private fun isCurrentEntry(entry: PhotoTransitionCompletionGate) = mediaEntry === entry && transitionSession.entryActive && entry.active &&
         !finishAfterSharedTransitionInProgress && !isFinishing && !isDestroyed
 
     private fun cancelMediaEntryCallbacks() {
+        entryWaitingForRenderer = false
         entryReleaseDraw?.removeListener()
         entryReleaseDraw = null
         entryDiagnosticDraw?.removeListener()
@@ -1442,12 +1444,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             onStart = {
                 if (transitionSession.isReturning(operation)) ViewerReturnDiagnostics.event(viewerReturnId, "viewer_transition_start")
             },
-            cropVideoToBounds = page is VideoFragment,
+            cropMediaToBounds = page is VideoFragment || page is PhotoFragment,
+            forceMediaCropToBounds = {
+                page is PhotoFragment && transitionSession.photoTargetIsCropped(operation, returnPath)
+            },
         )
         photoSharedElementPath = returnPath
         sharedReturnView = proxy
         sharedReturnPage = page
-        if (page is VideoFragment) protectGridToolbarDuringVideoReturn(operation, proxy)
+        if (page is VideoFragment || page is PhotoFragment) protectGridToolbarDuringReturn(operation, proxy)
         // Keep the opacity already on screen while the grid prepares its target.
         returnScrimAlpha = if (proxy === interactiveDismissSurface) binding.viewerTransitionScrim.alpha else 1f
         returnSystemBarProgress = viewerSystemBarProgress
@@ -2260,7 +2265,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun publishAdjacent(media: List<Medium>) {
         if (media.size < 2 || media.none { it.path == mPath } || isFinishing || isDestroyed) return
         if (isPhotoProfile && (photoCatalogMode || mMediaFiles.size > media.size)) return
-        if (mediaTransitionRunning) {
+        if (mediaTransitionRunning && activePagerAdapter != null && getCurrentFragment() != null && !entryWaitingForRenderer) {
             // Keep the opening frame light: the selected page is already ready,
             // and swiping stays locked until the shared image reaches fullscreen.
             // Install its validated neighbor window immediately after that motion.
@@ -4827,7 +4832,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     if (pendingFullCatalogRequest?.generation == request) pendingFullCatalogRequest = null
                     return@runOnUiThread
                 }
-                if (unchanged) {
+                if (unchanged && activePagerAdapter != null) {
                     if (pendingFullCatalogRequest?.generation == request) pendingFullCatalogRequest = null
                     if (progressiveInternalViewer && fullCatalog) {
                         appliedViewerCatalogComplete = true
@@ -4886,7 +4891,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             else refreshViewPager(true)
             return
         }
-        if (mediaTransitionRunning && (mediaEntry?.active != true || activePagerAdapter != null)) {
+        if (mediaTransitionRunning && (mediaEntry?.active != true ||
+                (activePagerAdapter != null && getCurrentFragment() != null && !entryWaitingForRenderer))) {
             // Only the initial publication may create a page while entry is
             // postponed. Keep that renderer alive through capture and handoff.
             transitionPendingSwipePublication = publication
@@ -5131,6 +5137,16 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             }
         }
         val entry = mediaEntry
+        if (entry != null && entryWaitingForRenderer && page === getCurrentFragment() &&
+            path == intent.getStringExtra(PhotoViewerTransition.EXTRA_PATH)) {
+            entryReleaseDraw?.removeListener()
+            entryReleaseDraw = binding.viewPager.doOnPreDraw {
+                entryReleaseDraw = null
+                if (page === getCurrentFragment() && path == getCurrentPath() &&
+                    currentEntryRenderer()?.isAttachedToWindow == true) completeEntryFallbackWhenReady(entry)
+            }
+            binding.viewPager.invalidate()
+        }
         if (entry != null && !isFinishing && !isDestroyed && page === getCurrentFragment() &&
             path == intent.getStringExtra(PhotoViewerTransition.EXTRA_PATH)) {
             if (!entryReadyReported) {
@@ -5158,6 +5174,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (isFinishing || isDestroyed || page !== getCurrentFragment() ||
             path != intent.getStringExtra(PhotoViewerTransition.EXTRA_PATH)) return
         entryFailedPage = page
+        if (entryWaitingForRenderer) {
+            entryWaitingForRenderer = false
+            logMediaEntry("entry_renderer_failed", "load_failed")
+            finishMediaEntryTransition(entry)
+        }
         updateEntryLoadStatus()
         requestMediaEntryRelease(entry, "load_failed")
     }
@@ -5311,7 +5332,34 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val hasMedia = currentEntryRenderer()?.let {
             it.isAttachedToWindow && it.isShown && it.alpha > 0f && it.width > 0 && it.height > 0
         } == true
-        if (!hasMedia || !OxygenClassicMotion.enabled(this)) {
+        if (!hasMedia) {
+            if (entryFailedPage != null && entryFailedPage === getCurrentFragment()) {
+                logMediaEntry("entry_renderer_failed", "load_failed")
+                finishMediaEntryTransition(entry)
+                updateEntryLoadStatus()
+                return
+            }
+            entryWaitingForRenderer = true
+            renderSharedViewerLayers(1f)
+            logMediaEntry("entry_waiting_for_renderer", reason)
+            // Free the publication gate while preserving the Session and input lease.
+            val pending = transitionPendingSwipePublication
+            transitionPendingSwipePublication = null
+            if (pending != null) applySwipeMediaPublication(pending)
+            transitionPendingAdjacentMedia?.let { adjacent ->
+                transitionPendingAdjacentMedia = null
+                publishAdjacent(adjacent)
+            }
+            updateEntryLoadStatus()
+            return
+        }
+        completeEntryFallbackWhenReady(entry)
+    }
+
+    private fun completeEntryFallbackWhenReady(entry: PhotoTransitionCompletionGate) {
+        if (!isCurrentEntry(entry) || entry.stage != Stage.FALLBACK) return
+        entryWaitingForRenderer = false
+        if (!OxygenClassicMotion.enabled(this)) {
             finishMediaEntryTransition(entry)
             updateEntryLoadStatus()
             return

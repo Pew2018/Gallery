@@ -2080,12 +2080,20 @@ class PhotoViewerInteractiveGestureTest {
     }
 
     @Test
-    fun staticPhotoEntrySharesAllFourAspectsAndBothThumbnailModes() {
+    fun staticPhotoEntrySharesAllFourAspectsAndBothThumbnailModes() = verifyStaticPhotoEntry()
+
+    @Test
+    fun allMediaPublishesSelectedRendererBeforeEntryTimeout() = verifyStaticPhotoEntry(allMedia = true)
+
+    @Test
+    fun partiallyClippedPhotoEntersWithoutSnapshotConfirmation() = verifyStaticPhotoEntry(partial = true)
+
+    private fun verifyStaticPhotoEntry(allMedia: Boolean = false, partial: Boolean = false) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         grantMediaPermission(context)
         val album = "${Environment.DIRECTORY_PICTURES}/GalleryStaticEntry-${UUID.randomUUID()}"
-        val fixtures = listOf(481 to 481, 963 to 541, 541 to 963, 381 to 1907).mapIndexed { index, size ->
+        val fixtures = listOf(481 to 481, 963 to 541, 541 to 963, 101 to 3031).mapIndexed { index, size ->
             createFixture(context, album, size.first, size.second, "entry-$index.png")
         } + createExifRotatedFixture(context, album, 963, 541, ExifInterface.ORIENTATION_TRANSVERSE)
         val folder = java.io.File(fixtures.first().second).parent
@@ -2099,7 +2107,7 @@ class PhotoViewerInteractiveGestureTest {
         var grid: MediaActivity? = null
         var viewer: ViewPagerActivity? = null
         try {
-            config.showAll = false
+            config.showAll = allMedia
             config.filterMedia = TYPE_IMAGES
             val mapped = ViewPagerActivity::class.java.getDeclaredField("photoSharedElementMapped").apply { isAccessible = true }
             val open = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java).apply { isAccessible = true }
@@ -2109,12 +2117,37 @@ class PhotoViewerInteractiveGestureTest {
                 config.fileRoundedCorners = rounded
                 val source = instrumentation.startActivitySync(Intent(context, MediaActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    putExtra(DIRECTORY, folder)
+                    putExtra(DIRECTORY, if (allMedia) "" else folder)
                 }) as MediaActivity
                 grid = source
                 fixtures.forEach { (_, path) ->
                     val label = "${java.io.File(path).name}, crop=$crop, rounded=$rounded"
-                    awaitSourceThumbnail(instrumentation, source, path)
+                    if (allMedia) {
+                        val positionDeadline = SystemClock.uptimeMillis() + 20_000
+                        var position = -1
+                        do {
+                            instrumentation.runOnMainSync {
+                                val recycler = source.findViewById<RecyclerView>(R.id.media_grid)
+                                position = (recycler.adapter as? MediaAdapter)?.media
+                                    ?.indexOfFirst { (it as? Medium)?.path == path } ?: -1
+                                if (position >= 0) recycler.scrollToPosition(position)
+                            }
+                            if (position < 0) SystemClock.sleep(50)
+                        } while (position < 0 && SystemClock.uptimeMillis() < positionDeadline)
+                        assertTrue("fixture reached the complete ALL_MEDIA grid", position >= 0)
+                        SystemClock.sleep(100)
+                    }
+                    val thumbnail = awaitSourceThumbnail(instrumentation, source, path)
+                    if (partial) {
+                        instrumentation.runOnMainSync {
+                            val recycler = source.findViewById<RecyclerView>(R.id.media_grid)
+                            val toolbar = source.findViewById<org.fossify.commons.views.MySearchMenu>(R.id.media_menu).requireToolbar()
+                            val top = IntArray(2).also(thumbnail::getLocationOnScreen)[1]
+                            val bottom = IntArray(2).also(toolbar::getLocationOnScreen)[1] + toolbar.height
+                            recycler.scrollBy(0, top - bottom + thumbnail.height * 3 / 4)
+                        }
+                        SystemClock.sleep(250)
+                    }
                     val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
                     val opened = try {
                         instrumentation.runOnMainSync { open.invoke(source, path) }
@@ -2124,6 +2157,11 @@ class PhotoViewerInteractiveGestureTest {
                         instrumentation.removeMonitor(monitor)
                     }
                     viewer = opened
+                    if (allMedia) {
+                        instrumentation.runOnMainSync {
+                            assertTrue("the tested entry is ALL_MEDIA", opened.intent.getBooleanExtra(org.fossify.gallery.helpers.SHOW_ALL, false))
+                        }
+                    }
                     awaitFrame(instrumentation, opened, requireProxy = false)
                     val deadline = SystemClock.uptimeMillis() + 7_000
                     var complete = false
@@ -2133,7 +2171,23 @@ class PhotoViewerInteractiveGestureTest {
                         }
                         if (!complete) SystemClock.sleep(20)
                     } while (!complete && SystemClock.uptimeMillis() < deadline)
+                    val returnScales = mutableListOf<Pair<Float, Float>>()
+                    var returnObserver: android.view.ViewTreeObserver? = null
+                    var returnListener: android.view.ViewTreeObserver.OnDrawListener? = null
                     instrumentation.runOnMainSync {
+                        if (path.endsWith("entry-3.png") && crop && !rounded) {
+                            val proxyField = ViewPagerActivity::class.java.getDeclaredField("sharedReturnView").apply { isAccessible = true }
+                            val listener = android.view.ViewTreeObserver.OnDrawListener {
+                                val proxy = proxyField.get(opened) as? ImageView
+                                if (proxy != null && proxy.width > 0 && proxy.height > 0) {
+                                    val values = FloatArray(9).also(proxy.imageMatrix::getValues)
+                                    returnScales += values[Matrix.MSCALE_X] to values[Matrix.MSCALE_Y]
+                                }
+                            }
+                            returnObserver = opened.window.decorView.viewTreeObserver
+                            returnListener = listener
+                            returnObserver!!.addOnDrawListener(listener)
+                        }
                         assertTrue("static geometry route selected for $label",
                             opened.intent.getBooleanExtra(PhotoViewerTransition.EXTRA_STATIC_PHOTO, false))
                         assertTrue("shared Glide handoff, not fallback, for $label", complete && mapped.getBoolean(opened))
@@ -2143,6 +2197,16 @@ class PhotoViewerInteractiveGestureTest {
                     while ((!source.hasWindowFocus() || launchInProgress.getBoolean(source)) &&
                         SystemClock.uptimeMillis() < returnDeadline) SystemClock.sleep(25)
                     assertTrue("Grid ready after $label", source.hasWindowFocus() && !launchInProgress.getBoolean(source))
+                    instrumentation.runOnMainSync {
+                        returnObserver?.takeIf { it.isAlive }?.let { observer ->
+                            returnListener?.let(observer::removeOnDrawListener)
+                        }
+                    }
+                    if (path.endsWith("entry-3.png") && crop && !rounded) {
+                        assertTrue("native long-photo return drew frames", returnScales.isNotEmpty())
+                        assertTrue("long-photo return never stretches its pixels: $returnScales",
+                            returnScales.all { (x, y) -> kotlin.math.abs(x - y) < .001f })
+                    }
                     viewer = null
                 }
                 instrumentation.runOnMainSync { source.finish() }

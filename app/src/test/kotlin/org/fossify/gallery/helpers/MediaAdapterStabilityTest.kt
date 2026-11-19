@@ -827,6 +827,17 @@ class MediaAdapterStabilityTest {
         assertEquals(0, (fixture.grid.layoutManager as LinearLayoutManager).findFirstVisibleItemPosition())
     }
 
+    @Test fun resultWithoutReenterClearsTheLaunchPath() {
+        val row = item("a.jpg")
+        val fixture = ReturnGridFixture(listOf(row))
+        fixture.thumbnail(0, row.path)
+        fixture.launch(row.path)
+        fixture.result(null)
+        val pending = fixture.activity.javaClass.getDeclaredField("pendingViewerReturnPath")
+            .apply { isAccessible = true }
+        assertNull("a closed Viewer cannot leave its original launch path pending", pending.get(fixture.activity))
+    }
+
     @Test fun resultBeforeReenterDoesNotAcquireAHolderOrPublicationHold() {
         val row = item("a.jpg")
         val fixture = ReturnGridFixture(listOf(row))

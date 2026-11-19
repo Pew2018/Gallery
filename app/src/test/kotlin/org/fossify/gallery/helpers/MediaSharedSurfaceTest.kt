@@ -141,6 +141,53 @@ class MediaSharedSurfaceTest {
         } finally { controller.pause().stop().destroy() }
     }
 
+    @Test fun longPhotoReturnUsesUniformScaleAndContinuouslyChangingAperture() =
+        verifyLongPhotoReturn(forceCrop = false)
+
+    @Test fun bakedRoundedCropReturnsContinuouslyEvenWhenGridUsesFitCenter() =
+        verifyLongPhotoReturn(forceCrop = true)
+
+    private fun verifyLongPhotoReturn(forceCrop: Boolean) {
+        val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val parent = RelativeLayout(activity)
+            activity.setContentView(parent)
+            val image = ImageView(activity).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                setImageBitmap(Bitmap.createBitmap(100, 3000, Bitmap.Config.ARGB_8888))
+            }
+            parent.addView(image)
+            image.layout(0, 0, 100, 3000)
+            val transition = OxygenClassicActivityMotion.mediaTransition(
+                240L, cropMediaToBounds = true, forceMediaCropToBounds = { forceCrop },
+            )
+                as android.transition.TransitionSet
+            val crop = transition.getTransitionAt(2)
+            val start = android.transition.TransitionValues(image)
+            crop.captureStartValues(start)
+            image.layout(0, 0, 670, 670)
+            if (forceCrop) image.scaleType = ImageView.ScaleType.FIT_CENTER
+            val end = android.transition.TransitionValues(image)
+            crop.captureEndValues(end)
+            val animator = requireNotNull(crop.createAnimator(parent, start, end)) as android.animation.ValueAnimator
+            animator.duration = 1000L
+            animator.interpolator = android.view.animation.LinearInterpolator()
+            animator.start()
+            for (fraction in listOf(0f, .25f, .5f, .75f, 1f)) {
+                val width = (100 + 570 * fraction).toInt()
+                val height = (3000 - 2330 * fraction).toInt()
+                image.layout(0, 0, width, height)
+                animator.currentPlayTime = (fraction * 1000).toLong()
+                val actual = FloatArray(9).also(image.imageMatrix::getValues)
+                val expectedScale = maxOf((100 + 570 * fraction) / 100f, (3000 - 2330 * fraction) / 3000f)
+                assertEquals("uniform horizontal scale at $fraction", expectedScale, actual[Matrix.MSCALE_X], .001f)
+                assertEquals("uniform vertical scale at $fraction", expectedScale, actual[Matrix.MSCALE_Y], .001f)
+            }
+            animator.end()
+        } finally { controller.pause().stop().destroy() }
+    }
+
     @Test fun staticEntryDrawsRealGlideCropAndThenTheFullRendererPixels() {
         val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
         try {
