@@ -42,6 +42,7 @@ object OxygenSelectionMode {
                 isSelectable = delegate.isSelectable
                 if (!created) return false
                 active = true
+                OxygenToolbarStyle.selectionVisibility(activity, true)
                 oldStatusBarColor = activity.window.statusBarColor
                 oldLightStatusIcons = WindowCompat.getInsetsController(
                     activity.window, activity.window.decorView
@@ -73,7 +74,10 @@ object OxygenSelectionMode {
             override fun onDestroyActionMode(mode: ActionMode) {
                 active = false
                 clearLayoutListener()
+                val contextBar = contextBar(mode.customView)
+                    ?: activity.findViewById<View>(androidx.appcompat.R.id.action_mode_bar)
                 delegate.onDestroyActionMode(mode)
+                OxygenToolbarStyle.selectionVisibility(activity, false, contextBar)
                 isSelectable = delegate.isSelectable
                 if (Build.VERSION.SDK_INT < 35) {
                     oldStatusBarColor?.let { activity.window.statusBarColor = it }
@@ -89,6 +93,8 @@ object OxygenSelectionMode {
                 oldLightStatusIcons = null
             }
 
+            // Commons owns this AppCompat CAB; only adapt its existing content-height hook.
+            @android.annotation.SuppressLint("RestrictedApi")
             private fun style(mode: ActionMode, menu: Menu?) {
                 val surface = OxygenThemeEngine.toolbarSurface(activity, activity.config)
                 val foreground = OxygenThemeEngine.toolbarForeground(activity, activity.config)
@@ -100,22 +106,26 @@ object OxygenSelectionMode {
                 }
 
                 // ActionBarContextView is separate from the normal search toolbar.
-                var parent: View? = title
-                while (parent != null) {
-                    if (parent.javaClass.simpleName.contains("ActionBarContextView")) {
-                        parent.setBackgroundColor(surface)
-                        tintClose(parent, foreground)
-                        break
-                    }
-                    parent = parent.parent as? View
-                }
-                activity.findViewById<View>(androidx.appcompat.R.id.action_mode_bar)
-                    ?.takeIf { it.isShown }?.let {
-                        it.setBackgroundColor(surface)
-                        tintClose(it, foreground)
+                (contextBar(title) ?: activity.findViewById<View>(androidx.appcompat.R.id.action_mode_bar))
+                    ?.let { bar ->
+                        if (bar is androidx.appcompat.widget.ActionBarContextView) {
+                            bar.contentHeight = OxygenToolbarStyle.selectionContentHeight(activity)
+                        }
+                        bar.setBackgroundColor(surface)
+                        tintClose(bar, foreground)
                     }
                 OxygenToolbarStyle.tintMenu(menu, foreground)
                 OxygenSystemBars.apply(activity)
+            }
+
+            @android.annotation.SuppressLint("RestrictedApi")
+            private fun contextBar(view: View?): View? {
+                var parent = view
+                while (parent != null) {
+                    if (parent is androidx.appcompat.widget.ActionBarContextView) return parent
+                    parent = parent.parent as? View
+                }
+                return null
             }
 
             private fun tintClose(root: View, foreground: Int) {

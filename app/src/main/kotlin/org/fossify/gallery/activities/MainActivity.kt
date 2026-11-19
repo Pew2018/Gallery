@@ -147,7 +147,6 @@ import org.fossify.gallery.helpers.FavoriteAccessPolicy
 import org.fossify.gallery.helpers.FavoriteAccessSessionManager
 import org.fossify.gallery.helpers.OxygenFastScroller
 import org.fossify.gallery.helpers.OxygenThemeEngine
-import org.fossify.gallery.helpers.OxygenProgressStyle
 import org.fossify.gallery.helpers.MediaCachePrunePolicy
 import org.fossify.gallery.helpers.FavoriteFolderLoadCoordinator
 import org.fossify.gallery.helpers.FavoriteFolderLoadKey
@@ -406,22 +405,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mStoredPrimaryColor = 0
     private var mStoredStyleString = ""
     private val binding by viewBinding(ActivityMainBinding::inflate)
-    private var directoryHeaderProgress: com.google.android.material.progressindicator.LinearProgressIndicator? = null
-
-    private fun setupDirectoryProgressIndicator() {
-        if (directoryHeaderProgress != null) return
-        directoryHeaderProgress = com.google.android.material.progressindicator.LinearProgressIndicator(this).apply {
-            isIndeterminate = true
-            visibility = View.GONE
-            OxygenProgressStyle.apply(this@MainActivity, config, this)
-        }.also { indicator ->
-            binding.mainMenu.addView(indicator, android.widget.LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                OxygenProgressStyle.thicknessPx(this)
-            ))
-        }
-    }
-
     private var directoryTraceRequest = 0L
 
     /** Preserve cached album cards; an empty, failed scan needs a retry action. */
@@ -457,10 +440,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 }
                 retireDirectoryScan()
             } else directoryRefreshWatchdog.stop()
-            if (!isDestroyed && !isFinishing) directoryHeaderProgress?.apply {
-                OxygenProgressStyle.apply(this@MainActivity, config, this)
-                OxygenProgressStyle.setLoading(this, loading)
-            }
         }
         if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) update()
         else runOnUiThread { update() }
@@ -471,7 +450,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         setContentView(binding.root)
         org.fossify.gallery.helpers.OxygenClassicEdgeGlow.install(binding.root, this)
         GalleryBottomBar.prepareRootSurface(this, binding.root)
-        setupDirectoryProgressIndicator()
         binding.directoriesRefreshLayout.setColorSchemeColors(getProperPrimaryColor())
         binding.directoriesRefreshLayout.isEnabled = true
         appLaunched(BuildConfig.APPLICATION_ID)
@@ -526,14 +504,10 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         if (!mIsThirdPartyIntent) {
             GalleryBottomBar.attach(this, binding.root,
                 if (mShowingFolderFavorites) GalleryBottomBar.Tab.FAVORITES else GalleryBottomBar.Tab.ALL,
-                loadingFrame = { directoryHeaderProgress?.let { indicator ->
-                    OxygenProgressStyle.setLoading(indicator, true)
-                    OxygenProgressStyle.revealPending(indicator)
-                } },
                 frameState = { when {
                     binding.directoriesGrid.isShown && binding.directoriesGrid.childCount > 0 -> "content"
                     binding.directoriesEmptyPlaceholder.isShown -> "empty_or_error"
-                    directoryHeaderProgress?.isShown == true -> "loading"
+                    mIsGettingDirs || categorizedLoadActive -> "loading"
                     else -> null
                 } }
             ) { tab ->
@@ -621,7 +595,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     override fun onResume() {
         super.onResume()
         updateMenuColors()
-        directoryHeaderProgress?.let { OxygenProgressStyle.apply(this, config, it) }
         GalleryBottomBar.recolor(this)
         config.isThirdPartyIntent = false
         mDateFormat = config.dateFormat
@@ -763,7 +736,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         directoryMetadataRebindGate.cancel()
         directoryRefreshWatchdog.stop()
         GalleryBottomBar.dispose(this)
-        directoryHeaderProgress?.let(OxygenProgressStyle::dispose)
         folderOpenGeneration++
         ViewerAccessCoordinator.cancel(folderOpenTask)
         super.onDestroy()

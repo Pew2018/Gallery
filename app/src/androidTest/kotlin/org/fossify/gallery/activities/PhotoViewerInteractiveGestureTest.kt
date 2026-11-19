@@ -2137,7 +2137,7 @@ class PhotoViewerInteractiveGestureTest {
                         assertTrue("fixture reached the complete ALL_MEDIA grid", position >= 0)
                         SystemClock.sleep(100)
                     }
-                    val thumbnail = awaitSourceThumbnail(instrumentation, source, path)
+                    val thumbnail = awaitSourceThumbnail(instrumentation, source, path, scrollToPath = allMedia)
                     if (partial) {
                         instrumentation.runOnMainSync {
                             val recycler = source.findViewById<RecyclerView>(R.id.media_grid)
@@ -2614,20 +2614,36 @@ class PhotoViewerInteractiveGestureTest {
         instrumentation: android.app.Instrumentation,
         activity: MediaActivity,
         path: String,
+        scrollToPath: Boolean = false,
     ): ImageView {
         val deadline = SystemClock.uptimeMillis() + 15_000
         var thumbnail: ImageView? = null
         var observedGrid = "not attached"
+        var positionedAt = -1
         while (SystemClock.uptimeMillis() < deadline) {
             instrumentation.runOnMainSync {
                 val grid = activity.findViewById<RecyclerView>(R.id.media_grid)
+                if (scrollToPath && grid != null) {
+                    val position = (grid.adapter as? MediaAdapter)?.media
+                        ?.indexOfFirst { (it as? Medium)?.path == path } ?: -1
+                    // ALL_MEDIA can publish a new ordering after the initial scroll.
+                    // Drive the real grid to the current identity, then wait for its layout;
+                    // never compensate the animation endpoint or extend the existing budget.
+                    if (position >= 0 && (position != positionedAt ||
+                        grid.findViewHolderForAdapterPosition(position) == null)) {
+                        (grid.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager)
+                            ?.scrollToPositionWithOffset(position, 0)
+                        positionedAt = position
+                    }
+                }
                 val visible = (0 until (grid?.childCount ?: 0)).asSequence()
                     .mapNotNull { index -> grid?.getChildAt(index)?.findViewById<ImageView>(R.id.medium_thumbnail) }
                     .toList()
                 observedGrid = "requested=${activity.intent.getStringExtra(DIRECTORY)} " +
                     "children=${grid?.childCount} items=${grid?.adapter?.itemCount} " +
                     "visible=${visible.map { "${it.tag}:${it.drawable != null}:${it.isAttachedToWindow}" }}"
-                thumbnail = visible.firstOrNull {
+                thumbnail = if (scrollToPath && (grid?.isLayoutRequested == true ||
+                    grid?.hasPendingAdapterUpdates() == true)) null else visible.firstOrNull {
                     it.drawable != null && it.isAttachedToWindow && it.tag == path &&
                         it.getTag(R.id.thumbnail_loaded_key) != null &&
                         it.getTag(R.id.thumbnail_loaded_key) == it.getTag(R.id.thumbnail_request_key)

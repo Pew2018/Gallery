@@ -40,7 +40,9 @@ object OxygenToolbarStyle {
         var back: Boolean,
         var showSearch: Boolean = true,
         var renderedOpen: Boolean? = null,
-        var transition: Animator? = null
+        var transition: Animator? = null,
+        var selectionActive: Boolean = false,
+        var restoreListener: android.view.ViewTreeObserver.OnPreDrawListener? = null
     )
     private val hooked = WeakHashMap<MySearchMenu, State>()
     private data class TintedIcon(
@@ -85,6 +87,8 @@ object OxygenToolbarStyle {
                 override fun onViewDetachedFromWindow(view: View) {
                     state.transition?.cancel()
                     state.transition = null
+                    state.restoreListener?.let { view.viewTreeObserver.removeOnPreDrawListener(it) }
+                    state.restoreListener = null
                 }
             }
         )
@@ -126,7 +130,7 @@ object OxygenToolbarStyle {
             height = ViewGroup.LayoutParams.MATCH_PARENT
         }
         val surface = OxygenThemeEngine.toolbarSurface(activity, activity.config)
-        val rowHeight = maxOf(dp(56), (20 * activity.resources.displayMetrics.scaledDensity + dp(24)).toInt())
+        val rowHeight = selectionContentHeight(activity)
         menu.setBackgroundColor(surface)
         menu.binding.searchBarContainer.layoutParams = menu.binding.searchBarContainer.layoutParams.apply {
             height = rowHeight
@@ -144,7 +148,7 @@ object OxygenToolbarStyle {
             marginEnd = 0
         }
         menu.minimumHeight = rowHeight
-        applyToolbar(activity, actions)
+        applyToolbar(activity, actions, rowHeight)
         // Commons uses ImageView.setColorFilter(), which takes precedence over imageTintList.
         icon.clearColorFilter()
         icon.drawable?.mutate()?.clearColorFilter()
@@ -272,6 +276,43 @@ object OxygenToolbarStyle {
 
     }
 
+    /** Match the existing CAB style, excluding the independently applied status-bar inset. */
+    internal fun selectionContentHeight(activity: Activity): Int {
+        val attrs = activity.obtainStyledAttributes(null,
+            intArrayOf(androidx.appcompat.R.attr.height), androidx.appcompat.R.attr.actionModeStyle, 0)
+        val themedHeight = try { attrs.getLayoutDimension(0, 0) } finally { attrs.recycle() }
+        val metrics = activity.resources.displayMetrics
+        return maxOf(themedHeight, (20 * metrics.scaledDensity + 24 * metrics.density + 0.5f).toInt())
+    }
+
+    /** Keep the row measured while the separate CAB fades, so titles never draw over each other. */
+    internal fun selectionVisibility(activity: Activity, active: Boolean, contextBar: View? = null) {
+        hooked.entries.filter { it.key.context === activity }.forEach { (menu, state) ->
+            state.restoreListener?.let { menu.viewTreeObserver.removeOnPreDrawListener(it) }
+            state.restoreListener = null
+            state.selectionActive = active
+            if (active) {
+                menu.visibility = View.INVISIBLE
+                return@forEach
+            }
+            if (contextBar == null || !contextBar.isShown) {
+                menu.visibility = View.VISIBLE
+                return@forEach
+            }
+            val listener = object : android.view.ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    if (contextBar.isShown) return true
+                    menu.viewTreeObserver.removeOnPreDrawListener(this)
+                    state.restoreListener = null
+                    if (!state.selectionActive) menu.visibility = View.VISIBLE
+                    return true
+                }
+            }
+            state.restoreListener = listener
+            menu.viewTreeObserver.addOnPreDrawListener(listener)
+        }
+    }
+
     private fun animateSearchPresentation(
         state: State,
         container: View,
@@ -336,11 +377,11 @@ object OxygenToolbarStyle {
     }
 
     /** Final styling boundary after Commons setupTopAppBar/updateColors/menu mutations. */
-    fun applyToolbar(activity: Activity, toolbar: MaterialToolbar) {
+    fun applyToolbar(activity: Activity, toolbar: MaterialToolbar, contentHeight: Int? = null) {
         val colors = OxygenThemeEngine.snapshot(activity, activity.config)
         val foreground = colors.toolbarForeground
         val density = activity.resources.displayMetrics.density
-        val height = maxOf((56 * density + 0.5f).toInt(),
+        val height = contentHeight ?: maxOf((56 * density + 0.5f).toInt(),
             (20 * activity.resources.displayMetrics.scaledDensity + 24 * density).toInt())
         toolbar.minimumHeight = height
         toolbar.layoutParams?.let { params ->
