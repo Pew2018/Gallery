@@ -100,6 +100,110 @@ class PhotoViewerInteractiveGestureTest {
     private data class SwipeRun(val thread: Thread, val deviceInjectionWorked: AtomicBoolean)
 
     @Test
+    fun folderPullRefreshKeepsItsSettledCircleUntilTheCurrentRequestCompletes() = verifyPullRefresh(false)
+
+    @Test
+    fun customProfilePullRefreshKeepsItsSettledCircleUntilTheCurrentRequestCompletes() = verifyPullRefresh(true)
+
+    private fun verifyPullRefresh(profile: Boolean) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GalleryPullRefresh-${UUID.randomUUID()}"
+        val fixtures = List(4) { createFixture(context, album, displayName = "refresh-$it.png") }
+        val folder = java.io.File(fixtures.first().second).parent!!
+        val store = PhotoProfileRepository.of(context)
+        val previousProfile = store.state().selectedId
+        val profileId = UUID.randomUUID().toString()
+        val previousAll = context.config.showAll
+        val previousHorizontal = context.config.scrollHorizontally
+        var activity: MediaActivity? = null
+        try {
+            if (profile) store.save(PhotoProfile(profileId, "Refresh test", listOf(PhotoSource(PhotoSourceType.FOLDER, folder))))
+            context.config.showAll = false
+            context.config.scrollHorizontally = false
+            val intent = Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, if (profile) PhotoProfileMediaLoader.PATH else folder)
+                if (profile) {
+                    putExtra(GalleryNavigation.EXTRA_SECTION, GallerySection.PHOTOS.name)
+                    putExtra(PhotoProfileMediaLoader.EXTRA_ID, profileId)
+                }
+            }
+            val page = instrumentation.startActivitySync(intent) as MediaActivity
+            activity = page
+            awaitAnySourceThumbnail(instrumentation, page, fixtures.mapTo(HashSet()) { it.second })
+            val busy = MediaActivity::class.java.getDeclaredField("mIsGettingMedia").apply { isAccessible = true }
+            val swipe = page.findViewById<androidx.swiperefreshlayout.widget.SwipeRefreshLayout>(R.id.media_refresh_layout)
+            val circle = androidx.swiperefreshlayout.widget.SwipeRefreshLayout::class.java
+                .getDeclaredField("mCircleView").apply { isAccessible = true }.get(swipe) as View
+            var ready = false
+            val readyDeadline = SystemClock.uptimeMillis() + 15_000
+            while (!ready && SystemClock.uptimeMillis() < readyDeadline) {
+                instrumentation.runOnMainSync { ready = !busy.getBoolean(page) && !swipe.isLayoutRequested }
+                if (!ready) SystemClock.sleep(20)
+            }
+            assertTrue("initial request completed", ready)
+            val listenerField = androidx.swiperefreshlayout.widget.SwipeRefreshLayout::class.java
+                .getDeclaredField("mListener").apply { isAccessible = true }
+            val listener = listenerField.get(swipe) as androidx.swiperefreshlayout.widget.SwipeRefreshLayout.OnRefreshListener
+            val calls = java.util.concurrent.atomic.AtomicInteger()
+            var beforeScale = -1f
+            var afterScale = -1f
+            var replacedGestureAnimation = false
+            instrumentation.runOnMainSync {
+                listenerField.set(swipe, androidx.swiperefreshlayout.widget.SwipeRefreshLayout.OnRefreshListener {
+                    calls.incrementAndGet()
+                    beforeScale = circle.scaleX
+                    val gestureAnimation = circle.animation
+                    listener.onRefresh()
+                    afterScale = circle.scaleX
+                    replacedGestureAnimation = circle.animation !== gestureAnimation
+                })
+            }
+            val point = IntArray(2)
+            instrumentation.runOnMainSync { swipe.getLocationOnScreen(point) }
+            val density = context.resources.displayMetrics.density
+            val x = point[0] + swipe.width / 2f
+            val y = point[1] + 48 * density
+            val down = SystemClock.uptimeMillis()
+            fun inject(action: Int, atY: Float) {
+                val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, atY, 0)
+                event.source = InputDevice.SOURCE_TOUCHSCREEN
+                try { instrumentation.sendPointerSync(event) } finally { event.recycle() }
+            }
+            inject(MotionEvent.ACTION_DOWN, y)
+            repeat(10) { index ->
+                SystemClock.sleep(20)
+                inject(MotionEvent.ACTION_MOVE, y + (index + 1) * 22 * density)
+            }
+            inject(MotionEvent.ACTION_UP, y + 220 * density)
+            val deadline = SystemClock.uptimeMillis() + 10_000
+            var stopped = false
+            while (!stopped && SystemClock.uptimeMillis() < deadline) {
+                instrumentation.runOnMainSync {
+                    stopped = calls.get() > 0 && !busy.getBoolean(page) && !swipe.isRefreshing && circle.visibility != View.VISIBLE
+                }
+                if (!stopped) SystemClock.sleep(20)
+            }
+            android.util.Log.i("GalleryPhase35", "Refresh profile=$profile callbacks=${calls.get()} scale=$beforeScale->$afterScale restarted=$replacedGestureAnimation stopped=$stopped")
+            assertEquals("one accepted gesture, one refresh callback", 1, calls.get())
+            assertEquals("the gesture settled before notifying the Activity", 1f, beforeScale, .01f)
+            assertEquals("onRefresh must not collapse/restart the already settled circle", 1f, afterScale, .01f)
+            assertFalse("onRefresh replaced the settled gesture animation with a new scale animation", replacedGestureAnimation)
+            assertTrue("current complete request must retire its circle, profile=$profile", stopped)
+        } finally {
+            activity?.let { instrumentation.runOnMainSync { it.finish() } }
+            if (profile) store.delete(profileId)
+            previousProfile?.let(store::select)
+            PhotoProfileMediaCache.invalidate()
+            context.config.showAll = previousAll
+            context.config.scrollHorizontally = previousHorizontal
+            fixtures.forEach { context.contentResolver.delete(it.first, null, null) }
+        }
+    }
+
+    @Test
     fun thousandRealFilesFollowConfiguredSortModesOnDevice() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext

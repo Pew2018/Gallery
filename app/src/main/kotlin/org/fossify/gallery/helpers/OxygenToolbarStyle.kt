@@ -40,9 +40,7 @@ object OxygenToolbarStyle {
         var back: Boolean,
         var showSearch: Boolean = true,
         var renderedOpen: Boolean? = null,
-        var transition: Animator? = null,
-        var selectionActive: Boolean = false,
-        var restoreListener: android.view.ViewTreeObserver.OnPreDrawListener? = null
+        var transition: Animator? = null
     )
     private val hooked = WeakHashMap<MySearchMenu, State>()
     private data class TintedIcon(
@@ -87,8 +85,6 @@ object OxygenToolbarStyle {
                 override fun onViewDetachedFromWindow(view: View) {
                     state.transition?.cancel()
                     state.transition = null
-                    state.restoreListener?.let { view.viewTreeObserver.removeOnPreDrawListener(it) }
-                    state.restoreListener = null
                 }
             }
         )
@@ -285,31 +281,10 @@ object OxygenToolbarStyle {
         return maxOf(themedHeight, (20 * metrics.scaledDensity + 24 * metrics.density + 0.5f).toInt())
     }
 
-    /** Keep the opaque row measured while the separate CAB fades; hide only its foreground. */
-    internal fun selectionVisibility(activity: Activity, active: Boolean, contextBar: View? = null) {
-        hooked.entries.filter { it.key.context === activity }.forEach { (menu, state) ->
-            state.restoreListener?.let { menu.viewTreeObserver.removeOnPreDrawListener(it) }
-            state.restoreListener = null
-            state.selectionActive = active
-            if (active) {
-                menu.binding.toolbarContainer.visibility = View.INVISIBLE
-                return@forEach
-            }
-            if (contextBar == null || !contextBar.isShown) {
-                menu.binding.toolbarContainer.visibility = View.VISIBLE
-                return@forEach
-            }
-            val listener = object : android.view.ViewTreeObserver.OnPreDrawListener {
-                override fun onPreDraw(): Boolean {
-                    if (contextBar.isShown) return true
-                    menu.viewTreeObserver.removeOnPreDrawListener(this)
-                    state.restoreListener = null
-                    if (!state.selectionActive) menu.binding.toolbarContainer.visibility = View.VISIBLE
-                    return true
-                }
-            }
-            state.restoreListener = listener
-            menu.viewTreeObserver.addOnPreDrawListener(listener)
+    /** Swap only the foreground at the prepared CAB lifecycle boundary; keep the surface measured. */
+    internal fun selectionVisibility(activity: Activity, active: Boolean) {
+        hooked.keys.filter { it.context === activity }.forEach { menu ->
+            menu.binding.toolbarContainer.visibility = if (active) View.INVISIBLE else View.VISIBLE
         }
     }
 

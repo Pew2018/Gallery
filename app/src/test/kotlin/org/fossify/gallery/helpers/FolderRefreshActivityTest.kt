@@ -89,8 +89,12 @@ class FolderRefreshActivityTest {
             .get(swipe) as SwipeRefreshLayout.OnRefreshListener
         listener.onRefresh()
     }
-    private fun withActivity(block: (MediaActivity) -> Unit) {
-        val intent = Intent(context, MediaActivity::class.java).putExtra(DIRECTORY, root.path)
+    private fun withActivity(path: String = root.path, block: (MediaActivity) -> Unit) {
+        val intent = Intent(context, MediaActivity::class.java).putExtra(DIRECTORY, path)
+        if (path == PhotoProfileMediaLoader.PATH) {
+            intent.putExtra(GalleryNavigation.EXTRA_SECTION, GallerySection.PHOTOS.name)
+            intent.putExtra(PhotoProfileMediaLoader.EXTRA_ID, PhotoProfileRepository.of(context).state().selectedId)
+        }
         val controller = Robolectric.buildActivity(MediaActivity::class.java, intent).create(Bundle()).start()
         try {
             val activity = controller.get()
@@ -99,6 +103,46 @@ class FolderRefreshActivityTest {
             block(activity)
             (field(activity, "mCurrAsyncTask").get(activity) as? org.fossify.gallery.asynctasks.GetMediaAsynctask)?.stopFetching()
         } finally { controller.stop().destroy() }
+    }
+
+    @Test fun profileRefreshEndsOnlyForTheCurrentFinalPublication() {
+        photo("profile.jpg")
+        val store = PhotoProfileRepository.of(context)
+        val id = java.util.UUID.randomUUID().toString()
+        store.save(PhotoProfile(id, "Refresh", listOf(PhotoSource(PhotoSourceType.FOLDER, root.path))))
+        withActivity(PhotoProfileMediaLoader.PATH) { activity ->
+            refresh(activity)
+            await { !field(activity, "mIsGettingMedia").getBoolean(activity) }
+            val swipe = activity.findViewById<SwipeRefreshLayout>(R.id.media_refresh_layout)
+            val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
+            val stale = requests.begin()
+            val current = requests.begin()
+            val row = Medium().apply {
+                path = File(root, "profile.jpg").path; parentPath = root.path; name = "profile.jpg"; type = TYPE_IMAGES
+            }
+            swipe.isRefreshing = true
+            publish(activity, arrayListOf(row), true, current)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertTrue("a preview must not finish an ongoing refresh", swipe.isRefreshing)
+            publish(activity, arrayListOf(row), false, stale)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertTrue("an old terminal must not stop the current circle", swipe.isRefreshing)
+            publish(activity, arrayListOf(row), false, current)
+            await { !field(activity, "mIsGettingMedia").getBoolean(activity) }
+            assertFalse("the current final profile result must stop the circle", swipe.isRefreshing)
+        }
+    }
+
+    @Test fun missingProfileRetiresAnAcceptedRefreshWithoutStartingAWorker() {
+        withActivity(PhotoProfileMediaLoader.PATH) { activity ->
+            val swipe = activity.findViewById<SwipeRefreshLayout>(R.id.media_refresh_layout)
+            swipe.isRefreshing = true
+            refresh(activity)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertFalse(swipe.isRefreshing)
+            assertFalse(field(activity, "mIsGettingMedia").getBoolean(activity))
+            assertFalse(activity.isFinishing)
+        }
     }
 
     @Test fun initialFolderLoadingTracksPublishedMediaRatherThanAdapterExistence() {
@@ -191,6 +235,7 @@ class FolderRefreshActivityTest {
             assertTrue(root.isDirectory)
             assertTrue(File(root, "movie.mp4").isFile)
             assertFalse(activity.isFinishing)
+            assertFalse(activity.findViewById<SwipeRefreshLayout>(R.id.media_refresh_layout).isRefreshing)
             assertTrue(paths(activity).isEmpty())
         }
     }
@@ -205,6 +250,7 @@ class FolderRefreshActivityTest {
                 refresh(activity)
                 await { !field(activity, "mIsGettingMedia").getBoolean(activity) }
                 assertEquals(setOf(old.path), paths(activity))
+                assertFalse(activity.findViewById<SwipeRefreshLayout>(R.id.media_refresh_layout).isRefreshing)
                 assertFalse(activity.isFinishing)
             } finally { parked.renameTo(root) }
         }
@@ -217,9 +263,12 @@ class FolderRefreshActivityTest {
             val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
             val stale = requests.begin()
             requests.begin()
+            val swipe = activity.findViewById<SwipeRefreshLayout>(R.id.media_refresh_layout)
+            swipe.isRefreshing = true
             publish(activity, arrayListOf(Medium().apply { path = "${root.path}/stale.jpg" }), false, stale)
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             assertEquals(setOf(fresh.path), paths(activity))
+            assertTrue("an old final folder result cannot stop a new refresh", swipe.isRefreshing)
         }
     }
     @Test fun slowFilePublishesNewImageBeforeTimeoutAndLateScanCannotOverwriteAdapter() {

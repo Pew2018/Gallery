@@ -20,6 +20,33 @@ import org.fossify.gallery.extensions.config
  * Commons keeps selection keys, select-all interaction, and file operations.
  */
 object OxygenSelectionMode {
+    private val pendingPresentation = java.util.WeakHashMap<Activity, Boolean>()
+
+    /** AppCompat calls these boundaries after installing its CAB fade. Complete
+     * only our managed CAB presentation, preserving its callbacks and cleanup. */
+    @android.annotation.SuppressLint("RestrictedApi")
+    internal fun completePresentation(activity: Activity, entering: Boolean) {
+        if (pendingPresentation[activity] != entering) return
+        pendingPresentation.remove(activity)
+        val bar = activity.findViewById<androidx.appcompat.widget.ActionBarContextView>(
+            androidx.appcompat.R.id.action_mode_bar)
+        // Cancels only this CAB's opacity animation, never Activity/Viewer motion.
+        // Cancel delivers an existing end listener synchronously if it has started.
+        bar?.animate()?.cancel()
+        if (entering && bar != null) {
+            bar.alpha = 1f
+            bar.visibility = View.VISIBLE
+            OxygenToolbarStyle.selectionVisibility(activity, true)
+        } else {
+            // A pending animator may be cancelled before its end listener runs.
+            // killMode is idempotent and releases the same Commons custom/menu views.
+            bar?.killMode()
+            bar?.visibility = View.GONE
+            OxygenToolbarStyle.selectionVisibility(activity, false)
+        }
+        androidx.core.view.ViewCompat.requestApplyInsets(activity.window.decorView)
+    }
+
     fun wrap(activity: Activity, delegate: MyActionModeCallback): MyActionModeCallback =
         object : MyActionModeCallback() {
             private var active = false
@@ -42,7 +69,7 @@ object OxygenSelectionMode {
                 isSelectable = delegate.isSelectable
                 if (!created) return false
                 active = true
-                OxygenToolbarStyle.selectionVisibility(activity, true)
+                pendingPresentation[activity] = true
                 oldStatusBarColor = activity.window.statusBarColor
                 oldLightStatusIcons = WindowCompat.getInsetsController(
                     activity.window, activity.window.decorView
@@ -74,10 +101,8 @@ object OxygenSelectionMode {
             override fun onDestroyActionMode(mode: ActionMode) {
                 active = false
                 clearLayoutListener()
-                val contextBar = contextBar(mode.customView)
-                    ?: activity.findViewById<View>(androidx.appcompat.R.id.action_mode_bar)
                 delegate.onDestroyActionMode(mode)
-                OxygenToolbarStyle.selectionVisibility(activity, false, contextBar)
+                pendingPresentation[activity] = false
                 isSelectable = delegate.isSelectable
                 if (Build.VERSION.SDK_INT < 35) {
                     oldStatusBarColor?.let { activity.window.statusBarColor = it }

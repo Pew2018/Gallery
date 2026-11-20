@@ -7,7 +7,7 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
+import org.fossify.gallery.activities.SimpleActivity
 import androidx.appcompat.widget.ActionBarContextView
 import org.fossify.commons.interfaces.MyActionModeCallback
 import org.fossify.commons.views.MySearchMenu
@@ -35,7 +35,7 @@ class SelectionToolbarHeightTest {
     }
 
     private fun verifyRows(width: Int, height: Int) {
-        val controller = Robolectric.buildActivity(AppCompatActivity::class.java)
+        val controller = Robolectric.buildActivity(SimpleActivity::class.java)
         // Theme before onCreate, as the real Gallery Activities do.
         val host = controller.get()
         host.setTheme(R.style.GalleryPageTransitionTheme)

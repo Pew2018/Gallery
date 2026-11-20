@@ -1657,7 +1657,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         binding.mediaRefreshLayout.setOnRefreshListener {
-            binding.mediaRefreshLayout.isRefreshing = false
+            // SwipeRefreshLayout has already settled and started its circle. Keep
+            // that animation until the accepted request reaches its current terminal.
             getMedia(manualRefresh = true)
         }
         try {
@@ -5464,6 +5465,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             } else if (!isFromCache) {
                 mIsGettingMedia = false
                 setMediaLoading(false)
+                binding.mediaRefreshLayout.isRefreshing = false
             }
             val media = viewerDeletions.filter(mediaSnapshot, request,
                 verifiedRestorations.orEmpty().takeIf { authoritative }.orEmpty())

@@ -80,6 +80,16 @@ open class SimpleActivity : BaseSimpleActivity() {
         restoredThemeState = savedInstanceState
     }
 
+    override fun onSupportActionModeStarted(mode: androidx.appcompat.view.ActionMode) {
+        super.onSupportActionModeStarted(mode)
+        org.fossify.gallery.helpers.OxygenSelectionMode.completePresentation(this, true)
+    }
+
+    override fun onSupportActionModeFinished(mode: androidx.appcompat.view.ActionMode) {
+        super.onSupportActionModeFinished(mode)
+        org.fossify.gallery.helpers.OxygenSelectionMode.completePresentation(this, false)
+    }
+
     override fun onResume() {
         OxygenThemeEngine.apply(this, config)
         val viewer = this as? ViewPagerActivity
