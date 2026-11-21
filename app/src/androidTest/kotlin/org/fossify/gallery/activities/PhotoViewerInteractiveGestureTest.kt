@@ -2479,11 +2479,15 @@ class PhotoViewerInteractiveGestureTest {
         val fixtures = List(3) { createFixture(context, album, width = 480, height = 360) }
         val previousShowAll = context.config.showAll
         val previousFilter = context.config.filterMedia
+        val previousZoom = context.config.allowZoomingImages
         var source: MediaActivity? = null
         var viewer: ViewPagerActivity? = null
         try {
             context.config.showAll = false
             context.config.filterMedia = TYPE_IMAGES
+            // The interrupted-drag cycles need the same gesture path as the
+            // dedicated dismiss test, without asynchronous tile setup in between.
+            context.config.allowZoomingImages = false
             val grid = instrumentation.startActivitySync(Intent(context, MediaActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 putExtra(DIRECTORY, java.io.File(fixtures.first().second).parent)
@@ -2492,6 +2496,9 @@ class PhotoViewerInteractiveGestureTest {
             val open = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java).apply { isAccessible = true }
             val sessionField = ViewPagerActivity::class.java.getDeclaredField("transitionSession").apply { isAccessible = true }
             val currentPath = ViewPagerActivity::class.java.getDeclaredMethod("getCurrentPath").apply { isAccessible = true }
+            val dismissTouch = PhotoFragment::class.java
+                .getDeclaredMethod("handlePhotoDismissTouch", View::class.java, MotionEvent::class.java)
+                .apply { isAccessible = true }
             val recycler = grid.findViewById<RecyclerView>(R.id.media_grid)
             val launchInProgress = MediaActivity::class.java.getDeclaredField("viewerLaunchInProgress").apply { isAccessible = true }
             val paths = fixtures.mapTo(HashSet()) { it.second }
@@ -2540,7 +2547,26 @@ class PhotoViewerInteractiveGestureTest {
                     }
                     assertFalse("Cycle $cycle must return a different thumbnail", selectedPath == startPath)
                 }
-                instrumentation.runOnMainSync { opened.finish() }
+                // Mix the three real return entries and an interrupted drag into the
+                // continuous round trip. Each must close through the same Session.
+                when (cycle % 4) {
+                    1 -> instrumentation.runOnMainSync { opened.onBackPressed() }
+                    2 -> instrumentation.runOnMainSync {
+                        val toolbar = opened.findViewById<ViewGroup>(R.id.medium_viewer_toolbar)
+                        (0 until toolbar.childCount).map(toolbar::getChildAt)
+                            .firstOrNull { it is android.widget.ImageButton }?.performClick()
+                    }
+                    3 -> {
+                        val held = requireNotNull(currentPhoto(opened))
+                        val image = requireNotNull(held.view).findViewById<ImageView>(R.id.gestures_view)
+                        assertTrue("Cycle $cycle must claim the interrupted drag",
+                            injectDismissGesture(instrumentation, held, dismissTouch, image,
+                                image.height * 0.3f, MotionEvent.ACTION_CANCEL))
+                        awaitState("VIEWING")
+                        instrumentation.runOnMainSync { opened.finish() }
+                    }
+                    else -> instrumentation.runOnMainSync { opened.finish() }
+                }
 
                 awaitState("CLEANED")
                 val focusDeadline = SystemClock.uptimeMillis() + 5_000
@@ -2568,6 +2594,7 @@ class PhotoViewerInteractiveGestureTest {
             }
             context.config.showAll = previousShowAll
             context.config.filterMedia = previousFilter
+            context.config.allowZoomingImages = previousZoom
             fixtures.forEach { context.contentResolver.delete(it.first, null, null) }
         }
     }
@@ -2653,6 +2680,185 @@ class PhotoViewerInteractiveGestureTest {
             }
             context.config.allowZoomingImages = wasZoomingEnabled
             context.config.showAll = wasShowingAllMedia
+            fixtures.forEach { runCatching { context.contentResolver.delete(it.first, null, null) } }
+        }
+    }
+
+    /**
+     * Phase 4A: the toolbar button, framework back and the dismiss gesture must all
+     * enter the same Session return core, and a cancelled drag must leave no surface,
+     * scrim, transform, input lock or lease behind before the next gesture starts.
+     */
+    @Test
+    fun toolbarSystemBackAndDismissGesturesShareTheReturnCore() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GalleryReturnEntries-${UUID.randomUUID()}"
+        val fixtures = List(6) { createFixture(context, album, 480, 360) } +
+            createFixture(context, album, 240, 1600, "zz-long.png")
+        val previousShowAll = context.config.showAll
+        val previousFilter = context.config.filterMedia
+        val previousZoom = context.config.allowZoomingImages
+        var source: MediaActivity? = null
+        var viewer: ViewPagerActivity? = null
+        try {
+            context.config.showAll = false
+            context.config.filterMedia = TYPE_IMAGES
+            // Keep the dismiss gesture on GestureImageView so tile setup cannot
+            // arbitrate the synthetic touch stream.
+            context.config.allowZoomingImages = false
+            val grid = instrumentation.startActivitySync(Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, java.io.File(fixtures.first().second).parent)
+            }) as MediaActivity
+            source = grid
+            val paths = fixtures.mapTo(HashSet()) { it.second }
+            val (path, _) = awaitAnySourceThumbnail(instrumentation, grid, paths)
+            val open = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java)
+                .apply { isAccessible = true }
+            val launchInProgress = MediaActivity::class.java
+                .getDeclaredField("viewerLaunchInProgress").apply { isAccessible = true }
+            val sessionField = ViewPagerActivity::class.java
+                .getDeclaredField("transitionSession").apply { isAccessible = true }
+            val surfaceField = ViewPagerActivity::class.java
+                .getDeclaredField("interactiveDismissSurface").apply { isAccessible = true }
+            val dragProgressField = ViewPagerActivity::class.java
+                .getDeclaredField("interactiveDismissProgress").apply { isAccessible = true }
+
+            fun sessionValue(activity: ViewPagerActivity, name: String): String {
+                val session = sessionField.get(activity)
+                    ?: error("viewer has no transition Session")
+                return session.javaClass.getDeclaredField(name)
+                    .apply { isAccessible = true }.get(session).toString()
+            }
+
+            fun openViewer(): ViewPagerActivity {
+                awaitSourceThumbnail(instrumentation, grid, path)
+                val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
+                val opened = try {
+                    instrumentation.runOnMainSync { open.invoke(grid, path) }
+                    instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
+                        ?: error("Gallery did not open the photo viewer")
+                } finally { instrumentation.removeMonitor(monitor) }
+                viewer = opened
+                val deadline = SystemClock.uptimeMillis() + 8_000
+                var state = "unavailable"
+                do {
+                    instrumentation.runOnMainSync { state = sessionValue(opened, "state") }
+                    if (state == "VIEWING") return opened
+                    SystemClock.sleep(25)
+                } while (SystemClock.uptimeMillis() < deadline)
+                error("Viewer never reached VIEWING: $state")
+            }
+
+            fun awaitClosed(opened: ViewPagerActivity, label: String) {
+                val deadline = SystemClock.uptimeMillis() + 8_000
+                while ((!grid.hasWindowFocus() || launchInProgress.getBoolean(grid) || !opened.isDestroyed) &&
+                    SystemClock.uptimeMillis() < deadline) SystemClock.sleep(25)
+                assertTrue("$label must close the viewer and restore grid focus",
+                    grid.hasWindowFocus() && !launchInProgress.getBoolean(grid) && opened.isDestroyed)
+                val outcome = sessionValue(opened, "outcome")
+                assertTrue("$label must produce exactly one terminal outcome, not $outcome",
+                    outcome == "COMPLETE" || outcome == "FALLBACK")
+                assertEquals("$label must clean its session", "CLEANED", sessionValue(opened, "state"))
+                val image = awaitSourceThumbnail(instrumentation, grid, path)
+                instrumentation.runOnMainSync {
+                    assertNull("$label must not leave a transition name", image.transitionName)
+                    assertTrue("$label must release the returned holder",
+                        grid.findViewById<RecyclerView>(R.id.media_grid)
+                            .findContainingViewHolder(image)?.isRecyclable == true)
+                    assertFalse("$label must release the transition input lock",
+                        opened.findViewById<ProgressivePhotoViewPager>(R.id.view_pager).transitionInputLocked)
+                }
+            }
+
+            // 1) Toolbar return.
+            var opened = openViewer()
+            instrumentation.runOnMainSync {
+                val toolbar = opened.findViewById<ViewGroup>(R.id.medium_viewer_toolbar)
+                val navigation = (0 until toolbar.childCount).map(toolbar::getChildAt)
+                    .firstOrNull { it is android.widget.ImageButton }
+                assertNotNull("the viewer toolbar needs its navigation button", navigation)
+                navigation!!.performClick()
+            }
+            awaitClosed(opened, "toolbar return")
+
+            // 2) Traditional framework back.
+            opened = openViewer()
+            instrumentation.runOnMainSync { opened.onBackPressed() }
+            awaitClosed(opened, "system back")
+
+            // 3) A cancelled drag restores the live frame, then a new drag commits.
+            opened = openViewer()
+            val fragment = requireNotNull(currentPhoto(opened))
+            val touchHandler = PhotoFragment::class.java
+                .getDeclaredMethod("handlePhotoDismissTouch", View::class.java, MotionEvent::class.java)
+                .apply { isAccessible = true }
+            val image = requireNotNull(fragment.view).findViewById<ImageView>(R.id.gestures_view)
+            var midGestureState = "unavailable"
+            var midGestureProgress = 0f
+            assertTrue("the dismiss gesture must claim the cancelled drag",
+                injectDismissGesture(instrumentation, fragment, touchHandler, image,
+                    image.height * 0.28f, MotionEvent.ACTION_CANCEL) {
+                    instrumentation.runOnMainSync {
+                        midGestureState = sessionValue(opened, "state")
+                        midGestureProgress = dragProgressField.get(opened) as Float
+                    }
+                })
+            assertEquals("the held drag must own the Session before it is cancelled",
+                "INTERACTIVE_RETURN", midGestureState)
+            assertTrue("the held drag must expose progress before it is cancelled",
+                midGestureProgress > 0f)
+            val restoreDeadline = SystemClock.uptimeMillis() + 5_000
+            var restored = false
+            do {
+                instrumentation.runOnMainSync {
+                    restored = surfaceField.get(opened) == null &&
+                        (dragProgressField.get(opened) as Float) == 0f &&
+                        kotlin.math.abs(image.scaleY - 1f) < 0.001f &&
+                        kotlin.math.abs(image.translationY) < 0.5f &&
+                        opened.findViewById<View>(R.id.viewer_transition_scrim).visibility == View.GONE
+                }
+                if (!restored) SystemClock.sleep(25)
+            } while (!restored && SystemClock.uptimeMillis() < restoreDeadline)
+            assertTrue("a cancelled drag must restore the frame, scrim and dismiss state", restored)
+            instrumentation.runOnMainSync {
+                assertEquals("a cancelled drag returns to viewing", "VIEWING", sessionValue(opened, "state"))
+                assertFalse("a cancelled drag must release the input lock",
+                    opened.findViewById<ProgressivePhotoViewPager>(R.id.view_pager).transitionInputLocked)
+            }
+            val commit = startSwipe(instrumentation, fragment, touchHandler, image,
+                image.width / 2f, image.height / 2f, image.height * 0.95f, 520)
+            commit.thread.join(8_000)
+            assertTrue(commit.deviceInjectionWorked.get())
+            awaitClosed(opened, "drag commit after cancel")
+
+            // 4) Finishing while the drag is still held must terminate once.
+            opened = openViewer()
+            val heldFragment = requireNotNull(currentPhoto(opened))
+            val heldImage = requireNotNull(heldFragment.view).findViewById<ImageView>(R.id.gestures_view)
+            val checkpoint = GestureCheckpoint()
+            val held = startSwipe(instrumentation, heldFragment, touchHandler, heldImage,
+                heldImage.width / 2f, heldImage.height / 2f, heldImage.height * 0.75f, 600, listOf(checkpoint))
+            try {
+                assertTrue("the held drag must reach its checkpoint",
+                    checkpoint.reached.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                instrumentation.runOnMainSync { opened.finish() }
+            } finally {
+                checkpoint.resume.countDown()
+                held.thread.join(8_000)
+            }
+            awaitClosed(opened, "finish during drag")
+            viewer = null
+        } finally {
+            instrumentation.runOnMainSync {
+                viewer?.takeUnless { it.isFinishing }?.finish()
+                source?.finish()
+            }
+            context.config.showAll = previousShowAll
+            context.config.filterMedia = previousFilter
+            context.config.allowZoomingImages = previousZoom
             fixtures.forEach { runCatching { context.contentResolver.delete(it.first, null, null) } }
         }
     }
@@ -3198,6 +3404,54 @@ class PhotoViewerInteractiveGestureTest {
             SystemClock.sleep(45)
         }
         return injected
+    }
+
+    /**
+     * Drives one dismiss touch stream to an explicit end action. ACTION_CANCEL is the
+     * only way the real listener can observe an interrupted drag, so the settle-back
+     * path cannot be covered by an ACTION_UP-only swipe.
+     */
+    private fun injectDismissGesture(
+        instrumentation: android.app.Instrumentation,
+        fragment: PhotoFragment,
+        touchHandler: java.lang.reflect.Method,
+        target: View,
+        distance: Float,
+        finalAction: Int,
+        beforeEnd: (() -> Unit)? = null,
+    ): Boolean {
+        val location = IntArray(2)
+        instrumentation.runOnMainSync { target.getLocationOnScreen(location) }
+        val screenX = location[0] + target.width / 2f
+        val startY = location[1] + target.height / 2f
+        val downTime = SystemClock.uptimeMillis()
+        var useDeviceInjection = true
+        fun inject(action: Int, screenY: Float): Boolean {
+            val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, screenX, screenY, 0)
+                .apply { source = InputDevice.SOURCE_TOUCHSCREEN }
+            var handled = false
+            if (useDeviceInjection) {
+                val accepted = instrumentation.uiAutomation.injectInputEvent(event, true)
+                useDeviceInjection = accepted
+                handled = accepted
+            }
+            if (!useDeviceInjection && fragment.activity?.isFinishing != true) {
+                event.setLocation(target.width / 2f, screenY - location[1])
+                instrumentation.runOnMainSync {
+                    handled = touchHandler.invoke(fragment, target, event) as Boolean
+                }
+            }
+            event.recycle()
+            return handled
+        }
+
+        inject(MotionEvent.ACTION_DOWN, startY)
+        for (step in 1..8) {
+            SystemClock.sleep(24)
+            inject(MotionEvent.ACTION_MOVE, startY + distance * step / 8f)
+        }
+        beforeEnd?.invoke()
+        return inject(finalAction, startY + distance)
     }
 
     private fun dragGridFastScrollerOnDevice(
