@@ -51,6 +51,22 @@
 
 API 29 为模拟器自动检查，**不是** Pixel 8 Pro 真机视觉证据。未做录屏逐帧核对，因此“长截图末段的视觉连续性”仍按待真机验收记录，自动末帧像素对照与 target_drawn/cleanup 日志都不能独立证明视觉连续。
 
+## 源码与安装包身份
+
+| 项 | 值 |
+| --- | --- |
+| 分支 | perf/home-gallery-sorting |
+| 4A 源码提交 | c02bb933fb7bdbbba29787b2639c2ee0d0472e83 |
+| 远程同步 | 本地与 origin 一致（提交后推送） |
+| CI | https://github.com/Pew2018/Gallery/actions/runs/44908043794（success，headSha 与源码提交一致） |
+| APK | /Users/patrick/Downloads/gallery-4a/gallery-foss-arm64-v8a-release/gallery-foss-arm64-v8a-release.apk |
+| SHA-256 | 2dfd84658c683e874683752e51db48ede86c35d77cf843de5a52f0a078b4cdeb |
+| 包名 / 版本 | org.fossify.gallery，versionCode 32，versionName 1.14.1 |
+| ABI | arm64-v8a |
+| 签名 | CN=Gallery Temporary CI Test Signature, O=Local Testing（cert SHA-256 fa004b5d1386bc2e91a7347604f3ff39c06aeffa18a837515b65c7a42688dd26） |
+
+该签名来自工作流在缺少仓库密钥时生成的临时密钥，**不能保证覆盖上一轮安装**；跨轮安装若报签名冲突，需要用户自行决定处理方式，本阶段未执行卸载或清除数据。
+
 ## 未验证项
 
 - Pixel 8 Pro 真机上的实际视觉效果：工具栏返回、Back、下拖取消/提交的裁口、比例、位置与残留。
