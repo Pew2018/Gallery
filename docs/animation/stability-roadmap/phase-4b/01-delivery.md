@@ -64,6 +64,22 @@
 
 测试侧同时修正两处自身缺陷（非产品问题）：读取已终止 Session 的 `outcome` 时为空导致格式化 NPE；提交后立即断言 `outcome` 而未等待网格完成 `CLEANED`。修正后连续 5 轮稳定。
 
+## 源码与安装包身份（复核修补版）
+
+| 项 | 值 |
+| --- | --- |
+| 分支 | perf/home-gallery-sorting |
+| 复核修补提交 | b037264c2e18f334545fcb0503e56677d5222d3e |
+| 远程同步 | 本地与 origin 一致（推送后确认） |
+| CI | https://github.com/Pew2018/Gallery/actions/runs/44919317153（success，headSha 与源码提交一致） |
+| APK | /Users/patrick/Downloads/gallery-4b-review/gallery-foss-arm64-v8a-release/gallery-foss-arm64-v8a-release.apk |
+| SHA-256 | 1c654eb077bf943bb7c801ac11858c04c31cfbbaff905aa7c847d5a90027d64b |
+| 包名 / 版本 | org.fossify.gallery，versionCode 32，versionName 1.14.1 |
+| ABI | arm64-v8a |
+| 签名 | CN=Gallery Temporary CI Test Signature, O=Local Testing（cert SHA-256 eb2c3cd8f67120d0c7c56e0b5b2fd0880ce857191948b7ca0a7985b7add15b47） |
+
+该包取代首轮 4B 交付（提交 5eb7ac841，APK SHA-256 09ca6a69…）：首轮未在清单里 opt-in，Android 13/14/15 收不到预测性手势，且存在取消回弹接管跳变。工作流在缺少仓库密钥时每轮生成新的临时密钥，因此 4A、首轮 4B、本轮 4B 三个包互不兼容，也未必能覆盖 3.5 的旧安装；签名冲突时由用户决定处理方式，本轮未卸载应用或清除数据。
+
 ## 未验证项
 
 - Pixel 8 Pro 真机上的实际手感：进度为等比缩放 + 遮罩/顶栏淡出，是否匹配系统手势需真机判断。
