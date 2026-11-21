@@ -45,6 +45,7 @@ import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator.Token
 import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.StaticPhotoHeader
 import org.fossify.gallery.helpers.StaticPhotoSource
+import org.fossify.gallery.helpers.StaticPhotoReturnTarget
 import org.fossify.gallery.helpers.StaticPhotoViewGeometry
 import org.fossify.gallery.helpers.OxygenClassicMotion
 import org.fossify.gallery.helpers.FolderReturnCheckpoint
@@ -225,8 +226,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var pendingViewerReturnPath: String? = null
     private var viewerReturnGeneration = 0L
     private var viewerSourceLease: GridViewerSource? = null
+    private var entryPublication: Pair<Token, MediaTransitionSessionCoordinator.Leases>? = null
     private var viewerSourceTrace: GridViewerSourceTrace? = null
     @Volatile private var viewerLaunchInProgress = false
+    private var initialFolderTop = true
     private val viewerLaunchGate = org.fossify.gallery.helpers.ViewerLaunchGate()
     private var viewerHandoffTask: java.util.concurrent.Future<*>? = null
     private val viewerHandoffDeadline = org.fossify.gallery.helpers.RefreshWatchdog()
@@ -271,6 +274,26 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var interactiveGridTarget: InteractiveGridTarget? = null
 
     private val gridPreview = object : MediaTransitionSessionCoordinator.GridPreview {
+        override fun entryFinished(token: Token) {
+            releaseEntryPublication(token)
+            albumTransitionHandler.post { releaseMediaGridPublicationIfSafe() }
+        }
+
+        override fun photoReturnTarget(token: Token, path: String): StaticPhotoReturnTarget? {
+            val request = viewerReturn?.takeIf { it.operation == token && it.path == path } ?: return null
+            val target = request.target ?: return null
+            val source = request.photoTarget ?: return null
+            return source.takeIf {
+                isViewerReturnCurrent(request) && target.position.adapter.committedVersion == target.position.version &&
+                    pixelsStillBound(target, path)
+            }?.let { StaticPhotoReturnTarget(it, target.drawable) }
+        }
+
+        private fun pixelsStillBound(target: GridReturnTarget, path: String): Boolean =
+            target.image.drawable === target.drawable &&
+                target.image.getTag(R.id.media_bound_path) == path &&
+                target.image.getTag(R.id.thumbnail_loaded_key) === target.loadedKey
+
         override fun show(token: Token, path: String) = showInteractiveGridTarget(token, path)
         override fun photoTargetIsCropped(token: Token, path: String): Boolean {
             val request = viewerReturn?.takeIf { it.operation == token && it.path == path } ?: return false
@@ -422,6 +445,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         var readiness: String? = null
         var origin: FavoritesScrollRestorer.Anchor? = null
         var target: GridReturnTarget? = null
+        var photoTarget: StaticPhotoSource? = null
         val released get() = session.state != State.RETURN_PREPARING
         var resultDelivered = false
         var transitionTerminal: String? = null
@@ -452,6 +476,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun retireViewerSourceName(source: GridViewerSource) {
         if (!source.nameOwned) return
         source.leases.release(source.entry, Resource.SOURCE_NAME)
+    }
+
+    private fun releaseEntryPublication(token: Token? = null) {
+        val owned = entryPublication ?: return
+        if (token != null && owned.first != token) return
+        entryPublication = null
+        owned.second.releaseAll()
     }
 
     private fun releaseViewerSourceLease() {
@@ -608,6 +639,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         } else {
             if (!request.session.targetReady(request.operation)) return
             request.target = target
+            request.photoTarget = measuredPhotoReturnTarget(target, request.path, request.operation)
             if (request.leases.acquire(request.operation, Resource.TARGET) { target.holder.setIsRecyclable(true) }) {
                 target.holder.setIsRecyclable(false)
             }
@@ -630,6 +662,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
         if (target == null) endViewerReturn(reason)
         else request.leases.release(request.operation, Resource.WINDOW_POSTPONE)
+    }
+
+    private fun measuredPhotoReturnTarget(
+        target: GridReturnTarget, path: String, operation: Token,
+    ): StaticPhotoSource? {
+        val medium = target.position.adapter.media.getOrNull(target.position.index) as? Medium ?: return null
+        if (medium.path != path) return null
+        val evidence = target.position.adapter.staticThumbnail(target.image) ?: return null
+        val geometry = StaticPhotoViewGeometry.read(target.image, gridPreview.toolbarBottomOnScreen(operation))
+            ?: return null
+        return StaticPhotoSource(path, medium.getSignature(), target.position.version, evidence, geometry,
+            medium.size, medium.modified, org.fossify.gallery.helpers.ViewerContentInvalidationRegistry.current(path))
     }
 
     private fun restoreViewerReturnOrigin(request: GridReturn) {
@@ -950,8 +994,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private val isMediaGridTouchScrolling: Boolean
         get() = mediaFastScrollActive || binding.mediaGrid.scrollState == RecyclerView.SCROLL_STATE_DRAGGING
 
+    private val gridTransitionHoldsPublication
+        get() = viewerReturn?.target != null || transitionSession?.entryActive == true
+
     private fun deferMediaGridPublication(stage: Int, apply: () -> Unit): Boolean {
-        if ((!isMediaGridTouchScrolling && viewerReturn?.target == null) || getMediaAdapter()?.media?.isNotEmpty() != true) return false
+        if ((!isMediaGridTouchScrolling && !gridTransitionHoldsPublication) ||
+            getMediaAdapter()?.media?.isNotEmpty() != true) return false
         if (viewerReturn?.target != null) ViewerReturnDiagnostics.event(viewerReturn?.requestId ?: 0L, "grid_publication_deferred") {
             mapOf("stage" to stage)
         }
@@ -980,6 +1028,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private fun onPhotoFastScrollStateChanged(active: Boolean) {
         if (active) {
+            initialFolderTop = false
             if (mediaFastScrollActive) return
             mediaFastScrollActive = true
             viewerReturnGeneration++
@@ -1004,7 +1053,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun releaseMediaGridPublicationIfSafe() {
-        if (isMediaGridTouchScrolling || viewerReturn?.target != null || isFinishing || isDestroyed) return
+        if (isMediaGridTouchScrolling || gridTransitionHoldsPublication || isFinishing || isDestroyed) return
         val publication = mediaGridPublication.onScrollMoving(false)
         getMediaAdapter()?.setFastScrollActive(false, submitPending = false)
         publication?.apply?.invoke()
@@ -1636,6 +1685,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        initialFolderTop = savedInstanceState?.getBoolean("initialFolderTop", false) ?: true
         // Folder navigation uses Oxygen Classic's bounded page-level animation;
         // no scan or thumbnail readiness is part of the Activity transition.
         OxygenClassicActivityMotion.install(this)
@@ -1684,6 +1734,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
         binding.mediaGrid.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                if (newState != RecyclerView.SCROLL_STATE_IDLE) initialFolderTop = false
                 if (isPhotoProfiles) {
                     if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
                         photoScroll.clear()
@@ -2153,6 +2204,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("initialFolderTop", initialFolderTop)
         if (mPath == FAVORITES) {
             rememberFavoritesScrollAnchor()
             favoritesScroll.save(outState)
@@ -2485,6 +2537,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         binding.mediaMenu.setupMenu()
 
         binding.mediaMenu.onSearchOpenListener = {
+            initialFolderTop = false
             binding.mediaRefreshLayout.isEnabled = false
         }
         binding.mediaMenu.onSearchClosedListener = {
@@ -2887,6 +2940,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
     }
 
+    private fun shouldPinInitialFolderTop(): Boolean {
+        val ordinaryFolder = mPath.startsWith('/') && !mShowAll && !isPhotoProfiles && mPath != RECYCLE_BIN
+        return ordinaryFolder && initialFolderTop && viewerReturn == null && !viewerFallbackReturning
+    }
+
     private fun getMediaAdapter() = binding.mediaGrid.adapter as? MediaAdapter
 
     private fun setupAdapter(updateReason: MediaUpdateReason = MediaUpdateReason.SCAN,
@@ -2986,7 +3044,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             }, diagnosticRequestId = request, updateReason = updateReason, effectiveSorting = effectiveSorting,
                 diagnosticTraceId = mediaDiagnostic(request)?.id,
                 diagnosticSnapshotVersion = sourceVersion,
-                diagnosticSnapshotStage = displayedFolderSnapshot?.stage?.name)
+                diagnosticSnapshotStage = displayedFolderSnapshot?.stage?.name,
+                pinToStart = ::shouldPinInitialFolderTop)
         } else {
             searchQueryChanged(mLastSearchedText, onCommitted, SearchTrigger.MEDIA_SNAPSHOT)
         }
@@ -3062,6 +3121,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun showSortingDialog() {
         val previousPhotoScope = if (isPhotoProfiles) PhotoProfileScope.capture(this, photoProfileId, photoToken()) else null
         ChangeSortingDialog(this, false, true, mPath) {
+            initialFolderTop = false
             val sortOperation = mediaSortOperations.begin()
             val startedAt = android.os.SystemClock.elapsedRealtime()
             val visibleRead = folderReadResult.takeIf { folderReadRequest == displayedMediaRequest }
@@ -3652,6 +3712,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     private fun showGroupByDialog() {
         ChangeGroupingDialog(this, mPath) {
+            initialFolderTop = false
             mLoadedInitialPhotos = false
             binding.mediaGrid.adapter = null
             getMedia()
@@ -4586,6 +4647,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun isSetWallpaperIntent() = intent.getBooleanExtra(SET_WALLPAPER_INTENT, false)
 
     private fun itemClicked(path: String) {
+        initialFolderTop = false
         if (mPath == FAVORITES && !FavoriteAccessSessionManager.isCapturedPath(favoriteSessionId, path)) {
             finish(); return
         }
@@ -4792,6 +4854,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private fun launchAdmittedViewer(ticket: Long, intent: Intent, path: String): Boolean {
         if (!viewerLaunchGate.consume(ticket)) return false
         viewerLaunchInProgress = true
+        initialFolderTop = false
         viewerLaunchOrigin = currentViewerLaunchOrigin()
         return runCatching {
             launchPhotoViewerWithSharedElement(intent, path)
@@ -4930,6 +4993,15 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 logViewerGridSource("grid_source_released")
             })
             holder.setIsRecyclable(false)
+            // The source Holder can be released at onStop before the Viewer has
+            // finished entry. Publication belongs to the entry, not to that Holder.
+            val publication = session.leases()
+            entryPublication = source.entry to publication
+            check(publication.acquire(source.entry, Resource.PUBLICATION) {
+                adapter.setViewerReturnPublicationHeld(false)
+                albumTransitionHandler.post { releaseMediaGridPublicationIfSafe() }
+            })
+            adapter.setViewerReturnPublicationHeld(true)
             check(source.leases.acquire(source.entry, Resource.SOURCE_NAME) {
                 source.nameOwned = false
                 source.nameTimeout?.let(albumTransitionHandler::removeCallbacks)
@@ -5104,6 +5176,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     }
 
     private fun retireTransitionSession(reason: String) {
+        releaseEntryPublication()
         val session = transitionSession ?: return
         transitionSession = null
         gridEntryPixels = null
@@ -5557,6 +5630,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     if (!isFromCache) logMediaPage(request, "media_final_commit", "count=${media.size}")
                     if (!isFromCache) setMediaLoading(false)
                     displayedMediaIsFinal = !isFromCache && outcome.complete
+                    if (displayedMediaIsFinal) initialFolderTop = false
                     if (GalleryDiagnosticLogger.isEnabled()) FolderRefreshDiagnostics.event(request, "adapter_committed",
                         detail = "count=${getMediaAdapter()?.itemCount ?: 0} final=$displayedMediaIsFinal")
                     if (isFromCache && media.isNotEmpty() && completedMediaRequest != request) setMediaLoading(true)

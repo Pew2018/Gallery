@@ -11,6 +11,7 @@ import org.fossify.gallery.helpers.GalleryListDiffExecutor
 import org.fossify.gallery.helpers.MediaUpdatePolicy
 import org.fossify.gallery.helpers.MediaUpdateReason
 import org.fossify.gallery.helpers.MediaThumbnailPriorityPolicy
+import androidx.core.view.doOnNextLayout
 import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
@@ -733,6 +734,7 @@ class MediaAdapter(
 
     @Volatile private var diffGeneration = 0
     private val refreshScroll = FavoritesScrollRestorer()
+    private var initialTopLayoutPending = false
     private data class PendingUpdate(
         val items: ArrayList<ThumbnailItem>, val preserveScroll: Boolean,
         val current: () -> Boolean, val committed: () -> Unit, val generation: Int,
@@ -741,6 +743,7 @@ class MediaAdapter(
         val snapshotVersion: Long?, val snapshotStage: String?, val forceReplace: Boolean = false,
         val diagnosticSubmission: AdapterSubmission? = null,
         val preparedDiff: PreparedDiff? = null,
+        val pinToStart: () -> Boolean = { false },
     )
     private data class PreparedDiff(
         val result: DiffUtil.DiffResult, val oldCount: Int, val elapsedMs: Long, val finishedAt: Long,
@@ -759,6 +762,7 @@ class MediaAdapter(
         }
 
         override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+            if (newState != RecyclerView.SCROLL_STATE_IDLE) cancelInitialTopLayout()
             if (newState == RecyclerView.SCROLL_STATE_DRAGGING) refreshScroll.clear()
             if (newState != RecyclerView.SCROLL_STATE_DRAGGING) {
                 recyclerView.removeCallbacks(drainUpdates)
@@ -794,7 +798,7 @@ class MediaAdapter(
                     diagnosticRequestId: Long? = null, updateReason: MediaUpdateReason = MediaUpdateReason.SCAN,
                     effectiveSorting: Int = config.getFolderSorting(if (config.showAll) SHOW_ALL else path),
                     diagnosticSnapshotVersion: Long? = null, diagnosticSnapshotStage: String? = null,
-                    diagnosticTraceId: Long? = null) {
+                    diagnosticTraceId: Long? = null, pinToStart: () -> Boolean = { false }) {
         if (!isCurrent()) {
             if (GalleryDiagnosticLogger.isEnabled()) GalleryDiagnosticLogger.event(
                 DiagnosticLevel.DEBUG, "MediaUI", "adapter_update_skipped", diagnosticTraceId,
@@ -820,7 +824,7 @@ class MediaAdapter(
         pendingUpdate = PendingUpdate(snapshot(newMedia), preserveScroll, isCurrent, onCommitted, ++diffGeneration,
             diagnosticRequestId, diagnosticsEnabled, updateReason, effectiveSorting,
             android.os.SystemClock.elapsedRealtime(),
-            diagnosticSnapshotVersion, diagnosticSnapshotStage,
+            diagnosticSnapshotVersion, diagnosticSnapshotStage, pinToStart = pinToStart,
             diagnosticSubmission = if (diagnosticsEnabled) AdapterSubmission(
                 diagnosticId(), diffGeneration, diagnosticTraceId
             ) else null)
@@ -1072,6 +1076,7 @@ class MediaAdapter(
                     "active" to active, "scrollState" to recyclerView.scrollState))
         }
         if (active) {
+            cancelInitialTopLayout()
             refreshScroll.clear()
             recyclerView.removeCallbacks(drainUpdates)
             thumbAdmissionAfterLayout?.removeListener()
@@ -1142,7 +1147,7 @@ class MediaAdapter(
     internal fun clearRefreshScroll() = refreshScroll.clear()
 
     private fun rememberRefreshScroll(pending: PendingUpdate) {
-        if (!pending.preserveScroll || pending.reason == MediaUpdateReason.USER_SORT) {
+        if (pending.pinToStart() || !pending.preserveScroll || pending.reason == MediaUpdateReason.USER_SORT) {
             refreshScroll.clear()
             return
         }
@@ -1153,7 +1158,23 @@ class MediaAdapter(
             allowFling = permitsFlingCommit(pending))
     }
 
+    private fun cancelInitialTopLayout() {
+        if (!initialTopLayoutPending) return
+        initialTopLayoutPending = false
+        (recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager)
+            ?.scrollToPosition(RecyclerView.NO_POSITION)
+    }
+
     private fun restoreRefreshScroll(pending: PendingUpdate) {
+        if (pending.pinToStart() && canCommit(pending)) {
+            refreshScroll.clear()
+            (recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager)?.let { manager ->
+                manager.scrollToPositionWithOffset(0, 0)
+                initialTopLayoutPending = true
+                recyclerView.doOnNextLayout { initialTopLayoutPending = false }
+            }
+            return
+        }
         if (refreshScroll.pending == null) return
         if (!pending.preserveScroll || pending.reason == MediaUpdateReason.USER_SORT) {
             refreshScroll.clear()

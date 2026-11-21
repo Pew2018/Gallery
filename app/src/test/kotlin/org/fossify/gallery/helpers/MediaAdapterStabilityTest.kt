@@ -209,6 +209,12 @@ class MediaAdapterStabilityTest {
             return lease.javaClass.getDeclaredField("nameTimeout").apply { isAccessible = true }.get(lease) as Runnable
         }
 
+        fun completeEntry() {
+            val current = requireNotNull(session)
+            check(current.entryFinished(current.entry, withoutSharedEntry = true))
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+        }
+
         fun launch(path: String) {
             val intent = Intent(activity, org.fossify.gallery.activities.ViewPagerActivity::class.java)
             type.getDeclaredMethod("launchPhotoViewerWithSharedElement", Intent::class.java, String::class.java)
@@ -634,6 +640,8 @@ class MediaAdapterStabilityTest {
         assertEquals(a.path, photoScroll.pending?.path)
         fixture.thumbnail(0, a.path)
         fixture.launch(a.path)
+        // This case tests publication while viewing, after the entry has released its source.
+        fixture.completeEntry()
         fixture.adapter.updateMedia(ArrayList<ThumbnailItem>(partial))
         drain(fixture.tasks)
         fixture.layout()
@@ -1578,5 +1586,85 @@ class MediaAdapterStabilityTest {
         assertSame(displayed, image.drawable)
         adapter.onViewRecycled(holder)
         assertNull(image.getTag(R.id.thumbnail_request_key))
+    }
+
+    @Test fun untouchedInitialLoadPinsNewEarlierRowsUntilUserIntentChanges() = withAdapter { adapter, recycler, tasks ->
+        val manager = recycler.layoutManager as LinearLayoutManager
+        fun frame() {
+            recycler.measure(View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY))
+            recycler.layout(0, 0, 480, 600)
+            recycler.viewTreeObserver.dispatchOnPreDraw()
+        }
+        val preview = ArrayList<ThumbnailItem>((0 until 20).map { item("old-$it.jpg") })
+        adapter.updateMedia(preview, preserveScroll = false)
+        drain(tasks)
+        frame()
+        var untouched = true
+        val finalRows = ArrayList<ThumbnailItem>((0 until 3).map { item("earlier-$it.jpg") } + preview)
+        adapter.updateMedia(finalRows, diagnosticSnapshotStage = "SCAN_COMPLETE", pinToStart = { untouched })
+        drain(tasks)
+        repeat(3) { frame() }
+        assertEquals("new sorted predecessors belong on screen", 0, manager.findFirstVisibleItemPosition())
+        manager.scrollToPositionWithOffset(6, 0)
+        frame()
+        untouched = false
+        val before = (adapter.media[manager.findFirstVisibleItemPosition()] as Medium).path
+        adapter.updateMedia(ArrayList(listOf(item("new.jpg")) + finalRows), pinToStart = { untouched })
+        drain(tasks)
+        repeat(3) { frame() }
+        assertEquals("a user scroll supersedes the entry top intent", before,
+            (adapter.media[manager.findFirstVisibleItemPosition()] as Medium).path)
+    }
+
+    @Test fun initialSourceRemainsStableUntilTheViewerFinishesEntry() {
+        val rows = List(30) { item("source-$it.jpg") }
+        val fixture = ReturnGridFixture(rows, columns = 2)
+        fixture.thumbnail(0, rows[0].path)
+        fixture.launch(rows[0].path)
+        // onStop releases the source Holder before the Viewer necessarily finishes entry.
+        fixture.type.getDeclaredMethod("releaseViewerSourceLease").apply { isAccessible = true }
+            .invoke(fixture.activity)
+        val version = fixture.adapter.committedVersion
+        val complete = ArrayList<ThumbnailItem>(List(300) { item("new-$it.jpg") } + rows)
+        fixture.adapter.updateMedia(complete)
+        drain(fixture.tasks)
+        assertEquals("entry must keep its exact source catalog", version, fixture.adapter.committedVersion)
+        fixture.completeEntry()
+        drain(fixture.tasks)
+        fixture.layout()
+        assertEquals(complete, fixture.adapter.media)
+        assertEquals(version + 1, fixture.adapter.committedVersion)
+    }
+
+    @Test fun userScrollCancelsAnInitialTopOffsetAlreadyQueuedForLayout() = verifyQueuedTopCancellation(false)
+
+    @Test fun fastScrollCancelsAnInitialTopOffsetWhileRecyclerRemainsIdle() = verifyQueuedTopCancellation(true)
+
+    private fun verifyQueuedTopCancellation(fastScroll: Boolean) = withAdapter { adapter, recycler, tasks ->
+        val manager = recycler.layoutManager as LinearLayoutManager
+        val rows = ArrayList<ThumbnailItem>((0 until 40).map { item("row-$it.jpg") })
+        adapter.updateMedia(rows, preserveScroll = false)
+        drain(tasks)
+        fun frame() {
+            recycler.measure(View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY))
+            recycler.layout(0, 0, 480, 600)
+            recycler.viewTreeObserver.dispatchOnPreDraw()
+        }
+        frame()
+        manager.scrollToPositionWithOffset(10, 0)
+        frame()
+        // A pure SCAN reorder commits synchronously; do not drain the Looper,
+        // which would consume the requested layout before the simulated gesture.
+        adapter.updateMedia(ArrayList(rows.asReversed()), pinToStart = { true })
+        val pending = MediaAdapter::class.java.getDeclaredField("initialTopLayoutPending").apply { isAccessible = true }
+        assertTrue("the zero offset must still be awaiting layout", pending.getBoolean(adapter))
+        val scroll = MediaAdapter::class.java.getDeclaredField("scrollUpdates").apply { isAccessible = true }
+            .get(adapter) as RecyclerView.OnScrollListener
+        if (fastScroll) adapter.setFastScrollActive(true)
+        else scroll.onScrollStateChanged(recycler, RecyclerView.SCROLL_STATE_DRAGGING)
+        frame()
+        assertTrue("a new gesture must retire the queued zero offset", manager.findFirstVisibleItemPosition() > 0)
     }
 }

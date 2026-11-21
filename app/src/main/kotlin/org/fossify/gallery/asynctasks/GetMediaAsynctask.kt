@@ -275,8 +275,9 @@ internal class GetMediaAsynctask(
             }
             mediaFetcher.queryPageIndex(isPickImage, isPickVideo, favoritePaths, dateTakens,
                 if (showAll) null else setOf(mPath)) { item ->
-                if (progressivePage && !published && visibility.allowsIndexedFile(item.path)) {
-                    preview.putIfAbsent(item.path, item)
+                if (progressivePage && !published) {
+                    val verified = visibility.checkedIndexedFile(item)
+                    if (verified != null) preview.putIfAbsent(item.path, verified)
                     if (preview.size >= pagePreviewTarget || android.os.SystemClock.elapsedRealtime() - started >= 150L) {
                         publishIndex()
                     }
@@ -284,6 +285,11 @@ internal class GetMediaAsynctask(
             }?.also {
                 indexAvailable = true
                 publishIndex()
+                if (progressivePage) {
+                    val refined = IndexedMediaViewport.select(it.values.flatten(), folderSorting,
+                        mediaFetcher, visibility, pagePreviewTarget) { !isCancelled && !mediaFetcher.shouldStop }
+                    if (refined.isNotEmpty()) deliver(DisplayedSourceStage.INDEX_PREVIEW, refined) { true }
+                }
             } ?: hashMapOf()
         } else null
 

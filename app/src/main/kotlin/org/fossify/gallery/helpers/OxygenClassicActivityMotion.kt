@@ -31,7 +31,7 @@ object OxygenClassicActivityMotion {
         }
     }
 
-    fun mediaTransition(
+    internal fun mediaTransition(
         durationMs: Long,
         onEnd: (() -> Unit)? = null,
         onProgress: ((Float) -> Unit)? = null,
@@ -40,6 +40,7 @@ object OxygenClassicActivityMotion {
         cropMediaToBounds: Boolean = false,
         forceMediaCropToBounds: (() -> Boolean)? = null,
         staticPhotoEntry: Boolean = false,
+        photoReturnTarget: (() -> StaticPhotoReturnTarget?)? = null,
     ): android.transition.Transition =
         android.transition.TransitionSet().apply {
             ordering = android.transition.TransitionSet.ORDERING_TOGETHER
@@ -49,7 +50,8 @@ object OxygenClassicActivityMotion {
             addTransition(android.transition.ChangeTransform())
             addTransition(when {
                 staticPhotoEntry -> StaticPhotoEntryTransform()
-                cropMediaToBounds && Build.VERSION.SDK_INT >= 29 -> MediaReturnCrop(forceMediaCropToBounds)
+                cropMediaToBounds && Build.VERSION.SDK_INT >= 29 ->
+                    MediaReturnCrop(forceMediaCropToBounds, photoReturnTarget)
                 else -> ChangeImageTransform()
             })
             if (onProgress != null) addTransition(SharedElementProgress(durationMs, onProgress))
@@ -102,10 +104,16 @@ object OxygenClassicActivityMotion {
     }
 
     @androidx.annotation.RequiresApi(29)
-    private class MediaReturnCrop(private val forceCrop: (() -> Boolean)?) : ChangeImageTransform() {
+    private class MediaReturnCrop(
+        private val forceCrop: (() -> Boolean)?,
+        private val photoTarget: (() -> StaticPhotoReturnTarget?)?,
+    ) : ChangeImageTransform() {
         override fun captureStartValues(transitionValues: TransitionValues) {
             super.captureStartValues(transitionValues)
             captureViewport(transitionValues)
+            (transitionValues.view as? MeasuredPhotoReturnView)?.let { proxy ->
+                StaticPhotoViewGeometry.read(proxy)?.let { transitionValues.values[PHOTO_START] = it }
+            }
         }
 
         override fun captureEndValues(transitionValues: TransitionValues) {
@@ -126,6 +134,16 @@ object OxygenClassicActivityMotion {
             startValues: TransitionValues?,
             endValues: TransitionValues?,
         ): android.animation.Animator? {
+            val photo = endValues?.view as? MeasuredPhotoReturnView
+            val origin = startValues?.values?.get(PHOTO_START) as? PhotoViewGeometry
+            val destination = photoTarget?.invoke()
+            if (photo != null && origin != null && destination != null) {
+                if (photo.prepare(origin, destination)) {
+                    return ValueAnimator.ofFloat(0f, 1f).apply {
+                        addUpdateListener { photo.showFrame(it.animatedValue as Float) }
+                    }
+                }
+            }
             val start = startValues?.values?.get(VIEWPORT) as? Point
             val end = endValues?.values?.get(VIEWPORT) as? Point
             val image = endValues?.view as? ImageView
@@ -153,6 +171,7 @@ object OxygenClassicActivityMotion {
 
         private companion object {
             const val VIEWPORT = "gallery_video_return_viewport"
+            const val PHOTO_START = "gallery:photoReturn:start"
         }
     }
 

@@ -144,4 +144,22 @@ class MediaPagePreviewTest {
         modified = (20 - id).toLong()
         size = id.toLong()
     }
+
+    @Test fun verifiedIndexPreviewUsesTheSamePhysicalSignatureAsTheLiveScan() {
+        val context = RuntimeEnvironment.getApplication()
+        val root = java.nio.file.Files.createTempDirectory("verified-preview").toFile()
+        try {
+            val file = java.io.File(root, "image.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+            file.setLastModified(1_700_000_000_321L)
+            val indexed = medium(1).copy(path = file.path, parentPath = root.path,
+                modified = 1_700_000_000_000L, size = 999L, takenIsFallback = true)
+            val checked = MediaPageVisibility(context, false) { true }.checkedIndexedFile(indexed)!!
+            assertEquals(file.lastModified(), checked.modified)
+            assertEquals(file.length(), checked.size)
+            assertEquals(checked.modified, checked.taken)
+            val live = indexed.copy(modified = file.lastModified(), size = file.length())
+            assertEquals(live.getSignature(), checked.getSignature())
+            assertEquals(1_700_000_000_000L, indexed.modified)
+        } finally { root.deleteRecursively() }
+    }
 }

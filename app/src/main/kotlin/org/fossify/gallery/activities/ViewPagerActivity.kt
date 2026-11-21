@@ -1445,6 +1445,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 if (transitionSession.isReturning(operation)) ViewerReturnDiagnostics.event(viewerReturnId, "viewer_transition_start")
             },
             cropMediaToBounds = page is VideoFragment || page is PhotoFragment,
+            photoReturnTarget = { transitionSession.photoReturnTarget(operation, returnPath) },
             forceMediaCropToBounds = {
                 page is PhotoFragment && transitionSession.photoTargetIsCropped(operation, returnPath)
             },

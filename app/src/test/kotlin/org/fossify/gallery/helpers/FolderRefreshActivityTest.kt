@@ -412,6 +412,52 @@ class FolderRefreshActivityTest {
         } finally { release.countDown() }
     }
 
+    @Test fun firstEntryTopIntentIsSavedAndConsumedByNavigation() = withActivity { activity ->
+        val intent = field(activity, "initialFolderTop")
+        intent.setBoolean(activity, true)
+        val save = MediaActivity::class.java.getDeclaredMethod("onSaveInstanceState", Bundle::class.java)
+            .apply { isAccessible = true }
+        val untouched = Bundle()
+        save.invoke(activity, untouched)
+        assertTrue(untouched.getBoolean("initialFolderTop"))
+        intent.setBoolean(activity, false)
+        val navigated = Bundle()
+        save.invoke(activity, navigated)
+        assertFalse(navigated.getBoolean("initialFolderTop"))
+    }
+
+    @Test fun fullIndexRefinesTheSortedViewportBeforeSlowDirectoryEnumeration() {
+        File(root, ".nomedia").delete()
+        val zeta = photo("zeta.jpg")
+        val alpha = photo("alpha.jpg")
+        context.config.saveCustomSorting(SHOW_ALL, org.fossify.commons.helpers.SORT_BY_NAME)
+        listOf(zeta, alpha).forEach { provider.add(it.path) }
+        val blocked = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val previews = arrayListOf<MediaPageBatch>()
+        val task = org.fossify.gallery.asynctasks.GetMediaAsynctask(context, "", showAll = true,
+            pagePreviewTarget = 1, onPagePreview = { previews.add(it) }) { }
+        val fetcherField = task.javaClass.getDeclaredField("mediaFetcher").apply { isAccessible = true }
+        val fetcher = fetcherField.get(task) as MediaFetcher
+        fetcher.folderFileAccess = object : FolderFileAccess {
+            override fun enumerate(folder: String): FolderEnumeration {
+                if (folder != root.path) return FolderEnumeration(emptyList())
+                blocked.countDown()
+                check(release.await(10, TimeUnit.SECONDS))
+                return FolderEnumeration(listOf(zeta, alpha))
+            }
+            override fun metadata(file: File) = FolderFileMetadata(file.length(), file.lastModified(), true, true)
+        }
+        try {
+            task.executeOnExecutor(GalleryMediaScanExecutor)
+            assertTrue(blocked.await(5, TimeUnit.SECONDS))
+            await { previews.size >= 2 }
+            assertEquals(listOf(zeta.path), previews.first().rows.map { it.path })
+            assertEquals(listOf(alpha.path), previews.last().rows.map { it.path })
+            assertEquals(DisplayedSourceStage.INDEX_PREVIEW, previews.last().stage)
+        } finally { release.countDown(); task.stopFetching() }
+    }
+
     @Test fun allFilesIndexPublishesBeforeBlockedDiskReadAndExcludesHiddenAndProtectedRows() {
         File(root, ".nomedia").delete()
         val indexed = photo("indexed.jpg")

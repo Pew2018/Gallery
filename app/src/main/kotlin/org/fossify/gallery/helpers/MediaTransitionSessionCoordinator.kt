@@ -21,6 +21,8 @@ internal class MediaTransitionSessionCoordinator(
     interface GridPreview {
         fun show(token: Token, path: String)
         fun release(token: Token)
+        fun entryFinished(token: Token) = Unit
+        fun photoReturnTarget(token: Token, path: String): StaticPhotoReturnTarget? = null
         fun toolbarBottomOnScreen(token: Token): Int? = null
         fun photoTargetIsCropped(token: Token, path: String): Boolean = false
     }
@@ -103,6 +105,9 @@ internal class MediaTransitionSessionCoordinator(
     fun photoTargetIsCropped(token: Token, path: String): Boolean =
         valid(token, State.RETURN_PREPARING, State.RETURNING) &&
             gridPreview?.get()?.photoTargetIsCropped(token, path) == true
+
+    fun photoReturnTarget(token: Token, path: String): StaticPhotoReturnTarget? =
+        if (valid(token, State.RETURNING)) gridPreview?.get()?.photoReturnTarget(token, path) else null
 
     fun gridPreviewEvent(token: Token, detail: String) {
         emit("grid_interactive_preview", token, detail)
@@ -260,7 +265,9 @@ internal class MediaTransitionSessionCoordinator(
 
     private fun change(to: State, token: Token) {
         val from = state
+        val wasEntry = entryActive
         state = to
+        if (wasEntry && !entryActive) gridPreview?.get()?.entryFinished(entry)
         if (!entryActive) {
             staticPhotoSource = null
             staticPhotoSourceConfirmed = false

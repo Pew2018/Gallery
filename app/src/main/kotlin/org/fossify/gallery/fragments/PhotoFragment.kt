@@ -259,8 +259,16 @@ class PhotoFragment : ViewPagerFragment() {
             tileBounds
         } else gestureBounds
         val surface = sharedSurface ?: MediaSharedSurface(binding.root).also { sharedSurface = it }
-        return surface.prepare(drawable, bounds, binding.gesturesView, binding.subsamplingView, deferTakeover = deferTakeover)
+        return surface.prepare(drawable, bounds, binding.gesturesView, binding.subsamplingView,
+            deferTakeover = deferTakeover,
+            photoHeader = sharedPhotoHeader(drawable))
             ?.also { if (deferTakeover) sharedEntryImageGeneration = imageRequestGeneration }
+    }
+
+    private fun sharedPhotoHeader(drawable: Drawable): StaticPhotoHeader? {
+        if (mIsSubsamplingVisible || drawable !is BitmapDrawable) return null
+        if (staticGlideGeneration != imageRequestGeneration) return null
+        return staticPhotoHeader?.takeIf { it.first == getFilePathToShow() }?.second
     }
 
     internal fun clearSharedEntrySurface() {

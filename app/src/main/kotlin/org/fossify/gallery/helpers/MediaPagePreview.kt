@@ -83,6 +83,26 @@ internal class StagedMediaOrder(private val seed: Long = Random.nextLong()) {
     }
 }
 
+/** One sorted, physically verified viewport after the complete index becomes available. */
+internal object IndexedMediaViewport {
+    private const val REFINEMENT_BUDGET_MS = 150L
+
+    fun select(
+        rows: List<Medium>, sorting: Int, fetcher: MediaFetcher, visibility: MediaPageVisibility,
+        target: Int, current: () -> Boolean,
+    ): List<Medium> {
+        if (sorting and SORT_BY_RANDOM != 0) return emptyList()
+        val ordered = CachedMediaPreviewOrder.order(rows, sorting, fetcher).iterator()
+        val result = ArrayList<Medium>()
+        val deadline = android.os.SystemClock.elapsedRealtime() + REFINEMENT_BUDGET_MS
+        fun available() = current() && android.os.SystemClock.elapsedRealtime() < deadline
+        while (ordered.hasNext() && result.size < target.coerceAtLeast(1) && available()) {
+            visibility.checkedIndexedFile(ordered.next())?.let(result::add)
+        }
+        return result
+    }
+}
+
 /** Indexed and cached rows must obey the same folder visibility rules as the grid. */
 internal class MediaPageVisibility(
     private val context: Context,
@@ -111,18 +131,28 @@ internal class MediaPageVisibility(
         }
     }
 
-    fun allowsIndexedFile(path: String): Boolean {
+    fun allowsIndexedFile(path: String): Boolean = indexedAttributes(path) != null
+
+    /** Reuse the physical check already required for a preview, including precise mtime. */
+    fun checkedIndexedFile(item: Medium): Medium? = indexedAttributes(item.path)?.let { attributes ->
+        val modified = attributes.lastModifiedTime().toMillis()
+        item.copy(modified = modified, size = attributes.size(),
+            taken = if (item.takenIsFallback) modified else item.taken)
+    }
+
+    private fun indexedAttributes(path: String): java.nio.file.attribute.BasicFileAttributes? {
         val file = File(path)
-        val folder = file.parent ?: return false
-        return allows(path) && unrestrictedFolders.getOrPut(folder) {
+        val folder = file.parent ?: return null
+        if (!allows(path) || !unrestrictedFolders.getOrPut(folder) {
             !context.isRestrictedWithSAFSdk30(folder)
-        } && runCatching {
+        }) return null
+        return runCatching {
             val attributes = java.nio.file.Files.readAttributes(
                 file.toPath(), java.nio.file.attribute.BasicFileAttributes::class.java,
                 java.nio.file.LinkOption.NOFOLLOW_LINKS
             )
-            attributes.isRegularFile && attributes.size() > 0 && file.canRead()
-        }.getOrDefault(false)
+            attributes.takeIf { it.isRegularFile && it.size() > 0 && file.canRead() }
+        }.getOrNull()
     }
 }
 

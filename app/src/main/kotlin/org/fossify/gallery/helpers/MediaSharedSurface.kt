@@ -26,13 +26,15 @@ internal class MediaSharedSurface(private val parent: RelativeLayout) {
         bounds: RectF,
         vararg renderedViews: View,
         deferTakeover: Boolean = false,
+        photoHeader: StaticPhotoHeader? = null,
     ): ImageView? {
         currentView?.let {
             if (!deferTakeover) takeOver(it)
             return it
         }
         if (!MediaTransitionGeometry.isUsable(bounds) || !parent.isAttachedToWindow) return null
-        val proxy = ImageView(parent.context).apply {
+        val proxy = (photoHeader?.let { MeasuredPhotoReturnView(parent.context, it) }
+            ?: ImageView(parent.context)).apply {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             // Android also applies this ScaleType to the grid drawable during
             // reenter. Center crop keeps even an already-cropped bitmap uniform.
@@ -103,6 +105,7 @@ internal class MediaSharedSurface(private val parent: RelativeLayout) {
         currentView = null
         proxy?.let {
             (it as? StaticPhotoEntryView)?.dispose()
+            (it as? MeasuredPhotoReturnView)?.dispose()
             it.transitionName = null
             it.animate().cancel()
             it.setLayerType(View.LAYER_TYPE_NONE, null)
