@@ -192,7 +192,8 @@ class SettingsActivity : SimpleActivity() {
         setupSettingItems()
         setupBottomNavigationOrder()
         setupSettingsHub()
-        settingsBackCallback.isEnabled = activeSettingsCategory != null
+        settingsBackCallback.isEnabled =
+            org.fossify.gallery.helpers.BackStepPolicy.settingsOwnsBackStep(activeSettingsCategory != null)
         restoreSettingsScroll(resumeY)
         if (intent.getBooleanExtra(MANAGE_FAVORITE_PASSWORD, false)) {
             intent.removeExtra(MANAGE_FAVORITE_PASSWORD)

@@ -596,6 +596,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         super.onResume()
         updateMenuColors()
         GalleryBottomBar.recolor(this)
+        syncAppBackStep()
         config.isThirdPartyIntent = false
         mDateFormat = config.dateFormat
         mTimeFormat = getTimeFormat()
@@ -698,6 +699,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
 
     override fun onStop() {
         super.onStop()
+        // Leaving through the root back no longer runs the callback, so the lock is
+        // applied here. A bottom bar switch retires this page instead of leaving the app.
+        if (isFinishing && !isChangingConfigurations && !GalleryBottomBar.isRetiringRoot(this)) {
+            appLockManager.lock()
+        }
         if (!mShowingFolderFavorites) retireDirectoryScan()
         favoriteViewForeground = false
         if (mShowingFolderFavorites) {
@@ -756,6 +762,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     override fun onBackPressedCompat(): Boolean {
         return if (binding.mainMenu.isSearchOpen) {
             OxygenSearchNavigation.closeInlineSearch(this, binding.mainMenu)
+            syncAppBackStep()
             true
         } else if (config.groupDirectSubfolders) {
             if (mCurrentPathPrefix.isEmpty()) {
@@ -767,12 +774,28 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 setupAdapter(mDirs, onCommitted = {
                     GalleryEntryMotion.enter(binding.directoriesGrid, forward = false)
                 })
+                syncAppBackStep()
                 true
             }
         } else {
             appLockManager.lock()
             false
         }
+    }
+
+    /**
+     * The Albums tab root owns no in-app back step: nothing is enabled, so the system
+     * hands the gesture its own predictive exit preview instead of a stuck callback.
+     */
+    private fun syncAppBackStep() {
+        if (isFinishing || isDestroyed) return
+        setAppBackStepAvailable(
+            org.fossify.gallery.helpers.BackStepPolicy.albumsOwnsBackStep(
+                searchOpen = binding.mainMenu.isSearchOpen,
+                groupedSubfolders = config.groupDirectSubfolders,
+                openedSubfolders = mOpenedSubfolders.size,
+            )
+        )
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, resultData: Intent?) {
@@ -863,9 +886,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                 org.fossify.gallery.helpers.SearchRefreshPolicy.isRefreshEnabled(
                     binding.mainMenu.isSearchOpen, binding.mainMenu.getCurrentQuery()
                 )
+            syncAppBackStep()
         }
 
         binding.mainMenu.onSearchOpenListener = {
+            syncAppBackStep()
             binding.directoriesRefreshLayout.isEnabled = false
             // Favorites always searches its own folder scope; never silently
             // switch to the global all-files search Activity.
@@ -2960,6 +2985,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                                     binding.directoriesGrid.stopScroll()
                                     mCurrentPathPrefix = clicked.path
                                     mOpenedSubfolders.add(clicked.path)
+                                    syncAppBackStep()
                                     setupAdapter(mDirs, "", onCommitted = {
                                         GalleryEntryMotion.enter(binding.directoriesGrid, forward = true)
                                     })

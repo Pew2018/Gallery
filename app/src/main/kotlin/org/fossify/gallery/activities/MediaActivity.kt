@@ -1872,6 +1872,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         super.onResume()
         if (viewerResultDelivered) releaseViewerSourceLease()
         clearRevokedMediaPage()
+        syncAppBackStep()
         if (mPath == FAVORITES && favoritesReturnCover?.covering == true) showFavoritesReturnCover()
         updateMenuColors()
         mediaHeaderProgress?.let { OxygenProgressStyle.apply(this, config, it) }
@@ -2105,6 +2106,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     override fun onStop() {
         if (retainedFolderScan == null) mediaRefreshWatchdog.stop()
         super.onStop()
+        // A root back finishes without a callback now, so the scope is released here.
+        // A bottom bar switch retires this page instead of leaving the app.
+        if (isFinishing && !isChangingConfigurations && !GalleryBottomBar.isRetiringRoot(this)) {
+            releaseFolderBackScope()
+        }
         // Activity.onStop has reset the exit coordinator, including its captured view's alpha.
         releaseViewerSourceLease()
         if (isPhotoProfiles && !photoViewerTransition) {
@@ -2298,17 +2304,33 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     override fun onBackPressedCompat(): Boolean {
         return if (binding.mediaMenu.isSearchOpen) {
             OxygenSearchNavigation.closeInlineSearch(this, binding.mediaMenu)
+            syncAppBackStep()
             true
         } else {
-            if (mGallerySection != null && mPath != FAVORITES) {
-                appLockManager.lock()
-            }
-            if (mPath == FAVORITES) {
-                favoriteAuthGeneration++
-                FavoriteAccessSessionManager.revokeSession(favoriteSessionId)
-            }
-
+            releaseFolderBackScope()
             false
+        }
+    }
+
+    /**
+     * The folder, Photos and Favorites roots own no in-app back step, so the callback
+     * stays disabled and the system runs its own predictive exit preview.
+     */
+    private fun syncAppBackStep() {
+        if (isFinishing || isDestroyed) return
+        setAppBackStepAvailable(
+            org.fossify.gallery.helpers.BackStepPolicy.mediaOwnsBackStep(binding.mediaMenu.isSearchOpen)
+        )
+    }
+
+    /** Session cleanup that used to ride on the back callback above. */
+    private fun releaseFolderBackScope() {
+        if (mGallerySection != null && mPath != FAVORITES) {
+            appLockManager.lock()
+        }
+        if (mPath == FAVORITES) {
+            favoriteAuthGeneration++
+            FavoriteAccessSessionManager.revokeSession(favoriteSessionId)
         }
     }
 
@@ -2539,12 +2561,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         binding.mediaMenu.onSearchOpenListener = {
             initialFolderTop = false
             binding.mediaRefreshLayout.isEnabled = false
+            syncAppBackStep()
         }
         binding.mediaMenu.onSearchClosedListener = {
             binding.mediaRefreshLayout.isEnabled =
                 org.fossify.gallery.helpers.SearchRefreshPolicy.isRefreshEnabled(
                     binding.mediaMenu.isSearchOpen, binding.mediaMenu.getCurrentQuery()
                 )
+            syncAppBackStep()
         }
 
         binding.mediaMenu.onSearchTextChangedListener = { text ->

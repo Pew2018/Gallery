@@ -45,6 +45,7 @@
         android:name="org.fossify.gallery.App"
         android:allowBackup="false"
         android:appCategory="image"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_launcher_name"
         android:requestLegacyExternalStorage="true"
@@ -120,7 +121,6 @@
         <activity
             android:name=".activities.ViewPagerActivity"
             android:configChanges="orientation|keyboardHidden|screenSize"
-            android:enableOnBackInvokedCallback="true"
             android:exported="true"
             android:parentActivityName=".activities.MediaActivity"
             android:theme="@style/GalleryViewerTransitionTheme">

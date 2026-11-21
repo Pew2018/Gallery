@@ -78,6 +78,21 @@ open class SimpleActivity : BaseSimpleActivity() {
         inflatedTheme = OxygenThemeEngine.snapshot(this, config)
         inflatedAppearance = config.oxygenThemeActivated to config.oxygenAppearanceMode
         restoredThemeState = savedInstanceState
+        // Commons registers one permanently enabled back callback for every page.
+        // Pages that have no in-app step must drop it: an enabled callback takes the
+        // gesture away from the system and suppresses its predictive exit preview.
+        // Pages that do own a step re-enable it through [setAppBackStepAvailable].
+        setAppBackStepAvailable(false)
+    }
+
+    /**
+     * True only while this page still has an in-app back step it must animate itself
+     * (inline search, nested folder, unsaved edits, the Viewer's own return).
+     * Every other page leaves back to the system so the predictive exit/return
+     * preview is the only motion on screen.
+     */
+    protected fun setAppBackStepAvailable(available: Boolean) {
+        setBackHandlingEnabled(available)
     }
 
     override fun onSupportActionModeStarted(mode: androidx.appcompat.view.ActionMode) {
