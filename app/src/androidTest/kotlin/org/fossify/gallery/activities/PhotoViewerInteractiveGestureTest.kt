@@ -2730,7 +2730,7 @@ class PhotoViewerInteractiveGestureTest {
                 val session = sessionField.get(activity)
                     ?: error("viewer has no transition Session")
                 return session.javaClass.getDeclaredField(name)
-                    .apply { isAccessible = true }.get(session).toString()
+                    .apply { isAccessible = true }.get(session)?.toString() ?: "null"
             }
 
             fun openViewer(): ViewPagerActivity {
@@ -2907,7 +2907,7 @@ class PhotoViewerInteractiveGestureTest {
                 val session = sessionField.get(activity)
                     ?: error("viewer has no transition Session")
                 return session.javaClass.getDeclaredField(name)
-                    .apply { isAccessible = true }.get(session).toString()
+                    .apply { isAccessible = true }.get(session)?.toString() ?: "null"
             }
 
             awaitSourceThumbnail(instrumentation, grid, path)
@@ -3071,7 +3071,7 @@ class PhotoViewerInteractiveGestureTest {
                 val session = sessionField.get(activity)
                     ?: error("viewer has no transition Session")
                 return session.javaClass.getDeclaredField(name)
-                    .apply { isAccessible = true }.get(session).toString()
+                    .apply { isAccessible = true }.get(session)?.toString() ?: "null"
             }
 
             val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
@@ -3114,6 +3114,207 @@ class PhotoViewerInteractiveGestureTest {
             }
             context.config.showAll = previousShowAll
             context.config.filterMedia = previousFilter
+            fixtures.forEach { runCatching { context.contentResolver.delete(it.first, null, null) } }
+        }
+    }
+
+    /**
+     * Phase 4B follow-up: a back gesture that starts while the cancel settle still owns
+     * the surface must continue from that live frame. The platform restarts its own
+     * progress at zero, so an absolute mapping would jump the picture back to full size.
+     */
+    @Test
+    fun predictiveBackResumesFromTheInterruptedSettle() {
+        org.junit.Assume.assumeTrue("predictive back progress needs API 34", Build.VERSION.SDK_INT >= 34)
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GalleryBackResume-${UUID.randomUUID()}"
+        val fixtures = List(4) { createFixture(context, album, 480, 360) }
+        val previousShowAll = context.config.showAll
+        val previousFilter = context.config.filterMedia
+        val previousZoom = context.config.allowZoomingImages
+        var source: MediaActivity? = null
+        var viewer: ViewPagerActivity? = null
+        try {
+            context.config.showAll = false
+            context.config.filterMedia = TYPE_IMAGES
+            context.config.allowZoomingImages = false
+            val grid = instrumentation.startActivitySync(Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, java.io.File(fixtures.first().second).parent)
+            }) as MediaActivity
+            source = grid
+            val paths = fixtures.mapTo(HashSet()) { it.second }
+            val (path, _) = awaitAnySourceThumbnail(instrumentation, grid, paths)
+            val open = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java)
+                .apply { isAccessible = true }
+            val sessionField = ViewPagerActivity::class.java
+                .getDeclaredField("transitionSession").apply { isAccessible = true }
+            val surfaceField = ViewPagerActivity::class.java
+                .getDeclaredField("interactiveDismissSurface").apply { isAccessible = true }
+            val dragProgressField = ViewPagerActivity::class.java
+                .getDeclaredField("interactiveDismissProgress").apply { isAccessible = true }
+
+            fun sessionValue(activity: ViewPagerActivity, name: String): String {
+                val session = sessionField.get(activity)
+                    ?: error("viewer has no transition Session")
+                return session.javaClass.getDeclaredField(name)
+                    .apply { isAccessible = true }.get(session)?.toString() ?: "null"
+            }
+
+            fun openViewer(): ViewPagerActivity {
+                awaitSourceThumbnail(instrumentation, grid, path)
+                val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
+                val opened = try {
+                    instrumentation.runOnMainSync { open.invoke(grid, path) }
+                    instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
+                        ?: error("Gallery did not open the photo viewer")
+                } finally { instrumentation.removeMonitor(monitor) }
+                viewer = opened
+                val deadline = SystemClock.uptimeMillis() + 8_000
+                var state = "unavailable"
+                do {
+                    instrumentation.runOnMainSync { state = sessionValue(opened, "state") }
+                    if (state == "VIEWING") return opened
+                    SystemClock.sleep(25)
+                } while (SystemClock.uptimeMillis() < deadline)
+                error("Viewer never reached VIEWING: $state")
+            }
+
+            val opened = openViewer()
+            val centerY = context.resources.displayMetrics.heightPixels / 2f
+            fun backEvent(progress: Float) = androidx.activity.BackEventCompat(
+                0f, centerY, progress, androidx.activity.BackEventCompat.EDGE_LEFT)
+            fun dispatchStarted() = instrumentation.runOnMainSync {
+                opened.onBackPressedDispatcher.dispatchOnBackStarted(backEvent(0f))
+            }
+            fun dispatchProgress(progress: Float) = instrumentation.runOnMainSync {
+                opened.onBackPressedDispatcher.dispatchOnBackProgressed(backEvent(progress))
+            }
+            fun dispatchCancelled() = instrumentation.runOnMainSync {
+                opened.onBackPressedDispatcher.dispatchOnBackCancelled()
+            }
+
+            // Interrupt a cancel settle with a new gesture. The settle runs for at least
+            // 140 ms, so an 80 ms gap still owns the surface on any device. The inherited
+            // frame is read inside the same main-thread block that starts the gesture,
+            // otherwise the settle advances between the read and the take-over.
+            var inherited = 0f
+            var restarted = 0f
+            var resumed = false
+            for (attempt in 1..3) {
+                dispatchStarted()
+                dispatchProgress(0.6f)
+                dispatchCancelled()
+                SystemClock.sleep(80)
+                instrumentation.runOnMainSync {
+                    inherited = dragProgressField.get(opened) as Float
+                    opened.onBackPressedDispatcher.dispatchOnBackStarted(backEvent(0f))
+                    val takeover = dragProgressField.get(opened) as Float
+                    opened.onBackPressedDispatcher.dispatchOnBackProgressed(backEvent(0.01f))
+                    restarted = dragProgressField.get(opened) as Float
+                    check(takeover == inherited) {
+                        "take-over must keep the live frame: read=$inherited takeover=$takeover"
+                    }
+                }
+                if (inherited > 0.05f) { resumed = true; break }
+                // The settle finished before the retry; restore and try again.
+                dispatchCancelled()
+                val settleDeadline = SystemClock.uptimeMillis() + 3_000
+                while (sessionValue(opened, "state") != "VIEWING" &&
+                    SystemClock.uptimeMillis() < settleDeadline) SystemClock.sleep(25)
+                android.util.Log.i("GalleryPredictive", "resume_attempt_$attempt inherited=$inherited")
+            }
+            assertTrue("the cancel settle must still own the surface for this scenario", resumed)
+            android.util.Log.i("GalleryPredictive", "resume inherited=$inherited restarted=$restarted")
+            assertTrue("a restarted gesture must not jump back to zero: inherited=$inherited restarted=$restarted",
+                restarted >= inherited - 0.001f)
+            assertTrue("a restarted gesture must continue additively: inherited=$inherited restarted=$restarted",
+                restarted <= inherited + 0.03f)
+            assertTrue("the restart must still be an interactive return", restarted > 0f)
+
+            // A second cancel must restore the viewing state for the next attempt.
+            dispatchCancelled()
+            val restoreDeadline = SystemClock.uptimeMillis() + 5_000
+            var restored = false
+            do {
+                instrumentation.runOnMainSync {
+                    restored = sessionValue(opened, "state") == "VIEWING" &&
+                        surfaceField.get(opened) == null &&
+                        (dragProgressField.get(opened) as Float) == 0f
+                }
+                if (!restored) SystemClock.sleep(25)
+            } while (!restored && SystemClock.uptimeMillis() < restoreDeadline)
+            assertTrue("a cancelled restart must restore the viewing state", restored)
+
+            // Commit after a restart must still close once through the shared return.
+            dispatchStarted()
+            dispatchProgress(0.5f)
+            instrumentation.runOnMainSync { opened.onBackPressedDispatcher.onBackPressed() }
+            val closeDeadline = SystemClock.uptimeMillis() + 8_000
+            while ((!grid.hasWindowFocus() || !opened.isDestroyed) &&
+                SystemClock.uptimeMillis() < closeDeadline) SystemClock.sleep(25)
+            assertTrue("a committed restart must close the viewer: state=${sessionValue(opened, "state")} " +
+                "outcome=${sessionValue(opened, "outcome")} finishing=${opened.isFinishing} " +
+                "destroyed=${opened.isDestroyed} gridFocus=${grid.hasWindowFocus()}",
+                grid.hasWindowFocus() && opened.isDestroyed)
+            // The grid terminates the Session after reenter, target readiness and the
+            // first draw, so the outcome can trail the window becoming destroyed.
+            val cleanDeadline = SystemClock.uptimeMillis() + 5_000
+            var cleaned = false
+            do {
+                instrumentation.runOnMainSync { cleaned = sessionValue(opened, "state") == "CLEANED" }
+                if (!cleaned) SystemClock.sleep(25)
+            } while (!cleaned && SystemClock.uptimeMillis() < cleanDeadline)
+            val outcome = sessionValue(opened, "outcome")
+            assertTrue("a committed restart must produce one outcome, not $outcome",
+                outcome == "COMPLETE" || outcome == "FALLBACK")
+            assertTrue("a committed restart must clean the Session, state=${sessionValue(opened, "state")}",
+                cleaned)
+            viewer = null
+
+            // The vertical dismiss settle hands over to the system gesture the same way.
+            val second = openViewer()
+            val fragment = requireNotNull(currentPhoto(second))
+            val touchHandler = PhotoFragment::class.java
+                .getDeclaredMethod("handlePhotoDismissTouch", View::class.java, MotionEvent::class.java)
+                .apply { isAccessible = true }
+            val image = requireNotNull(fragment.view).findViewById<ImageView>(R.id.gestures_view)
+            val dragProgress = floatArrayOf(0f)
+            assertTrue("the dismiss drag must be claimed",
+                injectDismissGesture(instrumentation, fragment, touchHandler, image,
+                    image.height * 0.3f, MotionEvent.ACTION_CANCEL) {
+                    instrumentation.runOnMainSync { dragProgress[0] = dragProgressField.get(second) as Float }
+                })
+            SystemClock.sleep(40)
+            var dragInherited = 0f
+            var dragRestarted = 0f
+            instrumentation.runOnMainSync {
+                dragInherited = dragProgressField.get(second) as Float
+                second.onBackPressedDispatcher.dispatchOnBackStarted(
+                    androidx.activity.BackEventCompat(0f, centerY, 0f, androidx.activity.BackEventCompat.EDGE_LEFT))
+                second.onBackPressedDispatcher.dispatchOnBackProgressed(
+                    androidx.activity.BackEventCompat(0f, centerY, 0.01f, androidx.activity.BackEventCompat.EDGE_LEFT))
+                dragRestarted = dragProgressField.get(second) as Float
+            }
+            android.util.Log.i("GalleryPredictive",
+                "drag_handoff drag=${dragProgress[0]} inherited=$dragInherited restarted=$dragRestarted")
+            assertTrue("the drag settle must keep its frame before the handoff", dragInherited > 0.05f)
+            assertTrue("the drag settle must hand its frame to the system gesture: " +
+                "inherited=$dragInherited restarted=$dragRestarted",
+                dragRestarted >= dragInherited - 0.001f && dragRestarted <= dragInherited + 0.02f)
+            instrumentation.runOnMainSync { second.onBackPressedDispatcher.dispatchOnBackCancelled() }
+            viewer = second
+            instrumentation.runOnMainSync { second.takeIf { !it.isFinishing }?.finish() }
+        } finally {
+            instrumentation.runOnMainSync {
+                viewer?.takeUnless { it.isFinishing }?.finish()
+                source?.finish()
+            }
+            context.config.showAll = previousShowAll
+            context.config.filterMedia = previousFilter
+            context.config.allowZoomingImages = previousZoom
             fixtures.forEach { runCatching { context.contentResolver.delete(it.first, null, null) } }
         }
     }

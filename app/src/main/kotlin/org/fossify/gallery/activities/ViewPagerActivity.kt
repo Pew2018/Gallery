@@ -251,6 +251,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var interactiveDismissDragActive = false
     private var interactiveDismissSettleAnimator: ValueAnimator? = null
     private var interactiveDismissProgress = 0f
+    // Frame inherited by the current system back gesture; its progress restarts at zero.
+    private var systemBackResumeProgress = 0f
     private var interactiveDismissDeltaXSlope = 0f
     private var interactiveDismissDeltaYSlope = 0f
     private var interactiveDismissGestureBaseX = 0f
@@ -472,16 +474,20 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     /**
      * System and predictive back start here. A settle-back animation that still owns
-     * the surface is taken over at its current progress instead of starting a second
-     * envelope, so a previous cancelled gesture cannot leak into the new one.
+     * the surface is taken over at its current progress, and the new gesture continues
+     * from that live frame: the platform restarts its own progress at zero, so the
+     * resumed progress is kept as a base instead of being overwritten.
      */
     private fun beginSystemBackGesture(): Boolean {
         if (isFinishing || isDestroyed) return false
         if (transitionSession.state == State.INTERACTIVE_RETURN) {
             val resumed = mediaDismissGestureBegin()
             if (resumed == null && interactiveDismissSurface == null) return false
+            // The drag take-over above already cancelled the settle at this frame.
+            systemBackResumeProgress = interactiveDismissProgress
         } else {
             if (transitionSession.state != State.VIEWING || !beginInteractiveDismiss()) return false
+            systemBackResumeProgress = 0f
         }
         // The back gesture has no vertical drag delta; the shared envelope stays centred.
         interactiveDismissDeltaXSlope = 0f
@@ -491,14 +497,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun renderSystemBackProgress(progress: Float) {
         if (transitionSession.state != State.INTERACTIVE_RETURN || interactiveDismissSurface == null) return
-        renderInteractiveDismissProgress(progress)
+        // Same convention as the vertical drag: gesture progress is added to the frame
+        // the new gesture inherited, so the first update cannot jump backwards.
+        renderInteractiveDismissProgress((systemBackResumeProgress + progress).coerceIn(0f, 1f))
     }
 
     private fun cancelSystemBackGesture() {
+        systemBackResumeProgress = 0f
         if (transitionSession.state == State.INTERACTIVE_RETURN) mediaDismissSettled(false)
     }
 
     private fun commitSystemBack() {
+        systemBackResumeProgress = 0f
         if (interactiveDismissDragActive && transitionSession.state == State.INTERACTIVE_RETURN) {
             // Same handoff as a released vertical drag: continue from the live frame.
             mediaDismissSettled(true)

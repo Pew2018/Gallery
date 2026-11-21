@@ -120,6 +120,7 @@
         <activity
             android:name=".activities.ViewPagerActivity"
             android:configChanges="orientation|keyboardHidden|screenSize"
+            android:enableOnBackInvokedCallback="true"
             android:exported="true"
             android:parentActivityName=".activities.MediaActivity"
             android:theme="@style/GalleryViewerTransitionTheme">
