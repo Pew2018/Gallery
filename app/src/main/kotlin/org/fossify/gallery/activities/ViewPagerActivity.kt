@@ -470,6 +470,43 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         interactiveDismissGestureBaseY = 0f
     }
 
+    /**
+     * System and predictive back start here. A settle-back animation that still owns
+     * the surface is taken over at its current progress instead of starting a second
+     * envelope, so a previous cancelled gesture cannot leak into the new one.
+     */
+    private fun beginSystemBackGesture(): Boolean {
+        if (isFinishing || isDestroyed) return false
+        if (transitionSession.state == State.INTERACTIVE_RETURN) {
+            val resumed = mediaDismissGestureBegin()
+            if (resumed == null && interactiveDismissSurface == null) return false
+        } else {
+            if (transitionSession.state != State.VIEWING || !beginInteractiveDismiss()) return false
+        }
+        // The back gesture has no vertical drag delta; the shared envelope stays centred.
+        interactiveDismissDeltaXSlope = 0f
+        interactiveDismissDeltaYSlope = 0f
+        return true
+    }
+
+    private fun renderSystemBackProgress(progress: Float) {
+        if (transitionSession.state != State.INTERACTIVE_RETURN || interactiveDismissSurface == null) return
+        renderInteractiveDismissProgress(progress)
+    }
+
+    private fun cancelSystemBackGesture() {
+        if (transitionSession.state == State.INTERACTIVE_RETURN) mediaDismissSettled(false)
+    }
+
+    private fun commitSystemBack() {
+        if (interactiveDismissDragActive && transitionSession.state == State.INTERACTIVE_RETURN) {
+            // Same handoff as a released vertical drag: continue from the live frame.
+            mediaDismissSettled(true)
+        } else {
+            requestViewerClose("system_back")
+        }
+    }
+
     override fun mediaDismissGestureBegin(): Float? {
         if (transitionSession.state != State.INTERACTIVE_RETURN) return null
         val animator = interactiveDismissSettleAnimator ?: return null
@@ -488,44 +525,53 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override fun mediaDismissProgress(progress: Float, deltaX: Float, deltaY: Float): Boolean {
         if (isFinishing || isDestroyed || (transitionSession.state != State.VIEWING &&
                 transitionSession.state != State.INTERACTIVE_RETURN)) return false
-        if (interactiveDismissSurface == null) {
-            val fragment = getCurrentFragment() ?: return false
-            val operation = transitionSession.beginGesture() ?: return false
-            val path = getCurrentPath()
-            val surface = getCurrentSharedElementView(path) ?: run {
-                transitionSession.cancelGesture(operation)
-                return false
-            }
-            ownReturnSurface(operation, fragment)
-            returnLeases.acquire(operation, Resource.INTERACTIVE_ANIMATOR, ::clearInteractiveDismissDrag)
-            ownReturnChrome(operation, fragment)
-            interactiveDismissSettleAnimator?.cancel()
-            surface.animate().cancel()
-            surface.pivotX = surface.width / 2f
-            surface.pivotY = surface.height / 2f
-            surface.scaleX = 1f
-            surface.scaleY = 1f
-            surface.translationX = 0f
-            surface.translationY = 0f
-            // Cache the content while only its position and scale are moving.
-            surface.setLayerType(View.LAYER_TYPE_HARDWARE, null)
-            binding.viewerTransitionScrim.setBackgroundColor(Color.BLACK)
-            binding.viewerTransitionScrim.visibility = View.VISIBLE
-            binding.viewerTransitionScrim.alpha = 1f
-            interactiveDismissSurface = surface
-            interactiveDismissPage = fragment
-            interactiveDismissPath = path
-            interactiveDismissDragActive = true
-            interactiveDismissGestureBaseX = 0f
-            interactiveDismissGestureBaseY = 0f
-            transitionSession.showGridPreview(operation, path)
-            setSharedTransitionCanvasTransparent()
-        }
+        if (!beginInteractiveDismiss()) return false
         interactiveDismissDeltaXSlope = if (progress > 0f)
             (interactiveDismissGestureBaseX + deltaX) / progress else 0f
         interactiveDismissDeltaYSlope = if (progress > 0f)
             (interactiveDismissGestureBaseY + deltaY) / progress else 0f
         renderInteractiveDismissProgress(progress)
+        return true
+    }
+
+    /**
+     * Owns the shared surface and grid preview at progress 0 for both the vertical
+     * dismiss gesture and the system back gesture. The caller supplies the mapping
+     * from its own progress to the shared envelope.
+     */
+    private fun beginInteractiveDismiss(): Boolean {
+        if (interactiveDismissSurface != null) return interactiveDismissDragActive
+        val fragment = getCurrentFragment() ?: return false
+        val operation = transitionSession.beginGesture() ?: return false
+        val path = getCurrentPath()
+        val surface = getCurrentSharedElementView(path) ?: run {
+            transitionSession.cancelGesture(operation)
+            return false
+        }
+        ownReturnSurface(operation, fragment)
+        returnLeases.acquire(operation, Resource.INTERACTIVE_ANIMATOR, ::clearInteractiveDismissDrag)
+        ownReturnChrome(operation, fragment)
+        interactiveDismissSettleAnimator?.cancel()
+        surface.animate().cancel()
+        surface.pivotX = surface.width / 2f
+        surface.pivotY = surface.height / 2f
+        surface.scaleX = 1f
+        surface.scaleY = 1f
+        surface.translationX = 0f
+        surface.translationY = 0f
+        // Cache the content while only its position and scale are moving.
+        surface.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        binding.viewerTransitionScrim.setBackgroundColor(Color.BLACK)
+        binding.viewerTransitionScrim.visibility = View.VISIBLE
+        binding.viewerTransitionScrim.alpha = 1f
+        interactiveDismissSurface = surface
+        interactiveDismissPage = fragment
+        interactiveDismissPath = path
+        interactiveDismissDragActive = true
+        interactiveDismissGestureBaseX = 0f
+        interactiveDismissGestureBaseY = 0f
+        transitionSession.showGridPreview(operation, path)
+        setSharedTransitionCanvasTransparent()
         return true
     }
 
@@ -1092,6 +1138,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         )
         viewerDiagnosticSessionId = correlatedEntryId.takeIf { it != 0L } ?: ViewerEntryDiagnostics.newRequest()
         configureMediaTransitionSession()
+        // One back callback for system keys, accessibility and predictive gestures.
+        // It only feeds the existing Session and dismiss surface; no second return path.
+        onBackPressedDispatcher.addCallback(this, org.fossify.gallery.helpers.ViewerBackGesture(
+            beginInteractive = ::beginSystemBackGesture,
+            renderProgress = ::renderSystemBackProgress,
+            cancelInteractive = ::cancelSystemBackGesture,
+            commit = ::commitSystemBack,
+        ))
         val entry = mediaEntry
         supportFragmentManager.registerFragmentLifecycleCallbacks(slideshowFragments, false)
         setContentView(binding.root)

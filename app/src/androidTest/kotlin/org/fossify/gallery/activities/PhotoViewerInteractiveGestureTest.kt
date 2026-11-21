@@ -2863,6 +2863,261 @@ class PhotoViewerInteractiveGestureTest {
         }
     }
 
+    /**
+     * Phase 4B: the same dispatcher entry the platform uses for predictive back must
+     * start, drive and cancel the existing Session return surface. Requires API 34,
+     * the first level that delivers gesture progress.
+     */
+    @Test
+    fun predictiveBackProgressAndCancellationReuseTheViewerSession() {
+        org.junit.Assume.assumeTrue("predictive back progress needs API 34", Build.VERSION.SDK_INT >= 34)
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GalleryPredictiveBack-${UUID.randomUUID()}"
+        val fixtures = List(4) { createFixture(context, album, 480, 360) }
+        val previousShowAll = context.config.showAll
+        val previousFilter = context.config.filterMedia
+        val previousZoom = context.config.allowZoomingImages
+        var source: MediaActivity? = null
+        var viewer: ViewPagerActivity? = null
+        try {
+            context.config.showAll = false
+            context.config.filterMedia = TYPE_IMAGES
+            context.config.allowZoomingImages = false
+            val grid = instrumentation.startActivitySync(Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, java.io.File(fixtures.first().second).parent)
+            }) as MediaActivity
+            source = grid
+            val paths = fixtures.mapTo(HashSet()) { it.second }
+            val (path, _) = awaitAnySourceThumbnail(instrumentation, grid, paths)
+            val open = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java)
+                .apply { isAccessible = true }
+            val launchInProgress = MediaActivity::class.java
+                .getDeclaredField("viewerLaunchInProgress").apply { isAccessible = true }
+            val sessionField = ViewPagerActivity::class.java
+                .getDeclaredField("transitionSession").apply { isAccessible = true }
+            val surfaceField = ViewPagerActivity::class.java
+                .getDeclaredField("interactiveDismissSurface").apply { isAccessible = true }
+            val dragProgressField = ViewPagerActivity::class.java
+                .getDeclaredField("interactiveDismissProgress").apply { isAccessible = true }
+
+            fun sessionValue(activity: ViewPagerActivity, name: String): String {
+                val session = sessionField.get(activity)
+                    ?: error("viewer has no transition Session")
+                return session.javaClass.getDeclaredField(name)
+                    .apply { isAccessible = true }.get(session).toString()
+            }
+
+            awaitSourceThumbnail(instrumentation, grid, path)
+            val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
+            val opened = try {
+                instrumentation.runOnMainSync { open.invoke(grid, path) }
+                instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
+                    ?: error("Gallery did not open the photo viewer")
+            } finally { instrumentation.removeMonitor(monitor) }
+            viewer = opened
+            fun stateNow(): String {
+                var value = "unavailable"
+                instrumentation.runOnMainSync { value = sessionValue(opened, "state") }
+                return value
+            }
+
+            fun outcomeNow(): String {
+                var value = "unavailable"
+                instrumentation.runOnMainSync { value = sessionValue(opened, "outcome") }
+                return value
+            }
+
+            val viewingDeadline = SystemClock.uptimeMillis() + 8_000
+            while (stateNow() != "VIEWING" && SystemClock.uptimeMillis() < viewingDeadline) {
+                SystemClock.sleep(25)
+            }
+            assertEquals("viewer must be interactive before the gesture", "VIEWING", stateNow())
+
+            val centerY = context.resources.displayMetrics.heightPixels / 2f
+            fun backEvent(progress: Float) = androidx.activity.BackEventCompat(
+                0f, centerY, progress, androidx.activity.BackEventCompat.EDGE_LEFT)
+
+            // The renderer must already expose its return surface; otherwise the
+            // gesture correctly degrades to a plain close instead of an interactive
+            // return, which is a different scenario.
+            val sharedView = ViewPagerActivity::class.java.getDeclaredMethod(
+                "getCurrentSharedElementView", String::class.java,
+                java.lang.Boolean.TYPE, java.lang.Long.TYPE,
+            ).apply { isAccessible = true }
+            val proxyDeadline = SystemClock.uptimeMillis() + 6_000
+            var hasProxy = false
+            while (!hasProxy && SystemClock.uptimeMillis() < proxyDeadline) {
+                instrumentation.runOnMainSync { hasProxy = sharedView.invoke(opened, path, false, 0L) != null }
+                if (!hasProxy) SystemClock.sleep(50)
+            }
+            assertTrue("the viewer must expose a return surface before the gesture", hasProxy)
+
+            instrumentation.runOnMainSync {
+                opened.onBackPressedDispatcher.dispatchOnBackStarted(backEvent(0f))
+            }
+            val startDeadline = SystemClock.uptimeMillis() + 3_000
+            var started = false
+            while (!started && SystemClock.uptimeMillis() < startDeadline) {
+                instrumentation.runOnMainSync {
+                    started = sessionValue(opened, "state") == "INTERACTIVE_RETURN" &&
+                        surfaceField.get(opened) != null
+                }
+                if (!started) SystemClock.sleep(20)
+            }
+            var startEvidence = ""
+            instrumentation.runOnMainSync {
+                startEvidence = "state=${sessionValue(opened, "state")} surface=${surfaceField.get(opened)} " +
+                    "enabled=${opened.onBackPressedDispatcher.hasEnabledCallbacks()}"
+            }
+            android.util.Log.i("GalleryPredictive", "start_evidence $startEvidence")
+            assertTrue("predictive back must start the interactive Session return: $startEvidence", started)
+
+            instrumentation.runOnMainSync {
+                opened.onBackPressedDispatcher.dispatchOnBackProgressed(backEvent(0.45f))
+            }
+            SystemClock.sleep(80)
+            instrumentation.runOnMainSync {
+                val progress = dragProgressField.get(opened) as Float
+                assertTrue("the platform progress must drive the shared envelope, got $progress",
+                    progress > 0.3f && progress < 0.6f)
+                assertEquals("the scrim must follow the gesture", View.VISIBLE,
+                    opened.findViewById<View>(R.id.viewer_transition_scrim).visibility)
+            }
+
+            instrumentation.runOnMainSync { opened.onBackPressedDispatcher.dispatchOnBackCancelled() }
+            val restoreDeadline = SystemClock.uptimeMillis() + 5_000
+            var restored = false
+            do {
+                instrumentation.runOnMainSync {
+                    restored = sessionValue(opened, "state") == "VIEWING" &&
+                        surfaceField.get(opened) == null &&
+                        (dragProgressField.get(opened) as Float) == 0f &&
+                        opened.findViewById<View>(R.id.viewer_transition_scrim).visibility == View.GONE
+                }
+                if (!restored) SystemClock.sleep(25)
+            } while (!restored && SystemClock.uptimeMillis() < restoreDeadline)
+            assertTrue("a cancelled predictive back must restore the viewing state", restored)
+
+            instrumentation.runOnMainSync {
+                val dispatcher = opened.onBackPressedDispatcher
+                dispatcher.dispatchOnBackStarted(backEvent(0f))
+                dispatcher.dispatchOnBackProgressed(backEvent(0.8f))
+                dispatcher.onBackPressed()
+            }
+            val closeDeadline = SystemClock.uptimeMillis() + 8_000
+            while ((!grid.hasWindowFocus() || launchInProgress.getBoolean(grid) || !opened.isDestroyed) &&
+                SystemClock.uptimeMillis() < closeDeadline) SystemClock.sleep(25)
+            assertTrue("a committed predictive back must close through the shared return",
+                grid.hasWindowFocus() && opened.isDestroyed)
+            val outcome = outcomeNow()
+            assertTrue("the committed gesture must produce one outcome, not $outcome",
+                outcome == "COMPLETE" || outcome == "FALLBACK")
+            assertEquals("the committed gesture must clean the Session", "CLEANED", stateNow())
+            val image = awaitSourceThumbnail(instrumentation, grid, path)
+            instrumentation.runOnMainSync {
+                assertNull("no transition name may remain after a predictive return", image.transitionName)
+                assertFalse("the input lock must be released after a predictive return",
+                    opened.findViewById<ProgressivePhotoViewPager>(R.id.view_pager).transitionInputLocked)
+            }
+            viewer = null
+        } finally {
+            instrumentation.runOnMainSync {
+                viewer?.takeUnless { it.isFinishing }?.finish()
+                source?.finish()
+            }
+            context.config.showAll = previousShowAll
+            context.config.filterMedia = previousFilter
+            context.config.allowZoomingImages = previousZoom
+            fixtures.forEach { runCatching { context.contentResolver.delete(it.first, null, null) } }
+        }
+    }
+
+    /**
+     * Phase 4B: a real KEYCODE_BACK arrives through the platform window dispatch that
+     * accessibility and hardware back also use, not through a direct callback call.
+     */
+    @Test
+    fun frameworkKeyBackClosesTheViewerThroughOneSession() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        grantMediaPermission(context)
+        val album = "${Environment.DIRECTORY_PICTURES}/GalleryKeyBack-${UUID.randomUUID()}"
+        val fixtures = List(3) { createFixture(context, album, 480, 360) }
+        val previousShowAll = context.config.showAll
+        val previousFilter = context.config.filterMedia
+        var source: MediaActivity? = null
+        var viewer: ViewPagerActivity? = null
+        try {
+            context.config.showAll = false
+            context.config.filterMedia = TYPE_IMAGES
+            val grid = instrumentation.startActivitySync(Intent(context, MediaActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(DIRECTORY, java.io.File(fixtures.first().second).parent)
+            }) as MediaActivity
+            source = grid
+            val paths = fixtures.mapTo(HashSet()) { it.second }
+            val (path, _) = awaitAnySourceThumbnail(instrumentation, grid, paths)
+            val open = MediaActivity::class.java.getDeclaredMethod("openInViewPager", String::class.java)
+                .apply { isAccessible = true }
+            val launchInProgress = MediaActivity::class.java
+                .getDeclaredField("viewerLaunchInProgress").apply { isAccessible = true }
+            val sessionField = ViewPagerActivity::class.java
+                .getDeclaredField("transitionSession").apply { isAccessible = true }
+
+            fun sessionValue(activity: ViewPagerActivity, name: String): String {
+                val session = sessionField.get(activity)
+                    ?: error("viewer has no transition Session")
+                return session.javaClass.getDeclaredField(name)
+                    .apply { isAccessible = true }.get(session).toString()
+            }
+
+            val monitor = instrumentation.addMonitor(ViewPagerActivity::class.java.name, null, false)
+            val opened = try {
+                instrumentation.runOnMainSync { open.invoke(grid, path) }
+                instrumentation.waitForMonitorWithTimeout(monitor, 10_000) as? ViewPagerActivity
+                    ?: error("Gallery did not open the photo viewer")
+            } finally { instrumentation.removeMonitor(monitor) }
+            viewer = opened
+            val viewingDeadline = SystemClock.uptimeMillis() + 8_000
+            var state = ""
+            do {
+                SystemClock.sleep(25)
+                instrumentation.runOnMainSync { state = sessionValue(opened, "state") }
+            } while (state != "VIEWING" && SystemClock.uptimeMillis() < viewingDeadline)
+            assertEquals("viewer must be interactive before the key back", "VIEWING", state)
+
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            val closeDeadline = SystemClock.uptimeMillis() + 8_000
+            while ((!grid.hasWindowFocus() || launchInProgress.getBoolean(grid) || !opened.isDestroyed) &&
+                SystemClock.uptimeMillis() < closeDeadline) SystemClock.sleep(25)
+            assertTrue("a dispatched key back must close the viewer",
+                grid.hasWindowFocus() && opened.isDestroyed)
+            val outcome = sessionValue(opened, "outcome")
+            assertTrue("the key back must produce one outcome, not $outcome",
+                outcome == "COMPLETE" || outcome == "FALLBACK")
+            assertEquals("the key back must clean the Session", "CLEANED",
+                sessionValue(opened, "state"))
+            val image = awaitSourceThumbnail(instrumentation, grid, path)
+            instrumentation.runOnMainSync {
+                assertNull("no transition name may remain after a key back", image.transitionName)
+                assertFalse("the input lock must be released after a key back",
+                    opened.findViewById<ProgressivePhotoViewPager>(R.id.view_pager).transitionInputLocked)
+            }
+            viewer = null
+        } finally {
+            instrumentation.runOnMainSync {
+                viewer?.takeUnless { it.isFinishing }?.finish()
+                source?.finish()
+            }
+            context.config.showAll = previousShowAll
+            context.config.filterMedia = previousFilter
+            fixtures.forEach { runCatching { context.contentResolver.delete(it.first, null, null) } }
+        }
+    }
+
     @Test
     fun landscapePortraitAndUltrawideVideoPreviewsKeepTheirAspectRatioOnDevice() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
