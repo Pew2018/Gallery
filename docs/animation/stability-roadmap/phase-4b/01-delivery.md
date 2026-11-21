@@ -64,6 +64,26 @@ API 37 使用本轮新建的临时 AVD（系统镜像 android-37.0，arm64，软
 
 API 37 上曾出现一次 4A 用例在读取已关闭 Viewer 的 Session 字段时失败，随后同条件 6 次运行（含 3 次连续）均通过；未改动生产代码，只在测试中补了“Session 缺失”的明确断言信息，未把该次失败归为产品缺陷，也不声称已定位根因。
 
+## 源码与安装包身份
+
+| 项 | 值 |
+| --- | --- |
+| 分支 | perf/home-gallery-sorting |
+| 4B 源码提交 | 5eb7ac841e272b2143ed8d54cb90415990d5d730 |
+| 远程同步 | 本地与 origin 一致（推送后确认） |
+| CI | https://github.com/Pew2018/Gallery/actions/runs/44909463538（success，headSha 与源码提交一致） |
+| APK | /Users/patrick/Downloads/gallery-4b/gallery-foss-arm64-v8a-release/gallery-foss-arm64-v8a-release.apk |
+| SHA-256 | 09ca6a6995f1f9eeb6602e1fa8227e5314a62fa80fa1d71487c9f463643e7405 |
+| 包名 / 版本 | org.fossify.gallery，versionCode 32，versionName 1.14.1 |
+| ABI | arm64-v8a |
+| 签名 | CN=Gallery Temporary CI Test Signature, O=Local Testing（cert SHA-256 46886cdc75e92710d522663eb50e10a1d00b5ea75f91aa2866e2330fa5150379） |
+
+工作流在缺少仓库密钥时每次运行都会生成新的临时密钥，因此：
+
+- 本包**不能**保证覆盖 3.5 或 4A 的旧安装；本轮 4A 包证书为 fa004b5d…，4B 为 46886cdc…，两者互不兼容。
+- 若安装时报签名冲突，需要用户自行决定处理方式；本阶段未卸载应用、未清除数据，也未改用其他签名体系。
+- 4A 与 4B 的 APK 分别保存在 `/Users/patrick/Downloads/gallery-4a` 与 `/Users/patrick/Downloads/gallery-4b`，便于独立审查；后续使用以 4B 包为准。
+
 ## 未验证项
 
 - Pixel 8 Pro 真机上的真实边缘手势观感：进度映射为等比缩放与遮罩/顶栏淡出，是否与系统手势手感匹配需要真机判断。
