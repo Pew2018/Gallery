@@ -6,28 +6,29 @@ import androidx.activity.OnBackPressedCallback
 /**
  * Routes system and predictive back into the Viewer's existing Session return core.
  *
- * The callback has the default priority, so the platform does not animate the same
- * window: the Viewer's own interactive envelope and shared-element return stay the
- * only visual drivers. On platforms that do not deliver gesture progress the same
- * callback only receives the final back and closes through the unchanged path.
+ * The callback is only enabled while the app owns an in-app back step. In a stable
+ * Viewer page on Android 14+ it must stay disabled: an enabled default-priority
+ * callback consumes the gesture and suppresses the platform's cross-Activity
+ * window animation, which is the animation the user asked the Viewer to use. The
+ * Activity flips [isEnabled] from [ViewerBackOwnership] as the page state changes.
  *
- * The gesture start X is forwarded so the return can slide toward the swiped edge
- * instead of always shrinking in place: a left-edge back reveals the grid from the
- * left, a right-edge back from the right.
+ * When enabled, progress still feeds the existing interactive envelope so an
+ * already-running in-app step can settle. [swipeEdge] is taken from the official
+ * BackEventCompat event instead of being inferred from a touch X coordinate.
  */
 internal class ViewerBackGesture(
-    private val beginInteractive: (Float) -> Boolean,
+    private val beginInteractive: (Int) -> Boolean,
     private val renderProgress: (Float) -> Unit,
     private val cancelInteractive: () -> Unit,
     private val commit: () -> Unit,
-) : OnBackPressedCallback(true) {
+) : OnBackPressedCallback(false) {
     private var interactive = false
 
     /** True while a gesture drives the existing interactive return surface. */
     val ownsInteractiveReturn get() = interactive
 
     override fun handleOnBackStarted(backEvent: BackEventCompat) {
-        interactive = beginInteractive(backEvent.touchX)
+        interactive = beginInteractive(backEvent.swipeEdge)
     }
 
     override fun handleOnBackProgressed(backEvent: BackEventCompat) {

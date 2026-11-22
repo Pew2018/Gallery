@@ -149,6 +149,7 @@ class SettingsActivity : SimpleActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        org.fossify.gallery.helpers.PredictiveBackDiagnostics.captureCreated(this)
         setContentView(binding.root)
         themeTransitionSession = savedInstanceState?.getString("theme_transition_session") ?: themeTransitionSession
         activeSettingsCategory = pageCategory
@@ -225,6 +226,7 @@ class SettingsActivity : SimpleActivity() {
      * only thing to do is finish; below that the classic page animation is the motion.
      */
     private fun closePage() {
+        org.fossify.gallery.helpers.PredictiveBackDiagnostics.captureClosing(this, "settings_back")
         if (!PredictiveBackSupport.systemDrivesPageTransition) {
             OxygenClassicActivityMotion.applyClose(this)
         }

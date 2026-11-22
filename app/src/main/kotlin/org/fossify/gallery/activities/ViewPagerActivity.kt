@@ -7,6 +7,8 @@ import org.fossify.gallery.helpers.PhotoPlaybackPolicy
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.PhotoTransitionCompletionGate
 import org.fossify.gallery.helpers.PhotoTransitionCompletionGate.Stage
+import org.fossify.gallery.helpers.ViewerBackOwnership
+import androidx.activity.BackEventCompat
 import org.fossify.gallery.helpers.ViewerEntryDiagnostics
 import org.fossify.gallery.helpers.GalleryDiagnosticLogger
 import org.fossify.gallery.helpers.FrameEvidence
@@ -258,6 +260,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var interactiveDismissGestureBaseX = 0f
     private var interactiveDismissGestureBaseY = 0f
     private var interactiveDismissGeneration = 0L
+    // The single back callback. Its enabled state is owned by ViewerBackOwnership so
+    // a stable page on Android 14+ leaves the cross-Activity return to the platform.
+    private var viewerBackGesture: org.fossify.gallery.helpers.ViewerBackGesture? = null
     private var photoTransitionProgressFrameCount = 0
     private var photoTransitionProgress = 0f
     private val photoTransitionProgressSamples = ArrayList<Float>(32)
@@ -470,15 +475,21 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         interactiveDismissDeltaYSlope = 0f
         interactiveDismissGestureBaseX = 0f
         interactiveDismissGestureBaseY = 0f
+        syncViewerBackOwnership()
     }
 
     /**
-     * System and predictive back start here. A settle-back animation that still owns
-     * the surface is taken over at its current progress, and the new gesture continues
-     * from that live frame: the platform restarts its own progress at zero, so the
-     * resumed progress is kept as a base instead of being overwritten.
+     * An app-owned back step starts here. It only runs while the Viewer genuinely
+     * owns an in-app step (below Android 14, or while an interactive dismiss is
+     * already in flight). In a stable Viewer page on Android 14+ the callback is
+     * disabled and the platform animates the whole window instead.
+     *
+     * A settle-back animation that still owns the surface is taken over at its
+     * current progress, and the new gesture continues from that live frame: the
+     * platform restarts its own progress at zero, so the resumed progress is kept
+     * as a base instead of being overwritten.
      */
-    private fun beginSystemBackGesture(touchX: Float): Boolean {
+    private fun beginAppOwnedBackGesture(swipeEdge: Int): Boolean {
         if (isFinishing || isDestroyed) return false
         if (transitionSession.state == State.INTERACTIVE_RETURN) {
             val resumed = mediaDismissGestureBegin()
@@ -490,12 +501,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             systemBackResumeProgress = 0f
         }
         // The back gesture has no vertical drag delta, so the shared envelope stays
-        // vertically centred. Horizontally it slides toward the swiped edge: a
-        // left-edge back moves the photo right (revealing the grid on the left),
-        // a right-edge back moves it left, so the two edges no longer look identical.
+        // vertically centred. Horizontally it slides toward the swiped edge. The edge
+        // comes from BackEventCompat.swipeEdge rather than a guessed touch X.
         val screenWidth = resources.displayMetrics.widthPixels
         val surfaceWidth = interactiveDismissSurface?.width?.takeIf { it > 0 } ?: screenWidth
-        val fromLeftEdge = touchX.isNaN() || touchX < screenWidth / 2f
+        val fromLeftEdge = swipeEdge != BackEventCompat.EDGE_RIGHT
         interactiveDismissDeltaXSlope = (if (fromLeftEdge) 1f else -1f) * surfaceWidth * 0.35f
         interactiveDismissDeltaYSlope = 0f
         return true
@@ -520,6 +530,34 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             mediaDismissSettled(true)
         } else {
             requestViewerClose("system_back")
+        }
+    }
+
+    /**
+     * Keeps the one back callback's enabled state aligned with ownership. A stable
+     * Viewer page on Android 14+ must not consume the gesture: an enabled callback
+     * would replace the platform's whole-window return with our image scaling. The
+     * callback is only armed while the app owns a genuine in-app step.
+     */
+    private fun syncViewerBackOwnership() {
+        val gesture = viewerBackGesture ?: return
+        if (!::transitionSession.isInitialized) {
+            gesture.isEnabled = false
+            return
+        }
+        val sdk = android.os.Build.VERSION.SDK_INT
+        val appOwns = ViewerBackOwnership.appOwnsEdgeBack(sdk, transitionSession.state, interactiveDismissDragActive)
+        gesture.isEnabled = appOwns
+        if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "Viewer", "back_ownership",
+                fields = mapOf(
+                    "sdk" to sdk,
+                    "state" to transitionSession.state.name,
+                    "dragActive" to interactiveDismissDragActive,
+                    "appOwns" to appOwns,
+                )
+            )
         }
     }
 
@@ -559,9 +597,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (interactiveDismissSurface != null) return interactiveDismissDragActive
         val fragment = getCurrentFragment() ?: return false
         val operation = transitionSession.beginGesture() ?: return false
+        syncViewerBackOwnership()
         val path = getCurrentPath()
         val surface = getCurrentSharedElementView(path) ?: run {
             transitionSession.cancelGesture(operation)
+            syncViewerBackOwnership()
             return false
         }
         ownReturnSurface(operation, fragment)
@@ -624,6 +664,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 override fun onAnimationEnd(animation: Animator) {
                     if (cancelled || generation != interactiveDismissGeneration) return
                     if (transitionSession.cancelGesture(operation)) returnLeases.releaseAll()
+                    syncViewerBackOwnership()
                 }
             })
             start()
@@ -633,6 +674,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun finishMediaEntryTransition(entry: PhotoTransitionCompletionGate) {
         if (!isCurrentEntry(entry) || !entry.complete()) return
         check(transitionSession.entryFinished(transitionSession.entry))
+        syncViewerBackOwnership()
         val mappedPage = entryMappedPage
         entryLeases.releaseAll()
         logMediaEntry("entry_completed", if (photoSharedElementMapped) "shared" else "fallback")
@@ -1154,14 +1196,16 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         )
         viewerDiagnosticSessionId = correlatedEntryId.takeIf { it != 0L } ?: ViewerEntryDiagnostics.newRequest()
         configureMediaTransitionSession()
-        // One back callback for system keys, accessibility and predictive gestures.
-        // It only feeds the existing Session and dismiss surface; no second return path.
-        onBackPressedDispatcher.addCallback(this, org.fossify.gallery.helpers.ViewerBackGesture(
-            beginInteractive = ::beginSystemBackGesture,
+        // One back callback for system keys, accessibility and in-app steps. It is
+        // disabled on Android 14+ while the Viewer is a stable page, so the platform
+        // owns the cross-Activity window return; it is enabled only for an in-app step.
+        viewerBackGesture = org.fossify.gallery.helpers.ViewerBackGesture(
+            beginInteractive = ::beginAppOwnedBackGesture,
             renderProgress = ::renderSystemBackProgress,
             cancelInteractive = ::cancelSystemBackGesture,
             commit = ::commitSystemBack,
-        ))
+        ).also { onBackPressedDispatcher.addCallback(this, it) }
+        syncViewerBackOwnership()
         val entry = mediaEntry
         supportFragmentManager.registerFragmentLifecycleCallbacks(slideshowFragments, false)
         setContentView(binding.root)
@@ -1408,9 +1452,75 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
     }
 
-    // System back also reaches this directly on framework-dispatched back.
+    /**
+     * System back reaches this on every API through the platform's default back
+     * callback (and through onBackPressed below Android 16). When the platform owns
+     * the return we must publish the result and finish WITHOUT installing a second
+     * app-side shared-element animation — doing both would stack the app zoom on
+     * top of the platform's whole-window transition.
+     */
     override fun finishAfterTransition() {
-        requestViewerClose("system_back")
+        if (platformOwnsCurrentReturn()) {
+            commitPlatformReturn()
+        } else {
+            requestViewerClose("system_back")
+        }
+    }
+
+    /**
+     * Mirror of the ownership decision used by the callback. Recomputed at commit
+     * time so an in-app step that started mid-gesture keeps app ownership.
+     */
+    private fun platformOwnsCurrentReturn(): Boolean {
+        if (!::transitionSession.isInitialized) return false
+        if (isFinishing || isDestroyed || finishAfterSharedTransitionInProgress) return false
+        return ViewerBackOwnership.platformOwnsEdgeBack(
+            android.os.Build.VERSION.SDK_INT,
+            transitionSession.state,
+            interactiveDismissDragActive,
+        )
+    }
+
+    /**
+     * Close a stable Viewer page entirely through the platform's cross-Activity
+     * return. The result is still delivered so the parent restores the same media
+     * position and applies deletions, but no shared-element return is installed and
+     * the window is finished directly, leaving the visual to Android.
+     */
+    private fun commitPlatformReturn() {
+        org.fossify.gallery.helpers.PredictiveBackDiagnostics.captureClosing(this, "viewer_platform_back")
+        val operation = transitionSession.beginReturn() ?: run {
+            super.finish()
+            return
+        }
+        viewerReturnId = ViewerEntryDiagnostics.newRequest()
+        val returnPath = getCurrentPath()
+        val result = Intent()
+            .putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH, returnPath.takeIf(String::isNotEmpty))
+            .putStringArrayListExtra(
+                PhotoViewerTransition.EXTRA_DELETED_PATHS,
+                ArrayList(successfullyDeletedViewerPaths)
+            )
+            .putExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, viewerReturnId)
+            .putExtra(ViewerEntryDiagnostics.EXTRA_VIEWER_SESSION_ID, viewerDiagnosticSessionId)
+            .putExtra(PhotoViewerTransition.EXTRA_LAUNCH, intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L))
+        val offeredEntry = MediaTransitionHandoff.read(intent)
+        setResult(RESULT_OK, MediaTransitionHandoff.write(result,
+            if (offeredEntry != null && !transitionSession.viewerAttached) offeredEntry else operation))
+        // No shared-element transition will drive RETURN_PREPARING -> RETURNING here;
+        // the platform owns the visual, so complete the state machine directly.
+        transitionSession.targetReady(operation)
+        transitionSession.terminate(operation, State.COMPLETE, "platform_cross_activity_return")
+        ViewerReturnDiagnostics.event(viewerReturnId, "viewer_platform_return") {
+            mapOf(
+                "sdk" to android.os.Build.VERSION.SDK_INT,
+                "reason" to "no_app_visual",
+                "hasSelection" to returnPath.isNotEmpty(),
+            )
+        }
+        // No window.sharedElementReturnTransition and no super.finishAfterTransition():
+        // the platform is already animating this window out.
+        super.finish()
     }
 
     private fun finishDuringMediaEntry(): Boolean {
