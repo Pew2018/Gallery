@@ -55,6 +55,8 @@ class SettingsActivity : SimpleActivity() {
     private val settingsPageInitialVisibility = mutableListOf<Int>()
     private lateinit var settingsHub: android.widget.LinearLayout
     private lateinit var settingsBackCallback: OnBackPressedCallback
+    private var settingsBackStep: ClassicSettingsPageTransition.Step? = null
+    private var settingsBackStepCategory: String? = null
     private var pendingSettingsCategory: String? = null
     private var settingsTransitionEpoch = 0L
     private val settingsScrollPositions = mutableMapOf<String, Int>()
@@ -147,8 +149,43 @@ class SettingsActivity : SimpleActivity() {
         }
 
         settingsBackCallback = object : OnBackPressedCallback(false) {
+            override fun handleOnBackStarted(backEvent: androidx.activity.BackEventCompat) {
+                settingsBackStep = beginSettingsBackStep()
+            }
+
+            override fun handleOnBackProgressed(backEvent: androidx.activity.BackEventCompat) {
+                settingsBackStep?.render(backEvent.progress)
+            }
+
+            override fun handleOnBackCancelled() {
+                val step = settingsBackStep ?: return
+                settingsBackStep = null
+                val previous = settingsBackStepCategory
+                settingsBackStepCategory = null
+                step.cancel {
+                    if (previous == null) return@cancel
+                    activeSettingsCategory = previous
+                    pendingSettingsCategory = null
+                    renderSettingsPage()
+                    restoreSettingsScroll(settingsScrollPositions[previous] ?: 0)
+                }
+            }
+
             override fun handleOnBackPressed() {
-                navigateSettingsBack()
+                // Also the only entry below API 34, where no progress is delivered.
+                val step = settingsBackStep
+                settingsBackStep = null
+                settingsBackStepCategory = null
+                if (step == null) {
+                    navigateSettingsBack()
+                    return
+                }
+                step.commit {
+                    activeSettingsCategory = null
+                    pendingSettingsCategory = null
+                    settingsBackCallback.isEnabled = false
+                    restoreSettingsScroll(settingsScrollPositions[settingsPageKey()] ?: 0)
+                }
             }
         }
         onBackPressedDispatcher.addCallback(this, settingsBackCallback)
@@ -159,6 +196,33 @@ class SettingsActivity : SimpleActivity() {
         )
         // Resolve the first toolbar frame with the same theme token as onResume.
         binding.settingsToolbar.setBackgroundColor(OxygenThemeEngine.toolbarSurface(this, config))
+        // The app bar carries the status bar inset; without its own surface the scrolled
+        // rows show through above the toolbar.
+        binding.settingsAppbar.setBackgroundColor(OxygenThemeEngine.toolbarSurface(this, config))
+    }
+
+    /**
+     * Opens the category's parent at progress 0 so the system can drive the fade with the
+     * finger. Returns null when there is nothing to preview; the plain path then runs.
+     */
+    private fun beginSettingsBackStep(): ClassicSettingsPageTransition.Step? {
+        val category = activeSettingsCategory ?: return null
+        if (pendingSettingsCategory != null || !OxygenClassicMotion.enabled(this)) return null
+        rememberSettingsScroll()
+        val step = ClassicSettingsPageTransition.begin(
+            container = binding.settingsNestedScrollview,
+            incoming = binding.settingsHolder,
+            incomingDirection = ClassicSettingsPageTransition.direction(false, binding.settingsNestedScrollview),
+            animationsEnabled = true,
+            prepareTarget = {
+                activeSettingsCategory = null
+                renderSettingsPage(updateToolbarTitle = false)
+                restoreSettingsScroll(settingsScrollPositions[settingsPageKey()] ?: 0)
+            },
+            onTitleCommit = { updateSettingsToolbarTitle() }
+        )
+        if (step != null) settingsBackStepCategory = category
+        return step
     }
 
     override fun onDestroy() {
@@ -171,6 +235,15 @@ class SettingsActivity : SimpleActivity() {
     }
 
     override fun onPause() {
+        // A gesture interrupted by a pause must not leave the hub rendered while the
+        // activity still reports the category as open.
+        val interrupted = settingsBackStepCategory
+        settingsBackStep = null
+        settingsBackStepCategory = null
+        if (interrupted != null) {
+            activeSettingsCategory = interrupted
+            renderSettingsPage()
+        }
         ClassicSettingsPageTransition.cancel(binding.settingsNestedScrollview, binding.settingsHolder)
         super.onPause()
     }
@@ -181,6 +254,7 @@ class SettingsActivity : SimpleActivity() {
         // All ordinary toolbars share the user's chosen surface, even on light themes.
         setupTopAppBar(binding.settingsAppbar, NavigationIcon.Arrow,
             topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
+        binding.settingsAppbar.setBackgroundColor(OxygenThemeEngine.toolbarSurface(this, config))
         OxygenToolbarStyle.applyToolbar(this, binding.settingsToolbar)
         OxygenSystemBars.apply(this)
         // A resume rebind must not let a delayed navigation overwrite refreshed content.

@@ -33,6 +33,7 @@ import org.fossify.gallery.helpers.FolderReadStatus
 import org.fossify.gallery.helpers.HomeDirectorySorter
 import org.fossify.gallery.helpers.OxygenClassicActivityMotion
 import org.fossify.gallery.helpers.GalleryEntryMotion
+import org.fossify.gallery.helpers.ClassicSettingsPageTransition
 import org.fossify.gallery.helpers.OxygenClassicMotion
 import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.RecyclerView
@@ -247,6 +248,11 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     // used at "Group direct subfolders" for navigating Up with the back button
     private var mOpenedSubfolders = arrayListOf("")
 
+    // A grouped-folder return held at the finger's progress until the gesture ends.
+    private var nestedFolderBackStep: ClassicSettingsPageTransition.Step? = null
+    private var nestedFolderBackPath: String? = null
+    private var nestedFolderBackOpened: ArrayList<String>? = null
+
     private var mDateFormat = ""
     private var mTimeFormat = ""
     private var mLastMediaHandler = Handler()
@@ -448,6 +454,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
+        onBackPressedDispatcher.addCallback(this, albumsBackCallback)
         org.fossify.gallery.helpers.OxygenClassicEdgeGlow.install(binding.root, this)
         GalleryBottomBar.prepareRootSurface(this, binding.root)
         binding.directoriesRefreshLayout.setColorSchemeColors(getProperPrimaryColor())
@@ -668,6 +675,19 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     override fun onPause() {
+        // A gesture interrupted by a pause must not leave the parent level shown while the
+        // page still records the child folder as open.
+        val interruptedPath = nestedFolderBackPath
+        val interruptedOpened = nestedFolderBackOpened
+        nestedFolderBackStep = null
+        nestedFolderBackPath = null
+        nestedFolderBackOpened = null
+        if (interruptedPath != null && interruptedOpened != null) {
+            mOpenedSubfolders.clear()
+            mOpenedSubfolders.addAll(interruptedOpened)
+            mCurrentPathPrefix = interruptedPath
+            setupAdapter(mDirs)
+        }
         org.fossify.gallery.helpers.DirectoryMetadataRepository.removeObserver(directoryMetadataListener)
         directoryMetadataHandler.removeCallbacks(directoryMetadataRebindRunnable)
         directoryMetadataRebindScheduled = false
@@ -759,28 +779,111 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
     }
 
+    /**
+     * The Albums page owns its back steps itself.
+     *
+     * Commons' callback stays disabled: an always-enabled one takes the gesture away from
+     * the platform, which then cannot preview the exit at the tab root. While a grouped
+     * subfolder is open the step is rendered at the finger's progress instead of running
+     * a fixed animation after release.
+     */
+    private val albumsBackCallback = object : androidx.activity.OnBackPressedCallback(false) {
+        override fun handleOnBackStarted(backEvent: androidx.activity.BackEventCompat) {
+            nestedFolderBackStep = beginNestedFolderBackStep()
+        }
+
+        override fun handleOnBackProgressed(backEvent: androidx.activity.BackEventCompat) {
+            nestedFolderBackStep?.render(backEvent.progress)
+        }
+
+        override fun handleOnBackCancelled() {
+            val step = nestedFolderBackStep ?: return
+            nestedFolderBackStep = null
+            val previousPath = nestedFolderBackPath
+            val previousOpened = nestedFolderBackOpened
+            nestedFolderBackPath = null
+            nestedFolderBackOpened = null
+            step.cancel {
+                if (previousPath == null || previousOpened == null) return@cancel
+                mOpenedSubfolders.clear()
+                mOpenedSubfolders.addAll(previousOpened)
+                mCurrentPathPrefix = previousPath
+                setupAdapter(mDirs)
+            }
+        }
+
+        override fun handleOnBackPressed() {
+            // Also the only entry below API 34, where no progress is delivered.
+            val step = nestedFolderBackStep
+            nestedFolderBackStep = null
+            nestedFolderBackPath = null
+            nestedFolderBackOpened = null
+            if (step != null) {
+                step.commit { syncAppBackStep() }
+                return
+            }
+            if (binding.mainMenu.isSearchOpen) {
+                OxygenSearchNavigation.closeInlineSearch(this@MainActivity, binding.mainMenu)
+                syncAppBackStep()
+                return
+            }
+            if (config.groupDirectSubfolders && mCurrentPathPrefix.isNotEmpty()) popSubfolder()
+        }
+    }
+
+    /** Fallback for any path that still routes through Commons; never the primary one. */
     override fun onBackPressedCompat(): Boolean {
-        return if (binding.mainMenu.isSearchOpen) {
+        if (binding.mainMenu.isSearchOpen) {
             OxygenSearchNavigation.closeInlineSearch(this, binding.mainMenu)
             syncAppBackStep()
-            true
-        } else if (config.groupDirectSubfolders) {
-            if (mCurrentPathPrefix.isEmpty()) {
-                appLockManager.lock()
-                false
-            } else {
-                mOpenedSubfolders.removeAt(mOpenedSubfolders.lastIndex)
-                mCurrentPathPrefix = mOpenedSubfolders.last()
-                setupAdapter(mDirs, onCommitted = {
-                    GalleryEntryMotion.enter(binding.directoriesGrid, forward = false)
-                })
-                syncAppBackStep()
-                true
-            }
-        } else {
-            appLockManager.lock()
-            false
+            return true
         }
+        if (config.groupDirectSubfolders && mCurrentPathPrefix.isNotEmpty()) {
+            popSubfolder()
+            return true
+        }
+        return false
+    }
+
+    private fun popSubfolder() {
+        if (mCurrentPathPrefix.isEmpty()) return
+        mOpenedSubfolders.removeAt(mOpenedSubfolders.lastIndex)
+        mCurrentPathPrefix = mOpenedSubfolders.last()
+        setupAdapter(mDirs, onCommitted = {
+            GalleryEntryMotion.enter(binding.directoriesGrid, forward = false)
+        })
+        syncAppBackStep()
+    }
+
+    /** Opens the parent level at progress 0 so the gesture, not a timer, drives the fade. */
+    private fun beginNestedFolderBackStep(): ClassicSettingsPageTransition.Step? {
+        if (!config.groupDirectSubfolders || mCurrentPathPrefix.isEmpty()) return null
+        if (binding.mainMenu.isSearchOpen || !OxygenClassicMotion.enabled(this)) return null
+        if (binding.directoriesRefreshLayout.width <= 0 ||
+            binding.directoriesRefreshLayout.height <= 0) return null
+        val previousPath = mCurrentPathPrefix
+        val previousOpened = ArrayList(mOpenedSubfolders)
+        mOpenedSubfolders.removeAt(mOpenedSubfolders.lastIndex)
+        mCurrentPathPrefix = mOpenedSubfolders.last()
+        val step = ClassicSettingsPageTransition.begin(
+            container = binding.directoriesRefreshLayout,
+            incoming = binding.directoriesGrid,
+            incomingDirection = ClassicSettingsPageTransition.direction(false, binding.directoriesGrid),
+            animationsEnabled = true,
+            prepareTarget = { setupAdapter(mDirs) },
+            distanceDp = 18,
+            incomingStartAlpha = 0.84f
+        )
+        if (step == null) {
+            mOpenedSubfolders.clear()
+            mOpenedSubfolders.addAll(previousOpened)
+            mCurrentPathPrefix = previousPath
+            syncAppBackStep()
+            return null
+        }
+        nestedFolderBackPath = previousPath
+        nestedFolderBackOpened = previousOpened
+        return step
     }
 
     /**
@@ -789,13 +892,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
      */
     private fun syncAppBackStep() {
         if (isFinishing || isDestroyed) return
-        setAppBackStepAvailable(
+        setAppBackStepAvailable(false)
+        albumsBackCallback.isEnabled =
             org.fossify.gallery.helpers.BackStepPolicy.albumsOwnsBackStep(
                 searchOpen = binding.mainMenu.isSearchOpen,
                 groupedSubfolders = config.groupDirectSubfolders,
                 openedSubfolders = mOpenedSubfolders.size,
             )
-        )
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, resultData: Intent?) {

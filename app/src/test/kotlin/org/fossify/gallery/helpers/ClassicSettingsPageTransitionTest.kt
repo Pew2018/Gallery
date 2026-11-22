@@ -81,6 +81,102 @@ class ClassicSettingsPageTransitionTest {
         controller.pause().stop().destroy()
     }
 
+    @Test fun interactiveStepFollowsTheFingerAndCancelRestoresTheSamePage() {
+        org.robolectric.shadows.ShadowChoreographer.setPaused(true)
+        org.robolectric.shadows.ShadowChoreographer.setFrameDelay(java.time.Duration.ofMillis(16))
+        val controller = Robolectric.buildActivity(Activity::class.java).setup().visible()
+        val activity = controller.get()
+        val host = FrameLayout(activity).apply { setBackgroundColor(Color.WHITE) }
+        val page = View(activity).apply { setBackgroundColor(Color.RED) }
+        host.addView(page, FrameLayout.LayoutParams(120, 120))
+        activity.windowManager.addView(host, android.view.WindowManager.LayoutParams(120, 120))
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(
+            32, java.util.concurrent.TimeUnit.MILLISECONDS)
+        host.measure(
+            View.MeasureSpec.makeMeasureSpec(120, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(120, View.MeasureSpec.EXACTLY)
+        )
+        host.layout(0, 0, 120, 120)
+
+        var prepared = 0
+        var restored = 0
+        var titleCommits = 0
+        val step = ClassicSettingsPageTransition.begin(
+            host, page, 1, true,
+            prepareTarget = { prepared++; page.setBackgroundColor(Color.BLUE) },
+            onTitleCommit = { titleCommits++ }
+        )
+        assertTrue("An animated page must expose an interactive step", step != null)
+        assertEquals("The destination is rendered as soon as the gesture starts", 1, prepared)
+        assertEquals("The snapshot must be taken before the page is replaced", Color.RED,
+            ClassicSettingsPageTransition.snapshotPixelForTest(host, 60, 60))
+
+        for (progress in listOf(0.2f, 0.45f, 0.7f)) {
+            step!!.render(progress)
+            assertEquals("The page must fade exactly with the gesture progress",
+                ((1f - progress) * 255f).toInt(),
+                ClassicSettingsPageTransition.snapshotAlphaForTest(host))
+        }
+        assertTrue("The title must not commit while the gesture is still reversible", titleCommits == 0)
+
+        step!!.render(0f)
+        step.cancel { restored++ }
+        assertEquals("Cancel must restore the caller's state", 1, restored)
+        host.viewTreeObserver.dispatchOnPreDraw()
+        assertEquals("The snapshot must leave once the restored page is laid out", null,
+            ClassicSettingsPageTransition.snapshotAlphaForTest(host))
+        assertEquals(0f, page.translationX, 0f)
+        assertEquals(1f, page.alpha, 0f)
+        activity.windowManager.removeViewImmediate(host)
+        controller.pause().stop().destroy()
+    }
+
+    @Test fun interactiveStepCommitsTheDestinationTitleAtRelease() {
+        org.robolectric.shadows.ShadowChoreographer.setPaused(true)
+        org.robolectric.shadows.ShadowChoreographer.setFrameDelay(java.time.Duration.ofMillis(16))
+        val controller = Robolectric.buildActivity(Activity::class.java).setup().visible()
+        val activity = controller.get()
+        val host = FrameLayout(activity).apply { setBackgroundColor(Color.WHITE) }
+        val page = View(activity).apply { setBackgroundColor(Color.RED) }
+        host.addView(page, FrameLayout.LayoutParams(120, 120))
+        activity.windowManager.addView(host, android.view.WindowManager.LayoutParams(120, 120))
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(
+            32, java.util.concurrent.TimeUnit.MILLISECONDS)
+        host.measure(
+            View.MeasureSpec.makeMeasureSpec(120, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(120, View.MeasureSpec.EXACTLY)
+        )
+        host.layout(0, 0, 120, 120)
+
+        var finished = 0
+        var titleCommits = 0
+        val step = ClassicSettingsPageTransition.begin(
+            host, page, 1, true,
+            prepareTarget = { page.setBackgroundColor(Color.BLUE) },
+            onTitleCommit = { titleCommits++ }
+        )!!
+        step.render(1f)
+        step.commit { finished++ }
+        assertEquals("Release must complete the step", 1, finished)
+        assertEquals("The destination title commits with the step", 1, titleCommits)
+        assertEquals("The snapshot must be gone after a full commit", null,
+            ClassicSettingsPageTransition.snapshotAlphaForTest(host))
+        assertEquals(Color.BLUE, (page.background as ColorDrawable).color)
+        activity.windowManager.removeViewImmediate(host)
+        controller.pause().stop().destroy()
+    }
+
+    @Test fun interactiveStepIsUnavailableWhenMotionIsOff() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        val host = FrameLayout(activity)
+        val page = View(activity)
+        host.addView(page)
+        val step = ClassicSettingsPageTransition.begin(
+            host, page, 1, false, prepareTarget = { throw AssertionError("must not prepare") })
+        assertEquals("Without motion the page must fall back to the plain path", null, step)
+        activity.finish()
+    }
+
     @Test fun listDividerUsesInsetRowBoundaryAndSkipsSectionBoundaries() {
         val activity = Robolectric.buildActivity(androidx.appcompat.app.AppCompatActivity::class.java).setup().get()
         val list = TiebaSettingsContainer(activity).apply {

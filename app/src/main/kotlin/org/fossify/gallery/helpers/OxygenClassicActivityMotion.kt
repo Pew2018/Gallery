@@ -9,7 +9,9 @@ import android.transition.ChangeImageTransform
 import android.transition.TransitionValues
 import android.view.ViewGroup
 import android.widget.ImageView
+import androidx.core.graphics.drawable.toDrawable
 import org.fossify.gallery.R
+import org.fossify.gallery.extensions.config
 
 /** Installs the shared Activity Window transition contract for folder and Viewer layers. */
 object OxygenClassicActivityMotion {
@@ -221,6 +223,17 @@ object OxygenClassicActivityMotion {
         if (isShared(activity)) configureShared(activity)
         else if (GalleryBottomBar.isRootTransition(activity)) {
             GalleryBottomBar.restoreRootWindow(activity)
+        } else if (PredictiveBackSupport.systemDrivesPageTransition) {
+            // Hand the page transition to the platform. Keeping a window animation style
+            // here would make the platform skip its own back preview, which turned every
+            // folder return into a single-frame cut with no parent revealed underneath.
+            activity.window.setWindowAnimations(0)
+            // The platform scales and clips this window while the gesture runs, so the
+            // surface behind the first frame has to be the page's own colour rather than
+            // the platform default, which flashes white on a dark theme.
+            activity.window.setBackgroundDrawable(
+                OxygenThemeEngine.snapshot(activity, activity.config).pageBackground.toDrawable()
+            )
         } else activity.window.setWindowAnimations(R.style.OxygenClassicPageWindow)
     }
 
@@ -231,6 +244,10 @@ object OxygenClassicActivityMotion {
             activity.overridePendingTransition(0, 0)
             return
         }
+        // The platform animates the closing page itself from Android 14 on. Overriding the
+        // pending transition would replace that preview with a fade the incoming page
+        // covers immediately.
+        if (PredictiveBackSupport.systemDrivesPageTransition) return
         activity.overridePendingTransition(
             R.anim.oxygen_classic_page_close_enter,
             R.anim.oxygen_classic_page_close_exit

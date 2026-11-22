@@ -52,12 +52,17 @@ object ClassicSettingsActivityTransition {
         return true
     }
 
+    /**
+     * Suppresses only the entrance window animation on Android 14+. The close side must
+     * stay default there, otherwise the platform has no transition left to preview when
+     * the user backs out of the page.
+     */
     @Suppress("DEPRECATION")
     fun suppressWindowAnimation(activity: Activity) {
         if (Build.VERSION.SDK_INT >= 34) {
             activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_OPEN, 0, 0)
-            activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        } else {
+            activity.overridePendingTransition(0, 0)
         }
-        activity.overridePendingTransition(0, 0)
     }
 }
