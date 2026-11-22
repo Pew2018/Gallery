@@ -8,7 +8,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Proves the session sequence used by [ViewPagerActivity]'s platform-owned return:
+ * Proves the session sequence used by [ViewPagerActivity]'s system-release return
+ * (the app runs no return visual; the platform may still downgrade the animation):
  * a single operation is prepared, completed, and cleaned, and a later reenter or
  * result cannot start a second return. This is a Kotlin state-machine proof only —
  * it does not observe any system-composited frame.
@@ -29,7 +30,7 @@ class PlatformViewerReturnTest {
         // No shared-element animation runs, so the caller advances the state directly.
         assertTrue(session.targetReady(operation))
         assertTrue(session.isReturning(operation))
-        assertTrue(session.terminate(operation, State.COMPLETE, "platform_cross_activity_return"))
+        assertTrue(session.terminate(operation, State.COMPLETE, "system_return_no_app_visual"))
         assertEquals(State.COMPLETE, session.outcome)
         // The parent's result is still accepted even though no app animation existed.
         assertTrue(session.acceptResult(operation))
@@ -46,7 +47,7 @@ class PlatformViewerReturnTest {
         assertTrue(session.acceptReenter(operation))
         // The viewer path completes the motion and finishes without a second animation.
         assertTrue(session.finishViewerMotion(operation, cancelled = false))
-        assertTrue(session.terminate(operation, State.COMPLETE, "platform_cross_activity_return"))
+        assertTrue(session.terminate(operation, State.COMPLETE, "system_return_no_app_visual"))
         // Reenter is closed once the motion completed; the single result is still
         // accepted so the parent restores the media position, then cannot repeat.
         assertFalse(session.acceptReenter(operation))
