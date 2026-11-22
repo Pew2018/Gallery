@@ -478,7 +478,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
      * from that live frame: the platform restarts its own progress at zero, so the
      * resumed progress is kept as a base instead of being overwritten.
      */
-    private fun beginSystemBackGesture(): Boolean {
+    private fun beginSystemBackGesture(touchX: Float): Boolean {
         if (isFinishing || isDestroyed) return false
         if (transitionSession.state == State.INTERACTIVE_RETURN) {
             val resumed = mediaDismissGestureBegin()
@@ -489,8 +489,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             if (transitionSession.state != State.VIEWING || !beginInteractiveDismiss()) return false
             systemBackResumeProgress = 0f
         }
-        // The back gesture has no vertical drag delta; the shared envelope stays centred.
-        interactiveDismissDeltaXSlope = 0f
+        // The back gesture has no vertical drag delta, so the shared envelope stays
+        // vertically centred. Horizontally it slides toward the swiped edge: a
+        // left-edge back moves the photo right (revealing the grid on the left),
+        // a right-edge back moves it left, so the two edges no longer look identical.
+        val screenWidth = resources.displayMetrics.widthPixels
+        val surfaceWidth = interactiveDismissSurface?.width?.takeIf { it > 0 } ?: screenWidth
+        val fromLeftEdge = touchX.isNaN() || touchX < screenWidth / 2f
+        interactiveDismissDeltaXSlope = (if (fromLeftEdge) 1f else -1f) * surfaceWidth * 0.35f
         interactiveDismissDeltaYSlope = 0f
         return true
     }

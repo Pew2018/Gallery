@@ -1,6 +1,12 @@
 <resources>
 
-    <style name="AppTheme" parent="AppTheme.Base" />
+    <style name="AppTheme" parent="AppTheme.Base">
+        <!-- The platform's predictive-back reveal reads the theme's window background,
+             not the runtime override installed by SimpleActivity. Base is Material3 Dark,
+             so without this the reveal area is black on light themes. Match the classic
+             page surface (#FAFAFA, with a #212121 night variant) instead. -->
+        <item name="android:windowBackground">@color/oxygen_classic_page</item>
+    </style>
 
     <style name="CustomBottomSheetDialogTheme" parent="Theme.Design.Light.BottomSheetDialog">
         <item name="bottomSheetStyle">@style/CustomBottomSheetStyle</item>

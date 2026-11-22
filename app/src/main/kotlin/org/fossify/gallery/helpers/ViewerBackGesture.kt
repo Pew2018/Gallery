@@ -10,9 +10,13 @@ import androidx.activity.OnBackPressedCallback
  * window: the Viewer's own interactive envelope and shared-element return stay the
  * only visual drivers. On platforms that do not deliver gesture progress the same
  * callback only receives the final back and closes through the unchanged path.
+ *
+ * The gesture start X is forwarded so the return can slide toward the swiped edge
+ * instead of always shrinking in place: a left-edge back reveals the grid from the
+ * left, a right-edge back from the right.
  */
 internal class ViewerBackGesture(
-    private val beginInteractive: () -> Boolean,
+    private val beginInteractive: (Float) -> Boolean,
     private val renderProgress: (Float) -> Unit,
     private val cancelInteractive: () -> Unit,
     private val commit: () -> Unit,
@@ -23,7 +27,7 @@ internal class ViewerBackGesture(
     val ownsInteractiveReturn get() = interactive
 
     override fun handleOnBackStarted(backEvent: BackEventCompat) {
-        interactive = beginInteractive()
+        interactive = beginInteractive(backEvent.touchX)
     }
 
     override fun handleOnBackProgressed(backEvent: BackEventCompat) {

@@ -280,14 +280,20 @@ class GalleryRootTransitionTest {
         source.finish()
     }
 
-    @Test fun rootThemeDisablesInheritedDarkPreviewWithoutMakingWindowTranslucent() {
+    @Test fun rootThemeKeepsWindowOpaqueWithoutSuppressingPlatformPreview() {
         val context = RuntimeEnvironment.getApplication()
         val theme = context.resources.newTheme().apply { applyStyle(R.style.OxygenClassicRootTheme, true) }
         val value = android.util.TypedValue()
-        assertTrue(theme.resolveAttribute(android.R.attr.windowDisablePreview, value, true))
-        assertNotEquals(0, value.data)
+        // Root pages must stay opaque so the platform can reveal the parent page
+        // behind them. windowDisablePreview is no longer forced on: leaving it unset
+        // lets the system build its launch-behind predictive-back preview of the
+        // parent instead of falling back to a black reveal.
         assertTrue(theme.resolveAttribute(android.R.attr.windowIsTranslucent, value, true))
         assertEquals(0, value.data)
+        val preview = android.util.TypedValue()
+        if (theme.resolveAttribute(android.R.attr.windowDisablePreview, preview, true)) {
+            assertEquals(0, preview.data)
+        }
     }
 
     @Test @Config(sdk = [36])
