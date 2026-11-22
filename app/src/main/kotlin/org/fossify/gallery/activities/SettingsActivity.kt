@@ -548,10 +548,11 @@ class SettingsActivity : SimpleActivity() {
             binding.settingsToolbar.title ?: "", true,
             OxygenClassicMotion.enabled(this) && !PredictiveBackSupport.systemDrivesPageTransition
         )
+        val intent = Intent(this, OxygenThemeActivity::class.java)
+            .putExtra(ClassicSettingsActivityTransition.EXTRA_SESSION, themeTransitionSession)
+        val legacyOptions = android.app.ActivityOptions.makeCustomAnimation(this, 0, 0).toBundle()
         try {
-            startActivity(Intent(this, OxygenThemeActivity::class.java)
-                .putExtra(ClassicSettingsActivityTransition.EXTRA_SESSION, themeTransitionSession),
-                android.app.ActivityOptions.makeCustomAnimation(this, 0, 0).toBundle())
+            PredictiveBackSupport.startPage(this, intent, legacyOptions)
         } catch (failure: RuntimeException) {
             themeNavigationStarted = false
             ClassicSettingsActivityTransition.clear()

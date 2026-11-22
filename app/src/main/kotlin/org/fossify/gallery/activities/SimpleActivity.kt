@@ -84,6 +84,10 @@ open class SimpleActivity : BaseSimpleActivity() {
         // gesture away from the system and suppresses its predictive exit preview.
         // Pages that do own a step re-enable it through [setAppBackStepAvailable].
         setAppBackStepAvailable(false)
+        // A root handoff or a staged page fade may have installed a zero animation on
+        // this Activity instance. It is persistent, so an ordinary back taken later
+        // would inherit it instead of the platform's cross-Activity preview.
+        org.fossify.gallery.helpers.PredictiveBackSupport.clearPageTransitionOverrides(this)
     }
 
     /**

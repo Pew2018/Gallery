@@ -103,13 +103,19 @@ object GalleryBottomBar {
         traceWindow(activity, "prepare_surface")
     }
 
-    @Suppress("DEPRECATION")
+    /**
+     * Defers to the theme (which declares no window animation) instead of holding a
+     * runtime override. The root switch itself is already zero-animated by the
+     * transient [ActivityOptions] passed in [open] and by the post-finish call in
+     * [finishOutgoing]; neither has to outlive that one handoff.
+     *
+     * In particular, an OVERRIDE_TRANSITION_OPEN zero left on a root page is still in
+     * force when that page is the destination of a later, ordinary child-page back,
+     * and an OVERRIDE_TRANSITION_CLOSE zero suppresses its exit-to-home preview.
+     */
     private fun disableRootWindowMotion(activity: Activity) {
+        // 0 means "take the animation from the theme", not "no animation at all".
         activity.window.setWindowAnimations(0)
-        if (android.os.Build.VERSION.SDK_INT >= 34) {
-            activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_OPEN, 0, 0)
-            activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE, 0, 0)
-        }
     }
 
     /** Activity teardown cancels callbacks rather than leaving a retained window/view. */

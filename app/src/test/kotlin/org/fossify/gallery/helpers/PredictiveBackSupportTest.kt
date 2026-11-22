@@ -12,6 +12,7 @@ import org.robolectric.annotation.Config
  * its parent under the finger and a single-frame cut. Keep the API gate honest.
  */
 @RunWith(RobolectricTestRunner::class)
+@Config(application = android.app.Application::class)
 class PredictiveBackSupportTest {
     @Test
     @Config(sdk = [33], manifest = Config.NONE)
