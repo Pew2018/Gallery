@@ -146,6 +146,30 @@ open class SimpleActivity : BaseSimpleActivity() {
         restoredThemeState = null
     }
 
+    /**
+     * Keep the task background on the page surface for every theme application.
+     *
+     * Android resolves `android:colorBackground` from the effective theme into the
+     * Activity TaskDescription inside [onApplyThemeResource] (and the Shell back
+     * animation paints its reveal background from the *entering* task description).
+     * Commons re-applies its own Material3-Dark based themes in onCreate/onResume, so
+     * a value declared only in styles.xml would be replaced before the TaskDescription
+     * write happens.
+     *
+     * Android 16's Activity.onApplyThemeResource (aosp 99b01a65, Activity.java:5569)
+     * does, in order: super.onApplyThemeResource -> theme.applyStyle(resid, true),
+     * then reads ActivityTaskDescription_colorBackground into the TaskDescription.
+     * Injecting the token *before* super is therefore lost to applyStyle(resid). Instead
+     * we apply the real theme ourselves and pass the token AS the resid to super: the
+     * token only overrides colorBackground (values-night carries the dark page), so
+     * every other attribute stays from the real theme, and the framework reads the
+     * page surface into the TaskDescription on the very next lines. Public API only.
+     */
+    override fun onApplyThemeResource(theme: android.content.res.Resources.Theme, resid: Int, first: Boolean) {
+        theme.applyStyle(resid, true)
+        super.onApplyThemeResource(theme, R.style.OxygenClassicTaskBackground, first)
+    }
+
     private fun applyClassicOverlay() {
         theme.applyStyle(
             if (OxygenThemeEngine.snapshot(this, config).dark)

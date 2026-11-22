@@ -4,6 +4,20 @@
         <item name="android:windowIsTranslucent">false</item>
     </style>
 
+    <!-- Task background token. Android 16 Activity.onApplyThemeResource resolves
+         android:colorBackground from the *effective* theme into the Activity
+         TaskDescription (aosp 99b01a65, Activity.java:5593-5596); the Shell
+         cross-Activity back animation paints its background layer from
+         enteringTarget.taskInfo.taskDescription.backgroundColor
+         (CrossActivityBackAnimation.getBackgroundColor). Commons re-setTheme()s to
+         its own Material3-Dark themes at onCreate/onResume, so a value declared only
+         on AppTheme would be overwritten before the window shows. SimpleActivity
+         injects this style inside its onApplyThemeResource override so the write
+         happens after Commons' theme and always resolves to the page surface. -->
+    <style name="OxygenClassicTaskBackground">
+        <item name="android:colorBackground">@color/oxygen_classic_page</item>
+    </style>
+
     <!-- OxygenOS 4.5.15 screenshot-derived visual baselines; user-selected
          Fossify colors still control interactive tints and dark themes. -->
     <color name="oxygen_classic_toolbar">#212121</color>
