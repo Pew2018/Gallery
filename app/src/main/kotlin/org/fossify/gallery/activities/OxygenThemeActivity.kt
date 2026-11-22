@@ -122,7 +122,8 @@ class OxygenThemeActivity : SimpleActivity() {
         }
         transitionSession?.let { session ->
             ClassicSettingsActivityTransition.stage(
-                "settings:$session", scroll, titleText.text, false, OxygenClassicMotion.enabled(this)
+                "settings:$session", scroll, titleText.text, false,
+                OxygenClassicMotion.enabled(this) && !PredictiveBackSupport.systemDrivesPageTransition
             )
         }
         finish()
@@ -153,7 +154,8 @@ class OxygenThemeActivity : SimpleActivity() {
             initialNavigation = false
             transitionSession?.let { session ->
                 ClassicSettingsActivityTransition.receive(
-                    "theme:$session", scroll, body, OxygenClassicMotion.enabled(this),
+                    "theme:$session", scroll, body,
+                    OxygenClassicMotion.enabled(this) && !PredictiveBackSupport.systemDrivesPageTransition,
                     { titleText.text = it }, titleText.text
                 )
             }

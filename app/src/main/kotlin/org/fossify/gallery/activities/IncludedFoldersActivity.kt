@@ -29,6 +29,11 @@ class IncludedFoldersActivity : SimpleActivity(), RefreshRecyclerViewListener {
             padTopSystem = listOf(binding.manageFoldersAppbar),
             padBottomSystem = listOf(binding.manageFoldersList)
         )
+        // This layout has no page surface of its own, so the part of the page the list does
+        // not paint used to keep the platform window background while the rows used the
+        // theme surface: two whites on one screen. Paint the page colour once, here.
+        binding.root.setBackgroundColor(OxygenThemeEngine.pageSurface(this, config))
+        binding.manageFoldersHolder.setBackgroundColor(OxygenThemeEngine.pageSurface(this, config))
         // Keep the shared accent toolbar flat; Commons' scroll animator restores page colors.
     }
 

@@ -647,7 +647,11 @@ class DirectoryAdapter(
         val paths = getSelectedPaths()
         if (FAVORITES !in paths) return false
         if (paths.size == 1) {
+            // Open the security page directly: a category page is its own window now, so
+            // going through the hub would leave an extra page between this folder and the
+            // row the user asked for.
             activity.startActivity(Intent(activity, SettingsActivity::class.java)
+                .putExtra(SettingsActivity.EXTRA_CATEGORY, "security")
                 .putExtra(MANAGE_FAVORITE_PASSWORD, true))
             finishActMode()
         }

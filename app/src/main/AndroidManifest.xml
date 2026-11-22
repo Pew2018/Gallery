@@ -146,12 +146,22 @@
             </intent-filter>
         </activity>
 
+        <!-- Product decision: no About surface at all. Removing the declarations (instead
+             of hiding the menu entry) means no leftover intent, deep link or upstream
+             merge can reopen it: AboutActivity, FAQ, licences and contributors are simply
+             not installable components. Guard test: NoAboutSurfaceTest. -->
         <activity
             android:name="org.fossify.commons.activities.AboutActivity"
-            android:configChanges="orientation"
-            android:exported="false"
-            android:label="@string/about"
-            android:parentActivityName=".activities.MainActivity" />
+            tools:node="remove" />
+        <activity
+            android:name="org.fossify.commons.activities.FAQActivity"
+            tools:node="remove" />
+        <activity
+            android:name="org.fossify.commons.activities.LicenseActivity"
+            tools:node="remove" />
+        <activity
+            android:name="org.fossify.commons.activities.ContributorsActivity"
+            tools:node="remove" />
 
         <activity
             android:name="org.fossify.commons.activities.CustomizationActivity"

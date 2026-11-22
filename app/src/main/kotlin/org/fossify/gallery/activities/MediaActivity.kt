@@ -157,7 +157,6 @@ import org.fossify.gallery.extensions.getHumanizedFilename
 import org.fossify.gallery.extensions.getFavoritePaths
 import org.fossify.gallery.extensions.getUpdatedDeletedMedia
 import org.fossify.gallery.extensions.isDownloadsFolder
-import org.fossify.gallery.extensions.launchAbout
 import org.fossify.gallery.extensions.launchCamera
 import org.fossify.gallery.extensions.launchSettings
 import org.fossify.gallery.extensions.launchGesturePlayer
@@ -2521,7 +2520,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
             setVisibleIfChanged(R.id.folder_view, hasFixedBrowseSwitch)
             setVisibleIfChanged(R.id.open_camera, mShowAll)
-            setVisibleIfChanged(R.id.about, mShowAll)
             setVisibleIfChanged(R.id.open_recycle_bin, config.useRecycleBin && mPath != RECYCLE_BIN)
 
             setVisibleIfChanged(R.id.temporarily_show_excluded, mPath.isEmpty() && !config.temporarilyShowExcluded)
@@ -2624,7 +2622,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                 R.id.unset_as_default_folder -> unsetAsDefaultFolder()
                 R.id.slideshow -> startSlideshow()
                 R.id.settings -> launchSettings()
-                R.id.about -> launchAbout()
                 else -> return@setOnMenuItemClickListener false
             }
             return@setOnMenuItemClickListener true

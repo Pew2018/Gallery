@@ -111,12 +111,8 @@
         android:icon="@drawable/ic_settings_cog_vector"
         android:title="@string/settings"
         app:showAsAction="never" />
-    <item
-        android:id="@+id/about"
-        android:orderInCategory="91"
-        android:icon="@drawable/ic_info_vector"
-        android:title="@string/about"
-        app:showAsAction="never" />
+    <!-- No "About" entry by product decision; the page itself is removed from the
+         manifest as well. Guard test: NoAboutSurfaceTest. -->
     <item
         android:id="@+id/temporarily_show_excluded"
         android:orderInCategory="42"

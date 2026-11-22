@@ -74,6 +74,7 @@ open class SimpleActivity : BaseSimpleActivity() {
         }
         applyClassicOverlay()
         org.fossify.gallery.helpers.GalleryBottomBar.restoreRootWindow(this)
+        applyPageWindowSurface()
         org.fossify.gallery.helpers.GalleryBottomBar.traceWindow(this, "create_after_commons")
         inflatedTheme = OxygenThemeEngine.snapshot(this, config)
         inflatedAppearance = config.oxygenThemeActivated to config.oxygenAppearanceMode
@@ -83,6 +84,18 @@ open class SimpleActivity : BaseSimpleActivity() {
         // gesture away from the system and suppresses its predictive exit preview.
         // Pages that do own a step re-enable it through [setAppBackStepAvailable].
         setAppBackStepAvailable(false)
+    }
+
+    /**
+     * The platform scales and clips the window while a predictive-back gesture runs.
+     * Anything the page itself does not paint - the inset corners and the strip behind
+     * the rounded card - would otherwise show the platform default, which is black on
+     * this device and reads as an unthemed background.
+     */
+    private fun applyPageWindowSurface() {
+        if (!usesSharedToolbar) return
+        window.setBackgroundDrawable(ColorDrawable(
+            OxygenThemeEngine.snapshot(this, config).pageBackground))
     }
 
     /**
