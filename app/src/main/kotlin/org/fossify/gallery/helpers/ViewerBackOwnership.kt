@@ -11,6 +11,18 @@ import android.os.Build
  * An enabled [androidx.activity.OnBackPressedCallback] therefore takes the gesture
  * away from the platform and leaves the app to draw its own preview.
  *
+ * Two independent facts must be kept apart:
+ *
+ *  - "the app does not consume the back" — [hasInAppStep]; and
+ *  - "the system will actually run a cross-Activity animation" — [platformOwnsEdgeBack].
+ *
+ * The second additionally requires the window to qualify: BackNavigationController
+ * drops to TYPE_CALLBACK when the top activity does not occlude its parent
+ * (translucent/floating window) or was launched with a scene transition
+ * (ActivityRecord.mHasSceneTransition is final and set from the launch options).
+ * Passing [windowEligible] is a *necessary* condition for the platform animation;
+ * it is not proof the animation ran — that stays a device-level validation.
+ *
  * Gallery's own image scaling is still required in two cases, and only in those
  * cases may the app callback stay enabled:
  *  - Android 13 and below, where the platform has no cross-Activity preview; and
@@ -34,15 +46,52 @@ internal object ViewerBackOwnership {
     fun hasInAppStep(state: MediaTransitionSessionCoordinator.State, dragActive: Boolean): Boolean =
         state != MediaTransitionSessionCoordinator.State.VIEWING || dragActive
 
+    /**
+     * True only when the platform is *eligible* to run the whole-window return:
+     * new enough platform, stable page, no drag in flight, and a window the
+     * WindowManager considers occluding. Callers must not log this as "the
+     * system animated" — eligibility does not prove the BackNavigation type the
+     * server finally selected.
+     */
     fun platformOwnsEdgeBack(
         sdkInt: Int,
         state: MediaTransitionSessionCoordinator.State,
         dragActive: Boolean,
-    ): Boolean = sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && !hasInAppStep(state, dragActive)
+        windowEligible: Boolean,
+    ): Boolean = sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && windowEligible &&
+        !hasInAppStep(state, dragActive)
 
     fun appOwnsEdgeBack(
         sdkInt: Int,
         state: MediaTransitionSessionCoordinator.State,
         dragActive: Boolean,
-    ): Boolean = !platformOwnsEdgeBack(sdkInt, state, dragActive)
+        windowEligible: Boolean,
+    ): Boolean = !platformOwnsEdgeBack(sdkInt, state, dragActive, windowEligible)
+
+    /**
+     * Whether a back commit runs the app-side return visual. This is true only
+     * when there is no in-app step and the platform *may* take over; it stays
+     * true even when the window is ineligible, because the one thing the app must
+     * never do is stack its own shared-element return on top of a transition the
+     * platform is already playing (or a plain finish).
+     */
+    fun releaseWithoutAppVisual(
+        sdkInt: Int,
+        state: MediaTransitionSessionCoordinator.State,
+        dragActive: Boolean,
+    ): Boolean = sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && !hasInAppStep(state, dragActive)
+
+    /**
+     * Whether the app arms its back callback. This is intentionally *not* the
+     * negation of [platformOwnsEdgeBack]: on an ineligible window (translucent
+     * theme, scene-transition launch) a stable page must still NOT consume the
+     * gesture, or the app image-scaling preview the user rejected would return.
+     * The callback is armed only where the app truly has an in-app step, plus
+     * every pre-14 platform where no system preview exists at all.
+     */
+    fun armAppBackCallback(
+        sdkInt: Int,
+        state: MediaTransitionSessionCoordinator.State,
+        dragActive: Boolean,
+    ): Boolean = sdkInt < Build.VERSION_CODES.UPSIDE_DOWN_CAKE || hasInAppStep(state, dragActive)
 }

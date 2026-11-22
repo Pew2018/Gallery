@@ -534,10 +534,41 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     /**
-     * Keeps the one back callback's enabled state aligned with ownership. A stable
-     * Viewer page on Android 14+ must not consume the gesture: an enabled callback
-     * would replace the platform's whole-window return with our image scaling. The
-     * callback is only armed while the app owns a genuine in-app step.
+     * Whether the WindowManager could qualify this window for a cross-Activity
+     * back animation. The Viewer deliberately keeps a translucent theme: the
+     * photo down-drag dismiss reveals the real parent grid through this window,
+     * so converting it opaque here would break that gesture. The value therefore
+     * stays false for the current architecture and this is recorded honestly
+     * rather than claimed as platform-owned animation.
+     *
+     * Even an opaque window would not be sufficient here. The Viewer is launched
+     * with makeSceneTransitionAnimation, so ActivityRecord.mHasSceneTransition is
+     * final-true for its whole life (aosp 99b01a65, ActivityRecord.java:2007) and
+     * BackNavigationController.java:287 forces TYPE_CALLBACK regardless. Removing
+     * that flag requires replacing the shared-element entry with an app-owned one,
+     * a separate change that cannot be validated without a device. These facts
+     * are kept as distinct diagnostic fields so no log claims the system animated
+     * when it only received an un-consumed back event.
+     */
+    private fun viewerWindowBackEligible(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) return false
+        return !themeDeclaresTranslucentWindow()
+    }
+
+    private fun themeDeclaresTranslucentWindow(): Boolean =
+        theme.obtainStyledAttributes(intArrayOf(android.R.attr.windowIsTranslucent))
+            .use { it.getBoolean(0, false) }
+
+    /**
+     * Keeps the one back callback's enabled state aligned with what the app must
+     * finish for itself. A stable Viewer page must not consume the gesture: an
+     * enabled callback would replace any platform return with our image scaling.
+     * The callback is only armed while the app owns a genuine in-app step (or on
+     * platforms without a system preview at all).
+     *
+     * Separately, [ViewerBackOwnership.platformOwnsEdgeBack] reports whether the
+     * system is even *eligible* to animate; the two are logged side by side so no
+     * "platform animated" claim rests on a disabled callback alone.
      */
     private fun syncViewerBackOwnership() {
         val gesture = viewerBackGesture ?: return
@@ -546,16 +577,26 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             return
         }
         val sdk = android.os.Build.VERSION.SDK_INT
-        val appOwns = ViewerBackOwnership.appOwnsEdgeBack(sdk, transitionSession.state, interactiveDismissDragActive)
-        gesture.isEnabled = appOwns
+        val state = transitionSession.state
+        val dragActive = interactiveDismissDragActive
+        gesture.isEnabled = ViewerBackOwnership.armAppBackCallback(sdk, state, dragActive)
         if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
+            val windowEligible = viewerWindowBackEligible()
             org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
                 org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "Viewer", "back_ownership",
                 fields = mapOf(
                     "sdk" to sdk,
-                    "state" to transitionSession.state.name,
-                    "dragActive" to interactiveDismissDragActive,
-                    "appOwns" to appOwns,
+                    "state" to state.name,
+                    "dragActive" to dragActive,
+                    "appCallbackArmed" to gesture.isEnabled,
+                    "hasInAppStep" to ViewerBackOwnership.hasInAppStep(state, dragActive),
+                    "themeWindowIsTranslucent" to themeDeclaresTranslucentWindow(),
+                    // mHasSceneTransition is final-true for the whole Viewer life when
+                    // the grid launched it with makeSceneTransitionAnimation; that alone
+                    // forces TYPE_CALLBACK. Recorded separately from window eligibility.
+                    "sceneTransitionLaunch" to (photoSharedElementPath != null),
+                    "platformEligible" to ViewerBackOwnership.platformOwnsEdgeBack(
+                        sdk, state, dragActive, windowEligible),
                 )
             )
         }
@@ -1454,27 +1495,34 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     /**
      * System back reaches this on every API through the platform's default back
-     * callback (and through onBackPressed below Android 16). When the platform owns
-     * the return we must publish the result and finish WITHOUT installing a second
-     * app-side shared-element animation — doing both would stack the app zoom on
-     * top of the platform's whole-window transition.
+     * callback (and through onBackPressed below Android 16). When the app has no
+     * in-app step to finish, we publish the result and finish WITHOUT installing a
+     * second app-side shared-element animation — doing both would stack the app
+     * zoom on top of whatever transition the window ends up playing.
+     *
+     * Note this only decides that the *app* runs no visual. Whether the system
+     * actually animates the whole window out (CROSS_ACTIVITY) or falls back to a
+     * plain finish (TYPE_CALLBACK for translucent/scene-transition records) is a
+     * server-side decision recorded separately by the diagnostics.
      */
     override fun finishAfterTransition() {
-        if (platformOwnsCurrentReturn()) {
-            commitPlatformReturn()
+        if (releaseReturnWithoutAppVisual()) {
+            commitSystemReleaseReturn()
         } else {
             requestViewerClose("system_back")
         }
     }
 
     /**
-     * Mirror of the ownership decision used by the callback. Recomputed at commit
-     * time so an in-app step that started mid-gesture keeps app ownership.
+     * Mirror of the "no in-app step" decision used by the callback. Recomputed at
+     * commit time so an in-app step that started mid-gesture keeps app ownership.
+     * Deliberately independent of window eligibility: even on an ineligible window
+     * the app must not run its own shared-element return for a plain system back.
      */
-    private fun platformOwnsCurrentReturn(): Boolean {
+    private fun releaseReturnWithoutAppVisual(): Boolean {
         if (!::transitionSession.isInitialized) return false
         if (isFinishing || isDestroyed || finishAfterSharedTransitionInProgress) return false
-        return ViewerBackOwnership.platformOwnsEdgeBack(
+        return ViewerBackOwnership.releaseWithoutAppVisual(
             android.os.Build.VERSION.SDK_INT,
             transitionSession.state,
             interactiveDismissDragActive,
@@ -1482,13 +1530,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     /**
-     * Close a stable Viewer page entirely through the platform's cross-Activity
-     * return. The result is still delivered so the parent restores the same media
-     * position and applies deletions, but no shared-element return is installed and
-     * the window is finished directly, leaving the visual to Android.
+     * Close a stable Viewer page with no app-side return visual. The result is
+     * still delivered so the parent restores the same media position and applies
+     * deletions, but no shared-element return is installed and the window is
+     * finished directly. The visual outcome is left to the platform; the code and
+     * the logs claim only that the app did not animate.
      */
-    private fun commitPlatformReturn() {
-        org.fossify.gallery.helpers.PredictiveBackDiagnostics.captureClosing(this, "viewer_platform_back")
+    private fun commitSystemReleaseReturn() {
+        org.fossify.gallery.helpers.PredictiveBackDiagnostics.captureClosing(this, "viewer_system_release")
         val operation = transitionSession.beginReturn() ?: run {
             super.finish()
             return
@@ -1508,18 +1557,19 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         setResult(RESULT_OK, MediaTransitionHandoff.write(result,
             if (offeredEntry != null && !transitionSession.viewerAttached) offeredEntry else operation))
         // No shared-element transition will drive RETURN_PREPARING -> RETURNING here;
-        // the platform owns the visual, so complete the state machine directly.
+        // the app runs no visual, so complete the state machine directly.
         transitionSession.targetReady(operation)
-        transitionSession.terminate(operation, State.COMPLETE, "platform_cross_activity_return")
-        ViewerReturnDiagnostics.event(viewerReturnId, "viewer_platform_return") {
+        transitionSession.terminate(operation, State.COMPLETE, "system_return_no_app_visual")
+        ViewerReturnDiagnostics.event(viewerReturnId, "viewer_system_release") {
             mapOf(
                 "sdk" to android.os.Build.VERSION.SDK_INT,
-                "reason" to "no_app_visual",
+                "appVisual" to "none",
+                "windowEligible" to viewerWindowBackEligible(),
                 "hasSelection" to returnPath.isNotEmpty(),
             )
         }
         // No window.sharedElementReturnTransition and no super.finishAfterTransition():
-        // the platform is already animating this window out.
+        // the app-side return animation is intentionally skipped.
         super.finish()
     }
 

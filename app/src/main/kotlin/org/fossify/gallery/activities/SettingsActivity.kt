@@ -149,7 +149,6 @@ class SettingsActivity : SimpleActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        org.fossify.gallery.helpers.PredictiveBackDiagnostics.captureCreated(this)
         setContentView(binding.root)
         themeTransitionSession = savedInstanceState?.getString("theme_transition_session") ?: themeTransitionSession
         activeSettingsCategory = pageCategory
@@ -176,6 +175,10 @@ class SettingsActivity : SimpleActivity() {
         // The app bar carries the status bar inset; without its own surface the scrolled
         // rows show through above the toolbar.
         binding.settingsAppbar.setBackgroundColor(OxygenThemeEngine.toolbarSurface(this, config))
+        // Sample after content and the final theme token are in place: the earlier
+        // pre-inflation frame reported Material3 defaults, not the page the gesture
+        // will actually see.
+        org.fossify.gallery.helpers.PredictiveBackDiagnostics.captureCreated(this)
     }
 
     override fun onDestroy() {
