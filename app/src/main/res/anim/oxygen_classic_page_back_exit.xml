@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:interpolator/fast_out_slow_in">
+    <!-- Post-commit motion of the closing page in the platform's custom
+         cross-Activity back animation. The gesture phase already scales and
+         shifts the window; this only settles it out. -->
+    <alpha
+        android:duration="@integer/oxygen_classic_page_exit_duration_ms"
+        android:fromAlpha="1.0"
+        android:toAlpha="0.0" />
+</set>

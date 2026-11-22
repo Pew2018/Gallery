@@ -1685,9 +1685,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         initialFolderTop = savedInstanceState?.getBoolean("initialFolderTop", false) ?: true
-        // Folder navigation uses Oxygen Classic's bounded page-level animation;
-        // no scan or thumbnail readiness is part of the Activity transition.
-        OxygenClassicActivityMotion.install(this)
+        // Folder pages own their back step through the platform window contract
+        // installed by SimpleActivity; no scan or thumbnail readiness is part of it.
         setContentView(binding.root)
         org.fossify.gallery.helpers.OxygenClassicEdgeGlow.install(binding.root, this)
         GalleryBottomBar.prepareRootSurface(this, binding.root)

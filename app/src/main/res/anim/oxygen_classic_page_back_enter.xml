@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:interpolator/fast_out_slow_in">
+    <!-- Applied by the platform to the *entering* parent page during a
+         predictive back, on top of a full-screen base rect
+         (CustomCrossActivityBackAnimation.preparePreCommitEnteringRectMovement).
+         Keep it near-identity: any translation here would move the parent window
+         away from the edges and expose the Shell backdrop again. -->
+    <alpha
+        android:duration="@integer/oxygen_classic_page_enter_duration_ms"
+        android:fromAlpha="0.96"
+        android:toAlpha="1.0" />
+</set>

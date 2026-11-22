@@ -224,13 +224,20 @@ object OxygenClassicActivityMotion {
         else if (GalleryBottomBar.isRootTransition(activity)) {
             GalleryBottomBar.restoreRootWindow(activity)
         } else if (PredictiveBackSupport.systemDrivesPageTransition) {
-            // Hand the page transition to the platform. Keeping a window animation style
-            // here would make the platform skip its own back preview, which turned every
-            // folder return into a single-frame cut with no parent revealed underneath.
-            activity.window.setWindowAnimations(0)
-            // The platform scales and clips this window while the gesture runs, so the
-            // surface behind the first frame has to be the page's own colour rather than
-            // the platform default, which flashes white on a dark theme.
+            // Hand the page transition to the platform, but select its *custom* CLOSE
+            // branch. WindowManager reads this style from the closing window
+            // (BackNavigationController.isCustomizeExitAnimation -> setWindowAnimations)
+            // and the Shell then requires a loadable activityCloseExitAnimation
+            // (CustomCrossActivityBackAnimation.CustomAnimationLoader). With that
+            // branch the entering parent keeps a full-screen base rect and only gets
+            // the near-identity CLOSE-enter animation, so the real previous page fills
+            // the screen instead of exposing the Shell backdrop around a shrunken
+            // parent. Setting a zero animation takes the default branch instead, which
+            // scales and offsets the parent and leaves that backdrop visible.
+            activity.window.setWindowAnimations(R.style.OxygenClassicPageBackWindow)
+            // The platform clips this window while the gesture runs, so the surface
+            // behind the first frame has to be the page's own colour rather than the
+            // platform default, which flashes white on a dark theme.
             activity.window.setBackgroundDrawable(
                 OxygenThemeEngine.snapshot(activity, activity.config).pageBackground.toDrawable()
             )

@@ -75,6 +75,7 @@ open class SimpleActivity : BaseSimpleActivity() {
         applyClassicOverlay()
         org.fossify.gallery.helpers.GalleryBottomBar.restoreRootWindow(this)
         applyPageWindowSurface()
+        installPageWindowContract()
         org.fossify.gallery.helpers.GalleryBottomBar.traceWindow(this, "create_after_commons")
         inflatedTheme = OxygenThemeEngine.snapshot(this, config)
         inflatedAppearance = config.oxygenThemeActivated to config.oxygenAppearanceMode
@@ -88,6 +89,18 @@ open class SimpleActivity : BaseSimpleActivity() {
         // this Activity instance. It is persistent, so an ordinary back taken later
         // would inherit it instead of the platform's cross-Activity preview.
         org.fossify.gallery.helpers.PredictiveBackSupport.clearPageTransitionOverrides(this)
+    }
+
+    /**
+     * Installs the ordinary-page window contract (opaque classic surface + the
+     * platform's custom CLOSE back branch) for every page that owns its own back
+     * step. Roots, the shared media viewer and translucent editor windows install
+     * their own contract instead.
+     */
+    private fun installPageWindowContract() {
+        if (this is MainActivity) return
+        if (this is BaseViewerActivity) return
+        org.fossify.gallery.helpers.OxygenClassicActivityMotion.install(this)
     }
 
     /**

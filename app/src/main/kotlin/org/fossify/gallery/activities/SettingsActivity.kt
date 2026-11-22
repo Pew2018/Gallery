@@ -159,7 +159,6 @@ class SettingsActivity : SimpleActivity() {
         // One page per window: no in-page back step exists, so the platform owns the
         // gesture and draws the return itself. The classic window animation only stays
         // in charge below Android 14, where no platform preview exists.
-        OxygenClassicActivityMotion.install(this)
         if (!PredictiveBackSupport.systemDrivesPageTransition) {
             onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() = closePage()

@@ -12,10 +12,14 @@ import android.os.Bundle
  * that the app window animation is the only motion available, so the Oxygen Classic
  * page animation stays in charge there.
  *
- * Setting a window animation style on a page the platform wants to animate makes the
- * platform drop its own preview: the gesture then has nothing to show and the page
- * swaps in a single frame. Folder pages and standalone Viewer pages used to do exactly
- * that, which is why their return was a 33 ms cut with no revealed parent.
+ * On Android 14+ the page window still carries a window animation style: a non-zero
+ * android:activityCloseExitAnimation is what makes WindowManager offer the *custom*
+ * CLOSE branch to the Shell (BackNavigationController.isCustomizeExitAnimation ->
+ * BackNavigationInfo.setWindowAnimations -> CustomAnimationLoader). That branch keeps
+ * the entering parent on a full-screen base rect and only applies the small CLOSE
+ * enter animation, so the real previous page fills the screen instead of exposing the
+ * Shell backdrop around a shrunken parent, which is what the default branch does.
+ * A zero window animation silently selects that default branch instead.
  */
 internal object PredictiveBackSupport {
     val systemDrivesPageTransition: Boolean

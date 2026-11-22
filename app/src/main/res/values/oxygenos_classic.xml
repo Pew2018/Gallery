@@ -55,6 +55,21 @@
         <item name="android:windowExitAnimation">@anim/oxygen_classic_page_open_exit</item>
     </style>
 
+    <!-- Android 14+ predictive back, custom (CLOSE) branch of the platform's
+         CrossActivityBackAnimation.
+         WindowManager only takes that branch when the *closing* window declares a
+         non-default activityCloseExitAnimation; it then loads activityCloseEnter
+         for the entering parent (CustomAnimationLoader.loadAll). A zero window
+         animation or a style without these two items silently falls back to the
+         default branch, which additionally scales and translates the parent page
+         and leaves the Shell backdrop visible around both windows.
+         Only the CLOSE pair is declared here so opening a page keeps the platform
+         default open transition. -->
+    <style name="OxygenClassicPageBackWindow">
+        <item name="android:activityCloseEnterAnimation">@anim/oxygen_classic_page_back_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/oxygen_classic_page_back_exit</item>
+    </style>
+
     <!-- Screenshot-fit/application tokens, not extracted OxygenOS ROM resources. -->
     <dimen name="oxygen_classic_settings_summary">13sp</dimen>
     <dimen name="oxygen_classic_settings_section">48dp</dimen>
