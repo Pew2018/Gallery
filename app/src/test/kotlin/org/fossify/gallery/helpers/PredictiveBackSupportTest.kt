@@ -27,7 +27,7 @@ class PredictiveBackSupportTest {
     @Config(sdk = [34], manifest = Config.NONE)
     fun api34HandsThePageTransitionToThePlatform() {
         assertTrue(
-            "Android 14 animates the closing page itself and must not be shadowed by a window animation",
+            "Android 14 animates the closing page itself and must not be shadowed by a legacy finish animation",
             PredictiveBackSupport.systemDrivesPageTransition
         )
     }

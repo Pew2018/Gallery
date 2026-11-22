@@ -4993,7 +4993,15 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
         val staticSnapshot = if (staticPhoto) readStaticSource() else null
         if (staticPhoto) {
-            staticSnapshot?.let { session.publishStaticPhotoSource(session.entry, it) }
+            staticSnapshot?.let { source ->
+                session.publishStaticPhotoSource(session.entry, source)
+                // Same-process hand-off: the Viewer paints this bitmap at the source
+                // rect from its first frame, so an opaque window never reveals black
+                // while the full-size decode is still running.
+                (thumbnail.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                    ?.takeIf { !it.isRecycled }
+                    ?.let { session.publishEntryPreview(session.entry, it) }
+            }
             ViewerEntryDiagnostics.event(entryId, "static_source_geometry") {
                 mapOf("evidence" to (adapter.staticThumbnail(thumbnail) != null),
                     "available" to (staticSnapshot != null), "clip" to staticSnapshot?.view?.visible?.rect()?.toShortString())
@@ -5035,82 +5043,100 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     mapOf("adapterVersion" to adapter.committedVersion)
                 }
             }
-            OxygenClassicActivityMotion.configureShared(this)
-            thumbnail.transitionName = PhotoViewerTransition.ELEMENT_NAME
-            logViewerGridSource("grid_source_named")
+            logViewerGridSource("grid_source_ready")
             intent.putExtra(PhotoViewerTransition.EXTRA_PATH, path)
-            window.sharedElementExitTransition = OxygenClassicActivityMotion.mediaTransition(
-                PhotoViewerTransition.DURATION_MS, onTerminal = { cancelled ->
-                    viewerSourceLease?.takeIf { viewerReturnLaunch == returnLaunch }?.let {
-                        // Android keeps the captured view by reference. It can still hide it after
-                        // the local animation ends, so keep the holder leased until stop or reentry.
-                        logViewerGridSource(if (cancelled) "grid_source_exit_cancel" else "grid_source_exit_end")
-                        retireViewerSourceName(it)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                intent.putExtra(PhotoViewerTransition.EXTRA_APP_OWNED_ENTRY, true)
+                // The geometry the Viewer will animate from is frozen before the launch.
+                if (staticSnapshot != null) session.confirmStaticPhotoSource(session.entry, readStaticSource())
+                // Deliberately no ActivityOptions.makeSceneTransitionAnimation and no
+                // shared-element exit/reenter transition: that launch marks the Viewer
+                // ActivityRecord as a scene transition for its whole life and the platform
+                // then refuses the cross-Activity return. The opaque Viewer window stays
+                // out of the composition until it can paint the published thumbnail, then
+                // expands the photo from that geometry on its own clock.
+                startActivityForResult(intent, PhotoViewerTransition.REQUEST_CODE)
+                overridePendingTransition(0, 0)
+            } else {
+                // Below Android 14 there is no system cross-Activity return, so the
+                // existing platform shared-element entry/return stays in charge.
+                OxygenClassicActivityMotion.configureShared(this)
+                thumbnail.transitionName = PhotoViewerTransition.ELEMENT_NAME
+                logViewerGridSource("grid_source_named")
+                intent.putExtra(PhotoViewerTransition.EXTRA_PATH, path)
+                window.sharedElementExitTransition = OxygenClassicActivityMotion.mediaTransition(
+                    PhotoViewerTransition.DURATION_MS, onTerminal = { cancelled ->
+                        viewerSourceLease?.takeIf { viewerReturnLaunch == returnLaunch }?.let {
+                            // Android keeps the captured view by reference. It can still hide it after
+                            // the local animation ends, so keep the holder leased until stop or reentry.
+                            logViewerGridSource(if (cancelled) "grid_source_exit_cancel" else "grid_source_exit_end")
+                            retireViewerSourceName(it)
+                        }
+                    })
+                window.sharedElementReenterTransition = OxygenClassicActivityMotion.mediaTransition(
+                    PhotoViewerTransition.DURATION_MS,
+                    onStart = {
+                        viewerReturn?.takeIf { returnLaunch == viewerReturnLaunch }?.let {
+                            ViewerReturnDiagnostics.event(it.requestId, "grid_transition_start")
+                        }
+                    },
+                    onTerminal = { cancelled -> onGridReturnTransitionTerminal(returnLaunch, cancelled) },
+                )
+                setExitSharedElementCallback(object : SharedElementCallback() {
+                    override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
+                        val name = PhotoViewerTransition.ELEMENT_NAME
+                        if (name !in names) return
+                        val currentSource = viewerSourceLease?.takeIf {
+                            session === transitionSession && session.entryActive && it.entry == session.entry && it.nameOwned
+                        }
+                        val image = currentSource?.image
+                        val position = currentSource?.let { viewerReturnPosition(it.path) }
+                        if (currentSource != null && image != null && position != null &&
+                            findViewerReturnHolder(currentSource.path, position) === currentSource.holder &&
+                            image.isAttachedToWindow && image.drawable != null && hasUsableViewerReturnBounds(image) &&
+                            PhotoViewerReturnTarget.isLoadedFor(currentSource.path, image.getTag(R.id.media_bound_path) as? String,
+                                image.getTag(R.id.thumbnail_request_key), image.getTag(R.id.thumbnail_loaded_key))) {
+                            if (staticSnapshot != null && readStaticSource()?.let {
+                                    session.readStaticPhotoSource(session.entry)?.near(it)
+                                } != true) {
+                                session.confirmStaticPhotoSource(session.entry, null)
+                                sharedElements.remove(name)
+                                return
+                            }
+                            if (staticSnapshot != null) session.confirmStaticPhotoSource(session.entry, readStaticSource())
+                            sharedElements[name] = image
+                            logViewerGridSource("grid_source_map")
+                        } else sharedElements.remove(name)
+                    }
+
+                    override fun onCaptureSharedElementSnapshot(
+                        sharedElement: View, viewToGlobalMatrix: android.graphics.Matrix, screenBounds: android.graphics.RectF,
+                    ): android.os.Parcelable? {
+                        if (staticSnapshot != null && sharedElement === thumbnail && session === transitionSession) {
+                            session.confirmStaticPhotoSource(session.entry, readStaticSource())
+                            ViewerEntryDiagnostics.event(entryId, "static_source_capture") {
+                                mapOf("confirmed" to (session.readStaticPhotoSource(session.entry, requireConfirmed = true) != null))
+                            }
+                        }
+                        return super.onCaptureSharedElementSnapshot(sharedElement, viewToGlobalMatrix, screenBounds)
+                    }
+
+                    override fun onSharedElementsArrived(names: MutableList<String>, elements: MutableList<View>,
+                        listener: OnSharedElementsReadyListener) {
+                        if (session === transitionSession && session.entryActive &&
+                            viewerSourceLease?.image?.let { image -> elements.any { it === image } } == true) {
+                            if (staticSnapshot != null) session.confirmStaticPhotoSource(session.entry, readStaticSource())
+                            logViewerGridSource("grid_source_exit_captured")
+                        }
+                        listener.onSharedElementsReady()
                     }
                 })
-            window.sharedElementReenterTransition = OxygenClassicActivityMotion.mediaTransition(
-                PhotoViewerTransition.DURATION_MS,
-                onStart = {
-                    viewerReturn?.takeIf { returnLaunch == viewerReturnLaunch }?.let {
-                        ViewerReturnDiagnostics.event(it.requestId, "grid_transition_start")
-                    }
-                },
-                onTerminal = { cancelled -> onGridReturnTransitionTerminal(returnLaunch, cancelled) },
-            )
-            setExitSharedElementCallback(object : SharedElementCallback() {
-                override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
-                    val name = PhotoViewerTransition.ELEMENT_NAME
-                    if (name !in names) return
-                    val currentSource = viewerSourceLease?.takeIf {
-                        session === transitionSession && session.entryActive && it.entry == session.entry && it.nameOwned
-                    }
-                    val image = currentSource?.image
-                    val position = currentSource?.let { viewerReturnPosition(it.path) }
-                    if (currentSource != null && image != null && position != null &&
-                        findViewerReturnHolder(currentSource.path, position) === currentSource.holder &&
-                        image.isAttachedToWindow && image.drawable != null && hasUsableViewerReturnBounds(image) &&
-                        PhotoViewerReturnTarget.isLoadedFor(currentSource.path, image.getTag(R.id.media_bound_path) as? String,
-                            image.getTag(R.id.thumbnail_request_key), image.getTag(R.id.thumbnail_loaded_key))) {
-                        if (staticSnapshot != null && readStaticSource()?.let {
-                                session.readStaticPhotoSource(session.entry)?.near(it)
-                            } != true) {
-                            session.confirmStaticPhotoSource(session.entry, null)
-                            sharedElements.remove(name)
-                            return
-                        }
-                        if (staticSnapshot != null) session.confirmStaticPhotoSource(session.entry, readStaticSource())
-                        sharedElements[name] = image
-                        logViewerGridSource("grid_source_map")
-                    } else sharedElements.remove(name)
-                }
-
-                override fun onCaptureSharedElementSnapshot(
-                    sharedElement: View, viewToGlobalMatrix: android.graphics.Matrix, screenBounds: android.graphics.RectF,
-                ): android.os.Parcelable? {
-                    if (staticSnapshot != null && sharedElement === thumbnail && session === transitionSession) {
-                        session.confirmStaticPhotoSource(session.entry, readStaticSource())
-                        ViewerEntryDiagnostics.event(entryId, "static_source_capture") {
-                            mapOf("confirmed" to (session.readStaticPhotoSource(session.entry, requireConfirmed = true) != null))
-                        }
-                    }
-                    return super.onCaptureSharedElementSnapshot(sharedElement, viewToGlobalMatrix, screenBounds)
-                }
-
-                override fun onSharedElementsArrived(names: MutableList<String>, elements: MutableList<View>,
-                    listener: OnSharedElementsReadyListener) {
-                    if (session === transitionSession && session.entryActive &&
-                        viewerSourceLease?.image?.let { image -> elements.any { it === image } } == true) {
-                        if (staticSnapshot != null) session.confirmStaticPhotoSource(session.entry, readStaticSource())
-                        logViewerGridSource("grid_source_exit_captured")
-                    }
-                    listener.onSharedElementsReady()
-                }
-            })
-            // Snapshot callbacks may be skipped for partially clipped views. The source lease,
-            // loaded drawable and exact screen aperture are validated independently of snapshot creation.
-            if (staticSnapshot != null) session.confirmStaticPhotoSource(session.entry, readStaticSource())
-            val options = ActivityOptions.makeSceneTransitionAnimation(this, thumbnail, PhotoViewerTransition.ELEMENT_NAME)
-            startActivityForResult(intent, PhotoViewerTransition.REQUEST_CODE, options.toBundle())
+                // Snapshot callbacks may be skipped for partially clipped views. The source lease,
+                // loaded drawable and exact screen aperture are validated independently of snapshot creation.
+                if (staticSnapshot != null) session.confirmStaticPhotoSource(session.entry, readStaticSource())
+                val options = ActivityOptions.makeSceneTransitionAnimation(this, thumbnail, PhotoViewerTransition.ELEMENT_NAME)
+                startActivityForResult(intent, PhotoViewerTransition.REQUEST_CODE, options.toBundle())
+            }
             if (viewerSourceLease === source && source.nameOwned) {
                 source.nameTimeout = Runnable {
                     if (viewerSourceLease === source && viewerReturnLaunch == returnLaunch) {

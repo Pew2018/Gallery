@@ -228,6 +228,7 @@ import org.fossify.gallery.models.ThumbnailItem
 import java.io.File
 import java.util.concurrent.Future
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 @Suppress("UNCHECKED_CAST")
 class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, ViewerPagerHost {
@@ -535,20 +536,16 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     /**
      * Whether the WindowManager could qualify this window for a cross-Activity
-     * back animation. The Viewer deliberately keeps a translucent theme: the
-     * photo down-drag dismiss reveals the real parent grid through this window,
-     * so converting it opaque here would break that gesture. The value therefore
-     * stays false for the current architecture and this is recorded honestly
-     * rather than claimed as platform-owned animation.
+     * back animation: the window must not be translucent and the Activity must not
+     * have been started as a scene transition.
      *
-     * Even an opaque window would not be sufficient here. The Viewer is launched
-     * with makeSceneTransitionAnimation, so ActivityRecord.mHasSceneTransition is
-     * final-true for its whole life (aosp 99b01a65, ActivityRecord.java:2007) and
-     * BackNavigationController.java:287 forces TYPE_CALLBACK regardless. Removing
-     * that flag requires replacing the shared-element entry with an app-owned one,
-     * a separate change that cannot be validated without a device. These facts
-     * are kept as distinct diagnostic fields so no log claims the system animated
-     * when it only received an un-consumed back event.
+     * Both conditions are now structural. `GalleryViewerTransitionTheme` is opaque,
+     * and on Android 14+ the grid starts the Viewer without
+     * ActivityOptions.makeSceneTransitionAnimation (see EXTRA_APP_OWNED_ENTRY);
+     * the photo entry is driven by this Activity instead. Below 14 the app callback
+     * still owns the whole gesture, so the platform return is not expected there.
+     * This is a necessary condition, not proof that the Shell chose
+     * TYPE_CROSS_ACTIVITY; that decision stays a device-level observation.
      */
     private fun viewerWindowBackEligible(): Boolean {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) return false
@@ -591,10 +588,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     "appCallbackArmed" to gesture.isEnabled,
                     "hasInAppStep" to ViewerBackOwnership.hasInAppStep(state, dragActive),
                     "themeWindowIsTranslucent" to themeDeclaresTranslucentWindow(),
-                    // mHasSceneTransition is final-true for the whole Viewer life when
-                    // the grid launched it with makeSceneTransitionAnimation; that alone
-                    // forces TYPE_CALLBACK. Recorded separately from window eligibility.
-                    "sceneTransitionLaunch" to (photoSharedElementPath != null),
+                    // Recorded separately from the resolved theme: an intent carried
+                    // over from a scene-transition launch would still force
+                    // TYPE_CALLBACK even if the window itself is opaque.
+                    "sceneTransitionLaunch" to (!appOwnedPhotoEntry() && photoSharedElementPath != null),
                     "platformEligible" to ViewerBackOwnership.platformOwnsEdgeBack(
                         sdk, state, dragActive, windowEligible),
                 )
@@ -756,6 +753,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private var mediaEntry: PhotoTransitionCompletionGate? = null
     private var entryFallbackAnimator: ValueAnimator? = null
+    private var appEntryAnimator: ValueAnimator? = null
+    private var appEntryPreview: android.widget.ImageView? = null
+    private var windowAlphaAnimator: ValueAnimator? = null
     private var entryMappedPage: ViewPagerFragment? = null
     private var entryReadyReported = false
     private var entryFailedPage: ViewPagerFragment? = null
@@ -776,6 +776,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         entryFallbackAnimator?.removeAllUpdateListeners()
         entryFallbackAnimator?.cancel()
         entryFallbackAnimator = null
+        appEntryAnimator?.removeAllListeners()
+        appEntryAnimator?.removeAllUpdateListeners()
+        appEntryAnimator?.cancel()
+        appEntryAnimator = null
+        windowAlphaAnimator?.removeAllListeners()
+        windowAlphaAnimator?.removeAllUpdateListeners()
+        windowAlphaAnimator?.cancel()
+        windowAlphaAnimator = null
+        removeAppOwnedEntryPreview()
+        if (::transitionSession.isInitialized && window.attributes.alpha < 1f) {
+            window.attributes = window.attributes.apply { alpha = 1f }
+        }
         photoTransitionMappedView = null
         entryMappedPage = null
     }
@@ -1188,6 +1200,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             ?.takeIf { OxygenClassicMotion.enabled(this) && (offeredEntry == null || sharedSession != null) }
         val entry = transitionSession.entryGate.takeIf { photoSharedElementPath != null }
         if (entry != null) {
+            // Keep the opaque Viewer window out of the composition until it can paint
+            // the grid thumbnail in place. Without this the black canvas would cover
+            // the grid while the full-size image is still being decoded.
+            if (appOwnedPhotoEntry()) window.attributes = window.attributes.apply { alpha = 0f }
             mediaEntry = entry
             entryLeases.acquire(transitionSession.entry, Resource.INPUT) { binding.viewPager.transitionInputLocked = false }
             entryLeases.acquire(transitionSession.entry, Resource.CHROME) {
@@ -1197,30 +1213,34 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             }
             entryLeases.acquire(transitionSession.entry, Resource.CALLBACKS, ::cancelMediaEntryCallbacks)
             org.fossify.gallery.helpers.OxygenClassicActivityMotion.configureShared(this)
-            postponeEnterTransition()
-            window.sharedElementEnterTransition = org.fossify.gallery.helpers.OxygenClassicActivityMotion.mediaTransition(
-                PhotoViewerTransition.DURATION_MS,
-                onProgress = { renderPhotoTransitionProgress(entry, it) },
-                onTerminal = { cancelled -> onSharedEntryTerminal(entry, cancelled) },
-                staticPhotoEntry = intent.getBooleanExtra(PhotoViewerTransition.EXTRA_STATIC_PHOTO, false),
-            )
-            setEnterSharedElementCallback(object : SharedElementCallback() {
-                override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
-                    mapEntrySharedElement(entry, names, sharedElements)
-                }
-
-                override fun onSharedElementStart(names: MutableList<String>, elements: MutableList<View>, snapshots: MutableList<View>) {
-                    captureEntrySharedElement(entry, names, elements)
-                }
-
-                override fun onRejectSharedElements(rejectedSharedElements: MutableList<View>) {
-                    // Android 16 hands these views to us before setting up its default overlay fade.
-                    if (mediaEntry === entry && (entry.active || entryShowsLoadStatus) &&
-                        !finishAfterSharedTransitionInProgress && !isFinishing && !isDestroyed) {
-                        rejectedSharedElements.clear()
+            if (!appOwnedPhotoEntry()) {
+                // Below Android 14 there is no system cross-Activity return, so the
+                // platform shared-element transition stays in charge of the entry.
+                postponeEnterTransition()
+                window.sharedElementEnterTransition = org.fossify.gallery.helpers.OxygenClassicActivityMotion.mediaTransition(
+                    PhotoViewerTransition.DURATION_MS,
+                    onProgress = { renderPhotoTransitionProgress(entry, it) },
+                    onTerminal = { cancelled -> onSharedEntryTerminal(entry, cancelled) },
+                    staticPhotoEntry = intent.getBooleanExtra(PhotoViewerTransition.EXTRA_STATIC_PHOTO, false),
+                )
+                setEnterSharedElementCallback(object : SharedElementCallback() {
+                    override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
+                        mapEntrySharedElement(entry, names, sharedElements)
                     }
-                }
-            })
+
+                    override fun onSharedElementStart(names: MutableList<String>, elements: MutableList<View>, snapshots: MutableList<View>) {
+                        captureEntrySharedElement(entry, names, elements)
+                    }
+
+                    override fun onRejectSharedElements(rejectedSharedElements: MutableList<View>) {
+                        // Android 16 hands these views to us before setting up its default overlay fade.
+                        if (mediaEntry === entry && (entry.active || entryShowsLoadStatus) &&
+                            !finishAfterSharedTransitionInProgress && !isFinishing && !isDestroyed) {
+                            rejectedSharedElements.clear()
+                        }
+                    }
+                })
+            }
             photoSharedElementHandler.postDelayed(entryReadyTimeout, PhotoViewerTransition.READY_TIMEOUT_MS)
         }
         if (entry == null) check(transitionSession.entryFinished(transitionSession.entry, withoutSharedEntry = true))
@@ -1253,7 +1273,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         // The media canvas must not inherit the app's light theme while pages load
         // or the progressive adapter replaces deferred placeholders.
         if (entry != null) {
-            setSharedTransitionCanvasTransparent()
+            // An opaque Viewer window cannot reveal the grid through a transparent
+            // canvas; keep the classic black canvas for the whole app-owned entry.
+            if (!appOwnedPhotoEntry()) setSharedTransitionCanvasTransparent()
             binding.viewerTransitionScrim.setBackgroundColor(Color.BLACK)
             binding.viewerTransitionScrim.visibility = View.VISIBLE
             binding.viewerTransitionScrim.alpha = 0f
@@ -1264,6 +1286,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (entry != null) {
             viewerSystemBarProgress = 0f
             setSharedChromeAlpha(0f)
+            if (appOwnedPhotoEntry()) showAppOwnedEntryPreview(entry)
         }
         refreshViewerSystemBars()
         traceEntryCanvas("create_canvas_ready")
@@ -1536,7 +1559,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
      * finished directly. The visual outcome is left to the platform; the code and
      * the logs claim only that the app did not animate.
      */
-    private fun commitSystemReleaseReturn() {
+    private fun commitSystemReleaseReturn(appFadeOut: Boolean = false) {
         org.fossify.gallery.helpers.PredictiveBackDiagnostics.captureClosing(this, "viewer_system_release")
         val operation = transitionSession.beginReturn() ?: run {
             super.finish()
@@ -1570,6 +1593,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
         // No window.sharedElementReturnTransition and no super.finishAfterTransition():
         // the app-side return animation is intentionally skipped.
+        if (appFadeOut && OxygenClassicMotion.enabled(this)) {
+            // Toolbar back and drag-to-dismiss still have to leave the opaque window
+            // somehow. A window-level fade keeps the result handoff synchronous and
+            // never stacks an image zoom on top of the system return.
+            overridePendingTransition(0, R.anim.photo_viewer_fade_out)
+        }
         super.finish()
     }
 
@@ -1609,6 +1638,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             return
         }
         if (finishDuringMediaEntry()) return
+        if (appOwnedPhotoEntry()) {
+            // Toolbar / accessibility back on the opaque Viewer. There is no platform
+            // return transition in this mode; publish the same result and let the
+            // window fade out. Edge-back never reaches here: it is a system callback.
+            commitSystemReleaseReturn(appFadeOut = true)
+            return
+        }
         val returnPath = getCurrentPath()
         val page = getCurrentFragment()
         val dragSurface = interactiveDismissSurface
@@ -5428,9 +5464,84 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (!isCurrentEntry(entry) || !entry.release()) return
         photoSharedElementHandler.removeCallbacks(entryReadyTimeout)
         logMediaEntry("entry_released")
-        (getCurrentFragment() as? PhotoFragment)?.setTransitionCanvasTransparent(true)
+        if (!appOwnedPhotoEntry()) (getCurrentFragment() as? PhotoFragment)?.setTransitionCanvasTransparent(true)
+        if (appOwnedPhotoEntry()) {
+            // The platform transition is intentionally absent here; drive the same
+            // StaticPhotoEntryView geometry with our own clock.
+            startAppOwnedPhotoEntry(entry)
+            return
+        }
         photoSharedElementHandler.postDelayed(entryWatchdog, PhotoViewerTransition.DURATION_MS + PhotoViewerTransition.FADE_DURATION_MS)
         startPostponedEnterTransition()
+    }
+
+    /** True on Android 14+, where the Viewer must stay eligible for the system return. */
+    private fun appOwnedPhotoEntry(): Boolean =
+        android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+            intent.getBooleanExtra(PhotoViewerTransition.EXTRA_APP_OWNED_ENTRY, false)
+
+    /**
+     * Expands the photo from the grid geometry inside the already-opaque Viewer window.
+     *
+     * This replaces the platform shared-element entry on Android 14+ only because that
+     * entry requires ActivityOptions.makeSceneTransitionAnimation, which permanently
+     * disqualifies the Activity from the system cross-Activity return. Geometry, the
+     * session token and the completion path are the existing ones: the proxy is the
+     * same StaticPhotoEntryView the shared element used, moved by an app animator, and
+     * [onSharedEntryTerminal] still performs the handoff validation and lease release.
+     */
+    private fun startAppOwnedPhotoEntry(entry: PhotoTransitionCompletionGate) {
+        if (!isCurrentEntry(entry)) return
+        val path = photoSharedElementPath
+        val page = getCurrentFragment() as? PhotoFragment
+        val source = transitionSession.readStaticPhotoSource(transitionSession.entry)
+        val proxy = if (path != null && page != null && source != null) {
+            page.prepareStaticPhotoEntry(path, source) { reason ->
+                logMediaEntry("app_entry_rejected", reason)
+            }
+        } else null
+        if (proxy == null || page == null || !entry.map()) {
+            startEntryFallback(entry, "app_entry_unavailable")
+            return
+        }
+        photoTransitionMappedView = proxy
+        entryMappedPage = page
+        entryLeases.acquire(transitionSession.entry, Resource.RENDERER_HANDOFF) {
+            if (transitionSession.outcome == null) finishSharedEntryPage(page)
+        }
+        entryLeases.acquire(transitionSession.entry, Resource.PROXY) { clearSharedTransitionSurface(page) }
+        if (!page.takeOverSharedEntry(proxy) || !entry.capture()) {
+            startEntryFallback(entry, "app_entry_renderer_unavailable")
+            return
+        }
+        check(transitionSession.capture(transitionSession.entry))
+        removeAppOwnedEntryPreview()
+        logMediaEntry("app_entry_started")
+        val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = PhotoViewerTransition.DURATION_MS
+            interpolator = OxygenClassicMotion.easing()
+            addUpdateListener {
+                if (!isCurrentEntry(entry)) return@addUpdateListener
+                val progress = it.animatedValue as Float
+                proxy.animateFrame(progress)
+                renderPhotoTransitionProgress(entry, progress)
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (appEntryAnimator === this@apply) appEntryAnimator = null
+                    if (!isCurrentEntry(entry)) return
+                    proxy.animateFrame(1f)
+                    onSharedEntryTerminal(entry, false)
+                }
+
+                override fun onAnimationCancel(animation: Animator) {
+                    if (appEntryAnimator === this@apply) appEntryAnimator = null
+                }
+            })
+        }
+        appEntryAnimator = animator
+        renderPhotoTransitionProgress(entry, 0f)
+        animator.start()
     }
 
     internal fun staticPhotoEntrySource(path: String) =
@@ -5613,6 +5724,88 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             })
         }
         entryFallbackAnimator = animator
+        animator.start()
+    }
+
+    /**
+     * Paints the tapped grid bitmap at the exact screen rect it occupied in the grid
+     * before the Viewer window becomes visible. The Viewer window is opaque and the
+     * grid Activity is stopped as soon as it is on top, so without this frame the
+     * user would see black while the full-size image decodes.
+     */
+    private fun showAppOwnedEntryPreview(entry: PhotoTransitionCompletionGate) {
+        val source = transitionSession.readStaticPhotoSource(transitionSession.entry)
+        val bitmap = transitionSession.readEntryPreview(transitionSession.entry)
+        if (source != null && bitmap != null) {
+            val preview = android.widget.ImageView(this).apply {
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                setImageBitmap(bitmap)
+            }
+            val layout = source.view.layout.rect()
+            val visible = source.view.visible.rect()
+            val origin = IntArray(2)
+            binding.root.getLocationOnScreen(origin)
+            val left = (layout.left - origin[0]).roundToInt()
+            val top = (layout.top - origin[1]).roundToInt()
+            val width = (layout.width()).roundToInt()
+            val height = (layout.height()).roundToInt()
+            if (width > 0 && height > 0) {
+                binding.root.addView(preview, android.widget.RelativeLayout.LayoutParams(width, height).apply {
+                    addRule(android.widget.RelativeLayout.ALIGN_PARENT_LEFT)
+                    addRule(android.widget.RelativeLayout.ALIGN_PARENT_TOP)
+                    leftMargin = left
+                    topMargin = top
+                })
+                // Reproduce the grid's own visible aperture when the thumbnail was
+                // partially covered (toolbar, list edge) instead of revealing pixels
+                // the user never saw.
+                if (!visible.contains(layout)) {
+                    preview.clipBounds = android.graphics.Rect(
+                        (visible.left - layout.left).toInt(),
+                        (visible.top - layout.top).toInt(),
+                        (visible.right - layout.left).toInt(),
+                        (visible.bottom - layout.top).toInt(),
+                    )
+                }
+                appEntryPreview = preview
+                logMediaEntry("app_entry_preview")
+            }
+        }
+        // Even without a preview the window must become visible; the normal loading
+        // canvas then owns the frame.
+        animateViewerWindowIn()
+    }
+
+    private fun removeAppOwnedEntryPreview() {
+        appEntryPreview?.let {
+            binding.root.removeView(it)
+            it.setImageDrawable(null)
+        }
+        appEntryPreview = null
+    }
+
+    /**
+     * Fades the whole Viewer window in over the still-visible grid while the photo
+     * expands. The window stays opaque for WindowManager; only its layer alpha moves,
+     * so the back-eligibility recorded in ActivityRecord is unaffected.
+     */
+    private fun animateViewerWindowIn() {
+        val attributes = window.attributes
+        if (attributes.alpha >= 1f) return
+        val animator = ValueAnimator.ofFloat(attributes.alpha.coerceIn(0f, 1f), 1f).apply {
+            duration = PhotoViewerTransition.FADE_DURATION_MS
+            interpolator = OxygenClassicMotion.easing()
+            addUpdateListener {
+                window.attributes = window.attributes.apply { alpha = it.animatedValue as Float }
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (window.attributes.alpha < 1f) window.attributes = window.attributes.apply { alpha = 1f }
+                }
+            })
+        }
+        windowAlphaAnimator = animator
         animator.start()
     }
 

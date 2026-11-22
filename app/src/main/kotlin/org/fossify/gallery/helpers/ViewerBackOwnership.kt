@@ -20,8 +20,10 @@ import android.os.Build
  * drops to TYPE_CALLBACK when the top activity does not occlude its parent
  * (translucent/floating window) or was launched with a scene transition
  * (ActivityRecord.mHasSceneTransition is final and set from the launch options).
- * Passing [windowEligible] is a *necessary* condition for the platform animation;
- * it is not proof the animation ran — that stays a device-level validation.
+ * The Viewer now satisfies both: its theme is opaque and on Android 14+ the grid
+ * starts it without a scene-transition bundle, driving the photo entry itself.
+ * Passing [windowEligible] is still a *necessary* condition, not proof the
+ * animation ran — that stays a device-level validation.
  *
  * Gallery's own image scaling is still required in two cases, and only in those
  * cases may the app callback stay enabled:

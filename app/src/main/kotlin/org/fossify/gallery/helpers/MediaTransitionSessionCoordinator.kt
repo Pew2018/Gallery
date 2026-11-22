@@ -62,6 +62,20 @@ internal class MediaTransitionSessionCoordinator(
     private var staticPhotoSource: StaticPhotoSource? = null
     private var staticPhotoSourceConfirmed = false
 
+    /**
+     * The tapped grid thumbnail, handed to the Viewer in-process so its opaque window
+     * can paint the same pixels at the same screen rect before the full-size decode
+     * finishes. Cleared with the entry; the grid keeps the source holder leased.
+     */
+    private var entryPreview: android.graphics.Bitmap? = null
+
+    fun publishEntryPreview(token: Token, bitmap: android.graphics.Bitmap) {
+        if (valid(token, State.PREPARING) && entryPreview == null && !bitmap.isRecycled) entryPreview = bitmap
+    }
+
+    fun readEntryPreview(token: Token): android.graphics.Bitmap? =
+        entryPreview?.takeIf { token == entry && entryActive && !it.isRecycled }
+
     fun publishStaticPhotoSource(token: Token, source: StaticPhotoSource) {
         if (valid(token, State.PREPARING) && staticPhotoSource == null) staticPhotoSource = source
     }
@@ -271,6 +285,7 @@ internal class MediaTransitionSessionCoordinator(
         if (!entryActive) {
             staticPhotoSource = null
             staticPhotoSourceConfirmed = false
+            entryPreview = null
         }
         if (observer != null) emit("transition_state_changed", token, "${from.name}->${to.name}")
     }

@@ -337,6 +337,28 @@ class MediaAdapterStabilityTest {
     }
 
     @Config(sdk = [36])
+    @Test fun android16GridLaunchesTheViewerWithoutASceneTransition() {
+        val row = item("a.jpg")
+        val fixture = ReturnGridFixture(listOf(row))
+        val source = fixture.thumbnail(0, row.path)
+        // A theme may already provide shared-element defaults; the launch must not
+        // replace them with the app's own paired exit/reenter transitions.
+        val exitBefore = fixture.activity.window.sharedElementExitTransition
+        val reenterBefore = fixture.activity.window.sharedElementReenterTransition
+        val intent = Intent(fixture.activity, org.fossify.gallery.activities.ViewPagerActivity::class.java)
+        fixture.type.getDeclaredMethod("launchPhotoViewerWithSharedElement", Intent::class.java, String::class.java)
+            .apply { isAccessible = true }.invoke(fixture.activity, intent, row.path)
+        // A scene-transition bundle would set ActivityRecord.mHasSceneTransition for the
+        // Viewer's whole life and force TYPE_CALLBACK, so Android 14+ must not use it.
+        assertNull(source.transitionName)
+        assertSame(exitBefore, fixture.activity.window.sharedElementExitTransition)
+        assertSame(reenterBefore, fixture.activity.window.sharedElementReenterTransition)
+        assertTrue(intent.getBooleanExtra(PhotoViewerTransition.EXTRA_APP_OWNED_ENTRY, false))
+        assertEquals(row.path, intent.getStringExtra(PhotoViewerTransition.EXTRA_PATH))
+        assertNotNull(MediaTransitionHandoff.read(intent))
+    }
+
+    @Config(sdk = [33])
     @Test fun sourceExitRetiresTheNameAndReturnsOnlyTheLastSelection() {
         val rows = listOf(item("a.jpg"), item("b.mp4").copy(type = TYPE_VIDEOS), item("c.jpg"),
             item("d.mp4").copy(type = TYPE_VIDEOS))
@@ -419,7 +441,7 @@ class MediaAdapterStabilityTest {
         assertFalse(currentHolder.isRecyclable)
     }
 
-    @Config(sdk = [36])
+    @Config(sdk = [33])
     @Test fun aLoadedButTransparentTargetDoesNotStartSharedReturn() {
         val row = item("a.jpg")
         val fixture = ReturnGridFixture(listOf(row))
@@ -741,7 +763,7 @@ class MediaAdapterStabilityTest {
         assertSame(holder, fixture.grid.findViewHolderForAdapterPosition(0))
     }
 
-    @Config(sdk = [36])
+    @Config(sdk = [33])
     @Test fun whileFingerIsDownSwitchedTargetAloneMakesRoomForTheProxy() {
         val rows = listOf(item("a.jpg"), item("b.jpg"))
         val fixture = ReturnGridFixture(rows, columns = 2)

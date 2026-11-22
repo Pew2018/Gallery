@@ -4,6 +4,16 @@ package org.fossify.gallery.helpers
 object PhotoViewerTransition {
     const val EXTRA_STATIC_PHOTO = "org.fossify.gallery.extra.STATIC_PHOTO_ENTRY"
     const val EXTRA_PATH = "org.fossify.gallery.extra.PHOTO_VIEWER_TRANSITION_PATH"
+    /**
+     * The Viewer draws its own photo entry from the geometry the grid published,
+     * instead of relying on ActivityOptions.makeSceneTransitionAnimation.
+     *
+     * A scene-transition launch stamps `ActivityRecord.mHasSceneTransition` for the
+     * whole Activity lifetime; BackNavigationController then forces TYPE_CALLBACK and
+     * the platform never runs the cross-Activity return. The Viewer window is also
+     * opaque now, so the shared-element platform transition could not be used anyway.
+     */
+    const val EXTRA_APP_OWNED_ENTRY = "org.fossify.gallery.extra.APP_OWNED_VIEWER_ENTRY"
     internal const val EXTRA_ENTRY_ID = "org.fossify.gallery.extra.MEDIA_ENTRY_ID"
     const val EXTRA_FADE_ONLY = "org.fossify.gallery.extra.PHOTO_VIEWER_FADE_ONLY"
     const val ELEMENT_NAME = "gallery_photo_content"
