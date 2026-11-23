@@ -5,32 +5,9 @@ object PhotoViewerTransition {
     const val EXTRA_STATIC_PHOTO = "org.fossify.gallery.extra.STATIC_PHOTO_ENTRY"
     const val EXTRA_PATH = "org.fossify.gallery.extra.PHOTO_VIEWER_TRANSITION_PATH"
     internal const val EXTRA_ENTRY_ID = "org.fossify.gallery.extra.MEDIA_ENTRY_ID"
-    /**
-     * The grid's signature for the tapped media, captured before launch. It seeds the
-     * Viewer's static-photo handoff validation, so the first Glide request can start
-     * before the background EXIF/header read returns. It is not a new identity source:
-     * the static preview still requires the real header and the real renderer, and a
-     * missing header rejects the preview instead of trusting the grid pixels.
-     */
-    internal const val EXTRA_ENTRY_SIGNATURE = "org.fossify.gallery.extra.MEDIA_ENTRY_SIGNATURE"
     const val EXTRA_FADE_ONLY = "org.fossify.gallery.extra.PHOTO_VIEWER_FADE_ONLY"
     const val ELEMENT_NAME = "gallery_photo_content"
-    /**
-     * Entry and return are separate clocks, but each direction is a single number
-     * shared by both Activities: the grid's sharedElementExitTransition and the
-     * Viewer's sharedElementEnterTransition both run [ENTRY_DURATION_MS]; the grid's
-     * sharedElementReenterTransition and the Viewer's sharedElementReturnTransition
-     * both run [RETURN_DURATION_MS]. The platform composes the two sides of one
-     * cross-Activity handoff, so a viewer-only duration would desynchronise them.
-     *
-     * The entry started at 120 ms (the grid thumbnail aperture and the fitted viewer
-     * aperture are far apart, so the compressed motion read as a late pop). 160 ms is
-     * the first candidate from the task brief; it adds at most 40 ms to a flow whose
-     * measured request-to-complete median is ~383 ms. The return keeps the measured
-     * 120 ms: its priority is continuity from the finger, not a longer visible path.
-     */
-    const val ENTRY_DURATION_MS = 160L
-    const val RETURN_DURATION_MS = OxygenClassicMotion.MEDIA_SHARED_ELEMENT_MS
+    const val DURATION_MS = OxygenClassicMotion.MEDIA_SHARED_ELEMENT_MS
     const val FADE_DURATION_MS = OxygenClassicMotion.MEDIA_SCRIM_FADE_MS
     const val READY_TIMEOUT_MS = 1_200L
     const val REQUEST_CODE = 9_071

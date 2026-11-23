@@ -13,7 +13,6 @@ import org.fossify.gallery.helpers.FrameEvidence
 import org.fossify.gallery.helpers.ViewerReturnDiagnostics
 import org.fossify.gallery.helpers.ViewerReturnProgress
 import org.fossify.gallery.helpers.ViewerReturnVisualClock
-import org.fossify.gallery.helpers.ViewerVisualMotion
 import org.fossify.gallery.helpers.MediaTransitionHandoff
 import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator
 import org.fossify.gallery.helpers.MediaReturnToolbarClip
@@ -262,9 +261,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var interactiveDismissDeltaYSlope = 0f
     private var interactiveDismissGestureBaseX = 0f
     private var interactiveDismissGestureBaseY = 0f
-    // Predictive-back direction, sampled once per gesture so it cannot flicker.
-    private var interactiveDismissEdgeSign = 0f
-    private var interactiveDismissEdgeStartProgress = 0f
     private var interactiveDismissGeneration = 0L
     private var photoTransitionProgressFrameCount = 0
     private var photoTransitionProgress = 0f
@@ -290,10 +286,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun renderSharedViewerLayers(progress: Float) {
-        // Entry ordering: the image starts expanding first, the black canvas follows
-        // it, and the controls join once the expansion is visibly under way.
-        setSharedChromeAlpha(ViewerVisualMotion.entryChrome(progress))
-        renderSharedViewerCanvas(ViewerVisualMotion.scrim(progress))
+        setSharedChromeAlpha(progress)
+        renderSharedViewerCanvas(progress)
     }
 
     private fun renderSharedViewerCanvas(progress: Float, scrimAlpha: Float = progress) {
@@ -347,11 +341,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun renderSharedReturnLayers(remaining: Float) {
         val previousAlpha = binding.viewerTransitionScrim.alpha
-        // Scrim and system bars stay tied to the media geometry; the chrome leaves
-        // earlier so the returning image is already clean when it reaches the grid.
-        val scrimAlpha = returnScrimAlpha * ViewerVisualMotion.scrim(remaining)
-        val chrome = ViewerVisualMotion.returnChrome(remaining)
-        returnOverlayAlphas.forEach { (view, alpha) -> view.alpha = alpha * chrome }
+        val scrimAlpha = returnScrimAlpha * remaining
+        returnOverlayAlphas.forEach { (view, alpha) -> view.alpha = alpha * remaining }
         hideViewerToolbarWhenGridIsExposed(scrimAlpha)
         renderSharedViewerCanvas(returnSystemBarProgress * remaining, scrimAlpha = scrimAlpha)
         val alpha = binding.viewerTransitionScrim.alpha
@@ -439,37 +430,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val scale = 1f - 0.34f * p
         surface.scaleX = scale
         surface.scaleY = scale
-        // The horizontal channel carries both the vertical-drag drift and the
-        // predictive-back edge bias; both are 0 at progress 0 and 0 for the opposite
-        // edge, so a cancel always restores the exact Viewer frame.
-        surface.translationX = interactiveDismissDeltaXSlope * p + ViewerVisualMotion.backEdgeOffsetPx(
-            interactiveDismissEdgeSign,
-            resources.displayMetrics.density,
-            interactiveDismissEdgeStartProgress,
-            p,
-        )
+        surface.translationX = interactiveDismissDeltaXSlope * p
         surface.translationY = interactiveDismissDeltaYSlope * p
-        setSharedChromeAlpha(ViewerVisualMotion.returnChrome(1f - p))
+        setSharedChromeAlpha(1f - p)
         hideViewerToolbarWhenGridIsExposed(1f - p)
         renderSharedViewerCanvas(1f - p)
         interactiveDismissProgress = p
     }
 
-    /**
-     * The grid toolbar behind the transparent return canvas overlaps the Viewer
-     * toolbar. Hiding the Viewer one outright on the first gesture tick is a visible
-     * pop, so it is cross-faded over the last fifth of the scrim instead: the grid is
-     * still ~99% covered when the fade starts and owns the top bar by the time it is
-     * meaningfully exposed. The clip in [protectGridToolbarDuringReturn] additionally
-     * keeps the moving image from covering the exposed grid toolbar.
-     */
     private fun hideViewerToolbarWhenGridIsExposed(scrimAlpha: Float) {
         if (scrimAlpha >= 1f) return
         val operation = transitionSession.returnOperation ?: return
-        if (transitionSession.gridToolbarBottomOnScreen(operation) != null) {
-            val crossFade = ViewerVisualMotion.viewerToolbarAlpha(scrimAlpha)
-            binding.mediumViewerAppbar.alpha = minOf(binding.mediumViewerAppbar.alpha, crossFade)
-        }
+        if (transitionSession.gridToolbarBottomOnScreen(operation) != null) binding.mediumViewerAppbar.alpha = 0f
     }
 
     private fun protectGridToolbarDuringReturn(operation: Token, proxy: View) {
@@ -497,16 +469,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         interactiveDismissSettleAnimator?.cancel()
         interactiveDismissSettleAnimator = null
         interactiveDismissGeneration++
-        // A fallback or an interrupted return can release this lease without the
-        // platform transition ever animating the surface back. Restore the rest
-        // frame here so no scaled / translated / hardware-layered proxy is left.
-        interactiveDismissSurface?.let { surface ->
-            surface.scaleX = 1f
-            surface.scaleY = 1f
-            surface.translationX = 0f
-            surface.translationY = 0f
-            surface.setLayerType(View.LAYER_TYPE_NONE, null)
-        }
         interactiveDismissSurface = null
         interactiveDismissPage = null
         interactiveDismissPath = null
@@ -516,8 +478,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         interactiveDismissDeltaYSlope = 0f
         interactiveDismissGestureBaseX = 0f
         interactiveDismissGestureBaseY = 0f
-        interactiveDismissEdgeSign = 0f
-        interactiveDismissEdgeStartProgress = 0f
     }
 
     /**
@@ -526,7 +486,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
      * from that live frame: the platform restarts its own progress at zero, so the
      * resumed progress is kept as a base instead of being overwritten.
      */
-    private fun beginSystemBackGesture(edgeSign: Float): Boolean {
+    private fun beginSystemBackGesture(): Boolean {
         if (isFinishing || isDestroyed) return false
         if (transitionSession.state == State.INTERACTIVE_RETURN) {
             val resumed = mediaDismissGestureBegin()
@@ -537,25 +497,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             if (transitionSession.state != State.VIEWING || !beginInteractiveDismiss()) return false
             systemBackResumeProgress = 0f
         }
-        // A back gesture has no horizontal drag delta of its own. If it took over a
-        // drag/settle, keep the translation that was already on screen by expressing
-        // it as a slope against the inherited progress; otherwise the first frame of
-        // the gesture would snap the image sideways.
-        if (systemBackResumeProgress > 0f) {
-            interactiveDismissDeltaXSlope = interactiveDismissGestureBaseX / systemBackResumeProgress
-            interactiveDismissDeltaYSlope = interactiveDismissGestureBaseY / systemBackResumeProgress
-        } else {
-            interactiveDismissDeltaXSlope = 0f
-            interactiveDismissDeltaYSlope = 0f
-        }
-        interactiveDismissEdgeSign = edgeSign
-        interactiveDismissEdgeStartProgress = systemBackResumeProgress
+        // The back gesture has no vertical drag delta; the shared envelope stays centred.
+        interactiveDismissDeltaXSlope = 0f
+        interactiveDismissDeltaYSlope = 0f
         return true
     }
 
-    private fun renderSystemBackProgress(progress: Float, edgeSign: Float) {
+    private fun renderSystemBackProgress(progress: Float) {
         if (transitionSession.state != State.INTERACTIVE_RETURN || interactiveDismissSurface == null) return
-        if (edgeSign != 0f) interactiveDismissEdgeSign = edgeSign
         // A new gesture restarts the platform progress at zero while the frame it
         // inherited already has a non-zero progress. Consume only the remaining
         // interval so the takeover frame is continuous and the last part of the
@@ -642,8 +591,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         interactiveDismissProgress = 0f
         interactiveDismissGestureBaseX = 0f
         interactiveDismissGestureBaseY = 0f
-        interactiveDismissEdgeSign = 0f
-        interactiveDismissEdgeStartProgress = 0f
         transitionSession.showGridPreview(operation, path)
         setSharedTransitionCanvasTransparent()
         return true
@@ -1180,7 +1127,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             org.fossify.gallery.helpers.OxygenClassicActivityMotion.configureShared(this)
             postponeEnterTransition()
             window.sharedElementEnterTransition = org.fossify.gallery.helpers.OxygenClassicActivityMotion.mediaTransition(
-                PhotoViewerTransition.ENTRY_DURATION_MS,
+                PhotoViewerTransition.DURATION_MS,
                 onProgress = { renderPhotoTransitionProgress(entry, it) },
                 onTerminal = { cancelled -> onSharedEntryTerminal(entry, cancelled) },
                 staticPhotoEntry = intent.getBooleanExtra(PhotoViewerTransition.EXTRA_STATIC_PHOTO, false),
@@ -1567,22 +1514,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             }
             return
         }
-        if (dragSurface != null && canReturn && dragSurface !== proxy) {
-            // The renderer changed between the gesture and the return (for example a
-            // zoom/subsampling swap). The new proxy starts from its own progress 0 and
-            // the released interactive lease restores the old surface's rest frame, so
-            // this stays a supported handoff instead of a second animation path.
-            ViewerReturnDiagnostics.event(viewerReturnId, "viewer_return_surface_replaced") {
-                mapOf("dragSurface" to ViewerEntryDiagnostics.viewState(dragSurface),
-                    "proxy" to ViewerEntryDiagnostics.viewState(proxy))
-            }
-        }
         if (interactiveDismissSurface == null) ownReturnChrome(operation, page)
         returnLeases.acquire(operation, Resource.INPUT) { binding.viewPager.transitionInputLocked = false }
         returnLeases.acquire(operation, Resource.CALLBACKS) { photoSharedElementHandler.removeCallbacksAndMessages(null) }
         if (!transitionSession.gridAttached) transitionSession.targetReady(operation)
         window.sharedElementReturnTransition = org.fossify.gallery.helpers.OxygenClassicActivityMotion.mediaTransition(
-            PhotoViewerTransition.RETURN_DURATION_MS,
+            PhotoViewerTransition.DURATION_MS,
             onProgress = { progress -> renderSharedReturnProgress(operation, progress) },
             onTerminal = { cancelled -> onSharedReturnTerminal(operation, cancelled) },
             onStart = {
@@ -1619,7 +1556,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             if (!isFinishing && !isDestroyed && transitionSession.returnOperation == operation) {
                 finishReturnFallback(operation, "viewer_return_timeout")
             }
-        }, 2 * PhotoViewerTransition.READY_TIMEOUT_MS + PhotoViewerTransition.RETURN_DURATION_MS)
+        }, 2 * PhotoViewerTransition.READY_TIMEOUT_MS + PhotoViewerTransition.DURATION_MS)
         super.finishAfterTransition()
     }
 
@@ -5345,17 +5282,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         logMediaEntry("entry_pre_draw")
         logMediaEntry("entry_released")
         (getCurrentFragment() as? PhotoFragment)?.setTransitionCanvasTransparent(true)
-        photoSharedElementHandler.postDelayed(entryWatchdog, PhotoViewerTransition.ENTRY_DURATION_MS + PhotoViewerTransition.FADE_DURATION_MS)
+        photoSharedElementHandler.postDelayed(entryWatchdog, PhotoViewerTransition.DURATION_MS + PhotoViewerTransition.FADE_DURATION_MS)
         startPostponedEnterTransition()
-    }
-
-    /**
-     * Diagnostic-only funnel for entry phases discovered by the page renderers. Entry
-     * events are already privacy-filtered by [ViewerEntryDiagnostics] and are no-ops
-     * unless tracing is enabled for this launch.
-     */
-    internal fun logViewerEntryEvent(event: String, reason: String? = null) {
-        if (mediaEntry?.active == true) logMediaEntry(event, reason)
     }
 
     internal fun staticPhotoEntrySource(path: String) =

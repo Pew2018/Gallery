@@ -24,15 +24,10 @@ import org.robolectric.annotation.Config
 @Config(sdk = [33], manifest = Config.NONE, application = Application::class)
 class OxygenClassicActivityMotionTest {
     @Test fun photoAndAlbumSharedElementsUseOneMaterialTimingSystem() {
-        // Entry and return are separate clocks, but each direction is shared by both
-        // Activities (grid exit <-> viewer enter, grid reenter <-> viewer return).
-        assertEquals(OxygenClassicMotion.MEDIA_SHARED_ELEMENT_MS, PhotoViewerTransition.RETURN_DURATION_MS)
-        assertEquals(120L, PhotoViewerTransition.RETURN_DURATION_MS)
-        assertEquals(160L, PhotoViewerTransition.ENTRY_DURATION_MS)
-        assertTrue(PhotoViewerTransition.ENTRY_DURATION_MS > PhotoViewerTransition.RETURN_DURATION_MS)
-        // Folder-cover transitions are a different handoff and keep their own clock.
-        assertEquals(OxygenClassicMotion.MEDIA_SHARED_ELEMENT_MS, AlbumPageTransition.DURATION_MS)
+        assertEquals(OxygenClassicMotion.MEDIA_SHARED_ELEMENT_MS, PhotoViewerTransition.DURATION_MS)
+        assertEquals(PhotoViewerTransition.DURATION_MS, AlbumPageTransition.DURATION_MS)
         assertEquals(OxygenClassicMotion.MEDIA_SCRIM_FADE_MS, PhotoViewerTransition.FADE_DURATION_MS)
+        assertEquals(120L, PhotoViewerTransition.DURATION_MS)
     }
 
     @Test fun sharedWindowDoesNotInstallASecondPageAnimation() {

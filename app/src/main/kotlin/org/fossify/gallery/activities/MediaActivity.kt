@@ -5079,9 +5079,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             thumbnail.transitionName = PhotoViewerTransition.ELEMENT_NAME
             logViewerGridSource("grid_source_named")
             intent.putExtra(PhotoViewerTransition.EXTRA_PATH, path)
-            intent.putExtra(PhotoViewerTransition.EXTRA_ENTRY_SIGNATURE, medium.getSignature())
             window.sharedElementExitTransition = OxygenClassicActivityMotion.mediaTransition(
-                PhotoViewerTransition.ENTRY_DURATION_MS, onTerminal = { cancelled ->
+                PhotoViewerTransition.DURATION_MS, onTerminal = { cancelled ->
                     viewerSourceLease?.takeIf { viewerReturnLaunch == returnLaunch }?.let {
                         // Android keeps the captured view by reference. It can still hide it after
                         // the local animation ends, so keep the holder leased until stop or reentry.
@@ -5090,7 +5089,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     }
                 })
             window.sharedElementReenterTransition = OxygenClassicActivityMotion.mediaTransition(
-                PhotoViewerTransition.RETURN_DURATION_MS,
+                PhotoViewerTransition.DURATION_MS,
                 onStart = {
                     viewerReturn?.takeIf { returnLaunch == viewerReturnLaunch }?.let {
                         ViewerReturnDiagnostics.event(it.requestId, "grid_transition_start")

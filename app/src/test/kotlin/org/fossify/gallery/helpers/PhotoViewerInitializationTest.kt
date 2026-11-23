@@ -32,6 +32,7 @@ import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
+import kotlin.math.roundToInt
 
 /** Drives the production Activity's actual first-layout callback in the adverse order. */
 @RunWith(RobolectricTestRunner::class)
@@ -249,12 +250,10 @@ class PhotoViewerInitializationTest {
         assertEquals(Stage.SHARED, entry.stage)
         assertBackground(fixture.activity.window.decorView, Color.TRANSPARENT)
         assertEquals(.4f, fixture.binding.viewerTransitionScrim.alpha, 0f)
-        // Controls join the expansion slightly after the image, so the chrome is not
-        // fully present at 40% of the entry clock.
-        assertEquals(ViewerVisualMotion.entryChrome(.4f), fixture.binding.mediumViewerAppbar.alpha, 0f)
-        assertTrue(fixture.binding.mediumViewerAppbar.alpha > 0f)
+        assertEquals(.4f, fixture.binding.mediumViewerAppbar.alpha, 0f)
         fixture.call("onSharedEntryTerminal", args = arrayOf(entry, false))
         assertEquals(Stage.COMPLETE, entry.stage)
+        assertTrue(fixture.field("photoSharedElementMapped") as Boolean)
         assertFalse(fixture.binding.viewPager.transitionInputLocked)
         assertNull(proxy.parent)
         assertBackground(fixture.activity.window.decorView, Color.BLACK)
@@ -285,6 +284,7 @@ class PhotoViewerInitializationTest {
         fixture.activity.finishAfterTransition()
 
         assertTrue(fixture.call("getFinishAfterSharedTransitionInProgress") as Boolean)
+        assertNotNull("mapped entry keeps the shared-element return", fixture.field("sharedReturnView"))
         assertBackground(fixture.activity.window.decorView, Color.TRANSPARENT)
         assertEquals(View.VISIBLE, fixture.binding.viewerTransitionScrim.visibility)
         assertEquals(1f, fixture.binding.viewerTransitionScrim.alpha, 0f)
@@ -304,9 +304,7 @@ class PhotoViewerInitializationTest {
         assertBackground(fixture.activity.window.decorView, Color.TRANSPARENT)
         assertEquals(.6f, scrim.alpha, 0f)
         assertEquals(.6f, fixture.field("viewerSystemBarProgress") as Float, 0f)
-        // Chrome leaves earlier than the media, but never before the release frame.
-        val chromeAtRelease = ViewerVisualMotion.returnChrome(.6f)
-        assertEquals(chromeAtRelease, fixture.binding.mediumViewerAppbar.alpha, .001f)
+        assertEquals(.6f, fixture.binding.mediumViewerAppbar.alpha, 0f)
         val surface = fixture.field("interactiveDismissSurface") as View
         assertEquals(150f, surface.translationY, .01f)
 
@@ -315,19 +313,14 @@ class PhotoViewerInitializationTest {
         assertTrue(fixture.call("getFinishAfterSharedTransitionInProgress") as Boolean)
         assertSame(surface, fixture.field("sharedReturnView"))
         assertSame(photo.binding.root, surface.parent)
-        // The frame under the finger is inherited exactly: nothing resets to a
-        // canonical return start.
         assertEquals(150f, surface.translationY, .01f)
         assertEquals(.6f, scrim.alpha, 0f)
         assertEquals(.6f, fixture.field("viewerSystemBarProgress") as Float, 0f)
-        assertEquals(chromeAtRelease, fixture.binding.mediumViewerAppbar.alpha, .001f)
+        assertEquals(.6f, fixture.binding.mediumViewerAppbar.alpha, 0f)
         fixture.call("renderSharedReturnProgress", args = arrayOf(.5f))
         assertEquals(.3f, scrim.alpha, 0f)
         assertEquals(.3f, fixture.field("viewerSystemBarProgress") as Float, 0f)
-        assertEquals(chromeAtRelease * ViewerVisualMotion.returnChrome(.5f),
-            fixture.binding.mediumViewerAppbar.alpha, .001f)
-        // The controls are already gone by the time most of the return has played.
-        assertTrue(fixture.binding.mediumViewerAppbar.alpha < .15f)
+        assertEquals(.3f, fixture.binding.mediumViewerAppbar.alpha, 0f)
     }
 
     @Test fun resumedSystemBackGestureConsumesOnlyTheRemainingIntervalAndCancelsToFullViewer() {
@@ -340,19 +333,19 @@ class PhotoViewerInitializationTest {
         // A cancelled drag is still settling when the platform starts a new gesture.
         fixture.activity.mediaDismissSettled(dismiss = false)
         val surface = fixture.field("interactiveDismissSurface") as View
-        assertTrue(fixture.call("beginSystemBackGesture", arrayOf(0f)) as Boolean)
+        assertTrue(fixture.call("beginSystemBackGesture") as Boolean)
         assertEquals(.6f, fixture.field("systemBackResumeProgress") as Float, 0f)
 
-        fixture.call("renderSystemBackProgress", arrayOf(0f, 0f))
+        fixture.call("renderSystemBackProgress", arrayOf(0f))
         assertEquals(1f - .34f * .6f, surface.scaleX, .001f)
 
         // Half of the new gesture consumes half of the remaining 0.4 interval.
         // base + progress would have clamped to 1.0 and collapsed the image early.
-        fixture.call("renderSystemBackProgress", arrayOf(.5f, 0f))
+        fixture.call("renderSystemBackProgress", arrayOf(.5f))
         assertEquals(1f - .34f * .8f, surface.scaleX, .001f)
         assertTrue(surface.scaleX > 1f - .34f)
 
-        fixture.call("renderSystemBackProgress", arrayOf(1f, 0f))
+        fixture.call("renderSystemBackProgress", arrayOf(1f))
         assertEquals(1f - .34f, surface.scaleX, .001f)
 
         fixture.call("cancelSystemBackGesture")
@@ -368,62 +361,6 @@ class PhotoViewerInitializationTest {
         assertEquals(1f, surface.scaleY, 0f)
         assertEquals(0f, surface.translationX, 0f)
         assertEquals(0f, surface.translationY, 0f)
-    }
-
-    @Test fun systemBackTakeoverPreservesTheInterruptedDragTranslation() {
-        val fixture = EntryFixture()
-        fixture.setPhoto()
-        fixture.finishEntry()
-        fixture.set("photoSharedElementMapped", true)
-        assertTrue(fixture.activity.mediaDismissProgress(.6f, 90f, 300f))
-        val surface = fixture.field("interactiveDismissSurface") as View
-        assertEquals(90f, surface.translationX, .01f)
-
-        fixture.activity.mediaDismissSettled(dismiss = false)
-        val settle = fixture.field("interactiveDismissSettleAnimator") as android.animation.ValueAnimator
-        settle.setCurrentFraction(.5f)
-        val inheritedX = surface.translationX
-        assertTrue("the settle must still be moving horizontally", inheritedX > 0f && inheritedX < 90f)
-
-        // A predictive-back gesture takes over the settle. The first frame it renders
-        // must be exactly the frame that was on screen.
-        assertTrue(fixture.call("beginSystemBackGesture", arrayOf(0f)) as Boolean)
-        fixture.call("renderSystemBackProgress", arrayOf(0f, 0f))
-        assertEquals(inheritedX, surface.translationX, .01f)
-        assertEquals(1f - .34f * (fixture.field("systemBackResumeProgress") as Float), surface.scaleX, .001f)
-
-        fixture.call("cancelSystemBackGesture")
-        (fixture.field("interactiveDismissSettleAnimator") as android.animation.ValueAnimator).end()
-        assertEquals(0f, surface.translationX, .01f)
-        assertEquals(0f, surface.translationY, .01f)
-    }
-
-    @Test fun predictiveBackEdgeAddsABoundedSideBiasThatCancelsToZero() {
-        val fixture = EntryFixture()
-        fixture.setPhoto()
-        fixture.finishEntry()
-        fixture.set("photoSharedElementMapped", true)
-        val density = fixture.activity.resources.displayMetrics.density
-
-        assertTrue(fixture.call("beginSystemBackGesture", arrayOf(1f)) as Boolean)
-        fixture.call("renderSystemBackProgress", arrayOf(.3f, 1f))
-        val surface = fixture.field("interactiveDismissSurface") as View
-        val leftBias = surface.translationX
-        assertTrue("left edge must bias the page right", leftBias > 0f)
-        assertTrue("bias must stay within the 14dp token", leftBias <= 14f * density + .5f)
-        assertEquals(1f - .34f * .3f, surface.scaleX, .001f)
-
-        fixture.call("cancelSystemBackGesture")
-        (fixture.field("interactiveDismissSettleAnimator") as android.animation.ValueAnimator).end()
-        assertEquals(0f, surface.translationX, .01f)
-
-        assertTrue(fixture.call("beginSystemBackGesture", arrayOf(-1f)) as Boolean)
-        fixture.call("renderSystemBackProgress", arrayOf(.3f, -1f))
-        val rightSurface = fixture.field("interactiveDismissSurface") as View
-        assertTrue("right edge must bias the page left", rightSurface.translationX < 0f)
-        fixture.call("cancelSystemBackGesture")
-        (fixture.field("interactiveDismissSettleAnimator") as android.animation.ValueAnimator).end()
-        assertEquals(0f, rightSurface.translationX, .01f)
     }
 
     @Test fun terminalCommitIsNotAppliedTwiceAfterTheFinalProgressFrame() {
@@ -480,17 +417,6 @@ class PhotoViewerInitializationTest {
         assertEquals(1f, fixture.binding.mediumViewerAppbar.alpha, 0f)
         fixture.call("renderSharedReturnProgress", args = arrayOf(.1f))
         assertEquals(.9f, fixture.binding.viewerTransitionScrim.alpha, .001f)
-        // The grid toolbar is behind a 90% scrim here, so the Viewer toolbar must
-        // cross-fade rather than pop to zero on the first exposed frame.
-        val expected = minOf(
-            ViewerVisualMotion.returnChrome(.9f),
-            ViewerVisualMotion.viewerToolbarAlpha(.9f),
-        )
-        assertEquals(expected, fixture.binding.mediumViewerAppbar.alpha, .001f)
-        assertTrue("toolbar must not vanish instantly", fixture.binding.mediumViewerAppbar.alpha > 0f)
-        // Once the grid is meaningfully exposed the Viewer toolbar is fully gone.
-        fixture.call("renderSharedReturnProgress", args = arrayOf(.3f))
-        assertEquals(.7f, fixture.binding.viewerTransitionScrim.alpha, .001f)
         assertEquals(0f, fixture.binding.mediumViewerAppbar.alpha, 0f)
     }
 
@@ -544,7 +470,7 @@ class PhotoViewerInitializationTest {
         assertEquals(.4f, toolbar.alpha, 0f)
         assertEquals(0f, actions.alpha, 0f)
         fixture.call("renderSharedReturnLayers", args = arrayOf(.5f))
-        assertEquals(.4f * ViewerVisualMotion.returnChrome(.5f), toolbar.alpha, .001f)
+        assertEquals(.2f, toolbar.alpha, 0f)
         assertEquals(0f, actions.alpha, 0f)
         fixture.call("renderSharedReturnLayers", args = arrayOf(0f))
         assertEquals(0f, toolbar.alpha, 0f)
@@ -598,7 +524,7 @@ class PhotoViewerInitializationTest {
         fixture.set("sharedReturnView", proxy)
         fixture.set("sharedReturnPage", photo.page)
         fixture.beginReturn()
-        val transition = OxygenClassicActivityMotion.mediaTransition(PhotoViewerTransition.RETURN_DURATION_MS,
+        val transition = OxygenClassicActivityMotion.mediaTransition(PhotoViewerTransition.DURATION_MS,
             onProgress = { fixture.call("renderSharedReturnProgress", arrayOf(it)) }) as android.transition.TransitionSet
         val progress = transition.getTransitionAt(transition.transitionCount - 1)
         val start = android.transition.TransitionValues().apply { view = proxy }.also(progress::captureStartValues)
@@ -807,6 +733,81 @@ class PhotoViewerInitializationTest {
         }
     }
 
+    @Test fun staticPhotoLoadReadsTheHeaderBeforeStartingTheRenderer() {
+        val fixture = EntryFixture()
+        val photo = fixture.setPhoto()
+
+        photo.call("loadImage")
+
+        // The header read owns the first generation. Starting Glide on this frame
+        // would bump imageRequestGeneration and make the header callback stale, which
+        // also leaves staticGlideSignature null when prepareStaticPhotoEntry runs.
+        assertEquals(1L, photo.field("imageRequestGeneration"))
+        assertEquals(-1L, photo.field("staticGlideGeneration"))
+        // Invalidate the pending header callback so it never starts Glide after the test.
+        photo.call("beginImageRequest")
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    @Test fun missingHeaderSignatureRejectsTheStaticPhotoHandoff() {
+        val fixture = EntryFixture()
+        val photo = fixture.setPhoto()
+        val source = staticPhotoSource(fixture, photo)
+        val rejected = ArrayList<String>()
+        photo.set("staticPhotoHeader", null)
+        photo.set("staticGlideSignature", null)
+        photo.set("staticGlideGeneration", 0L)
+
+        assertNull(photo.page.prepareStaticPhotoEntry(fixture.path, source) { rejected += it })
+        assertEquals(listOf("content_version"), rejected)
+    }
+
+    @Test fun staleRendererGenerationRejectsTheStaticPhotoHandoff() {
+        val fixture = EntryFixture()
+        val photo = fixture.setPhoto()
+        val source = staticPhotoSource(fixture, photo)
+        val rejected = ArrayList<String>()
+        photo.set("staticGlideSignature", source.signature)
+        photo.set("staticGlideGeneration", -1L)
+
+        assertNull(photo.page.prepareStaticPhotoEntry(fixture.path, source) { rejected += it })
+        assertEquals(listOf("glide_generation"), rejected)
+    }
+
+    @Test fun alignedHeaderSignatureAndGenerationAcceptTheStaticPhotoHandoff() {
+        val fixture = EntryFixture()
+        val photo = fixture.setPhoto()
+        val source = staticPhotoSource(fixture, photo)
+        val rejected = ArrayList<String>()
+        photo.set("staticGlideSignature", source.signature)
+        photo.set("staticGlideGeneration", 0L)
+
+        val proxy = photo.page.prepareStaticPhotoEntry(fixture.path, source) { rejected += it }
+
+        assertEquals(rejected.toString(), emptyList<String>(), rejected)
+        assertNotNull(proxy)
+    }
+
+    private fun staticPhotoSource(fixture: EntryFixture, photo: EntryFixture.TestPhoto): StaticPhotoSource {
+        val target = requireNotNull(StaticPhotoViewGeometry.read(photo.binding.gesturesView))
+        val width = target.pixels.width.roundToInt()
+        val height = target.pixels.height.roundToInt()
+        val invalidation = ViewerContentInvalidationRegistry.current(fixture.path)
+        val header = StaticPhotoHeader(width, height, 1, jpeg = true,
+            fileVersion = StaticPhotoFileVersion(10L, 10L, invalidation))
+        photo.set("staticPhotoHeader", fixture.path to header)
+        return StaticPhotoSource(
+            path = fixture.path,
+            signature = "grid-signature",
+            adapterVersion = 1L,
+            thumbnail = StaticPhotoThumbnail(width, height, width, height, cropped = false, radius = 0),
+            view = target,
+            size = 10L,
+            modified = 10L,
+            invalidation = invalidation,
+        )
+    }
+
     private class EntryFixture(
         val controller: ActivityController<ViewPagerActivity> = Robolectric.buildActivity(ViewPagerActivity::class.java),
     ) {
@@ -857,6 +858,12 @@ class PhotoViewerInitializationTest {
             fun call(name: String, vararg args: Any) =
                 page.javaClass.declaredMethods.single { it.name == name && it.parameterCount == args.size }
                     .apply { isAccessible = true }.invoke(page, *args)
+
+            fun set(name: String, value: Any?) =
+                page.javaClass.getDeclaredField(name).apply { isAccessible = true }.set(page, value)
+
+            fun field(name: String): Any? =
+                page.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(page)
         }
 
         fun setPhoto(): TestPhoto {

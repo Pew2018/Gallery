@@ -428,7 +428,6 @@ class PhotoFragment : ViewPagerFragment() {
         if (mIsFullscreen) {
             binding.bottomActionsDummy.beGone()
         }
-        viewPagerHost()?.logViewerEntryEvent("fragment_created")
         loadImage()
         initExtendedDetails()
         mWasInit = true
@@ -639,56 +638,9 @@ class PhotoFragment : ViewPagerFragment() {
         val entryPath = activity?.intent?.takeIf { it.getBooleanExtra(PhotoViewerTransition.EXTRA_STATIC_PHOTO, false) }
             ?.getStringExtra(PhotoViewerTransition.EXTRA_PATH)
         val staticPath = getFilePathToShow().takeIf { entryPath == mMedium.path }
-        // The grid captured this media's signature before launching. Seeding the static
-        // handoff validation with it lets the first Glide request start on this frame
-        // instead of after a background EXIF/header round trip. The header itself is
-        // only needed later, for the static-photo preview geometry, and is still read
-        // off the main thread (a missing header rejects that preview, it never trusts
-        // the grid pixels without it).
-        val gridSignature = staticPath?.let { gridEntrySignature() }
-        if (gridSignature != null) staticGlideSignature = gridSignature
-        viewPagerHost()?.logViewerEntryEvent("renderer_request_started", when {
-            staticPath == null -> "no_static_header"
-            gridSignature != null -> "grid_signature"
-            else -> "awaiting_header"
-        })
-        if (staticPath == null || gridSignature != null) {
-            dispatchImageLoad()
-            readEntryHeaderAsync(request, root, staticPath)
-        } else {
-            // No grid signature (external launch or older caller): keep the original
-            // sequence so the static handoff can still validate the cache key.
-            ensureBackgroundThread {
-                val orientation = getImageOrientation()
-                val header = staticPath.let { path -> StaticPhotoHeader.read(path, orientation)?.let { path to it } }
-                activity?.runOnUiThread {
-                    if (request != imageRequestGeneration || binding.root !== root) return@runOnUiThread
-                    staticPhotoHeader = header
-                    mImageOrientation = orientation
-                    dispatchImageLoad()
-                }
-            }
-        }
-    }
-
-    /** The selected media's signature as captured by the grid that launched this Viewer. */
-    private fun gridEntrySignature(): String? {
-        val intent = activity?.intent ?: return null
-        if (!intent.getBooleanExtra(PhotoViewerTransition.EXTRA_STATIC_PHOTO, false)) return null
-        if (intent.getStringExtra(PhotoViewerTransition.EXTRA_PATH) != mMedium.path) return null
-        return intent.getStringExtra(PhotoViewerTransition.EXTRA_ENTRY_SIGNATURE)
-    }
-
-    private fun viewPagerHost() = activity as? org.fossify.gallery.activities.ViewPagerActivity
-
-    /**
-     * Reads orientation (and the static-photo header) off the interactive path.
-     * Glide already applies all EXIF orientations; the value is only used by the
-     * Picasso fallback and the subsampling decoder, both of which run after the
-     * interactive frame is published.
-     */
-    private fun readEntryHeaderAsync(request: Long, root: View, staticPath: String?) {
-        if (staticPath == null && mImageOrientation >= 0) return
+        // Read the header before starting Glide: loadWithGlide derives its signature
+        // from staticPhotoHeader, and starting the request first would bump
+        // imageRequestGeneration and discard this header callback.
         ensureBackgroundThread {
             val orientation = getImageOrientation()
             val header = staticPath?.let { path -> StaticPhotoHeader.read(path, orientation)?.let { path to it } }
@@ -696,16 +648,15 @@ class PhotoFragment : ViewPagerFragment() {
                 if (request != imageRequestGeneration || binding.root !== root) return@runOnUiThread
                 staticPhotoHeader = header
                 mImageOrientation = orientation
+                when {
+                    mMedium.isGIF() -> loadGif()
+                    mMedium.isSVG() -> loadSVG()
+                    mMedium.isApng() -> loadAPNG()
+                    mMedium.isAvif() -> loadAVIF()
+                    else -> loadBitmap()
+                }
             }
         }
-    }
-
-    private fun dispatchImageLoad() = when {
-        mMedium.isGIF() -> loadGif()
-        mMedium.isSVG() -> loadSVG()
-        mMedium.isApng() -> loadAPNG()
-        mMedium.isAvif() -> loadAVIF()
-        else -> loadBitmap()
     }
 
     private fun loadGif() {
