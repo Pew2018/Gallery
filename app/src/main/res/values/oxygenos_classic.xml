@@ -55,16 +55,45 @@
         <item name="android:windowExitAnimation">@anim/oxygen_classic_page_open_exit</item>
     </style>
 
+    <!-- Post-commit clock of the platform's cross-Activity back animation.
+         CustomCrossActivityBackAnimation.getPostCommitAnimationDuration() is
+         min(2000, max(closeAnimation.duration, enterAnimation.duration)) and both
+         values come from the CLOSE pair declared below, so these tokens set the
+         Shell's commit clock. 450ms is DefaultCrossActivityBackAnimation's
+         POST_COMMIT_DURATION, i.e. the reference length of the platform's own
+         cross-Activity return; keep them equal so the closing page resolves on the
+         same clock as the system. Kept separate from the classic page tokens above:
+         those still drive the pre-Android-14 window animation and must not change.
+         Note that the Shell drives the pair through AnimationSet.getTransformationAt(),
+         which feeds the same 0..1 progress to every child, so the clock also has to
+         match the child durations - see oxygen_classic_page_back_exit.xml. -->
+    <integer name="oxygen_classic_page_back_duration_ms">450</integer>
+    <!-- DefaultCrossActivityBackAnimation.onGestureCommitted() slides the closing
+         page on to currentClosingRect.left + enteringStartOffset, and
+         cross_activity_back_entering_start_offset is 96dp in the Shell resources. -->
+    <dimen name="oxygen_classic_page_back_slide_distance">96dp</dimen>
+
     <!-- Android 14+ predictive back, custom (CLOSE) branch of the platform's
          CrossActivityBackAnimation.
          WindowManager only takes that branch when the *closing* window declares a
-         non-default activityCloseExitAnimation; it then loads activityCloseEnter
-         for the entering parent (CustomAnimationLoader.loadAll). A zero window
-         animation or a style without these two items silently falls back to the
-         default branch, which additionally scales and translates the parent page
-         and leaves the Shell backdrop visible around both windows.
-         Only the CLOSE pair is declared here so opening a page keeps the platform
-         default open transition. -->
+         non-default activityCloseExitAnimation (BackNavigationController
+         .isCustomizeExitAnimation), and then expects a loadable one
+         (CustomAnimationLoader.loadAll). A zero window animation or a style without
+         these two items silently falls back to DefaultCrossActivityBackAnimation,
+         which additionally scales the entering parent to 0.9, offsets it by 96dp and
+         leaves the Shell backdrop visible around both windows.
+         Choosing the custom branch keeps the entering parent on a full-screen base
+         rect, so the real previous page fills the screen. The price is that the Shell
+         then delegates the post-commit look to these two resources:
+         - CLOSE-enter must stay identity. It is also applied *during* the gesture at
+           getPreCommitEnteringBaseTransformation(progress * 0.2), so any geometry here
+           would displace the real parent and break the full-screen preview.
+         - CLOSE-exit is the closing page's only post-commit motion: the Shell freezes
+           currentClosingRect at the release position and never advances it. Identity
+           would leave the page standing still until the window is torn down, which is
+           the hard cut this pair must not reintroduce.
+         Only the CLOSE pair is declared so opening a page keeps the platform default
+         open transition. -->
     <style name="OxygenClassicPageBackWindow">
         <item name="android:activityCloseEnterAnimation">@anim/oxygen_classic_page_back_enter</item>
         <item name="android:activityCloseExitAnimation">@anim/oxygen_classic_page_back_exit</item>

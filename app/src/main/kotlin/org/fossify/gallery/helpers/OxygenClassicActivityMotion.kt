@@ -232,11 +232,16 @@ object OxygenClassicActivityMotion {
             // (BackNavigationController.isCustomizeExitAnimation -> setWindowAnimations)
             // and the Shell then requires a loadable activityCloseExitAnimation
             // (CustomCrossActivityBackAnimation.CustomAnimationLoader). With that
-            // branch the entering parent keeps a full-screen base rect and only gets
-            // the near-identity CLOSE-enter animation, so the real previous page fills
-            // the screen instead of exposing the Shell backdrop around a shrunken
-            // parent. Setting a zero animation takes the default branch instead, which
-            // scales and offsets the parent and leaves that backdrop visible.
+            // branch the entering parent keeps a full-screen base rect and stays
+            // undimmed by geometry, so the real previous page fills the screen instead
+            // of exposing the Shell backdrop around a shrunken parent. Setting a zero
+            // animation takes the default branch instead, which scales the parent to
+            // 0.9 and offsets it by 96dp, leaving that backdrop visible.
+            //
+            // The same branch freezes the closing rect at the release position, so the
+            // CLOSE-exit resource is the only thing that can complete the exit; see its
+            // comments. It also drives the plain finish() transition of this window
+            // (toolbar back), which keeps both return entries on one animation.
             activity.window.setWindowAnimations(R.style.OxygenClassicPageBackWindow)
             // The platform clips this window while the gesture runs, so the surface
             // behind the first frame has to be the page's own colour rather than the

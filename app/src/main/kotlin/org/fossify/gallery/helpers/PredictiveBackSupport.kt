@@ -20,6 +20,12 @@ import android.os.Bundle
  * enter animation, so the real previous page fills the screen instead of exposing the
  * Shell backdrop around a shrunken parent, which is what the default branch does.
  * A zero window animation silently selects that default branch instead.
+ *
+ * Because the custom branch also stops advancing the closing rect at commit, the
+ * CLOSE-exit resource has to carry the whole post-commit motion of the closing page
+ * and its duration sets the Shell's post-commit clock
+ * (CustomCrossActivityBackAnimation.getPostCommitAnimationDuration). Both facts are
+ * pinned by tests in PredictiveBackCloseAnimationTest.
  */
 internal object PredictiveBackSupport {
     val systemDrivesPageTransition: Boolean

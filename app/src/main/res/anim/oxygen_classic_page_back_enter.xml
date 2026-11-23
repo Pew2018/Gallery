@@ -1,16 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <set xmlns:android="http://schemas.android.com/apk/res/android"
-    android:interpolator="@android:interpolator/fast_out_slow_in">
-    <!-- Applied by the platform to the *entering* parent page during a
-         predictive back, on top of a full-screen base rect
-         (CustomCrossActivityBackAnimation.preparePreCommitEnteringRectMovement).
-         Keep it identity: the real parent must be visible for the whole gesture
-         and must not receive a second app-authored fade. Geometry (including the
-         left/right edge offset) stays owned by the Shell's
-         CustomCrossActivityBackAnimation; this resource only keeps the custom
-         CLOSE branch loadable. -->
+    android:shareInterpolator="false">
+    <!-- CLOSE-enter of the platform's custom cross-Activity back animation.
+         This resource does two things and must stay identity at both of them:
+
+         1. Geometry. CustomCrossActivityBackAnimation applies it *during* the
+            gesture through getPreCommitEnteringBaseTransformation(progress * 0.2),
+            and post-commit through lerp(gestureProgress * 0.2, 1f, ...). A translate
+            or scale here would displace the real parent page, so the full-screen
+            preview of the previous page that the custom branch exists for would be
+            lost.
+         2. Alpha. The parent is already fully rendered underneath the closing page;
+            an app-authored fade would be a second fade on top of the platform's own
+            scrim fade. Alpha is therefore pinned to 1.
+
+         The duration still matters: CustomCrossActivityBackAnimation
+         .getPostCommitAnimationDuration() is min(2000, max(close.duration,
+         enter.duration)), so this token is half of the Shell's post-commit clock and
+         has to stay at the shared 450ms value. -->
     <alpha
-        android:duration="@integer/oxygen_classic_page_enter_duration_ms"
         android:fromAlpha="1.0"
-        android:toAlpha="1.0" />
+        android:toAlpha="1.0"
+        android:interpolator="@android:interpolator/linear"
+        android:startOffset="0"
+        android:duration="@integer/oxygen_classic_page_back_duration_ms" />
 </set>
