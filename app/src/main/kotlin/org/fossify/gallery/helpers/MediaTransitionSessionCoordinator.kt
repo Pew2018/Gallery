@@ -107,8 +107,16 @@ internal class MediaTransitionSessionCoordinator(
         gridAttached = false
     }
 
+    /**
+     * The Grid target is requested by the interactive drag and by the app-owned
+     * toolbar/system close. Both run while the session still owns the return, so
+     * RETURN_PREPARING must be allowed to hide the target and read it back; the
+     * platform path is the only one that waits for RETURNING.
+     */
     fun showGridPreview(token: Token, path: String) {
-        if (valid(token, State.INTERACTIVE_RETURN)) gridPreview?.get()?.show(token, path)
+        if (valid(token, State.INTERACTIVE_RETURN, State.RETURN_PREPARING)) {
+            gridPreview?.get()?.show(token, path)
+        }
     }
 
     fun gridToolbarBottomOnScreen(token: Token): Int? {
@@ -121,7 +129,9 @@ internal class MediaTransitionSessionCoordinator(
             gridPreview?.get()?.photoTargetIsCropped(token, path) == true
 
     fun photoReturnTarget(token: Token, path: String): StaticPhotoReturnTarget? =
-        if (valid(token, State.RETURNING)) gridPreview?.get()?.photoReturnTarget(token, path) else null
+        if (valid(token, State.INTERACTIVE_RETURN, State.RETURN_PREPARING, State.RETURNING)) {
+            gridPreview?.get()?.photoReturnTarget(token, path)
+        } else null
 
     fun gridPreviewEvent(token: Token, detail: String) {
         emit("grid_interactive_preview", token, detail)

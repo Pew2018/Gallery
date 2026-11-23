@@ -19,6 +19,12 @@ object PhotoViewerTransition {
     const val ELEMENT_NAME = "gallery_photo_content"
     const val DURATION_MS = OxygenClassicMotion.MEDIA_SHARED_ELEMENT_MS
     const val FADE_DURATION_MS = OxygenClassicMotion.MEDIA_SCRIM_FADE_MS
+    /**
+     * The app-owned drag/toolbar return travels from a live gesture frame to the
+     * real grid aperture. 120 ms is the entry-release speed; a committed close
+     * gets a little more room so it does not read as a snap.
+     */
+    const val APP_RETURN_MS = 200L
     const val READY_TIMEOUT_MS = 1_200L
     const val REQUEST_CODE = 9_071
     internal const val EXTRA_LAUNCH = "org.fossify.gallery.extra.VIEWER_LAUNCH"

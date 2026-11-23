@@ -219,6 +219,18 @@ class PhotoFragment : ViewPagerFragment() {
         }
     }
 
+    /** Header for the app-owned return surface; same file version the entry validated. */
+    internal fun entryReturnHeader(path: String): StaticPhotoHeader? =
+        if (::mMedium.isInitialized && mMedium.path == path) {
+            staticPhotoHeader?.takeIf { it.first == getFilePathToShow() }?.second
+        } else null
+
+    /** The renderer pixels the return animation may reuse; never a second decode. */
+    internal fun entryReturnDrawable(path: String): android.graphics.drawable.Drawable? =
+        if (::mMedium.isInitialized && mMedium.path == path) {
+            (entryRenderer() as? ImageView)?.drawable
+        } else null
+
     internal fun validatesStaticPhotoHandoff(proxy: StaticPhotoEntryView): Boolean {
         val renderer = entryRenderer() as? ImageView ?: return false
         return sharedSurface?.currentView === proxy && mIsFragmentVisible && mMedium.path == proxy.geometry.source.path &&

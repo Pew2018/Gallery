@@ -18,6 +18,9 @@ internal data class StaticPhotoReturnTarget(val source: StaticPhotoSource, val d
 internal class MeasuredPhotoReturnView(context: Context) : AppCompatImageView(context) {
     private var header: StaticPhotoHeader? = null
 
+    /** The header this surface was created with, reused by the app-owned return. */
+    internal val photoHeader: StaticPhotoHeader? get() = header
+
     constructor(context: Context, header: StaticPhotoHeader) : this(context) {
         this.header = header
     }

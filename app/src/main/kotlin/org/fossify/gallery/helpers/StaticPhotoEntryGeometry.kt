@@ -71,6 +71,25 @@ internal data class StaticPhotoHeader(
     }
 }
 
+/**
+ * Reads the oriented header off the main thread for the Viewer's first frame.
+ *
+ * The Grid already decoded this file, so this is a bounds-only read of the same
+ * local file. It never gates the full-size decode; it only supplies the aspect
+ * that the pre-decode entry preview needs. Content URIs are not static-photo
+ * candidates and fall through to the existing wait-for-renderer path.
+ */
+internal object StaticPhotoHeaderReader {
+    fun read(path: String): StaticPhotoHeader? {
+        if (!path.startsWith("/")) return null
+        val orientation = runCatching {
+            androidx.exifinterface.media.ExifInterface(path)
+                .getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION, -1)
+        }.getOrDefault(-1)
+        return StaticPhotoHeader.read(path, orientation)
+    }
+}
+
 internal data class StaticPhotoThumbnail(
     val width: Int, val height: Int, val requestWidth: Int, val requestHeight: Int,
     val cropped: Boolean, val radius: Int,

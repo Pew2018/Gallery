@@ -21,7 +21,16 @@ import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator.State
 import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator.Token
 import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.StaticPhotoEntryView
+import org.fossify.gallery.helpers.StaticPhotoEntryGeometry
+import org.fossify.gallery.helpers.StaticPhotoHeader
+import org.fossify.gallery.helpers.StaticPhotoHeaderReader
 import org.fossify.gallery.helpers.StaticPhotoViewGeometry
+import org.fossify.gallery.helpers.PhotoBox
+import org.fossify.gallery.helpers.PhotoViewGeometry
+import org.fossify.gallery.helpers.MediaTransitionGeometry
+import org.fossify.gallery.helpers.GridPhotoEntryPreview
+import org.fossify.gallery.helpers.MeasuredPhotoReturnView
+import org.fossify.gallery.helpers.StaticPhotoReturnTarget
 import org.fossify.gallery.helpers.OxygenClassicMotion
 import org.fossify.gallery.extensions.favoriteProtection
 import org.fossify.gallery.helpers.FAVORITE_ACCESS_SESSION
@@ -235,6 +244,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     companion object {
         private const val REQUEST_VIEW_VIDEO = 1
         private const val SAVED_PATH = "current_path"
+        // Bounds-only header read plus first layout normally completes in a frame
+        // or two. The Grid stays visible while these attempts run.
+        private const val APP_ENTRY_START_ATTEMPTS = 30
+        // The Grid target is normally already suppressed by the drag preview; a
+        // committed close retries for a few frames before the explainable fade.
+        private const val APP_RETURN_TARGET_ATTEMPTS = 12
+        private const val APP_RETURN_FALLBACK_FADE_MS = 160L
     }
 
     private var mPath = ""
@@ -662,6 +678,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         interactiveDismissPage = fragment
         interactiveDismissPath = path
         interactiveDismissDragActive = true
+        interactiveDismissProgress = 0f
         interactiveDismissGestureBaseX = 0f
         interactiveDismissGestureBaseY = 0f
         transitionSession.showGridPreview(operation, path)
@@ -676,11 +693,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             !interactiveDismissDragActive || isDestroyed || isFinishing) return
         interactiveDismissSettleAnimator?.cancel()
         if (dismiss) {
-            // Hand the live gesture transform directly to the Activity shared
-            // element return so it can continue from the frame under the finger.
+            // The released drag keeps its live surface and hands the current frame
+            // to the app-owned close. Never finish the window first: the image must
+            // continue from under the finger to the measured Grid aperture.
             interactiveDismissDragActive = false
             interactiveDismissSettleAnimator = null
-            finish()
+            if (appOwnedPhotoEntry()) startAppOwnedClose("drag") else finish()
             return
         }
         val generation = ++interactiveDismissGeneration
@@ -711,6 +729,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun finishMediaEntryTransition(entry: PhotoTransitionCompletionGate) {
         if (!isCurrentEntry(entry) || !entry.complete()) return
+        // The proxy is now the visible surface; drop any pre-decode preview in the
+        // same frame so the two copies can never overlap or leave a blank frame.
+        removeAppEntryPreviewSurface()
+        if (window.attributes.alpha < 1f) window.attributes = window.attributes.apply { alpha = 1f }
         check(transitionSession.entryFinished(transitionSession.entry))
         syncViewerBackOwnership()
         val mappedPage = entryMappedPage
@@ -755,7 +777,27 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var entryFallbackAnimator: ValueAnimator? = null
     private var appEntryAnimator: ValueAnimator? = null
     private var appEntryPreview: android.widget.ImageView? = null
-    private var windowAlphaAnimator: ValueAnimator? = null
+    // One entry clock: the preview geometry, scrim, chrome and window alpha all
+    // read this progress. The full-resolution proxy joins the same animator when
+    // it becomes mappable instead of starting a second 120 ms clock.
+    private var appEntryProgress = 0f
+    private var appEntryAnimatorStarted = false
+    private var appEntryAnimatorEnded = false
+    private var appEntryGeneration = 0L
+    private var appEntryHeader: StaticPhotoHeader? = null
+    private var appEntryBitmap: Bitmap? = null
+    private var appEntryPreviewSurface: GridPhotoEntryPreview? = null
+    private var appEntryStartAttempts = 0
+    private var appEntryStartScheduled = false
+    // The app-owned close continues from the live surface frame to the measured
+    // Grid target; neither the toolbar nor a released drag may finish the window
+    // before that visual has run.
+    private var appReturnAnimator: ValueAnimator? = null
+    private var appReturnOverlay: MeasuredPhotoReturnView? = null
+    private var appReturnGeneration = 0L
+    private var appReturnStartChrome = 1f
+    private var appReturnStartScrim = 1f
+    private var appReturnStartSystemBar = 1f
     private var entryMappedPage: ViewPagerFragment? = null
     private var entryReadyReported = false
     private var entryFailedPage: ViewPagerFragment? = null
@@ -780,11 +822,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         appEntryAnimator?.removeAllUpdateListeners()
         appEntryAnimator?.cancel()
         appEntryAnimator = null
-        windowAlphaAnimator?.removeAllListeners()
-        windowAlphaAnimator?.removeAllUpdateListeners()
-        windowAlphaAnimator?.cancel()
-        windowAlphaAnimator = null
-        removeAppOwnedEntryPreview()
+        appEntryGeneration++
+        appEntryAnimatorStarted = false
+        appEntryAnimatorEnded = false
+        appEntryProgress = 0f
+        appEntryHeader = null
+        appEntryBitmap = null
+        appEntryStartAttempts = 0
+        appEntryStartScheduled = false
+        removeAppEntryPreviewSurface()
         if (::transitionSession.isInitialized && window.attributes.alpha < 1f) {
             window.attributes = window.attributes.apply { alpha = 1f }
         }
@@ -1421,6 +1467,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     override fun onDestroy() {
         stopReusedFolderWatch()
+        appReturnGeneration++
+        appReturnAnimator?.removeAllListeners()
+        appReturnAnimator?.removeAllUpdateListeners()
+        appReturnAnimator?.cancel()
+        appReturnAnimator = null
+        appReturnOverlay?.let { binding.root.removeView(it) }
+        appReturnOverlay = null
         ViewerReturnDiagnostics.event(viewerReturnId, "viewer_destroyed") {
             mapOf("animatorStarted" to sharedReturnAnimatorStarted, "transitionTerminal" to sharedReturnTerminal)
         }
@@ -1552,6 +1605,23 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         )
     }
 
+    /** Publish the one result the parent applies (position + deletions + token). */
+    private fun prepareViewerReturnResult(operation: Token, returnPath: String) {
+        viewerReturnId = ViewerEntryDiagnostics.newRequest()
+        val result = Intent()
+            .putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH, returnPath.takeIf(String::isNotEmpty))
+            .putStringArrayListExtra(
+                PhotoViewerTransition.EXTRA_DELETED_PATHS,
+                ArrayList(successfullyDeletedViewerPaths)
+            )
+            .putExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, viewerReturnId)
+            .putExtra(ViewerEntryDiagnostics.EXTRA_VIEWER_SESSION_ID, viewerDiagnosticSessionId)
+            .putExtra(PhotoViewerTransition.EXTRA_LAUNCH, intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L))
+        val offeredEntry = MediaTransitionHandoff.read(intent)
+        setResult(RESULT_OK, MediaTransitionHandoff.write(result,
+            if (offeredEntry != null && !transitionSession.viewerAttached) offeredEntry else operation))
+    }
+
     /**
      * Close a stable Viewer page with no app-side return visual. The result is
      * still delivered so the parent restores the same media position and applies
@@ -1565,20 +1635,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             super.finish()
             return
         }
-        viewerReturnId = ViewerEntryDiagnostics.newRequest()
         val returnPath = getCurrentPath()
-        val result = Intent()
-            .putExtra(PhotoViewerTransition.EXTRA_RETURN_PATH, returnPath.takeIf(String::isNotEmpty))
-            .putStringArrayListExtra(
-                PhotoViewerTransition.EXTRA_DELETED_PATHS,
-                ArrayList(successfullyDeletedViewerPaths)
-            )
-            .putExtra(ViewerReturnDiagnostics.EXTRA_REQUEST_ID, viewerReturnId)
-            .putExtra(ViewerEntryDiagnostics.EXTRA_VIEWER_SESSION_ID, viewerDiagnosticSessionId)
-            .putExtra(PhotoViewerTransition.EXTRA_LAUNCH, intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L))
-        val offeredEntry = MediaTransitionHandoff.read(intent)
-        setResult(RESULT_OK, MediaTransitionHandoff.write(result,
-            if (offeredEntry != null && !transitionSession.viewerAttached) offeredEntry else operation))
+        prepareViewerReturnResult(operation, returnPath)
         // No shared-element transition will drive RETURN_PREPARING -> RETURNING here;
         // the app runs no visual, so complete the state machine directly.
         transitionSession.targetReady(operation)
@@ -1593,13 +1651,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
         // No window.sharedElementReturnTransition and no super.finishAfterTransition():
         // the app-side return animation is intentionally skipped.
+        super.finish()
         if (appFadeOut && OxygenClassicMotion.enabled(this)) {
-            // Toolbar back and drag-to-dismiss still have to leave the opaque window
-            // somehow. A window-level fade keeps the result handoff synchronous and
-            // never stacks an image zoom on top of the system return.
+            // Only the no-surface fallback still leaves through a window fade. The
+            // override is one-shot and must be installed after finish(), per the
+            // platform contract; the persistent override slots are never touched.
             overridePendingTransition(0, R.anim.photo_viewer_fade_out)
         }
-        super.finish()
     }
 
     private fun finishDuringMediaEntry(): Boolean {
@@ -1639,10 +1697,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
         if (finishDuringMediaEntry()) return
         if (appOwnedPhotoEntry()) {
-            // Toolbar / accessibility back on the opaque Viewer. There is no platform
-            // return transition in this mode; publish the same result and let the
-            // window fade out. Edge-back never reaches here: it is a system callback.
-            commitSystemReleaseReturn(appFadeOut = true)
+            // Toolbar / accessibility back on the opaque Viewer. The platform has no
+            // cross-Activity transition to drive here, so the app runs the same
+            // measured close core the released drag uses. Edge-back never reaches
+            // this branch: a stable edge gesture stays with the platform.
+            startAppOwnedClose(reason)
             return
         }
         val returnPath = getCurrentPath()
@@ -1742,6 +1801,295 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             }
         }, 2 * PhotoViewerTransition.READY_TIMEOUT_MS + PhotoViewerTransition.DURATION_MS)
         super.finishAfterTransition()
+    }
+
+    /**
+     * One close core for a released drag, the toolbar and an app-owned system step.
+     *
+     * The live shared surface stays exactly where the gesture left it. The core
+     * publishes the result, asks the Grid for the measured return target, and moves
+     * the real renderer pixels from the current frame into that aperture. It never
+     * restores the photo to full screen first and it never replaces the image visual
+     * with `finish()` alone. If the target cannot be measured, the surface still
+     * leaves through a continuous shrink/fade, never a hard cut or a wrong thumbnail.
+     */
+    private fun startAppOwnedClose(reason: String) {
+        if (isFinishing || isDestroyed || appReturnAnimator != null) return
+        if (interactiveDismissSurface == null) {
+            if (!beginInteractiveDismiss()) {
+                // No shared surface is available (zoomed/subsampled/unsupported media).
+                // Keep the result protocol and leave through the one-shot window fade.
+                commitSystemReleaseReturn(appFadeOut = true)
+                return
+            }
+        } else {
+            // A return-in-progress settle is taken over at its current frame.
+            interactiveDismissSettleAnimator?.cancel()
+            interactiveDismissSettleAnimator = null
+        }
+        interactiveDismissDragActive = false
+        val path = getCurrentPath()
+        val page = getCurrentFragment()
+        if (path.isEmpty() || interactiveDismissPath != path || interactiveDismissPage !== page ||
+            interactiveDismissSurface?.isAttachedToWindow != true) {
+            val gesture = transitionSession.returnOperation
+            if (gesture != null && transitionSession.cancelGesture(gesture)) returnLeases.releaseAll()
+            commitSystemReleaseReturn(appFadeOut = true)
+            return
+        }
+        val operation = transitionSession.beginReturn() ?: run {
+            commitSystemReleaseReturn(appFadeOut = true)
+            return
+        }
+        prepareViewerReturnResult(operation, path)
+        // The Grid target was normally suppressed by the drag preview already; this
+        // call is idempotent and also covers the toolbar path.
+        transitionSession.showGridPreview(operation, path)
+        syncViewerBackOwnership()
+        appReturnStartChrome = binding.mediumViewerAppbar.alpha.coerceIn(0f, 1f)
+        appReturnStartScrim = binding.viewerTransitionScrim.alpha.coerceIn(0f, 1f)
+        appReturnStartSystemBar = viewerSystemBarProgress.coerceIn(0f, 1f)
+        ViewerReturnDiagnostics.event(viewerReturnId, "viewer_app_return_start") {
+            mapOf(
+                "reason" to reason,
+                "dragProgress" to interactiveDismissProgress,
+                "chromeAlpha" to appReturnStartChrome,
+                "scrimAlpha" to appReturnStartScrim,
+                "surface" to ViewerEntryDiagnostics.viewState(interactiveDismissSurface),
+                "mediaId" to GalleryDiagnosticLogger.anonymousId(path),
+            )
+        }
+        val generation = ++appReturnGeneration
+        startAppReturnTargetProbe(operation, path, reason, generation, 0)
+    }
+
+    private fun startAppReturnTargetProbe(
+        operation: Token,
+        path: String,
+        reason: String,
+        generation: Long,
+        attempt: Int,
+    ) {
+        if (generation != appReturnGeneration || !transitionSession.isReturning(operation) ||
+            isFinishing || isDestroyed) return
+        val target = transitionSession.photoReturnTarget(operation, path)
+        if (target != null) {
+            startAppReturnAnimation(operation, path, target, reason, generation)
+            return
+        }
+        if (attempt < APP_RETURN_TARGET_ATTEMPTS) {
+            binding.root.postOnAnimation {
+                startAppReturnTargetProbe(operation, path, reason, generation, attempt + 1)
+            }
+        } else {
+            ViewerReturnDiagnostics.event(viewerReturnId, "viewer_app_return_target_missing") {
+                mapOf("attempts" to attempt, "reason" to reason)
+            }
+            startAppReturnFadeFallback(operation, path, reason, generation)
+        }
+    }
+
+    private fun startAppReturnAnimation(
+        operation: Token,
+        path: String,
+        target: StaticPhotoReturnTarget,
+        reason: String,
+        generation: Long,
+    ) {
+        if (generation != appReturnGeneration || isFinishing || isDestroyed) return
+        val surface = interactiveDismissSurface
+        val originRect = surface?.let(::mappedTransitionSurfaceBounds)
+        val page = getCurrentFragment() as? PhotoFragment
+        val header = (surface as? MeasuredPhotoReturnView)?.photoHeader ?: page?.entryReturnHeader(path)
+        val drawable = (surface as? ImageView)?.drawable ?: page?.entryReturnDrawable(path)
+        if (surface == null || originRect == null || header == null || drawable == null) {
+            startAppReturnFadeFallback(operation, path, reason, generation)
+            return
+        }
+        val windowBox = target.source.view.window.visible.rect()
+        // Rebuild the surface frame from its layout size and live scale instead of
+        // the floored diagnostic rect; the aspect check in prepare() must see the
+        // same image aspect the renderer had, even when the drag is mid-flight.
+        val scaleX = surface.scaleX
+        val scaleY = surface.scaleY
+        val exactWidth = surface.width * scaleX
+        val exactHeight = surface.height * scaleY
+        if (exactWidth <= 0f || exactHeight <= 0f) {
+            startAppReturnFadeFallback(operation, path, reason, generation)
+            return
+        }
+        val centerX = originRect.exactCenterX()
+        val centerY = originRect.exactCenterY()
+        val originPixels = android.graphics.RectF(
+            centerX - exactWidth / 2f, centerY - exactHeight / 2f,
+            centerX + exactWidth / 2f, centerY + exactHeight / 2f,
+        )
+        val originVisible = android.graphics.RectF(originPixels)
+        if (!originVisible.intersect(windowBox)) {
+            startAppReturnFadeFallback(operation, path, reason, generation)
+            return
+        }
+        val origin = PhotoViewGeometry(
+            PhotoBox(originPixels),
+            PhotoBox(originPixels),
+            PhotoBox(originVisible),
+            target.source.view.window,
+        )
+        val overlay = MeasuredPhotoReturnView(this, header).apply {
+            setImageDrawable(drawable)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            isClickable = false
+            isFocusable = false
+        }
+        val index = (binding.root.indexOfChild(binding.viewPager) + 1).coerceAtMost(binding.root.childCount)
+        binding.root.addView(overlay, index, android.widget.RelativeLayout.LayoutParams(
+            android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
+            android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
+        ))
+        if (!overlay.prepare(origin, target)) {
+            binding.root.removeView(overlay)
+            startAppReturnFadeFallback(operation, path, reason, generation)
+            return
+        }
+        appReturnOverlay = overlay
+        // The drag surface and the measured overlay show the same pixels at frame 0;
+        // hiding the former in the same frame prevents a double image or a gap.
+        surface.visibility = View.INVISIBLE
+        if (transitionSession.state == State.RETURN_PREPARING) transitionSession.targetReady(operation)
+        if (!transitionSession.isReturning(operation)) {
+            binding.root.removeView(overlay)
+            appReturnOverlay = null
+            startAppReturnFadeFallback(operation, path, reason, generation)
+            return
+        }
+        ViewerReturnDiagnostics.event(viewerReturnId, "viewer_app_return_mapped") {
+            mapOf(
+                "origin" to originPixels.toShortString(),
+                "target" to target.source.view.layout.rect().toShortString(),
+                "targetVisible" to target.source.view.visible.rect().toShortString(),
+                "cropped" to target.source.thumbnail.cropped,
+            )
+        }
+        val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = PhotoViewerTransition.APP_RETURN_MS
+            interpolator = OxygenClassicMotion.easing()
+            addUpdateListener {
+                if (generation != appReturnGeneration || !transitionSession.isReturning(operation) ||
+                    isFinishing || isDestroyed) return@addUpdateListener
+                val progress = it.animatedValue as Float
+                overlay.showFrame(progress)
+                val remaining = 1f - progress
+                binding.viewerTransitionScrim.alpha = appReturnStartScrim * remaining
+                setSharedChromeAlpha(appReturnStartChrome * remaining)
+                val systemBar = appReturnStartSystemBar * remaining
+                if (viewerSystemBarProgress != systemBar) {
+                    viewerSystemBarProgress = systemBar
+                    updateViewerSystemBars()
+                }
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (generation != appReturnGeneration) return
+                    finishAppReturn(operation, "app_return_to_grid")
+                }
+
+                override fun onAnimationCancel(animation: Animator) {
+                    if (appReturnAnimator === this@apply) appReturnAnimator = null
+                }
+            })
+        }
+        appReturnAnimator = animator
+        animator.start()
+    }
+
+    private fun finishAppReturn(operation: Token, reason: String) {
+        appReturnAnimator = null
+        // Reveal the real thumbnail behind the returning image, then leave the
+        // window while the measured overlay still sits exactly on that thumbnail.
+        // Removing it before finish() could expose one black canvas frame; the
+        // overlay is detached in onDestroy instead.
+        transitionSession.releaseGridPreview(operation)
+        if (transitionSession.state == State.RETURN_PREPARING) transitionSession.targetReady(operation)
+        if (!transitionSession.terminate(operation, State.COMPLETE, reason)) {
+            transitionSession.cancel(reason)
+        }
+        ViewerReturnDiagnostics.event(viewerReturnId, "viewer_app_return_end") {
+            mapOf("reason" to reason, "complete" to (transitionSession.outcome == State.COMPLETE))
+        }
+        if (!isFinishing) super.finish()
+    }
+
+    private fun startAppReturnFadeFallback(
+        operation: Token,
+        path: String,
+        reason: String,
+        generation: Long,
+    ) {
+        if (generation != appReturnGeneration || isFinishing || isDestroyed) return
+        ViewerReturnDiagnostics.event(viewerReturnId, "viewer_app_return_fallback") {
+            mapOf("reason" to reason, "mediaId" to GalleryDiagnosticLogger.anonymousId(path))
+        }
+        val surface = interactiveDismissSurface
+        if (surface == null || !OxygenClassicMotion.enabled(this)) {
+            finishAppReturnFallback(operation, "app_return_fallback")
+            return
+        }
+        if (transitionSession.state == State.RETURN_PREPARING) transitionSession.targetReady(operation)
+        val startScale = surface.scaleX
+        val startAlpha = surface.alpha
+        val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = APP_RETURN_FALLBACK_FADE_MS
+            interpolator = OxygenClassicMotion.easing()
+            addUpdateListener {
+                if (generation != appReturnGeneration || isFinishing || isDestroyed) return@addUpdateListener
+                val progress = it.animatedValue as Float
+                val remaining = 1f - progress
+                surface.scaleX = startScale * (1f - 0.2f * progress)
+                surface.scaleY = startScale * (1f - 0.2f * progress)
+                surface.alpha = startAlpha * remaining
+                binding.viewerTransitionScrim.alpha = appReturnStartScrim * remaining
+                setSharedChromeAlpha(appReturnStartChrome * remaining)
+                val systemBar = appReturnStartSystemBar * remaining
+                if (viewerSystemBarProgress != systemBar) {
+                    viewerSystemBarProgress = systemBar
+                    updateViewerSystemBars()
+                }
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (generation != appReturnGeneration) return
+                    finishAppReturnFallback(operation, "app_return_fallback")
+                }
+
+                override fun onAnimationCancel(animation: Animator) {
+                    if (appReturnAnimator === this@apply) appReturnAnimator = null
+                }
+            })
+        }
+        appReturnAnimator = animator
+        animator.start()
+    }
+
+    private fun finishAppReturnFallback(operation: Token, reason: String) {
+        appReturnAnimator = null
+        appReturnOverlay?.let { binding.root.removeView(it) }
+        appReturnOverlay = null
+        transitionSession.releaseGridPreview(operation)
+        if (transitionSession.state == State.RETURN_PREPARING) transitionSession.targetReady(operation)
+        if (!transitionSession.terminate(operation, State.FALLBACK, reason)) {
+            transitionSession.cancel(reason)
+        }
+        ViewerReturnDiagnostics.event(viewerReturnId, "viewer_app_return_end") {
+            mapOf("reason" to reason, "fallback" to true)
+        }
+        if (!isFinishing) {
+            super.finish()
+            // There is no measured target to land on. Fade the remaining black
+            // canvas out instead of cutting straight to the Grid.
+            if (OxygenClassicMotion.enabled(this)) {
+                overridePendingTransition(0, R.anim.photo_viewer_fade_out)
+            }
+        }
     }
 
     private fun finishPlatformReturn() {
@@ -5515,33 +5863,37 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             return
         }
         check(transitionSession.capture(transitionSession.entry))
-        removeAppOwnedEntryPreview()
-        logMediaEntry("app_entry_started")
-        val animator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = PhotoViewerTransition.DURATION_MS
-            interpolator = OxygenClassicMotion.easing()
-            addUpdateListener {
-                if (!isCurrentEntry(entry)) return@addUpdateListener
-                val progress = it.animatedValue as Float
-                proxy.animateFrame(progress)
-                renderPhotoTransitionProgress(entry, progress)
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    if (appEntryAnimator === this@apply) appEntryAnimator = null
-                    if (!isCurrentEntry(entry)) return
-                    proxy.animateFrame(1f)
-                    onSharedEntryTerminal(entry, false)
-                }
-
-                override fun onAnimationCancel(animation: Animator) {
-                    if (appEntryAnimator === this@apply) appEntryAnimator = null
-                }
-            })
+        // The proxy is now the visible surface. Advance the same gate the old
+        // second animator used, without giving it a second clock.
+        if (entry.startMotion()) {
+            check(transitionSession.beginMotion(transitionSession.entry))
+            photoSharedElementHandler.removeCallbacks(entryWatchdog)
+            logMediaEntry("shared_animation_started")
         }
-        appEntryAnimator = animator
-        renderPhotoTransitionProgress(entry, 0f)
-        animator.start()
+        if (!appEntryAnimatorStarted) {
+            // No measured header reached us before the decode (unsupported file or
+            // an unusually short launch). Start the one clock now from the real
+            // proxy geometry; the Grid stayed visible until this point.
+            if (window.attributes.alpha > 0f) window.attributes = window.attributes.apply { alpha = 0f }
+            removeAppOwnedEntryPreview()
+            logMediaEntry("app_entry_started")
+            startAppEntryAnimator(entry)
+            return
+        }
+        // Join the running clock at the frame the user is already watching.
+        val previewTarget = appEntryPreviewSurface?.entryTarget
+        if (previewTarget != null && !proxy.geometry.target.near(previewTarget)) {
+            ViewerEntryDiagnostics.event(viewerDiagnosticSessionId, "entry_preview_target_mismatch") {
+                mapOf(
+                    "preview" to previewTarget.layout.rect().toShortString(),
+                    "renderer" to proxy.geometry.target.layout.rect().toShortString(),
+                )
+            }
+        }
+        proxy.animateFrame(appEntryProgress)
+        removeAppEntryPreviewSurface()
+        logMediaEntry("app_entry_started")
+        if (appEntryAnimatorEnded) completeAppEntryIfReady(entry)
     }
 
     internal fun staticPhotoEntrySource(path: String) =
@@ -5671,6 +6023,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         entryLeases.release(transitionSession.entry, Resource.PROXY)
         photoTransitionMappedView = null
         entryShowsLoadStatus = true
+        if (appOwnedPhotoEntry()) {
+            // The opaque window may still be at alpha 0 because no measured preview
+            // started. The fallback loading canvas must become visible immediately.
+            appEntryAnimator?.removeAllListeners()
+            appEntryAnimator?.removeAllUpdateListeners()
+            appEntryAnimator?.cancel()
+            appEntryAnimator = null
+            removeAppEntryPreviewSurface()
+            appEntryAnimatorStarted = true
+            appEntryAnimatorEnded = true
+            applyAppEntryProgress(1f, preview = null, proxy = null)
+        }
         val hasMedia = currentEntryRenderer()?.let {
             it.isAttachedToWindow && it.isShown && it.alpha > 0f && it.width > 0 && it.height > 0
         } == true
@@ -5728,53 +6092,212 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     /**
-     * Paints the tapped grid bitmap at the exact screen rect it occupied in the grid
-     * before the Viewer window becomes visible. The Viewer window is opaque and the
-     * grid Activity is stopped as soon as it is on top, so without this frame the
-     * user would see black while the full-size image decodes.
+     * Starts the app-owned entry with the same thumbnail pixels the Grid just
+     * released. The window stays invisible until the first geometry frame exists,
+     * so the Grid remains on screen instead of flashing a black canvas; from that
+     * frame the photo geometry, scrim, chrome and window alpha share one clock.
+     *
+     * The header read is a bounds-only read of the same local file the Grid already
+     * decoded. It is deliberately independent of the full-size decode: the decode
+     * may join the running clock later without restarting or pausing it.
      */
     private fun showAppOwnedEntryPreview(entry: PhotoTransitionCompletionGate) {
         val source = transitionSession.readStaticPhotoSource(transitionSession.entry)
         val bitmap = transitionSession.readEntryPreview(transitionSession.entry)
+        appEntryBitmap = bitmap
         if (source != null && bitmap != null) {
-            val preview = android.widget.ImageView(this).apply {
-                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                setImageBitmap(bitmap)
-            }
-            val layout = source.view.layout.rect()
-            val visible = source.view.visible.rect()
-            val origin = IntArray(2)
-            binding.root.getLocationOnScreen(origin)
-            val left = (layout.left - origin[0]).roundToInt()
-            val top = (layout.top - origin[1]).roundToInt()
-            val width = (layout.width()).roundToInt()
-            val height = (layout.height()).roundToInt()
-            if (width > 0 && height > 0) {
-                binding.root.addView(preview, android.widget.RelativeLayout.LayoutParams(width, height).apply {
-                    addRule(android.widget.RelativeLayout.ALIGN_PARENT_LEFT)
-                    addRule(android.widget.RelativeLayout.ALIGN_PARENT_TOP)
-                    leftMargin = left
-                    topMargin = top
-                })
-                // Reproduce the grid's own visible aperture when the thumbnail was
-                // partially covered (toolbar, list edge) instead of revealing pixels
-                // the user never saw.
-                if (!visible.contains(layout)) {
-                    preview.clipBounds = android.graphics.Rect(
-                        (visible.left - layout.left).toInt(),
-                        (visible.top - layout.top).toInt(),
-                        (visible.right - layout.left).toInt(),
-                        (visible.bottom - layout.top).toInt(),
-                    )
+            addAppEntryFallbackPreview(source, bitmap)
+            val generation = ++appEntryGeneration
+            ensureBackgroundThread {
+                val header = StaticPhotoHeaderReader.read(source.path)
+                runOnUiThread {
+                    if (generation != appEntryGeneration || !isCurrentEntry(entry)) return@runOnUiThread
+                    appEntryHeader = header
+                    scheduleAppEntryStart(entry)
                 }
-                appEntryPreview = preview
-                logMediaEntry("app_entry_preview")
+            }
+        } else {
+            logMediaEntry("app_entry_preview_unavailable")
+            if (source == null) {
+                // Non-static media (video/unsupported) has no measured thumbnail
+                // geometry. Keep the pre-existing early window fade instead of
+                // holding the Grid on screen without any feedback.
+                startAppEntryAnimator(entry)
             }
         }
-        // Even without a preview the window must become visible; the normal loading
-        // canvas then owns the frame.
-        animateViewerWindowIn()
+        scheduleAppEntryStart(entry)
+        logMediaEntry("app_entry_preview")
+    }
+
+    private fun addAppEntryFallbackPreview(source: org.fossify.gallery.helpers.StaticPhotoSource, bitmap: Bitmap) {
+        val preview = android.widget.ImageView(this).apply {
+            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            setImageBitmap(bitmap)
+        }
+        val layout = source.view.layout.rect()
+        val visible = source.view.visible.rect()
+        val origin = IntArray(2)
+        binding.root.getLocationOnScreen(origin)
+        val left = (layout.left - origin[0]).roundToInt()
+        val top = (layout.top - origin[1]).roundToInt()
+        val width = layout.width().roundToInt()
+        val height = layout.height().roundToInt()
+        if (width > 0 && height > 0) {
+            binding.root.addView(preview, android.widget.RelativeLayout.LayoutParams(width, height).apply {
+                addRule(android.widget.RelativeLayout.ALIGN_PARENT_LEFT)
+                addRule(android.widget.RelativeLayout.ALIGN_PARENT_TOP)
+                leftMargin = left
+                topMargin = top
+            })
+            // Reproduce the grid's own visible aperture when the thumbnail was
+            // partially covered (toolbar, list edge) instead of revealing pixels
+            // the user never saw.
+            if (!visible.contains(layout)) {
+                preview.clipBounds = android.graphics.Rect(
+                    (visible.left - layout.left).toInt(),
+                    (visible.top - layout.top).toInt(),
+                    (visible.right - layout.left).toInt(),
+                    (visible.bottom - layout.top).toInt(),
+                )
+            }
+            appEntryPreview = preview
+        }
+    }
+
+    private fun scheduleAppEntryStart(entry: PhotoTransitionCompletionGate) {
+        if (appEntryAnimatorStarted || appEntryStartScheduled || !isCurrentEntry(entry)) return
+        appEntryStartScheduled = true
+        binding.root.postOnAnimation {
+            appEntryStartScheduled = false
+            tryStartAppOwnedEntryAnimation(entry)
+        }
+    }
+
+    private fun tryStartAppOwnedEntryAnimation(entry: PhotoTransitionCompletionGate) {
+        if (appEntryAnimatorStarted || !isCurrentEntry(entry) || isFinishing || isDestroyed) return
+        val source = transitionSession.readStaticPhotoSource(transitionSession.entry)
+        val bitmap = appEntryBitmap
+        val header = appEntryHeader
+        if (source == null || bitmap == null || header == null) {
+            if (++appEntryStartAttempts < APP_ENTRY_START_ATTEMPTS) {
+                scheduleAppEntryStart(entry)
+            } else {
+                // No measured header (unsupported/corrupt file). Keep the Grid visible
+                // and let the full-size proxy start the one clock when it is ready.
+                logMediaEntry("app_entry_waiting_for_renderer", "geometry_unavailable")
+            }
+            return
+        }
+        val geometry = entryPreviewGeometry(source, header)
+        if (geometry == null) {
+            if (++appEntryStartAttempts < APP_ENTRY_START_ATTEMPTS) {
+                scheduleAppEntryStart(entry)
+            } else {
+                logMediaEntry("app_entry_waiting_for_renderer", "geometry_unavailable")
+            }
+            return
+        }
+        val drawable = android.graphics.drawable.BitmapDrawable(resources, bitmap)
+        val preview = GridPhotoEntryPreview(this, drawable, geometry)
+        val index = (binding.root.indexOfChild(binding.viewPager) + 1).coerceAtMost(binding.root.childCount)
+        binding.root.addView(preview, index, android.widget.RelativeLayout.LayoutParams(
+            android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
+            android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
+        ))
+        appEntryPreviewSurface = preview
+        removeAppOwnedEntryPreview()
+        startAppEntryAnimator(entry)
+    }
+
+    private fun entryPreviewGeometry(
+        source: org.fossify.gallery.helpers.StaticPhotoSource,
+        header: StaticPhotoHeader,
+    ): StaticPhotoEntryGeometry? {
+        val pager = binding.viewPager
+        val width = pager.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+        val height = pager.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
+        if (width <= 0 || height <= 0) return null
+        val aspect = header.orientedWidth.toFloat() / header.orientedHeight
+        val local = MediaTransitionGeometry.fit(width, height, aspect) ?: return null
+        local.offset(pager.paddingLeft.toFloat(), pager.paddingTop.toFloat())
+        val matrix = StaticPhotoViewGeometry.localToScreen(pager)
+        if (!matrix.mapRect(local)) return null
+        val layout = StaticPhotoViewGeometry.layout(pager) ?: return null
+        val visible = android.graphics.RectF(local)
+        if (!visible.intersect(layout.rect())) return null
+        if (!MediaTransitionGeometry.isUsable(local) || !MediaTransitionGeometry.isUsable(visible)) return null
+        if (!PhotoBox(local).matchesOrientedAspect(header)) return null
+        val photo = source.thumbnail.project(source.view.pixels, header) ?: return null
+        if (!MediaTransitionGeometry.isUsable(photo.rect()) || !photo.matchesOrientedAspect(header)) return null
+        return StaticPhotoEntryGeometry(
+            source,
+            PhotoViewGeometry(layout, PhotoBox(local), PhotoBox(visible), source.view.window),
+            photo,
+        )
+    }
+
+    private fun startAppEntryAnimator(entry: PhotoTransitionCompletionGate) {
+        appEntryAnimator?.cancel()
+        appEntryAnimatorStarted = true
+        appEntryAnimatorEnded = false
+        appEntryProgress = 0f
+        val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = PhotoViewerTransition.DURATION_MS
+            interpolator = OxygenClassicMotion.easing()
+            addUpdateListener {
+                if (!isCurrentEntry(entry)) return@addUpdateListener
+                applyAppEntryProgress(it.animatedValue as Float)
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (appEntryAnimator === this@apply) appEntryAnimator = null
+                    if (!isCurrentEntry(entry)) return
+                    appEntryAnimatorEnded = true
+                    applyAppEntryProgress(1f)
+                    completeAppEntryIfReady(entry)
+                }
+            })
+        }
+        appEntryAnimator = animator
+        applyAppEntryProgress(0f)
+        animator.start()
+    }
+
+    private fun applyAppEntryProgress(
+        progress: Float,
+        preview: GridPhotoEntryPreview? = appEntryPreviewSurface,
+        proxy: StaticPhotoEntryView? = photoTransitionMappedView as? StaticPhotoEntryView,
+    ) {
+        val clamped = progress.coerceIn(0f, 1f)
+        appEntryProgress = clamped
+        preview?.showFrame(clamped)
+        proxy?.animateFrame(clamped)
+        binding.viewerTransitionScrim.alpha = clamped
+        setSharedChromeAlpha(clamped)
+        if (viewerSystemBarProgress != clamped) {
+            viewerSystemBarProgress = clamped
+            updateViewerSystemBars()
+        }
+        // Only the layer alpha moves; the window remains opaque for WindowManager,
+        // so the back-eligibility recorded at launch is unaffected.
+        if (window.attributes.alpha != clamped) {
+            window.attributes = window.attributes.apply { alpha = clamped }
+        }
+    }
+
+    private fun completeAppEntryIfReady(entry: PhotoTransitionCompletionGate) {
+        if (!isCurrentEntry(entry) || !appEntryAnimatorEnded) return
+        val proxy = photoTransitionMappedView as? StaticPhotoEntryView ?: return
+        if (entry.stage != Stage.SHARED) return
+        proxy.animateFrame(1f)
+        onSharedEntryTerminal(entry, false)
+    }
+
+    private fun removeAppEntryPreviewSurface() {
+        appEntryPreviewSurface?.let { binding.root.removeView(it) }
+        appEntryPreviewSurface = null
+        removeAppOwnedEntryPreview()
     }
 
     private fun removeAppOwnedEntryPreview() {
@@ -5783,30 +6306,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             it.setImageDrawable(null)
         }
         appEntryPreview = null
-    }
-
-    /**
-     * Fades the whole Viewer window in over the still-visible grid while the photo
-     * expands. The window stays opaque for WindowManager; only its layer alpha moves,
-     * so the back-eligibility recorded in ActivityRecord is unaffected.
-     */
-    private fun animateViewerWindowIn() {
-        val attributes = window.attributes
-        if (attributes.alpha >= 1f) return
-        val animator = ValueAnimator.ofFloat(attributes.alpha.coerceIn(0f, 1f), 1f).apply {
-            duration = PhotoViewerTransition.FADE_DURATION_MS
-            interpolator = OxygenClassicMotion.easing()
-            addUpdateListener {
-                window.attributes = window.attributes.apply { alpha = it.animatedValue as Float }
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    if (window.attributes.alpha < 1f) window.attributes = window.attributes.apply { alpha = 1f }
-                }
-            })
-        }
-        windowAlphaAnimator = animator
-        animator.start()
     }
 
     private fun currentEntryRenderer(): View? = when (val page = getCurrentFragment()) {

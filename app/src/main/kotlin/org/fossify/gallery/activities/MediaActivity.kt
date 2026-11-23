@@ -222,6 +222,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
     private var photoProfileId: String? = null
     private var photoNeedsUnlock = false
     private var photoViewerTransition = false
+    /**
+     * A configuration child (Manage/Edit profiles) is covering this Grid. It is
+     * not a departure from Photos: keep the displayed grid so the platform's
+     * predictive-back preview shows the real thumbnails instead of the page
+     * background. Cleared on the next resume.
+     */
+    private var photoChildPageOpen = false
     private var pendingViewerReturnPath: String? = null
     private var viewerReturnGeneration = 0L
     private var viewerSourceLease: GridViewerSource? = null
@@ -279,6 +286,15 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         }
 
         override fun photoReturnTarget(token: Token, path: String): StaticPhotoReturnTarget? {
+            // The app-owned close reads the same target the drag preview already
+            // suppressed; it must not wait for an Activity reenter that never runs.
+            interactiveGridTarget?.takeIf { it.operation == token && it.path == path }?.let { preview ->
+                val target = preview.destination
+                if (target.position.adapter.committedVersion != target.position.version ||
+                    !pixelsStillBound(target, path)) return null
+                val source = measuredPhotoReturnTarget(target, path, token) ?: return null
+                return StaticPhotoReturnTarget(source, target.drawable)
+            }
             val request = viewerReturn?.takeIf { it.operation == token && it.path == path } ?: return null
             val target = request.target ?: return null
             val source = request.photoTarget ?: return null
@@ -1868,6 +1884,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
 
     override fun onResume() {
         super.onResume()
+        val returnedFromChildPage = photoChildPageOpen
+        photoChildPageOpen = false
         if (viewerResultDelivered) releaseViewerSourceLease()
         clearRevokedMediaPage()
         syncAppBackStep()
@@ -1953,7 +1971,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         if (isPhotoProfiles) {
             // An internal viewer return is not a new Photos navigation. Preserve the
             // already committed grid and worker while its scope/capability is unchanged.
-            val sameAuthorizedGrid = returningFromViewer && !photoNeedsUnlock &&
+            val sameAuthorizedGrid = (returningFromViewer || returnedFromChildPage) && !photoNeedsUnlock &&
                 photoProfileId == PhotoProfileRepository.of(this).state().current?.id &&
                 photoLoadedKey == photoDisplayKey() &&
                 photoLoadedRevision == org.fossify.gallery.helpers.PhotoContentRevision.current() &&
@@ -2116,8 +2134,28 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
             // Genuine departure from Photos still clears UI; internal viewer
-            // transitions retain the grid and separate authorized catalog.
-            clearPhotoDisplayState()
+            // transitions and a covering configuration page retain the grid. The
+            // platform previews that retained grid during predictive back.
+            if (org.fossify.gallery.helpers.PhotoGridRetentionPolicy.clearsDisplayedGrid(
+                    isPhotoProfile = isPhotoProfiles,
+                    viewerTransition = photoViewerTransition,
+                    childPageCovered = photoChildPageOpen,
+                )) {
+                clearPhotoDisplayState()
+            } else if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
+                org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                    org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "PhotoGrid",
+                    "photo_grid_retained_for_child_page", photoActiveRequestId.takeIf { it != 0L },
+                    mapOf(
+                        "profile" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(photoProfileId.orEmpty()),
+                        "stage" to photoPublishedStage,
+                        "adapterVersion" to displayedSourceVersion,
+                        "mediaCount" to (getMediaAdapter()?.media?.size ?: 0),
+                        "adapterPresent" to (binding.mediaGrid.adapter != null),
+                        "gridChildren" to binding.mediaGrid.childCount,
+                    )
+                )
+            }
         }
 
         if (mPath == FAVORITES && !isFinishing && !isChangingConfigurations && !resolvingFavoriteAccess) {
@@ -2598,7 +2636,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     binding.mediaMenu.focusView()
                     showKeyboard(binding.mediaMenu.binding.topToolbarSearch)
                 }
-                R.id.photo_profiles_manage -> PhotoProfileManageActivity.launch(this)
+                R.id.photo_profiles_manage -> {
+                    // Keep the authorized Grid visible behind the configuration page;
+                    // this is the return target the platform previews.
+                    photoChildPageOpen = true
+                    PhotoProfileManageActivity.launch(this)
+                }
                 R.id.photo_profiles_unlock -> unlockPhotoSources()
                 R.id.photo_profiles_lock -> PhotoProfileAccessSessionManager.revokeAll("user_locked_photo_sources")
                 R.id.sort -> showSortingDialog()
