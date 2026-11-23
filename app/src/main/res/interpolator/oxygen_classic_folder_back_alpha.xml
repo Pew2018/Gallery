@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foreground alpha of the *folder* page's post-commit back exit.
+
+     This resource exists only for the album grid -> home return. The settings,
+     theme and custom-photo-profile pages keep the shared
+     oxygen_classic_page_back_alpha curve; they are not part of this clock.
+
+     Why the folder page needs its own curve
+     =======================================
+     With OxygenClassicPageBackWindow the Shell selects
+     CustomCrossActivityBackAnimation, which freezes the closing rect at the
+     release position (onPostCommitProgress only *applies* closeAnimation to
+     currentClosingRect, it never advances it) and keeps the entering parent on a
+     full-screen base rect that does not move. The platform reference
+     (DefaultCrossActivityBackAnimation) fades the closing page out at 20% of its
+     450 ms post-commit clock because *its parent* keeps travelling for the whole
+     clock: scale 0.9 -> 1 and -96dp -> 0. On our branch the parent is static, so
+     the closing page is the only moving element and a 20-ish percent fade leaves
+     the remaining three quarters of the clock with nothing left to look at.
+
+     Measured on the shared curve (evaluated through
+     AnimationSet#getTransformationAt, i.e. the Shell's own path):
+         progress   alpha   slide travel (fast_out_slow_in)
+         0.02       0.917   0.001
+         0.10       0.550   0.026
+         0.20       0.134   0.134
+         0.26       0.000   0.261
+     The foreground therefore disappeared after it had covered 26% of the 96dp
+     slide, i.e. about 25dp: it dissolved in place instead of leaving, which is
+     the "vanishes suddenly" reading.
+
+     Shape of this curve (y = fade fraction, alpha = 1 - y)
+     ======================================================
+     - y stays under 1% for the first ~2% so the release frame does not drop
+       opacity (the shared curve already lost 8% in the first 9 ms);
+     - y reaches 1 at 35% (~157 ms). The 32-38% band was compared against the
+       previous 26%: 26% is too early because the slide has only started, while
+       anything past ~45% keeps two different grids superimposed long enough to
+       read as a double-exposed text ghost. 35% is the point where the paired
+       slide curve (oxygen_classic_folder_back_slide) has covered 78% of the
+       travel, so the fade ends while the page is still visibly leaving.
+     - the flat tail keeps the Shell's unclamped 0..1 progress mapping exact at
+       both ends (alpha 1 at 0, alpha 0 at 1).
+
+     PathInterpolator contract: the path starts at (0,0), ends at (1,1) and x is
+     strictly increasing (0.16 -> 0.28 -> 0.35 -> 0.6 -> 0.8 -> 1). -->
+<pathInterpolator xmlns:android="http://schemas.android.com/apk/res/android"
+    android:pathData="M0,0 C0.16,0.04 0.28,0.52 0.35,1 C0.6,1 0.8,1 1,1" />

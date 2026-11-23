@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shareInterpolator="false">
+    <!-- CLOSE-exit of the folder page (album grid -> home), both for the platform's
+         custom cross-Activity back animation and for the plain toolbar/back-button
+         finish().
+
+         Identical contract to oxygen_classic_page_back_exit.xml - same 450 ms clock,
+         same 96dp +X retarget, no scale/rotation, both children on the full set
+         duration - but with folder-only curves. The folder page is the one place
+         where the foreground is the only moving element (the entering parent is a
+         static full-screen rect on the custom branch), so it needs the dissolve to
+         end after the page has visibly departed; settings and profile pages keep the
+         shared pair untouched.
+
+         The settings page pair is deliberately NOT reused here: changing the shared
+         OxygenClassicPageBackWindow CLOSE resources would also retime the settings,
+         theme and custom-photo-profile returns, which already read as correct. -->
+    <alpha
+        android:fromAlpha="1.0"
+        android:toAlpha="0.0"
+        android:interpolator="@interpolator/oxygen_classic_folder_back_alpha"
+        android:startOffset="0"
+        android:duration="@integer/oxygen_classic_page_back_duration_ms" />
+
+    <translate
+        android:fromXDelta="0"
+        android:toXDelta="@dimen/oxygen_classic_page_back_slide_distance"
+        android:interpolator="@interpolator/oxygen_classic_folder_back_slide"
+        android:startOffset="0"
+        android:duration="@integer/oxygen_classic_page_back_duration_ms" />
+</set>

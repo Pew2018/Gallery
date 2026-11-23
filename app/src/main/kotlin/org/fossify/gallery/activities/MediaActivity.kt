@@ -198,6 +198,7 @@ import org.fossify.gallery.helpers.SHOW_FAVORITES
 import org.fossify.gallery.helpers.FavoriteMediaLoadRequests
 import org.fossify.gallery.helpers.FavoritesReturnCover
 import org.fossify.gallery.helpers.FavoritesScrollRestorer
+import org.fossify.gallery.helpers.FolderBackPage
 import org.fossify.gallery.helpers.FavoriteMediaLoadPolicy
 import org.fossify.gallery.helpers.SHOW_RECYCLE_BIN
 import org.fossify.gallery.helpers.SHOW_TEMP_HIDDEN_DURATION
@@ -212,8 +213,17 @@ import org.fossify.gallery.models.ThumbnailSection
 import java.io.File
 import java.io.IOException
 
-class MediaActivity : SimpleActivity(), MediaOperationsListener {
+class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage {
     override var isSearchBarEnabled = true
+
+    /**
+     * The album grid is the page the folder-specific post-commit CLOSE curve was tuned
+     * for: it is always reached from the home grid, so the entering parent is the static
+     * full-screen rect the custom platform branch presents. The custom-photo-profile grid
+     * reuses this Activity but is a bottom-bar section with its own accepted return, so it
+     * keeps the shared page motion.
+     */
+    override val usesFolderBackMotion: Boolean get() = !isPhotoProfiles
     
     private val LAST_MEDIA_CHECK_PERIOD = 3000L
 

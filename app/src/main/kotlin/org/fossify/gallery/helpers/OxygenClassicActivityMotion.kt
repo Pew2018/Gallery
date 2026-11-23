@@ -242,7 +242,7 @@ object OxygenClassicActivityMotion {
             // CLOSE-exit resource is the only thing that can complete the exit; see its
             // comments. It also drives the plain finish() transition of this window
             // (toolbar back), which keeps both return entries on one animation.
-            activity.window.setWindowAnimations(R.style.OxygenClassicPageBackWindow)
+            activity.window.setWindowAnimations(pageBackStyle(activity))
             // The platform clips this window while the gesture runs, so the surface
             // behind the first frame has to be the page's own colour rather than the
             // platform default, which flashes white on a dark theme.
@@ -250,6 +250,17 @@ object OxygenClassicActivityMotion {
                 OxygenThemeEngine.snapshot(activity, activity.config).pageBackground.toDrawable()
             )
         } else activity.window.setWindowAnimations(R.style.OxygenClassicPageWindow)
+    }
+
+    /**
+     * The custom CLOSE branch needs a loadable pair from *this* window's style. The
+     * album grid is the only page that also gets folder-specific CLOSE-exit curves; the
+     * settings, theme and profile pages keep the shared pair, so their already accepted
+     * return motion is not retimed by a folder-only change.
+     */
+    internal fun pageBackStyle(activity: Activity): Int {
+        val folder = (activity as? FolderBackPage)?.usesFolderBackMotion == true
+        return if (folder) R.style.OxygenClassicFolderBackWindow else R.style.OxygenClassicPageBackWindow
     }
 
     fun applyClose(activity: Activity) {

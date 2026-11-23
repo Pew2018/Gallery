@@ -120,6 +120,22 @@
         <item name="android:activityCloseExitAnimation">@anim/oxygen_classic_page_back_exit</item>
     </style>
 
+    <!-- Folder page (album grid -> home) only.
+         Same branch, same tokens, same CLOSE-enter, one difference: the CLOSE-exit
+         uses the folder curves. The folder page is the only page whose entering
+         parent is guaranteed static (CustomCrossActivityBackAnimation keeps it on a
+         full-screen base rect), so its foreground has to stay visible long enough to
+         be seen leaving; a dissolve that ends at 26% of the clock does not.
+         Everything else the platform requires from this style is repeated here rather
+         than inherited: WindowManager reads activityOpenEnterAnimation from the
+         closing window's own style, so a CLOSE-only style would resolve OPEN to 0 and
+         the folder would open with no animation at all. -->
+    <style name="OxygenClassicFolderBackWindow">
+        <item name="android:activityOpenEnterAnimation">@anim/oxygen_classic_page_open_enter</item>
+        <item name="android:activityCloseEnterAnimation">@anim/oxygen_classic_page_back_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/oxygen_classic_folder_back_exit</item>
+    </style>
+
     <!-- Screenshot-fit/application tokens, not extracted OxygenOS ROM resources. -->
     <dimen name="oxygen_classic_settings_summary">13sp</dimen>
     <dimen name="oxygen_classic_settings_section">48dp</dimen>

@@ -387,7 +387,11 @@ internal fun Context.loadImage(
     crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
     priority: Priority = Priority.LOW,
     onLoadStage: ((String, String?, String?) -> Unit)? = null,
-    onStaticThumbnail: ((Drawable, StaticPhotoThumbnail) -> Unit)? = null
+    onStaticThumbnail: ((Drawable, StaticPhotoThumbnail) -> Unit)? = null,
+    // Frame to keep on screen while the request is in flight. Callers that already show
+    // this exact image pass it so a refresh does not expose the view's background for a
+    // frame; null keeps the transparent placeholder every other caller relies on.
+    placeholderDrawable: Drawable? = null
 ) {
     target.isHorizontalScrolling = horizontalScroll
     if (type == TYPE_SVGS) {
@@ -417,7 +421,8 @@ internal fun Context.loadImage(
             crossFadeDuration = crossFadeDuration,
             priority = priority,
             onLoadStage = onLoadStage,
-            onStaticThumbnail = onStaticThumbnail
+            onStaticThumbnail = onStaticThumbnail,
+            placeholderDrawable = placeholderDrawable
         )
     }
 }
@@ -470,7 +475,8 @@ internal fun Context.loadImageBase(
     onLoaded: (() -> Unit)? = null,
     priority: Priority = Priority.LOW,
     onLoadStage: ((String, String?, String?) -> Unit)? = null,
-    onStaticThumbnail: ((Drawable, StaticPhotoThumbnail) -> Unit)? = null
+    onStaticThumbnail: ((Drawable, StaticPhotoThumbnail) -> Unit)? = null,
+    placeholderDrawable: Drawable? = null
 ) {
     val bindingToken = target.getTag(R.id.thumbnail_request_key)
     val options = RequestOptions()
@@ -479,7 +485,11 @@ internal fun Context.loadImageBase(
         .priority(priority)
         .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
         .format(DecodeFormat.PREFER_ARGB_8888)
-        .placeholder(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+        // Glide installs this drawable synchronously in SingleRequest.begin(), so it is the
+        // first frame of the request. A caller that already shows this image passes it back
+        // to keep the frame on screen while the replacement decodes.
+        .placeholder(placeholderDrawable
+            ?: android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
 
     if (cropThumbnails) {
         options.optionalTransform(CenterCrop())
