@@ -176,7 +176,19 @@ Viewer 共享元素 120ms、设置页截图交接 180ms / 8dp、弹窗 170ms / 6
 - 手势中途取消后，网格与窗口属性是否在真机帧级别干净恢复。
 - Android 13 及以下的窗口动画（本机无该版本设备）。
 
-## 8. 真机验收清单（Pixel 8 Pro / Android 16）
+## 8. 交付
+
+| 项 | 值 |
+|---|---|
+| 分支 | `perf/home-gallery-sorting`（未新建分支、未开 PR） |
+| 起点 HEAD | `f0867983c7306da023dfd3037d8c74dfd2a869d2` |
+| 交付 HEAD | `8bccf6552ca700c47d6dfd6bfedb32b6290fe672` |
+| Actions Run | https://github.com/Pew2018/Gallery/actions/runs/45187243891（success） |
+| Artifact | `gallery-foss-arm64-v8a-release`（10.7 MB，id 14824407521） |
+| 构建自校验 | 源提交 `8bccf6552…`、`Native libraries: arm64-v8a only`、APK SHA-256 `727ae9e8c112c674a58a70fd23e238543bf13f4f02b7bda09ed6a23285f9242c` |
+| 签名模式 | `temporary-CI-not-upgrade-compatible`（仓库未配置 release 密钥，与历次 CI 构建一致） |
+
+## 9. 真机验收清单（Pixel 8 Pro / Android 16）
 
 1. 相册 → 文件夹：应为 8dp 轻推 + 轻微淡入（约 180ms），无整页缩放、无白闪。
 2. 文件夹 → 手势返回：父页应保持全屏预览，提交后关闭页继续右移 96dp 并快速淡出（450ms），
