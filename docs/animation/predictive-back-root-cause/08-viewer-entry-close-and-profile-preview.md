@@ -2,7 +2,9 @@
 
 > 审计基线：`perf/home-gallery-sorting` 远程 HEAD `de80f574d10848ac33ceb7992aeedce8767f2e64`
 > （开始工作前重新 `git fetch` 确认，未重置、未覆盖并发提交）。
-> 交付提交：见本轮 `perf/home-gallery-sorting` 的提交（本文与代码同一提交）。
+> 交付提交：`aeae53d53ddfcec2ea1722def062976cb7139284`（`perf/home-gallery-sorting`，
+> 标题 `Restore one-clock Viewer entry and continuous return`）。本文的构建结果补充提交是
+> 该 SHA 之后的 docs-only 提交；APK 由 `aeae53d...` 构建。
 > 设备证据：用户提供的 `Gallery-Diagnostics-20261123-102753.txt` 与录屏
 > `56e15be04a03b83effdc3d8db878e469.mp4`。本轮实际抽取并检查了录屏的关键帧
 > （约 00:06–00:10 的 Viewer 进入、00:31–00:32 的配置页预测性返回），没有逐帧
@@ -165,6 +167,23 @@ CI 的 `arm64-foss-release` workflow 使用 JDK 21，但它只运行 `assembleFo
 - 没有启动模拟器，没有搭建 Android 16 模拟环境。
 - 没有做真机视觉验收；所有“动画连续/背景正确”的最终判断仍需 Pixel 8 Pro。
 - 没有修改 `main`、没有新建分支、没有 PR、没有强推。
+
+## 8.4 ARM64 FOSS Release Actions
+
+- Workflow：`Arm64 FOSS Release APK (non-publishing)`，run
+  <https://github.com/Pew2018/Gallery/actions/runs/45105007237>
+- 源码 SHA：`aeae53d53ddfcec2ea1722def062976cb7139284`
+- 结果：`success`（job `arm64-release` 5m49s；`assembleFossRelease` 5m8s）
+- Artifact：`gallery-foss-arm64-v8a-release`（artifact id `14787282556`）
+- APK：`gallery-foss-arm64-v8a-release.apk`，`org.fossify.gallery` 1.14.1 (32)，
+  `native-code: arm64-v8a` only
+- APK SHA-256：`c63d10f979c01c228ea982d5c7d6f5af0056b087d74d54d4c96e2b94a8ab8cf7`
+- Signing mode：`temporary-CI-not-upgrade-compatible`（仓库 secrets 未提供 release key 时
+  workflow 生成临时 CI 签名）。**不能直接覆盖已安装的 release 版升级**；验收前请卸载旧版，
+  或用同一签名 key 重新构建。
+- 本地核验副本：`Gallery/build/ci-apk/gallery-foss-arm64-v8a-release.apk`（`build/` 为
+  gitignored 构建输出，不进入提交）。已用 `apksigner verify`/`aapt dump badging` 复核包名、
+  ABI 与 SHA-256 和 CI 日志一致。
 
 ## 9. Pixel 8 Pro 待验收
 
