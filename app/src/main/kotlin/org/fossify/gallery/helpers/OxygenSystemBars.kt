@@ -41,25 +41,50 @@ object OxygenSystemBars {
 
     // Paint behind the status icons in decor coordinates on enforced edge-to-edge.
     // The inset height stays stable while immersive visibility is changing.
+    // Returns true only when a window property actually changed: the Viewer return
+    // drives this on every progress frame and must not rewrite identical values.
     @Suppress("DEPRECATION")
-    fun applyViewer(activity: Activity, colors: OxygenThemeTokens, progress: Float, statusVisible: Boolean) {
-        val host = activity.window.decorView as? FrameLayout ?: return
+    fun applyViewer(activity: Activity, colors: OxygenThemeTokens, progress: Float, statusVisible: Boolean): Boolean {
+        val host = activity.window.decorView as? FrameLayout ?: return false
         val status = blendOpaqueSurface(colors.statusBarBackground,
             activity.getColor(R.color.viewer_status_surface), progress)
         val nav = blendOpaqueSurface(colors.navigationBarBackground, Color.BLACK, progress)
+        val lightStatus = useDarkIcons(status)
+        val lightNavigation = useDarkIcons(nav)
         val bars = WindowCompat.getInsetsController(activity.window, host)
-        bars.isAppearanceLightStatusBars = useDarkIcons(status)
-        bars.isAppearanceLightNavigationBars = useDarkIcons(nav)
+        var changed = false
+        if (bars.isAppearanceLightStatusBars != lightStatus) {
+            bars.isAppearanceLightStatusBars = lightStatus
+            changed = true
+        }
+        if (bars.isAppearanceLightNavigationBars != lightNavigation) {
+            bars.isAppearanceLightNavigationBars = lightNavigation
+            changed = true
+        }
 
         if (Build.VERSION.SDK_INT < 35) {
-            activity.window.statusBarColor = status
-            activity.window.navigationBarColor = nav
+            if (activity.window.statusBarColor != status) {
+                activity.window.statusBarColor = status
+                changed = true
+            }
+            if (activity.window.navigationBarColor != nav) {
+                activity.window.navigationBarColor = nav
+                changed = true
+            }
         } else {
-            statusUnderlay(activity, host, stableInsets = true).apply {
-                setBackgroundColor(status)
-                visibility = if (statusVisible) View.VISIBLE else View.GONE
+            val existing = host.findViewWithTag<View>(STATUS_UNDERLAY)
+            val underlay = existing ?: statusUnderlay(activity, host, stableInsets = true).also { changed = true }
+            if ((underlay.background as? android.graphics.drawable.ColorDrawable)?.color != status) {
+                underlay.setBackgroundColor(status)
+                changed = true
+            }
+            val visibility = if (statusVisible) View.VISIBLE else View.GONE
+            if (underlay.visibility != visibility) {
+                underlay.visibility = visibility
+                changed = true
             }
         }
+        return changed
     }
 
     // Float interpolation can truncate 255 to 254 even when both endpoints are opaque.

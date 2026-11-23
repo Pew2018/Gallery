@@ -11,6 +11,8 @@ import org.fossify.gallery.helpers.ViewerEntryDiagnostics
 import org.fossify.gallery.helpers.GalleryDiagnosticLogger
 import org.fossify.gallery.helpers.FrameEvidence
 import org.fossify.gallery.helpers.ViewerReturnDiagnostics
+import org.fossify.gallery.helpers.ViewerReturnProgress
+import org.fossify.gallery.helpers.ViewerReturnVisualClock
 import org.fossify.gallery.helpers.MediaTransitionHandoff
 import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator
 import org.fossify.gallery.helpers.MediaReturnToolbarClip
@@ -361,7 +363,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             sharedReturnAnimatorStarted = true
             ViewerReturnDiagnostics.event(viewerReturnId, "viewer_animator_started")
         }
-        renderSharedReturnLayers(1f - progress.coerceIn(0f, 1f))
+        renderSharedReturnLayers(sharedReturnVisualClock.progress(progress))
     }
 
     private fun onSharedReturnTerminal(operation: Token, cancelled: Boolean) {
@@ -377,7 +379,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 "proxyScaleType" to (proxy as? ImageView)?.scaleType,
                 "proxyMatrix" to (proxy as? ImageView)?.imageMatrix?.toShortString())
         }
-        if (!cancelled && sharedReturnAnimatorStarted) renderSharedReturnLayers(0f)
+        // The transition already rendered progress 1 as its final frame. Commit the
+        // terminal state only when it is still missing, and never when no animator
+        // drove the layers (the fallback owns that path).
+        val terminalFrameRequired = sharedReturnVisualClock.terminal(cancelled)
+        if (terminalFrameRequired && sharedReturnAnimatorStarted) renderSharedReturnLayers(0f)
         // Android still needs the proxy at its destination until the grid can draw it.
         // Release the Viewer leases once the framework calls finish or destroys this window.
     }
@@ -499,9 +505,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun renderSystemBackProgress(progress: Float) {
         if (transitionSession.state != State.INTERACTIVE_RETURN || interactiveDismissSurface == null) return
-        // Same convention as the vertical drag: gesture progress is added to the frame
-        // the new gesture inherited, so the first update cannot jump backwards.
-        renderInteractiveDismissProgress((systemBackResumeProgress + progress).coerceIn(0f, 1f))
+        // A new gesture restarts the platform progress at zero while the frame it
+        // inherited already has a non-zero progress. Consume only the remaining
+        // interval so the takeover frame is continuous and the last part of the
+        // drag still moves the envelope.
+        renderInteractiveDismissProgress(ViewerReturnProgress.resume(systemBackResumeProgress, progress))
     }
 
     private fun cancelSystemBackGesture() {
@@ -605,7 +613,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val generation = ++interactiveDismissGeneration
         val start = interactiveDismissProgress
         val end = 0f
-        val duration = (140L + (220L * kotlin.math.abs(end - start))).toLong()
+        val duration = ViewerReturnProgress.settleDurationMs(start)
         interactiveDismissSettleAnimator = ValueAnimator.ofFloat(start, end).apply {
             this.duration = duration
             interpolator = OxygenClassicMotion.easing()
@@ -620,7 +628,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 override fun onAnimationCancel(animation: Animator) { cancelled = true }
                 override fun onAnimationEnd(animation: Animator) {
                     if (cancelled || generation != interactiveDismissGeneration) return
-                    if (transitionSession.cancelGesture(operation)) returnLeases.releaseAll()
+                    // A gesture that was already released by another path must still
+                    // release its leases; a return that took over keeps them.
+                    if (transitionSession.cancelGesture(operation) ||
+                        transitionSession.outcome != null || transitionSession.state == State.VIEWING) {
+                        returnLeases.releaseAll()
+                    }
                 }
             })
             start()
@@ -728,6 +741,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var sharedReturnView: View? = null
     private var sharedReturnPage: ViewPagerFragment? = null
     private var sharedReturnAnimatorStarted = false
+    private val sharedReturnVisualClock = ViewerReturnVisualClock()
     private var sharedReturnScrimFadeReported = false
     private val sharedReturnTerminal get() = transitionSession.viewerMotionOutcome != null
     private var sharedReturnFinishRequested = false
@@ -1527,6 +1541,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         binding.viewerTransitionScrim.setBackgroundColor(Color.BLACK)
         binding.viewerTransitionScrim.visibility = View.VISIBLE
         takeOverReturnChrome(page)
+        sharedReturnVisualClock.begin()
         renderSharedReturnLayers(1f)
         ViewerReturnDiagnostics.event(viewerReturnId, "viewer_return_scrim_armed") {
             mapOf("launchId" to intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L),

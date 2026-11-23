@@ -320,6 +320,71 @@ class PhotoViewerInitializationTest {
         assertEquals(.3f, fixture.binding.mediumViewerAppbar.alpha, 0f)
     }
 
+    @Test fun resumedSystemBackGestureConsumesOnlyTheRemainingIntervalAndCancelsToFullViewer() {
+        val fixture = EntryFixture()
+        fixture.setPhoto()
+        fixture.finishEntry()
+        fixture.set("photoSharedElementMapped", true)
+
+        assertTrue(fixture.activity.mediaDismissProgress(.6f, 0f, 300f))
+        // A cancelled drag is still settling when the platform starts a new gesture.
+        fixture.activity.mediaDismissSettled(dismiss = false)
+        val surface = fixture.field("interactiveDismissSurface") as View
+        assertTrue(fixture.call("beginSystemBackGesture") as Boolean)
+        assertEquals(.6f, fixture.field("systemBackResumeProgress") as Float, 0f)
+
+        fixture.call("renderSystemBackProgress", arrayOf(0f))
+        assertEquals(1f - .34f * .6f, surface.scaleX, .001f)
+
+        // Half of the new gesture consumes half of the remaining 0.4 interval.
+        // base + progress would have clamped to 1.0 and collapsed the image early.
+        fixture.call("renderSystemBackProgress", arrayOf(.5f))
+        assertEquals(1f - .34f * .8f, surface.scaleX, .001f)
+        assertTrue(surface.scaleX > 1f - .34f)
+
+        fixture.call("renderSystemBackProgress", arrayOf(1f))
+        assertEquals(1f - .34f, surface.scaleX, .001f)
+
+        fixture.call("cancelSystemBackGesture")
+        val settle = fixture.field("interactiveDismissSettleAnimator") as android.animation.ValueAnimator
+        settle.end()
+        assertNull(fixture.field("interactiveDismissSurface"))
+        assertEquals(MediaTransitionSessionCoordinator.State.VIEWING,
+            (fixture.field("transitionSession") as MediaTransitionSessionCoordinator).state)
+        assertBackground(fixture.activity.window.decorView, Color.BLACK)
+        assertEquals(1f, fixture.field("viewerSystemBarProgress") as Float, 0f)
+        assertEquals(View.GONE, fixture.binding.viewerTransitionScrim.visibility)
+        assertEquals(1f, surface.scaleX, 0f)
+        assertEquals(1f, surface.scaleY, 0f)
+        assertEquals(0f, surface.translationX, 0f)
+        assertEquals(0f, surface.translationY, 0f)
+    }
+
+    @Test fun terminalCommitIsNotAppliedTwiceAfterTheFinalProgressFrame() {
+        val fixture = EntryFixture()
+        val photo = fixture.setPhoto()
+        val proxy = photo.page.sharedElementViewFor(fixture.path)!!
+        fixture.set("sharedReturnView", proxy)
+        fixture.set("sharedReturnPage", photo.page)
+        fixture.beginReturn()
+        fixture.call("takeOverReturnChrome", args = arrayOf(photo.page))
+        fixture.call("renderSharedReturnLayers", args = arrayOf(1f))
+        val clock = fixture.field("sharedReturnVisualClock") as ViewerReturnVisualClock
+
+        fixture.call("renderSharedReturnProgress", args = arrayOf(1f))
+        assertEquals(0f, fixture.binding.viewerTransitionScrim.alpha, 0f)
+        assertEquals(0f, fixture.binding.mediumViewerAppbar.alpha, 0f)
+        assertFalse("the last progress frame already landed", clock.terminalApplied)
+
+        fixture.call("onSharedReturnTerminal", args = arrayOf(false))
+        assertTrue(clock.terminalApplied)
+        assertEquals(0f, clock.remainder, 0f)
+        fixture.call("onSharedReturnTerminal", args = arrayOf(false))
+        fixture.call("renderSharedReturnProgress", args = arrayOf(0f))
+        assertEquals(0f, fixture.binding.viewerTransitionScrim.alpha, 0f)
+        assertEquals(0f, fixture.binding.mediumViewerAppbar.alpha, 0f)
+    }
+
     @Test fun visibleGridOwnsTheToolbarDuringDragAndCancelRestoresViewerChrome() {
         val fixture = EntryFixture()
         fixture.setPhoto()

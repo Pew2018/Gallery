@@ -14,8 +14,10 @@ import androidx.core.view.WindowInsetsCompat
 import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -74,6 +76,32 @@ class OxygenSystemBarsTest {
             val bars = WindowCompat.getInsetsController(window, window.decorView)
             assertEquals(true, bars.isAppearanceLightStatusBars)
             assertEquals(true, bars.isAppearanceLightNavigationBars)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test
+    @Config(sdk = [29, 36])
+    fun repeatedViewerBarStateDoesNotRewriteUnchangedWindowProperties() {
+        val controller = Robolectric.buildActivity(AppCompatActivity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val colors = OxygenThemeEngine.snapshot(activity, activity.config).copy(
+                statusBarBackground = Color.WHITE, navigationBarBackground = Color.WHITE)
+            // Establish a state that is distinct from the fully immersive endpoint.
+            OxygenSystemBars.applyViewer(activity, colors, 1f, true)
+            assertTrue("moving to the page colour must write",
+                OxygenSystemBars.applyViewer(activity, colors, 0f, true))
+            assertFalse("an identical frame must not touch the window",
+                OxygenSystemBars.applyViewer(activity, colors, 0f, true))
+            assertTrue("a changed progress must write",
+                OxygenSystemBars.applyViewer(activity, colors, 0.5f, true))
+            if (android.os.Build.VERSION.SDK_INT >= 35) {
+                assertTrue("a changed status-surface visibility must write",
+                    OxygenSystemBars.applyViewer(activity, colors, 0.5f, false))
+            }
+            assertFalse(OxygenSystemBars.applyViewer(activity, colors, 0.5f, false))
         } finally {
             controller.pause().stop().destroy()
         }
