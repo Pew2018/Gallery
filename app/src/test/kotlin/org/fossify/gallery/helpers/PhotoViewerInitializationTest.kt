@@ -319,7 +319,11 @@ class PhotoViewerInitializationTest {
         assertEquals(.6f, fixture.binding.mediumViewerAppbar.alpha, 0f)
         fixture.call("renderSharedReturnProgress", args = arrayOf(.5f))
         assertEquals(.3f, scrim.alpha, 0f)
-        assertEquals(.3f, fixture.field("viewerSystemBarProgress") as Float, 0f)
+        // The committed return freezes the system bar appearance: the Grid the Viewer
+        // returns to re-applies its own bars underneath the animating window, so tracking
+        // the return clock here produced two writers for one surface (and an icon
+        // polarity flip at the contrast crossing). Layers still follow the clock.
+        assertEquals(.6f, fixture.field("viewerSystemBarProgress") as Float, 0f)
         assertEquals(.3f, fixture.binding.mediumViewerAppbar.alpha, 0f)
     }
 

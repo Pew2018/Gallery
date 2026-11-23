@@ -277,6 +277,51 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     override var viewerStatusSurfaceVisible = true
         private set
 
+    /**
+     * True from the moment this Viewer commits a return until its window is gone.
+     *
+     * While it is set the bar appearance is held at [viewerSystemBarHoldProgress]
+     * instead of tracking the return clock. The parent page is already resumed and
+     * writes its own bars underneath the animating window, so tracking the clock would
+     * produce two writers for one surface and, because the blend crosses the icon
+     * contrast threshold, a visible polarity flip in the middle of the exit.
+     */
+    private var viewerSystemBarHold = false
+    private var viewerSystemBarHoldProgress = 1f
+
+    private fun logSystemBarOwner(state: String, reason: String) {
+        if (!GalleryDiagnosticLogger.isEnabled()) return
+        GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "Viewer", "viewer_system_bar_owner_changed",
+            viewerDiagnosticRequestId,
+            mapOf(
+                "transitionSessionId" to viewerReturnId,
+                "owner" to if (viewerSystemBarHold) "VIEWER_HOLD" else "VIEWER",
+                "state" to state,
+                "reason" to reason,
+                "statusBarVisible" to viewerStatusSurfaceVisible,
+                "heldProgress" to viewerSystemBarHoldProgress,
+                "progress" to viewerSystemBarProgress,
+                "elapsedRealtimeMs" to android.os.SystemClock.elapsedRealtime(),
+            )
+        )
+    }
+
+    private fun logSystemBarReturnCompleted() {
+        if (!GalleryDiagnosticLogger.isEnabled()) return
+        GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "Viewer", "viewer_system_bar_return_completed",
+            viewerDiagnosticRequestId,
+            mapOf(
+                "transitionSessionId" to viewerReturnId,
+                "owner" to "PAGE",
+                "heldProgress" to viewerSystemBarHoldProgress,
+                "statusBarVisible" to viewerStatusSurfaceVisible,
+                "elapsedRealtimeMs" to android.os.SystemClock.elapsedRealtime(),
+            )
+        )
+    }
+
     private fun setSharedChromeAlpha(progress: Float) {
         val alpha = if (mIsFullScreen) 0f else progress
         listOf(binding.topShadow, binding.bottomActions.root, binding.mediumViewerAppbar).forEach {
@@ -292,8 +337,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun renderSharedViewerCanvas(progress: Float, scrimAlpha: Float = progress) {
         binding.viewerTransitionScrim.alpha = scrimAlpha
-        if (viewerSystemBarProgress != progress) {
-            viewerSystemBarProgress = progress
+        // A committed return hands the system bars to the parent page. Blending them on
+        // the return clock would fight the page's own write (it resumes underneath the
+        // animating window) and would drive the icon polarity across its contrast
+        // threshold in the middle of the exit. Hold the appearance the return started
+        // from: the Viewer stays internally consistent, only one write can happen, and
+        // the parent owns the final appearance once this window is gone.
+        val barProgress = if (viewerSystemBarHold) viewerSystemBarHoldProgress else progress
+        if (viewerSystemBarProgress != barProgress) {
+            viewerSystemBarProgress = barProgress
             updateViewerSystemBars()
         }
     }
@@ -368,6 +420,21 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun onSharedReturnTerminal(operation: Token, cancelled: Boolean) {
         if (isDestroyed || !transitionSession.finishViewerMotion(operation, cancelled)) return
+        if (cancelled) {
+            // The Viewer keeps the screen, so it takes the bars back and restores the
+            // appearance the return started from. Nothing was blended away while the
+            // hold was in force, so this is a single, contrast-safe restore. Only the bar
+            // appearance is touched here - the scrim and the layer alphas still belong to
+            // the frame the gesture left.
+            viewerSystemBarHold = false
+            if (viewerSystemBarProgress != 1f) {
+                viewerSystemBarProgress = 1f
+                updateViewerSystemBars()
+            }
+            logSystemBarOwner("restored", "return_cancelled")
+        } else {
+            logSystemBarReturnCompleted()
+        }
         ViewerReturnDiagnostics.event(viewerReturnId, if (cancelled) "viewer_transition_cancel" else "viewer_transition_end") {
             val proxy = sharedReturnView
             mapOf("animatorStarted" to sharedReturnAnimatorStarted, "finishing" to isFinishing,
@@ -1454,6 +1521,14 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (!::transitionSession.isInitialized) {
             super.finish()
             return
+        }
+        // Every exit path (shared return, fallback fade, close during entry) goes
+        // through here: freeze the bar appearance from this frame on so the teardown
+        // cleanup cannot snap it back to the viewer surface after the parent took over.
+        if (!viewerSystemBarHold) {
+            viewerSystemBarHold = true
+            viewerSystemBarHoldProgress = viewerSystemBarProgress
+            logSystemBarOwner("hold", reason)
         }
         if (interactiveDismissDragActive) {
             mediaDismissSettled(dismiss = true)

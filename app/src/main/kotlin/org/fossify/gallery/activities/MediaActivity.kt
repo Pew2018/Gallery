@@ -1094,8 +1094,138 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         )
     }
 
+    /**
+     * A Photos scan that was running when a child configuration page covered the grid.
+     *
+     * The worker keeps running and keeps publishing into
+     * `PhotoSessionViewerCatalogStore`; this holder keeps the newest validated stage so
+     * the return can commit it in one frame instead of starting over. It never carries
+     * authorization: `PhotoChildReturnPolicy.rejoins` rechecks request, scope key,
+     * content revision and capability before the holder is used.
+     */
+    private data class RetainedPhotoScan(
+        val request: Long,
+        val task: GetMediaAsynctask,
+        val key: String,
+        val revision: Long,
+        var latest: org.fossify.gallery.helpers.PhotoLoadResult? = null,
+    )
+
+    private var retainedPhotoScan: RetainedPhotoScan? = null
+    /** Scope key of the newest Photos request; compared before a retained scan is reused. */
+    private var photoRequestedKey: String? = null
+
+    private fun dropRetainedPhotoScan(reason: String) {
+        val retained = retainedPhotoScan ?: return
+        retainedPhotoScan = null
+        if (!retained.task.isCancelled) retained.task.stopFetching(reason)
+        logPhotoChildEvent("photo_scan_detached_or_cancelled", retained, reason = reason)
+    }
+
+    /**
+     * Keep the authorized scan alive under a covering child page.
+     *
+     * The page is not leaving Photos, so neither the request generation nor the worker
+     * may be retired here: the configuration page returns to this exact grid.
+     */
+    private fun detachPhotoScanForChildPage() {
+        val task = mCurrAsyncTask
+        val detach = org.fossify.gallery.helpers.PhotoChildReturnPolicy.detachesScan(
+            isPhotoProfile = isPhotoProfiles,
+            viewerTransition = photoViewerTransition,
+            childPageCovered = photoChildPageOpen,
+            scanRunning = task != null && task.status == android.os.AsyncTask.Status.RUNNING && !task.isCancelled,
+            displayedKey = photoRequestedKey,
+            currentKey = photoDisplayKey(),
+        )
+        if (!detach) {
+            // Nothing worth keeping: keep the pre-existing cancel path. The request is
+            // retired here and the worker is stopped by the caller's tail block.
+            retainedPhotoScan = null
+            mediaLoadRequests.invalidate()
+            return
+        }
+        // No Adapter submission may start after the window stopped drawing.
+        mediaGridPublication.clear()
+        retainedPhotoScan = RetainedPhotoScan(photoActiveRequestId, task!!, photoRequestedKey!!,
+            org.fossify.gallery.helpers.PhotoContentRevision.current())
+        logPhotoChildEvent("photo_child_navigation_begin", retainedPhotoScan, reason = "covered")
+    }
+
+    /** Re-commit the newest retained stage and keep its request as the live one. */
+    private fun resumeRetainedPhotoScan(retained: RetainedPhotoScan): Boolean {
+        val task = retained.task
+        val rejoin = org.fossify.gallery.helpers.PhotoChildReturnPolicy.rejoins(
+            returnedFromChildPage = true,
+            requestCurrent = mediaLoadRequests.isCurrent(retained.request),
+            keyUnchanged = retained.key == photoDisplayKey(),
+            revisionCurrent = retained.revision ==
+                org.fossify.gallery.helpers.PhotoContentRevision.current(),
+            accessCurrent = !photoNeedsUnlock,
+            taskAlive = task === mCurrAsyncTask && !task.isCancelled,
+        )
+        if (!rejoin) {
+            task.stopFetching("photo_child_scan_invalidated")
+            logPhotoChildEvent("photo_scan_detached_or_cancelled", retained, reason = "return_invalidated")
+            return false
+        }
+        // Commit the newest validated stage in this frame instead of rescanning. The
+        // rows were authorized against this exact scope key before the cover opened.
+        retained.latest?.let { submitPhotoGridResult(it, retained.request, retained.key) }
+        mIsGettingMedia = task.status == android.os.AsyncTask.Status.RUNNING
+        when {
+            mIsGettingMedia && retained.latest == null ->
+                // Nothing retained yet: present the themed loading state rather than
+                // an empty page while the surviving worker finishes.
+                setMediaLoading(true)
+            !mIsGettingMedia -> {
+                setMediaLoading(false)
+                binding.mediaRefreshLayout.isRefreshing = false
+            }
+        }
+        logPhotoChildEvent("photo_scan_rejoined", retained)
+        logPhotoChildEvent("photo_return_snapshot_ready", retained,
+            extra = mapOf("itemCount" to (retained.latest?.media?.size ?: 0)))
+        if (retained.latest != null) {
+            binding.mediaGrid.postOnAnimation { logPhotoChildEvent("photo_return_first_frame", retained) }
+        }
+        return true
+    }
+
+    private fun logPhotoChildEvent(
+        name: String,
+        retained: RetainedPhotoScan?,
+        reason: String? = null,
+        extra: Map<String, Any?> = emptyMap(),
+    ) {
+        if (!org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) return
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "PhotoGrid", name,
+            retained?.request?.takeIf { it != 0L } ?: photoActiveRequestId.takeIf { it != 0L },
+            mapOf(
+                "scopeId" to org.fossify.gallery.helpers.MediaRequestDiagnostics.scopeId(
+                    ViewerScopeType.PHOTO_PROFILE, photoProfileId.orEmpty()),
+                "profile" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(photoProfileId.orEmpty()),
+                "generation" to (retained?.request ?: photoActiveRequestId),
+                "accessRevision" to org.fossify.gallery.helpers.PhotoContentRevision.current(),
+                "snapshotVersion" to displayedSourceVersion,
+                "snapshotStage" to (retained?.latest?.stage?.name ?: photoPublishedStage.takeIf { it >= 0 }),
+                "itemCount" to (retained?.latest?.media?.size ?: 0),
+                "adapterPresent" to (binding.mediaGrid.adapter != null),
+                "gridChildren" to binding.mediaGrid.childCount,
+                "scanState" to (retained?.task?.status?.name ?: mCurrAsyncTask?.status?.name),
+                "displayedFinal" to displayedMediaIsFinal,
+                "accessNeedsUnlock" to photoNeedsUnlock,
+                "secureWindow" to (window.attributes.flags and
+                    android.view.WindowManager.LayoutParams.FLAG_SECURE != 0),
+                "elapsedRealtimeMs" to android.os.SystemClock.elapsedRealtime(),
+            ) + (reason?.let { mapOf("reason" to it) } ?: emptyMap()) + extra
+        )
+    }
+
     private fun clearPhotoDisplayState() {
         cancelViewerHandoff()
+        dropRetainedPhotoScan("display_state_cleared")
         photoLoadCompleted = false
         photoLoadedKey = null
         photoLoadedRevision = -1L
@@ -1175,6 +1305,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         photoProfileId = profile?.id
         val request = mediaLoadRequests.begin()
         photoActiveRequestId = request
+        // A new request always supersedes a scan retained under a covering child page.
+        // The superseded worker is stopped by the call below; only a worker that is no
+        // longer the current one has to be retired here.
+        retainedPhotoScan?.let { retained ->
+            logPhotoChildEvent("photo_scan_detached_or_cancelled", retained, reason = "new_request")
+            retainedPhotoScan = null
+            if (retained.task !== mCurrAsyncTask && !retained.task.isCancelled) {
+                retained.task.stopFetching("new_request")
+            }
+        }
         beginMediaDiagnostic(request, reason.name)
         mCurrAsyncTask?.stopFetching("superseded")
         if (photoScroll.pending != null && photoScrollProfileId != profile?.id) {
@@ -1183,6 +1323,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         }
         val scope = PhotoProfileScope.capture(this, profile?.id, photoToken())
         val requestedKey = scope.toString()
+        photoRequestedKey = requestedKey
         val sortOnly = previousSortScope != null && scope != null &&
             previousSortScope.copy(sorting = scope.sorting) == scope
         val retainedKey = if (sortOnly) previousSortScope.toString() else requestedKey
@@ -1265,6 +1406,17 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                 // to the viewer. A stopped grid needs only the final snapshot.
                 if (photoViewerTransition && result.stage != org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE)
                     return@photoResult
+                // A covering configuration page keeps the scan alive but not the
+                // publication: the newest authorized stage is retained for the return.
+                val retained = retainedPhotoScan
+                if (org.fossify.gallery.helpers.PhotoChildReturnPolicy.holdsResult(
+                        childPageCovered = photoChildPageOpen,
+                        scanRetained = retained != null && retained.request == request,
+                    )
+                ) {
+                    retained!!.latest = result.snapshotForUi()
+                    return@photoResult
+                }
                 submitPhotoGridResult(result, request, requestedKey)
             },
             onFailure = { error ->
@@ -1978,6 +2130,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         if (isPhotoProfiles) {
             // An internal viewer return is not a new Photos navigation. Preserve the
             // already committed grid and worker while its scope/capability is unchanged.
+            val retainedScan = retainedPhotoScan
+            retainedPhotoScan = null
             val sameAuthorizedGrid = (returningFromViewer || returnedFromChildPage) && !photoNeedsUnlock &&
                 photoProfileId == PhotoProfileRepository.of(this).state().current?.id &&
                 photoLoadedKey == photoDisplayKey() &&
@@ -1986,7 +2140,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             val catalogWorkerActive = returningFromViewer && photoViewerTransition &&
                 mCurrAsyncTask?.status == android.os.AsyncTask.Status.RUNNING
             photoViewerTransition = false
-            if (!sameAuthorizedGrid && !catalogWorkerActive) tryLoadGallery()
+            // Rejoin the scan that was kept alive under the configuration page before
+            // falling back to a reload: restarting it is what produced the cold gap.
+            // A retained scan that failed its identity checks is stopped in place.
+            val rejoined = retainedScan != null && resumeRetainedPhotoScan(retainedScan)
+            if (!rejoined && !sameAuthorizedGrid && !catalogWorkerActive) tryLoadGallery()
             else if (sameAuthorizedGrid) {
                 setMediaLoading(false)
                 binding.mediaRefreshLayout.isRefreshing = false
@@ -2112,7 +2270,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         mediaScanTerminals.finish(mediaRefreshRequest, GalleryScanResult(GalleryScanState.CANCELLED))
         mIsGettingMedia = false
         setMediaLoading(false)
-        if (!isPhotoProfiles || !photoViewerTransition) mediaLoadRequests.invalidate()
+        if (isPhotoProfiles && photoChildPageOpen && !photoViewerTransition) {
+            // A covering configuration page is not a departure from Photos. The
+            // authorized scan keeps its request generation and its worker so the
+            // return has content to show; branch 3 still validates before reuse.
+            detachPhotoScanForChildPage()
+        } else if (!isPhotoProfiles || !photoViewerTransition) {
+            mediaLoadRequests.invalidate()
+        }
         mediaScanGeneration++
         if (folderStatsRequestVersion != 0L && mPath.startsWith('/')) {
             org.fossify.gallery.helpers.DirectoryMetadataRepository.defer(mPath, folderStatsRequestVersion)
@@ -2120,7 +2285,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         binding.mediaRefreshLayout.isRefreshing = false
         storeStateVariables()
         mLastMediaHandler.removeCallbacksAndMessages(null)
-        if (!isPhotoProfiles || !photoViewerTransition) {
+        if (!isPhotoProfiles || (!photoViewerTransition && retainedPhotoScan == null)) {
             diagnosticMediaRequest?.skipIfUnadmitted("activity_pause")
             mCurrAsyncTask?.stopFetching("activity_pause")
         }
@@ -2137,9 +2302,17 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         // Activity.onStop has reset the exit coordinator, including its captured view's alpha.
         releaseViewerSourceLease()
         if (isPhotoProfiles && !photoViewerTransition) {
-            photoReturnProbeGeneration++
-            mediaLoadRequests.invalidate()
-            mCurrAsyncTask?.stopFetching()
+            val coveringChild = photoChildPageOpen && retainedPhotoScan != null
+            if (coveringChild) {
+                // The worker and its request generation survive the cover; only the
+                // window stopped drawing.
+                logPhotoChildEvent("photo_grid_snapshot_retained", retainedPhotoScan,
+                    reason = "child_page_covered")
+            } else {
+                photoReturnProbeGeneration++
+                mediaLoadRequests.invalidate()
+                mCurrAsyncTask?.stopFetching()
+            }
             // Genuine departure from Photos still clears UI; internal viewer
             // transitions and a covering configuration page retain the grid. The
             // platform previews that retained grid during predictive back.
@@ -2149,7 +2322,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                     childPageCovered = photoChildPageOpen,
                 )) {
                 clearPhotoDisplayState()
-            } else if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
+            } else if (!coveringChild && org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
                 org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
                     org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "PhotoGrid",
                     "photo_grid_retained_for_child_page", photoActiveRequestId.takeIf { it != 0L },
@@ -2289,6 +2462,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         cancelViewerHandoff()
         viewerLaunchInProgress = false
         cancelFallbackViewerPosition()
+        // A scan retained under a covering child page has no return target any more.
+        dropRetainedPhotoScan("activity_destroy")
         if (!isPhotoProfiles) mCurrAsyncTask?.stopFetching("activity_destroy")
         retainedFolderScan = null
         detachedFolderPublication.clear()

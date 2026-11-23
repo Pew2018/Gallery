@@ -62,7 +62,29 @@ abstract class BaseViewerActivity : SimpleActivity() {
     }
 
     protected fun updateViewerSystemBars() {
-        OxygenSystemBars.applyViewer(this, viewerBarColors, viewerSystemBarProgress, viewerStatusSurfaceVisible)
+        val changed = OxygenSystemBars.applyViewer(
+            this, viewerBarColors, viewerSystemBarProgress, viewerStatusSurfaceVisible)
+        // Only actual changes are recorded: the entry clock calls this per frame and a
+        // per-frame log line would both cost time and hide the interesting frames.
+        if (changed && org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
+            val underlay = window.decorView.findViewWithTag<View>(OxygenSystemBars.STATUS_UNDERLAY)
+            val bars = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+            val underlayColor = (underlay?.background as? android.graphics.drawable.ColorDrawable)?.color
+            @Suppress("DEPRECATION")
+            val legacyColor = window.statusBarColor
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "Viewer", "viewer_status_appearance_changed",
+                null,
+                mapOf(
+                    "progress" to viewerSystemBarProgress,
+                    "statusBarVisible" to viewerStatusSurfaceVisible,
+                    "iconAppearance" to if (bars.isAppearanceLightStatusBars) "DARK" else "LIGHT",
+                    "navigationIconAppearance" to if (bars.isAppearanceLightNavigationBars) "DARK" else "LIGHT",
+                    "underlayVisibility" to (underlay?.visibility == View.VISIBLE),
+                    "backgroundColor" to (underlayColor ?: legacyColor),
+                )
+            )
+        }
     }
 
     private fun registerShowNotchCollector(view: View) {

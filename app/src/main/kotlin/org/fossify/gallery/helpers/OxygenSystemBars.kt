@@ -49,16 +49,21 @@ object OxygenSystemBars {
         val status = blendOpaqueSurface(colors.statusBarBackground,
             activity.getColor(R.color.viewer_status_surface), progress)
         val nav = blendOpaqueSurface(colors.navigationBarBackground, Color.BLACK, progress)
-        val lightStatus = useDarkIcons(status)
-        val lightNavigation = useDarkIcons(nav)
         val bars = WindowCompat.getInsetsController(activity.window, host)
+        // Hysteresis: the blend crosses the point where neither icon colour is clearly
+        // better. Deciding there on every frame lets a single progress threshold flip
+        // the icons repeatedly, which reads as the status bar blinking during the
+        // return. The polarity that is already on screen wins until the alternative has
+        // a real contrast advantage.
+        val darkStatus = SystemBarIconContrast.useDarkIcons(status, bars.isAppearanceLightStatusBars)
+        val darkNavigation = SystemBarIconContrast.useDarkIcons(nav, bars.isAppearanceLightNavigationBars)
         var changed = false
-        if (bars.isAppearanceLightStatusBars != lightStatus) {
-            bars.isAppearanceLightStatusBars = lightStatus
+        if (bars.isAppearanceLightStatusBars != darkStatus) {
+            bars.isAppearanceLightStatusBars = darkStatus
             changed = true
         }
-        if (bars.isAppearanceLightNavigationBars != lightNavigation) {
-            bars.isAppearanceLightNavigationBars = lightNavigation
+        if (bars.isAppearanceLightNavigationBars != darkNavigation) {
+            bars.isAppearanceLightNavigationBars = darkNavigation
             changed = true
         }
 
@@ -90,10 +95,6 @@ object OxygenSystemBars {
     // Float interpolation can truncate 255 to 254 even when both endpoints are opaque.
     private fun blendOpaqueSurface(start: Int, end: Int, progress: Float) =
         OxygenThemeColors.opaque(ColorUtils.blendARGB(start, end, progress))
-
-    private fun useDarkIcons(background: Int) =
-        ColorUtils.calculateContrast(Color.BLACK, background) >
-            ColorUtils.calculateContrast(Color.WHITE, background)
 
     private fun statusUnderlay(activity: Activity, host: FrameLayout, stableInsets: Boolean = false): View {
         host.findViewWithTag<View>(STATUS_UNDERLAY)?.let { return it }

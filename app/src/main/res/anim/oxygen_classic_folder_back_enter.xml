@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shareInterpolator="false">
+    <!-- CLOSE-enter (the entering parent, i.e. the album grid) of the *folder* page's
+         post-commit back animation.
+
+         Same two jobs as the shared oxygen_classic_page_back_enter.xml, and the same
+         reason to keep both of them identity:
+         1. Geometry. CustomCrossActivityBackAnimation applies this animation during the
+            gesture through getPreCommitEnteringBaseTransformation(progress * 0.2) and
+            post-commit through lerp(gestureProgress * 0.2, 1f, ...). Any translate or
+            scale here would displace the real parent page and lose the full-screen
+            preview the custom branch exists for.
+         2. Alpha. The parent is already fully composed underneath the closing page; an
+            app-authored fade would be a second fade over the platform's own scrim fade.
+
+         The duration is the only thing this file adds over the shared resource:
+         CustomCrossActivityBackAnimation.getPostCommitAnimationDuration() is
+         min(2000, max(close.duration, enter.duration)). Keeping the shared 450 ms enter
+         next to a shorter folder exit would leave the Shell's clock at 450 ms and hand
+         the closing page 150 ms in which it is already fully transparent, so both sides
+         of the folder pair share oxygen_classic_folder_back_duration_ms. Settings, the
+         theme picker and the custom-photo-profile pages keep the shared pair. -->
+    <alpha
+        android:fromAlpha="1.0"
+        android:toAlpha="1.0"
+        android:interpolator="@android:interpolator/linear"
+        android:startOffset="0"
+        android:duration="@integer/oxygen_classic_folder_back_duration_ms" />
+</set>
