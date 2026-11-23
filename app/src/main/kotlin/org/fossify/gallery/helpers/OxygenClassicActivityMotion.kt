@@ -19,14 +19,10 @@ object OxygenClassicActivityMotion {
 
     fun configureShared(activity: Activity) {
         activity.window.apply {
-            // Android 14+ Viewer pages take the platform's custom CLOSE branch so the
-            // media grid stays full-screen behind the whole-window return. The legacy
-            // branches (scene transition below 14, animations disabled) keep zero.
-            setWindowAnimations(
-                if (PredictiveBackSupport.systemDrivesPageTransition && OxygenClassicMotion.enabled(activity)) {
-                    R.style.OxygenClassicPageBackWindow
-                } else 0
-            )
+            // Viewer entry/return is a platform scene transition; a window animation
+            // style here would compete with the shared-element Transition and, from
+            // Android 14, suppress the app's own interactive return callback.
+            setWindowAnimations(0)
             enterTransition = null
             exitTransition = null
             reenterTransition = null

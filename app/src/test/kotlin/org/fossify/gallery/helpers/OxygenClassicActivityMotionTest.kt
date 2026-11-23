@@ -65,22 +65,6 @@ class OxygenClassicActivityMotionTest {
     }
 
     @Test
-    @Config(sdk = [36])
-    fun android16ViewerKeepsTheSystemCrossActivityCloseBranch() {
-        RuntimeEnvironment.getApplication().config.oxygenThemeActivated = true
-        val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
-        activity.intent.putExtra(PhotoViewerTransition.EXTRA_PATH, "/test/photo.jpg")
-        activity.intent.putExtra(PhotoViewerTransition.EXTRA_APP_OWNED_ENTRY, true)
-        OxygenClassicActivityMotion.install(activity)
-        // The Viewer keeps the platform custom CLOSE branch; it must not install
-        // a scene transition or an app-drawn back animation.
-        assertEquals(R.style.OxygenClassicPageBackWindow, activity.window.attributes.windowAnimations)
-        assertEquals(null, activity.window.enterTransition)
-        assertEquals(null, activity.window.returnTransition)
-        activity.finish()
-    }
-
-    @Test
     fun backWindowStyleDeclaresBothLoadableCloseAnimations() {
         val context = RuntimeEnvironment.getApplication()
         val theme = context.resources.newTheme().apply { applyStyle(R.style.OxygenClassicPageBackWindow, true) }
@@ -98,12 +82,15 @@ class OxygenClassicActivityMotionTest {
     }
 
     @Test
-    fun viewerWindowIsOpaqueSoThePlatformCanAnimateTheReturn() {
+    fun viewerThemeKeepsThePlatformSharedElementContract() {
         val context = RuntimeEnvironment.getApplication()
         val theme = context.resources.newTheme().apply { applyStyle(R.style.GalleryViewerTransitionTheme, true) }
-        val value = TypedValue()
-        assertTrue(theme.resolveAttribute(android.R.attr.windowIsTranslucent, value, true))
-        assertEquals("a translucent Viewer is forced to TYPE_CALLBACK", 0, value.data)
+        val translucent = TypedValue()
+        assertTrue(theme.resolveAttribute(android.R.attr.windowIsTranslucent, translucent, true))
+        assertTrue("the Viewer must stay translucent for its shared-element transition", translucent.data != 0)
+        val transitions = TypedValue()
+        assertTrue(theme.resolveAttribute(android.R.attr.windowContentTransitions, transitions, true))
+        assertTrue(transitions.data != 0)
     }
 
     @Test fun folderPageEntryUsesShortLayeredMotionWithoutAFullBlackStart() {

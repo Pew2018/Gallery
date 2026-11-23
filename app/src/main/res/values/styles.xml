@@ -27,16 +27,18 @@
         <item name="android:windowContentTransitions">true</item>
     </style>
 
-    <!-- Android 14+ full-screen Viewer page.
-         Deliberately opaque: BackNavigationController drops a cross-Activity back to
-         TYPE_CALLBACK when either participant is translucent, so a translucent Viewer
-         can never receive the system whole-window return. The Viewer paints its own
-         black canvas and draws the photo entry from the grid geometry, which is also
-         why no platform shared-element transition is declared here anymore. -->
+    <!-- Full-screen Viewer page. The platform scene transition is the only visual
+         driver for the photo entering and returning to the Grid; the Viewer keeps
+         its own back callback so the same shared element can be driven interactively.
+         This necessarily makes the Viewer ineligible for the system cross-Activity
+         preview on Android 14+: mHasSceneTransition and windowIsTranslucent both
+         select TYPE_CALLBACK, which is the 7ee6610 delivery contract. -->
     <style name="GalleryViewerTransitionTheme" parent="TranslucentTheme">
-        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:windowDisablePreview">true</item>
-        <item name="android:windowContentTransitions">false</item>
+        <item name="android:windowContentTransitions">true</item>
+        <item name="android:windowSharedElementEnterTransition">@android:transition/move</item>
+        <item name="android:windowSharedElementReturnTransition">@android:transition/move</item>
     </style>
 </resources>

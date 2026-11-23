@@ -62,35 +62,6 @@ internal class MediaTransitionSessionCoordinator(
     private var staticPhotoSource: StaticPhotoSource? = null
     private var staticPhotoSourceConfirmed = false
 
-    /**
-     * The tapped grid thumbnail, handed to the Viewer in-process so its opaque window
-     * can paint the same pixels at the same screen rect before the full-size decode
-     * finishes. Cleared with the entry; the grid keeps the source holder leased.
-     */
-    private var entryPreview: android.graphics.Bitmap? = null
-
-    /**
-     * One full-window grab of the Grid as it stood when the Viewer launched.
-     * The opaque Viewer cannot reveal the stopped Grid through window alpha, so
-     * this snapshot is the first painted frame; it is removed when the entry
-     * completes. It is not a second animation surface.
-     */
-    private var entryBackdrop: android.graphics.Bitmap? = null
-
-    fun publishEntryPreview(token: Token, bitmap: android.graphics.Bitmap) {
-        if (valid(token, State.PREPARING) && entryPreview == null && !bitmap.isRecycled) entryPreview = bitmap
-    }
-
-    fun readEntryPreview(token: Token): android.graphics.Bitmap? =
-        entryPreview?.takeIf { token == entry && entryActive && !it.isRecycled }
-
-    fun publishEntryBackdrop(token: Token, bitmap: android.graphics.Bitmap) {
-        if (valid(token, State.PREPARING) && entryBackdrop == null && !bitmap.isRecycled) entryBackdrop = bitmap
-    }
-
-    fun readEntryBackdrop(token: Token): android.graphics.Bitmap? =
-        entryBackdrop?.takeIf { token == entry && entryActive && !it.isRecycled }
-
     fun publishStaticPhotoSource(token: Token, source: StaticPhotoSource) {
         if (valid(token, State.PREPARING) && staticPhotoSource == null) staticPhotoSource = source
     }
@@ -122,16 +93,8 @@ internal class MediaTransitionSessionCoordinator(
         gridAttached = false
     }
 
-    /**
-     * The Grid target is requested by the interactive drag and by the app-owned
-     * toolbar/system close. Both run while the session still owns the return, so
-     * RETURN_PREPARING must be allowed to hide the target and read it back; the
-     * platform path is the only one that waits for RETURNING.
-     */
     fun showGridPreview(token: Token, path: String) {
-        if (valid(token, State.INTERACTIVE_RETURN, State.RETURN_PREPARING)) {
-            gridPreview?.get()?.show(token, path)
-        }
+        if (valid(token, State.INTERACTIVE_RETURN)) gridPreview?.get()?.show(token, path)
     }
 
     fun gridToolbarBottomOnScreen(token: Token): Int? {
@@ -144,9 +107,7 @@ internal class MediaTransitionSessionCoordinator(
             gridPreview?.get()?.photoTargetIsCropped(token, path) == true
 
     fun photoReturnTarget(token: Token, path: String): StaticPhotoReturnTarget? =
-        if (valid(token, State.INTERACTIVE_RETURN, State.RETURN_PREPARING, State.RETURNING)) {
-            gridPreview?.get()?.photoReturnTarget(token, path)
-        } else null
+        if (valid(token, State.RETURNING)) gridPreview?.get()?.photoReturnTarget(token, path) else null
 
     fun gridPreviewEvent(token: Token, detail: String) {
         emit("grid_interactive_preview", token, detail)
@@ -264,8 +225,6 @@ internal class MediaTransitionSessionCoordinator(
 
     fun leases() = Leases()
 
-    internal fun hasLeases(): Boolean = leaseCount != 0
-
     /** Activity-owned cleanup actions. The coordinator only counts and admits leases. */
     inner class Leases {
         private val owned = linkedMapOf<Resource, Pair<Token, () -> Unit>>()
@@ -312,8 +271,6 @@ internal class MediaTransitionSessionCoordinator(
         if (!entryActive) {
             staticPhotoSource = null
             staticPhotoSourceConfirmed = false
-            entryPreview = null
-            entryBackdrop = null
         }
         if (observer != null) emit("transition_state_changed", token, "${from.name}->${to.name}")
     }
