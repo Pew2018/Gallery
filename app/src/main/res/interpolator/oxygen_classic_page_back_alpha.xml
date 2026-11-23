@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Alpha-out curve for the CLOSE-exit of the platform's custom cross-Activity
+     back animation.
+
+     The Shell evaluates this resource with Animation#getTransformationAt(progress),
+     which *does* apply the child interpolator (Animation.java: interpolatedTime =
+     mInterpolator.getInterpolation(normalizedTime)) but never renormalises by the
+     child duration. An interpolator is therefore the only supported way to make the
+     closing page fade faster than the 450 ms geometry clock. Shortening the alpha
+     child duration would change nothing on the Shell path and would desynchronise
+     the plain finish() window transition, which is driven by the same resource.
+
+     Output y is the alpha interpolation fraction, so alpha = 1 - y. The curve
+     reaches y = 1 at x = 0.26 and stays there, i.e. the closing page is fully gone
+     after ~26% of the post-commit clock (~117 ms of 450 ms). That mirrors
+     DefaultCrossActivityBackAnimation's reference alpha max(1 - progress * 5, 0),
+     which is fully transparent at 20%, while keeping a short tail instead of a hard
+     cutoff at exactly 20%.
+
+     PathInterpolator contract (PathInterpolator#initPath): the path must start at
+     (0,0), end at (1,1), and x must be monotonic. The cubic keeps x increasing
+     (0.09 -> 0.18 -> 0.26) and y increasing, and the final horizontal segment keeps
+     x increasing with y pinned at 1. Endpoints are exact so the shell's unclamped
+     0..1 progress evaluates to alpha 1 at 0 and 0 at 1. -->
+<pathInterpolator xmlns:android="http://schemas.android.com/apk/res/android"
+    android:pathData="M0,0 C0.09,0.36 0.18,0.92 0.26,1 C0.5,1 0.75,1 1,1" />

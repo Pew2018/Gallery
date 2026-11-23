@@ -134,6 +134,56 @@ class PredictiveBackCloseAnimationTest {
     }
 
     @Test
+    fun closeExitAlphaClearsTheForegroundBeforeTheParentDoubleExposes() {
+        val animation = load(R.anim.oxygen_classic_page_back_exit)
+        fun alpha(progress: Float) = shellTransformation(animation, progress).alpha
+
+        // Endpoints stay exact: fully opaque at the release frame, fully transparent
+        // when the Shell's post-commit clock expires.
+        assertEquals(1f, alpha(0f), 0.001f)
+        assertEquals(0f, alpha(1f), 0.001f)
+        // No instant disappearing: the first couple of percent still look opaque.
+        assertTrue("release frame must not jump to zero", alpha(0.02f) > 0.8f)
+
+        // Front-loaded: the parent page is already fully composed underneath, so the
+        // closing foreground must lose most of its opacity inside the first fifth.
+        // decelerate_quad (the previous curve) leaves 0.56 here.
+        assertTrue("alpha at 10% was ${alpha(0.1f)}", alpha(0.1f) < 0.7f)
+        assertTrue("alpha at 20% was ${alpha(0.2f)}", alpha(0.2f) < 0.25f)
+        // Cleared within the requested 20-35% window, and stays cleared.
+        assertEquals("alpha at 30%", 0f, alpha(0.30f), 0.02f)
+        assertEquals("alpha at 35%", 0f, alpha(0.35f), 0.001f)
+
+        // The fade and the geometry are deliberately separate: at the instant alpha
+        // reaches zero the closing page is still travelling, so nothing snaps off.
+        val cleared = alpha(0.26f)
+        assertTrue(cleared <= 0.001f)
+        assertTrue(translationX(shellTransformation(animation, 0.26f).matrix) < slideDistance() * 0.6f)
+    }
+
+    @Test
+    fun closeExitAlphaInterpolatorIsALegalMonotonicPath() {
+        // The Shell loads this through AnimationUtils.loadInterpolator and applies it
+        // as Animation#getTransformationAt's interpolator. PathInterpolator rejects
+        // paths that do not start at (0,0), end at (1,1), or turn back in x, so the
+        // resource itself has to stay legal.
+        val interpolator = AnimationUtils.loadInterpolator(
+            application, R.interpolator.oxygen_classic_page_back_alpha
+        )
+        assertNotNull(interpolator)
+        assertEquals(0f, interpolator.getInterpolation(0f), 0.001f)
+        assertEquals(1f, interpolator.getInterpolation(1f), 0.001f)
+        var previous = -1f
+        for (step in 0..100) {
+            val value = interpolator.getInterpolation(step / 100f)
+            assertTrue("interpolator must not decrease at $step", value >= previous - 0.0001f)
+            assertTrue("interpolator must stay in 0..1 at $step", value in -0.0001f..1.0001f)
+            previous = value
+        }
+        assertTrue("interpolator must be clear by 30%", interpolator.getInterpolation(0.3f) > 0.98f)
+    }
+
+    @Test
     fun closeExitIsNotAnotherIdentityNoOp() {
         // Regression guard: an identity CLOSE-exit froze the closing page until the Shell
         // removed its window, which is the hard pop this resource now prevents.

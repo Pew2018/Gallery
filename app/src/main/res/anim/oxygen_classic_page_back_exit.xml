@@ -21,8 +21,14 @@
          and the normal time-driven window transition (toolbar back) in agreement.
 
          Shape:
-         - alpha 1 -> 0, decelerate, i.e. front-loaded: the card dissolves while it is
-           still travelling, so nothing is left to snap off at the end.
+         - alpha 1 -> 0 with oxygen_classic_page_back_alpha: the alpha is fully gone at
+           ~26% of the post-commit progress (~117 ms of 450 ms). The real parent page
+           is already fully composed underneath, so any foreground alpha left after the
+           first fifth of the clock reads as a double-exposed text/list ghost. A plain
+           built-in interpolator cannot express that: decelerate_quad still leaves 56%
+           opacity at progress 0.25 and 42% at 0.35. The platform reference,
+           DefaultCrossActivityBackAnimation, fades the closing page out completely at
+           20%; the tail of this curve is deliberately slightly softer than that.
          - translate 0 -> 96dp, fast_out_slow_in (the XML approximation of the Shell's
            EMPHASIZED curve). 96dp is DefaultCrossActivityBackAnimation's
            cross_activity_back_entering_start_offset; on commit it retargets the closing
@@ -34,7 +40,7 @@
     <alpha
         android:fromAlpha="1.0"
         android:toAlpha="0.0"
-        android:interpolator="@android:interpolator/decelerate_quad"
+        android:interpolator="@interpolator/oxygen_classic_page_back_alpha"
         android:startOffset="0"
         android:duration="@integer/oxygen_classic_page_back_duration_ms" />
 

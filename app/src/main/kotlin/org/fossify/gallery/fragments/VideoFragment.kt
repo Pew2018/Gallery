@@ -1208,7 +1208,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         // element lands. Move both renderers through the same visible rectangle.
         // Whichever layer is showing may center-crop until the decoded fit settles.
         videoBoundsAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = PhotoViewerTransition.DURATION_MS
+            duration = PhotoViewerTransition.RETURN_DURATION_MS
             interpolator = OxygenClassicMotion.easing()
             addUpdateListener { layoutVideoViewport(MediaTransitionGeometry.viewportSize(current, bounds, it.animatedFraction)) }
             start()

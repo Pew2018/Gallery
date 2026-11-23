@@ -1830,12 +1830,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     OxygenProgressStyle.setLoading(indicator, true)
                     OxygenProgressStyle.revealPending(indicator)
                 } },
-                frameState = { when {
-                    binding.mediaGrid.isShown && binding.mediaGrid.childCount > 0 -> "content"
-                    binding.mediaEmptyTextPlaceholder.isShown -> "empty_or_error"
-                    mediaHeaderProgress?.isShown == true -> "loading"
-                    else -> null
-                } }
+                frameState = {
+                    // Only report a loading frame while a loading indicator is really
+                    // on screen; a requested-but-invisible load is still blank.
+                    when {
+                        binding.mediaGrid.isShown && binding.mediaGrid.childCount > 0 ->
+                            GalleryBottomBar.RootFrame.CONTENT
+                        binding.mediaEmptyTextPlaceholder.isShown -> GalleryBottomBar.RootFrame.EMPTY
+                        mediaHeaderProgress?.isShown == true || binding.loadingIndicator.isShown ->
+                            GalleryBottomBar.RootFrame.LOADING
+                        else -> null
+                    }
+                }
             ) { tab ->
                 getMediaAdapter()?.finishActMode()
                 val section = GallerySection.valueOf(tab.name)
@@ -5073,8 +5079,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             thumbnail.transitionName = PhotoViewerTransition.ELEMENT_NAME
             logViewerGridSource("grid_source_named")
             intent.putExtra(PhotoViewerTransition.EXTRA_PATH, path)
+            intent.putExtra(PhotoViewerTransition.EXTRA_ENTRY_SIGNATURE, medium.getSignature())
             window.sharedElementExitTransition = OxygenClassicActivityMotion.mediaTransition(
-                PhotoViewerTransition.DURATION_MS, onTerminal = { cancelled ->
+                PhotoViewerTransition.ENTRY_DURATION_MS, onTerminal = { cancelled ->
                     viewerSourceLease?.takeIf { viewerReturnLaunch == returnLaunch }?.let {
                         // Android keeps the captured view by reference. It can still hide it after
                         // the local animation ends, so keep the holder leased until stop or reentry.
@@ -5083,7 +5090,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
                     }
                 })
             window.sharedElementReenterTransition = OxygenClassicActivityMotion.mediaTransition(
-                PhotoViewerTransition.DURATION_MS,
+                PhotoViewerTransition.RETURN_DURATION_MS,
                 onStart = {
                     viewerReturn?.takeIf { returnLaunch == viewerReturnLaunch }?.let {
                         ViewerReturnDiagnostics.event(it.requestId, "grid_transition_start")
