@@ -10,6 +10,7 @@ import android.util.TypedValue
 import android.view.animation.TranslateAnimation
 import androidx.appcompat.app.AppCompatActivity
 import org.fossify.gallery.R
+import org.fossify.gallery.extensions.config
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -60,6 +61,22 @@ class OxygenClassicActivityMotionTest {
         // animation (the previous contract) made the Shell fall back to the default
         // branch, which also scales and offsets the parent page.
         assertEquals(R.style.OxygenClassicPageBackWindow, activity.window.attributes.windowAnimations)
+        activity.finish()
+    }
+
+    @Test
+    @Config(sdk = [36])
+    fun android16ViewerKeepsTheSystemCrossActivityCloseBranch() {
+        RuntimeEnvironment.getApplication().config.oxygenThemeActivated = true
+        val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
+        activity.intent.putExtra(PhotoViewerTransition.EXTRA_PATH, "/test/photo.jpg")
+        activity.intent.putExtra(PhotoViewerTransition.EXTRA_APP_OWNED_ENTRY, true)
+        OxygenClassicActivityMotion.install(activity)
+        // The Viewer keeps the platform custom CLOSE branch; it must not install
+        // a scene transition or an app-drawn back animation.
+        assertEquals(R.style.OxygenClassicPageBackWindow, activity.window.attributes.windowAnimations)
+        assertEquals(null, activity.window.enterTransition)
+        assertEquals(null, activity.window.returnTransition)
         activity.finish()
     }
 

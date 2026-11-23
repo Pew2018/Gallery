@@ -88,6 +88,12 @@ android {
             // macOS exposes /var via /private/var. Keep host temp fixtures on a
             // canonical root so symlink/security tests exercise their intended alias.
             it.systemProperty("java.io.tmpdir", File(System.getProperty("java.io.tmpdir")).canonicalPath)
+            // Sandboxed/offline hosts can point Robolectric at a pre-populated
+            // android-all directory instead of writing into ~/.m2.
+            providers.environmentVariable("ROBOLECTRIC_DEPENDENCY_DIR").orNull?.let { dir ->
+                it.systemProperty("robolectric.dependency.dir", dir)
+                it.systemProperty("robolectric.offline", "true")
+            }
             it.jvmArgs(
                 "--add-opens=java.base/java.lang=ALL-UNNAMED",
                 "--add-opens=java.base/java.util=ALL-UNNAMED",

@@ -4,10 +4,13 @@
     <!-- Applied by the platform to the *entering* parent page during a
          predictive back, on top of a full-screen base rect
          (CustomCrossActivityBackAnimation.preparePreCommitEnteringRectMovement).
-         Keep it near-identity: any translation here would move the parent window
-         away from the edges and expose the Shell backdrop again. -->
+         Keep it identity: the real parent must be visible for the whole gesture
+         and must not receive a second app-authored fade. Geometry (including the
+         left/right edge offset) stays owned by the Shell's
+         CustomCrossActivityBackAnimation; this resource only keeps the custom
+         CLOSE branch loadable. -->
     <alpha
         android:duration="@integer/oxygen_classic_page_enter_duration_ms"
-        android:fromAlpha="0.96"
+        android:fromAlpha="1.0"
         android:toAlpha="1.0" />
 </set>

@@ -69,12 +69,27 @@ internal class MediaTransitionSessionCoordinator(
      */
     private var entryPreview: android.graphics.Bitmap? = null
 
+    /**
+     * One full-window grab of the Grid as it stood when the Viewer launched.
+     * The opaque Viewer cannot reveal the stopped Grid through window alpha, so
+     * this snapshot is the first painted frame; it is removed when the entry
+     * completes. It is not a second animation surface.
+     */
+    private var entryBackdrop: android.graphics.Bitmap? = null
+
     fun publishEntryPreview(token: Token, bitmap: android.graphics.Bitmap) {
         if (valid(token, State.PREPARING) && entryPreview == null && !bitmap.isRecycled) entryPreview = bitmap
     }
 
     fun readEntryPreview(token: Token): android.graphics.Bitmap? =
         entryPreview?.takeIf { token == entry && entryActive && !it.isRecycled }
+
+    fun publishEntryBackdrop(token: Token, bitmap: android.graphics.Bitmap) {
+        if (valid(token, State.PREPARING) && entryBackdrop == null && !bitmap.isRecycled) entryBackdrop = bitmap
+    }
+
+    fun readEntryBackdrop(token: Token): android.graphics.Bitmap? =
+        entryBackdrop?.takeIf { token == entry && entryActive && !it.isRecycled }
 
     fun publishStaticPhotoSource(token: Token, source: StaticPhotoSource) {
         if (valid(token, State.PREPARING) && staticPhotoSource == null) staticPhotoSource = source
@@ -249,6 +264,8 @@ internal class MediaTransitionSessionCoordinator(
 
     fun leases() = Leases()
 
+    internal fun hasLeases(): Boolean = leaseCount != 0
+
     /** Activity-owned cleanup actions. The coordinator only counts and admits leases. */
     inner class Leases {
         private val owned = linkedMapOf<Resource, Pair<Token, () -> Unit>>()
@@ -296,6 +313,7 @@ internal class MediaTransitionSessionCoordinator(
             staticPhotoSource = null
             staticPhotoSourceConfirmed = false
             entryPreview = null
+            entryBackdrop = null
         }
         if (observer != null) emit("transition_state_changed", token, "${from.name}->${to.name}")
     }

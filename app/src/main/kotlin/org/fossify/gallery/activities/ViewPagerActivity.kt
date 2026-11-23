@@ -696,10 +696,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             // The released drag keeps its live surface and hands the current frame
             // to the app-owned close. Never finish the window first: the image must
             // continue from under the finger to the measured Grid aperture.
+            ViewerReturnDiagnostics.event(viewerReturnId, "viewer_dismiss_committed") {
+                mapOf("reason" to "drag", "progress" to interactiveDismissProgress,
+                    "runtimeOperationId" to operation.operationId)
+            }
             interactiveDismissDragActive = false
             interactiveDismissSettleAnimator = null
             if (appOwnedPhotoEntry()) startAppOwnedClose("drag") else finish()
             return
+        }
+        ViewerReturnDiagnostics.event(viewerReturnId, "viewer_dismiss_cancelled") {
+            mapOf("reason" to "below_threshold", "progress" to interactiveDismissProgress,
+                "runtimeOperationId" to operation.operationId)
         }
         val generation = ++interactiveDismissGeneration
         val start = interactiveDismissProgress
@@ -729,9 +737,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun finishMediaEntryTransition(entry: PhotoTransitionCompletionGate) {
         if (!isCurrentEntry(entry) || !entry.complete()) return
-        // The proxy is now the visible surface; drop any pre-decode preview in the
-        // same frame so the two copies can never overlap or leave a blank frame.
+        // The proxy is now the visible surface; drop any pre-decode preview and
+        // the frozen launch page in the same frame so no copy can overlap or
+        // leave a blank frame.
         removeAppEntryPreviewSurface()
+        removeAppEntryBackdrop()
         if (window.attributes.alpha < 1f) window.attributes = window.attributes.apply { alpha = 1f }
         check(transitionSession.entryFinished(transitionSession.entry))
         syncViewerBackOwnership()
@@ -777,6 +787,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var entryFallbackAnimator: ValueAnimator? = null
     private var appEntryAnimator: ValueAnimator? = null
     private var appEntryPreview: android.widget.ImageView? = null
+    private var appEntryBackdropView: android.widget.ImageView? = null
+    private var appEntryBackdropBitmap: Bitmap? = null
     // One entry clock: the preview geometry, scrim, chrome and window alpha all
     // read this progress. The full-resolution proxy joins the same animator when
     // it becomes mappable instead of starting a second 120 ms clock.
@@ -1246,14 +1258,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             ?.takeIf { OxygenClassicMotion.enabled(this) && (offeredEntry == null || sharedSession != null) }
         val entry = transitionSession.entryGate.takeIf { photoSharedElementPath != null }
         if (entry != null) {
-            // Keep the opaque Viewer window out of the composition until it can paint
-            // the grid thumbnail in place. Without this the black canvas would cover
-            // the grid while the full-size image is still being decoded.
-            if (appOwnedPhotoEntry()) window.attributes = window.attributes.apply { alpha = 0f }
+            // Without a launch backdrop the opaque Viewer window must stay out of
+            // the composition until it can paint the thumbnail in place. With a
+            // backdrop, frame zero is the real Grid page, so the window is opaque
+            // immediately and there is no black covering the launch source.
+            if (appOwnedPhotoEntry() && transitionSession.readEntryBackdrop(transitionSession.entry) == null) {
+                window.attributes = window.attributes.apply { alpha = 0f }
+            }
             mediaEntry = entry
             entryLeases.acquire(transitionSession.entry, Resource.INPUT) { binding.viewPager.transitionInputLocked = false }
             entryLeases.acquire(transitionSession.entry, Resource.CHROME) {
                 renderSharedViewerLayers(1f)
+                removeAppEntryBackdrop()
                 restoreBlackViewerCanvas()
                 binding.viewPager.alpha = 1f
             }
@@ -1319,9 +1335,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         // The media canvas must not inherit the app's light theme while pages load
         // or the progressive adapter replaces deferred placeholders.
         if (entry != null) {
-            // An opaque Viewer window cannot reveal the grid through a transparent
-            // canvas; keep the classic black canvas for the whole app-owned entry.
-            if (!appOwnedPhotoEntry()) setSharedTransitionCanvasTransparent()
+            // The launch backdrop sits below the page. Make the page canvas
+            // transparent for the app-owned entry so the exact Grid frame it was
+            // captured from remains visible until the photo covers it. Without a
+            // backdrop keep the classic black canvas instead of exposing system
+            // black through a transparent window. The window itself stays opaque,
+            // preserving cross-Activity back eligibility.
+            if (!appOwnedPhotoEntry() || transitionSession.readEntryBackdrop(transitionSession.entry) != null) {
+                setSharedTransitionCanvasTransparent()
+            }
             binding.viewerTransitionScrim.setBackgroundColor(Color.BLACK)
             binding.viewerTransitionScrim.visibility = View.VISIBLE
             binding.viewerTransitionScrim.alpha = 0f
@@ -1474,6 +1496,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         appReturnAnimator = null
         appReturnOverlay?.let { binding.root.removeView(it) }
         appReturnOverlay = null
+        removeAppEntryBackdrop()
         ViewerReturnDiagnostics.event(viewerReturnId, "viewer_destroyed") {
             mapOf("animatorStarted" to sharedReturnAnimatorStarted, "transitionTerminal" to sharedReturnTerminal)
         }
@@ -1631,6 +1654,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
      */
     private fun commitSystemReleaseReturn(appFadeOut: Boolean = false) {
         org.fossify.gallery.helpers.PredictiveBackDiagnostics.captureClosing(this, "viewer_system_release")
+        ViewerReturnDiagnostics.event(viewerReturnId, "viewer_exit_visual_owner") {
+            mapOf("owner" to "platform", "path" to "system_cross_activity", "appFadeOut" to appFadeOut)
+        }
         val operation = transitionSession.beginReturn() ?: run {
             super.finish()
             return
@@ -1859,6 +1885,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 "mediaId" to GalleryDiagnosticLogger.anonymousId(path),
             )
         }
+        ViewerReturnDiagnostics.event(viewerReturnId, "viewer_exit_visual_owner") {
+            mapOf("owner" to "app", "path" to "measured_return", "reason" to reason,
+                "runtimeOperationId" to operation.operationId)
+        }
         val generation = ++appReturnGeneration
         startAppReturnTargetProbe(operation, path, reason, generation, 0)
     }
@@ -1962,6 +1992,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             startAppReturnFadeFallback(operation, path, reason, generation)
             return
         }
+        ViewerReturnDiagnostics.event(viewerReturnId, "viewer_exit_visual_owner") {
+            mapOf("owner" to "app", "path" to "measured_return_animator",
+                "runtimeOperationId" to operation.operationId)
+        }
         ViewerReturnDiagnostics.event(viewerReturnId, "viewer_app_return_mapped") {
             mapOf(
                 "origin" to originPixels.toShortString(),
@@ -2013,6 +2047,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (!transitionSession.terminate(operation, State.COMPLETE, reason)) {
             transitionSession.cancel(reason)
         }
+        ViewerReturnDiagnostics.event(viewerReturnId, "viewer_exit_visual_terminal") {
+            mapOf("reason" to reason, "terminal" to "complete")
+        }
         ViewerReturnDiagnostics.event(viewerReturnId, "viewer_app_return_end") {
             mapOf("reason" to reason, "complete" to (transitionSession.outcome == State.COMPLETE))
         }
@@ -2026,6 +2063,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         generation: Long,
     ) {
         if (generation != appReturnGeneration || isFinishing || isDestroyed) return
+        ViewerReturnDiagnostics.event(viewerReturnId, "viewer_exit_visual_owner") {
+            mapOf("owner" to "app", "path" to "single_window_fade", "reason" to reason)
+        }
         ViewerReturnDiagnostics.event(viewerReturnId, "viewer_app_return_fallback") {
             mapOf("reason" to reason, "mediaId" to GalleryDiagnosticLogger.anonymousId(path))
         }
@@ -2035,8 +2075,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             return
         }
         if (transitionSession.state == State.RETURN_PREPARING) transitionSession.targetReady(operation)
+        // One visible terminal: fade the whole window from the current finger
+        // frame to the real Grid. The old implementation first shrank/faded the
+        // photo for 160 ms and then installed a second window fade, leaving a
+        // black canvas between the two stages.
         val startScale = surface.scaleX
-        val startAlpha = surface.alpha
+        val startWindowAlpha = window.attributes.alpha.takeIf { it > 0f } ?: 1f
         val animator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = APP_RETURN_FALLBACK_FADE_MS
             interpolator = OxygenClassicMotion.easing()
@@ -2044,25 +2088,35 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 if (generation != appReturnGeneration || isFinishing || isDestroyed) return@addUpdateListener
                 val progress = it.animatedValue as Float
                 val remaining = 1f - progress
-                surface.scaleX = startScale * (1f - 0.2f * progress)
-                surface.scaleY = startScale * (1f - 0.2f * progress)
-                surface.alpha = startAlpha * remaining
-                binding.viewerTransitionScrim.alpha = appReturnStartScrim * remaining
-                setSharedChromeAlpha(appReturnStartChrome * remaining)
-                val systemBar = appReturnStartSystemBar * remaining
-                if (viewerSystemBarProgress != systemBar) {
-                    viewerSystemBarProgress = systemBar
-                    updateViewerSystemBars()
+                // Keep the image and scrim in their released-drag relationship;
+                // only the composited window (and a slight continuation of the
+                // gesture scale) changes, so there is exactly one fade.
+                surface.scaleX = startScale * (1f - 0.06f * progress)
+                surface.scaleY = startScale * (1f - 0.06f * progress)
+                val alpha = (startWindowAlpha * remaining).coerceIn(0f, 1f)
+                if (window.attributes.alpha != alpha) {
+                    window.attributes = window.attributes.apply { this.alpha = alpha }
                 }
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
-                    if (generation != appReturnGeneration) return
+                    if (generation != appReturnGeneration) {
+                        // A newer visit owns the window now. The stale fade must
+                        // not finish this Activity or leave it transparent.
+                        if (!isFinishing && !isDestroyed && window.attributes.alpha < 1f) {
+                            window.attributes = window.attributes.apply { alpha = 1f }
+                        }
+                        if (appReturnAnimator === this@apply) appReturnAnimator = null
+                        return
+                    }
                     finishAppReturnFallback(operation, "app_return_fallback")
                 }
 
                 override fun onAnimationCancel(animation: Animator) {
                     if (appReturnAnimator === this@apply) appReturnAnimator = null
+                    if (!isFinishing && !isDestroyed && window.attributes.alpha < 1f) {
+                        window.attributes = window.attributes.apply { alpha = 1f }
+                    }
                 }
             })
         }
@@ -2079,16 +2133,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (!transitionSession.terminate(operation, State.FALLBACK, reason)) {
             transitionSession.cancel(reason)
         }
+        ViewerReturnDiagnostics.event(viewerReturnId, "viewer_exit_visual_terminal") {
+            mapOf("reason" to reason, "terminal" to "fallback")
+        }
         ViewerReturnDiagnostics.event(viewerReturnId, "viewer_app_return_end") {
             mapOf("reason" to reason, "fallback" to true)
         }
         if (!isFinishing) {
+            // The window is already invisible after the single fade above. Do
+            // not install a second pending transition: that would fade a black
+            // canvas after the photo had already gone.
             super.finish()
-            // There is no measured target to land on. Fade the remaining black
-            // canvas out instead of cutting straight to the Grid.
-            if (OxygenClassicMotion.enabled(this)) {
-                overridePendingTransition(0, R.anim.photo_viewer_fade_out)
-            }
+            overridePendingTransition(0, 0)
         }
     }
 
@@ -5873,8 +5929,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (!appEntryAnimatorStarted) {
             // No measured header reached us before the decode (unsupported file or
             // an unusually short launch). Start the one clock now from the real
-            // proxy geometry; the Grid stayed visible until this point.
-            if (window.attributes.alpha > 0f) window.attributes = window.attributes.apply { alpha = 0f }
+            // proxy geometry; the frozen launch page stays visible until this point.
+            if (appEntryBackdropView == null && window.attributes.alpha > 0f) {
+                window.attributes = window.attributes.apply { alpha = 0f }
+            }
             removeAppOwnedEntryPreview()
             logMediaEntry("app_entry_started")
             startAppEntryAnimator(entry)
@@ -5882,16 +5940,37 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         }
         // Join the running clock at the frame the user is already watching.
         val previewTarget = appEntryPreviewSurface?.entryTarget
-        if (previewTarget != null && !proxy.geometry.target.near(previewTarget)) {
+        val targetMismatch = previewTarget != null && !proxy.geometry.target.near(previewTarget)
+        if (targetMismatch) {
             ViewerEntryDiagnostics.event(viewerDiagnosticSessionId, "entry_preview_target_mismatch") {
                 mapOf(
-                    "preview" to previewTarget.layout.rect().toShortString(),
+                    "preview" to previewTarget!!.layout.rect().toShortString(),
                     "renderer" to proxy.geometry.target.layout.rect().toShortString(),
                 )
             }
+            ViewerEntryDiagnostics.event(viewerDiagnosticSessionId, "viewer_entry_handoff_rejected") {
+                mapOf(
+                    "reason" to "geometry_mismatch",
+                    "preview" to previewTarget!!.pixels.rect().toShortString(),
+                    "renderer" to proxy.geometry.target.pixels.rect().toShortString(),
+                    "progress" to appEntryProgress,
+                )
+            }
+            // Keep the already-visible preview until the single clock ends. The
+            // renderer target must not replace it mid-flight with a second
+            // scale/size correction; both endpoints are measurable at p=1.
+            proxy.animateFrame(appEntryProgress)
+        } else {
+            ViewerEntryDiagnostics.event(viewerDiagnosticSessionId, "viewer_entry_handoff_ready") {
+                mapOf(
+                    "progress" to appEntryProgress,
+                    "renderer" to proxy.geometry.target.pixels.rect().toShortString(),
+                    "preview" to previewTarget?.pixels?.rect()?.toShortString(),
+                )
+            }
+            proxy.animateFrame(appEntryProgress)
+            removeAppEntryPreviewSurface()
         }
-        proxy.animateFrame(appEntryProgress)
-        removeAppEntryPreviewSurface()
         logMediaEntry("app_entry_started")
         if (appEntryAnimatorEnded) completeAppEntryIfReady(entry)
     }
@@ -6033,7 +6112,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             removeAppEntryPreviewSurface()
             appEntryAnimatorStarted = true
             appEntryAnimatorEnded = true
-            applyAppEntryProgress(1f, preview = null, proxy = null)
+            if (appEntryBackdropView == null) {
+                applyAppEntryProgress(1f, preview = null, proxy = null)
+            } else {
+                // The frozen page is still the only correct visual. Fade it out
+                // on the same clock once the fallback renderer is ready.
+                applyAppEntryProgress(0f, preview = null, proxy = null)
+            }
         }
         val hasMedia = currentEntryRenderer()?.let {
             it.isAttachedToWindow && it.isShown && it.alpha > 0f && it.width > 0 && it.height > 0
@@ -6046,7 +6131,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 return
             }
             entryWaitingForRenderer = true
-            renderSharedViewerLayers(1f)
+            if (appEntryBackdropView == null) renderSharedViewerLayers(1f)
+            else renderSharedViewerLayers(0f)
             logMediaEntry("entry_waiting_for_renderer", reason)
             // Free the publication gate while preserving the Session and input lease.
             val pending = transitionPendingSwipePublication
@@ -6104,7 +6190,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun showAppOwnedEntryPreview(entry: PhotoTransitionCompletionGate) {
         val source = transitionSession.readStaticPhotoSource(transitionSession.entry)
         val bitmap = transitionSession.readEntryPreview(transitionSession.entry)
+        val backdrop = transitionSession.readEntryBackdrop(transitionSession.entry)
         appEntryBitmap = bitmap
+        if (backdrop != null) addAppEntryBackdrop(backdrop)
         if (source != null && bitmap != null) {
             addAppEntryFallbackPreview(source, bitmap)
             val generation = ++appEntryGeneration
@@ -6118,15 +6206,48 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             }
         } else {
             logMediaEntry("app_entry_preview_unavailable")
-            if (source == null) {
+            if (source == null && backdrop == null) {
                 // Non-static media (video/unsupported) has no measured thumbnail
-                // geometry. Keep the pre-existing early window fade instead of
-                // holding the Grid on screen without any feedback.
+                // geometry and no frozen page. Keep the pre-existing early window
+                // fade instead of holding the Grid on screen without any feedback.
                 startAppEntryAnimator(entry)
             }
         }
         scheduleAppEntryStart(entry)
         logMediaEntry("app_entry_preview")
+    }
+
+    /**
+     * Frame zero of the app-owned entry: the exact Grid page captured before the
+     * launch. It sits below the black scrim and below the photo preview, so the
+     * entry opens from the page the user tapped instead of a black window.
+     * The view is removed and its bitmap recycled when the entry finishes.
+     */
+    private fun addAppEntryBackdrop(bitmap: Bitmap) {
+        if (appEntryBackdropView != null || bitmap.isRecycled) return
+        val view = android.widget.ImageView(this).apply {
+            scaleType = android.widget.ImageView.ScaleType.FIT_XY
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            isClickable = false
+            isFocusable = false
+            setImageBitmap(bitmap)
+        }
+        binding.root.addView(view, 0, android.widget.RelativeLayout.LayoutParams(
+            android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
+            android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
+        ))
+        appEntryBackdropView = view
+        appEntryBackdropBitmap = bitmap
+    }
+
+    private fun removeAppEntryBackdrop() {
+        appEntryBackdropView?.let {
+            binding.root.removeView(it)
+            it.setImageDrawable(null)
+        }
+        appEntryBackdropView = null
+        appEntryBackdropBitmap?.takeIf { !it.isRecycled }?.recycle()
+        appEntryBackdropBitmap = null
     }
 
     private fun addAppEntryFallbackPreview(source: org.fossify.gallery.helpers.StaticPhotoSource, bitmap: Bitmap) {
@@ -6260,6 +6381,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             })
         }
         appEntryAnimator = animator
+        ViewerEntryDiagnostics.event(viewerDiagnosticSessionId, "viewer_entry_clock_started") {
+            mapOf("durationMs" to PhotoViewerTransition.DURATION_MS,
+                "backdrop" to (appEntryBackdropView != null),
+                "preview" to (appEntryPreviewSurface != null))
+        }
         applyAppEntryProgress(0f)
         animator.start()
     }
@@ -6279,10 +6405,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             viewerSystemBarProgress = clamped
             updateViewerSystemBars()
         }
-        // Only the layer alpha moves; the window remains opaque for WindowManager,
-        // so the back-eligibility recorded at launch is unaffected.
-        if (window.attributes.alpha != clamped) {
-            window.attributes = window.attributes.apply { alpha = clamped }
+        // With a frozen launch page the window is opaque from frame zero: the
+        // Grid pixels are painted inside it, not revealed through window alpha.
+        // Without one, only the layer alpha moves; the window remains opaque for
+        // WindowManager either way, so back eligibility is unaffected.
+        val targetWindowAlpha = if (appEntryBackdropView != null) 1f else clamped
+        if (window.attributes.alpha != targetWindowAlpha) {
+            window.attributes = window.attributes.apply { alpha = targetWindowAlpha }
         }
     }
 

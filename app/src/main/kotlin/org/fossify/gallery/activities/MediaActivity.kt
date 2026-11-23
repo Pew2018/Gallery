@@ -35,6 +35,15 @@ import org.fossify.gallery.helpers.MediaPublicationStage
 import org.fossify.gallery.helpers.MediaRequestDiagnostics
 import org.fossify.gallery.helpers.ViewerScopeType
 import org.fossify.gallery.helpers.ViewerReturnDiagnostics
+import org.fossify.gallery.helpers.ViewerReturnTargetReason
+import org.fossify.gallery.helpers.ViewerReturnTargetEvidence
+import org.fossify.gallery.helpers.ViewerReturnTargetProbe
+import org.fossify.gallery.helpers.ViewerCachedReturnAnchorReason
+import org.fossify.gallery.helpers.ViewerCachedReturnAnchorEvidence
+import org.fossify.gallery.helpers.ViewerCachedReturnAnchorPolicy
+import org.fossify.gallery.helpers.StaticPhotoFileVersion
+import org.fossify.gallery.helpers.PhotoWindowGeometry
+import org.fossify.gallery.helpers.PhotoBox
 import org.fossify.gallery.helpers.PhotoViewerReturnTarget
 import org.fossify.gallery.helpers.InteractiveGridThumbnail
 import org.fossify.gallery.helpers.MediaTransitionHandoff
@@ -73,6 +82,7 @@ import android.app.SharedElementCallback
 import android.app.WallpaperManager
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Matrix
 import android.os.Build
 import android.os.Bundle
@@ -274,10 +284,41 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val destination: GridReturnTarget,
         val visibility: InteractiveGridThumbnail,
         val leases: MediaTransitionSessionCoordinator.Leases,
+        val coveredParent: Boolean = false,
+    )
+
+    /**
+     * The verified Grid geometry frozen at Viewer launch.
+     *
+     * The Viewer covers this Activity, so the live ImageView can stop satisfying
+     * `isShown` even though its identity, adapter version and pixels are intact.
+     * This anchor is only consulted after those invariants have been re-checked;
+     * it is never an unconditional replay of the launch coordinates.
+     */
+    private class ViewerReturnAnchor(
+        val launch: Long,
+        val path: String,
+        val positionIndex: Int,
+        val signature: String,
+        val adapter: MediaAdapter,
+        val adapterVersion: Long,
+        val scope: ViewerLaunchOrigin,
+        val source: StaticPhotoSource,
+        val image: WeakReference<ImageView>,
+        val drawable: WeakReference<android.graphics.drawable.Drawable>,
+        val loadedKey: Any,
     )
 
     private var gridEntryPixels: GridEntryPixels? = null
     private var interactiveGridTarget: InteractiveGridTarget? = null
+    private var viewerReturnAnchor: ViewerReturnAnchor? = null
+    private var lastReturnProbeOperation: Token? = null
+    private var lastReturnProbeReason: ViewerReturnTargetReason? = null
+    private var lastReturnProbeAccepted = false
+    private var lastReturnProbeSource: String? = null
+    private var lastReturnAnchorOperation: Token? = null
+    private var lastReturnAnchorReason: ViewerCachedReturnAnchorReason? = null
+    private var viewerReturnProbeId = 0L
 
     private val gridPreview = object : MediaTransitionSessionCoordinator.GridPreview {
         override fun entryFinished(token: Token) {
@@ -290,11 +331,35 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             // suppressed; it must not wait for an Activity reenter that never runs.
             interactiveGridTarget?.takeIf { it.operation == token && it.path == path }?.let { preview ->
                 val target = preview.destination
-                if (target.position.adapter.committedVersion != target.position.version ||
-                    !pixelsStillBound(target, path)) return null
-                val source = measuredPhotoReturnTarget(target, path, token) ?: return null
-                return StaticPhotoReturnTarget(source, target.drawable)
+                if (target.position.adapter.committedVersion == target.position.version &&
+                    pixelsStillBound(target, path)) {
+                    val source = measuredPhotoReturnTarget(target, path, token)
+                    if (source != null) return StaticPhotoReturnTarget(source, target.drawable)
+                }
             }
+            // The Viewer covers this Activity, so the live thumbnail can report
+            // isShown=false while its identity, pixels and rectangle are intact.
+            // Prefer the live measurement when it is still legal, then the
+            // launch-time anchor after re-validating every invariant.
+            val probe = probeViewerReturnTarget(token, path)
+            var resolvedSource: String? = null
+            val live = probe.target
+            if (live != null) {
+                val source = measuredPhotoReturnTarget(live, path, token)
+                if (source != null) {
+                    resolvedSource = if (probe.coveredParent) "covered_grid" else "live_grid"
+                    logViewerReturnTargetProbe(token, path, probe, "app_return", true, resolvedSource)
+                    return StaticPhotoReturnTarget(source, live.drawable)
+                }
+            }
+            val anchor = cachedViewerReturnTarget(token, path)
+            if (anchor != null) resolvedSource = "cached_anchor"
+            logViewerReturnTargetProbe(
+                token, path, probe, "app_return",
+                resolved = resolvedSource != null,
+                resolvedSource = resolvedSource ?: "none",
+            )
+            if (anchor != null) return anchor
             val request = viewerReturn?.takeIf { it.operation == token && it.path == path } ?: return null
             val target = request.target ?: return null
             val source = request.photoTarget ?: return null
@@ -340,8 +405,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             (isPhotoProfiles && photoNeedsUnlock) ||
             (mPath == FAVORITES && !FavoriteAccessSessionManager.isCapturedPath(favoriteSessionId, path))) return
         val sourceRestored = restoreGridEntryPixels()
-        val target = readViewerReturnTarget(path, viewerReturnPosition(path))
-        if (target != null) {
+        val probe = probeViewerReturnTarget(operation, path)
+        logViewerReturnTargetProbe(operation, path, probe, "interactive_preview")
+        val target = probe.target
+        if (target != null && !probe.coveredParent) {
             val visibility = InteractiveGridThumbnail.suppress(target.image)
             val leases = session.leases()
             val preview = InteractiveGridTarget(operation, path, target, visibility, leases)
@@ -349,7 +416,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             val observer = grid.viewTreeObserver
             val beforeDraw = ViewTreeObserver.OnPreDrawListener {
                 if (!isInteractiveGridTargetBound(preview) || !viewerLaunchOriginMatches() ||
-                    isMediaGridMoving || !target.image.isShown || !hasUsableViewerReturnBounds(target.image)) {
+                    isMediaGridMoving || !hasUsableViewerReturnBounds(target.image)) {
                     gridPreview.release(operation)
                 }
                 true
@@ -366,11 +433,218 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             } else visibility.restore()
         }
         session.gridPreviewEvent(operation, when {
-            target == null && sourceRestored -> "source_restored_no_target"
-            target == null -> "no_target"
-            sourceRestored -> "source_restored_target_hidden"
-            else -> "target_hidden"
+            target != null && !probe.coveredParent && sourceRestored -> "source_restored_target_hidden"
+            target != null && !probe.coveredParent -> "target_hidden"
+            target != null -> "covered_parent_target:${probe.reason.name.lowercase()}"
+            cachedViewerReturnTarget(operation, path, log = false) != null ->
+                "cached_anchor:${probe.reason.name.lowercase()}"
+            sourceRestored -> "source_restored_no_target:${probe.reason.name.lowercase()}"
+            else -> "no_target:${probe.reason.name.lowercase()}"
         })
+    }
+
+    private data class ViewerReturnProbeResult(
+        val target: GridReturnTarget?,
+        val reason: ViewerReturnTargetReason,
+        val coveredParent: Boolean,
+    )
+
+    /**
+     * Measures the live Grid target without equating "is the parent Window
+     * currently composing this ImageView" with "does a legal return geometry
+     * still exist". A covered parent is reported as such and accepted only when
+     * identity, pixels, adapter version and the rectangle are all intact.
+     */
+    private fun probeViewerReturnTarget(operation: Token, path: String): ViewerReturnProbeResult {
+        val grid = binding.mediaGrid
+        val position = viewerReturnPosition(path)
+        val scopeMatches = viewerLaunchOriginMatches() && !(isPhotoProfiles && photoNeedsUnlock) &&
+            (mPath != FAVORITES || FavoriteAccessSessionManager.isCapturedPath(favoriteSessionId, path))
+        val gridSettled = !isMediaGridMoving && !grid.isLayoutRequested && !grid.isComputingLayout &&
+            !grid.hasPendingAdapterUpdates() && !grid.isAnimating
+        val holder = if (position != null && position.index >= 0 && gridSettled) {
+            findViewerReturnHolder(path, position)
+        } else null
+        val image = holder?.itemView?.findViewById<ImageView>(R.id.medium_thumbnail)
+        val boundPath = image?.getTag(R.id.media_bound_path) as? String
+        val drawable = image?.drawable
+        val loadedKey = image?.getTag(R.id.thumbnail_loaded_key)
+        val medium = position?.let { it.adapter.media.getOrNull(it.index) as? Medium }
+        val visible = android.graphics.Rect()
+        val attached = image?.isAttachedToWindow == true && !image.isLayoutRequested
+        val boundsUsable = image != null && attached && hasUsableViewerReturnBounds(image, visible)
+        val previewOwnsAlpha = interactiveGridTarget?.let {
+            it.operation == operation && it.destination.image === image && isInteractiveGridTargetBound(it)
+        } == true
+        val parentWindowVisible = image?.isShown == true && image.windowVisibility == View.VISIBLE
+        val targetVisible = image != null && (image.alpha > 0f || previewOwnsAlpha) &&
+            (Build.VERSION.SDK_INT < 29 || image.transitionAlpha > 0f || previewOwnsAlpha)
+        val evidence = ViewerReturnTargetEvidence(
+            scopeMatches = scopeMatches,
+            hasPosition = position != null && position.index >= 0,
+            gridSettled = gridSettled,
+            holderBound = holder != null && image != null,
+            pixelsBound = drawable != null && loadedKey != null && image != null &&
+                PhotoViewerReturnTarget.isLoadedFor(
+                    path, boundPath, image.getTag(R.id.thumbnail_request_key), loadedKey,
+                ),
+            identityMatches = boundPath == path && medium?.path == path,
+            attached = attached,
+            boundsUsable = boundsUsable,
+            parentWindowVisible = parentWindowVisible,
+            targetVisible = targetVisible,
+            geometryUsable = boundsUsable,
+        )
+        val decision = ViewerReturnTargetProbe.decide(evidence)
+        if (!decision.accepted || position == null || holder == null || image == null ||
+            drawable == null || loadedKey == null) {
+            return ViewerReturnProbeResult(null, decision.reason, decision.geometryFromCoveredParent)
+        }
+        val location = IntArray(2).also(image::getLocationOnScreen)
+        val bounds = android.graphics.Rect(location[0], location[1], location[0] + image.width, location[1] + image.height)
+        return ViewerReturnProbeResult(
+            GridReturnTarget(position, holder, image, drawable, loadedKey, bounds, visible,
+                image.scaleType, Matrix(image.imageMatrix)),
+            decision.reason,
+            decision.geometryFromCoveredParent,
+        )
+    }
+
+    /** Low-frequency probe evidence: once per operation and reason transition. */
+    private fun logViewerReturnTargetProbe(
+        operation: Token,
+        path: String,
+        probe: ViewerReturnProbeResult,
+        source: String,
+        resolved: Boolean = probe.target != null,
+        resolvedSource: String = if (probe.coveredParent) "covered_grid" else "live_grid",
+    ) {
+        if (lastReturnProbeOperation == operation && lastReturnProbeReason == probe.reason &&
+            lastReturnProbeAccepted == resolved && lastReturnProbeSource == resolvedSource) return
+        lastReturnProbeOperation = operation
+        lastReturnProbeReason = probe.reason
+        lastReturnProbeAccepted = resolved
+        lastReturnProbeSource = resolvedSource
+        if (viewerReturnProbeId != 0L) {
+            ViewerReturnDiagnostics.event(viewerReturnProbeId, "viewer_return_target_probe") {
+                mapOf(
+                    "source" to source,
+                    "reason" to probe.reason.name,
+                    "accepted" to resolved,
+                    "coveredParent" to probe.coveredParent,
+                    "mediaId" to GalleryDiagnosticLogger.anonymousId(path),
+                    "runtimeSessionId" to operation.sessionId,
+                    "runtimeOperationId" to operation.operationId,
+                    "adapterVersion" to getMediaAdapter()?.committedVersion,
+                    "scrollState" to binding.mediaGrid.scrollState,
+                )
+            }
+            ViewerReturnDiagnostics.event(
+                viewerReturnProbeId,
+                if (resolved) "viewer_return_target_resolved" else "viewer_return_target_unavailable",
+            ) {
+                mapOf(
+                    "source" to if (resolved) resolvedSource else "none",
+                    "reason" to probe.reason.name,
+                    "mediaId" to GalleryDiagnosticLogger.anonymousId(path),
+                    "runtimeOperationId" to operation.operationId,
+                )
+            }
+        }
+    }
+
+    /**
+     * Resolves the launch-time anchor only while every identity, version and
+     * geometry invariant still holds. A switched page, a deleted/re-sorted item,
+     * a rebound holder, a changed file version or a changed window aperture all
+     * reject it instead of recycling the old picture.
+     */
+    private fun cachedViewerReturnTarget(
+        operation: Token,
+        path: String,
+        log: Boolean = true,
+    ): StaticPhotoReturnTarget? {
+        val anchor = viewerReturnAnchor
+        val session = transitionSession
+        var reason = ViewerCachedReturnAnchorReason.READY
+        var result: StaticPhotoReturnTarget? = null
+        val returnActive = session != null && session.returnOperation == operation &&
+            (session.state == MediaTransitionSessionCoordinator.State.INTERACTIVE_RETURN ||
+                session.isReturning(operation))
+        if (anchor != null && returnActive) {
+            val adapter = getMediaAdapter()
+            val position = adapter?.media?.indexOfFirst { (it as? Medium)?.path == path } ?: -1
+            val medium = position.takeIf { it >= 0 }?.let { adapter?.media?.getOrNull(it) as? Medium }
+            val drawable = anchor.drawable.get()
+            val image = anchor.image.get()
+            val fileVersion = runCatching { StaticPhotoFileVersion.read(path) }.getOrNull()
+            val windowNow = currentGridWindowGeometry()
+            val imageStillHoldsPixels = image == null || (
+                image.drawable === drawable && image.getTag(R.id.media_bound_path) == path &&
+                    image.getTag(R.id.thumbnail_loaded_key) === anchor.loadedKey &&
+                    image.isAttachedToWindow
+                )
+            val decision = ViewerCachedReturnAnchorPolicy.decide(
+                ViewerCachedReturnAnchorEvidence(
+                    launchMatches = anchor.launch == viewerReturnLaunch,
+                    scopeMatches = anchor.scope == viewerLaunchOrigin &&
+                        anchor.scope == currentViewerLaunchOrigin(),
+                    pathStillSelected = medium != null,
+                    adapterVersionMatches = adapter === anchor.adapter &&
+                        adapter.committedVersion == anchor.adapterVersion,
+                    mediaIdentityMatches = medium != null && medium.path == path &&
+                        medium.getSignature() == anchor.signature && position == anchor.positionIndex,
+                    fileVersionMatches = fileVersion?.matchesGrid(anchor.source) == true,
+                    // The stopped Grid window can report a different visible
+                    // display frame once system bars are reconfigured. Width is
+                    // the stable orientation/aperture invariant; the measured
+                    // thumbnail rectangle itself is re-derived from the anchor.
+                    windowGeometryMatches = windowNow != null &&
+                        kotlin.math.abs(windowNow.visible.width -
+                            anchor.source.view.window.visible.width) <= 1f,
+                    drawableAvailable = drawable != null && drawable.constantState != null &&
+                        imageStillHoldsPixels,
+                )
+            )
+            reason = decision.reason
+            if (decision.accepted && drawable != null) {
+                result = StaticPhotoReturnTarget(anchor.source, drawable)
+            }
+        } else if (anchor == null) {
+            reason = ViewerCachedReturnAnchorReason.LAUNCH_CHANGED
+        } else {
+            reason = ViewerCachedReturnAnchorReason.LAUNCH_CHANGED
+        }
+        if (log && viewerReturnProbeId != 0L &&
+            (lastReturnAnchorOperation != operation || lastReturnAnchorReason != reason)) {
+            lastReturnAnchorOperation = operation
+            lastReturnAnchorReason = reason
+            ViewerReturnDiagnostics.event(
+                viewerReturnProbeId,
+                if (result != null) "viewer_return_target_resolved" else "viewer_return_target_unavailable",
+            ) {
+                mapOf(
+                    "source" to if (result != null) "cached_anchor" else "none",
+                    "reason" to reason.name,
+                    "mediaId" to GalleryDiagnosticLogger.anonymousId(path),
+                    "runtimeOperationId" to operation.operationId,
+                )
+            }
+        }
+        return result
+    }
+
+    private fun currentGridWindowGeometry(): PhotoWindowGeometry? {
+        val grid = binding.mediaGrid
+        if (!grid.isAttachedToWindow) return null
+        val bounds = android.graphics.Rect().also(grid::getWindowVisibleDisplayFrame)
+        if (bounds.width() <= 0 || bounds.height() <= 0) return null
+        @Suppress("DEPRECATION")
+        val insets = grid.rootWindowInsets?.let {
+            listOf(it.systemWindowInsetLeft, it.systemWindowInsetTop,
+                it.systemWindowInsetRight, it.systemWindowInsetBottom)
+        }.orEmpty()
+        return PhotoWindowGeometry(PhotoBox(android.graphics.RectF(bounds)), insets)
     }
 
     private fun restoreGridEntryPixels(): Boolean {
@@ -4919,6 +5193,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         viewerLaunchInProgress = true
         initialFolderTop = false
         viewerLaunchOrigin = currentViewerLaunchOrigin()
+        viewerReturnAnchor = null
+        viewerReturnProbeId = ViewerEntryDiagnostics.newRequest()
         return runCatching {
             launchPhotoViewerWithSharedElement(intent, path)
             true
@@ -5090,8 +5366,29 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
             intent.putExtra(PhotoViewerTransition.EXTRA_PATH, path)
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 intent.putExtra(PhotoViewerTransition.EXTRA_APP_OWNED_ENTRY, true)
+                // The opaque Viewer covers and stops this window, so its transparent
+                // first frames would show black, not the Grid. Freeze the exact
+                // visible page once and let the Viewer paint it as frame zero.
+                captureViewerEntryBackdrop()?.let { session.publishEntryBackdrop(session.entry, it) }
                 // The geometry the Viewer will animate from is frozen before the launch.
-                if (staticSnapshot != null) session.confirmStaticPhotoSource(session.entry, readStaticSource())
+                if (staticSnapshot != null) {
+                    session.confirmStaticPhotoSource(session.entry, readStaticSource())
+                    val confirmed = session.readStaticPhotoSource(session.entry, requireConfirmed = true)
+                        ?: staticSnapshot
+                    viewerReturnAnchor = ViewerReturnAnchor(
+                        launch = returnLaunch,
+                        path = path,
+                        positionIndex = position,
+                        signature = confirmed.signature,
+                        adapter = adapter,
+                        adapterVersion = adapter.committedVersion,
+                        scope = currentViewerLaunchOrigin(),
+                        source = confirmed,
+                        image = WeakReference(thumbnail),
+                        drawable = WeakReference(sourceDrawable),
+                        loadedKey = sourceKey,
+                    )
+                }
                 // Deliberately no ActivityOptions.makeSceneTransitionAnimation and no
                 // shared-element exit/reenter transition: that launch marks the Viewer
                 // ActivityRecord as a scene transition for its whole life and the platform
@@ -5269,11 +5566,27 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener {
         val session = transitionSession ?: return
         transitionSession = null
         gridEntryPixels = null
+        viewerReturnAnchor = null
         MediaTransitionHandoff.withdraw(session)
         if (reason != "grid_destroyed" || !session.viewerAttached) {
             if (session.outcome == null) session.cancel(reason)
             session.clean()
         }
+    }
+
+    private fun captureViewerEntryBackdrop(): Bitmap? {
+        if (!OxygenClassicMotion.enabled(this) || isFinishing || isDestroyed) return null
+        val decor = runCatching { window.decorView }.getOrNull() ?: return null
+        val width = decor.width
+        val height = decor.height
+        if (width <= 0 || height <= 0) return null
+        return runCatching {
+            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+                val canvas = Canvas(bitmap)
+                canvas.drawColor(OxygenThemeEngine.snapshot(this, config).pageBackground)
+                decor.draw(canvas)
+            }
+        }.getOrElse { null }
     }
 
     private fun launchViewerWithoutSharedElement(intent: Intent) {
