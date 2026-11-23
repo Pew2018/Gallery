@@ -26,7 +26,7 @@
 | `helpers/ViewerReturnVisualClock.kt`（新增） | 单时钟剩余量；终态最多提交一次；取消不回写；新回程重新武装 | P0-A 终态幂等 |
 | `activities/ViewPagerActivity.kt` | `renderSystemBackProgress` 改用 `resume()`；`onSharedReturnTerminal` 改走 `ViewerReturnVisualClock`；`mediaDismissSettled` 使用 `settleDurationMs()`；取消回弹结束时补做 lease 清理 | P0-A / P0-B |
 | `helpers/OxygenSystemBars.kt` | `applyViewer()` 读后写：只有实际变化才写窗口属性/图标明暗/状态栏 underlay，并返回是否写入 | P0-C 减少回程逐帧重复写入 |
-| `PhotoViewerInitializationTest` | 新增接管进度、取消恢复、终态不重复提交 3 个 Activity 级测试 | 行为验证 |
+| `PhotoViewerInitializationTest` | 新增接管进度/取消恢复、终态不重复提交 2 个 Activity 级测试 | 行为验证 |
 | `ViewerReturnProgressTest` / `ViewerReturnVisualClockTest`（新增） | 纯逻辑边界测试 | 行为验证 |
 | `OxygenSystemBarsTest` | 重复状态不写、变化状态必须写 | P0-C |
 
@@ -252,8 +252,8 @@ Viewer appbar 会出现两套工具栏；置 0 后由 scrim 继续遮住父页�
 
 - `ViewerReturnProgressTest`（5）
 - `ViewerReturnVisualClockTest`（5）
-- `PhotoViewerInitializationTest`（29，含新增 3）
-- `OxygenSystemBarsTest`（7，含新增 1）
+- `PhotoViewerInitializationTest`（29 个方法，含新增 2）
+- `OxygenSystemBarsTest`（4 个方法，跨 SDK 共 7 次执行，含新增 1）
 
 回归测试（全部通过）：
 
@@ -267,7 +267,20 @@ Viewer appbar 会出现两套工具栏；置 0 后由 scrim 继续遮住父页�
 - `PhotoProfileManageActivityTest`（2）
 - `OxygenClassicActivityMotionTest`（7）
 
-## 8. 仍需 Pixel 8 Pro 真机验收
+## 8. GitHub Actions 交付
+
+- Workflow：`Arm64 FOSS Release APK (non-publishing)`
+- Run：<https://github.com/Pew2018/Gallery/actions/runs/45128600032>
+- 源码提交：`c52c44c7cfc2b68747e90cf2e6c45b705fe33422`
+- 状态：success（`Assemble FOSS arm64-v8a Release ONLY`、APK 校验、artifact 上传全部通过）
+- Artifact：`gallery-foss-arm64-v8a-release`
+- APK SHA-256：`dec6ee5820df72a0fff12b7bf3fb3ca61cca76f968a4cbd59c39afeed24f934c`
+- 校验结果：`package=org.fossify.gallery`、`versionCode=32`、`versionName=1.14.1`、
+  `targetSdk=36`、native code 仅 `arm64-v8a`、APK Signature Scheme v2 通过。
+- 签名模式：`temporary-CI-not-upgrade-compatible`。本仓库未配置 release secrets，
+  CI 按 workflow 的既有 fallback 生成临时测试签名；安装前需要卸载旧版本，不能覆盖升级。
+
+## 9. 仍需 Pixel 8 Pro 真机验收
 
 以下项目**没有**在本轮完成真机逐帧验收：
 
