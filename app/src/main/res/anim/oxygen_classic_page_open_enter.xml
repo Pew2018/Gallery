@@ -1,10 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Entry of every ordinary (non-Viewer) page, OxygenOS 4.5.15 Classic.
+
+     This one resource is the OPEN branch for both eras:
+       - Android 13 and below: AppTransition reads activityOpenEnterAnimation from
+         the window animation style (OxygenClassicPageWindow).
+       - Android 14+: Transition.calculateAnimationOptionsForActivityTransition
+         attaches ANIM_FROM_STYLE with our window style, and TransitionAnimationHelper
+         .loadAttributeAnimation reads activityOpenEnterAnimation from it
+         (OxygenClassicPageBackWindow).
+     Both styles therefore map the same attribute to this file, so a second
+     animation never runs on top of the first.
+
+     Shape: opacity plus a short inline offset, no scale. The reference ROM never
+     resizes a page, and a page-level scale reads as a Material card zoom. The offset
+     is a dimen so values-ldrtl can mirror it to -8dp and a forward page still
+     arrives from the inline start edge in RTL. -->
 <set xmlns:android="http://schemas.android.com/apk/res/android"
     android:interpolator="@android:interpolator/fast_out_slow_in">
-    <alpha android:fromAlpha="0.94" android:toAlpha="1.0" android:duration="@integer/oxygen_classic_page_enter_duration_ms" />
-    <scale android:fromXScale="0.985" android:toXScale="1.0"
-        android:fromYScale="0.985" android:toYScale="1.0"
-        android:pivotX="50%" android:pivotY="50%"
+    <alpha
+        android:fromAlpha="0.96"
+        android:toAlpha="1.0"
         android:duration="@integer/oxygen_classic_page_enter_duration_ms" />
-    <translate android:fromXDelta="@dimen/oxygen_classic_page_enter_offset" android:toXDelta="0dp" android:duration="@integer/oxygen_classic_page_enter_duration_ms" />
+    <translate
+        android:fromXDelta="@dimen/oxygen_classic_page_enter_offset"
+        android:toXDelta="0dp"
+        android:duration="@integer/oxygen_classic_page_enter_duration_ms" />
 </set>

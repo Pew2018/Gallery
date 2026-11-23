@@ -46,13 +46,22 @@
     <dimen name="oxygen_classic_dialog_motion_distance">6dp</dimen>
 
     <!-- Activity Window motion tokens; kept in XML for WindowManager-owned transitions. -->
-    <integer name="oxygen_classic_page_enter_duration_ms">170</integer>
+    <integer name="oxygen_classic_page_enter_duration_ms">180</integer>
     <integer name="oxygen_classic_page_exit_duration_ms">140</integer>
+    <!-- Mirrored to -8dp in values-ldrtl: window animations are evaluated on the
+         surface, so RTL cannot be resolved from the view's layout direction. -->
     <dimen name="oxygen_classic_page_enter_offset">8dp</dimen>
     <dimen name="oxygen_classic_page_return_offset">10dp</dimen>
+
+    <!-- Legacy page window (Android 13 and below). windowEnterAnimation is the
+         window-level TRANSIT_ENTER animation; Activity opens never read it. They read
+         activityOpenEnterAnimation (AppTransition.loadAnimation, TRANSIT_OLD_ACTIVITY_OPEN),
+         which has to be declared here as well, otherwise the style resolves it to 0 and
+         the platform plays no open animation at all. -->
     <style name="OxygenClassicPageWindow">
         <item name="android:windowEnterAnimation">@anim/oxygen_classic_page_open_enter</item>
         <item name="android:windowExitAnimation">@anim/oxygen_classic_page_open_exit</item>
+        <item name="android:activityOpenEnterAnimation">@anim/oxygen_classic_page_open_enter</item>
     </style>
 
     <!-- Post-commit clock of the platform's cross-Activity back animation.
@@ -92,9 +101,21 @@
            currentClosingRect at the release position and never advances it. Identity
            would leave the page standing still until the window is torn down, which is
            the hard cut this pair must not reintroduce.
-         Only the CLOSE pair is declared so opening a page keeps the platform default
-         open transition. -->
+
+         OPEN is declared here for the *opposite* reason: leaving it out does not keep
+         the platform default open transition. Once a main window declares a non-zero
+         windowAnimations style, Transition.calculateAnimationOptionsForActivityTransition
+         attaches ANIM_FROM_STYLE with that style, and TransitionAnimationHelper
+         .loadAttributeAnimation then reads activityOpenEnterAnimation *from our style
+         only* - it never falls back to the framework default. A CLOSE-only style
+         therefore resolved OPEN to 0 and the open transition finished with no
+         animation at all (DefaultTransitionHandler finishes immediately when no
+         animator was attached). Declaring the same resource the legacy style uses
+         restores one animation on both eras; the CLOSE pair is untouched, so
+         BackNavigationController.isCustomizeExitAnimation keeps selecting this custom
+         branch. -->
     <style name="OxygenClassicPageBackWindow">
+        <item name="android:activityOpenEnterAnimation">@anim/oxygen_classic_page_open_enter</item>
         <item name="android:activityCloseEnterAnimation">@anim/oxygen_classic_page_back_enter</item>
         <item name="android:activityCloseExitAnimation">@anim/oxygen_classic_page_back_exit</item>
     </style>

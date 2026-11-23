@@ -2,12 +2,10 @@ package org.fossify.gallery.helpers
 
 import android.app.Activity
 import android.app.Application
-import android.view.animation.AlphaAnimation
 import android.view.animation.AnimationSet
 import android.view.animation.AnimationUtils
 import android.view.animation.ScaleAnimation
 import android.util.TypedValue
-import android.view.animation.TranslateAnimation
 import androidx.appcompat.app.AppCompatActivity
 import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
@@ -46,7 +44,7 @@ class OxygenClassicActivityMotionTest {
         val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
         OxygenClassicActivityMotion.install(activity)
         assertEquals(R.style.OxygenClassicPageWindow, activity.window.attributes.windowAnimations)
-        assertEquals(170, activity.resources.getInteger(R.integer.oxygen_classic_page_enter_duration_ms))
+        assertEquals(180, activity.resources.getInteger(R.integer.oxygen_classic_page_enter_duration_ms))
         assertEquals(140, activity.resources.getInteger(R.integer.oxygen_classic_page_exit_duration_ms))
         activity.finish()
     }
@@ -93,16 +91,25 @@ class OxygenClassicActivityMotionTest {
         assertTrue(transitions.data != 0)
     }
 
-    @Test fun folderPageEntryUsesShortLayeredMotionWithoutAFullBlackStart() {
+    @Test fun folderPageEntryIsOpacityAndInlineOffsetOnly() {
         val activity = Robolectric.buildActivity(AppCompatActivity::class.java).setup().get()
         val motion = AnimationUtils.loadAnimation(activity, R.anim.oxygen_classic_page_open_enter)
             as AnimationSet
         val layers = motion.animations
-        assertEquals(3, layers.size)
-        assertTrue(layers.any { it is AlphaAnimation })
-        assertTrue(layers.any { it is ScaleAnimation })
-        assertTrue(layers.any { it is TranslateAnimation })
-        assertTrue(layers.all { it.duration == 170L })
+        // A page never scales: the reference ROM only changes opacity and position, and a
+        // page-level scale would read as the Material card zoom the task rules out.
+        assertEquals(2, layers.size)
+        assertTrue(layers.none { it is ScaleAnimation })
+        assertTrue(layers.all { it.duration == 180L })
+        val density = activity.resources.displayMetrics.density
+        val start = animationFrame(motion, 0f)
+        val end = animationFrame(motion, 1f)
+        assertEquals(0.96f, start.alpha, 0.001f)
+        assertEquals(1f, end.alpha, 0.001f)
+        assertEquals(8f * density, translationX(start.matrix), 0.01f)
+        assertEquals(0f, translationX(end.matrix), 0.01f)
+        assertEquals(1f, scaleX(start.matrix), 0.001f)
+        assertEquals(0f, translationY(start.matrix), 0.001f)
         activity.finish()
     }
 }

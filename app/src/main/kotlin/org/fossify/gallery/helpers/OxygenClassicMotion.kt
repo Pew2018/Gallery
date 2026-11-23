@@ -2,6 +2,7 @@ package org.fossify.gallery.helpers
 
 import android.content.Context
 import android.provider.Settings
+import android.view.View
 import android.view.animation.PathInterpolator
 
 /**
@@ -34,11 +35,44 @@ object OxygenClassicMotion {
     const val SETTINGS_ENTER_MS = ClassicSettingsPageTransition.DURATION_MS
     const val SETTINGS_DISTANCE_DP = ClassicSettingsPageTransition.DISTANCE_DP
 
+    /**
+     * Ordinary page entry. Owned by the Activity window transition on every API level:
+     * Android 14+ drives it through the platform Shell (activityOpenEnterAnimation on
+     * the page window style), below that through AppTransition. Nothing in a page may
+     * fade or translate itself on top of it.
+     */
+    const val PAGE_ENTRY_MS = 180L
+    const val PAGE_ENTRY_DISTANCE_DP = 8
+    const val PAGE_ENTRY_START_ALPHA = 0.96f
+
+    /**
+     * Nested folder level change. Owned by the grid container inside one page, so it
+     * carries the same weight as the page entry but on its own clock and without any
+     * window motion.
+     */
+    const val NESTED_FOLDER_MS = 170L
+    const val NESTED_FOLDER_DISTANCE_DP = 8
+    const val NESTED_FOLDER_START_ALPHA = 0.96f
+
     fun enabled(context: Context): Boolean = runCatching {
         Settings.Global.getFloat(
             context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f
         ) > 0f
     }.getOrDefault(true)
+
+    /**
+     * Physical X sign of a forward/backward page change: +1 enters from the right in
+     * LTR and -1 enters from the left in RTL. Callers multiply their start offset by
+     * this so both navigation semantics stay inline-start relative.
+     */
+    fun horizontalDirection(forward: Boolean, view: View): Int =
+        (if (forward) 1 else -1) * (if (resolvesRtl(view)) -1 else 1)
+
+    private fun resolvesRtl(view: View): Boolean {
+        val direction = if (view.isLayoutDirectionResolved) view.layoutDirection
+        else view.resources.configuration.layoutDirection
+        return direction == View.LAYOUT_DIRECTION_RTL
+    }
 
     fun easing() = PathInterpolator(0.4f, 0f, 0.2f, 1f)
 }

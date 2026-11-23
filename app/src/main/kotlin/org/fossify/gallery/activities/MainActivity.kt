@@ -911,8 +911,12 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
             incomingDirection = ClassicSettingsPageTransition.direction(false, binding.directoriesGrid),
             animationsEnabled = true,
             prepareTarget = { setupAdapter(mDirs) },
-            distanceDp = 18,
-            incomingStartAlpha = 0.84f
+            // Same tokens as the tap path in GalleryEntryMotion: the gesture settles on
+            // exactly the motion it previewed, and neither the distance nor the starting
+            // opacity can drift apart from the forward direction.
+            distanceDp = OxygenClassicMotion.NESTED_FOLDER_DISTANCE_DP,
+            incomingStartAlpha = OxygenClassicMotion.NESTED_FOLDER_START_ALPHA,
+            settleDurationMs = OxygenClassicMotion.NESTED_FOLDER_MS
         )
         if (step == null) {
             mOpenedSubfolders.clear()

@@ -26,9 +26,7 @@ object ClassicSettingsPageTransition {
         fun dispose() { if (!bitmap.isRecycled) bitmap.recycle() }
     }
 
-    fun direction(forward: Boolean, view: View): Int =
-        (if (forward) 1 else -1) * (if ((if (view.isLayoutDirectionResolved) view.layoutDirection
-            else view.resources.configuration.layoutDirection) == View.LAYOUT_DIRECTION_RTL) -1 else 1)
+    fun direction(forward: Boolean, view: View): Int = OxygenClassicMotion.horizontalDirection(forward, view)
 
     fun capture(container: View): Snapshot? {
         if (!container.isAttachedToWindow || container.width <= 0 || container.height <= 0) return null
@@ -58,6 +56,7 @@ object ClassicSettingsPageTransition {
         var progress: Float = 0f,
         var startAlpha: Float = 1f,
         var interactive: Boolean = false,
+        var settleDurationMs: Long = DURATION_MS,
         var detachListener: View.OnAttachStateChangeListener? = null
     )
 
@@ -124,7 +123,7 @@ object ClassicSettingsPageTransition {
             return
         }
         val animator = ValueAnimator.ofFloat(from, target).apply {
-            duration = (DURATION_MS * remaining).toLong().coerceAtLeast(1L)
+            duration = (run.settleDurationMs * remaining).toLong().coerceAtLeast(1L)
             interpolator = OxygenClassicMotion.easing()
             addUpdateListener { frame -> applyProgress(container, run, frame.animatedValue as Float) }
             addListener(object : AnimatorListenerAdapter() {
@@ -142,6 +141,10 @@ object ClassicSettingsPageTransition {
      * Starts an interactive page change. The caller switches to the destination page in
      * [prepareTarget]; cancelling is the caller's job, because only it knows the state
      * that was replaced.
+     *
+     * [distanceDp], [incomingStartAlpha] and [settleDurationMs] describe the *caller's*
+     * motion so a gesture-held step finishes on the same clock and weight as the tap
+     * path it replaces (nested folder levels use one set of tokens for both).
      */
     fun begin(
         container: View,
@@ -151,7 +154,8 @@ object ClassicSettingsPageTransition {
         prepareTarget: () -> Unit,
         onTitleCommit: () -> Unit = {},
         distanceDp: Int = DISTANCE_DP,
-        incomingStartAlpha: Float = 1f
+        incomingStartAlpha: Float = 1f,
+        settleDurationMs: Long = DURATION_MS
     ): Step? {
         if (!animationsEnabled) return null
         cancel(container, incoming)
@@ -164,6 +168,7 @@ object ClassicSettingsPageTransition {
         val run = Run(incoming, outgoing, onTitleCommit, {}, interactive = true)
         run.distance = dp(container, distanceDp) * incomingDirection
         run.startAlpha = incomingStartAlpha.coerceIn(0f, 1f)
+        run.settleDurationMs = settleDurationMs
         container.overlay.add(outgoing)
         runs[container] = run
         run.detachListener = object : View.OnAttachStateChangeListener {

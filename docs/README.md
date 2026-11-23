@@ -11,6 +11,7 @@
 
 - [媒体管线与诊断](media-engine-v2/README.md)、[诊断说明](diagnostics/app-diagnostics.md)
 - [界面精修](ui/oxygenos-classic-refinement/README.md)
+- [动画专题](animation/page-entry-motion/01-open-branch-audit-and-refinement.md)：普通页面进入动画的 OPEN 分支审计与 Classic 精修。
 - [备份与恢复](backup/)
 - [回归与设备测试](testing/)、[模拟器测试记录](emulator-testing/)
 - [其它界面/媒体专题](classic-dialog-review.md)、[媒体资源](media-assets.md)、[工具栏稳定性](Photo_Profile_Toolbar_Stability_2026-11-07.md)
