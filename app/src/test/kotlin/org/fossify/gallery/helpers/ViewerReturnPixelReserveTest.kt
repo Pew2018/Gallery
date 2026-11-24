@@ -142,6 +142,40 @@ class ViewerReturnPixelReserveTest {
             (reserve.take(requestKey("/a.jpg", "sig"), 64, 64) as BitmapDrawable).bitmap.getPixel(0, 0))
     }
 
+    /**
+     * C03: the request that produced the pixels being cleared (holder recycled,
+     * Glide.clear, ImageView rebound) must not invalidate the reservation.
+     */
+    @Test
+    fun c03ClearingTheSourceRequestLeavesTheReservationServable() {
+        val reserve = ViewerReturnPixelReserve(capacity = 3)
+        val bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(0xFF00FF00.toInt())
+        val source = BitmapDrawable(null, bitmap)
+        reserve.remember(requestKey("/a.jpg", "sig"), source)
+        // The holder is recycled: its ImageView drops the drawable and its request is
+        // cleared, which in Glide releases the engine resource.
+        val holder = android.widget.ImageView(org.robolectric.RuntimeEnvironment.getApplication())
+        holder.setImageDrawable(source)
+        holder.setImageDrawable(null)
+        assertEquals("the reservation survives the request's clearance", 0xFF00FF00.toInt(),
+            (reserve.take(requestKey("/a.jpg", "sig"), 64, 64) as BitmapDrawable).bitmap.getPixel(0, 0))
+    }
+
+    /**
+     * C05: once the reserve evicts an entry (capacity or budget), that media can only
+     * be served by a fresh decode - a stale entry must never come back.
+     */
+    @Test
+    fun c05AnEvictedEntryCannotBeServedLater() {
+        val reserve = ViewerReturnPixelReserve(capacity = 2)
+        reserve.remember(requestKey("/1.jpg", "sig"), pixels(64))
+        reserve.remember(requestKey("/2.jpg", "sig"), pixels(64))
+        reserve.remember(requestKey("/3.jpg", "sig"), pixels(64))
+        assertNull("an evicted entry must miss", reserve.take(requestKey("/1.jpg", "sig"), 64, 64))
+        assertTrue(reserve.contains(requestKey("/3.jpg", "sig"), 64, 64))
+    }
+
     /** A recycled source bitmap can still be served: the copy was made at remember(). */
     @Test
     fun c02TheSourceBitmapBeingRecycledDoesNotInvalidateTheReserve() {

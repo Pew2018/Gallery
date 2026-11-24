@@ -198,6 +198,9 @@ class PhotoFragment : ViewPagerFragment() {
             fields = mapOf(
                 "role" to deliveredImageRole,
                 "generation" to imageRequestGeneration,
+                "renderer" to rendererKind(),
+                "mediaId" to mMedium.path.let(org.fossify.gallery.helpers.GalleryDiagnosticLogger::anonymousId),
+                "viewerSessionId" to viewerSessionId(),
                 "source" to (if (resource is BitmapDrawable) "bitmap" else resource.javaClass.simpleName),
                 "intrinsic" to "${resource.intrinsicWidth}x${resource.intrinsicHeight}",
                 "imageWidth" to settings.imageWidth.takeIf { settings.hasImageSize() },
@@ -214,8 +217,11 @@ class PhotoFragment : ViewPagerFragment() {
 
     /** Records which pipeline stage delivered the current drawable (PREVIEW / FULL). */
     private fun reportResourceStage(resource: Drawable, dataSource: DataSource, isPreview: Boolean) {
-        if (!org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) return
+        // The role is bookkeeping, not logging: it must be correct even when
+        // diagnostics are off (the next binding's `viewer_entry_resource_bound`
+        // reports it, and tests pin the distinction).
         deliveredImageRole = if (isPreview) "PREVIEW" else "FULL"
+        if (!org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) return
         val requestedAt = activity?.intent
             ?.let { org.fossify.gallery.helpers.ViewerEntryDiagnostics.requestedAt(it) } ?: 0L
         org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
@@ -223,11 +229,26 @@ class PhotoFragment : ViewPagerFragment() {
             if (isPreview) "viewer_entry_preview_ready" else "viewer_entry_full_resource_ready",
             fields = mapOf(
                 "generation" to imageRequestGeneration,
+                "renderer" to rendererKind(),
+                "mediaId" to mMedium.path.let(org.fossify.gallery.helpers.GalleryDiagnosticLogger::anonymousId),
+                "viewerSessionId" to viewerSessionId(),
                 "cacheSource" to dataSource.name,
                 "intrinsic" to "${resource.intrinsicWidth}x${resource.intrinsicHeight}",
                 "entryElapsedMs" to org.fossify.gallery.helpers.ViewerEntryDiagnostics.elapsedSince(requestedAt),
             ))
     }
+
+    /** Which renderer currently owns the pixels, for diagnostics. */
+    private fun rendererKind(): String = when {
+        mIsSubsamplingVisible -> "subsampling"
+        binding.gifViewFrame.visibility == View.VISIBLE -> "gif"
+        else -> "glide"
+    }
+
+    /** The Viewer session that started this page, for cross-event correlation. */
+    private fun viewerSessionId(): Long =
+        activity?.intent?.getLongExtra(
+            org.fossify.gallery.helpers.ViewerEntryDiagnostics.EXTRA_VIEWER_SESSION_ID, 0L) ?: 0L
 
     internal fun entryRenderer(): View? = if (view != null && ::binding.isInitialized &&
         deliveredImage != null && binding.gesturesView.drawable === deliveredImage) binding.gesturesView else null
@@ -299,6 +320,9 @@ class PhotoFragment : ViewPagerFragment() {
                     fields = mapOf(
                         "reason" to lastProxyRejection,
                         "generation" to imageRequestGeneration,
+                        "renderer" to rendererKind(),
+                        "mediaId" to mMedium.path.let(org.fossify.gallery.helpers.GalleryDiagnosticLogger::anonymousId),
+                        "viewerSessionId" to viewerSessionId(),
                         "zoom" to zoomBaseline.currentZoom,
                         "fitZoom" to zoomBaseline.initialZoom,
                         "hasBaseline" to zoomBaseline.hasBaseline,

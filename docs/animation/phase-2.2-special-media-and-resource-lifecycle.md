@@ -196,13 +196,21 @@ hits at 45 ms and 22 ms). This phase makes the preparation follow the Viewer:
 - `ViewerCurrentMediaRegistry` carries the Viewer's current path to the stopped Grid
   Activity. `ViewPagerActivity.onPageSelected` reports the settled page; the Grid
   registers one observer per Viewer session and removes it when the session ends.
-- `MediaActivity` arms a 150 ms stability window per page change, cancels the
-  in-flight prefetch on every new page (rapid paging never decodes what it flies
-  over), issues at most one request at a time at `Priority.LOW` (not part of the
-  Glide key, so it never competes with the Viewer's foreground loads for priority
-  while still sharing the cache entry), and copies the result into the reserve,
-  immediately releasing the engine resource. Steady-state memory therefore stays
-  bounded by the reserve, not by the prefetch.
+- `MediaActivity` owns the side effects; the decisions live in
+  `helpers/ViewerReturnPrefetchCoordinator` (pure, injected clock): at most one
+  request in flight, a page change away from it cancels it, an unchanged or already
+  prepared page never re-arms, and a late stability callback cannot shorten the
+  current page's window. A 150 ms stability window per page change is armed from the
+  Viewer's own page-settle events; it only debounces rapid paging (rapid paging never
+  decodes what it flies over), while cancellation and release stay with the session.
+- The request is issued at `Priority.LOW` (not part of the Glide key, so it never
+  competes with the Viewer's foreground loads for priority while still sharing the
+  cache entry), and the result is copied into the reserve, immediately releasing the
+  engine resource. Steady-state memory therefore stays bounded by the reserve, not by
+  the prefetch.
+- The request is built on the **application** `RequestManager`: the Grid Activity is
+  stopped while the Viewer is open and an activity-scoped manager pauses its requests
+  on stop, which would defer the preparation until the Viewer had already returned.
 - Video uses the identical builder, so it warms the grid's standard video-frame
   thumbnail; the player frame is never substituted.
 - Failures and gaps are explicit: `grid_target_prefetch_started/ready/failed/cancelled/skipped`
@@ -214,8 +222,9 @@ Scope limits kept: only the current media is prepared (no neighbours), no full m
 scan, no RecyclerView re-scroll, no change to the grid's own loading policy, and the
 Viewer's full-size decode always wins the scheduler.
 
-Tests: `ViewerReturnPrefetchPolicyTest` — D05 key parity, D06 size rejection,
-D08 video/image identity, D02/D03/D17 registry behaviour.
+Tests: `ViewerReturnPrefetchCoordinatorTest` (D01/D02/D03/D04/D04b/D11/D13/D16/D17 and
+the §11.2 matrix), `ViewerReturnPrefetchPolicyTest` (D05 key parity, D06, D08, D12,
+C17, registry behaviour).
 
 ## 6. P1-B — preview, full resource and quality-handoff diagnostics
 
@@ -223,17 +232,20 @@ The entry gate deduplicates its Activity notification on purpose, which had made
 quality handoff unobservable. Additions in `PhotoFragment`:
 
 - `viewer_entry_preview_ready` / `viewer_entry_full_resource_ready` from the Glide
-  listener (`isFirstResource`), with generation, cache source and intrinsic size;
+  listener (`isFirstResource`), with generation, cache source, renderer kind,
+  anonymous media id, viewer session id, intrinsic size and elapsed-since-request;
 - `viewer_entry_resource_bound` on *every* renderer binding (not deduplicated) with
-  role (PREVIEW/FULL), intrinsic and settings dimensions, viewport, current zoom, fit
-  zoom, baseline presence, at-fit and elapsed-since-request;
-- the `viewer_photo_proxy_rejected` event from §3 carrying the same zoom fields.
+  role (PREVIEW/FULL), the same identity fields, intrinsic and settings dimensions,
+  viewport, current zoom, fit zoom, baseline presence and at-fit;
+- the `viewer_photo_proxy_rejected` event from §3 carrying the same identity, zoom and
+  renderer-kind fields.
 
-These are gated on diagnostics being enabled and are not built per frame; real paths
-are still never logged (anonymous ids only). Correctness guarantees the events now
-make visible: the preview and full decode share one renderer pipeline, the upgrade
-carries no second readiness path, and the entry gate still releases exactly once
-(E02/E03 in `PhotoResourceStageTest`).
+`deliveredImageRole` is updated *before* the diagnostics gate, so the role is correct
+bookkeeping even with diagnostics off (E01 pins it). These events are not built per
+frame; real paths are still never logged (anonymous ids only). Correctness guarantees
+they make visible: the preview and full decode share one renderer pipeline, the
+upgrade carries no second readiness path, and the entry gate still releases exactly
+once (E02/E03 in `PhotoResourceStageTest`).
 
 ## 7. Deterministic checks and numbers
 
@@ -242,10 +254,25 @@ Reserve copy cost: one `Bitmap.copy` per reservation — 670×670 ARGB_8888 ≈ 
 each reservation is consumed or released with its session. No synchronous copy exists
 on the return path itself; the return still hands over an already-decoded drawable.
 
+§11.2 bookkeeping matrix (twelve page changes 60 ms apart, final page settles, resource
+ready after the stated latency). Simulated clock, real coordinator:
+
+| Resource latency | Requests issued | Duplicates | Starts for a left page | Cancellations | Prepared |
+|---:|---:|---:|---:|---:|---:|
+| 0 ms | 1 | 0 | 0 | 0 | 1 |
+| 50 ms | 1 | 0 | 0 | 0 | 1 |
+| 100 ms | 1 | 0 | 0 | 0 | 1 |
+| 300 ms | 1 | 0 | 0 | 0 | 1 |
+| 700 ms | 1 | 0 | 0 | 0 | 1 |
+| unsettled page (any latency) | 0 | 0 | 0 | — | 0 |
+
+These are counts of decisions, not device durations — the resource latency does not
+change what is requested, only when the pixels land. No host number here is presented
+as Pixel 8 Pro performance.
+
 Host tests only validate policy, lifecycle and arithmetic. They are not evidence of
-Android 16 frame composition, and no host timing is reported as Pixel 8 Pro
-performance. The device targets from §13.3 of the task remain open until the next
-real-device run.
+Android 16 frame composition. The device targets from §13.3 of the task remain open
+until the next real-device run.
 
 ## 8. Tests added in this phase
 
@@ -253,14 +280,35 @@ real-device run.
 |---|---|---:|
 | A | `GestureZoomBaselineTest` | 17 |
 | B | `ViewerProxyFallbackTest` | 5 |
-| C | `ViewerReturnPixelReserveTest` (extended) | +9 |
-| D | `ViewerReturnPrefetchPolicyTest` (incl. the 50-switch stress case) | 8 |
-| E | `PhotoResourceStageTest` | 3 |
-| — | new tests total | 42 |
+| C | `ViewerReturnPixelReserveTest` (11 new cases, 18 total) | 11 |
+| D | `ViewerReturnPrefetchCoordinatorTest` (incl. §11.2 matrix) | 11 |
+| D | `ViewerReturnPrefetchPolicyTest` (key parity, adapter, registry) | 10 |
+| E | `PhotoResourceStageTest` | 5 |
+| — | new tests total | 59 |
+
+Coverage against the task's numbered list (explicit tests; the remainder runs through
+the pre-existing suites named in parentheses):
+
+- A01–A16 — all sixteen (plus invalid-size handling).
+- B05/B06/B07 — plus the existing `MediaTransitionSessionCoordinatorTest` and
+  `PhotoViewerInitializationTest` walks of B01–B04, B08–B13, B16.
+- C01/C02/C03/C04/C05/C06/C07/C08/C14/C15 — explicit; C09/C10/C11/C12 are enforced
+  by the request-key identity and the caller's scope checks and are covered by
+  `PhotoViewerReturnTargetTest` / `MediaAdapterStabilityTest`; C13/C16 follow from the
+  owner-scoped release and the byte budgets.
+- D01/D02/D03/D04/D04b/D05/D06/D08/D11/D12/D13/D16/D17 — explicit. D07 (signature
+  change) is the reserve's key identity (C-group). D09/D10 (real cache miss/hit) and
+  D14/D15 (no scan, no grid scroll) are properties of the code path — the prefetch
+  issues exactly one Glide request through the grid builder and never touches the
+  adapter — and can only be *observed* on device.
+- E01/E01b/E02/E03 — explicit. E05 (full decode fails) keeps the preview displayed by
+  construction (the listener never clears `deliveredImage`), E06–E09 are sequencing
+  and cost properties covered by A08–A10 and the diagnostics gating.
 
 Full suite: `./gradlew :app:testFossDebugUnitTest` on JDK 21 (Android SDK 36 requires
 it; JDK 17 fails the eleven `sdk=[36]` classes at sandbox creation) —
-**1596 tests, 0 failures, 0 skipped** (previous phase: 1554).
+**1613 tests, 0 failures, 0 skipped** (previous phase: 1554; first Phase 2.2 commit:
+1596).
 
 ## 9. Still to verify on device
 

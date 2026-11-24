@@ -127,4 +127,38 @@ class PhotoResourceStageTest {
             assertEquals(0, listener.rendered.size)
         }
     }
+
+    private fun reportStage(page: PhotoFragment, resource: android.graphics.drawable.Drawable, preview: Boolean) {
+        page.javaClass.getDeclaredMethod("reportResourceStage",
+            android.graphics.drawable.Drawable::class.java,
+            com.bumptech.glide.load.DataSource::class.java,
+            Boolean::class.javaPrimitiveType)
+            .apply { isAccessible = true }
+            .invoke(page, resource, com.bumptech.glide.load.DataSource.LOCAL, preview)
+    }
+
+    @Test
+    fun e01TheDeliveredRoleDistinguishesPreviewFromFullDecode() {
+        withPage { page, _, _ ->
+            val role = page.javaClass.getDeclaredField("deliveredImageRole").apply { isAccessible = true }
+            // The role must be tracked even with diagnostics off: it is bookkeeping,
+            // not logging, and the next `viewer_entry_resource_bound` reports it.
+            reportStage(page, drawable(100), preview = true)
+            assertEquals("PREVIEW", role.get(page))
+            reportStage(page, drawable(400), preview = false)
+            assertEquals("FULL", role.get(page))
+        }
+    }
+
+    @Test
+    fun e01bTheRendererKindNamesWhatOwnsThePixels() {
+        withPage { page, binding, _ ->
+            val kind = page.javaClass.getDeclaredMethod("rendererKind").apply { isAccessible = true }
+            assertEquals("glide", kind.invoke(page))
+            // A visible GIF frame and the subsampling renderer are different owners
+            // and must be distinguishable in the log.
+            binding.gifViewFrame.visibility = View.VISIBLE
+            assertEquals("gif", kind.invoke(page))
+        }
+    }
 }

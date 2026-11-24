@@ -248,7 +248,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
     private var viewerReturnPrefetchPath: String? = null
     private var viewerReturnPrefetchKey: Any? = null
     private var viewerReturnPrefetchTarget: com.bumptech.glide.request.target.CustomTarget<Drawable>? = null
-    private var viewerReturnPrefetchPendingPath: String? = null
+    private val viewerReturnPrefetch = org.fossify.gallery.helpers.ViewerReturnPrefetchCoordinator()
     private val viewerReturnPrefetchStable = Runnable { beginViewerReturnPrefetch() }
 
     private var viewerReturnGeneration = 0L
@@ -998,32 +998,35 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
      * The Viewer's selected media changed. The preparation is bounded and follows the
      * current media, not the launch media: cancel whatever is in flight and re-arm a
      * short stability window so rapid paging never decodes every frame it flies over.
+     * The decision itself lives in [ViewerReturnPrefetchCoordinator].
      */
     private fun onViewerCurrentMediaChanged(path: String?) {
         albumTransitionHandler.removeCallbacks(viewerReturnPrefetchStable)
-        cancelViewerReturnPrefetch("page_changed")
-        viewerReturnPrefetchPendingPath = path
-        if (path != null && viewerReturnPrefetchSize != null) {
-            albumTransitionHandler.postDelayed(viewerReturnPrefetchStable,
-                VIEWER_RETURN_PREFETCH_STABILITY_MS)
+        val change = viewerReturnPrefetch.onPageChanged(path, android.os.SystemClock.elapsedRealtime())
+        if (change.cancelInFlight) cancelViewerReturnPrefetch("page_changed")
+        val delay = change.armDelayMs
+        if (path != null && delay != null && viewerReturnPrefetchSize != null) {
+            albumTransitionHandler.postDelayed(viewerReturnPrefetchStable, delay)
         }
     }
 
     private fun cancelViewerReturnPrefetch(reason: String) {
         val target = viewerReturnPrefetchTarget
+        val path = viewerReturnPrefetchPath
         if (target != null) {
             try {
                 Glide.with(applicationContext).clear(target)
             } catch (_: Exception) {
             }
         }
-        if (viewerReturnPrefetchPath != null) {
+        if (path != null) {
             org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(
                 viewerReturnPrefetchRequestId, "grid_target_prefetch_cancelled") {
                 mapOf("reason" to reason,
-                    "mediaId" to viewerReturnPrefetchPath?.let(GalleryDiagnosticLogger::anonymousId))
+                    "mediaId" to path.let(GalleryDiagnosticLogger::anonymousId))
             }
         }
+        viewerReturnPrefetch.onCancelled(path)
         viewerReturnPrefetchTarget = null
         viewerReturnPrefetchKey = null
         viewerReturnPrefetchPath = null
@@ -1038,18 +1041,20 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         // but a later re-selection of that page must still arm the prefetch).
         org.fossify.gallery.helpers.ViewerCurrentMediaRegistry.report(null)
         cancelViewerReturnPrefetch("session_ended")
-        viewerReturnPrefetchPendingPath = null
+        viewerReturnPrefetch.reset()
     }
 
     /** Prepares the current media's return pixels once the Viewer page has settled. */
     private fun beginViewerReturnPrefetch() {
-        val path = viewerReturnPrefetchPendingPath ?: return
+        val path = viewerReturnPrefetch.onStabilityElapsed(android.os.SystemClock.elapsedRealtime())
+            ?: return
         val size = viewerReturnPrefetchSize ?: return
         val requestId = viewerReturnPrefetchRequestId
         if (isFinishing || isDestroyed) return
         val adapter = getMediaAdapter() ?: return
         val medium = adapter.media.filterIsInstance<Medium>().firstOrNull { it.path == path }
         if (medium == null) {
+            viewerReturnPrefetch.onFailed(path)
             org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(requestId,
                 "grid_target_prefetch_skipped") {
                 mapOf("reason" to "media_not_in_grid")
@@ -1057,6 +1062,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             return
         }
         val (key, builder) = adapter.returnPrefetchRequest(medium, size.x, size.y) ?: run {
+            viewerReturnPrefetch.onFailed(path)
             org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(requestId,
                 "grid_target_prefetch_skipped") {
                 mapOf("reason" to "request_unavailable")
@@ -1064,6 +1070,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             return
         }
         cancelViewerReturnPrefetch("superseded_by_current")
+        viewerReturnPrefetch.onStart(path)
         viewerReturnPrefetchPath = path
         viewerReturnPrefetchKey = key
         org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(requestId, "grid_target_prefetch_started") {
@@ -1082,6 +1089,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                 // beyond the bounded reserve itself.
                 val stored = org.fossify.gallery.helpers.ViewerReturnPixelReserve.shared
                     .remember(key, resource, owner = this@MediaActivity)
+                viewerReturnPrefetch.onFinished(path, stored)
                 Glide.with(applicationContext).clear(this)
                 org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(requestId, "grid_target_prefetch_ready") {
                     mapOf("mediaId" to GalleryDiagnosticLogger.anonymousId(path),
@@ -1098,6 +1106,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                 viewerReturnPrefetchTarget = null
                 viewerReturnPrefetchKey = null
                 viewerReturnPrefetchPath = null
+                viewerReturnPrefetch.onFailed(path)
                 org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(requestId, "grid_target_prefetch_failed") {
                     mapOf("mediaId" to GalleryDiagnosticLogger.anonymousId(path))
                 }
@@ -1109,6 +1118,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                     viewerReturnPrefetchTarget = null
                     viewerReturnPrefetchKey = null
                     viewerReturnPrefetchPath = null
+                    viewerReturnPrefetch.onCancelled(path)
                 }
             }
         }
@@ -2242,14 +2252,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
     companion object {
         var mMedia = ArrayList<ThumbnailItem>()
         private val mediaPageCacheExecutor = BoundedScanExecutor("gallery-page-cache", workers = 1, queued = 2)
-
-        /**
-         * Short stability window before the return prefetch starts, armed from the
-         * Viewer's own page-settle events. It only debounces rapid paging - the
-         * lifecycle still owns cancellation and release, and a settled page always
-         * eventually prepares.
-         */
-        private const val VIEWER_RETURN_PREFETCH_STABILITY_MS = 150L
     }
 
     private var folderUnlockSessionId: String? = null

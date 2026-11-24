@@ -114,6 +114,53 @@ class ViewerReturnPrefetchPolicyTest {
         }
     }
 
+    /**
+     * C17: building and running a preview request must not disturb the holder's own
+     * binding - the grid's normal load path is untouched, so a failed or cancelled
+     * prefetch can never block the return's standard decode.
+     */
+    @Test
+    fun c17BuildingAPrefetchDoesNotDisturbTheHoldersBinding() {
+        withAdapter { adapter, recycler, _ ->
+            val medium = adapter.media.filterIsInstance<Medium>().first { it.path == "/photos/a.jpg" }
+            val prefetch = adapter.returnPrefetchRequest(medium, 400, 400)!!
+            recycler.measure(
+                android.view.View.MeasureSpec.makeMeasureSpec(400, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(1200, android.view.View.MeasureSpec.EXACTLY))
+            recycler.layout(0, 0, 400, 1200)
+            val holder = requireNotNull(recycler.findViewHolderForAdapterPosition(0))
+            val thumbnail = holder.itemView.findViewById<android.widget.ImageView>(R.id.medium_thumbnail)
+            // The holder still carries its own identity and binding, and the prefetch
+            // key equals it: the preview work never re-stamps or clears the holder.
+            assertEquals("/photos/a.jpg", thumbnail.getTag(R.id.media_bound_path))
+            assertEquals(prefetch.first, thumbnail.getTag(R.id.thumbnail_request_key))
+            assertNotNull("the holder's own request is still the one it will read",
+                thumbnail.getTag(R.id.media_thumbnail_load))
+        }
+    }
+
+    /**
+     * D12: pixels prepared while browsing are consumed by the return instead of a
+     * second decode - the coordinator's `prepared` state and the reserve hit agree.
+     */
+    @Test
+    fun d12APreparedReturnResourceIsReusedByTheReturn() {
+        val reserve = ViewerReturnPixelReserve(capacity = 3)
+        val coordinator = ViewerReturnPrefetchCoordinator()
+        val key = listOf("/photos/a.jpg", "sig", 1, true, 1, false, false, false)
+        coordinator.onPageChanged("/photos/a.jpg", nowMs = 0)
+        assertEquals("/photos/a.jpg",
+            coordinator.onStabilityElapsed(ViewerReturnPrefetchCoordinator.STABILITY_MS))
+        coordinator.onStart("/photos/a.jpg")
+        assertTrue(reserve.remember(key, android.graphics.drawable.BitmapDrawable(
+            null, android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888))))
+        coordinator.onFinished("/photos/a.jpg", stored = true)
+        val served = reserve.take(key, 64, 64)
+        assertNotNull("the return must take the prepared pixels", served)
+        assertEquals(0, reserve.size)
+        assertEquals("/photos/a.jpg", coordinator.readyPath)
+    }
+
     @Test
     fun d02TheRegistryFollowsTheViewersCurrentMedia() {
         val seen = mutableListOf<String?>()
