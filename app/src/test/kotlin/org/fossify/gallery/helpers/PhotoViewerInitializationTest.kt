@@ -264,7 +264,7 @@ class PhotoViewerInitializationTest {
         assertEquals(View.GONE, fixture.binding.viewerEntryStatus.visibility)
 
         fixture.beginReturn()
-        fixture.set("returnSystemBarProgress", .4f)
+        fixture.startReturn(.4f)
         fixture.call("renderSharedReturnProgress", args = arrayOf(.5f))
         fixture.call("renderPhotoTransitionProgress", args = arrayOf(entry, 1f))
         fixture.call("onSharedEntryTerminal", args = arrayOf(entry, true))
@@ -319,11 +319,11 @@ class PhotoViewerInitializationTest {
         assertEquals(.6f, fixture.binding.mediumViewerAppbar.alpha, 0f)
         fixture.call("renderSharedReturnProgress", args = arrayOf(.5f))
         assertEquals(.3f, scrim.alpha, 0f)
-        // The committed return freezes the system bar appearance: the Grid the Viewer
-        // returns to re-applies its own bars underneath the animating window, so tracking
-        // the return clock here produced two writers for one surface (and an icon
-        // polarity flip at the contrast crossing). Layers still follow the clock.
-        assertEquals(.6f, fixture.field("viewerSystemBarProgress") as Float, 0f)
+        // The committed return keeps one writer (the Viewer window) but continues from the
+        // released frame on the same remainder the layers use: 0.6 -> 0.3 -> page colour.
+        // Parking the bar surface on 0.6 and jumping to the Grid's colour when the window
+        // was removed is what the device log recorded as a mid-exit colour change.
+        assertEquals(.3f, fixture.field("viewerSystemBarProgress") as Float, 0f)
         assertEquals(.3f, fixture.binding.mediumViewerAppbar.alpha, 0f)
     }
 
@@ -708,7 +708,7 @@ class PhotoViewerInitializationTest {
             viewer.traceEntryCanvas("resume")
             val returnFixture = EntryFixture()
             returnFixture.set("viewerReturnId", request)
-            returnFixture.set("returnSystemBarProgress", .8f)
+            returnFixture.set("viewerSystemBarProgress", .8f)
             returnFixture.call("renderSharedReturnLayers", args = arrayOf(1f))
             returnFixture.beginReturn()
             returnFixture.call("renderSharedReturnProgress", args = arrayOf(0f))
@@ -852,6 +852,17 @@ class PhotoViewerInitializationTest {
             val operation = requireNotNull(session.beginReturn())
             val page = field("sharedReturnPage") as? ViewPagerFragment
             if (page != null) call("ownReturnSurface", arrayOf(operation, page))
+        }
+
+        /**
+         * Commits the system bar surfaces at [progress], the way the Activity does when the
+         * finger leaves the screen. The bars then continue from that frame on the return
+         * remainder instead of being frozen there.
+         */
+        fun startReturn(progress: Float) {
+            set("viewerSystemBarProgress", progress)
+            val bars = field("viewerBars") as ViewerSystemBarChoreography
+            set("viewerBarToken", bars.beginReturn(progress))
         }
 
         fun installReturnCallback() {

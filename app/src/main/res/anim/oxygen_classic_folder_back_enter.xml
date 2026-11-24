@@ -16,10 +16,10 @@
 
          The duration is the only thing this file adds over the shared resource:
          CustomCrossActivityBackAnimation.getPostCommitAnimationDuration() is
-         min(2000, max(close.duration, enter.duration)). Keeping the shared 450 ms enter
-         next to a shorter folder exit would leave the Shell's clock at 450 ms and hand
-         the closing page 150 ms in which it is already fully transparent, so both sides
-         of the folder pair share oxygen_classic_folder_back_duration_ms. Settings, the
+         min(2000, max(close.duration, enter.duration)). Keeping the shared 240 ms enter
+         next to the shorter 220 ms folder exit would leave the Shell's clock at 240 ms
+         and hand the closing page 20 ms in which it is already fully transparent, so
+         both sides of the folder pair share oxygen_classic_folder_back_duration_ms. Settings, the
          theme picker and the custom-photo-profile pages keep the shared pair. -->
     <alpha
         android:fromAlpha="1.0"

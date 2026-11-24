@@ -1484,6 +1484,31 @@ class MediaAdapter(
         return MediaThumbnailPriorityPolicy.priority(position, firstVisible, lastVisible)
     }
 
+    /**
+     * Starts the queued thumbnail request of [path] at HIGH because the Grid is waiting
+     * for exactly that drawable as the Viewer's shared-element return target.
+     *
+     * The 2026-11-24 device log showed a return target sitting at
+     * `readiness=pixels_unavailable` for ~410 ms, i.e. the holder was bound and matched
+     * the media identity but its request had not been dispatched yet - a `Priority`
+     * decision taken when the holder was bound for a different reason. Only a request
+     * that has not started is promoted: an in-flight decode already used its own
+     * priority and must not be issued twice, and a finished one cannot be re-prioritised
+     * without a new request, so both are left alone.
+     */
+    internal fun promoteQueuedThumbnail(path: String): Boolean {
+        val grid = recyclerView ?: return false
+        for (index in 0 until grid.childCount) {
+            val image = grid.getChildAt(index).findViewById<ImageView>(R.id.medium_thumbnail) ?: continue
+            if (image.getTag(R.id.media_bound_path) != path) continue
+            val load = thumbnailLoad(image) ?: continue
+            if (load.pending == null) continue
+            load.start(Priority.HIGH)
+            return true
+        }
+        return false
+    }
+
     private fun setupThumbnail(view: View, medium: Medium, thumbnailPriority: Priority) {
         val isSelected = selectedKeys.contains(medium.path.hashCode())
         bindItem(view, medium).apply {

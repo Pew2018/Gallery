@@ -11,7 +11,7 @@
      the parent does not move at all, so the foreground has to carry the departure:
      travel is front-loaded, the fastest section coincides with the steep part of
      oxygen_classic_folder_back_alpha, and the tail decelerates into the 96dp endpoint
-     on the same frame the fade reaches 0.
+     on the frame the fade reaches 0 (90% of the 220 ms clock, i.e. 0.968 of the travel).
 
      Measured travel fractions (same AnimationSet#getTransformationAt path):
          progress   fast_out_slow_in   this curve

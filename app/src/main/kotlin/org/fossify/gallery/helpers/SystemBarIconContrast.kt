@@ -72,10 +72,113 @@ internal object SystemBarIconContrast {
      * [previous] is the polarity currently on screen, or null when there is no
      * previous decision (then the better option wins immediately).
      */
+    /**
+     * How far apart the two candidate icon colours are on [background], as a contrast
+     * ratio difference. 0 near the crossing point, ~20 on black or white.
+     */
+    fun advantage(background: Int): Double =
+        kotlin.math.abs(contrast(BLACK, background) - contrast(WHITE, background))
+
     fun useDarkIcons(background: Int, previous: Boolean? = null): Boolean {
         val dark = contrast(BLACK, background)
         val light = contrast(WHITE, background)
         if (previous != null && kotlin.math.abs(dark - light) < SWITCH_MARGIN) return previous
         return dark > light
+    }
+}
+
+/**
+ * One window's icon polarity, decided by the surfaces *this app* actually painted.
+ *
+ * Two defects motivated this class, both visible in the exported Pixel 8 Pro log of
+ * the 2026-11-24 run during a single monotonic Viewer entry
+ * (`progress=0.0 LIGHT -> 0.010795873 DARK -> 0.1496258 LIGHT`):
+ *
+ *  1. The decision was taken against `InsetsController.isAppearanceLightStatusBars`,
+ *     i.e. against whatever the last writer left there. The Viewer window has more
+ *     than one writer (`BaseViewerActivity` blends, `SimpleActivity.onPostResume` and
+ *     `OxygenSystemBars.apply` paint the page), so a page write between two Viewer
+ *     frames became the "previous" polarity of the next Viewer frame and flipped it.
+ *  2. Nothing tied a decision to the surface it was made for. Re-evaluating the same
+ *     colour could therefore produce a different answer.
+ *
+ * [decide] removes both: an identical surface returns the same polarity without any
+ * re-evaluation, and a change has to keep a contrast advantage *and* stay the better
+ * option for [holdMs] before it is applied. Genuine surface changes (a theme switch, a
+ * different page underneath) still resolve, they just cannot chatter.
+ */
+internal class IconPolarityLatch(
+    private val holdMs: Long = DEFAULT_HOLD_MS,
+) {
+    private var decision: Boolean? = null
+    private var decidedSurface: Int? = null
+    private var candidate: Boolean? = null
+    private var candidateSince = 0L
+
+    /** Polarity for [surface], stable across repeated frames of the same colour. */
+    fun decide(surface: Int, nowMs: Long): Boolean {
+        // An identical surface is only answered from memory once no change is pending;
+        // otherwise a candidate that is still waiting out [holdMs] would never resolve,
+        // because every frame of the same colour would short-circuit it.
+        if (decision != null && decidedSurface == surface && candidate == null) return decision!!
+        decidedSurface = surface
+        val current = decision
+        val best = SystemBarIconContrast.useDarkIcons(surface, current)
+        if (current == null) {
+            decision = best
+            candidate = null
+            return best
+        }
+        if (best == current) {
+            candidate = null
+            return current
+        }
+        // Holding a polarity only makes sense while both options are close. Once one of
+        // them is clearly better (a theme switch, a jump to the viewer surface) keeping
+        // the old icons would leave them unreadable for the duration of the hold.
+        if (SystemBarIconContrast.advantage(surface) >= DECISIVE_MARGIN) {
+            decision = best
+            candidate = null
+            return best
+        }
+        if (candidate != best) {
+            candidate = best
+            candidateSince = nowMs
+            return current
+        }
+        if (nowMs - candidateSince >= holdMs) {
+            decision = best
+            candidate = null
+            return best
+        }
+        return current
+    }
+
+    /** Takes over a polarity another writer established (the page's own appearance). */
+    fun adopt(polarity: Boolean) {
+        decision = polarity
+        decidedSurface = null
+        candidate = null
+    }
+
+    /** The window is gone; the next window starts from its own first surface. */
+    fun reset() {
+        decision = null
+        decidedSurface = null
+        candidate = null
+    }
+
+    val current: Boolean? get() = decision
+
+    private companion object {
+        /** Long enough to span a chattering pair of frames, short enough to be invisible. */
+        const val DEFAULT_HOLD_MS = 48L
+
+        /**
+         * Contrast-ratio distance at which the choice is no longer ambiguous. Above it the
+         * alternative icon colour is decisively better and the change is applied at once;
+         * below it (the mid-blend band) the on-screen polarity is held for [DEFAULT_HOLD_MS].
+         */
+        const val DECISIVE_MARGIN = 3.0
     }
 }

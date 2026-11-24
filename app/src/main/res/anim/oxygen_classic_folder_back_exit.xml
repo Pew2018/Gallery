@@ -12,32 +12,31 @@
          entering parent keeps a full-screen base rect with alpha pinned to 1, so it is
          already fully composed underneath before this animation starts.
 
-         Why the fade no longer ends early
-         =================================
-         The previous pair cleared the foreground at 35% of a 450 ms clock (~157 ms) and
-         then left ~293 ms with nothing visible moving; the window was removed after
-         that dead tail, which reads as a late, sudden switch to the parent. Ending the
-         dissolve early does not remove the overlap either - partial alpha over a static,
-         fully drawn parent *is* a cross-dissolve of two grids.
-         This pair ties the fade to the travel on one 300 ms clock: alpha reaches 0 on
-         the frame the slide reaches 96dp, so the last visible frame is the frame the
-         window is removed on. No dead tail, no hard cut.
+         Why this pair was retimed in phase 2
+         ===================================
+         Phase 1 tied the fade to the travel on a 300 ms clock (alpha 1 -> 0 across the
+         whole resource). The device report kept the "两个网格叠加溶解" reading: at 40%
+         of the clock the foreground was still 0.559 opaque while two dense grids were
+         both fully drawn, and at 50% it was 0.375 - a long semi-transparent overlap
+         carried by the slowest part of the clock.
+         Phase 2 shortens the clock to 220 ms and finishes the dissolve at 82% of it,
+         where the slide already carries 94% of its travel. The last visible frame is
+         still a moving frame (no "evaporate in place", no hard cut at removal), but the
+         mid-opacity band is both shorter in time and lower in opacity.
 
          Measured through AnimationSet#getTransformationAt (the Shell's own path):
              progress   alpha   travel (x96dp)
-             0.02       0.996   0.014
-             0.10       0.958   0.094
-             0.20       0.864   0.238
-             0.30       0.727   0.403
-             0.40       0.559   0.561
-             0.50       0.375   0.700
-             0.60       0.230   0.785
-             0.80       0.074   0.920
-             0.95       0.009   0.986
-             1.00       0.000   1.000
-         The foreground is still ~86% opaque after a quarter of the travel (the previous
-         pair was at 69% at 20% and 0% at 40%), and the mid-opacity band is carried by
-         the largest part of the motion instead of by a page that has stopped.
+             0.02       0.995   0.014
+             0.10       0.945   0.094
+             0.20       0.820   0.238
+             0.30       0.634   0.403
+             0.40       0.394   0.561
+             0.50       0.238   0.700
+             0.60       0.132   0.785
+             0.80       0.005   0.920
+             0.82       0.000   0.938
+         Compare phase 1 at the same normalised progress (0.40 -> 0.559, 0.50 -> 0.375,
+         1.00 -> 0.000) on a clock 36% longer.
 
          The settings, theme and custom-photo-profile pages keep the shared
          oxygen_classic_page_back_* pair: retiming this file must not retime them. -->

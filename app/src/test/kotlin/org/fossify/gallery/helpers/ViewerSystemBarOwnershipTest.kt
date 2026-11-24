@@ -11,6 +11,7 @@ import org.fossify.gallery.databinding.ActivityMediumBinding
 import org.fossify.gallery.extensions.config
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -19,7 +20,7 @@ import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
 
 /**
- * System bar ownership during a Viewer return.
+ * System bar ownership during a Viewer return, on a real window.
  *
  * Two mechanisms used to write the same surfaces while the Viewer was leaving: the Viewer
  * blended its bars on the return clock, and the Grid it returns to re-applies its own bars
@@ -27,13 +28,13 @@ import org.robolectric.annotation.Config
  * because the blend crosses the icon contrast threshold the polarity could flip more than
  * once - the reported "unnecessary brightness change" of the status bar.
  *
- * The contract asserted here:
- *  - while a committed return holds the bars, no progress frame writes anything;
- *  - the teardown path that restores the viewer chrome cannot snap the bars back to the
- *    viewer surface after the handover;
- *  - a cancelled return takes the bars back and restores the viewer appearance;
- *  - the entry/steady path still tracks progress, because there the Viewer *is* the
- *    destination and has to blend in.
+ * Phase 2 changed the contract twice, so this file asserts the new one:
+ *  - a committed return keeps a single writer, but it no longer freezes the surface at the
+ *    release blend: it continues to the page colour on the return remainder, which is what
+ *    removes the mid-exit jump;
+ *  - a page-level `OxygenSystemBars.apply` on a Viewer window replays the Viewer state
+ *    instead of repainting the page, so the entry can no longer flip the icons
+ *    `LIGHT -> DARK -> LIGHT`.
  *
  * Robolectric does not composite Shell surfaces or SystemUI, so this covers the app-side
  * write protocol only; the visual result still needs device acceptance.
@@ -67,6 +68,30 @@ class ViewerSystemBarOwnershipTest {
             renderCanvas(progress)
         }
 
+        private fun choreography() = field("viewerBars") as ViewerSystemBarChoreography
+
+        /** Commits a return at the blend that is currently on screen. */
+        fun commitReturn(): Long {
+            val token = choreography().beginReturn(field("viewerSystemBarProgress") as Float)
+            set("viewerBarToken", token)
+            return token
+        }
+
+        /** One frame of the returning clock, through the Activity's own write path. */
+        fun settleReturn(remaining: Float) {
+            val token = field("viewerBarToken") as Long
+            choreography().returnBarProgress(token, remaining)?.let { call("writeViewerBarProgress", it) }
+        }
+
+        fun terminateReturn(cancelled: Boolean) {
+            val token = field("viewerBarToken") as Long
+            choreography().terminal(token, cancelled)?.let { call("writeViewerBarProgress", it) }
+            // Matches onSharedReturnTerminal: a cancelled return hands the surfaces back.
+            if (cancelled) choreography().settleViewer()
+        }
+
+        fun owner(): ViewerBarOwner = choreography().owner
+
         /** The surface actually painted behind the status icons on this API level. */
         fun statusSurface(): Int = if (Build.VERSION.SDK_INT < 35) {
             @Suppress("DEPRECATION")
@@ -77,11 +102,27 @@ class ViewerSystemBarOwnershipTest {
             ((underlay?.background as? ColorDrawable)?.color) ?: Int.MIN_VALUE
         }
 
+        fun navigationSurface(): Int = if (Build.VERSION.SDK_INT < 35) {
+            @Suppress("DEPRECATION")
+            activity.window.navigationBarColor
+        } else {
+            val underlay = activity.window.decorView
+                .findViewWithTag<View>(OxygenSystemBars.NAV_UNDERLAY)
+            ((underlay?.background as? ColorDrawable)?.color) ?: Int.MIN_VALUE
+        }
+
         fun darkStatusIcons(): Boolean =
             WindowCompat.getInsetsController(activity.window, activity.window.decorView)
                 .isAppearanceLightStatusBars
 
-        fun progress(): Float = field("viewerSystemBarProgress") as Float
+        fun darkNavigationIcons(): Boolean =
+            WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+                .isAppearanceLightNavigationBars
+
+        fun entryProgress(progress: Float) {
+            choreography().startEntry()
+            establish(progress)
+        }
 
         /**
          * Robolectric's FragmentActivity refuses a second pause when the content view was
@@ -113,7 +154,7 @@ class ViewerSystemBarOwnershipTest {
         try {
             val pageSurface = OxygenThemeEngine.snapshot(fixture.activity, fixture.activity.config)
                 .statusBarBackground
-            fixture.establish(0f)
+            fixture.entryProgress(0f)
             assertEquals(pageSurface, fixture.statusSurface())
 
             fixture.establish(1f)
@@ -127,23 +168,26 @@ class ViewerSystemBarOwnershipTest {
 
     @Test
     @Config(sdk = [34, 36])
-    fun aHeldReturnWritesNothingOnAnyProgressFrame() {
+    fun aCommittedReturnContinuesFromTheReleasedFrameInsteadOfFreezing() {
         val fixture = fixture()
         try {
-            fixture.establish(1f)
-            val viewerSurface = fixture.statusSurface()
-            val icons = fixture.darkStatusIcons()
+            // Release the predictive gesture at the progress the device log recorded.
+            fixture.entryProgress(1f)
+            fixture.establish(0.49627578f)
+            val released = fixture.statusSurface()
+            fixture.commitReturn()
+            assertEquals(ViewerBarOwner.RETURN_WAIT_TARGET, fixture.owner())
 
-            fixture.set("viewerSystemBarHold", true)
-            fixture.set("viewerSystemBarHoldProgress", 1f)
-            listOf(0.9f, 0.6f, 0.4f, 0.15f, 0f).forEach { progress ->
-                fixture.renderCanvas(progress)
-                assertEquals("progress $progress must not rewrite the surface",
-                    viewerSurface, fixture.statusSurface())
-                assertEquals("progress $progress must not rewrite the icons",
-                    icons, fixture.darkStatusIcons())
-                assertEquals(1f, fixture.progress(), 0.0001f)
-            }
+            // Waiting for the Grid target: the release frame is held on purpose.
+            assertEquals(released, fixture.statusSurface())
+
+            // The returning clock owns the surface from here and walks it to the page
+            // colour; nothing is parked on an arbitrary mid blend.
+            fixture.settleReturn(0.5f)
+            fixture.settleReturn(0f)
+            val pageSurface = OxygenThemeEngine.snapshot(fixture.activity, fixture.activity.config)
+                .statusBarBackground
+            assertEquals(pageSurface, fixture.statusSurface())
         } finally {
             fixture.destroyQuietly()
         }
@@ -154,18 +198,18 @@ class ViewerSystemBarOwnershipTest {
     fun theTeardownChromeRestoreCannotUndoTheHandover() {
         val fixture = fixture()
         try {
-            fixture.establish(1f)
-            fixture.set("viewerSystemBarHold", true)
-            fixture.set("viewerSystemBarHoldProgress", 1f)
-            fixture.renderCanvas(0f)
+            fixture.entryProgress(1f)
+            fixture.commitReturn()
+            fixture.settleReturn(0f)
+            fixture.terminateReturn(cancelled = false)
             val handedOver = fixture.statusSurface()
 
             // Releasing the return leases restores the black canvas and asks the bar
             // renderer for progress 1 again. That re-write was the flash at the end of the
-            // exit; with the hold in force it has to be a no-op.
+            // exit; after the handover it has to be a no-op.
             fixture.renderCanvas(1f)
             assertEquals(handedOver, fixture.statusSurface())
-            assertEquals(1f, fixture.progress(), 0.0001f)
+            assertEquals(ViewerBarOwner.PAGE_HANDOFF, fixture.owner())
         } finally {
             fixture.destroyQuietly()
         }
@@ -176,20 +220,66 @@ class ViewerSystemBarOwnershipTest {
     fun aCancelledReturnTakesTheBarsBack() {
         val fixture = fixture()
         try {
-            fixture.establish(1f)
+            fixture.entryProgress(1f)
             val viewerSurface = fixture.statusSurface()
             val icons = fixture.darkStatusIcons()
 
-            // The gesture moved the bars, then the return was committed and cancelled.
             fixture.establish(0.5f)
-            fixture.set("viewerSystemBarHold", true)
-            fixture.set("viewerSystemBarHoldProgress", 0.5f)
-            fixture.renderCanvas(0.5f)
-            fixture.set("viewerSystemBarHold", false)
+            fixture.commitReturn()
+            fixture.settleReturn(0.5f)
+            fixture.terminateReturn(cancelled = true)
             fixture.establish(1f)
 
             assertEquals(viewerSurface, fixture.statusSurface())
             assertEquals(icons, fixture.darkStatusIcons())
+            assertEquals(ViewerBarOwner.VIEWER, fixture.owner())
+        } finally {
+            fixture.destroyQuietly()
+        }
+    }
+
+    /**
+     * The entry regression from the exported log: one monotonic entry produced
+     * `LIGHT -> DARK -> LIGHT`. `BaseViewerActivity.onResume` blends (progress 0), then
+     * `SimpleActivity.onPostResume` repaints the page polarity on the same window, then
+     * the next entry frame blends again. A page write on a Viewer-owned window must be a
+     * replay of the Viewer state, not a page repaint.
+     */
+    @Test
+    @Config(sdk = [34, 36])
+    fun aPageBarWriteCannotRepaintAViewerOwnedWindow() {
+        val fixture = fixture()
+        try {
+            fixture.entryProgress(0f)
+            val initialSurface = fixture.statusSurface()
+            fixture.establish(0.010795873f)
+            val blendedSurface = fixture.statusSurface()
+            val blendedIcons = fixture.darkStatusIcons()
+            assertTrue("the entry blend must actually move the surface", blendedSurface != initialSurface)
+
+            OxygenSystemBars.apply(fixture.activity)
+            assertEquals("a page write must not repaint the Viewer's surface",
+                blendedSurface, fixture.statusSurface())
+            assertEquals("a page write must not flip the Viewer's icons",
+                blendedIcons, fixture.darkStatusIcons())
+        } finally {
+            fixture.destroyQuietly()
+        }
+    }
+
+    @Test
+    @Config(sdk = [35, 36])
+    fun enforcedEdgeToEdgePaintsANavigationSurfaceForTheViewer() {
+        val fixture = fixture()
+        try {
+            fixture.entryProgress(1f)
+            assertEquals(android.graphics.Color.BLACK, fixture.navigationSurface())
+            assertFalse(fixture.darkNavigationIcons())
+
+            fixture.establish(0f)
+            val pageNavigation = OxygenThemeEngine.snapshot(fixture.activity, fixture.activity.config)
+                .navigationBarBackground
+            assertEquals(pageNavigation, fixture.navigationSurface())
         } finally {
             fixture.destroyQuietly()
         }

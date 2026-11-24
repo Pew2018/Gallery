@@ -98,6 +98,91 @@ class SystemBarIconContrastTest {
         }
     }
 
+    /**
+     * The exported log of the 2026-11-24 run shows one monotonic Viewer entry flipping the
+     * status icons `LIGHT -> DARK -> LIGHT` (progress 0.0 / 0.010795873 / 0.1496258). The
+     * decision had been taken against the InsetsController flag, which a page-level writer
+     * had rewritten between two Viewer frames. The latch takes its decision from the
+     * surface only, so replaying the same surface can never produce a second answer.
+     */
+    @Test
+    fun theSameSurfaceAlwaysKeepsItsPolarity() {
+        val latch = IconPolarityLatch()
+        val first = latch.decide(blend(pageSurface, viewerSurface, 0.02f), 0L)
+        // A page write, a theme apply and a teardown restore all land on the same frame.
+        listOf(1L, 20L, 40L, 1_000L).forEach { now ->
+            assertEquals(first, latch.decide(blend(pageSurface, viewerSurface, 0.02f), now))
+        }
+        assertEquals(first, latch.current)
+    }
+
+    @Test
+    fun aDecisiveChangeIsAppliedImmediately() {
+        val latch = IconPolarityLatch(holdMs = 48L)
+        assertTrue(latch.decide(pageSurface, 0L))
+        // A jump to the viewer surface is not ambiguous: holding dark icons on a near-black
+        // bar for a hold window would be a visible mistake, so the change lands at once.
+        assertFalse(latch.decide(viewerSurface, 1L))
+        assertTrue("and back again, still without waiting", latch.decide(pageSurface, 2L))
+    }
+
+    @Test
+    fun aMonotonicBlendFlipsThePolarityAtMostOnce() {
+        // The entry clock walks the same blend the device log recorded. Whichever frame the
+        // crossing falls on, a monotonic pass may produce exactly one change and never a
+        // second one on the way back out.
+        val latch = IconPolarityLatch(holdMs = 48L)
+        var changes = 0
+        var previous: Boolean? = null
+        var now = 0L
+        (0..100).forEach { step ->
+            val surface = blend(pageSurface, viewerSurface, step / 100f)
+            val decision = latch.decide(surface, now)
+            if (previous != null && decision != previous) changes++
+            previous = decision
+            now += 8L
+        }
+        assertEquals("a single monotonic blend flipped the icons $changes times", 1, changes)
+        assertEquals("the pass must end on the viewer polarity", false, previous)
+    }
+
+    @Test
+    fun aGradualChangeIsHeldWhileBothOptionsStayClose() {
+        // The band where the alternative wins but not decisively: a change is allowed, but
+        // only after it has survived the hold window. This is the narrow region a blend
+        // crosses, and holding there is what stops one threshold from chattering.
+        val partial = (0..60).map { 0xFF000000.toInt() or (0x50 + it * 3) * 0x010101 }
+            .first {
+                SystemBarIconContrast.advantage(it) in 1.2..2.8 &&
+                    SystemBarIconContrast.useDarkIcons(it, previous = true) == false
+            }
+        val latch = IconPolarityLatch(holdMs = 48L)
+        assertTrue("the page surface must start with dark icons", latch.decide(pageSurface, 0L))
+        assertEquals("no flip on the frame the candidate appears", true, latch.decide(partial, 10L))
+        assertEquals("still no flip inside the hold window", true, latch.decide(partial, 40L))
+        assertFalse("after the hold window the better option wins", latch.decide(partial, 70L))
+    }
+
+    @Test
+    fun adoptingThePagePolarityAvoidsTheFirstFlip() {
+        // `OxygenSystemBars.apply` records the polarity it just painted; the Viewer's first
+        // frame at progress 0 then has the page surface *and* the page polarity, so the
+        // entry starts without an artificial LIGHT -> DARK step.
+        val latch = IconPolarityLatch()
+        latch.adopt(polarity = true)
+        assertTrue(latch.decide(pageSurface, 0L))
+        assertFalse(latch.decide(viewerSurface, 100L))
+    }
+
+    @Test
+    fun resetForgetsEverythingSoARecreatedWindowStartsClean() {
+        val latch = IconPolarityLatch()
+        latch.decide(viewerSurface, 0L)
+        latch.reset()
+        assertEquals(null, latch.current)
+        assertTrue(latch.decide(pageSurface, 5L))
+    }
+
     @Test
     fun contrastIsSymmetricAndNormalised() {
         assertTrue(SystemBarIconContrast.contrast(0xFFFFFFFF.toInt(), 0xFF000000.toInt()) in 20.9..21.1)

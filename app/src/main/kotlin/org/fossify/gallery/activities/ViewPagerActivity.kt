@@ -13,6 +13,8 @@ import org.fossify.gallery.helpers.FrameEvidence
 import org.fossify.gallery.helpers.ViewerReturnDiagnostics
 import org.fossify.gallery.helpers.ViewerReturnProgress
 import org.fossify.gallery.helpers.ViewerReturnVisualClock
+import org.fossify.gallery.helpers.ViewerBarOwner
+import org.fossify.gallery.helpers.ViewerSystemBarChoreography
 import org.fossify.gallery.helpers.MediaTransitionHandoff
 import org.fossify.gallery.helpers.MediaTransitionSessionCoordinator
 import org.fossify.gallery.helpers.MediaReturnToolbarClip
@@ -278,16 +280,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         private set
 
     /**
-     * True from the moment this Viewer commits a return until its window is gone.
+     * Who may paint this window's system bar surfaces, and on which clock.
      *
-     * While it is set the bar appearance is held at [viewerSystemBarHoldProgress]
-     * instead of tracking the return clock. The parent page is already resumed and
-     * writes its own bars underneath the animating window, so tracking the clock would
-     * produce two writers for one surface and, because the blend crosses the icon
-     * contrast threshold, a visible polarity flip in the middle of the exit.
+     * The previous boolean hold froze the surfaces for the whole committed return,
+     * which parked them on the release blend (the exported log recorded
+     * `heldProgress=0.49627578` and five other mid-progress values) and then jumped to
+     * the Grid's colour when the window was removed. The choreography keeps the single
+     * writer, but lets the settled return continue from the released frame on the same
+     * remainder the scrim uses, so the last frame is already the page surface.
      */
-    private var viewerSystemBarHold = false
-    private var viewerSystemBarHoldProgress = 1f
+    private val viewerBars = ViewerSystemBarChoreography()
+    private var viewerBarToken = 0L
 
     private fun logSystemBarOwner(state: String, reason: String) {
         if (!GalleryDiagnosticLogger.isEnabled()) return
@@ -296,11 +299,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             viewerDiagnosticRequestId,
             mapOf(
                 "transitionSessionId" to viewerReturnId,
-                "owner" to if (viewerSystemBarHold) "VIEWER_HOLD" else "VIEWER",
+                "owner" to viewerBars.owner.name,
                 "state" to state,
                 "reason" to reason,
                 "statusBarVisible" to viewerStatusSurfaceVisible,
-                "heldProgress" to viewerSystemBarHoldProgress,
+                "heldProgress" to viewerBars.releaseProgress,
                 "progress" to viewerSystemBarProgress,
                 "elapsedRealtimeMs" to android.os.SystemClock.elapsedRealtime(),
             )
@@ -314,8 +317,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             viewerDiagnosticRequestId,
             mapOf(
                 "transitionSessionId" to viewerReturnId,
-                "owner" to "PAGE",
-                "heldProgress" to viewerSystemBarHoldProgress,
+                "owner" to ViewerBarOwner.PAGE_HANDOFF.name,
+                "heldProgress" to viewerBars.releaseProgress,
                 "statusBarVisible" to viewerStatusSurfaceVisible,
                 "elapsedRealtimeMs" to android.os.SystemClock.elapsedRealtime(),
             )
@@ -337,17 +340,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun renderSharedViewerCanvas(progress: Float, scrimAlpha: Float = progress) {
         binding.viewerTransitionScrim.alpha = scrimAlpha
-        // A committed return hands the system bars to the parent page. Blending them on
-        // the return clock would fight the page's own write (it resumes underneath the
-        // animating window) and would drive the icon polarity across its contrast
-        // threshold in the middle of the exit. Hold the appearance the return started
-        // from: the Viewer stays internally consistent, only one write can happen, and
-        // the parent owns the final appearance once this window is gone.
-        val barProgress = if (viewerSystemBarHold) viewerSystemBarHoldProgress else progress
-        if (viewerSystemBarProgress != barProgress) {
-            viewerSystemBarProgress = barProgress
-            updateViewerSystemBars()
-        }
+        // One writer per frame is decided by [viewerBars]: entry and gesture frames may
+        // blend, a committed return's own layers own the bars, and a handed-over window
+        // writes nothing at all (the teardown restore used to snap them back to the
+        // viewer surface there).
+        val barProgress = viewerBars.canvasBarProgress(progress) ?: return
+        writeViewerBarProgress(barProgress)
+    }
+
+    private fun writeViewerBarProgress(progress: Float) {
+        if (viewerSystemBarProgress == progress) return
+        viewerSystemBarProgress = progress
+        updateViewerSystemBars()
     }
 
     private fun renderPhotoTransitionProgress(entry: PhotoTransitionCompletionGate, progress: Float) {
@@ -396,7 +400,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val scrimAlpha = returnScrimAlpha * remaining
         returnOverlayAlphas.forEach { (view, alpha) -> view.alpha = alpha * remaining }
         hideViewerToolbarWhenGridIsExposed(scrimAlpha)
-        renderSharedViewerCanvas(returnSystemBarProgress * remaining, scrimAlpha = scrimAlpha)
+        binding.viewerTransitionScrim.alpha = scrimAlpha
+        // The bars continue from the released frame on the same remainder as the scrim,
+        // so the surface reaches the page colour on the frame the Viewer content is gone.
+        viewerBars.returnBarProgress(viewerBarToken, remaining)?.let(::writeViewerBarProgress)
         val alpha = binding.viewerTransitionScrim.alpha
         if (finishAfterSharedTransitionInProgress && !sharedReturnScrimFadeReported && alpha < previousAlpha &&
             ViewerEntryDiagnostics.enabled(viewerReturnId)) {
@@ -421,18 +428,16 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun onSharedReturnTerminal(operation: Token, cancelled: Boolean) {
         if (isDestroyed || !transitionSession.finishViewerMotion(operation, cancelled)) return
         if (cancelled) {
-            // The Viewer keeps the screen, so it takes the bars back and restores the
-            // appearance the return started from. Nothing was blended away while the
-            // hold was in force, so this is a single, contrast-safe restore. Only the bar
-            // appearance is touched here - the scrim and the layer alphas still belong to
-            // the frame the gesture left.
-            viewerSystemBarHold = false
-            if (viewerSystemBarProgress != 1f) {
-                viewerSystemBarProgress = 1f
-                updateViewerSystemBars()
-            }
+            // The Viewer keeps the screen, so it takes the bars back at its steady
+            // appearance. Only the bar appearance is touched here - the scrim and the
+            // layer alphas still belong to the frame the gesture left.
+            viewerBars.terminal(viewerBarToken, cancelled = true)?.let(::writeViewerBarProgress)
+            viewerBars.settleViewer()
             logSystemBarOwner("restored", "return_cancelled")
         } else {
+            // The settled return already wrote the page surface on its last frame; this
+            // only covers a return that never produced one (fallback, no animator).
+            viewerBars.terminal(viewerBarToken, cancelled = false)?.let(::writeViewerBarProgress)
             logSystemBarReturnCompleted()
         }
         ViewerReturnDiagnostics.event(viewerReturnId, if (cancelled) "viewer_transition_cancel" else "viewer_transition_end") {
@@ -651,6 +656,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         binding.viewerTransitionScrim.setBackgroundColor(Color.BLACK)
         binding.viewerTransitionScrim.visibility = View.VISIBLE
         binding.viewerTransitionScrim.alpha = 1f
+        viewerBars.startInteractive()
         interactiveDismissSurface = surface
         interactiveDismissPage = fragment
         interactiveDismissPath = path
@@ -699,6 +705,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                     // release its leases; a return that took over keeps them.
                     if (transitionSession.cancelGesture(operation) ||
                         transitionSession.outcome != null || transitionSession.state == State.VIEWING) {
+                        // The gesture settled back to the Viewer: the bars are steady again.
+                        viewerBars.cancelInteractive()
                         returnLeases.releaseAll()
                     }
                 }
@@ -710,6 +718,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private fun finishMediaEntryTransition(entry: PhotoTransitionCompletionGate) {
         if (!isCurrentEntry(entry) || !entry.complete()) return
         check(transitionSession.entryFinished(transitionSession.entry))
+        // The Viewer is the destination from here on: its bars are steady, not blending.
+        viewerBars.settleViewer()
         val mappedPage = entryMappedPage
         entryLeases.releaseAll()
         logMediaEntry("entry_completed", if (photoSharedElementMapped) "shared" else "fallback")
@@ -800,7 +810,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var photoSharedElementFadeFallback = false
     private val finishAfterSharedTransitionInProgress get() = ::transitionSession.isInitialized &&
         (transitionSession.outcome != null || transitionSession.returnOperation?.let(transitionSession::isReturning) == true)
-    private var returnSystemBarProgress = 1f
     private var returnScrimAlpha = 1f
     private var viewerReturnId = 0L
     private var viewerDiagnosticSessionId = 0L
@@ -1255,6 +1264,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             binding.viewPager.setBackgroundColor(Color.BLACK)
         }
         if (entry != null) {
+            viewerBars.startEntry()
             viewerSystemBarProgress = 0f
             setSharedChromeAlpha(0f)
         }
@@ -1404,6 +1414,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         returnLeases.releaseAll()
         entryLeases.releaseAll()
         transitionSession.clean()
+        // Drop this window's recorded bar ownership with the window itself.
+        org.fossify.gallery.helpers.OxygenSystemBars.forget(this)
         setEnterSharedElementCallback(null as SharedElementCallback?)
         if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
             org.fossify.gallery.helpers.DiagnosticLevel.INFO, "Viewer", "viewer_close",
@@ -1497,6 +1509,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             ViewerEntryDiagnostics.event(viewerDiagnosticSessionId, "viewer_closed_during_entry") { emptyMap() }
             photoSharedElementMapped = false
             abandonMediaEntry("closed")
+            viewerBars.releaseToPage()
             super.finish()
             overridePendingTransition(0, if (OxygenClassicMotion.enabled(this)) R.anim.photo_viewer_fade_out else 0)
             return true
@@ -1523,12 +1536,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             return
         }
         // Every exit path (shared return, fallback fade, close during entry) goes
-        // through here: freeze the bar appearance from this frame on so the teardown
-        // cleanup cannot snap it back to the viewer surface after the parent took over.
-        if (!viewerSystemBarHold) {
-            viewerSystemBarHold = true
-            viewerSystemBarHoldProgress = viewerSystemBarProgress
-            logSystemBarOwner("hold", reason)
+        // through here: this window becomes the only legal writer of its bars from this
+        // frame on, starting from the blend that is actually on screen. The released
+        // value is what the return continues from - it is not a permanent freeze.
+        if (!viewerBars.isReturning()) {
+            viewerBarToken = viewerBars.beginReturn(viewerSystemBarProgress)
+            logSystemBarOwner("committed", reason)
         }
         if (interactiveDismissDragActive) {
             mediaDismissSettled(dismiss = true)
@@ -1583,6 +1596,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             transitionSession.terminate(operation, State.FALLBACK, "viewer_no_proxy")
             returnLeases.releaseAll()
             transitionSession.clean()
+            // No returning transition will render a last frame for this window.
+            viewerBars.releaseToPage()
             super.finish()
             if ((fadeOnlyPhotoFallback || photoSharedElementFadeFallback || photoSharedElementMapped) && motionEnabled) {
                 overridePendingTransition(0, R.anim.photo_viewer_fade_out)
@@ -1612,7 +1627,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (page is VideoFragment || page is PhotoFragment) protectGridToolbarDuringReturn(operation, proxy)
         // Keep the opacity already on screen while the grid prepares its target.
         returnScrimAlpha = if (proxy === interactiveDismissSurface) binding.viewerTransitionScrim.alpha else 1f
-        returnSystemBarProgress = viewerSystemBarProgress
         binding.viewerTransitionScrim.setBackgroundColor(Color.BLACK)
         binding.viewerTransitionScrim.visibility = View.VISIBLE
         takeOverReturnChrome(page)
@@ -1621,7 +1635,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         ViewerReturnDiagnostics.event(viewerReturnId, "viewer_return_scrim_armed") {
             mapOf("launchId" to intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L),
                 "alpha" to binding.viewerTransitionScrim.alpha,
-                "systemBarProgress" to returnSystemBarProgress,
+                "systemBarProgress" to viewerBars.releaseProgress,
+                "barOwner" to viewerBars.owner.name,
                 "dragProgress" to interactiveDismissProgress)
         }
         setSharedTransitionCanvasTransparent()
@@ -1660,6 +1675,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (transitionSession.outcome == null) transitionSession.terminate(operation, State.FALLBACK, reason)
         returnLeases.releaseAll()
         transitionSession.clean()
+        // The fade-out replaces the returning transition, so no last frame will render
+        // the page surface for this window.
+        viewerBars.releaseToPage()
         super.finish()
         overridePendingTransition(0, if (OxygenClassicMotion.enabled(this)) R.anim.photo_viewer_fade_out else 0)
     }
@@ -5614,6 +5632,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 "captures" to proxy?.let(::mappedTransitionSurfaceBounds)?.toShortString(),
                 "contentBounds" to (content?.toShortString() ?: renderer?.let(::mappedTransitionSurfaceBounds)?.toShortString()),
                 "lifecycle" to entryLifecyclePhase,
+                // Distance from the tap, not from the previous log line: the entry
+                // timeline is read as "how long after the click did this happen".
+                "msSinceEntryRequest" to
+                    org.fossify.gallery.helpers.ViewerEntryDiagnostics.elapsedSince(
+                        org.fossify.gallery.helpers.ViewerEntryDiagnostics.requestedAt(intent)),
             ) + entryCanvasState()
         }
     }

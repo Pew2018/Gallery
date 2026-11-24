@@ -470,6 +470,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         var stopWaitingForDraw: (() -> Unit)? = null
         var timeout: Runnable? = null
         var deletionCommitPending = false
+        /** Path whose queued thumbnail request was already promoted to HIGH. */
+        var promotedPath: String? = null
+        var promotionLogged = false
     }
 
     private fun isCurrentViewerLaunch(data: Intent?): Boolean =
@@ -629,12 +632,38 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             if (!isViewerReturnCurrent(request) || request.released) return@doOnPreDraw
             val target = readViewerReturnTarget(request, position)
             if (target != null) releaseViewerReturn(request, target, "target_ready")
-            else request.targetRetry = Runnable {
-                request.targetRetry = null
-                awaitViewerReturnTarget(request)
-            }.also { albumTransitionHandler.postDelayed(it, 16L) }
+            else {
+                // The holder is bound and matches this media, so the wait is the
+                // thumbnail request itself. Give that one request priority instead of
+                // widening the timeout.
+                promoteQueuedViewerReturnThumbnail(request, position)
+                request.targetRetry = Runnable {
+                    request.targetRetry = null
+                    awaitViewerReturnTarget(request)
+                }.also { albumTransitionHandler.postDelayed(it, 16L) }
+            }
         }
         grid.postInvalidateOnAnimation()
+    }
+
+    /**
+     * Promotes the return target's *queued* thumbnail request to HIGH, at most once per
+     * return and holder. The 2026-11-24 log had a video target at
+     * `readiness=pixels_unavailable` for ~410 ms; the request had been queued when the
+     * holder was bound for a different reason and nothing ever raised it.
+     */
+    private fun promoteQueuedViewerReturnThumbnail(request: GridReturn, position: GridReturnPosition) {
+        if (request.promotedPath == request.path) return
+        val adapter = position.adapter
+        if (binding.mediaGrid.adapter !== adapter || adapter.committedVersion != position.version) return
+        if (!adapter.promoteQueuedThumbnail(request.path)) return
+        request.promotedPath = request.path
+        if (!request.promotionLogged) {
+            request.promotionLogged = true
+            ViewerReturnDiagnostics.event(request.requestId, "grid_target_promoted") {
+                mapOf("index" to position.index, "version" to position.version)
+            }
+        }
     }
 
     private fun releaseViewerReturn(request: GridReturn, target: GridReturnTarget?, reason: String) {
@@ -5427,6 +5456,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         intent.putExtra(PhotoViewerTransition.EXTRA_LAUNCH, returnLaunch)
         val entryId = ViewerEntryDiagnostics.newRequest()
         if (entryId != 0L) {
+            intent.putExtra(ViewerEntryDiagnostics.EXTRA_REQUESTED_AT, android.os.SystemClock.elapsedRealtime())
             val type = getMediaAdapter()?.media?.firstOrNull { it is Medium && it.path == path } as? Medium
             intent.putExtra(PhotoViewerTransition.EXTRA_ENTRY_ID, entryId)
             intent.putExtra(ViewerEntryDiagnostics.EXTRA_DIAGNOSTIC_PROCESS, GalleryDiagnosticLogger.session())

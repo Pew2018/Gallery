@@ -10,24 +10,40 @@
      CustomCrossActivityBackAnimation, which freezes the closing rect at the release
      position and keeps the entering parent on a full-screen base rect with alpha pinned
      to 1. The parent is therefore already fully composed underneath, so every frame of
-     foreground alpha is a literal cross-dissolve of two grids. The previous curve ended
-     that dissolve at 35% of a 450 ms clock and then held alpha 0 for the remaining
-     ~293 ms, i.e. the page vanished while the clock kept running and the window was
-     removed afterwards. That is the "suddenly switches to the full home page" reading.
+     foreground alpha is a literal cross-dissolve of two grids.
+
+     Phase-2 report (2026-11-24 device run): the album return was still read as
+     "叠加溶解" - two image grids visible at once for too long - and the settings/custom
+     profile returns as "提交后动画感觉缓慢" because their foreground had already gone
+     while the window kept the clock. The folder page therefore gets a shorter clock
+     (220 ms, see oxygen_classic_folder_back_duration_ms) *and* a steeper dissolve than
+     the phase-1 curve: at 40% of the clock the foreground is at 0.39 alpha and 56% of
+     its travel (phase 1: 0.56 alpha at 47% travel).
 
      Shape of this curve (y = fade fraction, alpha = 1 - y)
      ======================================================
-     - y grows slowly at first (~0.04 by 10%), so the release frame does not lose
-       opacity and the first part of the exit is motion, not dissolve;
-     - the steepest part sits between 35% and 60%, where the paired slide curve is
+     - y grows slowly at first (~0.06 by 10%), so the release frame keeps its opacity
+       and the first part of the exit is motion, not dissolve;
+     - the steepest part sits between 30% and 60%, where the paired slide curve is
        moving fastest, so the dissolve happens while the page is visibly leaving;
-     - y reaches 1 only at progress 1, on the same frame the travel completes. There is
-       no invisible tail and no hard cut: the last visible frame precedes the window
-       removal by one frame.
-     Full-clock children keep the Shell's unclamped 0..1 progress mapping exact at both
-     ends (alpha 1 at 0, alpha 0 at 1).
+     - y reaches 1 at 82%, i.e. ~180 ms of the 220 ms clock and 0.93 of the travel. The
+       last visible frame still carries most of the motion, so nothing pops, and the
+       remaining 40 ms is too short to read as a pause.
+
+     Measured through AnimationSet#getTransformationAt (the Shell's own path), with the
+     paired slide curve:
+         progress   alpha   travel
+         0.02       0.995   0.014
+         0.10       0.945   0.094
+         0.20       0.820   0.238
+         0.30       0.634   0.403
+         0.40       0.394   0.561
+         0.50       0.238   0.700
+         0.60       0.132   0.785
+         0.80       0.005   0.920
+         0.82       0.000   0.938
 
      PathInterpolator contract: the path starts at (0,0), ends at (1,1) and x is
-     strictly increasing (0.18 -> 0.33 -> 0.55 -> 0.74 -> 0.90 -> 1). -->
+     strictly increasing (0.12 -> 0.26 -> 0.42 -> 0.58 -> 0.72 -> 0.85 -> 0.92 -> 1). -->
 <pathInterpolator xmlns:android="http://schemas.android.com/apk/res/android"
-    android:pathData="M0,0 C0.18,0.03 0.33,0.30 0.55,0.72 C0.74,0.92 0.90,0.99 1,1" />
+    android:pathData="M0,0 C0.12,0.02 0.26,0.22 0.42,0.66 C0.58,0.88 0.72,0.98 0.82,1 C0.9,1 1,1 1,1" />

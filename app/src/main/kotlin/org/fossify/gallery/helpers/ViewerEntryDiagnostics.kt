@@ -1,5 +1,6 @@
 package org.fossify.gallery.helpers
 
+import android.content.Intent
 import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
@@ -13,6 +14,18 @@ internal object ViewerEntryDiagnostics {
     const val EXTRA_MEDIA_TYPE = "org.fossify.gallery.extra.MEDIA_ENTRY_TYPE"
     const val EXTRA_DIAGNOSTIC_PROCESS = "org.fossify.gallery.extra.MEDIA_DIAGNOSTIC_PROCESS"
     const val EXTRA_VIEWER_SESSION_ID = "org.fossify.gallery.extra.MEDIA_DIAGNOSTIC_VIEWER_SESSION"
+
+    /**
+     * Monotonic timestamp of the Grid's `entry_requested`, carried into the Viewer so
+     * every later stage can report its own distance from the tap instead of forcing a
+     * reader to subtract wall-clock log lines. Zero when diagnostics are off.
+     */
+    const val EXTRA_REQUESTED_AT = "org.fossify.gallery.extra.MEDIA_ENTRY_REQUESTED_AT"
+
+    fun requestedAt(intent: Intent): Long = intent.getLongExtra(EXTRA_REQUESTED_AT, 0L)
+
+    fun elapsedSince(requestedAt: Long): Long? =
+        if (requestedAt <= 0L) null else android.os.SystemClock.elapsedRealtime() - requestedAt
 
     fun newRequest(): Long = if (GalleryDiagnosticLogger.isEnabled()) DiagnosticSequence.next() else 0L
 

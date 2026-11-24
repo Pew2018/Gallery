@@ -67,25 +67,39 @@
     <!-- Post-commit clock of the platform's cross-Activity back animation.
          CustomCrossActivityBackAnimation.getPostCommitAnimationDuration() is
          min(2000, max(closeAnimation.duration, enterAnimation.duration)) and both
-         values come from the CLOSE pair declared below, so these tokens set the
-         Shell's commit clock. 450ms is DefaultCrossActivityBackAnimation's
-         POST_COMMIT_DURATION, i.e. the reference length of the platform's own
-         cross-Activity return; keep them equal so the closing page resolves on the
-         same clock as the system. Kept separate from the classic page tokens above:
-         those still drive the pre-Android-14 window animation and must not change.
+         values come from the CLOSE pair declared below, so these tokens are the
+         Shell's commit clock *and* its window-removal deadline. Kept separate from the
+         classic page tokens above: those still drive the pre-Android-14 window
+         animation and must not change.
+
+         Why 240 ms and not DefaultCrossActivityBackAnimation's POST_COMMIT_DURATION
+         (450 ms): on the default branch the parent keeps moving for the whole clock
+         (0.9 -> 1 with a -96dp offset), so 450 ms of foreground presence is
+         proportionate. On *this* branch the parent is pinned to a full-screen base
+         rect, so the closing page is the only moving element. The foreground is fully
+         transparent at 60% of the resource (see the alpha interpolator), which left
+         ~180 ms of 450 ms - and, before this phase, ~333 ms - in which the window drew
+         nothing but still owned the touches and the window removal. 240 ms keeps the
+         fade at the same absolute length as before (144 ms) and cuts that invisible
+         tail to 96 ms, which is what removes the "it already finished but nothing
+         responds yet" reading after a commit.
+
          Note that the Shell drives the pair through AnimationSet.getTransformationAt(),
          which feeds the same 0..1 progress to every child, so the clock also has to
          match the child durations - see oxygen_classic_page_back_exit.xml. -->
-    <integer name="oxygen_classic_page_back_duration_ms">450</integer>
+    <integer name="oxygen_classic_page_back_duration_ms">240</integer>
     <!-- Folder page (album grid -> home) only.
          CustomCrossActivityBackAnimation.getPostCommitAnimationDuration() is
          min(2000, max(close.duration, enter.duration)), so the folder pair must share
          this clock on both sides or the longer one re-introduces a tail in which the
          closing page has already reached alpha 0.
-         300 ms keeps the whole exit inside the gesture's follow-through: the fade now
-         ends with the travel instead of at 35% of a 450 ms clock, which is what left
-         293 ms with nothing moving and made the return read as a late hard cut. -->
-    <integer name="oxygen_classic_folder_back_duration_ms">300</integer>
+         220 ms: the album page is the one return where the foreground is a dense grid
+         of images and text that the real Grid is already drawn behind, so every frame
+         of partial alpha is a literal cross-dissolve of two grids (the 2026-11-24 run
+         was reported as "叠加溶解"). Shortening the clock reduces the overlap window in
+         absolute time and the retimed alpha curve reduces its opacity; the fade still
+         ends at 82% of the travel, so the page leaves instead of evaporating. -->
+    <integer name="oxygen_classic_folder_back_duration_ms">220</integer>
     <!-- DefaultCrossActivityBackAnimation.onGestureCommitted() slides the closing
          page on to currentClosingRect.left + enteringStartOffset, and
          cross_activity_back_entering_start_offset is 96dp in the Shell resources. -->

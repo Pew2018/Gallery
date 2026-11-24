@@ -64,15 +64,16 @@ class PredictiveBackCloseAnimationTest {
     @Test
     fun closePairIsLoadableOnTheShellTimeline() {
         // The Shell only uses the pair if the CLOSE animation loads, and its post-commit
-        // clock is max(close, enter). Both resources therefore have to exist and share
-        // the 450ms reference length.
+        // clock is max(close, enter). Both resources therefore have to exist and share the
+        // same length - the phase-2 240 ms clock, not the platform's 450 ms reference.
+        val clock = application.resources.getInteger(R.integer.oxygen_classic_page_back_duration_ms).toLong()
         listOf(
             R.anim.oxygen_classic_page_back_enter,
             R.anim.oxygen_classic_page_back_exit,
         ).forEach { resource ->
             val animation = load(resource)
             assertNotNull(animation)
-            assertEquals(450L, animation.duration)
+            assertEquals(clock, animation.duration)
             (animation as AnimationSet).animations.forEach { child ->
                 // getTransformationAt feeds the same progress to every child, so a child
                 // shorter than the set would be evaluated past its end (no clamp).
@@ -86,12 +87,16 @@ class PredictiveBackCloseAnimationTest {
         val close = load(R.anim.oxygen_classic_page_back_exit).duration
         val enter = load(R.anim.oxygen_classic_page_back_enter).duration
         val shellClock = minOf(2000L, maxOf(close, enter))
-        // DefaultCrossActivityBackAnimation.POST_COMMIT_DURATION.
-        assertEquals(450L, shellClock)
+        // DefaultCrossActivityBackAnimation.POST_COMMIT_DURATION is 450 ms, but that value
+        // belongs to a branch whose parent keeps moving for the whole clock. On this
+        // branch the parent is pinned, so the phase-2 clock is 240 ms: the foreground fade
+        // keeps its absolute length while the invisible remainder shrinks from 333 ms to
+        // 96 ms.
         assertEquals(
             application.resources.getInteger(R.integer.oxygen_classic_page_back_duration_ms).toLong(),
             shellClock,
         )
+        assertTrue("post-commit clock was $shellClock", shellClock in 200L..300L)
     }
 
     @Test
@@ -146,19 +151,20 @@ class PredictiveBackCloseAnimationTest {
         assertTrue("release frame must not jump to zero", alpha(0.02f) > 0.8f)
 
         // Front-loaded: the parent page is already fully composed underneath, so the
-        // closing foreground must lose most of its opacity inside the first fifth.
-        // decelerate_quad (the previous curve) leaves 0.56 here.
-        assertTrue("alpha at 10% was ${alpha(0.1f)}", alpha(0.1f) < 0.7f)
-        assertTrue("alpha at 20% was ${alpha(0.2f)}", alpha(0.2f) < 0.25f)
-        // Cleared within the requested 20-35% window, and stays cleared.
-        assertEquals("alpha at 30%", 0f, alpha(0.30f), 0.02f)
-        assertEquals("alpha at 35%", 0f, alpha(0.35f), 0.001f)
+        // closing foreground has to lose most of its opacity while the exit still reads as
+        // motion. Measured: 0.733 at 10%, 0.482 at 20%, 0.130 at 40%.
+        assertTrue("alpha at 10% was ${alpha(0.1f)}", alpha(0.1f) < 0.85f)
+        assertTrue("alpha at 20% was ${alpha(0.2f)}", alpha(0.2f) < 0.60f)
+        assertTrue("alpha at 40% was ${alpha(0.4f)}", alpha(0.4f) < 0.20f)
+        // Cleared inside the last third of the clock instead of the first quarter, and
+        // then stays cleared: the invisible tail is <= 40% of the clock (96 ms), not 74%.
+        assertEquals("alpha at 65%", 0f, alpha(0.65f), 0.02f)
+        assertEquals("alpha at 80%", 0f, alpha(0.80f), 0.001f)
+        assertTrue("alpha at 55% was ${alpha(0.55f)}", alpha(0.55f) <= 0.05f)
 
         // The fade and the geometry are deliberately separate: at the instant alpha
         // reaches zero the closing page is still travelling, so nothing snaps off.
-        val cleared = alpha(0.26f)
-        assertTrue(cleared <= 0.001f)
-        assertTrue(translationX(shellTransformation(animation, 0.26f).matrix) < slideDistance() * 0.6f)
+        assertTrue(translationX(shellTransformation(animation, 0.60f).matrix) < slideDistance())
     }
 
     @Test
@@ -180,7 +186,7 @@ class PredictiveBackCloseAnimationTest {
             assertTrue("interpolator must stay in 0..1 at $step", value in -0.0001f..1.0001f)
             previous = value
         }
-        assertTrue("interpolator must be clear by 30%", interpolator.getInterpolation(0.3f) > 0.98f)
+        assertTrue("interpolator must be clear by 65%", interpolator.getInterpolation(0.65f) > 0.98f)
     }
 
     @Test
