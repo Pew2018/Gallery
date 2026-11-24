@@ -95,7 +95,9 @@ onResume()                                (≈2124)
 | **authoritative** | COMPLETE 结果 | 本次合法完整扫描 |
 
 `PhotoRefreshBaseline`（`helpers/PhotoRefreshBaseline.kt`）只承担 **displayed** 的视觉连续职责。
-它明确**不**具备以下任何权力（均由代码结构保证，不是约定）：
+捕获在 UI 线程、请求建立之前同步完成，读取的就是当前已提交的 `mMedia` 与 Adapter，不存在
+「读到的显示状态与请求建立之间被异步改写」的窗口。它明确**不**具备以下任何权力（均由代码结构
+保证，不是约定）：
 
 - 不进入 COMPLETE：`loadStaged` 的 `val complete = result(PhotoLoadStage.COMPLETE, media)` 只使用
   本次扫描的 `media`，基线在合并阶段之后就不再参与；
@@ -216,7 +218,33 @@ updated  = |{p ∈ baseline ∩ discovered : !sameContent(before, after)}|
 计数时结束），UI 侧最终数字改由 `photo_ui_final_summary` 单独给出，避免用未完成的 worker 汇总
 伪造 UI 数据。
 
-## 4. 工作量对比（可复现的主机证据）
+## 4. P1-B：终态、搜索与锚点（审计结论）
+
+本项以审计为主，没有改动既有协调机制，结论如下（源码可查，未在真机验证）：
+
+| 关注点 | 结论 |
+|---|---|
+| COMPLETE 与上批完全相同 | `MediaUpdatePolicy.sameDisplayedContent` 命中 → `AdapterCommitKind.NO_OP`，但 `onCommitted` 仍执行，`displayedMediaIsFinal` 置位、加载圈关闭，业务终态不丢 |
+| 空列表成为终态 | `publishMediaSnapshot` 的 `media.isEmpty() && !isFromCache` 分支只在 COMPLETE 进入（partial 走 `isFromCache=true`），因此不会把部分扫描当成"空相册" |
+| `mMedia` 与 Adapter 的差别 | `mMedia` 是源列表，Adapter 可能是搜索过滤后的结果；基线只从 `mMedia` 捕获且搜索态直接拒绝，不会把搜索结果当成完整快照 |
+| 搜索结果被旧扫描覆盖 | 源内容变化时 `mediaSearchGeneration++`，旧 generation 的搜索回调失效 |
+| 排序被旧 scope 快照覆盖 | `submitPhotoGridResult` 先比 `photoDisplayKey() != requestedKey`，排序变化即换 key |
+| 删除路径被缓存重新插入 | `viewerDeletions.filter(...)` 在 `mMedia = ArrayList(media)` 之前执行；基线也不写 Room |
+| 锚点竞争 | `setupAdapter` 的 `preserveScroll` 依赖 `photoScroll.pending`/`viewerReturn`；刷新开始时 `rememberPhotoScrollAnchor()` 只捕获一次，中间发布不会重新捕获，因此不会把页面拉回刷新前位置 |
+| 锚点媒体被删除 | `photoScroll.restore` 在锚点缺失时使用邻近位置，逻辑未改动 |
+| Viewer 返回 | 仍由 `viewerReturn` / `measuredPhotoReturnView` 协调，本轮未触碰 |
+
+## 5. 诊断与源码身份
+
+- `photo_grid_publication_committed` 保留原语义（接受待发布快照）；Adapter 的真实提交由
+  `photo_grid_adapter_committed` 证明；UI 侧合计由 `photo_ui_final_summary` 给出。
+- APK 现在携带构建期注入的源码身份：`BuildConfig.SOURCE_IDENTITY`，导出日志头部会写
+  `Source: <12 位提交>`。取值来自 CI 的 `GITHUB_SHA`，本地回退到 `git rev-parse HEAD`，
+  都没有时为 `unknown`——不是随机值、不是运行期 git 调用、不是时间戳。
+- 诊断关闭时所有新增事件都不产生（沿用 `GalleryDiagnosticLogger.isEnabled()` 快路径），
+  基线本身在没有诊断时也只在发布时刻分配一次。
+
+## 6. 工作量对比（可复现的主机证据）
 
 `PhotoSnapshotAdmissionTest.scenarioTwo` 用 pp-6 的真实候选序列
 `160, 1200, 2041, 3361, 4561, 5401, 6241, 7201, 8041, 8988, 9842, 10821, 10968` 驱动真实策略：
@@ -236,7 +264,7 @@ updated  = |{p ∈ baseline ∩ discovered : !sameContent(before, after)}|
 场景一（已有完整 12,000 项且内容未变）：中间发布 0 次，只有 COMPLETE 一次 `NO_OP` 提交。
 场景三（真实变化）：删除只在 COMPLETE 生效，`SUPPRESS_SHRINK` 不得吞掉最终结果。
 
-## 5. 自动化测试
+## 7. 自动化测试
 
 新增（51 个用例，全部通过）：
 
@@ -262,7 +290,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew :app:testFossDebugUnitTest
 > 注意：本机默认 `java` 是 17，Robolectric 的 API 36 沙箱需要 21；用 17 运行会得到
 > `Android SDK 36 requires Java 21` 的 2 个环境性失败（与本轮改动无关）。
 
-## 6. P2：扫描与访问验证成本（有限审计，未实施）
+## 8. P2：扫描与访问验证成本（有限审计，未实施）
 
 有证据但**未改动**，因为任何降低最终访问验证成本的方案都会触及安全边界：
 
@@ -274,7 +302,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew :app:testFossDebugUnitTest
 
 本轮没有为此重写比较器或缓存授权，符合任务书的「优先交付正确的 P0」。
 
-## 7. 待真机验收（不得由本文件声称已通过）
+## 9. 待真机验收（不得由本文件声称已通过）
 
 | 项目 | 目标 |
 |---|---|
@@ -288,7 +316,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew :app:testFossDebugUnitTest
 | 首屏 | 保持 ≈200 ms，优先 <500 ms；不出现常态化 700 ms 兜底 |
 | 热内存缓存 | 完整扫描后在有效期内往返 5 次，`previewEligible=true` / `completeReusable=false` / `evictionPerformed=false` |
 
-## 8. 本轮未做
+## 10. 本轮未做
 
 - 未执行 Phase 2（Viewer 转场、预测性返回、下拖退出等）；
 - 未新增 Room schema 或 Migration；

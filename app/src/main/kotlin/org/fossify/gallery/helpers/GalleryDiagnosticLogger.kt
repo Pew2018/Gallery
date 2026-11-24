@@ -170,6 +170,8 @@ internal object GalleryDiagnosticLogger {
             appendLine("Gallery diagnostics")
             appendLine("App version: ${packageInfo.versionName ?: "unknown"} ($versionCode)")
             appendLine("Build type: ${BuildConfig.BUILD_TYPE}")
+            // Injected at build time; no runtime git call and no random value.
+            appendLine("Source: ${BuildConfig.SOURCE_IDENTITY}")
             appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             appendLine("Device: ${DiagnosticPrivacy.value(Build.MANUFACTURER)} ${DiagnosticPrivacy.value(Build.MODEL)}")
             appendLine("Logging enabled: ${isEnabled()}")

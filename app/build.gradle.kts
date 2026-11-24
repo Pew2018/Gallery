@@ -25,6 +25,19 @@ fun hasSigningVars(): Boolean {
 }
 
 val baseVersionCode = project.property("VERSION_CODE").toString().toInt()
+/**
+ * Source identity embedded in the APK for diagnostics.
+ *
+ * CI exports GITHUB_SHA; a local checkout falls back to HEAD. Both are resolved once
+ * during configuration, so the same commit always produces the same value and no git
+ * binary is required at runtime. "unknown" (not a timestamp, not a random id) is used
+ * when neither is available.
+ */
+val sourceIdentity: String = (providers.environmentVariable("GITHUB_SHA").orNull
+    ?: runCatching {
+        providers.exec { commandLine("git", "rev-parse", "HEAD") }.standardOutput.asText.get()
+    }.getOrNull())
+    ?.trim()?.takeIf { it.length >= 7 }?.take(12) ?: "unknown"
 val abiCodes = mapOf("armeabi-v7a" to 1, "arm64-v8a" to 2, "x86" to 3, "x86_64" to 4)
 val abiSplits = providers.gradleProperty("ABI_SPLITS").map(String::toBoolean).getOrElse(false)
 // Only opt-in CI uses this; normal release defaults and ABI matrix are unchanged.
@@ -47,6 +60,10 @@ android {
         targetSdk = project.libs.versions.app.build.targetSDK.get().toInt()
         versionName = project.property("VERSION_NAME").toString()
         versionCode = baseVersionCode
+        // Diagnostics must be able to name the source of a release APK. Resolved once
+        // at configuration time from CI's commit or the checkout's HEAD, so the value
+        // is reproducible per commit and absent (not random) outside a git checkout.
+        buildConfigField("String", "SOURCE_IDENTITY", "\"$sourceIdentity\"")
     }
 
     // Keep instrumentation runnable from a normal local checkout without release signing keys.
