@@ -280,7 +280,9 @@ CLOSE-enter 仍保持 identity（alpha 1、无位移）：它在手势期间被
 
 ## 6. 自动化测试
 
-见 §9 的实测结果。新增/更新：
+本地实测（JDK 21，`./gradlew :app:testFossDebugUnitTest --offline`）：
+**205 个测试类、1523 个用例、0 失败、0 跳过**（本轮基线 204 / 1504 / 0 / 0）。
+新增/更新：
 
 - `ViewerSystemBarChoreographyTest`（纯 JVM，9 例）：阶段、松手帧保持、settling 单调、
   取消恢复、终态至多一次、旧 token 拒绝、fade 兜底、手势取消。
@@ -298,7 +300,7 @@ CLOSE-enter 仍保持 identity（alpha 1、无位移）：它在手势期间被
 | A01–A12 | 全部由 `ViewerSystemBarChoreographyTest` + `ViewerSystemBarOwnershipTest` 覆盖；A12 为 API 35/36 underlay 用例 |
 | B01–B05、B07–B09、B11–B12 | `PredictiveBackCloseAnimationTest`、`PredictiveBackSupportTest`、`PredictiveBackManifestTest`、`FolderBackCloseAnimationTest` |
 | B06、B10 | 由既有 `PageEntryMotionTest`、`PredictiveBackSupportTest`（回调优先级）覆盖 |
-| C01–C20 | 既有 `PhotoViewerInitializationTest`、`PhotoTransitionCompletionGateTest`、`ViewerReturnVisualClockTest`、`Phase15ViewerRegressionTest` 等继续通过；本轮新增返回目标提升没有独立 UI 用例（见 §8） |
+| C01–C20 | 既有 `PhotoViewerInitializationTest`、`PhotoTransitionCompletionGateTest`、`ViewerReturnVisualClockTest`、`Phase15ViewerRegressionTest` 等继续通过；本轮新增返回目标提升没有独立 UI 用例（见 §8 第 4 条） |
 | D 组 | 既有 Phase 1 回归测试全部保留并通过 |
 
 **B 组的真实父页、左右边缘方向、系统合成，以及 C 组多数视觉项，仍只能真机确认。**
