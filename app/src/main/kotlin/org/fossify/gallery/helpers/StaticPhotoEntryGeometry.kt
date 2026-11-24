@@ -12,6 +12,9 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
+/** One pixel of rounding between a proportional preview and its final decode. */
+internal const val PHOTO_HANDOFF_TOLERANCE_PX = 1f
+
 internal data class PhotoBox(val left: Float, val top: Float, val right: Float, val bottom: Float) {
     constructor(rect: RectF) : this(rect.left, rect.top, rect.right, rect.bottom)
 
@@ -23,8 +26,16 @@ internal data class PhotoBox(val left: Float, val top: Float, val right: Float, 
         // Decode and layout can each round by one pixel. Compare along the shorter dimension.
         return if (aspect >= 1f) abs(height - width / aspect) <= 2f else abs(width - height * aspect) <= 2f
     }
-    fun near(other: PhotoBox) = abs(left - other.left) <= 1f && abs(top - other.top) <= 1f &&
-        abs(right - other.right) <= 1f && abs(bottom - other.bottom) <= 1f
+    fun near(other: PhotoBox) = nearWithin(other, PHOTO_HANDOFF_TOLERANCE_PX)
+
+    /**
+     * [tolerancePx] is used by the renderer handoff: a proportional preview and the
+     * final decode of the same file can round the fitted box to neighbouring pixels.
+     */
+    fun nearWithin(other: PhotoBox, tolerancePx: Float) =
+        abs(left - other.left) <= tolerancePx && abs(top - other.top) <= tolerancePx &&
+            abs(right - other.right) <= tolerancePx && abs(bottom - other.bottom) <= tolerancePx
+
     fun mix(other: PhotoBox, progress: Float) = PhotoBox(
         left + (other.left - left) * progress, top + (other.top - top) * progress,
         right + (other.right - right) * progress, bottom + (other.bottom - bottom) * progress,
@@ -141,8 +152,21 @@ internal data class PhotoWindowGeometry(val visible: PhotoBox, val insetEdges: L
 internal data class PhotoViewGeometry(
     val layout: PhotoBox, val pixels: PhotoBox, val visible: PhotoBox, val window: PhotoWindowGeometry,
 ) {
-    fun near(other: PhotoViewGeometry) = layout.near(other.layout) && pixels.near(other.pixels) &&
-        visible.near(other.visible) && window == other.window
+    fun near(other: PhotoViewGeometry) = nearWithin(other, PHOTO_HANDOFF_TOLERANCE_PX)
+
+    /**
+     * Renderer handoff check. A proportional preview delivered before the final decode
+     * can round the fitted box to the neighbouring pixel on each edge; two pixels stays
+     * invisible and still rejects a real geometry change.
+     */
+    fun nearForHandoff(other: PhotoViewGeometry) =
+        nearWithin(other, PHOTO_HANDOFF_TOLERANCE_PX * 2f)
+
+    /** Same predicate with an explicit tolerance for the preview -> full decode swap. */
+    fun nearWithin(other: PhotoViewGeometry, tolerancePx: Float) =
+        layout.nearWithin(other.layout, tolerancePx) &&
+            pixels.nearWithin(other.pixels, tolerancePx) &&
+            visible.nearWithin(other.visible, tolerancePx) && window == other.window
 }
 
 internal data class StaticPhotoSource(

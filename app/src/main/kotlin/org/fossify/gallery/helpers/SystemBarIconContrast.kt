@@ -161,6 +161,28 @@ internal class IconPolarityLatch(
         candidate = null
     }
 
+    /**
+     * Applies the polarity an *endpoint* frame is required to show.
+     *
+     * Hysteresis exists to keep the mid-blend band from chattering; it must never decide
+     * an endpoint. The exported Pixel 8 Pro log of the 2026-11-24 run starts a Viewer
+     * entry at `progress=0.0 iconAppearance=DARK` while the page underneath is
+     * `lightStatusBarIcons=true`: the toolbar colour (`0xffd2471c`) puts black and white
+     * icons within 0.12 contrast ratio of each other, so a fresh latch with no previous
+     * decision resolved that near-tie to black and the icons had to flip back to white at
+     * `progress=0.30`. The page's own declaration is the only correct answer at its
+     * endpoint, so it is [align]ed instead of re-derived.
+     *
+     * Any pending candidate is dropped: it was computed for a blend that no longer
+     * describes the frame. [surface] is recorded so a repeated identical frame is
+     * answered from memory without re-evaluating.
+     */
+    fun align(polarity: Boolean, surface: Int) {
+        decision = polarity
+        decidedSurface = surface
+        candidate = null
+    }
+
     /** The window is gone; the next window starts from its own first surface. */
     fun reset() {
         decision = null

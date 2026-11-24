@@ -917,6 +917,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
     }
 
     private fun endViewerReturn(reason: String) {
+        // The transition that needed the reserved pixels is over (or was superseded);
+        // releasing here keeps the reserve's lifetime tied to a single Viewer session.
+        org.fossify.gallery.helpers.ViewerReturnPixelReserve.shared.clear()
         val request = viewerReturn ?: return
         viewerReturn = null
         request.destroying = reason == "destroyed"
@@ -941,6 +944,37 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
     private fun hasUsableViewerReturnBounds(image: ImageView, visible: android.graphics.Rect = android.graphics.Rect()): Boolean =
         image.getGlobalVisibleRect(visible) &&
             PhotoViewerReturnTarget.hasUsableVisibleArea(image.width, image.height, visible.width(), visible.height())
+
+    /** True when the holder's own thumbnail request has already delivered its pixels. */
+    private fun hasBoundReturnPixels(path: String, image: ImageView): Boolean =
+        PhotoViewerReturnTarget.isLoadedFor(
+            path,
+            image.getTag(R.id.media_bound_path) as? String,
+            image.getTag(R.id.thumbnail_request_key),
+            image.getTag(R.id.thumbnail_loaded_key)
+        )
+
+    /**
+     * Hands the Grid's previously decoded pixels to a rebound holder.
+     *
+     * The holder is only accepted when it is bound to [path] and still carries the
+     * request identity the reserve was filled under; the reserve itself checks the
+     * decoded size against the holder's measured size. The instance is taken (not
+     * shared), so no two holders can ever own the same drawable, and the in-flight
+     * thumbnail request keeps running - it will deliver the very same resource from the
+     * memory cache and re-stamp the loaded key.
+     */
+    private fun bindReservedReturnPixels(path: String, image: ImageView): Boolean {
+        val grid = binding.mediaGrid
+        if (grid.isComputingLayout || grid.isLayoutRequested) return false
+        if (image.getTag(R.id.media_bound_path) != path) return false
+        val key = image.getTag(R.id.thumbnail_request_key) ?: return false
+        val pixels = org.fossify.gallery.helpers.ViewerReturnPixelReserve.shared.take(key, image.width, image.height)
+            ?: return false
+        image.setImageDrawable(pixels)
+        image.setTag(R.id.thumbnail_loaded_key, key)
+        return true
+    }
 
     private fun findViewerReturnHolder(path: String, position: GridReturnPosition): RecyclerView.ViewHolder? {
         val grid = binding.mediaGrid
@@ -992,6 +1026,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         if (image == null) {
             report("holder_unavailable", null, null)
             return null
+        }
+        if (!hasBoundReturnPixels(path, image) && bindReservedReturnPixels(path, image)) {
+            ViewerReturnDiagnostics.event(viewerReturn?.requestId ?: 0L, "grid_target_reserved_pixels") {
+                mapOf("index" to position.index, "version" to position.version,
+                    "drawable" to (image.drawable?.javaClass?.simpleName), "width" to image.width,
+                    "height" to image.height,
+                    "reserveSize" to org.fossify.gallery.helpers.ViewerReturnPixelReserve.shared.size)
+            }
         }
         val drawable = image.drawable
         val loadedKey = image.getTag(R.id.thumbnail_loaded_key)
@@ -3532,7 +3574,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                     itemClicked(it.path)
                 }
             }.apply {
-                onThumbnailLoaded = { _, image ->
+                onThumbnailLoaded = { loadedPath, image ->
+                    // A refresh can rebind and re-decode the media the Viewer is showing.
+                    // Capture the fresh pixels so the return still has them if the holder
+                    // is rebound again before the gesture starts.
+                    if (loadedPath == pendingViewerReturnPath) {
+                        image.drawable?.let {
+                            org.fossify.gallery.helpers.ViewerReturnPixelReserve.shared.remember(
+                                image.getTag(R.id.thumbnail_loaded_key), it)
+                        }
+                    }
                     val request = displayedMediaRequest
                     if (mediaPageRequest == request && request >= 0 && GalleryDiagnosticLogger.isEnabled()) {
                         if (firstThumbnailResourceReady != request) {
@@ -5548,6 +5599,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             }
             intent.putExtra(PhotoViewerTransition.EXTRA_STATIC_PHOTO, true)
         }
+        // The Grid has already decoded exactly these pixels for exactly this request.
+        // Holding them across the Viewer session is what keeps the return target off the
+        // decode path: the Viewer's own full-size images evict the thumbnail from Glide's
+        // memory cache, and re-decoding it is what put request 13 of the 2026-11-24 run in
+        // `RETURN_WAIT_TARGET` for 676 ms. Bounded per [ViewerReturnPixelReserve].
+        org.fossify.gallery.helpers.ViewerReturnPixelReserve.shared.remember(sourceKey, sourceDrawable)
 
         return runCatching {
             pendingViewerReturnPath = path

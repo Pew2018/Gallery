@@ -87,7 +87,7 @@
          Note that the Shell drives the pair through AnimationSet.getTransformationAt(),
          which feeds the same 0..1 progress to every child, so the clock also has to
          match the child durations - see oxygen_classic_page_back_exit.xml. -->
-    <integer name="oxygen_classic_page_back_duration_ms">240</integer>
+    <integer name="oxygen_classic_page_back_duration_ms">210</integer>
     <!-- Folder page (album grid -> home) only.
          CustomCrossActivityBackAnimation.getPostCommitAnimationDuration() is
          min(2000, max(close.duration, enter.duration)), so the folder pair must share
@@ -99,7 +99,7 @@
          was reported as "叠加溶解"). Shortening the clock reduces the overlap window in
          absolute time and the retimed alpha curve reduces its opacity; the fade still
          ends at 82% of the travel, so the page leaves instead of evaporating. -->
-    <integer name="oxygen_classic_folder_back_duration_ms">220</integer>
+    <integer name="oxygen_classic_folder_back_duration_ms">200</integer>
     <!-- DefaultCrossActivityBackAnimation.onGestureCommitted() slides the closing
          page on to currentClosingRect.left + enteringStartOffset, and
          cross_activity_back_entering_start_offset is 96dp in the Shell resources. -->

@@ -31,9 +31,11 @@ import org.robolectric.annotation.Config
  * for ~293 ms; phase 1.1 moved the fade to the end of a 300 ms clock, which removed that
  * dead tail but kept two grids visible through a long semi-transparent band (0.559 opaque
  * at 40% of the clock, 0.375 at 50%) - reported on the 2026-11-24 device run as
- * "叠加溶解". This pair keeps the fade/travel pairing on a 220 ms clock and finishes the
- * dissolve at 90% of it, i.e. 0.394 opaque at 40% and 0.238 at 50% of a clock that is 27%
- * shorter.
+ * "叠加溶解". Phase 2 kept the fade/travel pairing on a 220 ms clock and finished the
+ * dissolve at 82% (0.392 opaque at 40%, 0.239 at 50%). Phase 2.1 still reported two dense
+ * grids at once, so the clock is now 200 ms and the dissolve ends at ~72% (0.320 opaque at
+ * 40%, 0.179 at 50%): the semi-transparent overlap window shrinks from ~180 ms to ~130 ms
+ * while the last visible frame still carries travel.
  *
  * Assertions evaluate the real resources through `Animation#getTransformationAt`, the
  * exact call the Shell makes. Robolectric cannot composite the Shell surfaces, so the
@@ -116,7 +118,7 @@ class FolderBackCloseAnimationTest {
     fun folderExitUsesTheFolderOnlyClock() {
         val animation = load(R.anim.oxygen_classic_folder_back_exit)
         val folderClock = folderClock()
-        assertEquals(220L, folderClock)
+        assertEquals(200L, folderClock)
         assertEquals(folderClock, animation.duration)
         // The Shell forwards the same progress to every child without renormalising, so
         // every child has to run on the set clock.
@@ -141,9 +143,9 @@ class FolderBackCloseAnimationTest {
         }
         assertTrue("the foreground never reaches zero", fadeEnd > 0f)
         // Phase 1 ended the fade at 35% and left ~65% of the clock with nothing visible;
-        // the window is removed at the end of that clock. Phase 2 keeps the last visible
-        // frame within the final tenth of the clock.
-        assertTrue("fade ended at $fadeEnd", fadeEnd in 0.78f..0.90f)
+        // phase 2 moved it to 82% of 220 ms (~180 ms of two visible grids), phase 2.1 to
+        // ~72% of 200 ms (~144 ms), still inside the moving part of the exit.
+        assertTrue("fade ended at $fadeEnd", fadeEnd in 0.66f..0.78f)
         // ...and the geometry is already at its target on that same frame.
         val distance = application.resources.getDimension(R.dimen.oxygen_classic_page_back_slide_distance)
         assertEquals(distance, translationX(transformation(animation, 1f).matrix), 0.01f)
@@ -166,7 +168,7 @@ class FolderBackCloseAnimationTest {
         // which is what produced the double-exposed grid. The foreground has to stay
         // substantially opaque while it is still starting to move.
         assertTrue("alpha at 20% was ${transformation(animation, 0.20f).alpha}",
-            transformation(animation, 0.20f).alpha > 0.78f)
+            transformation(animation, 0.20f).alpha > 0.74f)
         val distance = application.resources.getDimension(R.dimen.oxygen_classic_page_back_slide_distance)
         val travel = translationX(transformation(animation, 0.20f).matrix) / distance
         assertTrue("travel at 20% was $travel", travel > 0.15f)

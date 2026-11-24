@@ -32,17 +32,23 @@ object OxygenSystemBars {
     internal const val STATUS_UNDERLAY = "oxygen_classic_status_underlay"
     internal const val NAV_UNDERLAY = "oxygen_classic_nav_underlay"
 
+    /**
+     * Blend progress at or below which the frame is the page, not a blend. The entry
+     * clock starts on exactly 0 and the return clock multiplies its remainder down to it;
+     * a hair of float dust must not fall outside the endpoint.
+     */
+    internal const val PAGE_ENDPOINT_EPSILON = 0.001f
+
     private enum class Owner { PAGE, VIEWER }
 
     private class WindowBars {
         var owner = Owner.PAGE
         var viewerProgress = 1f
         var viewerVisible = true
+        var viewerNavigationVisible = true
         var viewerTokens: OxygenThemeTokens? = null
         val statusPolarity = IconPolarityLatch()
         val navigationPolarity = IconPolarityLatch()
-        var lastStatusSurface = Int.MIN_VALUE
-        var lastNavigationSurface = Int.MIN_VALUE
     }
 
     private val windows = java.util.WeakHashMap<View, WindowBars>()
@@ -58,7 +64,7 @@ object OxygenSystemBars {
             // repaint a window the Viewer is currently driving. Replaying the recorded
             // Viewer state keeps the surface and the icons on the Viewer's own curve.
             val tokens = state.viewerTokens ?: OxygenThemeEngine.snapshot(activity, activity.config)
-            applyViewer(activity, tokens, state.viewerProgress, state.viewerVisible)
+            applyViewer(activity, tokens, state.viewerProgress, state.viewerVisible, state.viewerNavigationVisible)
             return
         }
         val colors = OxygenThemeEngine.snapshot(activity, activity.config)
@@ -72,8 +78,6 @@ object OxygenSystemBars {
         val darkStatus = !colors.lightStatusBarIcons
         state.statusPolarity.adopt(darkStatus)
         state.navigationPolarity.adopt(colors.darkNavigationBarIcons)
-        state.lastStatusSurface = colors.statusBarBackground
-        state.lastNavigationSurface = colors.navigationBarBackground
         bars.isAppearanceLightStatusBars = darkStatus
         bars.isAppearanceLightNavigationBars = colors.darkNavigationBarIcons
 
@@ -89,36 +93,61 @@ object OxygenSystemBars {
      * Paints the Viewer surfaces for a blend [progress] (0 = page colours, 1 = viewer
      * surfaces) and returns true only when a window property actually changed: the entry
      * and return clocks call this on every frame and must not rewrite identical values.
+     *
+     * [statusVisible] and [navigationVisible] are separate because the two bars are two
+     * different windows-side surfaces: the underlay that draws the band, and the icons
+     * chosen for it, are per bar. Gallery currently hides both together (immersive mode
+     * and slideshow toggle them as one), so the default keeps that behaviour, but a frame
+     * that ever hides only one of them is no longer forced to hide the other's band.
      */
     @Suppress("DEPRECATION")
-    fun applyViewer(activity: Activity, colors: OxygenThemeTokens, progress: Float, statusVisible: Boolean): Boolean {
+    fun applyViewer(
+        activity: Activity,
+        colors: OxygenThemeTokens,
+        progress: Float,
+        statusVisible: Boolean,
+        navigationVisible: Boolean = statusVisible,
+    ): Boolean {
         val host = activity.window.decorView as? FrameLayout ?: return false
         val state = bars(host)
         state.owner = Owner.VIEWER
         state.viewerProgress = progress
         state.viewerVisible = statusVisible
+        state.viewerNavigationVisible = navigationVisible
         state.viewerTokens = colors
         val status = blendOpaqueSurface(colors.statusBarBackground,
             activity.getColor(R.color.viewer_status_surface), progress)
         val nav = blendOpaqueSurface(colors.navigationBarBackground, Color.BLACK, progress)
         val bars = WindowCompat.getInsetsController(activity.window, host)
         var changed = false
+        val now = SystemClock.uptimeMillis()
+        // The blend runs page colour -> viewer surface, so progress 0 *is* the page: the
+        // bars there must match the window the handover returns to. Deriving that from
+        // the blended colour alone made a near-tie on the toolbar colour decide the
+        // opening frame (see [IconPolarityLatch.align]).
+        val atPageEndpoint = progress <= PAGE_ENDPOINT_EPSILON
 
-        if (state.lastStatusSurface != status) {
-            state.lastStatusSurface = status
-            val dark = state.statusPolarity.decide(status, SystemClock.uptimeMillis())
-            if (bars.isAppearanceLightStatusBars != dark) {
-                bars.isAppearanceLightStatusBars = dark
-                changed = true
-            }
+        // The latch is consulted on every frame, including repeated colours: a candidate
+        // that is waiting out its hold period is only resolved by later frames, so
+        // skipping identical surfaces would leave it pending forever. Identical surfaces
+        // are answered from memory and write nothing.
+        val statusDark = if (atPageEndpoint) {
+            (!colors.lightStatusBarIcons).also { state.statusPolarity.align(it, status) }
+        } else {
+            state.statusPolarity.decide(status, now)
         }
-        if (state.lastNavigationSurface != nav) {
-            state.lastNavigationSurface = nav
-            val dark = state.navigationPolarity.decide(nav, SystemClock.uptimeMillis())
-            if (bars.isAppearanceLightNavigationBars != dark) {
-                bars.isAppearanceLightNavigationBars = dark
-                changed = true
-            }
+        if (bars.isAppearanceLightStatusBars != statusDark) {
+            bars.isAppearanceLightStatusBars = statusDark
+            changed = true
+        }
+        val navigationDark = if (atPageEndpoint) {
+            colors.darkNavigationBarIcons.also { state.navigationPolarity.align(it, nav) }
+        } else {
+            state.navigationPolarity.decide(nav, now)
+        }
+        if (bars.isAppearanceLightNavigationBars != navigationDark) {
+            bars.isAppearanceLightNavigationBars = navigationDark
+            changed = true
         }
 
         if (Build.VERSION.SDK_INT < 35) {
@@ -136,9 +165,9 @@ object OxygenSystemBars {
                 underlay.setBackgroundColor(status)
                 changed = true
             }
-            val visibility = if (statusVisible) View.VISIBLE else View.GONE
-            if (underlay.visibility != visibility) {
-                underlay.visibility = visibility
+            val statusBand = if (statusVisible) View.VISIBLE else View.GONE
+            if (underlay.visibility != statusBand) {
+                underlay.visibility = statusBand
                 changed = true
             }
             // Enforced edge-to-edge (API 35+) makes navigationBarColor a no-op: the bar
@@ -151,8 +180,9 @@ object OxygenSystemBars {
                 navUnderlay.setBackgroundColor(nav)
                 changed = true
             }
-            if (navUnderlay.visibility != visibility) {
-                navUnderlay.visibility = visibility
+            val navigationBand = if (navigationVisible) View.VISIBLE else View.GONE
+            if (navUnderlay.visibility != navigationBand) {
+                navUnderlay.visibility = navigationBand
                 changed = true
             }
         }

@@ -183,6 +183,49 @@ class SystemBarIconContrastTest {
         assertTrue(latch.decide(pageSurface, 5L))
     }
 
+    /**
+     * The status band does not blend the page *background* to black, it blends the
+     * toolbar colour to the viewer surface. On the recorded Pixel 8 Pro run that toolbar
+     * is `0xffd2471c`, where the two icon colours are 4.64 and 4.52 - black "wins" by
+     * 0.12, i.e. inside the ambiguity band. The page pairs that band with white icons, so
+     * the endpoint rule hands the latch that polarity and the whole pass stays white.
+     */
+    @Test
+    fun theToolbarToViewerBlendKeepsTheDeclaredIconsForTheWholeEntry() {
+        val toolbar = 0xFFD2471C.toInt()
+        assertTrue("black only wins this band by a hair",
+            SystemBarIconContrast.advantage(toolbar) < SystemBarIconContrast.SWITCH_MARGIN)
+        assertTrue("which is why a fresh decision picks dark icons",
+            SystemBarIconContrast.useDarkIcons(toolbar, previous = null))
+
+        val latch = IconPolarityLatch(holdMs = 48L)
+        latch.align(polarity = false, surface = toolbar)
+        var flips = 0
+        var previous: Boolean? = null
+        var now = 0L
+        (0..60).forEach { step ->
+            val decision = latch.decide(blend(toolbar, viewerSurface, step / 60f), now)
+            if (previous != null && decision != previous) flips++
+            previous = decision
+            now += 8L
+        }
+        assertEquals("the entry must not reverse the page's icon polarity", 0, flips)
+        assertFalse("and it ends on the viewer polarity", previous!!)
+    }
+
+    @Test
+    fun aligningAnEndpointDropsAPendingCandidate() {
+        // A candidate is a decision about a *blend*; an endpoint frame invalidates it.
+        val latch = IconPolarityLatch(holdMs = 48L)
+        assertTrue(latch.decide(pageSurface, 0L))
+        assertEquals("a pending candidate keeps the on-screen icons",
+            true, latch.decide(midGrey, 10L))
+        latch.align(polarity = false, surface = midGrey)
+        assertFalse("the endpoint polarity is on screen now", latch.current!!)
+        assertFalse("and it is answered from memory for the same surface",
+            latch.decide(midGrey, 12L))
+    }
+
     @Test
     fun contrastIsSymmetricAndNormalised() {
         assertTrue(SystemBarIconContrast.contrast(0xFFFFFFFF.toInt(), 0xFF000000.toInt()) in 20.9..21.1)

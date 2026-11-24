@@ -224,7 +224,8 @@ class PhotoFragment : ViewPagerFragment() {
         return sharedSurface?.currentView === proxy && mIsFragmentVisible && mMedium.path == proxy.geometry.source.path &&
             sharedEntryImageGeneration == imageRequestGeneration && staticGlideGeneration == imageRequestGeneration &&
             proxy.geometry.source.invalidation == org.fossify.gallery.helpers.ViewerContentInvalidationRegistry.current(mMedium.path) &&
-            renderer.isAttachedToWindow && StaticPhotoViewGeometry.read(renderer)?.near(proxy.geometry.target) == true
+            renderer.isAttachedToWindow &&
+                StaticPhotoViewGeometry.read(renderer)?.nearForHandoff(proxy.geometry.target) == true
     }
 
     private var subsamplingGeneration = 0L
@@ -755,10 +756,28 @@ class PhotoFragment : ViewPagerFragment() {
                 }
             }
 
-        Glide.with(requireContext())
+        // Only the entry photo, whose identity and file version were checked against the
+        // Grid source, gets a proportional preview. The renderer-ready gate stays exactly
+        // where it is: this preview *is* a renderer frame with the same signature,
+        // fit-center transform and aspect, so the shared proxy geometry remains derived
+        // from the real view instead of guessed. The full decode keeps running and
+        // replaces the drawable in place - no lease, handoff or timeout is bypassed.
+        val previewEnabled = org.fossify.gallery.helpers.ViewerEntryPreviewPolicy.allow(
+            isEntryMedia = source != null,
+            hasVerifiedGridSource = verifiedSignature != null,
+            rotationDegrees = mCurrentRotationDegrees,
+            subsamplingVisible = mIsSubsamplingVisible,
+        )
+        val requestBuilder = Glide.with(requireContext())
             .load(path)
             .apply(options)
-            .listener(object : RequestListener<Drawable> {
+        if (previewEnabled) {
+            requestBuilder.thumbnail(org.fossify.gallery.helpers.ViewerEntryPreviewPolicy.PREVIEW_SIZE_MULTIPLIER)
+            org.fossify.gallery.helpers.GalleryPerfTrace.event(
+                "viewer_entry_preview_strategy",
+                (org.fossify.gallery.helpers.ViewerEntryPreviewPolicy.PREVIEW_SIZE_MULTIPLIER * 100f).toInt())
+        }
+        requestBuilder.listener(object : RequestListener<Drawable> {
                 override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
                     if (request != imageRequestGeneration) return true
                     resetColorModeIfVisible()
@@ -776,6 +795,11 @@ class PhotoFragment : ViewPagerFragment() {
                     isFirstResource: Boolean
                 ): Boolean {
                     if (request != imageRequestGeneration) return true
+                    // Glide reports the size-multiplied preview first, then the full
+                    // decode. Both go through the same renderer pipeline: no second
+                    // readiness path, no changed geometry, no lease to hand over.
+                    // `reportImageRendered` deduplicates the frame notification to the
+                    // Activity, so the entry gate still releases exactly once.
                     staticGlideGeneration = request
                     staticGlideSignature = verifiedSignature
                     applyProperColorMode(resource)

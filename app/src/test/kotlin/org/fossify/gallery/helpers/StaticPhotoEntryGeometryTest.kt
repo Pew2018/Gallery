@@ -52,6 +52,19 @@ class StaticPhotoEntryGeometryTest {
         assertEquals(0f, geometry.radiusAt(1f))
     }
 
+    /** A proportional preview and its final decode can round to neighbouring pixels. */
+    @Test fun handoffToleranceAcceptsPreviewRoundingButNotAGeometryChange() {
+        val window = PhotoWindowGeometry(square, emptyList())
+        val proxy = PhotoViewGeometry(square, square, square, window)
+        val rounded = PhotoBox(square.left + 1f, square.top - 2f, square.right - 1f, square.bottom + 2f)
+        val preview = PhotoViewGeometry(rounded, rounded, rounded, window)
+        assertFalse("exact geometry checks stay strict", proxy.near(preview))
+        assertTrue("the handoff accepts preview rounding", proxy.nearForHandoff(preview))
+        val changed = PhotoBox(square.left + 8f, square.top, square.right, square.bottom)
+        assertFalse("a real geometry change is still rejected",
+            proxy.nearForHandoff(PhotoViewGeometry(changed, changed, changed, window)))
+    }
+
     @Test fun earlyViewerCanReuseOnlyTheGridVersionOfTheSameFile() {
         val view = PhotoViewGeometry(square, square, square, PhotoWindowGeometry(square, emptyList()))
         val source = StaticPhotoSource("image", "version", 1, crop, view, 125L, 3_000L, 4L)

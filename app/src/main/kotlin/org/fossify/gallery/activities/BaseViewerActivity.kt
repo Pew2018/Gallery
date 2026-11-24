@@ -44,6 +44,14 @@ abstract class BaseViewerActivity : SimpleActivity() {
     protected open val viewerSystemBarProgress: Float get() = 1f
     protected open val viewerStatusSurfaceVisible: Boolean get() = true
 
+    /**
+     * The navigation band is a separate surface with its own icons. Gallery drives it
+     * from the same immersive flag as the status band today, but the write path no longer
+     * assumes the two are the same decision: a frame that hides only one bar keeps the
+     * other bar's band and icon polarity intact.
+     */
+    protected open val viewerNavigationSurfaceVisible: Boolean get() = viewerStatusSurfaceVisible
+
     private lateinit var viewerBarColors: OxygenThemeTokens
 
     override fun onResume() {
@@ -63,11 +71,13 @@ abstract class BaseViewerActivity : SimpleActivity() {
 
     protected fun updateViewerSystemBars() {
         val changed = OxygenSystemBars.applyViewer(
-            this, viewerBarColors, viewerSystemBarProgress, viewerStatusSurfaceVisible)
+            this, viewerBarColors, viewerSystemBarProgress, viewerStatusSurfaceVisible,
+            viewerNavigationSurfaceVisible)
         // Only actual changes are recorded: the entry clock calls this per frame and a
         // per-frame log line would both cost time and hide the interesting frames.
         if (changed && org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
             val underlay = window.decorView.findViewWithTag<View>(OxygenSystemBars.STATUS_UNDERLAY)
+            val navUnderlay = window.decorView.findViewWithTag<View>(OxygenSystemBars.NAV_UNDERLAY)
             val bars = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
             val underlayColor = (underlay?.background as? android.graphics.drawable.ColorDrawable)?.color
             @Suppress("DEPRECATION")
@@ -78,10 +88,16 @@ abstract class BaseViewerActivity : SimpleActivity() {
                 mapOf(
                     "progress" to viewerSystemBarProgress,
                     "statusBarVisible" to viewerStatusSurfaceVisible,
+                    "navigationBarVisible" to viewerNavigationSurfaceVisible,
                     "iconAppearance" to if (bars.isAppearanceLightStatusBars) "DARK" else "LIGHT",
                     "navigationIconAppearance" to if (bars.isAppearanceLightNavigationBars) "DARK" else "LIGHT",
                     "underlayVisibility" to (underlay?.visibility == View.VISIBLE),
+                    "navigationUnderlayVisibility" to (navUnderlay?.visibility == View.VISIBLE),
                     "backgroundColor" to (underlayColor ?: legacyColor),
+                    // The declared page endpoint, so a reader can tell an inherited
+                    // polarity from one the contrast latch happened to pick.
+                    "pageStatusIcons" to if (viewerBarColors.lightStatusBarIcons) "LIGHT" else "DARK",
+                    "pageNavigationIcons" to if (viewerBarColors.darkNavigationBarIcons) "DARK" else "LIGHT",
                 )
             )
         }
