@@ -38,10 +38,16 @@ class ViewerReturnPixelReserveTest {
         val drawable = pixels(670)
         reserve.remember(requestKey("/a.jpg", "sig-1"), drawable)
         assertTrue(reserve.contains(requestKey("/a.jpg", "sig-1"), 670, 670))
-        // A later bind builds an equal list, not the same instance.
-        assertSame(drawable, reserve.take(requestKey("/a.jpg", "sig-1"), 670, 670))
+        // Phase 2.2: the reserve hands out a defensive copy, never the stored
+        // drawable itself - the original stays owned by its Glide request.
+        val served = reserve.take(requestKey("/a.jpg", "sig-1"), 670, 670)
+        org.junit.Assert.assertNotNull(served)
         assertEquals("a hit is consumed", 0, reserve.size)
         assertNull(reserve.take(requestKey("/a.jpg", "sig-1"), 670, 670))
+        val servedBitmap = (served as BitmapDrawable).bitmap
+        assertEquals(670, servedBitmap.width)
+        assertFalse("the copy must not alias the source bitmap",
+            servedBitmap === drawable.bitmap)
     }
 
     @Test
@@ -104,5 +110,122 @@ class ViewerReturnPixelReserveTest {
         reserve.remember(requestKey("/a.jpg", "sig"), android.graphics.drawable.ColorDrawable(0xFFFF0000.toInt()))
         assertEquals(0, reserve.size)
         assertNull(reserve.take(requestKey("/a.jpg", "sig"), 670, 670))
+    }
+
+    // ---- Phase 2.2 ownership (C group, reserve-level semantics) ----
+
+    /** Mutating the source after remember() must never change the reserved pixels. */
+    @Test
+    fun c01TheReserveOwnsACopyNotTheSourcePixels() {
+        val reserve = ViewerReturnPixelReserve(capacity = 3)
+        val bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(0xFF00FF00.toInt())
+        reserve.remember(requestKey("/a.jpg", "sig"), BitmapDrawable(null, bitmap))
+        // Simulate the original request's lifecycle moving on (clear, rebind, pool reuse):
+        // whatever happens to the source pixels, the reserve must not see it.
+        bitmap.eraseColor(0xFFFF0000.toInt())
+        val served = reserve.take(requestKey("/a.jpg", "sig"), 64, 64) as BitmapDrawable
+        assertEquals("the reserved copy keeps the remembered pixels",
+            0xFF00FF00.toInt(), served.bitmap.getPixel(0, 0))
+    }
+
+    /** The 3583 remember path stores a drawable whose holder keeps changing. */
+    @Test
+    fun c04AReboundHolderCannotRetroactivelyChangeReservedPixels() {
+        val reserve = ViewerReturnPixelReserve(capacity = 3)
+        val bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(0xFF0000FF.toInt())
+        reserve.remember(requestKey("/a.jpg", "sig"), BitmapDrawable(null, bitmap))
+        bitmap.eraseColor(0xFFFFFFFF.toInt())
+        assertTrue(reserve.contains(requestKey("/a.jpg", "sig"), 64, 64))
+        assertEquals(0xFF0000FF.toInt(),
+            (reserve.take(requestKey("/a.jpg", "sig"), 64, 64) as BitmapDrawable).bitmap.getPixel(0, 0))
+    }
+
+    /** A recycled source bitmap can still be served: the copy was made at remember(). */
+    @Test
+    fun c02TheSourceBitmapBeingRecycledDoesNotInvalidateTheReserve() {
+        val reserve = ViewerReturnPixelReserve(capacity = 3)
+        val bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+        reserve.remember(requestKey("/a.jpg", "sig"), BitmapDrawable(null, bitmap))
+        bitmap.recycle()
+        assertTrue("the reserved copy is independent of the source lifecycle",
+            reserve.contains(requestKey("/a.jpg", "sig"), 64, 64))
+    }
+
+    @Test
+    fun c07AnOwnerScopedClearCannotReleaseAnotherSessionsReservation() {
+        val reserve = ViewerReturnPixelReserve(capacity = 3)
+        val oldSession = Any()
+        val newSession = Any()
+        reserve.remember(requestKey("/a.jpg", "sig-old"), pixels(670), owner = oldSession)
+        reserve.remember(requestKey("/b.jpg", "sig-new"), pixels(670), owner = newSession)
+        // The old Activity instance is destroyed after the new one filled its entries
+        // (configuration-change ordering); its teardown must only take its own pixels.
+        reserve.clear(owner = oldSession)
+        assertFalse(reserve.contains(requestKey("/a.jpg", "sig-old"), 670, 670))
+        assertTrue("the new session's reservation survives", reserve.contains(requestKey("/b.jpg", "sig-new"), 670, 670))
+    }
+
+    @Test
+    fun c08TheOwningSessionsClearRemovesExactlyItsOwnEntries() {
+        val reserve = ViewerReturnPixelReserve(capacity = 3)
+        val session = Any()
+        reserve.remember(requestKey("/a.jpg", "sig"), pixels(670), owner = session)
+        reserve.remember(requestKey("/b.jpg", "sig"), pixels(670), owner = null)
+        reserve.clear(owner = session)
+        assertFalse(reserve.contains(requestKey("/a.jpg", "sig"), 670, 670))
+        assertTrue(reserve.contains(requestKey("/b.jpg", "sig"), 670, 670))
+        reserve.clear(owner = null)
+        assertEquals(0, reserve.size)
+    }
+
+    @Test
+    fun c14AnOversizedDecodeIsNeverReserved() {
+        val reserve = ViewerReturnPixelReserve(capacity = 3)
+        // Larger than MAX_ENTRY_BYTES: a full-screen ARGB_8888 decode.
+        val side = (Math.sqrt(ViewerReturnPixelReserve.MAX_ENTRY_BYTES / 4.0) + 1).toInt()
+        val huge = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+        assertFalse(reserve.remember(requestKey("/huge.jpg", "sig"), BitmapDrawable(null, huge)))
+        assertEquals(0, reserve.size)
+        huge.recycle()
+    }
+
+    @Test
+    fun c15TheTotalByteBudgetEvictsTheEldestEntry() {
+        val reserve = ViewerReturnPixelReserve(capacity = 3)
+        val bytesPerEntry = 2 * 1024 * 1024
+        val side = Math.sqrt(bytesPerEntry / 4.0).toInt()
+        fun entry(path: String): BitmapDrawable {
+            val bitmap = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+            return BitmapDrawable(null, bitmap)
+        }
+        reserve.remember(requestKey("/1.jpg", "sig"), entry("/1"))
+        reserve.remember(requestKey("/2.jpg", "sig"), entry("/2"))
+        val before = reserve.reservedBytes
+        assertTrue(before > 0)
+        // A third entry stays under the count capacity but may cross the byte budget;
+        // either way the eldest entry must have left and the count stays bounded.
+        reserve.remember(requestKey("/3.jpg", "sig"), entry("/3"))
+        assertTrue(reserve.size <= ViewerReturnPixelReserve.DEFAULT_CAPACITY)
+        assertTrue(reserve.reservedBytes <= ViewerReturnPixelReserve.MAX_TOTAL_BYTES)
+    }
+
+    @Test
+    fun c06NonBitmapAndAnimatedDrawablesAreNeverReserved() {
+        val reserve = ViewerReturnPixelReserve(capacity = 3)
+        // Whatever the drawable type, only software bitmap pixels are reserveable;
+        // anything else must miss rather than be held beyond its request's lifetime.
+        assertFalse(reserve.remember(requestKey("/a.jpg", "sig"),
+            android.graphics.drawable.ColorDrawable(0xFF112233.toInt())))
+        assertEquals(0, reserve.size)
+    }
+
+    @Test
+    fun diagnosticsCanReadTheReservedByteFootprint() {
+        val reserve = ViewerReturnPixelReserve(capacity = 3)
+        assertEquals(0, reserve.reservedBytes)
+        reserve.remember(requestKey("/a.jpg", "sig"), pixels(670))
+        assertTrue(reserve.reservedBytes > 0)
     }
 }

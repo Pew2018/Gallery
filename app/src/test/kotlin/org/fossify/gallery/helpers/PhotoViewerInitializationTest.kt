@@ -911,9 +911,16 @@ class PhotoViewerInitializationTest {
             field("binding", photo)
             field("mMedium", medium)
             field("mIsFragmentVisible", true)
-            field("mHasInitialZoom", true)
-            field("mInitialZoom", 1f)
-            field("mCurrentGestureViewZoom", 1f)
+            // The fitted baseline the old mInitialZoom/mHasInitialZoom/mCurrentGestureViewZoom
+            // triple used to encode: baseline captured, fit zoom 1, currently at fit.
+            val baseline = GestureZoomBaseline(
+                org.fossify.gallery.helpers.MAX_ZOOM_EQUALITY_TOLERANCE.toFloat())
+            fun baselineField(name: String, value: Any) =
+                baseline.javaClass.getDeclaredField(name).apply { isAccessible = true }.set(baseline, value)
+            baselineField("initialZoom", 1f)
+            baselineField("hasBaseline", true)
+            baselineField("currentZoom", 1f)
+            field("zoomBaseline", baseline)
             field("mReportedImagePath", path)
             field("deliveredImage", image.drawable)
             return TestPhoto(page, photo)

@@ -85,6 +85,7 @@ import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.getBottomActionsHeight
 import org.fossify.gallery.extensions.sendFakeClick
 import org.fossify.gallery.helpers.ColorModeHelper
+import org.fossify.gallery.helpers.GestureZoomBaseline
 import org.fossify.gallery.helpers.HIGH_TILE_DPI
 import org.fossify.gallery.helpers.LOW_TILE_DPI
 import org.fossify.gallery.helpers.MAX_ZOOM_EQUALITY_TOLERANCE
@@ -135,16 +136,17 @@ class PhotoFragment : ViewPagerFragment() {
     private var mLoadZoomableViewHandler = Handler()
     private var mScreenWidth = 0
     private var mScreenHeight = 0
-    private var mCurrentGestureViewZoom = 1f
-    private var mInitialZoom = 1f
+    // Fit-baseline ownership across preview→full resource upgrades; see
+    // [GestureZoomBaseline] for why a stale absolute zoom must never gate returns.
+    private var zoomBaseline = GestureZoomBaseline(MAX_ZOOM_EQUALITY_TOLERANCE.toFloat())
     private var mSubsamplingImageReady = false
     private var mSubsamplingImageLoading = false
-    private var mHasInitialZoom = false
     private var mReportedImagePath: String? = null
     private var detailsGeneration = 0L
 
     private var imageRequestGeneration = 0L
     private var deliveredImage: Drawable? = null
+    private var deliveredImageRole = "FULL"
     private var hasPicassoRequest = false
     private var staticPhotoHeader: Pair<String, StaticPhotoHeader>? = null
     private var staticGlideGeneration = -1L
@@ -165,6 +167,7 @@ class PhotoFragment : ViewPagerFragment() {
         if (resource == null) return
         deliveredImage = resource
         val path = mMedium.path
+        logResourceBound(resource)
         if (mReportedImagePath == path || !mIsFragmentVisible) return
         val request = imageRequestGeneration
         val root = binding.root
@@ -176,6 +179,54 @@ class PhotoFragment : ViewPagerFragment() {
                 listener?.imageRendered(path, this)
             }
         }
+    }
+
+    /**
+     * Makes every resource binding observable, not just the first one (P1-B): the
+     * entry gate deduplicates its Activity notification, but the preview→full quality
+     * handoff must stay measurable - when the full decode landed, at which geometry,
+     * and whether the user's zoom state survived it.
+     */
+    private fun logResourceBound(resource: Drawable) {
+        if (!org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) return
+        if (!this::binding.isInitialized) return
+        val settings = binding.gesturesView.controller.settings
+        val requestedAt = activity?.intent
+            ?.let { org.fossify.gallery.helpers.ViewerEntryDiagnostics.requestedAt(it) } ?: 0L
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "ViewerEntry", "viewer_entry_resource_bound",
+            fields = mapOf(
+                "role" to deliveredImageRole,
+                "generation" to imageRequestGeneration,
+                "source" to (if (resource is BitmapDrawable) "bitmap" else resource.javaClass.simpleName),
+                "intrinsic" to "${resource.intrinsicWidth}x${resource.intrinsicHeight}",
+                "imageWidth" to settings.imageWidth.takeIf { settings.hasImageSize() },
+                "imageHeight" to settings.imageHeight.takeIf { settings.hasImageSize() },
+                "viewportWidth" to settings.viewportWidth.takeIf { settings.hasViewportSize() },
+                "viewportHeight" to settings.viewportHeight.takeIf { settings.hasViewportSize() },
+                "zoom" to zoomBaseline.currentZoom,
+                "fitZoom" to zoomBaseline.initialZoom,
+                "hasBaseline" to zoomBaseline.hasBaseline,
+                "atFit" to zoomBaseline.isAtFit(),
+                "entryElapsedMs" to org.fossify.gallery.helpers.ViewerEntryDiagnostics.elapsedSince(requestedAt),
+            ))
+    }
+
+    /** Records which pipeline stage delivered the current drawable (PREVIEW / FULL). */
+    private fun reportResourceStage(resource: Drawable, dataSource: DataSource, isPreview: Boolean) {
+        if (!org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) return
+        deliveredImageRole = if (isPreview) "PREVIEW" else "FULL"
+        val requestedAt = activity?.intent
+            ?.let { org.fossify.gallery.helpers.ViewerEntryDiagnostics.requestedAt(it) } ?: 0L
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "ViewerEntry",
+            if (isPreview) "viewer_entry_preview_ready" else "viewer_entry_full_resource_ready",
+            fields = mapOf(
+                "generation" to imageRequestGeneration,
+                "cacheSource" to dataSource.name,
+                "intrinsic" to "${resource.intrinsicWidth}x${resource.intrinsicHeight}",
+                "entryElapsedMs" to org.fossify.gallery.helpers.ViewerEntryDiagnostics.elapsedSince(requestedAt),
+            ))
     }
 
     internal fun entryRenderer(): View? = if (view != null && ::binding.isInitialized &&
@@ -200,7 +251,7 @@ class PhotoFragment : ViewPagerFragment() {
             source.invalidation != org.fossify.gallery.helpers.ViewerContentInvalidationRegistry.current(path)) {
             return reject("content_version")
         }
-        if (mCurrentRotationDegrees != 0 || (mHasInitialZoom && !gestureImageIsAtFit()) || mIsSubsamplingVisible) {
+        if (mCurrentRotationDegrees != 0 || (zoomBaseline.hasBaseline && !zoomBaseline.isAtFit()) || mIsSubsamplingVisible) {
             return reject("renderer_transform")
         }
         if (staticGlideGeneration != imageRequestGeneration) return reject("glide_generation")
@@ -230,16 +281,36 @@ class PhotoFragment : ViewPagerFragment() {
 
     private var subsamplingGeneration = 0L
 
+    /** Why the last [sharedElementViewFor] returned null, for return diagnostics. */
+    var lastProxyRejection: String? = null
+        private set
+
     /** Share pixels, not the full-screen renderer and its black letterboxes. */
     fun sharedElementViewFor(path: String, deferTakeover: Boolean = false): View? {
         fun reject(reason: Int): View? {
             org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_transition_photo_unavailable", reason)
+            lastProxyRejection = org.fossify.gallery.helpers.ViewerProxyRejection.name(reason)
+            if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
+                // The bare integer stays for dashboard continuity; the state that
+                // produced it (zoom baseline, generation) is now recorded beside it.
+                org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                    org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "ViewerTransition",
+                    "viewer_photo_proxy_rejected",
+                    fields = mapOf(
+                        "reason" to lastProxyRejection,
+                        "generation" to imageRequestGeneration,
+                        "zoom" to zoomBaseline.currentZoom,
+                        "fitZoom" to zoomBaseline.initialZoom,
+                        "hasBaseline" to zoomBaseline.hasBaseline,
+                        "atFit" to zoomBaseline.isAtFit(),
+                    ))
+            }
             return null
         }
         if (!mIsFragmentVisible || view == null || !::mMedium.isInitialized || mMedium.path != path) return reject(1)
         if (mReportedImagePath != path) return reject(2)
         if (mCurrentRotationDegrees != 0) return reject(3)
-        if (!gestureImageIsAtFit()) return reject(4)
+        if (!zoomBaseline.isAtFit()) return reject(4)
         if (binding.gifViewFrame.visibility == View.VISIBLE) return reject(5)
         val drawable = binding.gesturesView.drawable ?: return reject(6)
         val gestureBounds = MediaTransitionGeometry.imageBounds(binding.gesturesView) ?: return reject(7)
@@ -260,10 +331,16 @@ class PhotoFragment : ViewPagerFragment() {
             tileBounds
         } else gestureBounds
         val surface = sharedSurface ?: MediaSharedSurface(binding.root).also { sharedSurface = it }
-        return surface.prepare(drawable, bounds, binding.gesturesView, binding.subsamplingView,
+        val proxy = surface.prepare(drawable, bounds, binding.gesturesView, binding.subsamplingView,
             deferTakeover = deferTakeover,
             photoHeader = sharedPhotoHeader(drawable))
-            ?.also { if (deferTakeover) sharedEntryImageGeneration = imageRequestGeneration }
+        if (proxy == null) {
+            lastProxyRejection = org.fossify.gallery.helpers.ViewerProxyRejection.PROXY_PREPARE_REJECTED
+        } else {
+            if (deferTakeover) sharedEntryImageGeneration = imageRequestGeneration
+            lastProxyRejection = null
+        }
+        return proxy
     }
 
     private fun sharedPhotoHeader(drawable: Drawable): StaticPhotoHeader? {
@@ -290,7 +367,7 @@ class PhotoFragment : ViewPagerFragment() {
         mCurrentRotationDegrees == 0 && when {
             binding.gifViewFrame.visibility == View.VISIBLE -> binding.gifViewFrame.controller.state.zoom <= 1.001f
             mIsSubsamplingVisible -> binding.subsamplingView.isZoomedOut()
-            else -> abs(mCurrentGestureViewZoom - mInitialZoom) < MAX_ZOOM_EQUALITY_TOLERANCE
+            else -> zoomBaseline.zoomMatchesBaseline()
         }
 
     /** Expose the source grid around the moving photo until the shared bounds settle. */
@@ -449,7 +526,7 @@ class PhotoFragment : ViewPagerFragment() {
         }
         return handleMediaDismissTouch(view, event) {
             mCurrentRotationDegrees == 0 && when (view) {
-                binding.gesturesView -> abs(mCurrentGestureViewZoom - mInitialZoom) < MAX_ZOOM_EQUALITY_TOLERANCE
+                binding.gesturesView -> zoomBaseline.zoomMatchesBaseline()
                 binding.subsamplingView -> binding.subsamplingView.isZoomedOut()
                 binding.gifView -> binding.gifViewFrame.controller.state.zoom <= 1.001f
                 else -> false
@@ -610,10 +687,7 @@ class PhotoFragment : ViewPagerFragment() {
         else -> 0
     }
 
-    private fun gestureImageIsAtFit(): Boolean =
-        org.fossify.gallery.helpers.SubsamplingHandoffPolicy.isAtFit(
-            mCurrentGestureViewZoom, mInitialZoom, mHasInitialZoom, MAX_ZOOM_EQUALITY_TOLERANCE.toFloat()
-        )
+    private fun gestureImageIsAtFit(): Boolean = zoomBaseline.isAtFit()
 
     private fun rotateViaMatrix(original: Bitmap, orientation: Int): Bitmap {
         val degrees = degreesForRotation(orientation).toFloat()
@@ -629,7 +703,7 @@ class PhotoFragment : ViewPagerFragment() {
     private fun loadImage() {
         val request = beginImageRequest()
         val root = binding.root
-        mHasInitialZoom = false
+        zoomBaseline.invalidate()
         checkScreenDimensions()
 
         if (mMedium.isPortrait() && context != null) {
@@ -717,7 +791,7 @@ class PhotoFragment : ViewPagerFragment() {
 
     private fun loadBitmap(addZoomableView: Boolean = true) {
         val request = beginImageRequest()
-        mHasInitialZoom = false
+        zoomBaseline.invalidate()
         if (context == null) return
         val path = getFilePathToShow()
         if (path.isWebP()) {
@@ -800,6 +874,7 @@ class PhotoFragment : ViewPagerFragment() {
                     // readiness path, no changed geometry, no lease to hand over.
                     // `reportImageRendered` deduplicates the frame notification to the
                     // Activity, so the entry gate still releases exactly once.
+                    reportResourceStage(resource, dataSource, isFirstResource)
                     staticGlideGeneration = request
                     staticGlideSignature = verifiedSignature
                     applyProperColorMode(resource)
@@ -878,20 +953,38 @@ class PhotoFragment : ViewPagerFragment() {
         binding.gesturesView.controller.addOnStateChangeListener(object : GestureController.OnStateChangeListener {
             override fun onStateChanged(state: State) {
                 val settings = binding.gesturesView.controller.settings
-                if (settings.hasImageSize() && settings.hasViewportSize() && !mHasInitialZoom) {
-                    val zoomByWidth = settings.viewportWidth.toFloat() / settings.imageWidth
-                    val zoomByHeight = settings.viewportHeight.toFloat() / settings.imageHeight
-                    val fitZoom = maxOf(zoomByWidth, zoomByHeight)
-                    mInitialZoom = state.zoom
-                    var target = fitZoom
-                    if (abs(target - mInitialZoom) < MAX_ZOOM_EQUALITY_TOLERANCE) {
-                        target = mInitialZoom * DEFAULT_DOUBLE_TAP_ZOOM
+                // The baseline policy owns the fit zoom across renderer resource
+                // changes: a preview→full upgrade must keep the user at fit at fit,
+                // and must keep a zoomed-in user zoomed in. Both deltas arrive here
+                // looking like ordinary state changes; only the image size tells
+                // them apart.
+                when (val update = zoomBaseline.onStateChanged(
+                    imageWidth = settings.imageWidth,
+                    imageHeight = settings.imageHeight,
+                    hasSizes = settings.hasImageSize() && settings.hasViewportSize(),
+                    stateZoom = state.zoom,
+                )) {
+                    is GestureZoomBaseline.Update.Rebased -> {
+                        // A fresh fit baseline was captured for the current renderer
+                        // resource; recompute the double-tap target exactly as the
+                        // original capture path did.
+                        val zoomByWidth = settings.viewportWidth.toFloat() / settings.imageWidth
+                        val zoomByHeight = settings.viewportHeight.toFloat() / settings.imageHeight
+                        val fitZoom = maxOf(zoomByWidth, zoomByHeight)
+                        var target = fitZoom
+                        if (abs(target - zoomBaseline.initialZoom) < MAX_ZOOM_EQUALITY_TOLERANCE) {
+                            target = zoomBaseline.initialZoom * DEFAULT_DOUBLE_TAP_ZOOM
+                        }
+                        settings.doubleTapZoom = target.coerceAtMost(settings.maxZoom)
                     }
-                    settings.doubleTapZoom = target.coerceAtMost(settings.maxZoom)
-                    mHasInitialZoom = true
+                    is GestureZoomBaseline.Update.Scaled -> {
+                        // The fit baseline mapped through the resource-upgrade patch;
+                        // keep the double-tap target in the same coordinate system.
+                        settings.doubleTapZoom = (settings.doubleTapZoom * update.scale)
+                            .coerceAtMost(settings.maxZoom)
+                    }
+                    GestureZoomBaseline.Update.None -> Unit
                 }
-
-                mCurrentGestureViewZoom = state.zoom
                 if (mSubsamplingImageReady) {
                     revealReadySubsamplingImage()
                 } else if (!mSubsamplingImageLoading && !mIsSubsamplingVisible && mIsFragmentVisible) {

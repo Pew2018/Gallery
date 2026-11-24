@@ -29,6 +29,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.gallery.helpers.FavoritesScrollRestorer
 import com.bumptech.glide.Glide
+import com.bumptech.glide.RequestBuilder
 import com.bumptech.glide.Priority
 import com.squareup.picasso.Picasso
 import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
@@ -80,6 +81,7 @@ import org.fossify.gallery.dialogs.DeleteWithRememberDialog
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.fixDateTaken
 import org.fossify.gallery.extensions.getShortcutImage
+import org.fossify.gallery.extensions.gridThumbnailRequestBuilder
 import org.fossify.gallery.extensions.handleMediaManagementPrompt
 import org.fossify.gallery.extensions.launchResizeImageDialog
 import org.fossify.gallery.extensions.launchResizeMultipleImagesDialog
@@ -1703,6 +1705,47 @@ class MediaAdapter(
             }
         }
     }
+
+    /**
+     * Builds the exact thumbnail request a rebound holder would issue for [medium],
+     * for the Viewer's bounded return prefetch (Phase 2.2). The returned key is the
+     * holder's own request identity, so a prefetched resource warms the engine entry
+     * the return will read, and the reserve is keyed identically to the holder.
+     *
+     * The size must be the Grid's measured thumbnail size - it participates in the
+     * Glide cache key, so an approximation would decode pixels the return cannot use.
+     */
+    fun returnPrefetchRequest(medium: Medium, width: Int, height: Int): Pair<Any, RequestBuilder<Drawable>>? {
+        if (width <= 0 || height <= 0) return null
+        var path = medium.path
+        if (hasOTGConnected && activity.isPathOnOTG(path)) {
+            path = path.getOTGPublicPath(activity)
+        }
+        val roundedCorners = when {
+            isListViewType -> ROUNDED_CORNERS_SMALL
+            config.fileRoundedCorners -> ROUNDED_CORNERS_BIG
+            else -> ROUNDED_CORNERS_NONE
+        }
+        val signature = medium.getKey()
+        val requestKey = listOf(path, signature, medium.type, cropThumbnails, roundedCorners, animateGifs,
+            scrollHorizontally, rotatedImagePaths.contains(path))
+        // Build through the application RequestManager: the Grid Activity is stopped
+        // while the Viewer is open, and an activity-scoped manager pauses its requests
+        // on stop - the preparation would only run when the Viewer already returned.
+        // The RequestManager is not part of Glide's engine key, so the cache entry and
+        // the request identity stay exactly the holder's.
+        val builder = activity.applicationContext.gridThumbnailRequestBuilder(
+            path = path,
+            cropThumbnails = cropThumbnails,
+            roundCorners = roundedCorners,
+            signature = signature,
+            skipMemoryCacheAtPaths = rotatedImagePaths,
+            animate = animateGifs,
+            crossFadeDuration = 0,
+        ).override(width, height)
+        return requestKey to builder
+    }
+
     private companion object {
         const val THUMB_VIEWPORT_QUIET_MS = 48L
     }

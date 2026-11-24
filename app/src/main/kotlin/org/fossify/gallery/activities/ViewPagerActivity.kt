@@ -637,6 +637,12 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val operation = transitionSession.beginGesture() ?: return false
         val path = getCurrentPath()
         val surface = getCurrentSharedElementView(path) ?: run {
+            // The predictive-back gesture cannot enter the shared return. The session
+            // rolls back cleanly below; record why, so the device log can tell a
+            // legitimate zoom/rotation state from a missing renderer frame.
+            org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_return_gesture_unavailable",
+                org.fossify.gallery.helpers.ViewerProxyRejection.legacyCode(
+                    lastProxyRejection ?: org.fossify.gallery.helpers.ViewerProxyRejection.PROXY_PREPARE_REJECTED))
             transitionSession.cancelGesture(operation)
             return false
         }
@@ -812,6 +818,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         (transitionSession.outcome != null || transitionSession.returnOperation?.let(transitionSession::isReturning) == true)
     private var returnScrimAlpha = 1f
     private var viewerReturnId = 0L
+
+    /** Why the last shared-proxy attempt failed, for the return fallback diagnostics. */
+    private var lastProxyRejection: String? = null
+
     private var viewerDiagnosticSessionId = 0L
     private var viewerRendererObserved = false
     private var sharedReturnView: View? = null
@@ -1570,6 +1580,7 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
                 "entryMapped" to photoSharedElementMapped, "motion" to motionEnabled,
                 "hasSelection" to returnPath.isNotEmpty(), "canReturn" to canReturn,
                 "hasProxy" to (proxy != null), "proxyAttached" to proxy?.isAttachedToWindow,
+                "proxyRejection" to if (proxy == null) lastProxyRejection else null,
                 "launchId" to intent.getLongExtra(PhotoViewerTransition.EXTRA_LAUNCH, 0L),
                 "mediaId" to returnPath.takeIf(String::isNotEmpty)?.let(org.fossify.gallery.helpers.GalleryDiagnosticLogger::anonymousId),
                 "window" to ViewerEntryDiagnostics.backgroundState(window.decorView.background),
@@ -1591,7 +1602,11 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         if (proxy != null && interactiveDismissSurface == null) ownReturnSurface(operation, page)
         if (!canReturn) {
             ViewerReturnDiagnostics.event(viewerReturnId, "viewer_return_fallback") {
-                mapOf("eligible" to eligible, "proxyAttached" to false)
+                mapOf("eligible" to eligible, "proxyAttached" to false,
+                    // Attribute the fallback: NOT_AT_FIT for a genuinely zoomed-in
+                    // photo, RENDERER_NOT_READY for a missing frame, and so on -
+                    // not every fallback is the same failure.
+                    "proxyRejection" to (lastProxyRejection ?: if (eligible) "PROXY_DETACHED" else "NOT_ELIGIBLE"))
             }
             transitionSession.terminate(operation, State.FALLBACK, "viewer_no_proxy")
             returnLeases.releaseAll()
@@ -3714,10 +3729,17 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun getCurrentPhotoFragment() = getCurrentFragment() as? PhotoFragment
 
-    private fun getCurrentSharedElementView(path: String, deferTakeover: Boolean = false, returnRequestId: Long = 0L): View? = when (val fragment = getCurrentFragment()) {
-        is PhotoFragment -> fragment.sharedElementViewFor(path, deferTakeover)
-        is VideoFragment -> fragment.sharedElementViewFor(path, deferTakeover, returnRequestId)
-        else -> null
+    private fun getCurrentSharedElementView(path: String, deferTakeover: Boolean = false, returnRequestId: Long = 0L): View? {
+        lastProxyRejection = null
+        return when (val fragment = getCurrentFragment()) {
+            is PhotoFragment -> {
+                val proxy = fragment.sharedElementViewFor(path, deferTakeover)
+                lastProxyRejection = if (proxy == null) fragment.lastProxyRejection else null
+                proxy
+            }
+            is VideoFragment -> fragment.sharedElementViewFor(path, deferTakeover, returnRequestId)
+            else -> null
+        }
     }
 
     private fun getPortraitPath() = intent.getStringExtra(PORTRAIT_PATH) ?: ""
@@ -5898,6 +5920,9 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             }
             explicitUserNavigationPending = false
             mPos = position
+            // The Grid's return prefetch follows the media the Viewer is showing.
+            org.fossify.gallery.helpers.ViewerCurrentMediaRegistry.report(selectedPath
+                ?: getCurrentMedia().getOrNull(position)?.path)
             if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
                 val selected = getCurrentMedia().getOrNull(position)
                 if (viewerDiagnosticFirstPageBoundMs < 0L)

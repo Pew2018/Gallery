@@ -22,6 +22,7 @@ import android.provider.MediaStore.Images
 import android.widget.ImageView
 import com.bumptech.glide.Glide
 import com.bumptech.glide.Priority
+import com.bumptech.glide.RequestBuilder
 import com.bumptech.glide.integration.webp.WebpBitmapFactory
 import com.bumptech.glide.integration.webp.decoder.WebpDownsampler
 import com.bumptech.glide.integration.webp.decoder.WebpDrawable
@@ -479,66 +480,20 @@ internal fun Context.loadImageBase(
     placeholderDrawable: Drawable? = null
 ) {
     val bindingToken = target.getTag(R.id.thumbnail_request_key)
-    val options = RequestOptions()
-        .signature(signature)
-        .skipMemoryCache(skipMemoryCacheAtPaths?.contains(path) == true)
-        .priority(priority)
-        .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
-        .format(DecodeFormat.PREFER_ARGB_8888)
-        // Glide installs this drawable synchronously in SingleRequest.begin(), so it is the
-        // first frame of the request. A caller that already shows this image passes it back
-        // to keep the frame on screen while the replacement decodes.
-        .placeholder(placeholderDrawable
-            ?: android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
-
-    if (cropThumbnails) {
-        options.optionalTransform(CenterCrop())
-        options.optionalTransform(
-            WebpDrawable::class.java,
-            WebpDrawableTransformation(CenterCrop())
-        )
-    } else {
-        options.optionalTransform(FitCenter())
-        options.optionalTransform(WebpDrawable::class.java, WebpDrawableTransformation(FitCenter()))
-    }
-
-    // animation is only supported without rounded corners and the file must be a GIF or WEBP.
-    if (animate && roundCorners == ROUNDED_CORNERS_NONE && (path.isGif() || path.isWebP())) {
-        // this is required to make glide cache aware of changes
-        options.decode(Drawable::class.java)
-    } else {
-        options.dontAnimate()
-        // don't animate is not enough for webp files, decode as bitmap forces first frame use in animated webps
-        options.decode(Bitmap::class.java)
-    }
-
-    var thumbnailRadius = 0
-    if (roundCorners != ROUNDED_CORNERS_NONE) {
-        val cornerSize =
-            if (roundCorners == ROUNDED_CORNERS_SMALL) org.fossify.commons.R.dimen.rounded_corner_radius_small else org.fossify.commons.R.dimen.rounded_corner_radius_big
-        val cornerRadius = resources.getDimension(cornerSize).toInt()
-        thumbnailRadius = cornerRadius
-        val roundedCornersTransform = RoundedCorners(cornerRadius)
-        options.optionalTransform(MultiTransformation(CenterCrop(), roundedCornersTransform))
-        options.optionalTransform(
-            WebpDrawable::class.java,
-            MultiTransformation(
-                WebpDrawableTransformation(CenterCrop()),
-                WebpDrawableTransformation(roundedCornersTransform)
-            )
-        )
-    }
-
-    WebpBitmapFactory.sUseSystemDecoder = false // CVE-2023-4863
-    var builder = Glide.with(target)
-        .load(path)
-        .apply(options)
-        .set(WebpDownsampler.USE_SYSTEM_DECODER, false) // CVE-2023-4863
-        .apply {
-            if (crossFadeDuration > 0) transition(getOptionalCrossFadeTransition(crossFadeDuration)) else transition(com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions().dontTransition())
-        }
+    var builder = gridThumbnailRequestBuilder(
+        path = path,
+        cropThumbnails = cropThumbnails,
+        roundCorners = roundCorners,
+        signature = signature,
+        skipMemoryCacheAtPaths = skipMemoryCacheAtPaths,
+        animate = animate,
+        crossFadeDuration = crossFadeDuration,
+        priority = priority,
+        placeholderDrawable = placeholderDrawable,
+    )
 
     val measuredTarget = onStaticThumbnail?.let { StaticThumbnailTarget(target) }
+    val thumbnailRadius = gridThumbnailCornerRadius(roundCorners)
     builder = builder.listener(object : RequestListener<Drawable> {
         override fun onLoadFailed(
             e: GlideException?,
@@ -594,6 +549,88 @@ internal fun Context.loadImageBase(
     })
 
     if (measuredTarget == null) builder.into(target) else builder.into(measuredTarget)
+}
+
+/**
+ * The exact request the Grid's thumbnails load with, exposed so the Viewer's return
+ * prefetch (Phase 2.2) can warm the same engine key instead of a near-miss twin.
+ *
+ * Everything that participates in the Glide cache key lives here: signature,
+ * decode format, disk strategy, transforms, decode class and the WebP decoder flag.
+ * Callers add only what the key ignores (priority) or what happens after the load
+ * (listeners, targets).
+ */
+internal fun Context.gridThumbnailRequestBuilder(
+    path: String,
+    cropThumbnails: Boolean,
+    roundCorners: Int,
+    signature: ObjectKey,
+    skipMemoryCacheAtPaths: ArrayList<String>? = null,
+    animate: Boolean = false,
+    crossFadeDuration: Int = 0,
+    priority: Priority = Priority.LOW,
+    placeholderDrawable: Drawable? = null,
+): RequestBuilder<Drawable> {
+    val options = RequestOptions()
+        .signature(signature)
+        .skipMemoryCache(skipMemoryCacheAtPaths?.contains(path) == true)
+        .priority(priority)
+        .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
+        .format(DecodeFormat.PREFER_ARGB_8888)
+        // Glide installs this drawable synchronously in SingleRequest.begin(), so it is the
+        // first frame of the request. A caller that already shows this image passes it back
+        // to keep the frame on screen while the replacement decodes.
+        .placeholder(placeholderDrawable
+            ?: android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+
+    if (cropThumbnails) {
+        options.optionalTransform(CenterCrop())
+        options.optionalTransform(
+            WebpDrawable::class.java,
+            WebpDrawableTransformation(CenterCrop())
+        )
+    } else {
+        options.optionalTransform(FitCenter())
+        options.optionalTransform(WebpDrawable::class.java, WebpDrawableTransformation(FitCenter()))
+    }
+
+    // animation is only supported without rounded corners and the file must be a GIF or WEBP.
+    if (animate && roundCorners == ROUNDED_CORNERS_NONE && (path.isGif() || path.isWebP())) {
+        // this is required to make glide cache aware of changes
+        options.decode(Drawable::class.java)
+    } else {
+        options.dontAnimate()
+        // don't animate is not enough for webp files, decode as bitmap forces first frame use in animated webps
+        options.decode(Bitmap::class.java)
+    }
+
+    if (roundCorners != ROUNDED_CORNERS_NONE) {
+        val cornerRadius = gridThumbnailCornerRadius(roundCorners)
+        val roundedCornersTransform = RoundedCorners(cornerRadius)
+        options.optionalTransform(MultiTransformation(CenterCrop(), roundedCornersTransform))
+        options.optionalTransform(
+            WebpDrawable::class.java,
+            MultiTransformation(
+                WebpDrawableTransformation(CenterCrop()),
+                WebpDrawableTransformation(roundedCornersTransform)
+            )
+        )
+    }
+
+    WebpBitmapFactory.sUseSystemDecoder = false // CVE-2023-4863
+    return Glide.with(this)
+        .load(path)
+        .apply(options)
+        .set(WebpDownsampler.USE_SYSTEM_DECODER, false) // CVE-2023-4863
+        .apply {
+            if (crossFadeDuration > 0) transition(getOptionalCrossFadeTransition(crossFadeDuration)) else transition(com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions().dontTransition())
+        }
+}
+
+internal fun Context.gridThumbnailCornerRadius(roundCorners: Int): Int = when {
+    roundCorners == ROUNDED_CORNERS_NONE -> 0
+    roundCorners == ROUNDED_CORNERS_SMALL -> resources.getDimension(org.fossify.commons.R.dimen.rounded_corner_radius_small).toInt()
+    else -> resources.getDimension(org.fossify.commons.R.dimen.rounded_corner_radius_big).toInt()
 }
 
 private class StaticThumbnailTarget(view: ImageView) : DrawableImageViewTarget(view) {

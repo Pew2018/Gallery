@@ -1,5 +1,7 @@
 package org.fossify.gallery.helpers
 
+import android.graphics.Bitmap
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 
 /**
@@ -20,30 +22,66 @@ import android.graphics.drawable.Drawable
  * cache, and the Viewer's own full-size photo decodes evict it. The return then sits in
  * `RETURN_WAIT_TARGET` for the whole decode.
  *
- * The reserve holds the already-decoded drawable under the *same* request identity the
- * Grid bound it with, so a rebound holder can be handed exactly the pixels it would
- * have decoded - same file version, same crop, same size - without a second decode.
+ * Phase 2.2 ownership rule: the reserve stores a *defensive copy* of the bitmap, not a
+ * reference to the Glide-delivered drawable. Holding the drawable itself could not
+ * prove ownership: the moment the source holder is recycled, its request cleared or the
+ * resource evicted from Glide's memory cache, the underlying bitmap becomes eligible
+ * for `BitmapPool` reuse, and a later decode could overwrite pixels the reserve still
+ * displays (wrong/ corrupt thumbnails). A copy severs every link to the request, the
+ * holder and the cache in one ~1-2 ms `memcpy` per entry, and makes `take()` a true
+ * exclusive transfer: the returned drawable is the only handle to those pixels.
  *
  * Bounded on purpose:
  *  - capacity is a hard constant; the eldest entry leaves when a fourth arrives,
+ *  - a per-entry byte cap rejects decodes too large to reserve,
+ *  - a total byte budget evicts eldest entries before the reserve can grow,
  *  - entries are keyed by the Grid's request list (path, signature, type, crop, corners,
  *    animation flags), so a different file version or different crop cannot be reused,
  *  - a hit is *removed* from the reserve, so nothing is handed out twice,
  *  - [clear] runs when the return ends, the Grid goes away and on configuration change,
- *    so the pixels never outlive the transition that needs them,
+ *    and the owner-scoped overload keeps one Activity instance's teardown from
+ *    releasing another instance's session (a configuration change creates the new
+ *    Activity before the old one is destroyed),
  *  - the caller-supplied size check rejects a drawable decoded for a different grid size.
  */
 internal class ViewerReturnPixelReserve(capacity: Int = DEFAULT_CAPACITY) {
-    private class Entry(val drawable: Drawable, val width: Int, val height: Int)
+    private class Entry(
+        val bitmap: Bitmap,
+        val width: Int,
+        val height: Int,
+        val bytes: Int,
+        val owner: Any?,
+    )
 
     private val entries = object : LinkedHashMap<Any, Entry>(capacity, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Any, Entry>) = size > capacity
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Any, Entry>) =
+            size > capacity || values.sumOf { entry -> entry.bytes } > MAX_TOTAL_BYTES
     }
 
-    /** Records [drawable] as the pixels [key] would decode to. */
-    fun remember(key: Any?, drawable: Drawable) {
-        if (key == null || drawable.intrinsicWidth <= 0 || drawable.intrinsicHeight <= 0) return
-        entries[key] = Entry(drawable, drawable.intrinsicWidth, drawable.intrinsicHeight)
+    /**
+     * Records a copy of [drawable]'s pixels as what [key] would decode to.
+     *
+     * Only software `BitmapDrawable` pixels can be reserved safely; animated or
+     * non-bitmap drawables are skipped rather than held beyond their request's
+     * lifetime. Returns false when nothing was stored (never stored: rejected key,
+     * unusable drawable, oversized decode, or a copy failure).
+     */
+    fun remember(key: Any?, drawable: Drawable, owner: Any? = null): Boolean {
+        if (key == null) return false
+        val source = (drawable as? BitmapDrawable)?.bitmap ?: return false
+        if (source.isRecycled) return false
+        if (source.config == Bitmap.Config.HARDWARE) return false
+        val width = drawable.intrinsicWidth
+        val height = drawable.intrinsicHeight
+        if (width <= 0 || height <= 0) return false
+        if (source.byteCount > MAX_ENTRY_BYTES) return false
+        val copy = try {
+            source.copy(Bitmap.Config.ARGB_8888, false)
+        } catch (_: Throwable) {
+            return false
+        } ?: return false
+        entries[key] = Entry(copy, width, height, copy.byteCount, owner)
+        return true
     }
 
     /**
@@ -51,14 +89,15 @@ internal class ViewerReturnPixelReserve(capacity: Int = DEFAULT_CAPACITY) {
      *
      * The size check is the one thing the request list cannot express: the Grid asks for
      * the holder's measured size, so a column-count or list/grid change must miss rather
-     * than hand over a bitmap of the wrong resolution. A hit is consumed.
+     * than hand over a bitmap of the wrong resolution. A hit is consumed and the caller
+     * becomes the sole owner of the returned drawable.
      */
     fun take(key: Any?, width: Int, height: Int): Drawable? {
         if (key == null || width <= 0 || height <= 0) return null
         val entry = entries[key] ?: return null
         if (!fits(entry, width, height)) return null
         entries.remove(key)
-        return entry.drawable
+        return BitmapDrawable(null, entry.bitmap)
     }
 
     /** True when [key] is held for a [width]x[height] view, for diagnostics. */
@@ -73,9 +112,27 @@ internal class ViewerReturnPixelReserve(capacity: Int = DEFAULT_CAPACITY) {
         entries.remove(key)
     }
 
+    /** Releases every entry. */
     fun clear() = entries.clear()
 
+    /**
+     * Releases only the entries owned by [owner]. A Grid Activity instance passes
+     * itself so its teardown cannot destroy a newer session's reservation across a
+     * configuration change (where the new instance is created before the old one is
+     * destroyed).
+     */
+    fun clear(owner: Any?) {
+        if (owner == null) {
+            entries.clear()
+            return
+        }
+        entries.entries.removeIf { it.value.owner === owner }
+    }
+
     val size: Int get() = entries.size
+
+    /** Estimated bytes currently reserved, for diagnostics and budget assertions. */
+    val reservedBytes: Int get() = entries.values.sumOf { entry -> entry.bytes }
 
     private fun fits(entry: Entry, width: Int, height: Int) =
         kotlin.math.abs(entry.width - width) <= SIZE_TOLERANCE_PX &&
@@ -91,6 +148,19 @@ internal class ViewerReturnPixelReserve(capacity: Int = DEFAULT_CAPACITY) {
 
         /** Rounding between the requested size and the decoded bitmap. */
         const val SIZE_TOLERANCE_PX = 1
+
+        /**
+         * A single entry above this size cannot be reserved: the bytes would dominate
+         * the budget for one thumbnail that a fresh decode reproduces cheaply.
+         */
+        const val MAX_ENTRY_BYTES = 12 * 1024 * 1024
+
+        /**
+         * Hard byte ceiling for the whole reserve, on top of the entry-count capacity.
+         * With the default capacity and grid-sized thumbnails (~1.8 MB) the count limit
+         * binds first; the byte budget only guards unusual viewports and list layouts.
+         */
+        const val MAX_TOTAL_BYTES = 24 * 1024 * 1024
 
         val shared = ViewerReturnPixelReserve()
     }
