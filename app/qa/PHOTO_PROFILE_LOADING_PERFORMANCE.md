@@ -70,3 +70,31 @@ Device verification still required: type an unmatched search during first-entry 
 clear it during final publication, switch profile immediately after tapping a thumbnail,
 return from the viewer after another app changes the selected directory, and confirm
 that unchanged live grids keep their visible anchor without a blank reload.
+
+## Phase 1: navigation entry reason and bounded first slice
+
+`MediaActivity` now classifies the Photos load reason explicitly instead of inheriting
+`REFRESH` from a default parameter. Plain entry, resume, layout/grouping changes and retries
+use `ENTER` and may reuse a catalog whose scope, content revision, favorites and freshness
+checkpoint are still current. Only the swipe-refresh listener, explicit retry, and paths
+that observed real media changes force a full check (`REFRESH`). Permission, source,
+protection, visibility and filter changes use `SCOPE_CHANGED`, which the scope key already
+invalidates.
+
+The preview path no longer filters and sorts the whole in-memory catalog before showing the
+first 160 rows. `CachedMediaPreviewOrder.select` trusts the catalog order only because a
+readable cache entry belongs to the exact scope (sorting included), checks existence for at
+most the rows it can show, and still runs the full access/protection validation batch.
+Random sorting and Room-only candidates always fall back to the full filter + sort path.
+`COMPLETE` remains the only authority and still performs the full scan/validation.
+
+Diagnostics now emit `photo_cache_lookup_end`, `photo_cache_missing_filter_end`,
+`photo_cache_order_ready`, `photo_preview_slice_ready`, `photo_preview_access_validated`,
+`photo_preview_ui_enqueued`, `photo_preview_adapter_committed` and
+`photo_preview_first_draw_observed`. Only the last one is a frame-commit observation; it is
+still not proof that the display scanned the frame out.
+
+Adapter publications that keep the whole displayed prefix and only append rows now use the
+existing APPEND commit regardless of the stage label. A head insertion in date-descending
+order breaks the prefix and still uses DiffUtil. Device timing/700 ms/diff jank acceptance
+remains open; see `docs/performance/root-navigation-photo-publication-phase1.md`.

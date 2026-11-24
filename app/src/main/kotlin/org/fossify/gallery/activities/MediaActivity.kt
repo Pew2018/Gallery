@@ -998,6 +998,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
     private var photoLoadedRevision = -1L
     private var photoPublishedStage = -1
     private var photoRequestStarted = 0L
+    private var photoPreviewStartAt = 0L
+    private var photoPreviewCommittedRequest = -1L
+    private var photoPreviewDrawRequest = -1L
     private var photoActiveRequestId = 0L
     private var mediaFastScrollActive = false
     private val photoScroll = FavoritesScrollRestorer()
@@ -1271,7 +1274,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             org.fossify.gallery.helpers.PhotoProfileMediaCache.invalidate()
             org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.invalidate()
             clearPhotoDisplayState()
-            if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) getMedia()
+            if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                getMedia(photoReason = org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED)
+            }
         }
     }
 
@@ -1297,7 +1302,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
     }
 
     private fun getPhotoProfileMedia(
-        reason: org.fossify.gallery.helpers.PhotoLoadReason = org.fossify.gallery.helpers.PhotoLoadReason.REFRESH,
+        reason: org.fossify.gallery.helpers.PhotoLoadReason = org.fossify.gallery.helpers.PhotoLoadReason.ENTER,
         previousSortScope: PhotoProfileScope? = null
     ) {
         if (photoToken() != null) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
@@ -1335,6 +1340,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         mediaGridPublication.clear()
         photoPublishedStage = -1
         photoRequestStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+        photoPreviewStartAt = photoRequestStarted
         if (retainGrid) {
             rememberPhotoScrollAnchor()
         } else {
@@ -1459,6 +1465,52 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             apply()
         }
     }
+
+    /**
+     * Distinguishes three different facts for the first cache preview:
+     * the adapter commit, an OS frame-commit callback, and (never claimed here)
+     * pixels actually scanned out by the display. Only diagnostics builds emit.
+     */
+    private fun observePhotoPreviewCommit(request: Long) {
+        if (!org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled() ||
+            photoPreviewCommittedRequest == request) return
+        photoPreviewCommittedRequest = request
+        val committedAt = android.os.SystemClock.elapsedRealtime()
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "PhotoPublication",
+            "photo_preview_adapter_committed", request, fields = previewEventFields(request, committedAt))
+        val grid = binding.mediaGrid
+        val frameCommit = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q &&
+            grid.viewTreeObserver.isAlive
+        val observeDraw = Runnable { observePhotoPreviewDraw(request, committedAt, frameCommit) }
+        if (frameCommit) grid.viewTreeObserver.registerFrameCommitCallback(observeDraw)
+        else grid.postOnAnimation(observeDraw)
+    }
+
+    private fun observePhotoPreviewDraw(request: Long, committedAt: Long, frameCommit: Boolean) {
+        if (photoPreviewDrawRequest == request || isFinishing || isDestroyed) return
+        photoPreviewDrawRequest = request
+        val drawnAt = android.os.SystemClock.elapsedRealtime()
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "PhotoPublication",
+            "photo_preview_first_draw_observed", request,
+            fields = previewEventFields(request, drawnAt,
+                "observedBy" to if (frameCommit) "frame_commit" else "post_on_animation",
+                "sinceAdapterCommitMs" to (drawnAt - committedAt).coerceAtLeast(0L)))
+    }
+
+    private fun previewEventFields(request: Long, now: Long, vararg extra: Pair<String, Any?>): Map<String, Any?> =
+        mapOf<String, Any?>(
+            "navigation" to (photoToken()?.let {
+                org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(it)
+            } ?: "none"),
+            "mediaRequestGeneration" to request,
+            "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(photoProfileId.orEmpty()),
+            "stage" to org.fossify.gallery.helpers.PhotoLoadStage.CACHE_PREVIEW.name,
+            "mediaCount" to (getMediaAdapter()?.itemCount ?: 0),
+            "sinceRequestMs" to if (photoPreviewStartAt != 0L)
+                (now - photoPreviewStartAt).coerceAtLeast(0L) else -1L,
+        ) + extra.toMap()
 
     private fun applyPhotoGridResult(result: org.fossify.gallery.helpers.PhotoLoadResult, request: Long, requestedKey: String) {
         val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
@@ -1783,7 +1835,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
             clearPhotoDisplayState()
-            if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) getMedia()
+            if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                getMedia(photoReason = org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED)
+            }
             return@OnSharedPreferenceChangeListener
         }
         if (isPhotoProfiles && visibilityChanged) {
@@ -1792,7 +1846,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             mediaLoadRequests.invalidate()
             mCurrAsyncTask?.stopFetching()
             clearPhotoDisplayState()
-            if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) getMedia()
+            if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                getMedia(photoReason = org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED)
+            }
             return@OnSharedPreferenceChangeListener
         }
         if (key == FAVORITE_PASSWORD_ENABLED || key == FAVORITE_PASSWORD_HASH || key == FAVORITE_PROTECTION_TYPE) {
@@ -3289,7 +3345,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             }, diagnosticRequestId = request, updateReason = updateReason, effectiveSorting = effectiveSorting,
                 diagnosticTraceId = mediaDiagnostic(request)?.id,
                 diagnosticSnapshotVersion = sourceVersion,
-                diagnosticSnapshotStage = displayedFolderSnapshot?.stage?.name,
+                diagnosticSnapshotStage = displayedFolderSnapshot?.stage?.name ?: displayedPublicationStage?.name,
                 pinToStart = ::shouldPinInitialFolderTop)
         } else {
             searchQueryChanged(mLastSearchedText, onCommitted, SearchTrigger.MEDIA_SNAPSHOT)
@@ -3354,7 +3410,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                         mLatestMediaDateId = latest.second
                         if (changed) {
                             if (mIsGettingMedia) mediaChangeGate.mediaChangedDuringScan()
-                            else getMedia()
+                            else getMedia(photoReason = org.fossify.gallery.helpers.PhotoLoadReason.REFRESH)
                         }
                     }
                     checkLastMediaChanged()
@@ -3830,7 +3886,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             mLoadedInitialPhotos = false
             binding.mediaRefreshLayout.isRefreshing = true
             if (!projectCurrentFolderToFilter(filter, confirmedAt)) binding.mediaGrid.adapter = null
-            getMedia(reason = "filter_change")
+            getMedia(reason = "filter_change",
+                photoReason = org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED)
         }
     }
 
@@ -3977,7 +4034,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         }
     }
 
-    private fun getMedia(manualRefresh: Boolean = false, reason: String = "source_refresh") {
+    private fun getMedia(manualRefresh: Boolean = false, reason: String = "source_refresh",
+                         photoReason: org.fossify.gallery.helpers.PhotoLoadReason? = null) {
         if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
             org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
                 org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaPipeline",
@@ -3986,7 +4044,15 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                     "previousGeneration" to mediaRefreshRequest, "previousRequestId" to diagnosticMediaRequest?.id,
                     "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(mPath)))
         mediaSortOperations.invalidate()
-        if (isPhotoProfiles) { getPhotoProfileMedia(); return }
+        if (isPhotoProfiles) {
+            // A plain entry/resume/retry reuses an already validated catalog and
+            // publishes a bounded preview; only an explicit user refresh forces a
+            // full rescan. Content and scope changes opt into their own reason.
+            getPhotoProfileMedia(photoReason ?: if (manualRefresh)
+                org.fossify.gallery.helpers.PhotoLoadReason.REFRESH
+            else org.fossify.gallery.helpers.PhotoLoadReason.ENTER)
+            return
+        }
         if (mPath == FAVORITES && favoriteSessionId != null) {
             favoriteAccessPaths = FavoriteAccessSessionManager.getCapturedPaths(favoriteSessionId)
             if (favoriteAccessPaths == null) {
@@ -4345,6 +4411,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
     private var folderReadResult: org.fossify.gallery.helpers.FolderMediaReadResult? = null
     private var folderStatsRequestVersion = 0L
     private var displayedSourceVersion = 0L
+    private var displayedPublicationStage: MediaPublicationStage? = null
     private var displayedFolderSnapshot: DisplayedFolderSnapshot? = null
     private var displayedRecycleBinRevision = -1L
     private var recycleBinLoadRevision = -1L
@@ -4404,7 +4471,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             },
             onSortingMetadataRefreshRequired = {
                 if (mediaLoadRequests.isCurrent(request) && scanGeneration == mediaScanGeneration &&
-                    requestedFolder == mPath && !isFinishing && !isDestroyed) getMedia(reason = "sort_metadata_missing")
+                    requestedFolder == mPath && !isFinishing && !isDestroyed) getMedia(reason = "sort_metadata_missing",
+                    photoReason = org.fossify.gallery.helpers.PhotoLoadReason.REFRESH)
             },
             onFolderDetails = { details ->
                 if (scanGeneration == mediaScanGeneration && mediaLoadRequests.isCurrent(request) &&
@@ -4715,7 +4783,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             config.temporarilyShowExcluded = show
             mLoadedInitialPhotos = false
             binding.mediaGrid.adapter = null
-            getMedia()
+            getMedia(photoReason = org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED)
             refreshMenuItems()
         }
         if (config.temporarilyShowExcluded) update(false)
@@ -4739,7 +4807,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
     private fun toggleTemporarilyShowHidden(show: Boolean) {
         mLoadedInitialPhotos = false
         config.temporarilyShowHidden = show
-        getMedia()
+        getMedia(photoReason = org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED)
         refreshMenuItems()
     }
 
@@ -5654,7 +5722,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                         (token == null || FolderUnlockSessionManager.isActive(token))) {
                         if (isFromCache && completedMediaRequest == request) return@runOnUiThread
                         if (configuration != FolderCachePreviewAccess.configuration(applicationContext, folder)) {
-                            getMedia(reason = "publication_configuration_changed")
+                            getMedia(reason = "publication_configuration_changed",
+                                photoReason = org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED)
                         } else if (sorting != config.getFolderSorting(folder)) {
                             gotMedia(candidate, isFromCache, request)
                         } else if (!storageAccess()) {
@@ -5744,7 +5813,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                         if (sorting == config.getFolderSorting(scope) && grouping == config.getFolderGrouping(scope)) {
                             publishMediaSnapshot(mediaSnapshot, isFromCache, request, stage, access, select,
                                 diagnosticStage, verifiedRestorations)
-                        } else getMedia(reason = "publication_configuration_changed")
+                        } else getMedia(reason = "publication_configuration_changed",
+                                photoReason = org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED)
                     }
                 }) return@runOnUiThread
 
@@ -5764,7 +5834,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                             publishMediaSnapshot(mediaSnapshot, isFromCache, request, stage, access, select,
                                 diagnosticStage, verified)
                         } else if (mediaLoadRequests.isCurrent(request)) {
-                            getMedia(reason = "media_changed_during_restore_check")
+                            getMedia(reason = "media_changed_during_restore_check",
+                                photoReason = org.fossify.gallery.helpers.PhotoLoadReason.REFRESH)
                         }
                     }
                     return@runOnUiThread
@@ -5866,8 +5937,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                 val token = favoriteSessionId
                 favoritesReturnCover?.revealAfterLayout { isFavoritesReturnCurrent(request, token) }
             } else {
+                displayedPublicationStage = diagnosticStage
                 setupAdapter {
                     if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return@setupAdapter
+                    if (isPhotoProfiles && diagnosticStage == MediaPublicationStage.PREVIEW) {
+                        observePhotoPreviewCommit(request)
+                    }
                     if (media.isNotEmpty() && firstAdapterCommit != request) {
                         firstAdapterCommit = request
                         logMediaPage(request, "media_first_adapter_commit", "count=${media.size}")

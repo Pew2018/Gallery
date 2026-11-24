@@ -49,9 +49,52 @@ internal class MediaPagePreview {
     }
 }
 
-/** Select the cached preview only after applying the configured order to all cached rows. */
+/** Cached-preview ordering: full sort for untrusted order, bounded window for a scope-owned catalog. */
 internal object CachedMediaPreviewOrder {
     private const val RANDOM_PREVIEW_SEED = 0x4D45444941434143L
+    private const val ANCHOR_CONTEXT_DIVISOR = 4
+    const val LIMIT = 160
+
+    /**
+     * Selects the first visible window without walking or re-sorting the whole
+     * catalog. A readable [PhotoProfileMediaCache] entry belongs to an exact
+     * [PhotoProfileScope], sorting included, so its stored order is already the
+     * order this request would produce unless sorting is random. Null means the
+     * caller must run the full [order] + missing-filter path.
+     */
+    fun select(
+        cached: List<Medium>,
+        sorting: Int,
+        anchorPath: String?,
+        limit: Int = LIMIT,
+        visible: (Medium) -> Boolean = { CachedMediaPreviewFilter.isVisible(it) }
+    ): List<Medium>? {
+        if (cached.isEmpty() || limit <= 0 || sorting and SORT_BY_RANDOM != 0) return null
+        // The stored order already matches scope.sorting; only the viewport moves.
+        val anchor = anchorPath?.let { path -> cached.indexOfFirst { it.path == path } }?.takeIf { it >= 0 } ?: 0
+        val start = (anchor - limit / ANCHOR_CONTEXT_DIVISOR).coerceAtLeast(0)
+        val selected = ArrayList<Medium>(limit)
+        var index = start
+        while (index < cached.size && selected.size < limit) {
+            val item = cached[index++]
+            if (visible(item)) selected.add(item)
+        }
+        if (selected.size < limit) {
+            // The viewport opened near the end of the cached order; fill backwards
+            // while keeping the final list in its original (ascending) order.
+            val earlier = ArrayList<Medium>(limit - selected.size)
+            index = start - 1
+            while (index >= 0 && earlier.size < limit - selected.size) {
+                val item = cached[index--]
+                if (visible(item)) earlier.add(item)
+            }
+            val ordered = ArrayList<Medium>(earlier.size + selected.size)
+            ordered.addAll(earlier.asReversed())
+            ordered.addAll(selected)
+            return ordered
+        }
+        return selected
+    }
 
     fun order(rows: List<Medium>, sorting: Int, fetcher: MediaFetcher): ArrayList<Medium> {
         if (rows.isEmpty()) return arrayListOf()

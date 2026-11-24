@@ -68,11 +68,16 @@ class PhotoProfileMediaLoader internal constructor(
         val stableLockedPreview = scanPlan.hasBlockedSources
         var lockedPreviewPublished = false
         var lastPublishedStage: PhotoLoadResult? = null
+        val timeline = PhotoPublicationTimeline(
+            diagnostics, cancellationFetcher.traceRequest, scope.sessionId, scope.profileId)
         fun publishValidatedStage(stage: PhotoLoadResult) {
             if (stage.media.isEmpty() || (stableLockedPreview && lockedPreviewPublished)) return
             if (lastPublishedStage?.let { PhotoLoadPublicationPolicy.sameVisibleContent(it, stage) } == true) return
             PhotoSessionViewerCatalogStore.offerPartial(context, stage)
             diagnostics?.add("stagePublishCount")
+            if (stage.stage == PhotoLoadStage.CACHE_PREVIEW) {
+                timeline.mark("photo_preview_ui_enqueued", stage.stage.name, stage.media.size)
+            }
             onStage(stage)
             lastPublishedStage = stage
             if (stableLockedPreview) lockedPreviewPublished = true
@@ -105,7 +110,37 @@ class PhotoProfileMediaLoader internal constructor(
                 add("cachedItemCount", reusable.size.toLong())
             }
         }
+        if (!allowPreview || stableLockedPreview) {
+            timeline.mark("photo_cache_lookup_end", "REUSABLE", reusable?.size ?: 0,
+                mapOf("cacheHit" to (reusable != null), "reusableCatalog" to (reusable != null),
+                    "forcedScan" to forceScan))
+        }
         if (reusable == null) GalleryPerfTrace.end("viewer_catalog_miss", cacheLookup, 0)
+
+        // Keep already validated indexed/cache rows in later filesystem stages.
+        val stagedCandidates = LinkedHashMap<String, Medium>()
+        // Hot-cache first slice: select and validate only a bounded window instead
+        // of filtering and sorting every cached row before the first frame. The
+        // stored order belongs to this exact scope (sorting included), so it is
+        // already the order this request would produce unless sorting is random.
+        // Completeness still comes from the indexed/filesystem/COMPLETE stages.
+        var preview = emptyList<Medium>()
+        if (allowPreview && !stableLockedPreview) {
+            preview = selectCachedPreview(
+                reusable, request, folders, favoriteFiles, scope, anchorPath, forceScan, ::sort, timeline)
+            timeline.mark("photo_preview_slice_ready", PhotoLoadStage.CACHE_PREVIEW.name, preview.size,
+                mapOf("limit" to CachedMediaPreviewOrder.LIMIT))
+            if (preview.isNotEmpty()) {
+                // The cache sample has already had missing capture times normalized.
+                // Access validation only removes rows and updates favorite membership.
+                val validated = result(PhotoLoadStage.CACHE_PREVIEW, preview, preserveInputOrder = true)
+                preview = validated.media
+                timeline.mark("photo_preview_access_validated", PhotoLoadStage.CACHE_PREVIEW.name, preview.size)
+                preview.forEach { stagedCandidates[it.path] = it }
+                if (preview.isNotEmpty()) publishValidatedStage(validated)
+            }
+        }
+        checkCurrent(request)
         if (reusable != null) {
             val validationStarted = GalleryPerfTrace.begin()
             val validated = result(PhotoLoadStage.COMPLETE, reusable,
@@ -130,36 +165,6 @@ class PhotoProfileMediaLoader internal constructor(
         // that created it. Capture this before index queries and file supplements.
         val scanCheckpointStarted = PhotoProfileCatalogCheckpoint.capture(context, scope)
 
-        // Keep already validated indexed/cache rows in later filesystem stages.
-        val stagedCandidates = LinkedHashMap<String, Medium>()
-        var preview = emptyList<Medium>()
-        if (allowPreview && !stableLockedPreview) {
-            val started = GalleryPerfTrace.begin()
-            val cached = PhotoProfileMediaCache.read(request) ?: runCatching {
-                readDatabaseCache(folders, favoriteFiles)
-            }.getOrDefault(emptyList())
-            diagnostics?.apply {
-                add("cacheLookupCount")
-                if (cached.isEmpty()) add("cacheMissCount") else {
-                    add("cacheHitCount")
-                    add("cachedItemCount", cached.size.toLong())
-                }
-            }
-            GalleryPerfTrace.end("photo_cache", started, cached.size)
-            // Cache preview only: remove confirmed missing files without pruning
-            // persistent media/favorite rows. Inaccessible parents remain eligible.
-            val sorted = CachedMediaPreviewFilter.removeConfirmedMissing(cached)
-            sort(sorted)
-            preview = PhotoProfileMediaCache.preview(sorted, anchorPath)
-            if (preview.isNotEmpty()) {
-                // The cache sample has already had missing capture times normalized.
-                // Access validation only removes rows and updates favorite membership.
-                val validated = result(PhotoLoadStage.CACHE_PREVIEW, preview, preserveInputOrder = true)
-                preview = validated.media
-                preview.forEach { stagedCandidates[it.path] = it }
-                if (preview.isNotEmpty()) publishValidatedStage(validated)
-            }
-        }
         checkCurrent(request)
         val query = GalleryPerfTrace.begin()
         val indexed = fetcher.queryProfileIndexedMedia(folders, favoriteFiles, ArrayList(request.favorites))
@@ -264,6 +269,71 @@ class PhotoProfileMediaLoader internal constructor(
         } finally {
             PhotoSessionViewerCatalogStore.finishLoading(request)
         }
+    }
+
+    /**
+     * Bounded first slice. Only the in-memory catalog stores a list already ordered
+     * by this exact scope; Room rows are a candidate set, not an order.
+     */
+    private fun selectCachedPreview(
+        reusable: List<Medium>?,
+        request: PhotoProfileLoadContext,
+        folders: Set<String>,
+        favoriteFiles: Set<String>,
+        scope: PhotoProfileScope,
+        anchorPath: String?,
+        forceScan: Boolean,
+        sort: (ArrayList<Medium>) -> Unit,
+        timeline: PhotoPublicationTimeline
+    ): List<Medium> {
+        var orderedCache = reusable != null
+        val cache: List<Medium> = if (reusable != null) {
+            reusable
+        } else {
+            val started = GalleryPerfTrace.begin()
+            val memory = PhotoProfileMediaCache.read(request)
+            orderedCache = memory != null
+            val cached = memory ?: runCatching {
+                readDatabaseCache(folders, favoriteFiles)
+            }.getOrDefault(emptyList())
+            diagnostics?.apply {
+                add("cacheLookupCount")
+                if (cached.isEmpty()) add("cacheMissCount") else {
+                    add("cacheHitCount")
+                    add("cachedItemCount", cached.size.toLong())
+                }
+            }
+            GalleryPerfTrace.end("photo_cache", started, cached.size)
+            cached
+        }
+        timeline.mark("photo_cache_lookup_end",
+            if (reusable != null) "REUSABLE" else "CACHE_PREVIEW", cache.size,
+            mapOf("cacheHit" to cache.isNotEmpty(), "reusableCatalog" to (reusable != null),
+                "orderedCache" to orderedCache, "forcedScan" to forceScan))
+        val quickStarted = GalleryPerfTrace.begin()
+        val quick = if (orderedCache) {
+            CachedMediaPreviewOrder.select(cache, scope.sorting, anchorPath)
+        } else null
+        if (quick != null) {
+            timeline.mark("photo_cache_missing_filter_end", PhotoLoadStage.CACHE_PREVIEW.name,
+                quick.size, mapOf("boundedSelection" to true, "cacheRows" to cache.size))
+            GalleryPerfTrace.end("photo_cache_missing_filter", quickStarted, quick.size)
+            timeline.mark("photo_cache_order_ready", PhotoLoadStage.CACHE_PREVIEW.name, quick.size,
+                mapOf("reusedOrder" to true))
+            // The readable catalog is private/immutable; stage its own copies
+            // before any later sort normalizes capture times in place.
+            return quick.map { it.copy() }
+        }
+        val sorted = CachedMediaPreviewFilter.removeConfirmedMissing(cache)
+        timeline.mark("photo_cache_missing_filter_end", PhotoLoadStage.CACHE_PREVIEW.name,
+            sorted.size, mapOf("boundedSelection" to false, "cacheRows" to cache.size))
+        GalleryPerfTrace.end("photo_cache_missing_filter", quickStarted, sorted.size)
+        val ordering = GalleryPerfTrace.begin()
+        sort(sorted)
+        GalleryPerfTrace.end("photo_cache_order", ordering, sorted.size)
+        timeline.mark("photo_cache_order_ready", PhotoLoadStage.CACHE_PREVIEW.name, sorted.size,
+            mapOf("reusedOrder" to false))
+        return PhotoProfileMediaCache.preview(sorted, anchorPath).map { it.copy() }
     }
 
     private fun readDatabaseCache(folders: Set<String>, files: Set<String>): List<Medium> {

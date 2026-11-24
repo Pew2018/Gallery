@@ -868,8 +868,11 @@ class MediaAdapter(
             pending.committed()
             return
         }
+        // The proof is the content itself: every previously displayed row is still
+        // at the same index and the incoming list is strictly longer. Stage names are
+        // not frame evidence, so any scan publication with that prefix qualifies.
+        // A date-descending insert at the head breaks the prefix and still diffs.
         if (pending.preserveScroll && pending.reason == MediaUpdateReason.SCAN &&
-            pending.snapshotStage in setOf("CACHE_PREVIEW", "INDEX_PREVIEW", "SCAN_PARTIAL") &&
             MediaUpdatePolicy.isContentAppend(media, incoming)) {
             val oldCount = media.size
             sorting = pending.sorting

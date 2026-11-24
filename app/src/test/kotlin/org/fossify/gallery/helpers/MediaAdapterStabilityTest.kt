@@ -1067,6 +1067,54 @@ class MediaAdapterStabilityTest {
         assertEquals(99L, (adapter.media.single() as Medium).mediaStoreId)
     }
 
+    @Test fun prefixPreservingScanGrowthUsesAppendCommitWithoutDiff() = withAdapter { adapter, _, tasks ->
+        val inserted = mutableListOf<Pair<Int, Int>>()
+        var fullChanges = 0
+        adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
+            override fun onItemRangeInserted(positionStart: Int, itemCount: Int) {
+                inserted += positionStart to itemCount
+            }
+            override fun onChanged() { fullChanges++ }
+            override fun onItemRangeChanged(positionStart: Int, itemCount: Int, payload: Any?) { fullChanges++ }
+            override fun onItemRangeRemoved(positionStart: Int, itemCount: Int) { fullChanges++ }
+        })
+
+        adapter.updateMedia(arrayListOf(item("a.jpg"), item("b.jpg")), preserveScroll = true,
+            diagnosticSnapshotStage = "PARTIAL")
+
+        assertTrue("A prefix-preserving stage must not queue DiffUtil", tasks.isEmpty())
+        assertEquals(listOf(1 to 1), inserted)
+        assertEquals("No existing row may be rebound or replaced", 0, fullChanges)
+        assertEquals(listOf("a.jpg", "b.jpg"),
+            adapter.media.filterIsInstance<Medium>().map { it.name })
+    }
+
+    @Test fun dateDescendingHeadInsertionIsNeverMistakenForAnAppend() = withAdapter { adapter, _, tasks ->
+        adapter.updateMedia(arrayListOf(item("newest.jpg"), item("a.jpg")), preserveScroll = true,
+            diagnosticSnapshotStage = "PARTIAL")
+
+        assertEquals("Inserting before the visible prefix must still diff", 1, tasks.size)
+        drain(tasks)
+        assertEquals(listOf("newest.jpg", "a.jpg"),
+            adapter.media.filterIsInstance<Medium>().map { it.name })
+    }
+
+    @Test fun identicalPartialSnapshotStaysANoOp() = withAdapter { adapter, _, tasks ->
+        var notifications = 0
+        adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
+            override fun onChanged() { notifications++ }
+            override fun onItemRangeChanged(positionStart: Int, itemCount: Int, payload: Any?) { notifications++ }
+            override fun onItemRangeInserted(positionStart: Int, itemCount: Int) { notifications++ }
+            override fun onItemRangeRemoved(positionStart: Int, itemCount: Int) { notifications++ }
+        })
+
+        adapter.updateMedia(arrayListOf(item("a.jpg")), preserveScroll = true,
+            diagnosticSnapshotStage = "PARTIAL")
+
+        assertTrue("An unchanged preview must not schedule a diff", tasks.isEmpty())
+        assertEquals("An unchanged preview must not notify RecyclerView", 0, notifications)
+    }
+
     @Test fun realMetadataAndOrderChangesStillScheduleDiffs() = withAdapter { adapter, _, tasks ->
         adapter.updateMedia(arrayListOf(item("a.jpg").copy(modified = 11)), preserveScroll = false)
         assertEquals(1, tasks.size)
