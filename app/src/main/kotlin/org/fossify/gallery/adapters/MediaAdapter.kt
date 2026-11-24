@@ -1089,9 +1089,68 @@ class MediaAdapter(
             if (submitPending) submitPendingUpdate()
             if (wasActive) {
                 recyclerView.removeCallbacks(admitThumbViewport)
+                beginThumbnailRecovery()
                 // Let a pending list commit and its layout choose the final set of holders.
                 recyclerView.postOnAnimation(admitThumbViewport)
             }
+        }
+    }
+
+    // --- Settled-viewport thumbnail recovery accounting ----------------------
+    // Measures the interval the user actually notices: from releasing the thumb to the
+    // first visible resource and to the whole visible viewport being served. Every
+    // number is tied to the adapter version and to the rows bound at release time, so
+    // recycled or re-bound holders cannot be counted as recovered.
+    private var thumbRecoveryGeneration = 0
+    private var thumbRecoveryStartedAt = 0L
+    private var thumbRecoveryAdapterVersion = -1L
+    private val thumbRecoveryPending = LinkedHashSet<String>()
+    private var thumbRecoveryFirstReadyMs = -1L
+
+    private fun beginThumbnailRecovery() {
+        if (!GalleryDiagnosticLogger.isEnabled()) return
+        val bounds = android.graphics.Rect()
+        val pending = LinkedHashSet<String>()
+        for (index in 0 until recyclerView.childCount) {
+            val child = recyclerView.getChildAt(index)
+            val image = child.findViewById<ImageView>(R.id.medium_thumbnail) ?: continue
+            val load = thumbnailLoad(image) ?: continue
+            if (load.pending == null) continue
+            val row = media.getOrNull(recyclerView.getChildAdapterPosition(child)) as? Medium ?: continue
+            if (image.getTag(R.id.media_bound_path) != row.path) continue
+            if (!image.isShown || !image.getLocalVisibleRect(bounds)) continue
+            pending.add(row.path)
+        }
+        thumbRecoveryGeneration++
+        thumbRecoveryStartedAt = android.os.SystemClock.elapsedRealtime()
+        thumbRecoveryAdapterVersion = committedVersion
+        thumbRecoveryFirstReadyMs = -1L
+        thumbRecoveryPending.clear()
+        thumbRecoveryPending.addAll(pending)
+        GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", "thumbnail_recovery_window",
+            diagnosticGridRequest, mapOf("adapterId" to diagnosticId(), "adapterVersion" to committedVersion,
+                "recoveryGeneration" to thumbRecoveryGeneration, "visiblePending" to pending.size))
+    }
+
+    /** Called once a visible thumbnail resource has actually been bound to its holder. */
+    internal fun recordThumbnailReady(path: String) {
+        if (thumbRecoveryPending.isEmpty()) return
+        if (!thumbRecoveryPending.remove(path)) return
+        if (!GalleryDiagnosticLogger.isEnabled()) return
+        val elapsed = android.os.SystemClock.elapsedRealtime() - thumbRecoveryStartedAt
+        if (thumbRecoveryFirstReadyMs < 0L) {
+            thumbRecoveryFirstReadyMs = elapsed
+            GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", "thumbnail_recovery_first_ready",
+                diagnosticGridRequest, mapOf("adapterId" to diagnosticId(), "adapterVersion" to committedVersion,
+                    "recoveryGeneration" to thumbRecoveryGeneration, "sinceFastScrollEndMs" to elapsed,
+                    "remaining" to thumbRecoveryPending.size))
+        }
+        if (thumbRecoveryPending.isEmpty()) {
+            GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", "thumbnail_recovery_complete",
+                diagnosticGridRequest, mapOf("adapterId" to diagnosticId(), "adapterVersion" to committedVersion,
+                    "recoveryGeneration" to thumbRecoveryGeneration, "sinceFastScrollEndMs" to elapsed,
+                    "firstReadyMs" to thumbRecoveryFirstReadyMs,
+                    "adapterVersionChanged" to (committedVersion != thumbRecoveryAdapterVersion)))
         }
     }
 
@@ -1131,7 +1190,10 @@ class MediaAdapter(
         if (GalleryDiagnosticLogger.isEnabled()) {
             GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", "thumbnail_viewport_admitted",
                 diagnosticGridRequest, mapOf("adapterId" to diagnosticId(), "adapterVersion" to committedVersion,
-                    "phase" to if (fastScrollActive) "THUMB_PAUSE" else "THUMB_RELEASE", "started" to started))
+                    "phase" to if (fastScrollActive) "THUMB_PAUSE" else "THUMB_RELEASE", "started" to started,
+                    "recoveryGeneration" to thumbRecoveryGeneration,
+                    "sinceFastScrollEndMs" to if (thumbRecoveryStartedAt == 0L) -1L
+                    else (android.os.SystemClock.elapsedRealtime() - thumbRecoveryStartedAt)))
         }
     }
 
@@ -1560,6 +1622,7 @@ class MediaAdapter(
                                     }
                                 }
                                 logVisibleDrawable(mediumThumbnail, medium, load.token, "visible_drawable_ready", "current_load")
+                                recordThumbnailReady(medium.path)
                                 onThumbnailLoaded?.invoke(medium.path, mediumThumbnail)
                             }
                         },

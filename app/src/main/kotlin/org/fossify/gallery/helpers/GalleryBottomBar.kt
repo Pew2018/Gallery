@@ -80,6 +80,14 @@ object GalleryBottomBar {
     internal fun isRootTransition(activity: Activity): Boolean =
         activity.intent.getBooleanExtra(EXTRA_ROOT_TRANSITION, false) || activity in retiringSources
 
+    /**
+     * The token of the bottom-bar tap that opened this page, if any. Screens that
+     * record their own diagnostics need the same identifier the root transition
+     * events use, otherwise a tap cannot be joined to the load it caused.
+     */
+    internal fun navigationToken(activity: Activity): String? =
+        latestRequests[activity] ?: activity.intent.getStringExtra(EXTRA_ROOT_TOKEN)
+
     internal fun trace(activity: Activity, event: String, fields: Map<String, Any?> = emptyMap()) {
         if (!GalleryDiagnosticLogger.isEnabled()) return
         val inputEvent = event == "touch" || event == "pulse_created" || event == "pulse_released" || event == "click"

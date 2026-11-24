@@ -13,7 +13,11 @@ class PhotoProfileMediaLoader internal constructor(
     private val sessionId: String? = null,
     private val cancelled: () -> Boolean = { false },
     private val diagnostics: MediaPipelineDiagnostics? = null,
-    private val retainedGridOrder: StagedMediaOrder? = null
+    private val retainedGridOrder: StagedMediaOrder? = null,
+    /** Root-transition token that caused this load; links a bottom-bar tap to the worker. */
+    private val navigationToken: String? = null,
+    /** Process-unique diagnostic id shared with the grid-side events of the same tap. */
+    private val diagnosticRequestId: String = GalleryDiagnosticLogger.nextPhotoRequestId()
 ) {
     companion object {
         const val PATH = "__photo_profiles__"
@@ -69,7 +73,8 @@ class PhotoProfileMediaLoader internal constructor(
         var lockedPreviewPublished = false
         var lastPublishedStage: PhotoLoadResult? = null
         val timeline = PhotoPublicationTimeline(
-            diagnostics, cancellationFetcher.traceRequest, scope.sessionId, scope.profileId)
+            diagnostics, cancellationFetcher.traceRequest, diagnosticRequestId,
+            navigationToken, scope.profileId)
         fun publishValidatedStage(stage: PhotoLoadResult) {
             if (stage.media.isEmpty() || (stableLockedPreview && lockedPreviewPublished)) return
             if (lastPublishedStage?.let { PhotoLoadPublicationPolicy.sameVisibleContent(it, stage) } == true) return
@@ -102,13 +107,46 @@ class PhotoProfileMediaLoader internal constructor(
         }
 
         val cacheLookup = GalleryPerfTrace.begin()
-        val reusable = if (forceScan) null else PhotoProfileMediaCache.readReusable(request, context)
+        val reuse = if (forceScan) null else PhotoProfileMediaCache.reuse(request, context)
+        val reusable = reuse?.second
+        val verdict = reuse?.first
         diagnostics?.apply {
             add("cacheLookupCount")
             if (reusable == null) add("cacheMissCount") else {
                 add("cacheHitCount")
                 add("cachedItemCount", reusable.size.toLong())
             }
+            // Two-level eligibility counters: a preview-eligible entry that failed
+            // only completeness must never be reported as a plain cache miss.
+            if (verdict != null) {
+                if (verdict.previewEligible) add("cachePreviewEligibleCount") else add("cachePreviewRejectedCount")
+                if (verdict.completeReusable) add("cacheCompleteReusableCount")
+                if (verdict.eviction) add("cacheEvictionCount")
+                when (verdict.missReason) {
+                    PhotoCacheMissReason.NO_ENTRY -> add("cacheMissNoEntryCount")
+                    PhotoCacheMissReason.SCOPE_MISMATCH -> { add("cacheMissScopeCount"); add("cacheMissStaleCount") }
+                    PhotoCacheMissReason.CONTENT_REVISION_CHANGED -> { add("cacheMissRevisionCount"); add("cacheMissStaleCount") }
+                    PhotoCacheMissReason.FAVORITES_CHANGED -> { add("cacheMissFavoritesCount"); add("cacheMissStaleCount") }
+                    PhotoCacheMissReason.EXPIRED -> { add("cacheMissExpiredCount"); add("cacheMissStaleCount") }
+                    PhotoCacheMissReason.CHECKPOINT_UNAVAILABLE -> add("cacheMissCheckpointUnavailableCount")
+                    PhotoCacheMissReason.CHECKPOINT_CHANGED -> add("cacheMissCheckpointChangedCount")
+                    PhotoCacheMissReason.NONE -> Unit
+                }
+            }
+            if (forceScan) add("cacheForcedScanCount")
+        }
+        if (verdict != null) {
+            timeline.mark("photo_cache_reuse_decision", if (reusable != null) "REUSABLE" else "PREVIEW_ONLY",
+                reusable?.size ?: verdict.cacheRows, mapOf(
+                    "previewEligible" to verdict.previewEligible,
+                    "completeReusable" to verdict.completeReusable,
+                    "checkpointAvailable" to verdict.checkpointAvailable,
+                    "evictionPerformed" to verdict.eviction,
+                    "missReason" to verdict.missReason.token,
+                    "cacheRows" to verdict.cacheRows,
+                    "cacheAgeMs" to verdict.ageMs,
+                    "requestGeneration" to cancellationFetcher.traceRequest,
+                ))
         }
         if (!allowPreview || stableLockedPreview) {
             timeline.mark("photo_cache_lookup_end", "REUSABLE", reusable?.size ?: 0,
@@ -274,6 +312,11 @@ class PhotoProfileMediaLoader internal constructor(
     /**
      * Bounded first slice. Only the in-memory catalog stores a list already ordered
      * by this exact scope; Room rows are a candidate set, not an order.
+     *
+     * Both sources end in the same bounded existence walk. Sorting a Room snapshot
+     * costs about a millisecond for 5k rows, while checking every row against the
+     * filesystem costs about a millisecond per five rows, so the cold path orders
+     * first and then validates only the window the first frame can show.
      */
     private fun selectCachedPreview(
         reusable: List<Medium>?,
@@ -291,7 +334,7 @@ class PhotoProfileMediaLoader internal constructor(
             reusable
         } else {
             val started = GalleryPerfTrace.begin()
-            val memory = PhotoProfileMediaCache.read(request)
+            val memory = PhotoProfileMediaCache.readOrdered(request)
             orderedCache = memory != null
             val cached = memory ?: runCatching {
                 readDatabaseCache(folders, favoriteFiles)
@@ -311,22 +354,51 @@ class PhotoProfileMediaLoader internal constructor(
             mapOf("cacheHit" to cache.isNotEmpty(), "reusableCatalog" to (reusable != null),
                 "orderedCache" to orderedCache, "forcedScan" to forceScan))
         val quickStarted = GalleryPerfTrace.begin()
-        val quick = if (orderedCache) {
-            CachedMediaPreviewOrder.select(cache, scope.sorting, anchorPath)
-        } else null
-        if (quick != null) {
+        val randomSort = scope.sorting and SORT_BY_RANDOM != 0
+        // One parent-readability memo per bounded batch: a first slice spans very few
+        // folders, so the per-row parent probe is redundant work on the hot path.
+        val visibleBatch = CachedMediaPreviewFilter.VisibleBatch()
+        val window: CachedPreviewSlice? = when {
+            // A stored order is only trusted for a non-random sort of this exact scope.
+            orderedCache && !randomSort ->
+                CachedMediaPreviewOrder.selectBounded(cache, scope.sorting, anchorPath, visible = visibleBatch::isVisible)
+            // Room rows are unordered: order them (cheap) before the existence walk (expensive).
+            !randomSort -> {
+                val ordering = GalleryPerfTrace.begin()
+                val ordered = ArrayList(cache).also { sort(it) }
+                GalleryPerfTrace.end("photo_cache_order", ordering, ordered.size)
+                CachedMediaPreviewOrder.selectBounded(ordered, scope.sorting, anchorPath, visible = visibleBatch::isVisible)
+            }
+            else -> null
+        }
+        if (window != null) {
+            val slice = window.items
+            diagnostics?.apply {
+                add("cachePreviewBoundedCount")
+                add("cachePreviewExistenceChecks", window.checks.toLong())
+                add("cachePreviewSelectedCount", slice.size.toLong())
+                if (!window.complete) add("cachePreviewDegradedCount")
+            }
             timeline.mark("photo_cache_missing_filter_end", PhotoLoadStage.CACHE_PREVIEW.name,
-                quick.size, mapOf("boundedSelection" to true, "cacheRows" to cache.size))
-            GalleryPerfTrace.end("photo_cache_missing_filter", quickStarted, quick.size)
-            timeline.mark("photo_cache_order_ready", PhotoLoadStage.CACHE_PREVIEW.name, quick.size,
-                mapOf("reusedOrder" to true))
+                slice.size, mapOf("boundedSelection" to true, "cacheRows" to cache.size,
+                    "checks" to window.checks, "limit" to CachedMediaPreviewOrder.LIMIT,
+                    "budgetExhausted" to !window.complete))
+            GalleryPerfTrace.end("photo_cache_missing_filter", quickStarted, slice.size)
+            timeline.mark("photo_cache_order_ready", PhotoLoadStage.CACHE_PREVIEW.name, slice.size,
+                mapOf("reusedOrder" to orderedCache))
             // The readable catalog is private/immutable; stage its own copies
             // before any later sort normalizes capture times in place.
-            return quick.map { it.copy() }
+            return slice.map { it.copy() }
         }
-        val sorted = CachedMediaPreviewFilter.removeConfirmedMissing(cache)
+        // Random sorting keeps the full, explicitly seeded order. Its candidate
+        // window is not a prefix of any stable order, so the bounded walk cannot
+        // be proven equivalent and the previous path is retained unchanged.
+        diagnostics?.add("cachePreviewFullFilterCount")
+        // Copy first: the readable catalog is shared and must never be mutated in place.
+        val sorted = CachedMediaPreviewFilter.removeConfirmedMissing(cache.map { it.copy() })
         timeline.mark("photo_cache_missing_filter_end", PhotoLoadStage.CACHE_PREVIEW.name,
-            sorted.size, mapOf("boundedSelection" to false, "cacheRows" to cache.size))
+            sorted.size, mapOf("boundedSelection" to false, "cacheRows" to cache.size,
+                "checks" to cache.size, "budgetExhausted" to false))
         GalleryPerfTrace.end("photo_cache_missing_filter", quickStarted, sorted.size)
         val ordering = GalleryPerfTrace.begin()
         sort(sorted)

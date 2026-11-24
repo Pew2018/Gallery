@@ -186,6 +186,17 @@ internal object GalleryDiagnosticLogger {
 
     fun session(): String = sessionId
 
+    /**
+     * Process-unique diagnostic id for one user-visible media request.
+     *
+     * Activity-local generations restart at 1 per Activity instance, so they cannot
+     * correlate a worker, its grid publication and the root navigation that caused
+     * them. This sequence can, and costs one atomic increment while diagnostics are
+     * being recorded.
+     */
+    private val requestSequence = AtomicLong()
+    fun nextPhotoRequestId(): String = "pp-${requestSequence.incrementAndGet()}"
+
     fun anonymousId(value: String): String = anonymousIdForSalt(value, hashSalt)
 
     internal fun anonymousIdForSalt(value: String, salt: String): String = java.security.MessageDigest.getInstance("SHA-256")

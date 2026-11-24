@@ -999,6 +999,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
     private var photoPublishedStage = -1
     private var photoRequestStarted = 0L
     private var photoPreviewStartAt = 0L
+    /** Process-unique id for the in-flight photo request; null when diagnostics are off. */
+    private var photoDiagnosticRequestId: String? = null
     private var photoPreviewCommittedRequest = -1L
     private var photoPreviewDrawRequest = -1L
     private var photoActiveRequestId = 0L
@@ -1072,9 +1074,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
     }
 
     private fun releaseMediaGridPublicationIfSafe() {
+        // Thumbnail admission is released first and unconditionally. Holding the grid in
+        // its paused fast-scroll state because a *publication* is still gated left the
+        // settled viewport without any thumbnail work until the next thumb gesture,
+        // which is exactly the large blank area observed after fast scrolling.
+        getMediaAdapter()?.setFastScrollActive(false, submitPending = false)
         if (isMediaGridTouchScrolling || gridTransitionHoldsPublication || isFinishing || isDestroyed) return
         val publication = mediaGridPublication.onScrollMoving(false)
-        getMediaAdapter()?.setFastScrollActive(false, submitPending = false)
         publication?.apply?.invoke()
         getMediaAdapter()?.submitPendingUpdateAfterFastScroll()
     }
@@ -1086,7 +1092,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             org.fossify.gallery.helpers.DiagnosticLevel.DEBUG,
             "PhotoGrid", name, photoActiveRequestId.takeIf { it != 0L },
             mapOf(
-                "profile" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(photoProfileId.orEmpty()),
+                "profile" to org.fossify.gallery.helpers.PhotoDiagnosticIdentity.scopeKey(photoProfileId),
+                "scopeKey" to org.fossify.gallery.helpers.PhotoDiagnosticIdentity.scopeKey(photoProfileId),
+                "requestId" to (photoDiagnosticRequestId ?: "none"),
                 "stage" to photoPublishedStage,
                 "adapterVersion" to displayedSourceVersion,
                 "mediaCount" to (adapter?.media?.size ?: 0),
@@ -1339,8 +1347,13 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         photoNeedsUnlock = false
         mediaGridPublication.clear()
         photoPublishedStage = -1
-        photoRequestStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
-        photoPreviewStartAt = photoRequestStarted
+        // One monotonic clock for every span in this request. `GalleryPerfTrace.begin()`
+        // returns System.nanoTime(), which must never be subtracted from
+        // SystemClock.elapsedRealtime() samples.
+        photoPreviewStartAt = android.os.SystemClock.elapsedRealtime()
+        photoRequestStarted = photoPreviewStartAt
+        photoDiagnosticRequestId = if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled())
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.nextPhotoRequestId() else null
         if (retainGrid) {
             rememberPhotoScrollAnchor()
         } else {
@@ -1407,6 +1420,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             photoAllowPreview = !retainGrid,
             photoAnchorPath = photoScroll.pending?.path,
             photoOrder = order,
+            photoNavigationToken = GalleryBottomBar.navigationToken(this),
+            photoDiagnosticRequestId = photoDiagnosticRequestId,
             onPhotoResult = photoResult@{ result ->
                 // The shared worker/store still publishes every validated stage
                 // to the viewer. A stopped grid needs only the final snapshot.
@@ -1501,13 +1516,19 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
 
     private fun previewEventFields(request: Long, now: Long, vararg extra: Pair<String, Any?>): Map<String, Any?> =
         mapOf<String, Any?>(
-            "navigation" to (photoToken()?.let {
-                org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(it)
-            } ?: "none"),
+            "navigation" to org.fossify.gallery.helpers.PhotoDiagnosticIdentity
+                .navigation(GalleryBottomBar.navigationToken(this)),
+            // Process-unique id for this tap, shared with the worker timeline. The
+            // Activity-local generation stays visible but is never treated as unique.
+            "requestId" to (photoDiagnosticRequestId ?: "none"),
+            "businessRequest" to request,
             "mediaRequestGeneration" to request,
-            "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(photoProfileId.orEmpty()),
+            "scopeKey" to org.fossify.gallery.helpers.PhotoDiagnosticIdentity.scopeKey(photoProfileId),
             "stage" to org.fossify.gallery.helpers.PhotoLoadStage.CACHE_PREVIEW.name,
             "mediaCount" to (getMediaAdapter()?.itemCount ?: 0),
+            // Both sides of this subtraction use elapsedRealtime; the previous
+            // implementation subtracted it from a nanoTime origin and always
+            // reported 0.
             "sinceRequestMs" to if (photoPreviewStartAt != 0L)
                 (now - photoPreviewStartAt).coerceAtLeast(0L) else -1L,
         ) + extra.toMap()
@@ -1543,8 +1564,11 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                 val started = photoRequestStarted
                 photoRequestStarted = 0L
                 binding.mediaGrid.postOnAnimation {
-                    if (mediaLoadRequests.isCurrent(request)) org.fossify.gallery.helpers.GalleryPerfTrace.end(
-                        "photo_first_frame", started, result.media.size)
+                    if (mediaLoadRequests.isCurrent(request)) {
+                        val elapsedMs = (android.os.SystemClock.elapsedRealtime() - started).coerceAtLeast(0L)
+                        org.fossify.gallery.helpers.GalleryPerfTrace.duration(
+                            "photo_first_frame", elapsedMs * 1_000_000L, result.media.size)
+                    }
                 }
             }
         }

@@ -78,7 +78,12 @@ internal class MediaRequestDiagnostics private constructor(
     }
 
     companion object {
-        fun scopeId(source: ViewerScopeType, locator: String) = GalleryDiagnosticLogger.anonymousId("${source.name}:$locator")
+        /** One derivation per scope kind: photo profiles use the shared photo identity. */
+        fun scopeId(source: ViewerScopeType, locator: String) = if (source == ViewerScopeType.PHOTO_PROFILE) {
+            PhotoDiagnosticIdentity.scopeKey(locator)
+        } else {
+            GalleryDiagnosticLogger.anonymousId("${source.name}:$locator")
+        }
 
         fun start(
             generation: Long, source: ViewerScopeType, locator: String, revision: Long?, trigger: String,

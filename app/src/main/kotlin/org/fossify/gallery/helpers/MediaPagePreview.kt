@@ -49,11 +49,27 @@ internal class MediaPagePreview {
     }
 }
 
+/** Result of one bounded first-slice selection, including the work it actually performed. */
+internal data class CachedPreviewSlice(
+    val items: List<Medium>,
+    /** Existence/visibility checks performed, i.e. the real filesystem cost of this slice. */
+    val checks: Int,
+    /** False when the check budget ended the walk before the target count was reached. */
+    val complete: Boolean
+)
+
 /** Cached-preview ordering: full sort for untrusted order, bounded window for a scope-owned catalog. */
 internal object CachedMediaPreviewOrder {
     private const val RANDOM_PREVIEW_SEED = 0x4D45444941434143L
     private const val ANCHOR_CONTEXT_DIVISOR = 4
     const val LIMIT = 160
+
+    /**
+     * How many candidates a first slice may inspect per requested row. A stale
+     * cache therefore degrades to a bounded scan instead of an unbounded one over
+     * the whole catalog, while still tolerating the usual handful of deleted files.
+     */
+    const val CHECK_BUDGET_MULTIPLIER = 4
 
     /**
      * Selects the first visible window without walking or re-sorting the whole
@@ -68,32 +84,51 @@ internal object CachedMediaPreviewOrder {
         anchorPath: String?,
         limit: Int = LIMIT,
         visible: (Medium) -> Boolean = { CachedMediaPreviewFilter.isVisible(it) }
-    ): List<Medium>? {
-        if (cached.isEmpty() || limit <= 0 || sorting and SORT_BY_RANDOM != 0) return null
+    ): List<Medium>? = selectBounded(
+        cached, sorting, anchorPath, limit, Int.MAX_VALUE, visible
+    )?.items
+
+    /**
+     * Same contract as [select], but the walk stops after [maxChecks] candidates.
+     * A partial slice is still a valid preview: the first frame only needs rows the
+     * grid can show, and the indexed/filesystem stages will converge on the rest.
+     */
+    fun selectBounded(
+        cached: List<Medium>,
+        sorting: Int,
+        anchorPath: String?,
+        limit: Int = LIMIT,
+        maxChecks: Int = limit * CHECK_BUDGET_MULTIPLIER,
+        visible: (Medium) -> Boolean = { CachedMediaPreviewFilter.isVisible(it) }
+    ): CachedPreviewSlice? {
+        if (cached.isEmpty() || limit <= 0 || maxChecks <= 0 || sorting and SORT_BY_RANDOM != 0) return null
+        var checks = 0
         // The stored order already matches scope.sorting; only the viewport moves.
         val anchor = anchorPath?.let { path -> cached.indexOfFirst { it.path == path } }?.takeIf { it >= 0 } ?: 0
         val start = (anchor - limit / ANCHOR_CONTEXT_DIVISOR).coerceAtLeast(0)
         val selected = ArrayList<Medium>(limit)
         var index = start
-        while (index < cached.size && selected.size < limit) {
+        while (index < cached.size && selected.size < limit && checks < maxChecks) {
             val item = cached[index++]
+            checks++
             if (visible(item)) selected.add(item)
         }
-        if (selected.size < limit) {
+        if (selected.size < limit && checks < maxChecks) {
             // The viewport opened near the end of the cached order; fill backwards
             // while keeping the final list in its original (ascending) order.
             val earlier = ArrayList<Medium>(limit - selected.size)
             index = start - 1
-            while (index >= 0 && earlier.size < limit - selected.size) {
+            while (index >= 0 && earlier.size < limit - selected.size && checks < maxChecks) {
                 val item = cached[index--]
+                checks++
                 if (visible(item)) earlier.add(item)
             }
             val ordered = ArrayList<Medium>(earlier.size + selected.size)
             ordered.addAll(earlier.asReversed())
             ordered.addAll(selected)
-            return ordered
+            return CachedPreviewSlice(ordered, checks, ordered.size >= limit)
         }
-        return selected
+        return CachedPreviewSlice(selected, checks, selected.size >= limit)
     }
 
     fun order(rows: List<Medium>, sorting: Int, fetcher: MediaFetcher): ArrayList<Medium> {

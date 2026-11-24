@@ -32,6 +32,10 @@ internal class GetMediaAsynctask(
     private val photoAnchorPath: String? = null,
     private val photoReuseProducer: Boolean = false,
     private val photoOrder: StagedMediaOrder? = null,
+    /** Root-transition token of the tap that started this load, when there is one. */
+    private val photoNavigationToken: String? = null,
+    /** Process-unique diagnostic id shared with the grid-side events of the same tap. */
+    private val photoDiagnosticRequestId: String? = null,
     private val onPhotoResult: ((PhotoLoadResult) -> Unit)? = null,
     private val manualRefresh: Boolean = false,
     private val folderSessionId: String? = null,
@@ -65,7 +69,8 @@ internal class GetMediaAsynctask(
                 android.os.Build.VERSION.SDK_INT < 30 -> "LEGACY"
                 android.os.Environment.isExternalStorageManager() -> "ALL_FILES"
                 else -> "SCOPED_STORAGE"
-            }
+            },
+            diagnosticRequestId = photoDiagnosticRequestId
         ) else null
     internal var requestDiagnostics: MediaRequestDiagnostics? = null
     private val createdAtElapsedMs = android.os.SystemClock.elapsedRealtime()
@@ -165,7 +170,8 @@ internal class GetMediaAsynctask(
             observeViewerFolder()
         }
         if (mPath == PhotoProfileMediaLoader.PATH || photoProfileId != null) {
-            val loader = PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId, { isCancelled }, pipelineDiagnostics, photoOrder)
+            val loader = PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId, { isCancelled }, pipelineDiagnostics, photoOrder,
+                photoNavigationToken, photoDiagnosticRequestId ?: GalleryDiagnosticLogger.nextPhotoRequestId())
             val final = loader.loadStaged(photoProfileId, photoAllowPreview && onPhotoResult != null, photoAnchorPath,
                 forceScan = manualRefresh, reuseActiveProducer = photoReuseProducer) {
                 if (!isCancelled) publishProgress(it.snapshotForUi())
