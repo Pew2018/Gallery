@@ -996,6 +996,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
     private var photoLoadCompleted = false
     private var photoLoadedKey: String? = null
     private var photoLoadedRevision = -1L
+    /** Access-session version the displayed rows were validated against. */
+    private var photoLoadedAccessVersion = -1L
+    /**
+     * Identity of the newest Photos request. Compared before a new generation is
+     * created, so an equivalent intent cannot start a second worker.
+     */
+    private var photoActiveReason: org.fossify.gallery.helpers.PhotoLoadReason? = null
+    private var photoActiveRevision = -1L
+    private var photoActiveAccessVersion = -1L
+    private var photoActiveProfileId: String? = null
+    /** A pull-to-refresh arrived while an equivalent refresh was still running. */
+    private var photoPendingRefresh = false
     private var photoPublishedStage = -1
     private var photoRequestStarted = 0L
     private var photoPreviewStartAt = 0L
@@ -1240,6 +1252,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         photoLoadCompleted = false
         photoLoadedKey = null
         photoLoadedRevision = -1L
+        photoLoadedAccessVersion = -1L
         photoViewerTransition = false
         photoScroll.clear()
         photoScrollProfileId = null
@@ -1295,6 +1308,17 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             photoLoadedKey == photoDisplayKey() &&
             photoLoadedRevision == org.fossify.gallery.helpers.PhotoContentRevision.current() &&
             !photoNeedsUnlock && getMediaAdapter() != null && mMedia.isNotEmpty()
+        // Returning from the configuration page without changing the scope must not
+        // restart the scan that already owns this grid. Anything that really changed
+        // is no longer the same scope key, so it still reloads below.
+        val scanAlreadyCoversScope = sameAuthorizedScope && photoDisplayKey() == photoRequestedKey &&
+            activePhotoLoad()?.let { it.running && it.revision ==
+                org.fossify.gallery.helpers.PhotoContentRevision.current() } == true
+        if (scanAlreadyCoversScope) {
+            logPhotoScrollEvent("photo_load_request_rejected", "reason" to "unchanged_scope_scan_running",
+                "request" to photoActiveRequestId)
+            return
+        }
         if (!sameAuthorizedScope) {
             // A changed source, preference, or access capability must drop old thumbnails.
             clearPhotoDisplayState()
@@ -1315,9 +1339,49 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
     ) {
         if (photoToken() != null) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         val profile = PhotoProfileRepository.of(this).state().current
+        val intentScope = PhotoProfileScope.capture(this, profile?.id, photoToken())
+        val intentKey = intentScope?.toString()
+        val active = activePhotoLoad()
+        val decision = if (profile == null || intentScope == null || intentKey == null) {
+            org.fossify.gallery.helpers.PhotoLoadDecision.NEW
+        } else {
+            org.fossify.gallery.helpers.PhotoLoadAdmission.decide(
+                reason = reason, scopeKey = intentKey, profileId = profile.id,
+                revision = org.fossify.gallery.helpers.PhotoContentRevision.current(),
+                accessVersion = intentScope.accessVersion, active = active,
+            )
+        }
+        logPhotoScrollEvent("photo_load_intent_received", "loadReason" to reason.name,
+            "applicationReason" to previousSortScope?.let { "SORT_ONLY" }, "decision" to decision.token,
+            "activeRequest" to (active?.request ?: -1L), "activeReason" to (active?.reason?.name ?: "none"),
+            "workerRunning" to (active?.running ?: false), "revisionMatch" to (active?.revision ==
+                org.fossify.gallery.helpers.PhotoContentRevision.current()), "scopeMatch" to (active?.scopeKey == intentKey))
+        // Admission happens before the generation bump, the cancellation and the
+        // display reset. Any of those makes the duplicate unrecoverable, which is
+        // exactly how a configuration switch used to run two identical workers.
+        if (decision == org.fossify.gallery.helpers.PhotoLoadDecision.REUSE) {
+            resumeActivePhotoRequest(reason, active)
+            return
+        }
+        if (decision == org.fossify.gallery.helpers.PhotoLoadDecision.COALESCE_REFRESH) {
+            // Do not ignore the pull: the running refresh may have started before the
+            // files it is supposed to show. One bounded follow-up pass is queued.
+            photoPendingRefresh = true
+            logPhotoScrollEvent("photo_load_request_rejected", "loadReason" to reason.name,
+                "reason" to "coalesced_into_running_refresh", "activeRequest" to (active?.request ?: -1L))
+            binding.mediaRefreshLayout.isRefreshing = true
+            return
+        }
         photoProfileId = profile?.id
         val request = mediaLoadRequests.begin()
         photoActiveRequestId = request
+        photoActiveReason = reason
+        photoActiveRevision = org.fossify.gallery.helpers.PhotoContentRevision.current()
+        photoActiveAccessVersion = intentScope?.accessVersion ?: -1L
+        photoActiveProfileId = profile?.id
+        logPhotoScrollEvent("photo_load_request_admitted", "loadReason" to reason.name,
+            "request" to request, "previousRequest" to (active?.request ?: -1L),
+            "superseded" to (active != null && active.running))
         // A new request always supersedes a scan retained under a covering child page.
         // The superseded worker is stopped by the call below; only a worker that is no
         // longer the current one has to be retired here.
@@ -1334,19 +1398,47 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             photoScroll.clear()
             photoScrollProfileId = null
         }
-        val scope = PhotoProfileScope.capture(this, profile?.id, photoToken())
-        val requestedKey = scope.toString()
+        val scope = intentScope
+        val requestedKey = intentKey ?: "null"
         photoRequestedKey = requestedKey
         val sortOnly = previousSortScope != null && scope != null &&
             previousSortScope.copy(sorting = scope.sorting) == scope
         val retainedKey = if (sortOnly) previousSortScope.toString() else requestedKey
-        val retainGrid = reason != org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED &&
+        // The displayed snapshot may only be kept when every identity term still
+        // matches. Scrolling is deliberately absent: it is not a capability check.
+        val retainable = reason != org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED &&
             !photoNeedsUnlock && photoLoadedKey == retainedKey &&
-            (isMediaGridMoving || photoLoadedRevision == org.fossify.gallery.helpers.PhotoContentRevision.current()) &&
+            photoLoadedRevision == org.fossify.gallery.helpers.PhotoContentRevision.current() &&
             getMediaAdapter() != null && mMedia.isNotEmpty()
+        val baseline = if (retainable && !sortOnly) {
+            org.fossify.gallery.helpers.PhotoRefreshBaseline.capture(
+                scopeKey = requestedKey, profileId = profile?.id,
+                revision = org.fossify.gallery.helpers.PhotoContentRevision.current(),
+                accessVersion = scope?.accessVersion ?: -1L, sorting = scope?.sorting ?: 0,
+                complete = displayedMediaIsFinal, needsUnlock = photoNeedsUnlock,
+                currentKey = requestedKey, displayedKey = photoLoadedKey,
+                currentRevision = org.fossify.gallery.helpers.PhotoContentRevision.current(),
+                currentAccessVersion = scope?.accessVersion ?: -1L,
+                searchActive = mLastSearchedText.isNotEmpty(), adapterReady = getMediaAdapter() != null,
+                displayed = mMedia,
+            )
+        } else null
+        val retainGrid = if (sortOnly) retainable else baseline != null
+        if (retainGrid) {
+            logPhotoScrollEvent("photo_refresh_baseline_captured", "baselineCount" to (baseline?.size ?: mMedia.size),
+                "baselineComplete" to (baseline?.complete ?: displayedMediaIsFinal),
+                "displayedCount" to mMedia.count { it is Medium })
+        } else if (retainable) {
+            logPhotoScrollEvent("photo_refresh_baseline_rejected",
+                "reason" to if (sortOnly) "sort_only" else "eligibility",
+                "searchActive" to mLastSearchedText.isNotEmpty(),
+                "displayedComplete" to displayedMediaIsFinal)
+        }
         photoNeedsUnlock = false
         mediaGridPublication.clear()
         photoPublishedStage = -1
+        photoAdapterSubmitCount = 0
+        photoAdapterCommitCount = 0
         // One monotonic clock for every span in this request. `GalleryPerfTrace.begin()`
         // returns System.nanoTime(), which must never be subtracted from
         // SystemClock.elapsedRealtime() samples.
@@ -1420,6 +1512,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             photoAllowPreview = !retainGrid,
             photoAnchorPath = photoScroll.pending?.path,
             photoOrder = order,
+            photoRefreshBaseline = baseline,
+            photoDisplayedGridSize = if (retainGrid) mMedia.count { it is Medium } else 0,
+            photoBaselineComplete = baseline?.complete == true,
+            photoBrowseHeadroom = { photoBrowseHeadroom },
             photoNavigationToken = GalleryBottomBar.navigationToken(this),
             photoDiagnosticRequestId = photoDiagnosticRequestId,
             onPhotoResult = photoResult@{ result ->
@@ -1464,9 +1560,90 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             }
     }
 
+    /** Identity of the request that currently owns the Photos grid, if any. */
+    private fun activePhotoLoad(): org.fossify.gallery.helpers.ActivePhotoLoad? {
+        val reason = photoActiveReason ?: return null
+        val key = photoRequestedKey ?: return null
+        val task = mCurrAsyncTask
+        return org.fossify.gallery.helpers.ActivePhotoLoad(
+            request = photoActiveRequestId,
+            reason = reason,
+            scopeKey = key,
+            profileId = photoActiveProfileId,
+            revision = photoActiveRevision,
+            accessVersion = photoActiveAccessVersion,
+            running = task != null && task.status == android.os.AsyncTask.Status.RUNNING && !task.isCancelled,
+            current = photoActiveRequestId != 0L && mediaLoadRequests.isCurrent(photoActiveRequestId),
+        )
+    }
+
+    /**
+     * An equivalent worker already satisfies this intent. Its generation, diagnostic
+     * id, in-flight Room read and validation window are kept; only the grid
+     * observation is re-established for the new entry.
+     */
+    private fun resumeActivePhotoRequest(
+        reason: org.fossify.gallery.helpers.PhotoLoadReason,
+        active: org.fossify.gallery.helpers.ActivePhotoLoad?,
+    ) {
+        logPhotoScrollEvent("photo_load_request_reused", "loadReason" to reason.name,
+            "activeRequest" to (active?.request ?: -1L), "activeReason" to (active?.reason?.name ?: "none"))
+        mIsGettingMedia = true
+        mLoadedInitialPhotos = true
+        setMediaLoading(true)
+        binding.mediaRefreshLayout.isRefreshing =
+            reason == org.fossify.gallery.helpers.PhotoLoadReason.REFRESH
+        binding.mediaEmptyTextPlaceholder.beGone()
+        binding.mediaEmptyDescription.beGone()
+        binding.mediaEmptyTextPlaceholder2.beGone()
+    }
+
+    /**
+     * Items between the last visible row and the end of the committed grid. The worker
+     * reads this to decide whether merging another snapshot would leave the user
+     * without content to scroll. Volatile ints only: the swipe thread must not touch
+     * RecyclerView state.
+     */
+    @Volatile private var photoVisibleEnd = -1
+    @Volatile private var photoVisibleCount = 0
+    /** Adapter submissions and commits of the current request, for the UI summary. */
+    private var photoAdapterSubmitCount = 0
+    private var photoAdapterCommitCount = 0
+    private val photoBrowseHeadroom: Int
+        get() {
+            val count = photoVisibleCount
+            if (count <= 0) return Int.MAX_VALUE
+            val end = photoVisibleEnd
+            return if (end < 0) count else (count - end - 1).coerceAtLeast(0)
+        }
+
+    private fun refreshPhotoBrowseHeadroom() {
+        val adapter = getMediaAdapter()
+        if (adapter == null) {
+            photoVisibleCount = 0
+            photoVisibleEnd = -1
+            return
+        }
+        photoVisibleCount = adapter.itemCount
+        val layout = binding.mediaGrid.layoutManager
+        photoVisibleEnd = (layout as? androidx.recyclerview.widget.LinearLayoutManager)
+            ?.findLastVisibleItemPosition() ?: -1
+    }
+
     internal fun submitPhotoGridResult(result: org.fossify.gallery.helpers.PhotoLoadResult, request: Long, requestedKey: String) {
         if (!mediaLoadRequests.isCurrent(request) || !result.context.isCurrent(applicationContext) ||
             photoDisplayKey() != requestedKey || result.stage.ordinal < photoPublishedStage) return
+        // Display-only guard: a partial stage may never remove media the grid already
+        // shows. The worker merges its baseline, but a stage that lost rows earlier
+        // must still not reach the Adapter; COMPLETE is the only shrinking authority.
+        val displayedMediaCount = mMedia.count { it is org.fossify.gallery.models.Medium }
+        if (result.stage != org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE &&
+            displayedMediaCount > 0 && result.media.size < displayedMediaCount) {
+            org.fossify.gallery.helpers.GalleryPerfTrace.event("photo_partial_publication_suppressed")
+            logPhotoScrollEvent("photo_partial_publication_suppressed", "reason" to "would_remove_displayed_media",
+                "stage" to result.stage.name, "displayed" to displayedMediaCount, "incoming" to result.media.size)
+            return
+        }
         photoPublishedStage = result.stage.ordinal
         val apply = { applyPhotoGridResult(result, request, requestedKey) }
         val replaced = mediaGridPublication.hasPending
@@ -1556,8 +1733,26 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             if (!complete) {
                 photoLoadedKey = requestedKey
                 photoLoadedRevision = result.context.revision
+                photoLoadedAccessVersion = result.context.scope.accessVersion
                 mIsGettingMedia = true
                 setMediaLoading(true)
+            } else {
+                photoLoadedAccessVersion = result.context.scope.accessVersion
+                binding.mediaGrid.post { refreshPhotoBrowseHeadroom() }
+                // A pull that arrived while this refresh was running is honoured once,
+                // after this authoritative result, so a file created mid-refresh cannot
+                // be missed without ignoring the gesture.
+                if (photoPendingRefresh) {
+                    photoPendingRefresh = false
+                    binding.mediaGrid.post {
+                        if (!isFinishing && !isDestroyed && isPhotoProfiles &&
+                            lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                            logPhotoScrollEvent("photo_load_request_admitted", "loadReason" to "REFRESH",
+                                "reason" to "coalesced_follow_up")
+                            getPhotoProfileMedia(org.fossify.gallery.helpers.PhotoLoadReason.REFRESH)
+                        }
+                    }
+                }
             }
             if (binding.mediaEmptyTextPlaceholder.isVisible()) updatePhotoEmptyState()
             if (result.media.isNotEmpty() && photoRequestStarted != 0L) {
@@ -1980,7 +2175,12 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             showFavoritesReturnCover()
         }
         binding.mediaGrid.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                if (isPhotoProfiles) refreshPhotoBrowseHeadroom()
+            }
+
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                if (isPhotoProfiles) refreshPhotoBrowseHeadroom()
                 if (newState != RecyclerView.SCROLL_STATE_IDLE) initialFolderTop = false
                 if (isPhotoProfiles) {
                     if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
@@ -3286,6 +3486,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             onCommitted()
             updateMediaFastScrollerVisibility()
             retryFallbackViewerPositionAfterCommit()
+            if (isPhotoProfiles) binding.mediaGrid.post { refreshPhotoBrowseHeadroom() }
         }
         if (currAdapter == null) {
             initZoomListener()
@@ -5919,6 +6120,8 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                 photoLoadCompleted = true
                 photoLoadedKey = photoDisplayKey()
                 photoLoadedRevision = org.fossify.gallery.helpers.PhotoContentRevision.current()
+                photoLoadedAccessVersion =
+                    org.fossify.gallery.helpers.PhotoProfileAccessSessionManager.currentEventVersion()
             }
             // The slideshow shortcut is only useful once at least one authorized
             // media item has been published; refresh after cache and final scan.
@@ -5962,6 +6165,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                 favoritesReturnCover?.revealAfterLayout { isFavoritesReturnCurrent(request, token) }
             } else {
                 displayedPublicationStage = diagnosticStage
+                if (isPhotoProfiles) photoAdapterSubmitCount++
                 setupAdapter {
                     if (!mediaLoadRequests.isCurrent(request) || isFinishing || isDestroyed) return@setupAdapter
                     if (isPhotoProfiles && diagnosticStage == MediaPublicationStage.PREVIEW) {
@@ -5975,8 +6179,27 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                     if (!isFromCache) setMediaLoading(false)
                     displayedMediaIsFinal = !isFromCache && outcome.complete
                     if (displayedMediaIsFinal) initialFolderTop = false
+                    if (isPhotoProfiles && displayedMediaIsFinal) {
+                        // UI-side totals are only meaningful once the authoritative
+                        // snapshot is committed; the worker summary is closed earlier.
+                        logPhotoScrollEvent("photo_ui_final_summary",
+                            "adapterSubmitCount" to photoAdapterSubmitCount,
+                            "adapterCommitCount" to photoAdapterCommitCount,
+                            "committed" to (getMediaAdapter()?.itemCount ?: 0),
+                            "sourceCount" to media.size)
+                    }
                     if (GalleryDiagnosticLogger.isEnabled()) FolderRefreshDiagnostics.event(request, "adapter_committed",
                         detail = "count=${getMediaAdapter()?.itemCount ?: 0} final=$displayedMediaIsFinal")
+                    if (isPhotoProfiles) {
+                        // The selected snapshot and the committed Adapter state are
+                        // different facts; only this callback proves the latter.
+                        photoAdapterCommitCount++
+                        logPhotoScrollEvent("photo_grid_adapter_committed",
+                            "stage" to (diagnosticStage?.name ?: "UNKNOWN"),
+                            "committed" to (getMediaAdapter()?.itemCount ?: 0),
+                            "sourceCount" to media.size, "fromCache" to isFromCache)
+                        binding.mediaGrid.post { refreshPhotoBrowseHeadroom() }
+                    }
                     if (isFromCache && media.isNotEmpty() && completedMediaRequest != request) setMediaLoading(true)
                     if (mPath == FAVORITES && !isFromCache && media.isNotEmpty()) {
                         val committedItems = media

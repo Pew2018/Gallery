@@ -36,6 +36,11 @@ internal class GetMediaAsynctask(
     private val photoNavigationToken: String? = null,
     /** Process-unique diagnostic id shared with the grid-side events of the same tap. */
     private val photoDiagnosticRequestId: String? = null,
+    /** Displayed rows kept for visual continuity during a refresh of the same scope. */
+    private val photoRefreshBaseline: PhotoRefreshBaseline? = null,
+    private val photoDisplayedGridSize: Int = 0,
+    private val photoBaselineComplete: Boolean = false,
+    private val photoBrowseHeadroom: () -> Int = { Int.MAX_VALUE },
     private val onPhotoResult: ((PhotoLoadResult) -> Unit)? = null,
     private val manualRefresh: Boolean = false,
     private val folderSessionId: String? = null,
@@ -171,7 +176,8 @@ internal class GetMediaAsynctask(
         }
         if (mPath == PhotoProfileMediaLoader.PATH || photoProfileId != null) {
             val loader = PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId, { isCancelled }, pipelineDiagnostics, photoOrder,
-                photoNavigationToken, photoDiagnosticRequestId ?: GalleryDiagnosticLogger.nextPhotoRequestId())
+                photoNavigationToken, photoDiagnosticRequestId ?: GalleryDiagnosticLogger.nextPhotoRequestId(),
+                photoRefreshBaseline, photoDisplayedGridSize, photoBaselineComplete, photoBrowseHeadroom)
             val final = loader.loadStaged(photoProfileId, photoAllowPreview && onPhotoResult != null, photoAnchorPath,
                 forceScan = manualRefresh, reuseActiveProducer = photoReuseProducer) {
                 if (!isCancelled) publishProgress(it.snapshotForUi())

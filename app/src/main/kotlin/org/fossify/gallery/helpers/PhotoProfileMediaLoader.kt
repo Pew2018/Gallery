@@ -17,7 +17,15 @@ class PhotoProfileMediaLoader internal constructor(
     /** Root-transition token that caused this load; links a bottom-bar tap to the worker. */
     private val navigationToken: String? = null,
     /** Process-unique diagnostic id shared with the grid-side events of the same tap. */
-    private val diagnosticRequestId: String = GalleryDiagnosticLogger.nextPhotoRequestId()
+    private val diagnosticRequestId: String = GalleryDiagnosticLogger.nextPhotoRequestId(),
+    /** Displayed rows kept for visual continuity; never part of the authoritative result. */
+    private val refreshBaseline: PhotoRefreshBaseline? = null,
+    /** Media already committed to the grid when this request started. */
+    private val displayedGridSize: Int = 0,
+    /** The displayed rows were the COMPLETE result of this exact scope. */
+    private val baselineComplete: Boolean = false,
+    /** Items the user can still scroll through before reaching the displayed end. */
+    private val browseHeadroom: () -> Int = { Int.MAX_VALUE },
 ) {
     companion object {
         const val PATH = "__photo_profiles__"
@@ -235,6 +243,23 @@ class PhotoProfileMediaLoader internal constructor(
         checkCurrent(request)
         val scanning = GalleryPerfTrace.begin()
         val supplements = LinkedHashMap<String, Medium>(stagedCandidates)
+        // A baseline only proves what the grid shows, never that a file still exists.
+        // It is merged into partial stages and never into the COMPLETE result below.
+        val baseline = refreshBaseline?.takeIf { it.supports(request) }
+        val baselinePaths = baseline?.items?.mapTo(HashSet(baseline.size * 2)) { it.path }
+        if (baseline != null) {
+            timeline.mark("photo_refresh_baseline_captured", PhotoLoadStage.FILESYSTEM.name, baseline.size,
+                mapOf("complete" to baseline.complete, "displayedGrid" to displayedGridSize,
+                    "revision" to baseline.revision, "accessVersion" to baseline.accessVersion))
+        } else if (refreshBaseline != null) {
+            timeline.mark("photo_refresh_baseline_rejected", PhotoLoadStage.FILESYSTEM.name, 0,
+                mapOf("requestedRevision" to refreshBaseline.revision,
+                    "currentRevision" to request.revision))
+        }
+        var publishedCount = maxOf(displayedGridSize, baseline?.size ?: 0)
+        // Only a baseline that actually covers the grid may suppress intermediates;
+        // otherwise a long scan would publish nothing over an empty page.
+        val coveredByCompleteGrid = baselineComplete && baseline != null
         val publicationBudget = ProgressivePublicationBudget()
         var supplementVersion = 0L
         val pendingSupplements = LinkedHashMap<String, Medium>()
@@ -259,15 +284,45 @@ class PhotoProfileMediaLoader internal constructor(
                     if ((pendingSupplements[it.path] ?: supplements[it.path]) != it) supplementVersion++
                     pendingSupplements[it.path] = it
                 }
-                // Merge all batches before validating new candidates. Previously
-                // validated rows remain scope-bound; COMPLETE revalidates everything.
+                // Display need is decided before validation, copy and sort: a suppressed
+                // batch keeps accumulating here and costs nothing until it is published.
                 if (publicationBudget.admit(android.os.SystemClock.elapsedRealtime(), supplementVersion)) {
-                    val stage = result(PhotoLoadStage.FILESYSTEM, ArrayList(pendingSupplements.values), preserveInputOrder = true)
-                    pendingSupplements.clear()
-                    stage.media.forEach { supplements[it.path] = it }
-                    val ordered = ArrayList(supplements.values)
-                    sort(ordered)
-                    publishValidatedStage(stage.copy(media = ordered))
+                    // Union size, without allocating the merged list for a batch that
+                    // is only going to be merged into the next one.
+                    val discoveredPaths = supplements.keys + pendingSupplements.keys
+                    val mergedCount = if (baseline == null || baselinePaths == null) {
+                        discoveredPaths.size
+                    } else {
+                        baseline.size + discoveredPaths.count { it !in baselinePaths }
+                    }
+                    val decision = PhotoSnapshotAdmission.decide(
+                        PhotoLoadStage.FILESYSTEM, publishedCount, mergedCount, coveredByCompleteGrid,
+                        browseHeadroom())
+                    if (decision == SnapshotDecision.PUBLISH) {
+                        val validated = result(PhotoLoadStage.FILESYSTEM, ArrayList(pendingSupplements.values),
+                            preserveInputOrder = true)
+                        pendingSupplements.clear()
+                        validated.media.forEach { supplements[it.path] = it }
+                        val discovered = ArrayList(supplements.values)
+                        val ordered = if (baseline == null) {
+                            discovered.also { sort(it) }
+                        } else {
+                            val union = baseline.merged(discovered)
+                            timeline.mark("photo_partial_reconciled", PhotoLoadStage.FILESYSTEM.name,
+                                union.media.size, mapOf("baseline" to baseline.size,
+                                    "discovered" to discovered.size, "retained" to union.retained,
+                                    "added" to union.added, "updated" to union.updated,
+                                    "baselineComplete" to coveredByCompleteGrid))
+                            ArrayList(union.media).also { sort(it) }
+                        }
+                        publishedCount = maxOf(publishedCount, ordered.size)
+                        publishValidatedStage(validated.copy(media = ordered))
+                    } else {
+                        timeline.mark("photo_partial_publication_suppressed", PhotoLoadStage.FILESYSTEM.name,
+                            mergedCount, mapOf("reason" to decision.token, "displayed" to publishedCount,
+                                "baselineComplete" to coveredByCompleteGrid,
+                                "headroom" to browseHeadroom()))
+                    }
                 }
             }
         }
