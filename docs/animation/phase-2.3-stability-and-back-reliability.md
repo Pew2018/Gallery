@@ -170,4 +170,22 @@ BUG-04、BUG-05：**已完成针对性代码审计及诊断增强，仍需真机
 
 ## 11–12. 构建与交付
 
-（提交与 Actions 完成后补充 run ID、commit SHA、APK/mapping 链接与测试数量。）
+| 项 | 值 |
+|---|---|
+| 提交 SHA | `347b0707abd330aa574a5a5242e43453c0faf887` |
+| Commit 链接 | https://github.com/Pew2018/Gallery/commit/347b0707abd330aa574a5a5242e43453c0faf887 |
+| Actions run ID | `45542902932` |
+| Actions 链接 | https://github.com/Pew2018/Gallery/actions/runs/45542902932 |
+| 构建结论 | success（`arm64-release` 全部步骤通过）|
+| APK 产物 | `gallery-foss-arm64-v8a-release`（包内文件名 `gallery-foss-arm64-v8a-release.apk`）|
+| APK 产物链接 | https://github.com/Pew2018/Gallery/actions/runs/45542902932/artifacts/14990236936 |
+| APK SHA-256 | `0ab93f11cc70f4daf8de558fd5e5e48ca6ed47a36a22a808882b07086e7e7ef6` |
+| mapping 产物 | `gallery-foss-arm64-v8a-release-mapping`（含 `mapping.txt`、`source-sha.txt`、`mapping-sha256.txt`）|
+| mapping 产物链接 | https://github.com/Pew2018/Gallery/actions/runs/45542902932/artifacts/14990321653 |
+| mapping SHA-256 | `4a8b8dd7cb61390ae610d499e1fe6d3a1299c816740903bcad9a87301bfa7ea6` |
+| APK 与 mapping 对应源码 SHA | 两者均为 `347b0707abd330aa574a5a5242e43453c0faf887`（日志中分别输出 `Verified source commit` 与 `Mapping source commit`）|
+| 签名模式 | `temporary-CI-not-upgrade-compatible`（CI 临时签名；覆盖安装前需卸载旧签名版本）|
+| ABI 校验 | 仅 `arm64-v8a`；包名 `org.fossify.gallery`；`apksigner verify` 通过 |
+
+该 run 由上述提交 push 自动触发，未手动干预；构建成功后才补充本节，因此形成一个独立的文档提交（不改动代码）。
+
