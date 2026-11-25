@@ -937,12 +937,31 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private fun syncAppBackStep() {
         if (isFinishing || isDestroyed) return
         setAppBackStepAvailable(false)
-        albumsBackCallback.isEnabled =
-            org.fossify.gallery.helpers.BackStepPolicy.albumsOwnsBackStep(
+        val ownsStep = org.fossify.gallery.helpers.BackStepPolicy.albumsOwnsBackStep(
+            searchOpen = binding.mainMenu.isSearchOpen,
+            groupedSubfolders = config.groupDirectSubfolders,
+            openedSubfolders = mOpenedSubfolders.size,
+        )
+        albumsBackCallback.isEnabled = ownsStep
+        // Diagnostics only: never register a second callback just to observe the
+        // gesture, and never claim knowledge of Shell-internal preview state.
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "AppBack", "back_step_sync",
+            fields = org.fossify.gallery.helpers.AppBackOwnershipDiagnostics.fields(
+                activityId = System.identityHashCode(this@MainActivity),
+                taskId = taskId,
+                isTaskRoot = isTaskRoot,
+                section = "albums",
                 searchOpen = binding.mainMenu.isSearchOpen,
-                groupedSubfolders = config.groupDirectSubfolders,
-                openedSubfolders = mOpenedSubfolders.size,
-            )
+                actionModeActive = false,
+                imeVisible = false,
+                appBackCallbackEnabled = ownsStep,
+                inAppBackSteps = if (ownsStep) 1 else 0,
+                navigationToken = org.fossify.gallery.helpers.GalleryBottomBar.navigationToken(this@MainActivity),
+                windowAnimations = window.attributes.windowAnimations,
+                lifecycle = lifecycle.currentState.name,
+                rootRetiring = org.fossify.gallery.helpers.GalleryBottomBar.isRetiringRoot(this@MainActivity),
+            ))
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, resultData: Intent?) {

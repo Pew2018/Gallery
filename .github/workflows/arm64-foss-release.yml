@@ -133,6 +133,30 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Collect R8 mapping for this exact source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci-mapping
+          MAPPING="$(find app/build/outputs/mapping -type f -name mapping.txt | head -n 1)"
+          if [[ -z "$MAPPING" ]]; then
+            echo "::error::Release mapping.txt was not produced; obfuscated crashes cannot be deobfuscated"
+            exit 1
+          fi
+          cp "$MAPPING" ci-mapping/mapping.txt
+          printf '%s\n' "$GITHUB_SHA" > ci-mapping/source-sha.txt
+          printf '%s\n' "$(sha256sum "$MAPPING" | awk '{print $1}')" > ci-mapping/mapping-sha256.txt
+          echo "Mapping source commit: $GITHUB_SHA"
+          echo "Mapping SHA-256: $(cat ci-mapping/mapping-sha256.txt)"
+
+      - name: Upload R8 mapping (same source as the APK)
+        uses: actions/upload-artifact@v4
+        with:
+          name: gallery-foss-arm64-v8a-release-mapping
+          path: ci-mapping/
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Delete transient CI keystore
         if: always()
         shell: bash

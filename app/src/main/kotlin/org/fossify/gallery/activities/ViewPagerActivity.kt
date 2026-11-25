@@ -559,15 +559,36 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
      * resumed progress is kept as a base instead of being overwritten.
      */
     private fun beginSystemBackGesture(): Boolean {
-        if (isFinishing || isDestroyed) return false
+        fun reject(reason: String): Boolean {
+            // Rejection must be observable: an unexplained "no animation" report is
+            // otherwise indistinguishable from the platform not delivering a gesture.
+            org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(
+                viewerDiagnosticSessionId, "viewer_back_interactive_rejected") {
+                mapOf("reason" to reason,
+                    "transitionState" to transitionSession.state.name,
+                    "outcome" to transitionSession.outcome?.name,
+                    "operation" to transitionSession.returnOperation?.operationId,
+                    "surface" to (interactiveDismissSurface != null),
+                    "lifecycle" to (if (isFinishing) "finishing" else if (isDestroyed) "destroyed" else "alive"))
+            }
+            return false
+        }
+        if (isFinishing || isDestroyed) return reject(if (isFinishing) "finishing" else "destroyed")
         if (transitionSession.state == State.INTERACTIVE_RETURN) {
             val resumed = mediaDismissGestureBegin()
-            if (resumed == null && interactiveDismissSurface == null) return false
+            if (resumed == null && interactiveDismissSurface == null) return reject("settle_takeover_unavailable")
             // The drag take-over above already cancelled the settle at this frame.
             systemBackResumeProgress = interactiveDismissProgress
         } else {
-            if (transitionSession.state != State.VIEWING || !beginInteractiveDismiss()) return false
+            if (transitionSession.state != State.VIEWING) return reject("state_${transitionSession.state.name}")
+            if (!beginInteractiveDismiss()) return reject("interactive_dismiss_unavailable")
             systemBackResumeProgress = 0f
+        }
+        org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(
+            viewerDiagnosticSessionId, "viewer_back_interactive_accepted") {
+            mapOf("transitionState" to transitionSession.state.name,
+                "resumeProgress" to systemBackResumeProgress,
+                "surface" to (interactiveDismissSurface != null))
         }
         // The back gesture has no vertical drag delta; the shared envelope stays centred.
         interactiveDismissDeltaXSlope = 0f
@@ -586,11 +607,22 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
 
     private fun cancelSystemBackGesture() {
         systemBackResumeProgress = 0f
+        org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(
+            viewerDiagnosticSessionId, "viewer_back_cancelled") {
+            mapOf("transitionState" to transitionSession.state.name,
+                "progress" to interactiveDismissProgress)
+        }
         if (transitionSession.state == State.INTERACTIVE_RETURN) mediaDismissSettled(false)
     }
 
     private fun commitSystemBack() {
         systemBackResumeProgress = 0f
+        org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(
+            viewerDiagnosticSessionId, "viewer_back_committed") {
+            mapOf("transitionState" to transitionSession.state.name,
+                "dragActive" to interactiveDismissDragActive,
+                "progress" to interactiveDismissProgress)
+        }
         if (interactiveDismissDragActive && transitionSession.state == State.INTERACTIVE_RETURN) {
             // Same handoff as a released vertical drag: continue from the live frame.
             mediaDismissSettled(true)
@@ -1250,6 +1282,10 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             intent.getStringExtra(ViewerEntryDiagnostics.EXTRA_DIAGNOSTIC_PROCESS), entryRequestId()
         )
         viewerDiagnosticSessionId = correlatedEntryId.takeIf { it != 0L } ?: ViewerEntryDiagnostics.newRequest()
+        // Fragments read this id from the Activity intent (see PhotoFragment's
+        // resource-stage events). Without writing it back every resource event
+        // reported viewerSessionId=0 and could not be correlated with the session.
+        intent.putExtra(ViewerEntryDiagnostics.EXTRA_VIEWER_SESSION_ID, viewerDiagnosticSessionId)
         configureMediaTransitionSession()
         // One back callback for system keys, accessibility and predictive gestures.
         // It only feeds the existing Session and dismiss surface; no second return path.
@@ -1540,7 +1576,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     }
 
     private fun requestViewerClose(reason: String) {
-        if (isFinishing || isDestroyed || finishAfterSharedTransitionInProgress) return
+        fun reject(rejection: String): Unit = org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(
+            viewerDiagnosticSessionId, "viewer_close_rejected") {
+            mapOf("reason" to rejection, "source" to reason,
+                "transitionState" to if (::transitionSession.isInitialized) transitionSession.state.name else "uninitialized",
+                "outcome" to if (::transitionSession.isInitialized) transitionSession.outcome?.name else null,
+                "finishAfterSharedTransition" to finishAfterSharedTransitionInProgress,
+                "lifecycle" to (if (isFinishing) "finishing" else if (isDestroyed) "destroyed" else "alive"))
+        }
+        if (isFinishing || isDestroyed || finishAfterSharedTransitionInProgress) {
+            reject(if (finishAfterSharedTransitionInProgress) "finish_after_shared_transition" else "lifecycle")
+            return
+        }
         if (!::transitionSession.isInitialized) {
             super.finish()
             return
@@ -1566,7 +1613,18 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             val gesture = transitionSession.returnOperation ?: return
             if (transitionSession.cancelGesture(gesture)) returnLeases.releaseAll()
         }
-        val operation = transitionSession.beginReturn() ?: return
+        val operation = transitionSession.beginReturn() ?: run {
+            // A legitimate concurrent exit already owns the operation. Record the
+            // merge instead of silently dropping the user's second back request.
+            org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(
+                viewerDiagnosticSessionId, "viewer_close_merged") {
+                mapOf("source" to reason, "transitionState" to transitionSession.state.name,
+                    "outcome" to transitionSession.outcome?.name,
+                    "operation" to transitionSession.returnOperation?.operationId,
+                    "returnOperation" to transitionSession.returnOperation?.operationId)
+            }
+            return
+        }
         viewerReturnId = ViewerEntryDiagnostics.newRequest()
         val motionEnabled = OxygenClassicMotion.enabled(this)
         val eligible = photoSharedElementMapped && motionEnabled && returnPath.isNotEmpty()

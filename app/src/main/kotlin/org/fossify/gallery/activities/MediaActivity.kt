@@ -66,6 +66,11 @@ import org.fossify.gallery.helpers.GalleryScanState
 import org.fossify.gallery.helpers.MediaPageBatch
 import org.fossify.gallery.helpers.MediaPagePreview
 import org.fossify.gallery.helpers.PhotoProfileScope
+import org.fossify.gallery.helpers.PhotoProfileHandoffCoordinator
+import org.fossify.gallery.helpers.ViewerCurrentMediaRegistry
+import org.fossify.gallery.helpers.ViewerPrefetchLease
+import org.fossify.gallery.helpers.ViewerPrefetchLease.Outcome
+import org.fossify.gallery.helpers.ViewerReturnPixelReserve
 import org.fossify.gallery.helpers.StagedMediaOrder
 import org.fossify.gallery.extensions.getMediaPageCache
 import android.app.ActivityOptions
@@ -240,16 +245,25 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
      * background. Cleared on the next resume.
      */
     private var photoChildPageOpen = false
+    // One transaction per configuration switch, shared by the preference listener,
+    // Activity result and onResume. It decides when the old adapter may be released.
+    private val photoProfileHandoff = PhotoProfileHandoffCoordinator()
     private var pendingViewerReturnPath: String? = null
 
-    // ---- Phase 2.2 viewer return prefetch (current media, bounded) ----
+    // ---- Phase 2.2/2.3 viewer return prefetch (current media, bounded) ----
     private var viewerReturnPrefetchRequestId = 0L
     private var viewerReturnPrefetchSize: android.graphics.Point? = null
-    private var viewerReturnPrefetchPath: String? = null
-    private var viewerReturnPrefetchKey: Any? = null
-    private var viewerReturnPrefetchTarget: com.bumptech.glide.request.target.CustomTarget<Drawable>? = null
+    // A generation is bumped for every request, a session for every Viewer launch:
+    // path+key alone cannot tell an old A request from a new A request after A->B->A.
+    private var viewerReturnPrefetchGeneration = 0L
+    private var viewerReturnPrefetchSession = 0L
+    private var viewerReturnPrefetchLease: org.fossify.gallery.helpers.ViewerPrefetchLease? = null
     private val viewerReturnPrefetch = org.fossify.gallery.helpers.ViewerReturnPrefetchCoordinator()
     private val viewerReturnPrefetchStable = Runnable { beginViewerReturnPrefetch() }
+    // Dedicated release queue. albumTransitionHandler is cleared wholesale during
+    // animation teardown (onDestroy); a release posted there could be lost, leaving
+    // a Glide target and its pixels alive. This handler is never mass-cleared.
+    private val viewerPrefetchReleaseHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     private var viewerReturnGeneration = 0L
     private var viewerSourceLease: GridViewerSource? = null
@@ -1010,36 +1024,23 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         }
     }
 
+    /**
+     * Cancels the lease that currently owns the in-flight request. The lease owns the
+     * single terminal transition (coordinator state, diagnostics and the deferred
+     * Glide clear), so no cancellation path may race it.
+     */
     private fun cancelViewerReturnPrefetch(reason: String) {
-        val target = viewerReturnPrefetchTarget
-        val path = viewerReturnPrefetchPath
-        if (target != null) {
-            try {
-                Glide.with(applicationContext).clear(target)
-            } catch (_: Exception) {
-            }
-        }
-        if (path != null) {
-            org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(
-                viewerReturnPrefetchRequestId, "grid_target_prefetch_cancelled") {
-                mapOf("reason" to reason,
-                    "mediaId" to path.let(GalleryDiagnosticLogger::anonymousId))
-            }
-        }
-        viewerReturnPrefetch.onCancelled(path)
-        viewerReturnPrefetchTarget = null
-        viewerReturnPrefetchKey = null
-        viewerReturnPrefetchPath = null
+        viewerReturnPrefetchLease?.cancel(reason)
     }
 
     /** Releases the prefetch and its registry observation when the session ends. */
     private fun endViewerReturnPrefetch() {
         albumTransitionHandler.removeCallbacks(viewerReturnPrefetchStable)
-        org.fossify.gallery.helpers.ViewerCurrentMediaRegistry.remove(this)
+        ViewerCurrentMediaRegistry.remove(this)
         // Drop the session's last path so the next Viewer's first page always
         // reports a change (the entry media's pixels come from the source holder,
         // but a later re-selection of that page must still arm the prefetch).
-        org.fossify.gallery.helpers.ViewerCurrentMediaRegistry.report(null)
+        ViewerCurrentMediaRegistry.report(null)
         cancelViewerReturnPrefetch("session_ended")
         viewerReturnPrefetch.reset()
     }
@@ -1055,74 +1056,104 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         val medium = adapter.media.filterIsInstance<Medium>().firstOrNull { it.path == path }
         if (medium == null) {
             viewerReturnPrefetch.onFailed(path)
-            org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(requestId,
-                "grid_target_prefetch_skipped") {
+            ViewerReturnDiagnostics.event(requestId, "grid_target_prefetch_skipped") {
                 mapOf("reason" to "media_not_in_grid")
             }
             return
         }
         val (key, builder) = adapter.returnPrefetchRequest(medium, size.x, size.y) ?: run {
             viewerReturnPrefetch.onFailed(path)
-            org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(requestId,
-                "grid_target_prefetch_skipped") {
+            ViewerReturnDiagnostics.event(requestId, "grid_target_prefetch_skipped") {
                 mapOf("reason" to "request_unavailable")
             }
             return
         }
         cancelViewerReturnPrefetch("superseded_by_current")
         viewerReturnPrefetch.onStart(path)
-        viewerReturnPrefetchPath = path
-        viewerReturnPrefetchKey = key
-        org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(requestId, "grid_target_prefetch_started") {
-            mapOf("mediaId" to GalleryDiagnosticLogger.anonymousId(path),
+        val generation = ++viewerReturnPrefetchGeneration
+        val session = viewerReturnPrefetchSession
+        ViewerReturnDiagnostics.event(requestId, "grid_target_prefetch_started") {
+            mapOf("viewerSessionId" to session, "generation" to generation,
+                "operationId" to requestId,
+                "mediaId" to GalleryDiagnosticLogger.anonymousId(path),
                 "width" to size.x, "height" to size.y,
                 "type" to (if (medium.isVideo()) "video" else "image"))
         }
+        // One lease owns one Target. Its callbacks only copy/schedule; the actual
+        // clear runs on a dedicated handler after Glide has left the callback guard.
+        lateinit var lease: ViewerPrefetchLease
         val target = object : com.bumptech.glide.request.target.CustomTarget<Drawable>() {
-            override fun onResourceReady(resource: Drawable, transition: com.bumptech.glide.request.transition.Transition<in Drawable>?) {
-                if (viewerReturnPrefetchKey != key || viewerReturnPrefetchPath != path) return
-                viewerReturnPrefetchTarget = null
-                viewerReturnPrefetchKey = null
-                viewerReturnPrefetchPath = null
-                // The reserve copies the pixels, so the engine resource can go back
-                // to Glide immediately - the prefetch leaves no steady-state memory
-                // beyond the bounded reserve itself.
-                val stored = org.fossify.gallery.helpers.ViewerReturnPixelReserve.shared
-                    .remember(key, resource, owner = this@MediaActivity)
-                viewerReturnPrefetch.onFinished(path, stored)
-                Glide.with(applicationContext).clear(this)
-                org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(requestId, "grid_target_prefetch_ready") {
-                    mapOf("mediaId" to GalleryDiagnosticLogger.anonymousId(path),
-                        "reserved" to stored,
-                        "drawable" to resource.javaClass.simpleName,
-                        "intrinsic" to "${resource.intrinsicWidth}x${resource.intrinsicHeight}",
-                        "reserveSize" to org.fossify.gallery.helpers.ViewerReturnPixelReserve.shared.size,
-                        "reserveBytes" to org.fossify.gallery.helpers.ViewerReturnPixelReserve.shared.reservedBytes)
-                }
+            override fun onResourceReady(
+                resource: Drawable,
+                transition: com.bumptech.glide.request.transition.Transition<in Drawable>?,
+            ) {
+                lease.ready(resource)
             }
 
             override fun onLoadFailed(errorDrawable: Drawable?) {
-                if (viewerReturnPrefetchKey != key || viewerReturnPrefetchPath != path) return
-                viewerReturnPrefetchTarget = null
-                viewerReturnPrefetchKey = null
-                viewerReturnPrefetchPath = null
-                viewerReturnPrefetch.onFailed(path)
-                org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(requestId, "grid_target_prefetch_failed") {
-                    mapOf("mediaId" to GalleryDiagnosticLogger.anonymousId(path))
-                }
+                lease.failed()
             }
 
             override fun onLoadCleared(placeholder: Drawable?) {
-                // A cancellation path already nulled the fields; nothing to keep.
-                if (viewerReturnPrefetchKey == key) {
-                    viewerReturnPrefetchTarget = null
-                    viewerReturnPrefetchKey = null
-                    viewerReturnPrefetchPath = null
-                    viewerReturnPrefetch.onCancelled(path)
+                // Our own deferred clear arrives here after the lease settled and is a
+                // no-op. An external clear of an unresolved lease is a cancellation.
+                if (viewerReturnPrefetchLease === lease && !lease.isSettled) {
+                    lease.cancel("glide_cleared")
                 }
             }
         }
-        viewerReturnPrefetchTarget = target
+        lease = ViewerPrefetchLease(
+            generation = generation,
+            viewerSessionId = session,
+            requestId = requestId,
+            path = path,
+            key = key,
+            owner = this@MediaActivity,
+            target = target,
+            reserve = ViewerReturnPixelReserve.shared,
+            scheduler = { task -> viewerPrefetchReleaseHandler.post(task) },
+            clearer = { completed -> Glide.with(applicationContext).clear(completed) },
+            onResolved = { resolved, outcome, stored ->
+                if (viewerReturnPrefetchLease !== resolved) {
+                    // An old A callback arriving after A->B->A (or after session end)
+                    // must never modify the new request's state.
+                    ViewerReturnDiagnostics.event(requestId, "grid_target_prefetch_stale") {
+                        mapOf("outcome" to outcome.name, "generation" to resolved.generation,
+                            "reason" to "identity_mismatch")
+                    }
+                    return@ViewerPrefetchLease
+                }
+                viewerReturnPrefetchLease = null
+                when (outcome) {
+                    Outcome.READY -> {
+                        viewerReturnPrefetch.onFinished(path, stored)
+                        ViewerReturnDiagnostics.event(requestId, "grid_target_prefetch_ready") {
+                            mapOf("viewerSessionId" to session, "generation" to generation,
+                                "mediaId" to GalleryDiagnosticLogger.anonymousId(path),
+                                "reserved" to stored,
+                                "drawable" to resolved.drawableType,
+                                "intrinsic" to resolved.intrinsicSize,
+                                "reserveSize" to ViewerReturnPixelReserve.shared.size,
+                                "reserveBytes" to ViewerReturnPixelReserve.shared.reservedBytes)
+                        }
+                    }
+                    Outcome.FAILED -> {
+                        viewerReturnPrefetch.onFailed(path)
+                        ViewerReturnDiagnostics.event(requestId, "grid_target_prefetch_failed") {
+                            mapOf("mediaId" to GalleryDiagnosticLogger.anonymousId(path))
+                        }
+                    }
+                    Outcome.CANCELLED -> {
+                        viewerReturnPrefetch.onCancelled(path)
+                        ViewerReturnDiagnostics.event(requestId, "grid_target_prefetch_cancelled") {
+                            mapOf("reason" to resolved.cancelReason,
+                                "mediaId" to GalleryDiagnosticLogger.anonymousId(path))
+                        }
+                    }
+                }
+            },
+        )
+        viewerReturnPrefetchLease = lease
         builder.into(target)
     }
 
@@ -1429,11 +1460,22 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         }
         logPhotoChildEvent("photo_scan_rejoined", retained)
         logPhotoChildEvent("photo_return_snapshot_ready", retained,
-            extra = mapOf("itemCount" to (retained.latest?.media?.size ?: 0)))
+            extra = mapOf("retainedItemCount" to (retained.latest?.media?.size ?: 0)))
         if (retained.latest != null) {
             binding.mediaGrid.postOnAnimation { logPhotoChildEvent("photo_return_first_frame", retained) }
         }
         return true
+    }
+
+    /** Diagnostics only: how many currently attached children actually show decoded pixels. */
+    private fun photoGridReadyDrawableCount(): Int {
+        val grid = binding.mediaGrid
+        if (grid.isComputingLayout) return -1
+        return (0 until grid.childCount).count { index ->
+            val image = grid.getChildAt(index)
+                ?.findViewById<android.widget.ImageView>(org.fossify.gallery.R.id.medium_thumbnail)
+            image?.drawable != null && image.getTag(org.fossify.gallery.R.id.thumbnail_loaded_key) != null
+        }
     }
 
     private fun logPhotoChildEvent(
@@ -1454,9 +1496,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                 "accessRevision" to org.fossify.gallery.helpers.PhotoContentRevision.current(),
                 "snapshotVersion" to displayedSourceVersion,
                 "snapshotStage" to (retained?.latest?.stage?.name ?: photoPublishedStage.takeIf { it >= 0 }),
-                "itemCount" to (retained?.latest?.media?.size ?: 0),
+                // A retained worker result is NOT what is on screen: keep the two
+                // counts separate so a zero retained result is never read as a blank grid.
+                "retainedItemCount" to (retained?.latest?.media?.size ?: 0),
+                "displayedItemCount" to (getMediaAdapter()?.media?.size ?: 0),
+                "visibleChildCount" to binding.mediaGrid.childCount,
+                "readyDrawableCount" to photoGridReadyDrawableCount(),
+                "adapterVersion" to (getMediaAdapter()?.committedVersion ?: -1),
                 "adapterPresent" to (binding.mediaGrid.adapter != null),
-                "gridChildren" to binding.mediaGrid.childCount,
                 "scanState" to (retained?.task?.status?.name ?: mCurrAsyncTask?.status?.name),
                 "displayedFinal" to displayedMediaIsFinal,
                 "accessNeedsUnlock" to photoNeedsUnlock,
@@ -1468,6 +1515,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
     }
 
     private fun clearPhotoDisplayState() {
+        photoProfileHandoff.reset()
         cancelViewerHandoff()
         dropRetainedPhotoScan("display_state_cleared")
         photoLoadCompleted = false
@@ -1525,6 +1573,20 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
     private fun reloadPhotoProfile() {
         getMediaAdapter()?.finishActMode()
         val nextProfile = PhotoProfileRepository.of(this).state().current?.id
+        val handoffKey = runCatching {
+            PhotoProfileScope.capture(applicationContext, nextProfile, photoToken())?.toString()
+        }.getOrNull()
+        val handoffRunning = activePhotoLoad()?.let { it.running && it.scopeKey == handoffKey } == true
+        val merge = photoProfileHandoff.onReloadEntry("activity_result", handoffKey, handoffRunning)
+        if (merge.mergeReloadEntry) {
+            // The preference listener already admitted this exact target scope.
+            // A second worker here is what produced the cold 150-207 ms gap.
+            logPhotoScrollEvent("photo_load_request_merged",
+                "source" to "activity_result",
+                "generation" to photoProfileHandoff.currentGeneration)
+            return
+        }
+        photoProfileHandoff.reset()
         val sameAuthorizedScope = photoProfileId == nextProfile &&
             photoLoadedKey == photoDisplayKey() &&
             photoLoadedRevision == org.fossify.gallery.helpers.PhotoContentRevision.current() &&
@@ -1671,7 +1733,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             rememberPhotoScrollAnchor()
         } else {
             getMediaAdapter()?.finishActMode()
-            discardInaccessibleGrid()
+            if (photoProfileHandoff.inFlight && photoProfileHandoff.currentTargetKey == requestedKey &&
+                photoChildPageOpen && !photoNeedsUnlock
+            ) {
+                // Atomic handoff: keep the old adapter attached until the target's
+                // first result arrives, so `publishMediaSnapshot` swaps content in
+                // one commit instead of showing an empty grid in between.
+                logPhotoScrollEvent("photo_grid_handoff_retained",
+                    "generation" to photoProfileHandoff.currentGeneration,
+                    "targetScope" to GalleryDiagnosticLogger.anonymousId(requestedKey))
+            } else {
+                discardInaccessibleGrid()
+            }
             photoLoadedKey = null
         }
         photoLoadCompleted = false
@@ -1943,6 +2016,16 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             val complete = result.stage == org.fossify.gallery.helpers.PhotoLoadStage.COMPLETE
             logPhotoScrollEvent("photo_grid_publication_committed", "stage" to result.stage.name,
                 "mediaCount" to result.media.size)
+            if (result.media.isNotEmpty() && photoProfileHandoff.inFlight &&
+                photoProfileHandoff.currentTargetKey == requestedKey
+            ) {
+                photoProfileHandoff.onPreviewCommitted(requestedKey)
+                if (complete) photoProfileHandoff.onGridCommitted(requestedKey)
+                logPhotoScrollEvent("photo_profile_handoff_committed",
+                    "generation" to photoProfileHandoff.currentGeneration,
+                    "phase" to photoProfileHandoff.currentPhase.name,
+                    "stage" to result.stage.name)
+            }
             publishMediaSnapshot(ArrayList<ThumbnailItem>(result.media), !complete, request, null, null,
                 select = { result.context.isCurrent(applicationContext) && photoDisplayKey() == requestedKey },
                 diagnosticStage = when (result.stage) {
@@ -2281,6 +2364,34 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             return@OnSharedPreferenceChangeListener
         }
         if (isPhotoProfiles && visibilityChanged) {
+            // A profile selected from the covering Manage page is one handoff
+            // transaction, not an immediate "leave Photos" event. Prepare the target
+            // now; the old adapter is only released when the target first commits.
+            val targetKey = runCatching {
+                val profileId = PhotoProfileRepository.of(applicationContext).state().current?.id
+                PhotoProfileScope.capture(applicationContext, profileId, photoToken())?.toString()
+            }.getOrNull()
+            val pureProfileSwitch = key == PhotoProfileRepository.KEY &&
+                key != org.fossify.gallery.helpers.SHOW_HIDDEN_MEDIA &&
+                key != org.fossify.gallery.helpers.EXCLUDED_FOLDERS &&
+                key != "photo_source_bindings"
+            val decision = photoProfileHandoff.onScopeChanged(
+                covered = photoChildPageOpen,
+                viewerTransition = photoViewerTransition,
+                accessUnchanged = pureProfileSwitch && !sourceProtectionChanged,
+                targetKey = targetKey ?: "null",
+                displayedKey = photoLoadedKey,
+            )
+            if (decision.deferDisplayClear && targetKey != null) {
+                logPhotoScrollEvent("photo_profile_handoff_started",
+                    "generation" to photoProfileHandoff.currentGeneration,
+                    "targetScope" to GalleryDiagnosticLogger.anonymousId(targetKey),
+                    "reason" to decision.reason)
+                if (!isFinishing && !isDestroyed) {
+                    getPhotoProfileMedia(org.fossify.gallery.helpers.PhotoLoadReason.SCOPE_CHANGED)
+                }
+                return@OnSharedPreferenceChangeListener
+            }
             org.fossify.gallery.helpers.PhotoProfileMediaCache.invalidate()
             org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.invalidate()
             mediaLoadRequests.invalidate()
@@ -2645,7 +2756,17 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             // falling back to a reload: restarting it is what produced the cold gap.
             // A retained scan that failed its identity checks is stopped in place.
             val rejoined = retainedScan != null && resumeRetainedPhotoScan(retainedScan)
-            if (!rejoined && !sameAuthorizedGrid && !catalogWorkerActive) tryLoadGallery()
+            val handoffTargetKey = photoDisplayKey()
+            val handoffRunning = photoProfileHandoff.inFlight &&
+                photoProfileHandoff.currentTargetKey == handoffTargetKey &&
+                activePhotoLoad()?.let { it.running && it.scopeKey == handoffTargetKey } == true
+            if (handoffRunning && !rejoined && !sameAuthorizedGrid) {
+                // The target worker was admitted while the child page covered us.
+                // Replacing it here recreates the blank frame the handoff avoids.
+                photoProfileHandoff.onReloadEntry("resume", handoffTargetKey, true)
+                logPhotoScrollEvent("photo_load_request_merged", "source" to "resume",
+                    "generation" to photoProfileHandoff.currentGeneration)
+            } else if (!rejoined && !sameAuthorizedGrid && !catalogWorkerActive) tryLoadGallery()
             else if (sameAuthorizedGrid) {
                 setMediaLoading(false)
                 binding.mediaRefreshLayout.isRefreshing = false
@@ -3323,6 +3444,7 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                     // Keep the authorized Grid visible behind the configuration page;
                     // this is the return target the platform previews.
                     photoChildPageOpen = true
+                    photoProfileHandoff.childPageCovered()
                     PhotoProfileManageActivity.launch(this)
                 }
                 R.id.photo_profiles_unlock -> unlockPhotoSources()
@@ -5764,7 +5886,10 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             // bounded, cancellable preparation of its return pixels.
             viewerReturnPrefetchRequestId = org.fossify.gallery.helpers.ViewerEntryDiagnostics.newRequest()
             viewerReturnPrefetchSize = android.graphics.Point(thumbnail.width, thumbnail.height)
-            org.fossify.gallery.helpers.ViewerCurrentMediaRegistry.observe(this@MediaActivity,
+            // A new Viewer session retires every lease of the previous one, even if
+            // it was preparing the same path with the same key.
+            viewerReturnPrefetchSession++
+            ViewerCurrentMediaRegistry.observe(this@MediaActivity,
                 ::onViewerCurrentMediaChanged)
             val source = GridViewerSource(path, holder, thumbnail, session.entry, session.leases())
             viewerSourceLease = source
