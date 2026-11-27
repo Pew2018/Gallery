@@ -227,10 +227,16 @@ object OxygenFastScroller {
 
         private fun bindTouch() {
             thumb.setOnTouchListener(this)
-            track.setOnTouchListener(this)
+            // The track is the full-height edge rail. A listener there starts a
+            // drag on any edge touch, including the system back swipe. Only the
+            // handle itself may drag; the rail must let that gesture through.
+            track.setOnTouchListener { _, _ -> false }
+            track.isClickable = false
+            track.isLongClickable = false
         }
 
         override fun onTouch(touched: View, event: MotionEvent): Boolean {
+            if (touched !== thumb) return false
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     if (!scroller.isFastScrollEnabled || recycler.adapter == null) return false

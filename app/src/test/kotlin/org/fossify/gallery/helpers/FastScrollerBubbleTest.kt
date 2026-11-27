@@ -27,11 +27,11 @@ import java.util.concurrent.TimeUnit
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 class FastScrollerBubbleTest {
-    @Test fun trackAndThumbShareOneVerticalSessionAndCancelStalePopupHides() {
+    @Test fun thumbDragShowsPopupAndEdgeTrackDoesNotStartASession() {
         exerciseScroller(vertical = true)
     }
 
-    @Test fun horizontalTrackJumpUsesVisibleRowsAndCancelsOnDetach() {
+    @Test fun horizontalThumbDragUsesVisibleRowsAndCancelsOnDetach() {
         exerciseScroller(vertical = false)
     }
 
@@ -76,10 +76,10 @@ class FastScrollerBubbleTest {
         popup.alpha = 0f
         assertEquals(View.INVISIBLE, popup.visibility)
 
-        fun touch(view: View, action: Int, x: Float, y: Float) {
+        fun touch(view: View, action: Int, x: Float, y: Float, consumed: Boolean = true) {
             val event = MotionEvent.obtain(0L, 0L, action, x, y, 0)
             try {
-                assertTrue(view.dispatchTouchEvent(event))
+                assertEquals(consumed, view.dispatchTouchEvent(event))
             } finally {
                 event.recycle()
             }
@@ -100,16 +100,18 @@ class FastScrollerBubbleTest {
         main.idleFor(400, TimeUnit.MILLISECONDS)
         assertEquals(View.VISIBLE, popup.visibility)
 
-        // Dispatch directly to the track beyond the thumb's current position.
+        // A touch on the edge rail, away from the handle, must not start a drag.
+        val positionBeforeEdge = manager.findFirstVisibleItemPosition()
         val x = if (vertical) 4f else track.width - 8f
         val y = if (vertical) track.height - 8f else 4f
-        touch(track, MotionEvent.ACTION_DOWN, x, y)
+        touch(track, MotionEvent.ACTION_DOWN, x, y, consumed = false)
+        touch(track, MotionEvent.ACTION_MOVE, x, if (vertical) y - 80f else y, consumed = false)
         main.idleFor(400, TimeUnit.MILLISECONDS)
-        assertEquals(listOf(true, false, true), states)
+        assertEquals(listOf(true, false), states)
+        assertEquals(positionBeforeEdge, manager.findFirstVisibleItemPosition())
         assertEquals(View.VISIBLE, popup.visibility)
-        assertEquals("visible-${manager.findFirstVisibleItemPosition()}", popup.text.toString())
+        assertEquals("visible-$positionBeforeEdge", popup.text.toString())
         if (vertical) {
-            touch(track, MotionEvent.ACTION_UP, x, y)
             main.idleFor(651, TimeUnit.MILLISECONDS)
         } else {
             OxygenFastScroller.disposeGalleryTouchHandling(scroller)
