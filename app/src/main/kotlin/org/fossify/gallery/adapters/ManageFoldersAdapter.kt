@@ -11,7 +11,6 @@ import org.fossify.commons.interfaces.RefreshRecyclerViewListener
 import org.fossify.commons.views.MyRecyclerView
 import org.fossify.gallery.databinding.ItemManageFolderBinding
 import org.fossify.gallery.extensions.config
-import org.fossify.gallery.helpers.OxygenSelectionDrag
 
 class ManageFoldersAdapter(
     activity: BaseSimpleActivity, var folders: ArrayList<String>, val isShowingExcludedFolders: Boolean, val listener: RefreshRecyclerViewListener?,
@@ -21,16 +20,7 @@ class ManageFoldersAdapter(
     private val config = activity.config
 
     init {
-        OxygenSelectionDrag.install(
-            recyclerView = recyclerView,
-            positionOffset = { positionOffset },
-            isSelectable = { getIsItemSelectable(it) },
-            isSelected = { pos ->
-                val key = getItemSelectionKey(pos)
-                key != null && selectedKeys.contains(key)
-            },
-            toggle = { select, pos -> toggleItemSelection(select, pos, true) },
-        )
+        setupDragListener(true)
     }
 
     override fun getActionMenuId() = org.fossify.commons.R.menu.cab_remove_only

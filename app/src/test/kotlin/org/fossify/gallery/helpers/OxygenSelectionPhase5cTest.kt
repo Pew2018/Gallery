@@ -2,16 +2,12 @@ package org.fossify.gallery.helpers
 
 import android.app.Application
 import android.graphics.Color
-import android.graphics.Matrix
 import android.graphics.drawable.ColorDrawable
 import android.provider.Settings
 import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
-import android.view.MotionEvent
 import android.view.View
-import android.widget.FrameLayout
-import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.widget.ActionBarContextView
 import org.fossify.commons.interfaces.MyActionModeCallback
@@ -19,13 +15,9 @@ import org.fossify.commons.views.MySearchMenu
 import org.fossify.gallery.R
 import org.fossify.gallery.activities.SimpleActivity
 import org.fossify.gallery.extensions.config
-import org.fossify.gallery.databinding.PhotoItemGridBinding
-import org.fossify.gallery.databinding.PhotoItemListBinding
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -156,258 +148,6 @@ class OxygenSelectionPhase5cTest {
         }
     }
 
-    @Test
-    fun gridShrinksTheThumbnailAndKeepsTheCellStill() {
-        val fixture = host()
-        try {
-            val binding = PhotoItemGridBinding.inflate(fixture.activity.layoutInflater)
-            layout(binding.root, 240, 240)
-            val thumb = binding.mediumThumbnail
-            val token = Any()
-            val drawable = ColorDrawable(Color.RED)
-            thumb.setImageDrawable(drawable)
-            thumb.setTag(R.id.thumbnail_request_key, token)
-            val nameHeight = binding.mediumName.layoutParams.height
-            OxygenSelectionMotion.bind(
-                listOf(thumb), binding.mediumCheck, "a.jpg", false, false,
-                inSelectionMode = true, backdrop = binding.root,
-                accent = ACCENT, contrast = Color.WHITE,
-            )
-            assertEquals(View.VISIBLE, binding.mediumCheck.visibility)
-            assertTrue(binding.mediumCheck.alpha in 0.2f..0.6f)
-            OxygenSelectionMotion.bind(
-                listOf(thumb), binding.mediumCheck, "a.jpg", true, true,
-                inSelectionMode = true, backdrop = binding.root,
-                accent = ACCENT, contrast = Color.WHITE,
-            )
-            val running = OxygenSelectionMotion.animator(thumb)!!
-            assertEquals(OxygenClassicMotion.SELECTION_CONTENT_MS, running.duration)
-            running.setCurrentFraction(0.08f)
-            val scale = thumb.scaleX
-            assertTrue(scale > OxygenSelectionMotion.CONTENT_SCALE)
-            assertTrue(scale < 1f)
-            assertEquals(1f, binding.root.scaleX, 0f)
-            assertEquals(1f, binding.mediumName.scaleX, 0f)
-            assertTrue(binding.mediumCheck.alpha > 0f)
-            assertTrue(
-                "check should grow from a reduced start, not pop full-size",
-                binding.mediumCheck.scaleX < 1f,
-            )
-            OxygenSelectionMotion.bind(
-                listOf(thumb), binding.mediumCheck, "a.jpg", true, true,
-                inSelectionMode = true, backdrop = binding.root,
-            )
-            assertSame(running, OxygenSelectionMotion.animator(thumb))
-            assertEquals(scale, thumb.scaleX, 0f)
-            running.setCurrentFraction(1f)
-            assertEquals(OxygenSelectionMotion.CONTENT_SCALE, thumb.scaleX, 0.001f)
-            assertEquals(thumb.scaleX, thumb.scaleY, 0f)
-            assertEquals(View.VISIBLE, binding.mediumCheck.visibility)
-            assertEquals(1f, binding.mediumCheck.alpha, 0.001f)
-            assertEquals(1f, binding.mediumCheck.scaleX, 0.001f)
-            assertTrue(binding.mediumCheck.background is android.graphics.drawable.GradientDrawable)
-            val inset = thumb.width * (1f - OxygenSelectionMotion.CONTENT_SCALE) / 2f
-            assertEquals(inset, binding.mediumCheck.translationX, 0.5f)
-            assertEquals(inset, binding.mediumCheck.translationY, 0.5f)
-            assertEquals(OxygenSelectionMotion.CELL_BACKDROP, (binding.root.background as ColorDrawable).color)
-            assertSame(token, thumb.getTag(R.id.thumbnail_request_key))
-            assertSame(drawable, thumb.drawable)
-            assertEquals(nameHeight, binding.mediumName.layoutParams.height)
-            assertEquals(1f, binding.root.scaleX, 0f)
-        } finally {
-            fixture.close()
-        }
-    }
-
-    @Test
-    fun listScalesOnlyTheThumbnail() {
-        val fixture = host()
-        try {
-            val binding = PhotoItemListBinding.inflate(fixture.activity.layoutInflater)
-            layout(binding.root, 600, 0)
-            val row = binding.root
-            OxygenSelectionMotion.bind(
-                listOf(binding.mediumThumbnail), binding.mediumCheck, "a.jpg", false, false,
-                inSelectionMode = true,
-            )
-            OxygenSelectionMotion.bind(
-                listOf(binding.mediumThumbnail), binding.mediumCheck, "a.jpg", true, true,
-                inSelectionMode = true,
-            )
-            val running = OxygenSelectionMotion.animator(binding.mediumThumbnail)!!
-            running.setCurrentFraction(1f)
-            assertEquals(OxygenSelectionMotion.CONTENT_SCALE, binding.mediumThumbnail.scaleX, 0.001f)
-            assertEquals(1f, row.scaleX, 0f)
-            assertEquals(1f, row.scaleY, 0f)
-            assertEquals(1f, binding.mediumName.scaleX, 0f)
-            assertEquals(View.VISIBLE, binding.mediumCheck.visibility)
-        } finally {
-            fixture.close()
-        }
-    }
-
-    @Test
-    fun hiddenAndRecycledCellsSnapAndSettleRestoresSourceScale() {
-        val fixture = host()
-        try {
-            val binding = PhotoItemGridBinding.inflate(fixture.activity.layoutInflater)
-            fixture.activity.setContentView(binding.root)
-            layout(binding.root, 240, 240)
-            val thumb = binding.mediumThumbnail
-            thumb.setImageDrawable(ColorDrawable(Color.BLUE))
-            OxygenSelectionMotion.bind(listOf(thumb), binding.mediumCheck, "a.jpg", false, false)
-            OxygenSelectionMotion.bind(listOf(thumb), binding.mediumCheck, "a.jpg", true, false)
-            assertNull(OxygenSelectionMotion.animator(thumb))
-            assertEquals(OxygenSelectionMotion.CONTENT_SCALE, thumb.scaleX, 0.001f)
-
-            OxygenSelectionMotion.release(thumb)
-            assertEquals(1f, thumb.scaleX, 0f)
-            assertEquals(View.GONE, binding.mediumCheck.visibility)
-            OxygenSelectionMotion.bind(listOf(thumb), binding.mediumCheck, "b.jpg", true, true)
-            assertNull(OxygenSelectionMotion.animator(thumb))
-            assertEquals(OxygenSelectionMotion.CONTENT_SCALE, thumb.scaleX, 0.001f)
-
-            OxygenSelectionMotion.bind(listOf(thumb), binding.mediumCheck, "b.jpg", false, true)
-            val leaving = OxygenSelectionMotion.animator(thumb)!!
-            leaving.setCurrentFraction(0.4f)
-            assertTrue(scaleOf(thumb) < 1f)
-            OxygenSelectionMotion.settleForSource(thumb)
-            assertEquals(1f, thumb.scaleX, 0f)
-            assertEquals(1f, thumb.scaleY, 0f)
-            assertEquals(1f, scaleOf(thumb), 0.001f)
-            assertNull(OxygenSelectionMotion.animator(thumb))
-        } finally {
-            fixture.close()
-        }
-    }
-
-    @Test
-    fun disabledSelectionMotionSnapsTheThumbnail() {
-        val fixture = host()
-        val prior = animatorScale(fixture.activity)
-        Settings.Global.putFloat(fixture.activity.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
-        try {
-            val thumb = ImageView(fixture.activity)
-            val check = ImageView(fixture.activity)
-            OxygenSelectionMotion.bind(listOf(thumb), check, "a.jpg", false, true)
-            OxygenSelectionMotion.bind(listOf(thumb), check, "a.jpg", true, true)
-            assertNull(OxygenSelectionMotion.animator(thumb))
-            assertEquals(OxygenSelectionMotion.CONTENT_SCALE, thumb.scaleX, 0f)
-            assertEquals(View.VISIBLE, check.visibility)
-        } finally {
-            Settings.Global.putFloat(fixture.activity.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, prior)
-            fixture.close()
-        }
-    }
-
-    @Test
-    fun onScreenRequiresAVisibleLaidOutCell() {
-        val fixture = host()
-        try {
-            val image = ImageView(fixture.activity)
-            image.layoutParams = FrameLayout.LayoutParams(80, 80)
-            fixture.activity.setContentView(image)
-            layout(fixture.activity.window.decorView, 400, 800)
-            assertTrue(OxygenSelectionMotion.onScreen(image))
-            image.visibility = View.INVISIBLE
-            assertTrue(!OxygenSelectionMotion.onScreen(image))
-        } finally {
-            fixture.close()
-        }
-    }
-
-    @Test
-    fun dragBindUsesTheSameDurationAsATap() {
-        val fixture = host()
-        try {
-            val thumb = ImageView(fixture.activity)
-            val check = ImageView(fixture.activity)
-            layout(thumb, 120, 120)
-            layout(check, 24, 24)
-            OxygenSelectionMotion.bind(listOf(thumb), check, "a.jpg", false, false)
-            OxygenSelectionMotion.bind(listOf(thumb), check, "a.jpg", true, true)
-            val running = OxygenSelectionMotion.animator(thumb)!!
-            assertEquals(OxygenClassicMotion.SELECTION_CONTENT_MS, running.duration)
-        } finally {
-            fixture.close()
-        }
-    }
-
-    @Test
-    fun dragRangeFillsEveryIndexBetweenTheAnchorAndTheFinger() {
-        // Two columns, finger stays on the left: 1 → 5 must include 2 and 4.
-        assertEquals(setOf(0, 1, 2, 3, 4), OxygenSelectionDrag.rectPositions(0, 4, itemCount = 10))
-        assertEquals(setOf(0, 1, 2, 3), OxygenSelectionDrag.rectPositions(0, 3, itemCount = 8))
-        assertEquals(setOf(0, 1), OxygenSelectionDrag.rectPositions(0, 1, itemCount = 8))
-        assertEquals(setOf(1, 2, 3), OxygenSelectionDrag.rectPositions(1, 3, itemCount = 8))
-        assertEquals(setOf(0, 1, 2, 3, 4, 5), OxygenSelectionDrag.rectPositions(5, 0, itemCount = 8))
-        assertEquals(setOf(0, 1, 3, 4), OxygenSelectionDrag.rectPositions(0, 4, itemCount = 6) { it != 2 })
-    }
-
-    @Test
-    fun dragGestureUsesFixedModeAndIgnoresAStationaryFinger() {
-        val controller = Robolectric.buildActivity(SimpleActivity::class.java)
-        val activity = controller.get()
-        activity.setTheme(R.style.GalleryPageTransitionTheme)
-        controller.setup()
-        try {
-            val selected = linkedSetOf<Int>()
-            val recycler = org.fossify.commons.views.MyRecyclerView(activity)
-            recycler.layoutManager = androidx.recyclerview.widget.GridLayoutManager(activity, 2)
-            recycler.adapter = object : androidx.recyclerview.widget.RecyclerView.Adapter<androidx.recyclerview.widget.RecyclerView.ViewHolder>() {
-                override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int) =
-                    object : androidx.recyclerview.widget.RecyclerView.ViewHolder(View(parent.context).also {
-                        it.layoutParams = androidx.recyclerview.widget.RecyclerView.LayoutParams(40, 40)
-                    }) {}
-                override fun onBindViewHolder(holder: androidx.recyclerview.widget.RecyclerView.ViewHolder, position: Int) = Unit
-                override fun getItemCount() = 8
-            }
-            layout(recycler, 200, 400)
-            var lastToggle: Pair<Boolean, Int>? = null
-            OxygenSelectionDrag.install(
-                recyclerView = recycler,
-                positionOffset = { 0 },
-                isSelectable = { true },
-                isSelected = { selected.contains(it) },
-                toggle = { select, pos ->
-                    lastToggle = select to pos
-                    if (select) selected.add(pos) else selected.remove(pos)
-                },
-            )
-            val listenerField = org.fossify.commons.views.MyRecyclerView::class.java
-                .getDeclaredField("dragListener").apply { isAccessible = true }
-            val listener = listenerField.get(recycler) as org.fossify.commons.views.MyRecyclerView.MyDragListener
-
-            // ACTION_DOWN on unselected cell 0 → select mode.
-            recycler.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, 10f, 10f, 0))
-            listener.selectItem(0)
-            assertTrue(selected.contains(0))
-            listener.selectRange(0, 3, 0, 3)
-            assertTrue(selected.containsAll(listOf(0, 1, 2, 3)))
-            listener.selectRange(0, 3, 0, 3)
-            assertEquals(true to 3, lastToggle)
-            // Same column, later cell: the other column in between is included.
-            listener.selectRange(0, 4, 0, 4)
-            assertTrue(selected.containsAll(listOf(0, 1, 2, 3, 4)))
-            // Shrink back toward 1: cells past the finger restore their prior state.
-            listener.selectRange(0, 1, 0, 4)
-            assertTrue(selected.containsAll(listOf(0, 1)))
-            assertFalse(selected.contains(2))
-            assertFalse(selected.contains(3))
-            assertFalse(selected.contains(4))
-
-            // New gesture on an already-selected cell → deselect mode.
-            selected.addAll(listOf(0, 1, 2, 3))
-            recycler.dispatchTouchEvent(MotionEvent.obtain(1, 1, MotionEvent.ACTION_DOWN, 10f, 10f, 0))
-            listener.selectItem(0)
-            assertFalse(selected.contains(0))
-            listener.selectRange(0, 3, 0, 3)
-            assertTrue(selected.none { it in 0..3 })
-        } finally {
-            controller.pause().stop().destroy()
-        }
-    }
-
     private fun colorOf(view: View): Int = when (val background = view.background) {
         is ColorDrawable -> background.color
         is com.google.android.material.shape.MaterialShapeDrawable ->
@@ -430,11 +170,6 @@ class OxygenSelectionPhase5cTest {
         else View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY)
         view.measure(widthSpec, heightSpec)
         view.layout(0, 0, view.measuredWidth, view.measuredHeight)
-    }
-
-    private fun scaleOf(view: View): Float {
-        val matrix = StaticPhotoViewGeometry.localToScreen(view)
-        return FloatArray(9).also(matrix::getValues)[Matrix.MSCALE_X]
     }
 
     private fun host(): Fixture {

@@ -36,14 +36,6 @@ object OxygenClassicMotion {
      * no longer animates a color blend (theme-locked). Phase 7 owns broader timing.
      */
     const val SELECTION_CHROME_MS = 180L
-    /**
-     * Thumbnail shrink / check. Tuned to the ~150–250 ms Google Photos select
-     * cadence observed in the local reference recording; not a global Phase 7 reopen.
-     */
-    const val SELECTION_CONTENT_MS = 180L
-
-    /** Ease-out for thumbnail shrink / check reveal (fast out, settle). */
-    fun selectionContentEasing() = PathInterpolator(0f, 0f, 0.2f, 1f)
     const val LIST_MOVE_MS = 170L
     const val SETTINGS_ENTER_MS = ClassicSettingsPageTransition.DURATION_MS
     const val SETTINGS_DISTANCE_DP = ClassicSettingsPageTransition.DISTANCE_DP

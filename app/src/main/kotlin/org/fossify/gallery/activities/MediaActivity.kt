@@ -5537,7 +5537,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
     private fun isSetWallpaperIntent() = intent.getBooleanExtra(SET_WALLPAPER_INTENT, false)
 
     private fun itemClicked(path: String) {
-        settleSelectionSource(path)
         initialFolderTop = false
         if (mPath == FAVORITES && !FavoriteAccessSessionManager.isCapturedPath(favoriteSessionId, path)) {
             finish(); return
@@ -5602,18 +5601,6 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
                     favoriteSessionId = if (mPath == FAVORITES) favoriteSessionId else null)
             } else {
                 openInViewPager(path)
-            }
-        }
-    }
-
-    /** The photo source matrix is the unscaled thumbnail. Finish a restore still in flight. */
-    private fun settleSelectionSource(path: String) {
-        val grid = binding.mediaGrid
-        for (index in 0 until grid.childCount) {
-            val image = grid.getChildAt(index).findViewById<ImageView>(R.id.medium_thumbnail) ?: continue
-            if (image.getTag(R.id.media_bound_path) == path) {
-                org.fossify.gallery.helpers.OxygenSelectionMotion.settleForSource(image)
-                return
             }
         }
     }

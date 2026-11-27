@@ -108,8 +108,6 @@ import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.StaticPhotoHeader
 import org.fossify.gallery.helpers.StaticPhotoThumbnail
 import org.fossify.gallery.helpers.OxygenSelectionMode
-import org.fossify.gallery.helpers.OxygenSelectionDrag
-import org.fossify.gallery.helpers.OxygenSelectionMotion
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.ROUNDED_CORNERS_BIG
@@ -163,16 +161,7 @@ class MediaAdapter(
 
     init {
         actModeCallback = OxygenSelectionMode.wrap(activity, actModeCallback)
-        OxygenSelectionDrag.install(
-            recyclerView = recyclerView,
-            positionOffset = { positionOffset },
-            isSelectable = { getIsItemSelectable(it) },
-            isSelected = { pos ->
-                val key = getItemSelectionKey(pos)
-                key != null && selectedKeys.contains(key)
-            },
-            toggle = { select, pos -> toggleItemSelection(select, pos, true) },
-        )
+        setupDragListener(true)
         setHasStableIds(true)
         recyclerView.itemAnimator?.endAnimations()
         recyclerView.itemAnimator = null
@@ -307,7 +296,6 @@ class MediaAdapter(
             val itemView = holder.itemView
             val tmb = itemView.allViews.firstOrNull { it.id == R.id.medium_thumbnail }
             if (tmb is ImageView) {
-                OxygenSelectionMotion.release(tmb)
                 InteractiveGridThumbnail.restoreBeforeRebind(tmb)
                 if (tmb.transitionName == PhotoViewerTransition.ELEMENT_NAME) tmb.transitionName = null
                 cancelThumbnailLoad(tmb, "holder_recycled")
@@ -1577,19 +1565,11 @@ class MediaAdapter(
                 videoDuration?.setTextColor(textColor)
             }
 
-            mediumCheck.background?.applyColorFilter(properPrimaryColor)
-            mediumCheck.applyColorFilter(contrastColor)
-            OxygenSelectionMotion.bind(
-                contents = listOf(mediumThumbnail),
-                check = mediumCheck,
-                key = medium.path,
-                selected = isSelected,
-                play = OxygenSelectionMotion.onScreen(mediumThumbnail),
-                inSelectionMode = actModeCallback.isSelectable,
-                backdrop = if (isListViewType) null else mediaItemHolder,
-                accent = properPrimaryColor,
-                contrast = contrastColor,
-            )
+            mediumCheck.beVisibleIf(isSelected)
+            if (isSelected) {
+                mediumCheck.background?.applyColorFilter(properPrimaryColor)
+                mediumCheck.applyColorFilter(contrastColor)
+            }
 
             if (isListViewType) {
                 mediaItemHolder.isSelected = isSelected

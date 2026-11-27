@@ -14,7 +14,6 @@ import org.fossify.commons.views.MyRecyclerView
 import org.fossify.gallery.R
 import org.fossify.gallery.databinding.ItemManageFolderBinding
 import org.fossify.gallery.extensions.removeNoMedia
-import org.fossify.gallery.helpers.OxygenSelectionDrag
 
 class ManageHiddenFoldersAdapter(
     activity: BaseSimpleActivity, var folders: ArrayList<String>, val listener: RefreshRecyclerViewListener?,
@@ -22,16 +21,7 @@ class ManageHiddenFoldersAdapter(
 ) : MyRecyclerViewAdapter(activity, recyclerView, itemClick) {
 
     init {
-        OxygenSelectionDrag.install(
-            recyclerView = recyclerView,
-            positionOffset = { positionOffset },
-            isSelectable = { getIsItemSelectable(it) },
-            isSelected = { pos ->
-                val key = getItemSelectionKey(pos)
-                key != null && selectedKeys.contains(key)
-            },
-            toggle = { select, pos -> toggleItemSelection(select, pos, true) },
-        )
+        setupDragListener(true)
     }
 
     override fun getActionMenuId() = R.menu.cab_hidden_folders
