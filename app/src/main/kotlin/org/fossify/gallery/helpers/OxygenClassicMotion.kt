@@ -31,9 +31,14 @@ object OxygenClassicMotion {
     const val TAB_MS = 150L
     const val SWITCH_MS = 180L
     const val TOGGLE_CHECKBOX_MS = 200L
-    /** Initial selection chrome and thumbnail motion. Phase 7 owns the final timing. */
+    /** Selection chrome and thumbnail motion. Phase 7 owns any further timing polish. */
     const val SELECTION_CHROME_MS = 180L
-    const val SELECTION_CONTENT_MS = 180L
+    const val SELECTION_CONTENT_MS = 160L
+    /** While a long-press drag is settling cells, keep each cell brief. */
+    const val SELECTION_SWIPE_MS = 110L
+
+    /** Ease-out for thumbnail shrink / check reveal. */
+    fun selectionContentEasing() = PathInterpolator(0f, 0f, 0.2f, 1f)
     const val LIST_MOVE_MS = 170L
     const val SETTINGS_ENTER_MS = ClassicSettingsPageTransition.DURATION_MS
     const val SETTINGS_DISTANCE_DP = ClassicSettingsPageTransition.DISTANCE_DP

@@ -35,12 +35,16 @@ import org.robolectric.annotation.Config
 @Config(sdk = [29], application = Application::class)
 class OxygenSelectionPhase5cTest {
     @Test
-    fun selectionChromeBlendsToGrayAndRestoresTheLiveAccent() {
+    fun selectionChromeFollowsTheAccentAndRestoresTheLiveTheme() {
         val fixture = host()
         try {
             val themeToolbar = OxygenThemeEngine.toolbarSurface(fixture.activity, fixture.activity.config)
             val themeStatus = OxygenThemeEngine.statusBarSurface(fixture.activity, fixture.activity.config)
-            assertNotEquals(OxygenSelectionChrome.TOOLBAR_COLOR, themeToolbar)
+            val targets = OxygenSelectionChrome.targets(fixture.activity)
+            assertNotEquals(targets.toolbar, themeToolbar)
+            assertTrue(OxygenThemeColors.contrastRatio(OxygenSelectionChrome.FOREGROUND_COLOR, targets.toolbar) >= 4.5)
+            assertTrue(OxygenThemeColors.contrastRatio(OxygenSelectionChrome.FOREGROUND_COLOR, targets.status) >= 4.5)
+            assertNotEquals(targets.toolbar, ACCENT)
             OxygenSystemBars.apply(fixture.activity)
             val navigation = fixture.activity.window.navigationBarColor
             val menuHeight = fixture.menu.binding.searchBarContainer.height
@@ -50,10 +54,10 @@ class OxygenSelectionPhase5cTest {
             val entering = OxygenSelectionChrome.animator(fixture.activity)!!
             entering.setCurrentFraction(1f)
             val bar = fixture.activity.findViewById<ActionBarContextView>(androidx.appcompat.R.id.action_mode_bar)
-            assertEquals(OxygenSelectionChrome.TOOLBAR_COLOR, (bar.background as ColorDrawable).color)
-            assertEquals(OxygenSelectionChrome.TOOLBAR_COLOR, colorOf(fixture.menu.binding.toolbarContainer))
+            assertEquals(targets.toolbar, (bar.background as ColorDrawable).color)
+            assertEquals(targets.toolbar, colorOf(fixture.menu.binding.toolbarContainer))
             assertEquals(OxygenSelectionChrome.FOREGROUND_COLOR, (mode.customView as TextView).currentTextColor)
-            assertEquals(OxygenSelectionChrome.STATUS_COLOR, statusColor(fixture.activity))
+            assertEquals(targets.status, statusColor(fixture.activity))
             assertEquals(navigation, fixture.activity.window.navigationBarColor)
             assertEquals(menuHeight, fixture.menu.binding.searchBarContainer.height)
             assertEquals(contentHeight, bar.contentHeight)
@@ -92,13 +96,14 @@ class OxygenSelectionPhase5cTest {
         try {
             val themeToolbar = OxygenThemeEngine.toolbarSurface(fixture.activity, fixture.activity.config)
             val themeStatus = OxygenThemeEngine.statusBarSurface(fixture.activity, fixture.activity.config)
+            val targets = OxygenSelectionChrome.targets(fixture.activity)
             val mode = fixture.activity.startActionMode(fixture.callback)!!
             assertNull(OxygenSelectionChrome.animator(fixture.activity))
             assertEquals(1f, OxygenSelectionChrome.progress(fixture.activity), 0f)
             val bar = fixture.activity.findViewById<View>(androidx.appcompat.R.id.action_mode_bar)
-            assertEquals(OxygenSelectionChrome.TOOLBAR_COLOR, (bar.background as ColorDrawable).color)
-            assertEquals(OxygenSelectionChrome.TOOLBAR_COLOR, colorOf(fixture.menu.binding.toolbarContainer))
-            assertEquals(OxygenSelectionChrome.STATUS_COLOR, statusColor(fixture.activity))
+            assertEquals(targets.toolbar, (bar.background as ColorDrawable).color)
+            assertEquals(targets.toolbar, colorOf(fixture.menu.binding.toolbarContainer))
+            assertEquals(targets.status, statusColor(fixture.activity))
             assertEquals(OxygenSelectionChrome.FOREGROUND_COLOR, (mode.customView as TextView).currentTextColor)
             mode.finish()
             assertEquals(0f, OxygenSelectionChrome.progress(fixture.activity), 0f)
@@ -120,7 +125,8 @@ class OxygenSelectionPhase5cTest {
         try {
             fixture.activity.startActionMode(fixture.callback)
             val underlay = fixture.activity.window.decorView.findViewWithTag<View>(OxygenSystemBars.STATUS_UNDERLAY)
-            assertEquals(OxygenSelectionChrome.STATUS_COLOR, (underlay.background as ColorDrawable).color)
+            val targets = OxygenSelectionChrome.targets(fixture.activity)
+            assertEquals(targets.status, (underlay.background as ColorDrawable).color)
         } finally {
             Settings.Global.putFloat(fixture.activity.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, prior)
             fixture.close()
@@ -160,11 +166,14 @@ class OxygenSelectionPhase5cTest {
             OxygenSelectionMotion.bind(listOf(thumb), binding.mediumCheck, "a.jpg", false, false)
             OxygenSelectionMotion.bind(listOf(thumb), binding.mediumCheck, "a.jpg", true, true)
             val running = OxygenSelectionMotion.animator(thumb)!!
-            running.setCurrentFraction(0.35f)
+            running.setCurrentFraction(0.08f)
             val scale = thumb.scaleX
             assertTrue(scale > OxygenSelectionMotion.CONTENT_SCALE)
             assertEquals(1f, binding.root.scaleX, 0f)
             assertEquals(1f, binding.mediumName.scaleX, 0f)
+            val early = ((1f - scale) / (1f - OxygenSelectionMotion.CONTENT_SCALE))
+            assertTrue(early < OxygenSelectionMotion.CHECK_FADE_START)
+            assertEquals(0f, binding.mediumCheck.alpha, 0.001f)
             OxygenSelectionMotion.bind(listOf(thumb), binding.mediumCheck, "a.jpg", true, true)
             assertSame(running, OxygenSelectionMotion.animator(thumb))
             assertEquals(scale, thumb.scaleX, 0f)
@@ -174,6 +183,9 @@ class OxygenSelectionPhase5cTest {
             assertEquals(View.VISIBLE, binding.mediumCheck.visibility)
             assertEquals(1f, binding.mediumCheck.alpha, 0.001f)
             assertEquals(1f, binding.mediumCheck.scaleX, 0.001f)
+            val inset = thumb.width * (1f - OxygenSelectionMotion.CONTENT_SCALE) / 2f
+            assertEquals(-inset, binding.mediumCheck.translationX, 0.5f)
+            assertEquals(inset, binding.mediumCheck.translationY, 0.5f)
             assertSame(token, thumb.getTag(R.id.thumbnail_request_key))
             assertSame(drawable, thumb.drawable)
             assertEquals(nameHeight, binding.mediumName.layoutParams.height)
@@ -271,6 +283,63 @@ class OxygenSelectionPhase5cTest {
             assertTrue(!OxygenSelectionMotion.onScreen(image))
         } finally {
             fixture.close()
+        }
+    }
+
+    @Test
+    fun swipeBindUsesTheShorterDuration() {
+        val fixture = host()
+        try {
+            val thumb = ImageView(fixture.activity)
+            val check = ImageView(fixture.activity)
+            layout(thumb, 120, 120)
+            layout(check, 24, 24)
+            OxygenSelectionMotion.bind(listOf(thumb), check, "a.jpg", false, false)
+            OxygenSelectionMotion.bind(listOf(thumb), check, "a.jpg", true, true, brief = true)
+            val running = OxygenSelectionMotion.animator(thumb)!!
+            assertEquals(OxygenClassicMotion.SELECTION_SWIPE_MS, running.duration)
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun dragEnterTogglesSelectionAndIgnoresAStationaryFinger() {
+        val controller = Robolectric.buildActivity(SimpleActivity::class.java)
+        val activity = controller.get()
+        activity.setTheme(R.style.GalleryPageTransitionTheme)
+        controller.setup()
+        try {
+            val selected = linkedSetOf<Int>()
+            val recycler = org.fossify.commons.views.MyRecyclerView(activity)
+            var lastToggle: Pair<Boolean, Int>? = null
+            OxygenSelectionDrag.install(
+                recyclerView = recycler,
+                positionOffset = { 0 },
+                isSelectable = { true },
+                isSelected = { selected.contains(it) },
+                toggle = { select, pos ->
+                    lastToggle = select to pos
+                    if (select) selected.add(pos) else selected.remove(pos)
+                },
+            )
+            val listenerField = org.fossify.commons.views.MyRecyclerView::class.java
+                .getDeclaredField("dragListener").apply { isAccessible = true }
+            val listener = listenerField.get(recycler) as org.fossify.commons.views.MyRecyclerView.MyDragListener
+            selected.add(0)
+            listener.selectItem(0)
+            assertNull(lastToggle)
+            listener.selectRange(0, 1, 0, 1)
+            assertEquals(true to 1, lastToggle)
+            assertTrue(selected.contains(1))
+            listener.selectRange(0, 1, 0, 1)
+            assertEquals(true to 1, lastToggle)
+            listener.selectRange(0, 0, 0, 1)
+            assertEquals(false to 0, lastToggle)
+            assertTrue(!selected.contains(0))
+            assertTrue(selected.contains(1))
+        } finally {
+            controller.pause().stop().destroy()
         }
     }
 

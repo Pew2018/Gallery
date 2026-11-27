@@ -15,8 +15,10 @@ import java.lang.ref.WeakReference
  * currently on screen, snaps to the end so select-all does not animate off-screen rows.
  */
 object OxygenSelectionMotion {
-    const val CONTENT_SCALE = 0.85f
-    const val CHECK_START_SCALE = 0.5f
+    const val CONTENT_SCALE = 0.92f
+    /** Check grows slightly during the second half of the shrink. */
+    const val CHECK_START_SCALE = 0.86f
+    const val CHECK_FADE_START = 0.5f
 
     private class State {
         var key: String? = null
@@ -35,7 +37,14 @@ object OxygenSelectionMotion {
         return view.getLocalVisibleRect(visible) && visible.width() > 0 && visible.height() > 0
     }
 
-    fun bind(contents: List<View>, check: ImageView, key: String, selected: Boolean, play: Boolean) {
+    fun bind(
+        contents: List<View>,
+        check: ImageView,
+        key: String,
+        selected: Boolean,
+        play: Boolean,
+        brief: Boolean = false,
+    ) {
         val primary = contents.first()
         val state = primary.getTag(R.id.selection_motion) as? State ?: State().also {
             primary.setTag(R.id.selection_motion, it)
@@ -55,7 +64,7 @@ object OxygenSelectionMotion {
             hold(state, changed, sameItem, selected)
             return
         }
-        play(state, primary, selected)
+        play(state, primary, selected, brief)
     }
 
     private fun hold(state: State, changed: Boolean, sameItem: Boolean, selected: Boolean) {
@@ -66,12 +75,13 @@ object OxygenSelectionMotion {
         }
     }
 
-    private fun play(state: State, primary: View, selected: Boolean) {
+    private fun play(state: State, primary: View, selected: Boolean, brief: Boolean) {
         val from = fractionOf(primary)
         state.animator?.cancel()
         val animator = ValueAnimator.ofFloat(from, if (selected) 1f else 0f).apply {
-            duration = OxygenClassicMotion.SELECTION_CONTENT_MS
-            interpolator = OxygenClassicMotion.easing()
+            duration = if (brief) OxygenClassicMotion.SELECTION_SWIPE_MS
+            else OxygenClassicMotion.SELECTION_CONTENT_MS
+            interpolator = OxygenClassicMotion.selectionContentEasing()
             addUpdateListener { apply(state, it.animatedValue as Float) }
             addListener(object : AnimatorListenerAdapter() {
                 private var cancelled = false
@@ -118,25 +128,49 @@ object OxygenSelectionMotion {
         resetScale(content)
     }
 
+    internal fun checkProgress(fraction: Float): Float {
+        val t = fraction.coerceIn(0f, 1f)
+        if (t <= CHECK_FADE_START) return 0f
+        return ((t - CHECK_FADE_START) / (1f - CHECK_FADE_START)).coerceIn(0f, 1f)
+    }
+
     private fun apply(state: State, fraction: Float) {
         val t = fraction.coerceIn(0f, 1f)
         val scale = 1f + (CONTENT_SCALE - 1f) * t
+        var width = 0
+        var height = 0
         state.contents.forEach { ref ->
             ref.get()?.let { view ->
                 view.pivotX = view.width / 2f
                 view.pivotY = view.height / 2f
                 view.scaleX = scale
                 view.scaleY = scale
+                if (view.width > width) width = view.width
+                if (view.height > height) height = view.height
             }
         }
         val mark = state.check?.get() ?: return
+        val markT = checkProgress(t)
         mark.pivotX = mark.width / 2f
         mark.pivotY = mark.height / 2f
-        val markScale = CHECK_START_SCALE + (1f - CHECK_START_SCALE) * t
+        val markScale = CHECK_START_SCALE + (1f - CHECK_START_SCALE) * markT
         mark.scaleX = markScale
         mark.scaleY = markScale
-        mark.alpha = t
+        mark.alpha = markT
+        // Sit on the inset image's top-end corner, not the full cell frame.
+        val insetX = width * (1f - scale) / 2f
+        val insetY = height * (1f - scale) / 2f
+        val rtl = mark.layoutDirection == View.LAYOUT_DIRECTION_RTL
+        mark.translationX = if (rtl) insetX else -insetX
+        mark.translationY = insetY
         mark.visibility = if (t <= 0f && !state.selected) View.GONE else View.VISIBLE
+        if (t <= 0f && !state.selected) {
+            mark.translationX = 0f
+            mark.translationY = 0f
+            mark.scaleX = 1f
+            mark.scaleY = 1f
+            mark.alpha = 0f
+        }
     }
 
     private fun fractionOf(view: View): Float {

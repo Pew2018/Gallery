@@ -5,7 +5,6 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.app.Activity
 import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
 import android.view.ActionMode
 import android.view.View
 import android.view.ViewGroup
@@ -17,13 +16,11 @@ import java.lang.ref.WeakReference
 import kotlin.math.abs
 
 /**
- * Blends the ordinary toolbar and status bar into the selection chrome.
+ * Blends the ordinary toolbar and status bar into accent-derived selection chrome.
  * The saved accent is only read, never written. A later count update paints the
  * current frame and does not start another blend.
  */
 object OxygenSelectionChrome {
-    const val TOOLBAR_COLOR = 0xFF757575.toInt()
-    const val STATUS_COLOR = 0xFF616161.toInt()
     const val FOREGROUND_COLOR = Color.WHITE
 
     private const val ENDPOINT = 0.001f
@@ -41,14 +38,29 @@ object OxygenSelectionChrome {
 
     internal fun animator(activity: Activity) = states[activity]?.animator?.takeIf { it.isRunning }
 
-    /** Toolbar, foreground and blend position. Progress 0 is the live theme. */
+    /** Accent-derived selection targets for the live theme. */
+    fun targets(activity: Activity): Targets {
+        val colors = OxygenThemeEngine.snapshot(activity, activity.config)
+        val toolbar = OxygenThemeColors.selectionToolbar(colors.rawAccent)
+        return Targets(
+            toolbar = toolbar,
+            status = OxygenThemeColors.selectionStatus(toolbar),
+            foreground = FOREGROUND_COLOR,
+        )
+    }
+
+    /** Toolbar, status, foreground and blend position. Progress 0 is the live theme. */
     fun frame(activity: Activity): Frame {
-        val themeBar = OxygenThemeEngine.toolbarSurface(activity, activity.config)
-        val themeText = OxygenThemeEngine.toolbarForeground(activity, activity.config)
+        val colors = OxygenThemeEngine.snapshot(activity, activity.config)
+        val themeBar = colors.toolbarBackground
+        val themeStatus = colors.statusBarBackground
+        val themeText = colors.toolbarForeground
+        val target = targets(activity)
         val progress = progress(activity)
         return Frame(
-            toolbar = OxygenThemeColors.opaque(ColorUtils.blendARGB(themeBar, TOOLBAR_COLOR, progress)),
-            foreground = OxygenThemeColors.opaque(ColorUtils.blendARGB(themeText, FOREGROUND_COLOR, progress)),
+            toolbar = OxygenThemeColors.opaque(ColorUtils.blendARGB(themeBar, target.toolbar, progress)),
+            status = OxygenThemeColors.opaque(ColorUtils.blendARGB(themeStatus, target.status, progress)),
+            foreground = OxygenThemeColors.opaque(ColorUtils.blendARGB(themeText, target.foreground, progress)),
             progress = progress,
         )
     }
@@ -145,5 +157,6 @@ object OxygenSelectionChrome {
         }
     }
 
-    data class Frame(val toolbar: Int, val foreground: Int, val progress: Float)
+    data class Targets(val toolbar: Int, val status: Int, val foreground: Int)
+    data class Frame(val toolbar: Int, val status: Int, val foreground: Int, val progress: Float)
 }

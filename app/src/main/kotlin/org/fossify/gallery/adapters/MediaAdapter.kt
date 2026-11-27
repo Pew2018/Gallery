@@ -108,6 +108,7 @@ import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.StaticPhotoHeader
 import org.fossify.gallery.helpers.StaticPhotoThumbnail
 import org.fossify.gallery.helpers.OxygenSelectionMode
+import org.fossify.gallery.helpers.OxygenSelectionDrag
 import org.fossify.gallery.helpers.OxygenSelectionMotion
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
@@ -162,7 +163,16 @@ class MediaAdapter(
 
     init {
         actModeCallback = OxygenSelectionMode.wrap(activity, actModeCallback)
-        setupDragListener(true)
+        OxygenSelectionDrag.install(
+            recyclerView = recyclerView,
+            positionOffset = { positionOffset },
+            isSelectable = { getIsItemSelectable(it) },
+            isSelected = { pos ->
+                val key = getItemSelectionKey(pos)
+                key != null && selectedKeys.contains(key)
+            },
+            toggle = { select, pos -> toggleItemSelection(select, pos, true) },
+        )
         setHasStableIds(true)
         recyclerView.itemAnimator?.endAnimations()
         recyclerView.itemAnimator = null
@@ -1572,6 +1582,7 @@ class MediaAdapter(
             OxygenSelectionMotion.bind(
                 listOf(mediumThumbnail), mediumCheck, medium.path, isSelected,
                 OxygenSelectionMotion.onScreen(mediumThumbnail),
+                OxygenSelectionDrag.inSwipe(),
             )
 
             if (isListViewType) {

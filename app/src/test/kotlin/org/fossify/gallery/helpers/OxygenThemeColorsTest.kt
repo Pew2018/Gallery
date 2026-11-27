@@ -114,6 +114,31 @@ class OxygenThemeColorsTest {
         }
     }
 
+    @Test fun selectionChromeKeepsHueFamilyWhileHoldingWhiteText() {
+        val orange = 0xFFFF6D00.toInt()
+        val toolbar = OxygenThemeColors.selectionToolbar(orange)
+        val status = OxygenThemeColors.selectionStatus(toolbar)
+        assertNotEquals(toolbar, orange)
+        assertTrue(OxygenThemeColors.contrastRatio(OxygenThemeColors.WHITE, toolbar) >= 4.5)
+        assertTrue(OxygenThemeColors.contrastRatio(OxygenThemeColors.WHITE, status) >= 4.5)
+        assertTrue(relativeLuminance(status) <= relativeLuminance(toolbar) + 1e-6)
+        for (seed in listOf(0xFFFFFFFF.toInt(), 0xFF000000.toInt(), 0xFFFFFF00.toInt(), orange, 0xFF145C20.toInt())) {
+            val bar = OxygenThemeColors.selectionToolbar(seed)
+            val band = OxygenThemeColors.selectionStatus(bar)
+            assertTrue("seed=$seed", OxygenThemeColors.contrastRatio(OxygenThemeColors.WHITE, bar) >= 4.5)
+            assertTrue("seed=$seed status", OxygenThemeColors.contrastRatio(OxygenThemeColors.WHITE, band) >= 4.5)
+            assertTrue("seed=$seed darker-or-equal", relativeLuminance(band) <= relativeLuminance(bar) + 1e-6)
+        }
+    }
+
+    private fun relativeLuminance(color: Int): Double {
+        fun channel(shift: Int): Double {
+            val s = ((color ushr shift) and 255) / 255.0
+            return if (s <= 0.04045) s / 12.92 else Math.pow((s + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
+    }
+
     @Test fun allRequiredSeedsPassInBothModesWithoutChangingSeed() {
         for (seed in seeds) for (mode in listOf("light", "dark", "system")) {
             for (systemDark in listOf(false, true)) {

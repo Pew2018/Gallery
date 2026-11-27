@@ -92,7 +92,7 @@ object OxygenSelectionMode {
                 pendingPresentation[activity] = false
                 isSelectable = delegate.isSelectable
                 // Blend back to the live theme. A saved accent is read again here and
-                // is not replaced by the selection gray.
+                // is never overwritten by the selection chrome.
                 OxygenSelectionChrome.move(activity, 0f)
                 OxygenToolbarStyle.refresh(activity)
                 OxygenSystemBars.apply(activity)

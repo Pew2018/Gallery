@@ -69,7 +69,7 @@ object OxygenSystemBars {
         }
         val selection = OxygenSelectionChrome.progress(activity)
         if (selection > PAGE_ENDPOINT_EPSILON) {
-            paintSelectionStatus(activity, host, selection)
+            paintSelectionStatus(activity, host)
             return
         }
         val colors = OxygenThemeEngine.snapshot(activity, activity.config)
@@ -202,11 +202,11 @@ object OxygenSystemBars {
     /**
      * Selection status sits on the same underlay (and, before API 35, the same
      * window status color) as the page. Navigation is left on the current theme.
-     * #616161 is dark, so the icons stay light — the same polarity the theme toolbar uses.
+     * The accent-derived selection status is dark enough for light icons — the
+     * same polarity the theme toolbar uses.
      */
-    private fun paintSelectionStatus(activity: Activity, host: FrameLayout, progress: Float) {
-        val theme = OxygenThemeEngine.snapshot(activity, activity.config)
-        val status = blendOpaqueSurface(theme.statusBarBackground, OxygenSelectionChrome.STATUS_COLOR, progress)
+    private fun paintSelectionStatus(activity: Activity, host: FrameLayout) {
+        val status = OxygenSelectionChrome.frame(activity).status
         val bars = WindowCompat.getInsetsController(activity.window, host)
         if (bars.isAppearanceLightStatusBars) bars.isAppearanceLightStatusBars = false
         if (Build.VERSION.SDK_INT < 35) {

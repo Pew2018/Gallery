@@ -156,6 +156,77 @@ object OxygenThemeColors {
         }
     }
 
+    /**
+     * Selection CAB surface from the live accent: keep the hue, drop saturation a
+     * little, darken into a band that can hold white title/icons, then clamp any
+     * remaining contrast shortfall toward black.
+     */
+    fun selectionToolbar(rawAccent: Int): Int {
+        val hsl = rgbToHsl(opaque(rawAccent))
+        hsl[1] = (hsl[1] * SELECTION_SATURATION).coerceIn(0.0, 1.0)
+        hsl[2] = (hsl[2] * SELECTION_LIGHTNESS).coerceIn(SELECTION_L_MIN, SELECTION_L_MAX)
+        return towardContrast(hslToRgb(hsl), BLACK) { contrastRatio(WHITE, it) >= 4.5 }
+    }
+
+    /** One step darker than the selection toolbar; light status icons stay readable. */
+    fun selectionStatus(toolbar: Int): Int {
+        val hsl = rgbToHsl(opaque(toolbar))
+        hsl[2] = (hsl[2] - SELECTION_STATUS_DELTA).coerceAtLeast(SELECTION_STATUS_L_FLOOR)
+        return towardContrast(hslToRgb(hsl), BLACK) { contrastRatio(WHITE, it) >= 4.5 }
+    }
+
+    private const val SELECTION_SATURATION = 0.55
+    private const val SELECTION_LIGHTNESS = 0.70
+    private const val SELECTION_L_MIN = 0.22
+    private const val SELECTION_L_MAX = 0.42
+    private const val SELECTION_STATUS_DELTA = 0.08
+    private const val SELECTION_STATUS_L_FLOOR = 0.12
+
+    private fun rgbToHsl(color: Int): DoubleArray {
+        val r = ((color ushr 16) and 255) / 255.0
+        val g = ((color ushr 8) and 255) / 255.0
+        val b = (color and 255) / 255.0
+        val max = maxOf(r, g, b)
+        val min = minOf(r, g, b)
+        val l = (max + min) / 2.0
+        if (max == min) return doubleArrayOf(0.0, 0.0, l)
+        val d = max - min
+        val s = if (l > 0.5) d / (2.0 - max - min) else d / (max + min)
+        val h = when (max) {
+            r -> (((g - b) / d) + if (g < b) 6.0 else 0.0) / 6.0
+            g -> (((b - r) / d) + 2.0) / 6.0
+            else -> (((r - g) / d) + 4.0) / 6.0
+        }
+        return doubleArrayOf(h, s, l)
+    }
+
+    private fun hslToRgb(hsl: DoubleArray): Int {
+        val h = hsl[0]
+        val s = hsl[1]
+        val l = hsl[2]
+        if (s <= 0.0) {
+            val v = (l * 255.0).roundToInt().coerceIn(0, 255)
+            return BLACK or (v shl 16) or (v shl 8) or v
+        }
+        fun hue2rgb(p: Double, q: Double, t0: Double): Double {
+            var t = t0
+            if (t < 0.0) t += 1.0
+            if (t > 1.0) t -= 1.0
+            return when {
+                t < 1.0 / 6.0 -> p + (q - p) * 6.0 * t
+                t < 0.5 -> q
+                t < 2.0 / 3.0 -> p + (q - p) * (2.0 / 3.0 - t) * 6.0
+                else -> p
+            }
+        }
+        val q = if (l < 0.5) l * (1.0 + s) else l + s - l * s
+        val p = 2.0 * l - q
+        val r = (hue2rgb(p, q, h + 1.0 / 3.0) * 255.0).roundToInt().coerceIn(0, 255)
+        val g = (hue2rgb(p, q, h) * 255.0).roundToInt().coerceIn(0, 255)
+        val b = (hue2rgb(p, q, h - 1.0 / 3.0) * 255.0).roundToInt().coerceIn(0, 255)
+        return BLACK or (r shl 16) or (g shl 8) or b
+    }
+
     private inline fun towardContrast(seed: Int, target: Int, passes: (Int) -> Boolean): Int {
         if (passes(seed)) return seed
         var low = 0.0

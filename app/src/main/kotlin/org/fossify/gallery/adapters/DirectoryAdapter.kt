@@ -109,6 +109,7 @@ import org.fossify.gallery.helpers.DirectoryGridItemAnimator
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.OxygenSelectionMode
+import org.fossify.gallery.helpers.OxygenSelectionDrag
 import org.fossify.gallery.helpers.OxygenSelectionMotion
 import org.fossify.gallery.helpers.ROUNDED_CORNERS_BIG
 import org.fossify.gallery.helpers.ROUNDED_CORNERS_NONE
@@ -161,7 +162,16 @@ class DirectoryAdapter(
 
     init {
         actModeCallback = OxygenSelectionMode.wrap(activity, actModeCallback)
-        setupDragListener(true)
+        OxygenSelectionDrag.install(
+            recyclerView = recyclerView,
+            positionOffset = { positionOffset },
+            isSelectable = { getIsItemSelectable(it) },
+            isSelected = { pos ->
+                val key = getItemSelectionKey(pos)
+                key != null && selectedKeys.contains(key)
+            },
+            toggle = { select, pos -> toggleItemSelection(select, pos, true) },
+        )
         setHasStableIds(true)
         fillLockedFolders()
         ensureBackgroundThread {
@@ -1197,6 +1207,7 @@ class DirectoryAdapter(
             OxygenSelectionMotion.bind(
                 selectionContent, dirCheck, directory.path, isSelected,
                 OxygenSelectionMotion.onScreen(dirThumbnail),
+                OxygenSelectionDrag.inSwipe(),
             )
         }
     }
