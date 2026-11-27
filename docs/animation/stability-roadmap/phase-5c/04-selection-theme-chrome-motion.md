@@ -76,4 +76,4 @@ JDK 21，Gradle 9.5.1，`ANDROID_HOME` → SDK 36。
 
 ## 结论
 
-本包一次交付两项修订：去掉选择态顶栏变色路径；收紧选中/取消内容动效并消除勾选硬切。相对 tip `f184acf7b` 的实现见本分支提交；合并验收以本说明 + JVM/Release 结果为准，真机项标未验证。
+本包一次交付两项修订：去掉选择态顶栏变色路径；收紧选中/取消内容动效并消除勾选硬切。相对 tip `f184acf7b` 的实现提交 `66e57e7053cb79a091c90b060d5129009cce52d8`（分支 `cursor/selection-theme-chrome-motion-c1c3`）；合并验收以本说明 + JVM/Release 结果为准，真机项标未验证。
