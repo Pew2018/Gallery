@@ -40,11 +40,13 @@ internal object GalleryDiagnosticLogger {
     private const val MAX_FILES = 5
     private const val MAX_QUEUE = 1024
     private const val MAX_CRASH_BYTES = 16 * 1024
+    private const val MAX_CRASH_FILES = 4
+    private const val CRASH_FILE = "crash.txt"
     private const val DIRECTORY = "diagnostics"
 
     @Volatile private var enabled = false
     @Volatile private var expiresAtMillis = 0L
-    @Volatile private var sessionId = UUID.randomUUID().toString().take(8)
+    @Volatile private var sessionId = UUID.randomUUID().toString()
     @Volatile private var hashSalt = UUID.randomUUID().toString()
     @Volatile private var directory: File? = null
     @Volatile private var prefs: SharedPreferences? = null
@@ -59,7 +61,7 @@ internal object GalleryDiagnosticLogger {
         val app = context.applicationContext
         prefs = app.getSharedPrefs()
         directory = File(app.filesDir, DIRECTORY).apply { mkdirs() }
-        sessionId = UUID.randomUUID().toString().take(8)
+        sessionId = UUID.randomUUID().toString()
         hashSalt = UUID.randomUUID().toString()
         syncEnabledFromPreferences()
         installCrashHandler()
@@ -101,7 +103,7 @@ internal object GalleryDiagnosticLogger {
         if (!isEnabled()) return
         val safeModule = DiagnosticPrivacy.token(module)
         val safeName = DiagnosticPrivacy.token(name)
-        val safeFields = fields.entries.asSequence().take(16).mapNotNull { (key, value) ->
+        val safeFields = fields.entries.asSequence().take(24).mapNotNull { (key, value) ->
             if (DiagnosticPrivacy.isSensitiveKey(key) || value == null) null
             else "${DiagnosticPrivacy.token(key)}=${DiagnosticPrivacy.value(value)}"
         }.joinToString(" ")
@@ -126,6 +128,10 @@ internal object GalleryDiagnosticLogger {
                 }
             }
         } catch (_: RuntimeException) { dropped.incrementAndGet() }
+    }
+
+    inline fun observe(block: () -> Unit) {
+        if (isEnabled()) block()
     }
 
     fun snapshot(callback: (String, String?) -> Unit) {
@@ -166,6 +172,8 @@ internal object GalleryDiagnosticLogger {
             appendLine("Gallery diagnostics")
             appendLine("App version: ${packageInfo.versionName ?: "unknown"} ($versionCode)")
             appendLine("Build type: ${BuildConfig.BUILD_TYPE}")
+            // Injected at build time; no runtime git call and no random value.
+            appendLine("Source: ${BuildConfig.SOURCE_IDENTITY}")
             appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             appendLine("Device: ${DiagnosticPrivacy.value(Build.MANUFACTURER)} ${DiagnosticPrivacy.value(Build.MODEL)}")
             appendLine("Logging enabled: ${isEnabled()}")
@@ -181,6 +189,17 @@ internal object GalleryDiagnosticLogger {
     }
 
     fun session(): String = sessionId
+
+    /**
+     * Process-unique diagnostic id for one user-visible media request.
+     *
+     * Activity-local generations restart at 1 per Activity instance, so they cannot
+     * correlate a worker, its grid publication and the root navigation that caused
+     * them. This sequence can, and costs one atomic increment while diagnostics are
+     * being recorded.
+     */
+    private val requestSequence = AtomicLong()
+    fun nextPhotoRequestId(): String = "pp-${requestSequence.incrementAndGet()}"
 
     fun anonymousId(value: String): String = anonymousIdForSalt(value, hashSalt)
 
@@ -230,13 +249,36 @@ internal object GalleryDiagnosticLogger {
         Thread.setDefaultUncaughtExceptionHandler(GalleryDiagnosticExceptionHandler(current) { thread, error ->
             if (!isEnabled()) return@GalleryDiagnosticExceptionHandler
             try {
+                // Keep the newest few crashes: a burst of identical failures used to
+                // overwrite crash.txt, leaving only the last complete stack.
+                val crashDir = directory
+                val previous = if (crashDir == null) null else synchronized(lock) {
+                    File(crashDir, "crash-0.txt").takeIf { it.exists() }
+                        ?.bufferedReader(StandardCharsets.UTF_8)?.use { reader ->
+                            reader.readLine()?.substringAfter("session=")?.substringBefore(' ')?.take(64)
+                        }
+                }
                 val limited = buildString {
-                    appendLine("${timestamp(System.currentTimeMillis())} FATAL session=$sessionId thread=${DiagnosticPrivacy.value(thread.name)}")
+                    appendLine("${timestamp(System.currentTimeMillis())} FATAL session=$sessionId " +
+                        "previousSession=${previous ?: "none"} thread=${DiagnosticPrivacy.value(thread.name)}")
+                    appendLine("source=${BuildConfig.VERSION_NAME} versionCode=${BuildConfig.VERSION_CODE}")
                     appendLine("type=${error.javaClass.name}")
+                    appendLine("message=${DiagnosticPrivacy.sanitize(error.message.orEmpty()).take(512)}")
                     error.stackTrace.take(100).forEach { appendLine(DiagnosticPrivacy.sanitize(" at $it")) }
                     error.cause?.let { appendLine("cause=${it.javaClass.name}: ${DiagnosticPrivacy.sanitize(it.message.orEmpty()).take(512)}") }
                 }.take(MAX_CRASH_BYTES)
-                synchronized(lock) { File(directory, "crash.txt").writeText(limited, StandardCharsets.UTF_8) }
+                synchronized(lock) {
+                    val dir = directory ?: return@synchronized
+                    for (index in MAX_CRASH_FILES - 1 downTo 1) {
+                        val from = File(dir, "crash-${index - 1}.txt")
+                        val to = File(dir, "crash-$index.txt")
+                        if (to.exists()) to.delete()
+                        if (from.exists()) from.renameTo(to)
+                    }
+                    File(dir, "crash-0.txt").writeText(limited, StandardCharsets.UTF_8)
+                    // Keep the historical export contract working.
+                    File(dir, CRASH_FILE).writeText(limited, StandardCharsets.UTF_8)
+                }
             } catch (_: Throwable) { /* crash recording must never replace the original failure */ }
         })
     }

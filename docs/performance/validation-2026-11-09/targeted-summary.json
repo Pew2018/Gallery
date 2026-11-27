@@ -1,0 +1,8 @@
+{
+  "tests": 61,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "classes": 9,
+  "run": "targeted-final before random rank isolation"
+}

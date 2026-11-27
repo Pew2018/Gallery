@@ -53,4 +53,20 @@ class ViewerSwipePublicationGateTest {
         assertEquals(1, preparations)
     }
 
+    @Test fun laterPreviewCannotReplaceQueuedFinalAndNextRequestStartsFresh() {
+        val gate = ViewerSwipePublicationGate<Int>()
+        gate.onScrollMoving(true)
+        for (stage in listOf(0, 1, 3, 2)) {
+            assertTrue(gate.deferIfMoving(stage) { stage >= it })
+        }
+        assertEquals(3, gate.onScrollMoving(false))
+
+        gate.onScrollMoving(true)
+        gate.deferIfMoving(3)
+        gate.clear()
+        gate.onScrollMoving(true)
+        assertTrue(gate.deferIfMoving(1) { 1 >= it })
+        assertEquals(1, gate.onScrollMoving(false))
+    }
+
 }

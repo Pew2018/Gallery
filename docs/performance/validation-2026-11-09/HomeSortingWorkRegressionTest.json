@@ -1,0 +1,22 @@
+{
+  "class": "HomeSortingWorkRegressionTest",
+  "tests": "1",
+  "failures": "0",
+  "errors": "0",
+  "skipped": "0",
+  "time": "0.577",
+  "cases": [
+    "warmAndRapidSortingDoNotEnumerateReadMetadataQueryOrRestartTheLiveScan"
+  ],
+  "measurements": [
+    "HomeSortingWork host mode=1 choiceToCommitMs=16.016125",
+    "HomeSortingWork host mode=524288 choiceToCommitMs=15.482125",
+    "HomeSortingWork host mode=4 choiceToCommitMs=15.360167",
+    "HomeSortingWork host mode=2 choiceToCommitMs=15.555084",
+    "HomeSortingWork host mode=1026 choiceToCommitMs=21.133459",
+    "HomeSortingWork host mode=8 choiceToCommitMs=20.135875",
+    "HomeSortingWork host mode=1032 choiceToCommitMs=23.081916",
+    "HomeSortingWork host albums=3 media=360 firstUsableMs=87.442542 fullStatsMs=87.677542 coldCounters=[5, 360, 9, 1, 15, 363] warmAndRapidDelta=[0,0,0,0,0,0] scanner={mediaStoreQueryMs=100, mediaStoreRows=0, mediaStoreQueryCount=1, sortCount=7, sortInputItems=360, sortMode=33794, sortMs=0, diskEnumerateCount=5, diskEnumerateMs=0, candidateCount=360, acceptedCount=360, diskEnumeratedItems=363, directoryStatsCount=5, metadataReadCount=360, metadataReadMs=0}",
+    "HomeSortingWork singleAlbum changedCount=121 untouchedRows=2 homeScanRestart=false updateToCommitMs=42.581375 providerQueriesDelta=2 dbWritesDelta=1"
+  ]
+}

@@ -88,12 +88,23 @@ internal class MediaPipelineDiagnostics(
         emit("media_sort_summary", common, values, listOf("sortCount", "sortInputItems", "sortMs", "sortMode"))
         emit("media_source_summary", common, values, listOf(
             "mediaStoreQueryCount", "mediaStoreQueryMs", "mediaStoreRows", "diskEnumerateCount",
-            "diskEnumeratedItems", "diskEnumerateMs", "metadataReadCount", "metadataReadMs",
+            "diskEnumeratedItems", "diskEnumerateMs", "metadataReadCount", "metadataReadMs", "directoryStatsCount",
             "safOperationCount", "safOperationMs"
         ))
         emit("media_cache_db_summary", common, values, listOf(
             "cacheLookupCount", "cacheHitCount", "cacheMissCount", "cachedItemCount", "diskSupplementCount",
             "dbReadCount", "dbReadRows", "dbReadMs", "dbWriteCount", "dbWriteInputRows", "dbWriteMs"
+        ))
+        // Two-level eligibility: preview survival is measured apart from complete reuse.
+        emit("media_cache_eligibility_summary", common, values, listOf(
+            "cachePreviewEligibleCount", "cachePreviewRejectedCount", "cacheCompleteReusableCount",
+            "cacheEvictionCount", "cacheMissCheckpointUnavailableCount", "cacheMissCheckpointChangedCount",
+            "cacheMissStaleCount", "cacheMissNoEntryCount", "cacheForcedScanCount"
+        ))
+        // Real filesystem work of the first slice, not just the time it took.
+        emit("media_cache_preview_work_summary", common, values, listOf(
+            "cachePreviewBoundedCount", "cachePreviewFullFilterCount", "cachePreviewDegradedCount",
+            "cachePreviewExistenceChecks", "cachePreviewSelectedCount"
         ))
         emit("media_ui_summary", common, values, listOf(
             "stageCount", "stagePublishCount", "adapterSubmitCount", "adapterCommitCount", "adapterDroppedCount",
@@ -122,15 +133,17 @@ internal class MediaPipelineDiagnostics(
             loadReason: String,
             businessRequestId: Long,
             permissionMode: String = "UNKNOWN",
+            diagnosticRequestId: String? = null,
             clock: () -> Long = SystemClock::elapsedRealtime
         ): MediaPipelineDiagnostics? {
             if (!GalleryDiagnosticLogger.isEnabled()) return null
             val safeSource = sourceType.takeIf { it in setOf("HOME", "FOLDER", "CATEGORIZED", "FAVORITES", "RECYCLE_BIN", "PHOTO_PROFILE") } ?: "UNKNOWN"
-            val safeReason = loadReason.takeIf { it in setOf("INITIAL", "REFRESH", "RETURN", "CONFIG_SWITCH", "EXTERNAL_CHANGE") } ?: "UNKNOWN"
+            val safeReason = loadReason.takeIf { it in setOf("INITIAL", "REFRESH", "RETURN", "CONFIG_SWITCH", "EXTERNAL_CHANGE", "VIEWER") } ?: "UNKNOWN"
             val safePermission = permissionMode.takeIf { it in setOf("ALL_FILES", "SCOPED_STORAGE", "LEGACY", "SAF", "MIXED", "UNKNOWN") } ?: "UNKNOWN"
             return MediaPipelineDiagnostics(
-                "ml-${UUID.randomUUID()}", safeSource, safeReason, safePermission,
-                runCatching { GalleryDiagnosticLogger.anonymousId(rawScope) }.getOrDefault("scope-unknown"),
+                diagnosticRequestId ?: "ml-${UUID.randomUUID()}", safeSource, safeReason, safePermission,
+                if (safeSource == "PHOTO_PROFILE") PhotoDiagnosticIdentity.scopeKey(rawScope.removePrefix("photo-profile:"))
+                else runCatching { GalleryDiagnosticLogger.anonymousId(rawScope) }.getOrDefault("scope-unknown"),
                 businessRequestId, clock(), clock
             )
         }

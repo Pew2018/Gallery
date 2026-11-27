@@ -12,7 +12,7 @@ import org.fossify.commons.extensions.isRestrictedWithSAFSdk30
 import org.fossify.gallery.extensions.config
 import java.io.File
 
-internal enum class DisplayedSourceStage { CACHE_PREVIEW, SCAN_PARTIAL, SCAN_COMPLETE }
+internal enum class DisplayedSourceStage { CACHE_PREVIEW, INDEX_PREVIEW, SCAN_PARTIAL, SCAN_COMPLETE }
 
 /** Display capability, never a completeness/existence proof and never persisted. */
 internal data class DisplayedFolderSnapshot(

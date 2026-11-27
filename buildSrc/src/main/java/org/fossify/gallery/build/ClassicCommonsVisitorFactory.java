@@ -4,15 +4,25 @@ import com.android.build.api.instrumentation.AsmClassVisitorFactory;
 import com.android.build.api.instrumentation.ClassContext;
 import com.android.build.api.instrumentation.ClassData;
 import com.android.build.api.instrumentation.InstrumentationParameters;
+import org.gradle.api.provider.Property;
+import org.gradle.api.tasks.Input;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Label;
 
 /** Bounded compatibility patch for Commons 7.1.3; no file/security callbacks are changed. */
-public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFactory<InstrumentationParameters.None> {
+public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFactory<ClassicCommonsVisitorFactory.Parameters> {
+    public interface Parameters extends InstrumentationParameters {
+        @Input Property<Integer> getPatchRevision();
+    }
+
+    private static final String COMMONS_ACTIVITY = "org.fossify.commons.activities.BaseSimpleActivity";
+    private static final String COMMONS_ACTIVITY_INTERNAL = COMMONS_ACTIVITY.replace('.', '/');
+
     @Override public boolean isInstrumentable(ClassData data) {
-        return data.getClassName().equals("org.fossify.commons.views.BiometricIdTab")
+        return data.getClassName().equals(COMMONS_ACTIVITY)
+            || data.getClassName().equals("org.fossify.commons.views.BiometricIdTab")
             || data.getClassName().equals("org.fossify.commons.extensions.ActivityKt")
             || data.getClassName().equals("org.fossify.commons.views.Breadcrumbs")
             || data.getClassName().equals("androidx.fragment.app.DialogFragment")
@@ -51,12 +61,28 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
             private int beforeShows = 0;
             private int afterShows = 0;
             private int methods = 0;
+            private int resumeBackgroundWrites = 0;
             private final boolean activity = name.equals("org.fossify.commons.extensions.ActivityKt");
             private final boolean breadcrumbs = name.equals("org.fossify.commons.views.Breadcrumbs");
             private final String hook = "org/fossify/gallery/helpers/ClassicCommonsHooks";
             @Override public MethodVisitor visitMethod(int access, String method, String desc, String signature, String[] exceptions) {
                 MethodVisitor target = super.visitMethod(access, method, desc, signature, exceptions);
                 final String policy = "org/fossify/gallery/helpers/DialogOverscrollPolicy";
+                if (name.equals(COMMONS_ACTIVITY)) {
+                    if (!method.equals("onResume") || !desc.equals("()V")) return target;
+                    return new MethodVisitor(Opcodes.ASM9, target) {
+                        @Override public void visitMethodInsn(int opcode, String owner, String called, String descriptor, boolean itf) {
+                            if (opcode == Opcodes.INVOKEVIRTUAL && owner.equals(COMMONS_ACTIVITY_INTERNAL)
+                                && called.equals("updateBackgroundColor") && descriptor.equals("(I)V")) {
+                                resumeBackgroundWrites++;
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, hook, "applyResumeBackground",
+                                    "(L" + COMMONS_ACTIVITY_INTERNAL + ";I)V", false);
+                            } else {
+                                super.visitMethodInsn(opcode, owner, called, descriptor, itf);
+                            }
+                        }
+                    };
+                }
                 if (name.equals("androidx.appcompat.widget.ListPopupWindow") && method.equals("buildDropDown") && desc.equals("()I")) {
                     methods++;
                     return new MethodVisitor(Opcodes.ASM9, target) {
@@ -203,6 +229,9 @@ public abstract class ClassicCommonsVisitorFactory implements AsmClassVisitorFac
                 return target;
             }
             @Override public void visitEnd() {
+                if (name.equals(COMMONS_ACTIVITY) && resumeBackgroundWrites != 1) {
+                    throw new IllegalStateException("Commons 7.1.3 resume background patch mismatch: " + resumeBackgroundWrites);
+                }
                 // Fail closed if a future Commons update changes the patched structure.
                 if (((name.equals("androidx.appcompat.widget.ListPopupWindow") || name.equals("androidx.fragment.app.DialogFragment")) && methods != 1) || (name.equals("org.fossify.commons.views.BiometricIdTab") && methods != 1) || (activity && (methods != 2 || shows != 2 || beforeShows != 2 || afterShows != 2)) || (breadcrumbs && methods != 5)) {
                     throw new IllegalStateException("Commons 7.1.3 classic patch mismatch: " + name + " methods=" + methods + " shows=" + shows);

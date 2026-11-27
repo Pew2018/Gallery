@@ -1,9 +1,17 @@
 package org.fossify.gallery.adapters
 
+import java.lang.ref.WeakReference
 import java.util.concurrent.Executor
+import org.fossify.gallery.helpers.AdapterCommitKind
+import org.fossify.gallery.helpers.AdapterSubmission
+import org.fossify.gallery.helpers.DiagnosticLevel
+import org.fossify.gallery.helpers.DiagnosticSequence
+import org.fossify.gallery.helpers.GalleryDiagnosticLogger
 import org.fossify.gallery.helpers.GalleryListDiffExecutor
 import org.fossify.gallery.helpers.MediaUpdatePolicy
 import org.fossify.gallery.helpers.MediaUpdateReason
+import org.fossify.gallery.helpers.MediaThumbnailPriorityPolicy
+import androidx.core.view.doOnNextLayout
 import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
@@ -11,15 +19,18 @@ import android.graphics.drawable.Icon
 import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
+import android.graphics.drawable.Drawable
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.view.allViews
 import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.gallery.helpers.FavoritesScrollRestorer
-import org.fossify.gallery.helpers.PhotoProfileMediaLoader
 import com.bumptech.glide.Glide
+import com.bumptech.glide.RequestBuilder
+import com.bumptech.glide.Priority
 import com.squareup.picasso.Picasso
 import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 import org.fossify.commons.activities.BaseSimpleActivity
@@ -70,6 +81,7 @@ import org.fossify.gallery.dialogs.DeleteWithRememberDialog
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.fixDateTaken
 import org.fossify.gallery.extensions.getShortcutImage
+import org.fossify.gallery.extensions.gridThumbnailRequestBuilder
 import org.fossify.gallery.extensions.handleMediaManagementPrompt
 import org.fossify.gallery.extensions.launchResizeImageDialog
 import org.fossify.gallery.extensions.launchResizeMultipleImagesDialog
@@ -91,6 +103,10 @@ import org.fossify.gallery.extensions.updateFavoritePaths
 import org.fossify.gallery.extensions.ensureFavoriteAddAllowed
 import org.fossify.gallery.helpers.FastScrollerBubble
 import org.fossify.gallery.helpers.OxygenThumbnailPlaceholder
+import org.fossify.gallery.helpers.InteractiveGridThumbnail
+import org.fossify.gallery.helpers.PhotoViewerTransition
+import org.fossify.gallery.helpers.StaticPhotoHeader
+import org.fossify.gallery.helpers.StaticPhotoThumbnail
 import org.fossify.gallery.helpers.OxygenSelectionMode
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
@@ -141,6 +157,7 @@ class MediaAdapter(
     var sorting = config.getFolderSorting(if (config.showAll) SHOW_ALL else path)
     var dateFormat = config.dateFormat
     var timeFormat = activity.getTimeFormat()
+    var onThumbnailLoaded: ((String, ImageView) -> Unit)? = null
 
     init {
         actModeCallback = OxygenSelectionMode.wrap(activity, actModeCallback)
@@ -178,7 +195,7 @@ class MediaAdapter(
         val allowLongPress = (!isAGetIntent || allowMultiplePicks) && tmbItem is Medium
         holder.bindView(tmbItem, tmbItem is Medium, allowLongPress) { itemView, adapterPosition ->
             if (tmbItem is Medium) {
-                setupThumbnail(itemView, tmbItem)
+                setupThumbnail(itemView, tmbItem, thumbnailLoadPriority(adapterPosition))
             } else {
                 setupSection(itemView, tmbItem as ThumbnailSection)
             }
@@ -267,14 +284,25 @@ class MediaAdapter(
 
     override fun onActionModeDestroyed() {}
 
+    override fun onViewAttachedToWindow(holder: ViewHolder) {
+        super.onViewAttachedToWindow(holder)
+        val image = holder.itemView.findViewById<ImageView>(R.id.medium_thumbnail) ?: return
+        if (!fastScrollActive) thumbnailLoad(image)?.start(Priority.HIGH)
+    }
+
     override fun onViewRecycled(holder: ViewHolder) {
         super.onViewRecycled(holder)
         if (!activity.isDestroyed) {
             val itemView = holder.itemView
             val tmb = itemView.allViews.firstOrNull { it.id == R.id.medium_thumbnail }
             if (tmb is ImageView) {
+                InteractiveGridThumbnail.restoreBeforeRebind(tmb)
+                if (tmb.transitionName == PhotoViewerTransition.ELEMENT_NAME) tmb.transitionName = null
+                cancelThumbnailLoad(tmb, "holder_recycled")
                 tmb.tag = null
+                tmb.setTag(R.id.media_bound_path, null)
                 tmb.setTag(R.id.thumbnail_request_key, null)
+                tmb.setTag(R.id.thumbnail_loaded_key, null)
                 Picasso.get().cancelRequest(tmb)
                 Glide.with(activity).clear(tmb)
                 tmb.setImageDrawable(null)
@@ -681,14 +709,14 @@ class MediaAdapter(
         !activity.isFinishing && !activity.isDestroyed && recyclerView.adapter === this
 
     /** Apply confirmed deletions by stable path through the normal single-flight diff path. */
-    internal fun removeMediaPaths(paths: Set<String>) {
+    internal fun removeMediaPaths(paths: Set<String>, onCommitted: () -> Unit = {}) {
         if (paths.isEmpty() || recyclerView.adapter !== this) return
         ++diffGeneration
         pendingUpdate = null
         recyclerView.removeCallbacks(drainUpdates)
-        val remaining = media.filterNot { it is Medium && it.path in paths }
-            .toCollection(ArrayList<ThumbnailItem>())
-        updateMedia(remaining, preserveScroll = false, updateReason = MediaUpdateReason.DELETE_RESULT)
+        val remaining = org.fossify.gallery.helpers.MediaUpdatePolicy.withoutDeletedPaths(media, paths)
+        updateMedia(remaining, preserveScroll = false, onCommitted = onCommitted,
+            updateReason = MediaUpdateReason.DELETE_RESULT)
     }
 
     private fun getSelectedItems() = selectedKeys.mapNotNull { getItemWithKey(it) } as ArrayList<Medium>
@@ -701,23 +729,44 @@ class MediaAdapter(
 
     var committedVersion: Long = 1L
         private set
+    private var diagnosticAdapterId = 0L
+    private var diagnosticGridRequest: Long? = null
+    private var diagnosticSampleWindow = 0L
+    private var diagnosticSamples = 0
+
     @Volatile private var diffGeneration = 0
     private val refreshScroll = FavoritesScrollRestorer()
+    private var initialTopLayoutPending = false
     private data class PendingUpdate(
         val items: ArrayList<ThumbnailItem>, val preserveScroll: Boolean,
         val current: () -> Boolean, val committed: () -> Unit, val generation: Int,
         val requestId: Long?, val diagnosticsEnabled: Boolean,
         val reason: MediaUpdateReason, val sorting: Int, val submittedAt: Long,
-        val snapshotVersion: Long?, val snapshotStage: String?, val forceReplace: Boolean = false
+        val snapshotVersion: Long?, val snapshotStage: String?, val forceReplace: Boolean = false,
+        val diagnosticSubmission: AdapterSubmission? = null,
+        val preparedDiff: PreparedDiff? = null,
+        val pinToStart: () -> Boolean = { false },
+    )
+    private data class PreparedDiff(
+        val result: DiffUtil.DiffResult, val oldCount: Int, val elapsedMs: Long, val finishedAt: Long,
     )
     private var pendingUpdate: PendingUpdate? = null
     private var diffRunning = false
+    private var fastScrollActive = false
+    private var viewerReturnPublicationHeld = false
     private var lastDeferredGeneration = -1
     private val drainUpdates = Runnable { submitPendingUpdate() }
+    private val admitThumbViewport = Runnable { startPendingVisibleThumbnails() }
+    private var thumbAdmissionAfterLayout: androidx.core.view.OneShotPreDrawListener? = null
     private val scrollUpdates = object : RecyclerView.OnScrollListener() {
+        override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+            if (fastScrollActive) waitForThumbViewport()
+        }
+
         override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+            if (newState != RecyclerView.SCROLL_STATE_IDLE) cancelInitialTopLayout()
             if (newState == RecyclerView.SCROLL_STATE_DRAGGING) refreshScroll.clear()
-            if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+            if (newState != RecyclerView.SCROLL_STATE_DRAGGING) {
                 recyclerView.removeCallbacks(drainUpdates)
                 submitPendingUpdate()
             }
@@ -750,8 +799,16 @@ class MediaAdapter(
                     isCurrent: () -> Boolean = { true }, onCommitted: () -> Unit = {},
                     diagnosticRequestId: Long? = null, updateReason: MediaUpdateReason = MediaUpdateReason.SCAN,
                     effectiveSorting: Int = config.getFolderSorting(if (config.showAll) SHOW_ALL else path),
-                    diagnosticSnapshotVersion: Long? = null, diagnosticSnapshotStage: String? = null) {
-        if (!isCurrent()) return
+                    diagnosticSnapshotVersion: Long? = null, diagnosticSnapshotStage: String? = null,
+                    diagnosticTraceId: Long? = null, pinToStart: () -> Boolean = { false }) {
+        if (!isCurrent()) {
+            if (GalleryDiagnosticLogger.isEnabled()) GalleryDiagnosticLogger.event(
+                DiagnosticLevel.DEBUG, "MediaUI", "adapter_update_skipped", diagnosticTraceId,
+                mapOf("adapterId" to diagnosticId(), "reason" to "stale_at_submit",
+                    "requestGeneration" to diagnosticRequestId, "adapterVersion" to committedVersion)
+            )
+            return
+        }
         val diagnosticsEnabled = org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()
         if (diagnosticsEnabled) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
             org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_submit", diagnosticRequestId,
@@ -760,6 +817,7 @@ class MediaAdapter(
                 "adapterVersion" to committedVersion, "snapshotVersion" to diagnosticSnapshotVersion,
                 "snapshotStage" to diagnosticSnapshotStage, "updateReason" to updateReason.name)
         )
+        pendingUpdate?.let { logAdapterObservation(it, "adapter_update_skipped", "replaced") }
         if (diagnosticsEnabled && pendingUpdate != null) org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
             org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_submit_replaced", diagnosticRequestId,
             mapOf("itemCount" to newMedia.size, "replacedGeneration" to pendingUpdate?.generation,
@@ -768,7 +826,11 @@ class MediaAdapter(
         pendingUpdate = PendingUpdate(snapshot(newMedia), preserveScroll, isCurrent, onCommitted, ++diffGeneration,
             diagnosticRequestId, diagnosticsEnabled, updateReason, effectiveSorting,
             android.os.SystemClock.elapsedRealtime(),
-            diagnosticSnapshotVersion, diagnosticSnapshotStage)
+            diagnosticSnapshotVersion, diagnosticSnapshotStage, pinToStart = pinToStart,
+            diagnosticSubmission = if (diagnosticsEnabled) AdapterSubmission(
+                diagnosticId(), diffGeneration, diagnosticTraceId
+            ) else null)
+        pendingUpdate?.let { logAdapterObservation(it, "adapter_update_submitted", "submitted") }
         recyclerView.removeCallbacks(drainUpdates)
         submitPendingUpdate()
     }
@@ -777,16 +839,16 @@ class MediaAdapter(
     private fun submitPendingUpdate() {
         val pending = pendingUpdate ?: return
         if (!canCommit(pending)) {
+            logAdapterObservation(pending, "adapter_update_skipped", "stale_or_detached")
             pendingUpdate = null
             return
         }
-        if (recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE || recyclerView.isComputingLayout) {
-            logUpdate(pending, "adapter_update_deferred", "layout_or_scroll")
-            recyclerView.removeCallbacks(drainUpdates)
-            recyclerView.postDelayed(drainUpdates, 80)
+        if (deferCommit(pending)) return
+        pendingUpdate = null
+        pending.preparedDiff?.let {
+            commitDiff(pending, it)
             return
         }
-        pendingUpdate = null
         val incoming = pending.items
         applyDurationOverrides(incoming)
         if (MediaUpdatePolicy.sameDisplayedContent(media, incoming)) {
@@ -802,7 +864,28 @@ class MediaAdapter(
                     pending.requestId, mapOf("itemCount" to incoming.size, "diffGeneration" to pending.generation,
                         "adapterId" to System.identityHashCode(this), "adapterVersion" to committedVersion)
                 )
+            restoreRefreshScroll(pending)
             logUpdate(pending, "adapter_snapshot_fast_commit", "same_content")
+            logAdapterCommit(pending, AdapterCommitKind.NO_OP)
+            pending.committed()
+            return
+        }
+        // The proof is the content itself: every previously displayed row is still
+        // at the same index and the incoming list is strictly longer. Stage names are
+        // not frame evidence, so any scan publication with that prefix qualifies.
+        // A date-descending insert at the head breaks the prefix and still diffs.
+        if (pending.preserveScroll && pending.reason == MediaUpdateReason.SCAN &&
+            MediaUpdatePolicy.isContentAppend(media, incoming)) {
+            val oldCount = media.size
+            sorting = pending.sorting
+            media = incoming
+            committedVersion++
+            currentMediaHash = media.hashCode()
+            listener?.updateMediaGridDecoration(media)
+            notifyItemRangeInserted(oldCount, incoming.size - oldCount)
+            restoreRefreshScroll(pending)
+            logUpdate(pending, "adapter_snapshot_fast_commit", "append", oldCount)
+            logAdapterCommit(pending, AdapterCommitKind.APPEND)
             pending.committed()
             return
         }
@@ -850,6 +933,7 @@ class MediaAdapter(
                 logUpdate(pending, "adapter_diff_finished", if (result.isSuccess) "diff" else "failed_or_cancelled",
                     old.size, diffMs = diffFinished - diffStarted)
                 if (pending.generation != diffGeneration || !canCommit(pending)) {
+                    logAdapterObservation(pending, "adapter_update_skipped", "stale_diff")
                     if (pending.diagnosticsEnabled)
                         org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
                             org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_diff_dropped",
@@ -860,49 +944,13 @@ class MediaAdapter(
                     submitPendingUpdate()
                     return@runOnUiThread
                 }
-                if (result.isFailure) {
-                    recoverDiff(pending, result.exceptionOrNull()!!)
+                val prepared = result.getOrElse {
+                    recoverDiff(pending, it)
                     return@runOnUiThread
                 }
-                val diff = result.getOrThrow()
-                if (recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE || recyclerView.isComputingLayout) {
-                    pendingUpdate = pending
-                    recyclerView.postDelayed(drainUpdates, 80)
-                    return@runOnUiThread
-                }
-                // Details may have completed while the background diff ran.
-                applyDurationOverrides(incoming)
-                rememberRefreshScroll(pending)
-                sorting = pending.sorting
-                media = incoming
-                committedVersion++
-                currentMediaHash = media.hashCode()
-                selectedKeys.retainAll(media.filterIsInstance<Medium>().map { it.path.hashCode() }.toSet())
-                if (selectedKeys.isEmpty()) finishActMode() else actMode?.invalidate()
-                listener?.updateMediaGridDecoration(media)
-                diff.dispatchUpdatesTo(this)
-                if (pending.diagnosticsEnabled)
-                    org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
-                        org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_commit",
-                        pending.requestId, mapOf(
-                            "itemCount" to incoming.size, "gridVersion" to committedVersion,
-                            "diffGeneration" to pending.generation, "adapterId" to System.identityHashCode(this),
-                            "oldCount" to old.size,
-                            "diffMs" to (diffFinished - diffStarted).coerceAtLeast(0L),
-                            "publicationWaitMs" to (android.os.SystemClock.elapsedRealtime() - diffFinished),
-                            "elapsedMs" to (android.os.SystemClock.elapsedRealtime() - pending.submittedAt),
-                            "updateReason" to pending.reason.name, "commitStrategy" to "diff",
-                            "snapshotVersion" to pending.snapshotVersion, "snapshotStage" to pending.snapshotStage,
-                            "adapterVersion" to committedVersion,
-                            "scopeKey" to org.fossify.gallery.helpers.GalleryDiagnosticLogger.anonymousId(path)
-                        )
-                    )
-                if (refreshScroll.pending != null) refreshScroll.restore(recyclerView,
-                    media.map { (it as? Medium)?.path }, true, isCurrent = {
-                        pending.generation == diffGeneration && recyclerView.adapter === this && pending.current() &&
-                            recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE
-                    })
-                pending.committed()
+                pendingUpdate = pending.copy(preparedDiff = PreparedDiff(
+                    prepared, old.size, (diffFinished - diffStarted).coerceAtLeast(0L), diffFinished
+                ))
                 submitPendingUpdate()
             }
         }
@@ -910,6 +958,61 @@ class MediaAdapter(
             diffRunning = false
             recoverDiff(pending, error)
         }
+    }
+
+    private fun permitsFlingCommit(pending: PendingUpdate): Boolean =
+        pending.reason == MediaUpdateReason.SCAN && pending.preserveScroll
+
+    private fun deferCommit(pending: PendingUpdate): Boolean {
+        if (fastScrollActive || viewerReturnPublicationHeld) {
+            logUpdate(pending, "adapter_update_deferred", if (viewerReturnPublicationHeld) "viewer_return" else "fast_scroll")
+            return true
+        }
+        val computingLayout = recyclerView.isComputingLayout
+        val scrolling = recyclerView.scrollState == RecyclerView.SCROLL_STATE_DRAGGING ||
+            recyclerView.scrollState == RecyclerView.SCROLL_STATE_SETTLING && !permitsFlingCommit(pending)
+        if (!computingLayout && !scrolling) return false
+        logUpdate(pending, "adapter_update_deferred", "layout_or_scroll")
+        // Touch/return ownership releases via its listener. A layout boundary
+        // needs only one frame callback, with the already computed diff intact.
+        if (computingLayout && !scrolling) {
+            recyclerView.removeCallbacks(drainUpdates)
+            recyclerView.postOnAnimation(drainUpdates)
+        }
+        return true
+    }
+
+    private fun commitDiff(pending: PendingUpdate, prepared: PreparedDiff) {
+        val incoming = pending.items
+        // Details may have completed while the background diff ran.
+        applyDurationOverrides(incoming)
+        rememberRefreshScroll(pending)
+        sorting = pending.sorting
+        media = incoming
+        committedVersion++
+        currentMediaHash = media.hashCode()
+        selectedKeys.retainAll(media.filterIsInstance<Medium>().map { it.path.hashCode() }.toSet())
+        if (selectedKeys.isEmpty()) finishActMode() else actMode?.invalidate()
+        listener?.updateMediaGridDecoration(media)
+        prepared.result.dispatchUpdatesTo(this)
+        logAdapterCommit(pending, AdapterCommitKind.DIFF)
+        if (pending.diagnosticsEnabled)
+            GalleryDiagnosticLogger.event(
+                DiagnosticLevel.DEBUG, "MediaUI", "adapter_commit",
+                pending.requestId, mapOf(
+                    "itemCount" to incoming.size, "gridVersion" to committedVersion,
+                    "diffGeneration" to pending.generation, "adapterId" to System.identityHashCode(this),
+                    "oldCount" to prepared.oldCount, "diffMs" to prepared.elapsedMs,
+                    "publicationWaitMs" to (android.os.SystemClock.elapsedRealtime() - prepared.finishedAt),
+                    "elapsedMs" to (android.os.SystemClock.elapsedRealtime() - pending.submittedAt),
+                    "updateReason" to pending.reason.name, "commitStrategy" to "diff",
+                    "snapshotVersion" to pending.snapshotVersion, "snapshotStage" to pending.snapshotStage,
+                    "adapterVersion" to committedVersion, "scopeKey" to GalleryDiagnosticLogger.anonymousId(path)
+                )
+            )
+        restoreRefreshScroll(pending)
+        pending.committed()
+        submitPendingUpdate()
     }
 
     private fun recoverDiff(pending: PendingUpdate, error: Throwable) {
@@ -925,13 +1028,14 @@ class MediaAdapter(
         // DiffUtil's edit-distance search is needlessly expensive for a large
         // permutation. Other updates use the bounded replacement or Diff
         // policy, preserving any section headers.
-        refreshScroll.clear()
+        rememberRefreshScroll(pending)
         sorting = pending.sorting
         media = incoming
         committedVersion++
         currentMediaHash = media.hashCode()
         listener?.updateMediaGridDecoration(media)
         notifyItemRangeChanged(0, incoming.size)
+        restoreRefreshScroll(pending)
         if (pending.diagnosticsEnabled)
             org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
                 org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "MediaUI", "adapter_reorder_commit",
@@ -939,6 +1043,7 @@ class MediaAdapter(
                     "diffGeneration" to pending.generation, "adapterId" to System.identityHashCode(this))
             )
         logUpdate(pending, "adapter_snapshot_fast_commit", "reorder")
+        logAdapterCommit(pending, AdapterCommitKind.REORDER)
         pending.committed()
     }
 
@@ -956,12 +1061,8 @@ class MediaAdapter(
         listener?.updateMediaGridDecoration(media)
         notifyDataSetChanged()
         logUpdate(pending, "adapter_snapshot_fast_commit", "replace", oldCount)
-        if (refreshScroll.pending != null) refreshScroll.restore(recyclerView,
-            media.map { (it as? Medium)?.path }, true, isCurrent = {
-                pending.generation == diffGeneration && recyclerView.adapter === this && pending.current() &&
-                    !activity.isFinishing && !activity.isDestroyed &&
-                    recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE
-            })
+        logAdapterCommit(pending, AdapterCommitKind.REPLACE)
+        restoreRefreshScroll(pending)
         pending.committed()
     }
 
@@ -970,11 +1071,318 @@ class MediaAdapter(
         return recyclerView.adapter === this && pending.current()
     }
 
+    /** A thumb drag can leave RecyclerView.scrollState idle while scrollBy() moves it. */
+    fun setFastScrollActive(active: Boolean, submitPending: Boolean = true) {
+        val wasActive = fastScrollActive
+        fastScrollActive = active
+        if (wasActive != active && GalleryDiagnosticLogger.isEnabled()) {
+            GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", "thumbnail_thumb_state",
+                diagnosticGridRequest, mapOf("adapterId" to diagnosticId(), "adapterVersion" to committedVersion,
+                    "active" to active, "scrollState" to recyclerView.scrollState))
+        }
+        if (active) {
+            cancelInitialTopLayout()
+            refreshScroll.clear()
+            recyclerView.removeCallbacks(drainUpdates)
+            thumbAdmissionAfterLayout?.removeListener()
+            thumbAdmissionAfterLayout = null
+            waitForThumbViewport()
+        } else {
+            if (submitPending) submitPendingUpdate()
+            if (wasActive) {
+                recyclerView.removeCallbacks(admitThumbViewport)
+                beginThumbnailRecovery()
+                // Let a pending list commit and its layout choose the final set of holders.
+                recyclerView.postOnAnimation(admitThumbViewport)
+            }
+        }
+    }
+
+    // --- Settled-viewport thumbnail recovery accounting ----------------------
+    // Measures the interval the user actually notices: from releasing the thumb to the
+    // first visible resource and to the whole visible viewport being served. Every
+    // number is tied to the adapter version and to the rows bound at release time, so
+    // recycled or re-bound holders cannot be counted as recovered.
+    private var thumbRecoveryGeneration = 0
+    private var thumbRecoveryStartedAt = 0L
+    private var thumbRecoveryAdapterVersion = -1L
+    private val thumbRecoveryPending = LinkedHashSet<String>()
+    private var thumbRecoveryFirstReadyMs = -1L
+
+    private fun beginThumbnailRecovery() {
+        if (!GalleryDiagnosticLogger.isEnabled()) return
+        val bounds = android.graphics.Rect()
+        val pending = LinkedHashSet<String>()
+        for (index in 0 until recyclerView.childCount) {
+            val child = recyclerView.getChildAt(index)
+            val image = child.findViewById<ImageView>(R.id.medium_thumbnail) ?: continue
+            val load = thumbnailLoad(image) ?: continue
+            if (load.pending == null) continue
+            val row = media.getOrNull(recyclerView.getChildAdapterPosition(child)) as? Medium ?: continue
+            if (image.getTag(R.id.media_bound_path) != row.path) continue
+            if (!image.isShown || !image.getLocalVisibleRect(bounds)) continue
+            pending.add(row.path)
+        }
+        thumbRecoveryGeneration++
+        thumbRecoveryStartedAt = android.os.SystemClock.elapsedRealtime()
+        thumbRecoveryAdapterVersion = committedVersion
+        thumbRecoveryFirstReadyMs = -1L
+        thumbRecoveryPending.clear()
+        thumbRecoveryPending.addAll(pending)
+        GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", "thumbnail_recovery_window",
+            diagnosticGridRequest, mapOf("adapterId" to diagnosticId(), "adapterVersion" to committedVersion,
+                "recoveryGeneration" to thumbRecoveryGeneration, "visiblePending" to pending.size))
+    }
+
+    /** Called once a visible thumbnail resource has actually been bound to its holder. */
+    internal fun recordThumbnailReady(path: String) {
+        if (thumbRecoveryPending.isEmpty()) return
+        if (!thumbRecoveryPending.remove(path)) return
+        if (!GalleryDiagnosticLogger.isEnabled()) return
+        val elapsed = android.os.SystemClock.elapsedRealtime() - thumbRecoveryStartedAt
+        if (thumbRecoveryFirstReadyMs < 0L) {
+            thumbRecoveryFirstReadyMs = elapsed
+            GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", "thumbnail_recovery_first_ready",
+                diagnosticGridRequest, mapOf("adapterId" to diagnosticId(), "adapterVersion" to committedVersion,
+                    "recoveryGeneration" to thumbRecoveryGeneration, "sinceFastScrollEndMs" to elapsed,
+                    "remaining" to thumbRecoveryPending.size))
+        }
+        if (thumbRecoveryPending.isEmpty()) {
+            GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", "thumbnail_recovery_complete",
+                diagnosticGridRequest, mapOf("adapterId" to diagnosticId(), "adapterVersion" to committedVersion,
+                    "recoveryGeneration" to thumbRecoveryGeneration, "sinceFastScrollEndMs" to elapsed,
+                    "firstReadyMs" to thumbRecoveryFirstReadyMs,
+                    "adapterVersionChanged" to (committedVersion != thumbRecoveryAdapterVersion)))
+        }
+    }
+
+    private fun waitForThumbViewport() {
+        recyclerView.removeCallbacks(admitThumbViewport)
+        // Allow previews when the thumb pauses, while coalescing consecutive positions.
+        recyclerView.postDelayed(admitThumbViewport, THUMB_VIEWPORT_QUIET_MS)
+    }
+
+    private fun startPendingVisibleThumbnails() {
+        if (recyclerView.adapter !== this || activity.isFinishing || activity.isDestroyed) return
+        if (recyclerView.isLayoutRequested && recyclerView.hasPendingAdapterUpdates()) {
+            // No work may escape into the previous viewport before the queued layout.
+            if (!fastScrollActive && thumbAdmissionAfterLayout == null) {
+                thumbAdmissionAfterLayout = androidx.core.view.OneShotPreDrawListener.add(recyclerView) {
+                    thumbAdmissionAfterLayout = null
+                    if (!fastScrollActive) startPendingVisibleThumbnails()
+                }
+            }
+            return
+        }
+        val bounds = android.graphics.Rect()
+        var started = 0
+        for (index in 0 until recyclerView.childCount) {
+            val child = recyclerView.getChildAt(index)
+            val image = child.findViewById<ImageView>(R.id.medium_thumbnail) ?: continue
+            val load = thumbnailLoad(image) ?: continue
+            val position = recyclerView.getChildAdapterPosition(child)
+            val row = media.getOrNull(position) as? Medium ?: continue
+            if (load.pending != null && image.getTag(R.id.media_bound_path) == row.path &&
+                image.getTag(R.id.thumbnail_request_key) === load.token &&
+                image.isShown && image.getLocalVisibleRect(bounds)) {
+                load.start(Priority.HIGH)
+                started++
+            }
+        }
+        if (GalleryDiagnosticLogger.isEnabled()) {
+            GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", "thumbnail_viewport_admitted",
+                diagnosticGridRequest, mapOf("adapterId" to diagnosticId(), "adapterVersion" to committedVersion,
+                    "phase" to if (fastScrollActive) "THUMB_PAUSE" else "THUMB_RELEASE", "started" to started,
+                    "recoveryGeneration" to thumbRecoveryGeneration,
+                    "sinceFastScrollEndMs" to if (thumbRecoveryStartedAt == 0L) -1L
+                    else (android.os.SystemClock.elapsedRealtime() - thumbRecoveryStartedAt)))
+        }
+    }
+
+    internal fun setViewerReturnPublicationHeld(held: Boolean) {
+        viewerReturnPublicationHeld = held
+        if (held) {
+            refreshScroll.clear()
+            recyclerView.removeCallbacks(drainUpdates)
+        }
+    }
+
+    fun submitPendingUpdateAfterFastScroll() {
+        if (!fastScrollActive) submitPendingUpdate()
+    }
+
+    internal fun clearRefreshScroll() = refreshScroll.clear()
+
     private fun rememberRefreshScroll(pending: PendingUpdate) {
-        refreshScroll.clear()
-        if (!pending.preserveScroll || pending.reason == MediaUpdateReason.USER_SORT) return
-        if (path == FAVORITES || path == PhotoProfileMediaLoader.PATH) return
-        refreshScroll.remember(recyclerView, media.map { (it as? Medium)?.path })
+        if (pending.pinToStart() || !pending.preserveScroll || pending.reason == MediaUpdateReason.USER_SORT) {
+            refreshScroll.clear()
+            return
+        }
+        // Two commits can arrive before RecyclerView lays out the first one.
+        // In that window the attached holders still describe the prior list.
+        if (!recyclerView.hasPendingAdapterUpdates()) refreshScroll.clear()
+        refreshScroll.remember(recyclerView, media.map { (it as? Medium)?.path }, keepNeighbors = true,
+            allowFling = permitsFlingCommit(pending))
+    }
+
+    private fun cancelInitialTopLayout() {
+        if (!initialTopLayoutPending) return
+        initialTopLayoutPending = false
+        (recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager)
+            ?.scrollToPosition(RecyclerView.NO_POSITION)
+    }
+
+    private fun restoreRefreshScroll(pending: PendingUpdate) {
+        if (pending.pinToStart() && canCommit(pending)) {
+            refreshScroll.clear()
+            (recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager)?.let { manager ->
+                manager.scrollToPositionWithOffset(0, 0)
+                initialTopLayoutPending = true
+                recyclerView.doOnNextLayout { initialTopLayoutPending = false }
+            }
+            return
+        }
+        if (refreshScroll.pending == null) return
+        if (!pending.preserveScroll || pending.reason == MediaUpdateReason.USER_SORT) {
+            refreshScroll.clear()
+            return
+        }
+        val paths = media.map { (it as? Medium)?.path }
+        if (recyclerView.scrollState == RecyclerView.SCROLL_STATE_SETTLING) {
+            refreshScroll.restoreDuringFling(recyclerView, paths)
+            return
+        }
+        val version = committedVersion
+        refreshScroll.restore(recyclerView, paths, true, isCurrent = {
+            !fastScrollActive && version == committedVersion && canCommit(pending) &&
+                recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE
+        })
+    }
+
+    private fun diagnosticId(): Long {
+        if (diagnosticAdapterId == 0L) diagnosticAdapterId = DiagnosticSequence.next()
+        return diagnosticAdapterId
+    }
+
+    internal fun logInitialSnapshot(request: Long?, traceId: Long?) {
+        if (!GalleryDiagnosticLogger.isEnabled()) return
+        diagnosticGridRequest = traceId
+        GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", "adapter_initial_snapshot", traceId,
+            mapOf("adapterId" to diagnosticId(), "adapterVersion" to committedVersion,
+                "requestGeneration" to request, "itemCount" to media.size))
+    }
+
+    private fun logAdapterCommit(pending: PendingUpdate, kind: AdapterCommitKind) {
+        diagnosticGridRequest = pending.diagnosticSubmission?.requestId
+        logAdapterObservation(pending, "adapter_update_committed", kind.name, kind.visibleListChanged)
+    }
+
+    private fun logAdapterObservation(pending: PendingUpdate, event: String, strategy: String,
+                                      visibleListChanged: Boolean? = null) {
+        val submission = pending.diagnosticSubmission ?: return
+        if (!GalleryDiagnosticLogger.isEnabled()) return
+        GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", event, submission.requestId,
+            mapOf("adapterId" to submission.adapterId, "diffGeneration" to submission.generation,
+                "adapterVersion" to committedVersion, "requestGeneration" to pending.requestId,
+                "itemCount" to pending.items.size, "strategy" to strategy, "visibleListChanged" to visibleListChanged,
+                "snapshotVersion" to pending.snapshotVersion, "snapshotStage" to pending.snapshotStage,
+                "elapsedMs" to (android.os.SystemClock.elapsedRealtime() - pending.submittedAt)))
+    }
+
+    private var thumbnailRequestSequence = 0L
+    private var thumbnailTraceWindow = 0L
+    private var thumbnailTraceSamples = 0
+
+    internal fun staticThumbnail(image: ImageView): StaticPhotoThumbnail? =
+        (image.getTag(R.id.media_thumbnail_load) as? ThumbnailLoad)?.takeIf {
+            it.token === image.getTag(R.id.thumbnail_loaded_key)
+        }?.staticThumbnail?.takeIf { it.first.get() === image.drawable }?.second
+
+    private class ThumbnailLoad(
+        val token: Any,
+        val trace: ((String, String?, Priority?, String?) -> Unit)?,
+        var pending: ((Priority) -> Unit)? = null
+    ) {
+        var priority: Priority? = null
+            private set
+        var finished = false
+        var staticThumbnail: Pair<WeakReference<Drawable>, StaticPhotoThumbnail>? = null
+
+        fun start(priority: Priority) {
+            val request = pending ?: return
+            pending = null
+            this.priority = priority
+            trace?.invoke("REQUEST_STARTED", null, priority, null)
+            request(priority)
+        }
+    }
+
+    private fun thumbnailLoad(image: ImageView) =
+        image.getTag(R.id.media_thumbnail_load) as? ThumbnailLoad
+
+    private fun cancelThumbnailLoad(image: ImageView, reason: String) {
+        val load = thumbnailLoad(image) ?: return
+        if (!load.finished) load.trace?.invoke("REQUEST_CANCELLED", reason, load.priority, null)
+        load.pending = null
+        image.setTag(R.id.media_thumbnail_load, null)
+    }
+
+    private fun thumbnailTrace(
+        image: ImageView, path: String, bindPriority: Priority
+    ): ((String, String?, Priority?, String?) -> Unit)? {
+        if (!GalleryDiagnosticLogger.isEnabled()) return null
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - thumbnailTraceWindow >= 1_000L) {
+            thumbnailTraceWindow = now
+            thumbnailTraceSamples = 0
+        }
+        if (thumbnailTraceSamples >= 4) return null
+        thumbnailTraceSamples++
+        val mediaId = GalleryDiagnosticLogger.anonymousId(path)
+        val token = ++thumbnailRequestSequence
+        val version = committedVersion
+        val sourceRequest = diagnosticGridRequest
+        return { stage, reason, priority, cache ->
+            if (GalleryDiagnosticLogger.isEnabled()) {
+                val bounds = android.graphics.Rect()
+                val viewState = when {
+                    !image.isAttachedToWindow -> "DETACHED"
+                    image.isShown && image.getLocalVisibleRect(bounds) -> "VISIBLE"
+                    else -> "ATTACHED"
+                }
+                val scrollState = if (fastScrollActive) "FAST_${recyclerView.scrollState}" else recyclerView.scrollState.toString()
+                GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", "thumbnail_request", sourceRequest,
+                    mapOf("stage" to stage, "reason" to reason, "adapterId" to diagnosticId(),
+                        "adapterVersion" to version, "holderId" to System.identityHashCode(image),
+                        "bindGeneration" to token, "thumbnailToken" to token, "mediaId" to mediaId,
+                        "priority" to priority?.name, "bindPriority" to bindPriority.name, "cache" to cache,
+                        "viewState" to viewState, "size" to "${image.width}x${image.height}",
+                        "visibleSize" to "${bounds.width()}x${bounds.height()}", "scrollState" to scrollState,
+                        "presented" to "NOT_OBSERVABLE"))
+            }
+        }
+    }
+
+    private fun logVisibleDrawable(image: ImageView, medium: Medium, key: Any, event: String, reason: String) {
+        if (!GalleryDiagnosticLogger.isEnabled() || !image.isAttachedToWindow || !image.isShown ||
+            recyclerView.windowVisibility != View.VISIBLE) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - diagnosticSampleWindow >= 1_000L) {
+            diagnosticSampleWindow = now
+            diagnosticSamples = 0
+        }
+        if (diagnosticSamples >= 8) return
+        val visible = android.graphics.Rect()
+        if (!image.getLocalVisibleRect(visible)) return
+        diagnosticSamples++
+        GalleryDiagnosticLogger.event(DiagnosticLevel.DEBUG, "MediaUI", event, diagnosticGridRequest,
+            mapOf("adapterId" to diagnosticId(), "adapterVersion" to committedVersion,
+                "holderId" to System.identityHashCode(image), "reason" to reason,
+                "width" to image.width, "height" to image.height,
+                "visibleWidth" to visible.width(), "visibleHeight" to visible.height(),
+                "scrollState" to recyclerView.scrollState, "computingLayout" to recyclerView.isComputingLayout,
+                "mediaId" to GalleryDiagnosticLogger.anonymousId(medium.path),
+                "drawableKeyId" to GalleryDiagnosticLogger.anonymousId(key.toString())))
     }
 
     private fun logUpdate(pending: PendingUpdate, event: String, strategy: String, oldCount: Int = media.size,
@@ -1041,6 +1449,10 @@ class MediaAdapter(
         ++diffGeneration
         pendingUpdate = null
         recyclerView.removeCallbacks(drainUpdates)
+        recyclerView.removeCallbacks(admitThumbViewport)
+        thumbAdmissionAfterLayout?.removeListener()
+        thumbAdmissionAfterLayout = null
+        fastScrollActive = false
         recyclerView.removeOnScrollListener(scrollUpdates)
         durationOverrides.clear()
         refreshScroll.clear()
@@ -1067,7 +1479,39 @@ class MediaAdapter(
         notifyDataSetChanged()
     }
 
-    private fun setupThumbnail(view: View, medium: Medium) {
+    private fun thumbnailLoadPriority(position: Int): Priority {
+        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return Priority.NORMAL
+        val firstVisible = layoutManager.findFirstVisibleItemPosition()
+        val lastVisible = layoutManager.findLastVisibleItemPosition()
+        return MediaThumbnailPriorityPolicy.priority(position, firstVisible, lastVisible)
+    }
+
+    /**
+     * Starts the queued thumbnail request of [path] at HIGH because the Grid is waiting
+     * for exactly that drawable as the Viewer's shared-element return target.
+     *
+     * The 2026-11-24 device log showed a return target sitting at
+     * `readiness=pixels_unavailable` for ~410 ms, i.e. the holder was bound and matched
+     * the media identity but its request had not been dispatched yet - a `Priority`
+     * decision taken when the holder was bound for a different reason. Only a request
+     * that has not started is promoted: an in-flight decode already used its own
+     * priority and must not be issued twice, and a finished one cannot be re-prioritised
+     * without a new request, so both are left alone.
+     */
+    internal fun promoteQueuedThumbnail(path: String): Boolean {
+        val grid = recyclerView ?: return false
+        for (index in 0 until grid.childCount) {
+            val image = grid.getChildAt(index).findViewById<ImageView>(R.id.medium_thumbnail) ?: continue
+            if (image.getTag(R.id.media_bound_path) != path) continue
+            val load = thumbnailLoad(image) ?: continue
+            if (load.pending == null) continue
+            load.start(Priority.HIGH)
+            return true
+        }
+        return false
+    }
+
+    private fun setupThumbnail(view: View, medium: Medium, thumbnailPriority: Priority) {
         val isSelected = selectedKeys.contains(medium.path.hashCode())
         bindItem(view, medium).apply {
             val padding = if (config.thumbnailSpacing <= 1) {
@@ -1145,33 +1589,84 @@ class MediaAdapter(
             val signature = medium.getKey()
             val requestKey = listOf(path, signature, medium.type, cropThumbnails, roundedCorners, animateGifs,
                 scrollHorizontally, rotatedImagePaths.contains(path))
+            if (mediumThumbnail.getTag(R.id.media_bound_path) != medium.path) {
+                InteractiveGridThumbnail.restoreBeforeRebind(mediumThumbnail)
+                if (mediumThumbnail.transitionName == PhotoViewerTransition.ELEMENT_NAME) mediumThumbnail.transitionName = null
+            }
+            mediumThumbnail.setTag(R.id.media_bound_path, medium.path)
             if (mediumThumbnail.getTag(R.id.thumbnail_request_key) != requestKey) {
+                InteractiveGridThumbnail.restoreBeforeRebind(mediumThumbnail)
+                cancelThumbnailLoad(mediumThumbnail, "binding_key_changed")
                 // Change the token before cancellation so an obsolete failure cannot start a fallback.
                 mediumThumbnail.setTag(R.id.thumbnail_request_key, requestKey)
+                mediumThumbnail.setTag(R.id.thumbnail_loaded_key, null)
                 Picasso.get().cancelRequest(mediumThumbnail)
                 Glide.with(activity).clear(mediumThumbnail)
                 mediumThumbnail.setImageDrawable(null)
+                logVisibleDrawable(mediumThumbnail, medium, requestKey, "visible_drawable_cleared", "binding_key_changed")
                 mediumThumbnail.tag = path
                 OxygenThumbnailPlaceholder.apply(activity, mediumThumbnail, roundedCorners)
                 mediumThumbnail.scaleType = if (cropThumbnails) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
-                activity.loadImage(
-                    type = medium.type,
-                    path = path,
-                    target = mediumThumbnail,
-                    horizontalScroll = scrollHorizontally,
-                    animateGifs = animateGifs,
-                    cropThumbnails = cropThumbnails,
-                    roundCorners = roundedCorners,
-                    signature = signature,
-                    skipMemoryCacheAtPaths = rotatedImagePaths,
-                    crossFadeDuration = 0,
-                    onError = {
-                        if (mediumThumbnail.getTag(R.id.thumbnail_request_key) == requestKey) {
-                            mediumThumbnail.scaleType = ImageView.ScaleType.CENTER
-                            mediumThumbnail.setImageDrawable(AppCompatResources.getDrawable(activity, R.drawable.ic_vector_warning_colored))
+                val trace = thumbnailTrace(mediumThumbnail, medium.path, thumbnailPriority)
+                val load = ThumbnailLoad(requestKey, trace)
+                mediumThumbnail.setTag(R.id.media_thumbnail_load, load)
+                trace?.invoke("REQUEST_CREATED", null, null, null)
+                load.pending = { priority ->
+                    activity.loadImage(
+                        type = medium.type,
+                        path = path,
+                        target = mediumThumbnail,
+                        horizontalScroll = scrollHorizontally,
+                        animateGifs = animateGifs,
+                        cropThumbnails = cropThumbnails,
+                        roundCorners = roundedCorners,
+                        signature = signature,
+                        skipMemoryCacheAtPaths = rotatedImagePaths,
+                        crossFadeDuration = 0,
+                        priority = priority,
+                        onLoadStage = trace?.let {
+                            { stage, reason, cache ->
+                                if (stage == "REQUEST_FAILED") load.finished = true
+                                it(stage, reason, priority, cache)
+                            }
+                        },
+                        onStaticThumbnail = if (medium.isImage() && !medium.isApng() && StaticPhotoHeader.isCandidate(path)) {
+                            { drawable, evidence -> load.staticThumbnail = WeakReference(drawable) to evidence }
+                        } else null,
+                        onLoaded = {
+                            if (mediumThumbnail.getTag(R.id.thumbnail_request_key) === load.token &&
+                                mediumThumbnail.drawable != null) {
+                                load.finished = true
+                                mediumThumbnail.setTag(R.id.thumbnail_loaded_key, load.token)
+                                trace?.invoke("DRAWABLE_BOUND", null, priority, null)
+                                if (trace != null && mediumThumbnail.isAttachedToWindow) {
+                                    androidx.core.view.OneShotPreDrawListener.add(mediumThumbnail) {
+                                        if (mediumThumbnail.getTag(R.id.thumbnail_loaded_key) === load.token &&
+                                            mediumThumbnail.isShown &&
+                                            mediumThumbnail.getLocalVisibleRect(android.graphics.Rect())) {
+                                            trace("FRAME_OBSERVED", "pre_draw", priority, null)
+                                        }
+                                    }
+                                }
+                                logVisibleDrawable(mediumThumbnail, medium, load.token, "visible_drawable_ready", "current_load")
+                                recordThumbnailReady(medium.path)
+                                onThumbnailLoaded?.invoke(medium.path, mediumThumbnail)
+                            }
+                        },
+                        onError = {
+                            if (mediumThumbnail.getTag(R.id.thumbnail_request_key) === load.token) {
+                                mediumThumbnail.scaleType = ImageView.ScaleType.CENTER
+                                mediumThumbnail.setImageDrawable(AppCompatResources.getDrawable(activity, R.drawable.ic_vector_warning_colored))
+                            }
                         }
-                    }
-                )
+                    )
+                }
+                // RecyclerView binds distant landing positions before its visible range updates.
+                // Keep near/initial high-priority work outside a moving thumb gesture.
+                // Other holders start when attached or admitted with the settled thumb viewport.
+                if (!fastScrollActive && (mediumThumbnail.isAttachedToWindow || thumbnailPriority == Priority.HIGH)) {
+                    load.start(Priority.HIGH)
+                }
             }
 
             if (isListViewType) {
@@ -1210,4 +1705,49 @@ class MediaAdapter(
             }
         }
     }
+
+    /**
+     * Builds the exact thumbnail request a rebound holder would issue for [medium],
+     * for the Viewer's bounded return prefetch (Phase 2.2). The returned key is the
+     * holder's own request identity, so a prefetched resource warms the engine entry
+     * the return will read, and the reserve is keyed identically to the holder.
+     *
+     * The size must be the Grid's measured thumbnail size - it participates in the
+     * Glide cache key, so an approximation would decode pixels the return cannot use.
+     */
+    fun returnPrefetchRequest(medium: Medium, width: Int, height: Int): Pair<Any, RequestBuilder<Drawable>>? {
+        if (width <= 0 || height <= 0) return null
+        var path = medium.path
+        if (hasOTGConnected && activity.isPathOnOTG(path)) {
+            path = path.getOTGPublicPath(activity)
+        }
+        val roundedCorners = when {
+            isListViewType -> ROUNDED_CORNERS_SMALL
+            config.fileRoundedCorners -> ROUNDED_CORNERS_BIG
+            else -> ROUNDED_CORNERS_NONE
+        }
+        val signature = medium.getKey()
+        val requestKey = listOf(path, signature, medium.type, cropThumbnails, roundedCorners, animateGifs,
+            scrollHorizontally, rotatedImagePaths.contains(path))
+        // Build through the application RequestManager: the Grid Activity is stopped
+        // while the Viewer is open, and an activity-scoped manager pauses its requests
+        // on stop - the preparation would only run when the Viewer already returned.
+        // The RequestManager is not part of Glide's engine key, so the cache entry and
+        // the request identity stay exactly the holder's.
+        val builder = activity.applicationContext.gridThumbnailRequestBuilder(
+            path = path,
+            cropThumbnails = cropThumbnails,
+            roundCorners = roundedCorners,
+            signature = signature,
+            skipMemoryCacheAtPaths = rotatedImagePaths,
+            animate = animateGifs,
+            crossFadeDuration = 0,
+        ).override(width, height)
+        return requestKey to builder
+    }
+
+    private companion object {
+        const val THUMB_VIEWPORT_QUIET_MS = 48L
+    }
+
 }

@@ -45,6 +45,7 @@
         android:name="org.fossify.gallery.App"
         android:allowBackup="false"
         android:appCategory="image"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_launcher_name"
         android:requestLegacyExternalStorage="true"
@@ -60,7 +61,7 @@
 
         <activity
             android:name=".activities.MainActivity"
-            android:theme="@style/OxygenClassicRootTheme"
+            android:theme="@style/GalleryPageTransitionTheme"
             android:configChanges="orientation"
             android:exported="true"
             android:resizeableActivity="true">
@@ -90,7 +91,7 @@
 
         <activity
             android:name=".activities.MediaActivity"
-            android:theme="@style/OxygenClassicRootTheme"
+            android:theme="@style/GalleryPageTransitionTheme"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false"
             android:parentActivityName=".activities.MainActivity" />
@@ -122,7 +123,7 @@
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:exported="true"
             android:parentActivityName=".activities.MediaActivity"
-            android:theme="@style/TranslucentTheme">
+            android:theme="@style/GalleryViewerTransitionTheme">
 
             <intent-filter>
                 <action android:name="com.android.camera.action.REVIEW" />
@@ -145,12 +146,22 @@
             </intent-filter>
         </activity>
 
+        <!-- Product decision: no About surface at all. Removing the declarations (instead
+             of hiding the menu entry) means no leftover intent, deep link or upstream
+             merge can reopen it: AboutActivity, FAQ, licences and contributors are simply
+             not installable components. Guard test: NoAboutSurfaceTest. -->
         <activity
             android:name="org.fossify.commons.activities.AboutActivity"
-            android:configChanges="orientation"
-            android:exported="false"
-            android:label="@string/about"
-            android:parentActivityName=".activities.MainActivity" />
+            tools:node="remove" />
+        <activity
+            android:name="org.fossify.commons.activities.FAQActivity"
+            tools:node="remove" />
+        <activity
+            android:name="org.fossify.commons.activities.LicenseActivity"
+            tools:node="remove" />
+        <activity
+            android:name="org.fossify.commons.activities.ContributorsActivity"
+            tools:node="remove" />
 
         <activity
             android:name="org.fossify.commons.activities.CustomizationActivity"

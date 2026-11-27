@@ -1,6 +1,7 @@
 package org.fossify.gallery.extensions
 
 import org.fossify.gallery.helpers.FavoriteAccessSessionManager
+import org.fossify.gallery.helpers.StaticPhotoThumbnail
 
 import android.annotation.SuppressLint
 import android.appwidget.AppWidgetManager
@@ -10,6 +11,7 @@ import android.content.Intent
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.Bitmap.CompressFormat
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.PictureDrawable
 import android.media.AudioManager
@@ -20,6 +22,7 @@ import android.provider.MediaStore.Images
 import android.widget.ImageView
 import com.bumptech.glide.Glide
 import com.bumptech.glide.Priority
+import com.bumptech.glide.RequestBuilder
 import com.bumptech.glide.integration.webp.WebpBitmapFactory
 import com.bumptech.glide.integration.webp.decoder.WebpDownsampler
 import com.bumptech.glide.integration.webp.decoder.WebpDrawable
@@ -34,6 +37,8 @@ import com.bumptech.glide.load.resource.bitmap.FitCenter
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
 import com.bumptech.glide.request.RequestListener
 import com.bumptech.glide.request.RequestOptions
+import com.bumptech.glide.request.target.DrawableImageViewTarget
+import com.bumptech.glide.request.target.SizeReadyCallback
 import com.bumptech.glide.request.target.Target
 import com.bumptech.glide.signature.ObjectKey
 import com.squareup.picasso.Picasso
@@ -184,53 +189,11 @@ fun Context.getSortedDirectories(
     source: ArrayList<Directory>,
     randomOrder: MutableMap<String, Long>? = null
 ): ArrayList<Directory> {
-    val sorting = config.directorySorting
-    val dirs = source.mapTo(ArrayList()) { it.snapshot() }
-    if (sorting and SORT_BY_RANDOM != 0) {
-        if (randomOrder == null) dirs.shuffle()
-        else {
-            dirs.forEach { randomOrder.getOrPut(it.path) { java.util.concurrent.ThreadLocalRandom.current().nextLong() } }
-            dirs.sortWith(compareBy<Directory> { randomOrder[it.path] }.thenBy { it.path })
-        }
-        return movePinnedDirectoriesToFront(dirs)
-    } else if (sorting and SORT_BY_CUSTOM != 0) {
-        val remaining = dirs.associateByTo(LinkedHashMap()) { it.path }
-        val ordered = ArrayList<Directory>()
-        config.customFoldersOrder.split("|||").forEach { remaining.remove(it)?.let(ordered::add) }
-        ordered.addAll(remaining.values)
-        return movePinnedDirectoriesToFront(ordered)
-    }
-
-    val locale = Locale.getDefault()
-    val numeric = sorting and SORT_USE_NUMERIC_VALUE != 0
-    fun text(directory: Directory): String = if (sorting and SORT_BY_PATH != 0) {
-        directory.path.lowercase(locale)
-    } else directory.name.normalizeString().lowercase(locale)
-    // sortValue belongs to the previous scan's sorting mode. It is never an
-    // authority for a newly selected mode (including grouped synthetic parents).
-    val stablePaths = dirs.associate { it.path to org.fossify.gallery.helpers.FavoriteFolderRules
-        .normalizedPath(it.path).lowercase(Locale.ROOT) }
-    dirs.sortWith { first, second ->
-        val result = when {
-            sorting and SORT_BY_NAME != 0 || sorting and SORT_BY_PATH != 0 -> {
-                if (numeric) AlphanumericComparator().compare(text(first), text(second))
-                else text(first).compareTo(text(second))
-            }
-            sorting and SORT_BY_SIZE != 0 -> first.size.compareTo(second.size)
-            sorting and SORT_BY_COUNT != 0 -> first.mediaCnt.compareTo(second.mediaCnt)
-            sorting and SORT_BY_DATE_MODIFIED != 0 -> first.modified.compareTo(second.modified)
-            else -> first.taken.compareTo(second.taken)
-        }
-        if (result != 0) {
-            if (sorting and SORT_DESCENDING != 0) -result else result
-        } else {
-            // Scan/cache input order is not a tie breaker. Keep ties ascending
-            // in both modes, with a case-sensitive final comparison for distinct paths.
-            val pathOrder = stablePaths.getValue(first.path).compareTo(stablePaths.getValue(second.path))
-            if (pathOrder != 0) pathOrder else first.path.compareTo(second.path)
-        }
-    }
-    return movePinnedDirectoriesToFront(dirs)
+    return org.fossify.gallery.helpers.HomeDirectorySorter.sort(source.map { it.snapshot() },
+        org.fossify.gallery.helpers.HomeDirectorySorter.Options(
+            config.directorySorting, config.customFoldersOrder, config.pinnedFolders.toSet(),
+            config.showRecycleBinAtFolders, config.showRecycleBinLast, randomOrder ?: hashMapOf()
+        )).directories
 }
 
 fun Context.getDirsToShow(
@@ -238,10 +201,12 @@ fun Context.getDirsToShow(
     allDirs: ArrayList<Directory>,
     currentPathPrefix: String,
     randomOrder: MutableMap<String, Long>? = null,
-    sortDirs: Boolean = true
+    sortDirs: Boolean = true,
+    groupDirectSubfolders: Boolean = config.groupDirectSubfolders,
+    directorySorter: ((ArrayList<Directory>) -> ArrayList<Directory>)? = null
 ): ArrayList<Directory> {
     val snapshots = dirs.mapTo(ArrayList()) { it.snapshot() }
-    return if (config.groupDirectSubfolders) {
+    return if (groupDirectSubfolders) {
         snapshots.forEach {
             it.subfoldersCount = 0
             it.subfoldersMediaCount = it.mediaCnt
@@ -253,217 +218,42 @@ fun Context.getDirsToShow(
 
         // show the current folder as an available option too, not just subfolders
         if (currentPathPrefix.isNotEmpty()) {
-            val currentFolder = allDirs.firstOrNull {
-                parentDirs.firstOrNull {
-                    it.path.equals(currentPathPrefix, true)
-                } == null && it.path.equals(currentPathPrefix, true)
+            val currentFolder = allDirs.firstOrNull { directory ->
+                directory.path == currentPathPrefix && directory.containsMediaFilesDirectly && directory.mediaCnt > 0 &&
+                    parentDirs.none { it.path == currentPathPrefix }
             }
 
             currentFolder?.snapshot()?.apply {
                 subfoldersCount = 1
+                subfoldersMediaCount = mediaCnt
                 parentDirs.add(this)
             }
         }
 
-        if (sortDirs) getSortedDirectories(parentDirs, randomOrder) else parentDirs
+        if (sortDirs) directorySorter?.invoke(parentDirs) ?: getSortedDirectories(parentDirs, randomOrder)
+        else parentDirs
     } else {
         snapshots.forEach { it.subfoldersMediaCount = it.mediaCnt }
         snapshots
     }
 }
 
-private fun Context.addParentWithoutMediaFiles(into: ArrayList<Directory>, path: String): Boolean {
-    val isSortingAscending = config.directorySorting.isSortingAscending()
-    val subDirs = into.filter { File(it.path).parent.equals(path, true) } as ArrayList<Directory>
-    val newDirId = max(1000L, into.maxOf { it.id ?: 0L })
-    if (subDirs.isNotEmpty()) {
-        val lastModified = if (isSortingAscending) {
-            subDirs.minByOrNull { it.modified }?.modified
-        } else {
-            subDirs.maxByOrNull { it.modified }?.modified
-        } ?: 0
-
-        val dateTaken = if (isSortingAscending) {
-            subDirs.minByOrNull { it.taken }?.taken
-        } else {
-            subDirs.maxByOrNull { it.taken }?.taken
-        } ?: 0
-
-        var mediaTypes = 0
-        subDirs.forEach {
-            mediaTypes = mediaTypes or it.types
-        }
-
-        val directory = Directory(
-            id = newDirId + 1,
-            path = path,
-            tmb = subDirs.first().tmb,
-            name = getFolderNameFromPath(path),
-            mediaCnt = subDirs.sumOf { it.mediaCnt },
-            modified = lastModified,
-            taken = dateTaken,
-            size = subDirs.sumByLong { it.size },
-            location = getPathLocation(path),
-            types = mediaTypes,
-            sortValue = ""
-        )
-
-        directory.containsMediaFilesDirectly = false
-        into.add(directory)
-        return true
-    }
-    return false
+private fun Context.groupParent(path: String, child: Directory) = Directory().apply {
+    this.path = path
+    name = getFolderNameFromPath(path)
+    tmb = child.tmb
+    location = getPathLocation(path)
+    containsMediaFilesDirectly = false
 }
 
-fun Context.fillWithSharedDirectParents(dirs: ArrayList<Directory>): ArrayList<Directory> {
-    val allDirs = ArrayList<Directory>(dirs)
-    val childCounts = mutableMapOf<String, Int>()
-    for (dir in dirs) {
-        File(dir.path).parent?.let {
-            val current = childCounts[it] ?: 0
-            childCounts.put(it, current + 1)
-        }
-    }
+fun Context.fillWithSharedDirectParents(dirs: ArrayList<Directory>): ArrayList<Directory> =
+    org.fossify.gallery.helpers.DirectoryGrouping.fill(dirs, ::groupParent)
 
-    childCounts
-        .filter { dir -> dir.value > 1 && dirs.none { it.path.equals(dir.key, true) } }
-        .toList()
-        .sortedByDescending { it.first.length }
-        .forEach { (parent, _) ->
-            addParentWithoutMediaFiles(allDirs, parent)
-        }
-    return allDirs
-}
+fun Context.getDirectParentSubfolders(dirs: ArrayList<Directory>, currentPathPrefix: String): ArrayList<Directory> =
+    org.fossify.gallery.helpers.DirectoryGrouping.visible(dirs, currentPathPrefix, ::groupParent)
 
-fun Context.getDirectParentSubfolders(
-    dirs: ArrayList<Directory>,
-    currentPathPrefix: String
-): ArrayList<Directory> {
-    val folders = dirs.map { it.path }.sorted().toMutableSet() as HashSet<String>
-    val currentPaths = LinkedHashSet<String>()
-    val foldersWithoutMediaFiles = ArrayList<String>()
-
-    for (path in folders) {
-        if (path == RECYCLE_BIN || path == FAVORITES) {
-            continue
-        }
-
-        if (currentPathPrefix.isNotEmpty()) {
-            if (!path.startsWith(currentPathPrefix, true)) {
-                continue
-            }
-
-            if (!File(path).parent.equals(currentPathPrefix, true)) {
-                continue
-            }
-        }
-
-        if (
-            currentPathPrefix.isNotEmpty() &&
-            path.equals(currentPathPrefix, true)
-            || File(path).parent.equals(currentPathPrefix, true)
-        ) {
-            currentPaths.add(path)
-        } else if (
-            folders.any {
-                !it.equals(path, true) && (File(path).parent.equals(it, true)
-                        || File(it).parent.equals(File(path).parent, true))
-            }
-        ) {
-            // if we have folders like
-            // /storage/emulated/0/Pictures/Images and
-            // /storage/emulated/0/Pictures/Screenshots,
-            // but /storage/emulated/0/Pictures is empty, still Pictures with the first folders thumbnails and proper other info
-            val parent = File(path).parent
-            if (
-                parent != null
-                && !folders.contains(parent)
-                && dirs.none { it.path.equals(parent, true) }
-            ) {
-                currentPaths.add(parent)
-                if (addParentWithoutMediaFiles(dirs, parent)) {
-                    foldersWithoutMediaFiles.add(parent)
-                }
-            }
-        } else {
-            currentPaths.add(path)
-        }
-    }
-
-    var areDirectSubfoldersAvailable = false
-    currentPaths.forEach {
-        val path = it
-        currentPaths.forEach {
-            if (
-                !foldersWithoutMediaFiles.contains(it)
-                && !it.equals(path, true)
-                && File(it).parent?.equals(path, true) == true
-            ) {
-                areDirectSubfoldersAvailable = true
-            }
-        }
-    }
-
-    if (currentPathPrefix.isEmpty() && folders.contains(RECYCLE_BIN)) {
-        currentPaths.add(RECYCLE_BIN)
-    }
-
-    if (currentPathPrefix.isEmpty() && folders.contains(FAVORITES)) {
-        currentPaths.add(FAVORITES)
-    }
-
-    if (folders.size == currentPaths.size) {
-        return dirs.filter { currentPaths.contains(it.path) } as ArrayList<Directory>
-    }
-
-    folders.clear()
-    folders.addAll(currentPaths)
-
-    val dirsToShow = dirs.filter { folders.contains(it.path) } as ArrayList<Directory>
-    return if (areDirectSubfoldersAvailable) {
-        getDirectParentSubfolders(dirsToShow, currentPathPrefix)
-    } else {
-        dirsToShow
-    }
-}
-
-fun Context.updateSubfolderCounts(
-    children: ArrayList<Directory>,
-    parentDirs: ArrayList<Directory>
-) {
-    for (child in children) {
-        var longestSharedPath = ""
-        for (parentDir in parentDirs) {
-            if (parentDir.path == child.path) {
-                longestSharedPath = child.path
-                continue
-            }
-
-            if (
-                child.path.startsWith(parentDir.path, true)
-                && parentDir.path.length > longestSharedPath.length
-            ) {
-                longestSharedPath = parentDir.path
-            }
-        }
-
-        // make sure we count only the proper direct subfolders, grouped the same way as on the main screen
-        parentDirs.firstOrNull { it.path == longestSharedPath }?.apply {
-            if (
-                path.equals(child.path, true)
-                || path.equals(File(child.path).parent, true)
-                || children.any { it.path.equals(File(child.path).parent, true) }
-            ) {
-                if (child.containsMediaFilesDirectly) {
-                    subfoldersCount++
-                }
-
-                if (path != child.path) {
-                    subfoldersMediaCount += child.mediaCnt
-                }
-            }
-        }
-    }
+fun Context.updateSubfolderCounts(children: ArrayList<Directory>, parentDirs: ArrayList<Directory>) {
+    org.fossify.gallery.helpers.DirectoryGrouping.aggregate(children, parentDirs, !config.directorySorting.isSortingAscending())
 }
 
 fun Context.getNoMediaFolders(callback: (folders: ArrayList<String>) -> Unit) {
@@ -549,11 +339,6 @@ fun Context.rescanFolderMediaSync(path: String) {
     }
 }
 
-fun Context.storeDirectoryItems(items: ArrayList<Directory>) {
-    ensureBackgroundThread {
-        directoryDB.insertAll(items)
-    }
-}
 
 fun Context.checkAppendingHidden(
     path: String,
@@ -588,7 +373,7 @@ fun Context.getFolderNameFromPath(path: String): String {
     }
 }
 
-fun Context.loadImage(
+internal fun Context.loadImage(
     type: Int,
     path: String,
     target: MySquareImageView,
@@ -599,7 +384,15 @@ fun Context.loadImage(
     signature: ObjectKey,
     skipMemoryCacheAtPaths: ArrayList<String>? = null,
     onError: (() -> Unit)? = null,
-    crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS
+    onLoaded: (() -> Unit)? = null,
+    crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
+    priority: Priority = Priority.LOW,
+    onLoadStage: ((String, String?, String?) -> Unit)? = null,
+    onStaticThumbnail: ((Drawable, StaticPhotoThumbnail) -> Unit)? = null,
+    // Frame to keep on screen while the request is in flight. Callers that already show
+    // this exact image pass it so a refresh does not expose the view's background for a
+    // frame; null keeps the transparent placeholder every other caller relies on.
+    placeholderDrawable: Drawable? = null
 ) {
     target.isHorizontalScrolling = horizontalScroll
     if (type == TYPE_SVGS) {
@@ -609,7 +402,10 @@ fun Context.loadImage(
             cropThumbnails = cropThumbnails,
             roundCorners = roundCorners,
             signature = signature,
-            crossFadeDuration = crossFadeDuration
+            crossFadeDuration = crossFadeDuration,
+            onLoaded = onLoaded,
+            priority = priority,
+            onLoadStage = onLoadStage
         )
     } else {
         loadImageBase(
@@ -622,7 +418,12 @@ fun Context.loadImage(
             animate = animateGifs,
             tryLoadingWithPicasso = type == TYPE_IMAGES && path.isPng(),
             onError = onError,
-            crossFadeDuration = crossFadeDuration
+            onLoaded = onLoaded,
+            crossFadeDuration = crossFadeDuration,
+            priority = priority,
+            onLoadStage = onLoadStage,
+            onStaticThumbnail = onStaticThumbnail,
+            placeholderDrawable = placeholderDrawable
         )
     }
 }
@@ -661,7 +462,7 @@ fun Context.getPathLocation(path: String): Int {
 }
 
 @SuppressLint("CheckResult")
-fun Context.loadImageBase(
+internal fun Context.loadImageBase(
     path: String,
     target: MySquareImageView,
     cropThumbnails: Boolean,
@@ -671,16 +472,116 @@ fun Context.loadImageBase(
     animate: Boolean = false,
     tryLoadingWithPicasso: Boolean = false,
     crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
-    onError: (() -> Unit)? = null
+    onError: (() -> Unit)? = null,
+    onLoaded: (() -> Unit)? = null,
+    priority: Priority = Priority.LOW,
+    onLoadStage: ((String, String?, String?) -> Unit)? = null,
+    onStaticThumbnail: ((Drawable, StaticPhotoThumbnail) -> Unit)? = null,
+    placeholderDrawable: Drawable? = null
 ) {
     val bindingToken = target.getTag(R.id.thumbnail_request_key)
+    var builder = gridThumbnailRequestBuilder(
+        path = path,
+        cropThumbnails = cropThumbnails,
+        roundCorners = roundCorners,
+        signature = signature,
+        skipMemoryCacheAtPaths = skipMemoryCacheAtPaths,
+        animate = animate,
+        crossFadeDuration = crossFadeDuration,
+        priority = priority,
+        placeholderDrawable = placeholderDrawable,
+    )
+
+    val measuredTarget = onStaticThumbnail?.let { StaticThumbnailTarget(target) }
+    val thumbnailRadius = gridThumbnailCornerRadius(roundCorners)
+    builder = builder.listener(object : RequestListener<Drawable> {
+        override fun onLoadFailed(
+            e: GlideException?,
+            model: Any?,
+            targetBitmap: Target<Drawable>,
+            isFirstResource: Boolean
+        ): Boolean {
+            // A recycled ImageView must never receive a failed request's fallback.
+            if (target.tag != path || target.getTag(R.id.thumbnail_request_key) !== bindingToken) {
+                onLoadStage?.invoke("STALE_CALLBACK_REJECTED", "glide_failure", null)
+                return true
+            }
+            if (tryLoadingWithPicasso) {
+                onLoadStage?.invoke("FALLBACK_STARTED", "glide_failure", null)
+                tryLoadingWithPicasso(path, target, cropThumbnails, roundCorners, signature, onError,
+                    onLoaded, onLoadStage)
+            } else {
+                onLoadStage?.invoke("REQUEST_FAILED", "glide_failure", null)
+                onError?.invoke()
+            }
+
+            return true
+        }
+
+        override fun onResourceReady(
+            resource: Drawable,
+            model: Any,
+            targetBitmap: Target<Drawable>,
+            dataSource: DataSource,
+            isFirstResource: Boolean,
+        ): Boolean {
+            if (target.tag != path || target.getTag(R.id.thumbnail_request_key) !== bindingToken) {
+                onLoadStage?.invoke("STALE_CALLBACK_REJECTED", "glide_resource", dataSource.name)
+                return true
+            }
+            onLoadStage?.invoke("RESOURCE_READY", "glide", dataSource.name)
+            if (onLoaded != null) {
+                target.post {
+                    if (target.tag == path && target.getTag(R.id.thumbnail_request_key) === bindingToken &&
+                        target.drawable != null && (measuredTarget == null || target.drawable === resource)) {
+                        val size = measuredTarget?.requestedSize
+                        if (size != null && resource is BitmapDrawable) {
+                            onStaticThumbnail?.invoke(resource, StaticPhotoThumbnail.read(
+                                resource, size.first, size.second, cropThumbnails || thumbnailRadius > 0, thumbnailRadius,
+                            ))
+                        }
+                        onLoaded()
+                    } else onLoadStage?.invoke("STALE_CALLBACK_REJECTED", "drawable_callback", dataSource.name)
+                }
+            }
+            return false
+        }
+    })
+
+    if (measuredTarget == null) builder.into(target) else builder.into(measuredTarget)
+}
+
+/**
+ * The exact request the Grid's thumbnails load with, exposed so the Viewer's return
+ * prefetch (Phase 2.2) can warm the same engine key instead of a near-miss twin.
+ *
+ * Everything that participates in the Glide cache key lives here: signature,
+ * decode format, disk strategy, transforms, decode class and the WebP decoder flag.
+ * Callers add only what the key ignores (priority) or what happens after the load
+ * (listeners, targets).
+ */
+internal fun Context.gridThumbnailRequestBuilder(
+    path: String,
+    cropThumbnails: Boolean,
+    roundCorners: Int,
+    signature: ObjectKey,
+    skipMemoryCacheAtPaths: ArrayList<String>? = null,
+    animate: Boolean = false,
+    crossFadeDuration: Int = 0,
+    priority: Priority = Priority.LOW,
+    placeholderDrawable: Drawable? = null,
+): RequestBuilder<Drawable> {
     val options = RequestOptions()
         .signature(signature)
         .skipMemoryCache(skipMemoryCacheAtPaths?.contains(path) == true)
-        .priority(Priority.LOW)
+        .priority(priority)
         .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
         .format(DecodeFormat.PREFER_ARGB_8888)
-        .placeholder(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+        // Glide installs this drawable synchronously in SingleRequest.begin(), so it is the
+        // first frame of the request. A caller that already shows this image passes it back
+        // to keep the frame on screen while the replacement decodes.
+        .placeholder(placeholderDrawable
+            ?: android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
 
     if (cropThumbnails) {
         options.optionalTransform(CenterCrop())
@@ -704,9 +605,7 @@ fun Context.loadImageBase(
     }
 
     if (roundCorners != ROUNDED_CORNERS_NONE) {
-        val cornerSize =
-            if (roundCorners == ROUNDED_CORNERS_SMALL) org.fossify.commons.R.dimen.rounded_corner_radius_small else org.fossify.commons.R.dimen.rounded_corner_radius_big
-        val cornerRadius = resources.getDimension(cornerSize).toInt()
+        val cornerRadius = gridThumbnailCornerRadius(roundCorners)
         val roundedCornersTransform = RoundedCorners(cornerRadius)
         options.optionalTransform(MultiTransformation(CenterCrop(), roundedCornersTransform))
         options.optionalTransform(
@@ -719,42 +618,44 @@ fun Context.loadImageBase(
     }
 
     WebpBitmapFactory.sUseSystemDecoder = false // CVE-2023-4863
-    var builder = Glide.with(target)
+    return Glide.with(this)
         .load(path)
         .apply(options)
         .set(WebpDownsampler.USE_SYSTEM_DECODER, false) // CVE-2023-4863
         .apply {
             if (crossFadeDuration > 0) transition(getOptionalCrossFadeTransition(crossFadeDuration)) else transition(com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions().dontTransition())
         }
+}
 
-    builder = builder.listener(object : RequestListener<Drawable> {
-        override fun onLoadFailed(
-            e: GlideException?,
-            model: Any?,
-            targetBitmap: Target<Drawable>,
-            isFirstResource: Boolean
-        ): Boolean {
-            // A recycled ImageView must never receive a failed request's fallback.
-            if (target.tag != path || target.getTag(R.id.thumbnail_request_key) != bindingToken) return true
-            if (tryLoadingWithPicasso) {
-                tryLoadingWithPicasso(path, target, cropThumbnails, roundCorners, signature, onError)
-            } else {
-                onError?.invoke()
-            }
+internal fun Context.gridThumbnailCornerRadius(roundCorners: Int): Int = when {
+    roundCorners == ROUNDED_CORNERS_NONE -> 0
+    roundCorners == ROUNDED_CORNERS_SMALL -> resources.getDimension(org.fossify.commons.R.dimen.rounded_corner_radius_small).toInt()
+    else -> resources.getDimension(org.fossify.commons.R.dimen.rounded_corner_radius_big).toInt()
+}
 
-            return true
+private class StaticThumbnailTarget(view: ImageView) : DrawableImageViewTarget(view) {
+    var requestedSize: Pair<Int, Int>? = null
+        private set
+    private var callback: SizeReadyCallback? = null
+    private var forwarded: SizeReadyCallback? = null
+
+    override fun getSize(cb: SizeReadyCallback) {
+        val delegate = SizeReadyCallback { width, height ->
+            requestedSize = width to height
+            cb.onSizeReady(width, height)
         }
+        callback = cb
+        forwarded = delegate
+        super.getSize(delegate)
+    }
 
-        override fun onResourceReady(
-            resource: Drawable,
-            model: Any,
-            targetBitmap: Target<Drawable>,
-            dataSource: DataSource,
-            isFirstResource: Boolean,
-        ) = false
-    })
-
-    builder.into(target)
+    override fun removeCallback(cb: SizeReadyCallback) {
+        if (callback === cb) {
+            forwarded?.let { super.removeCallback(it) }
+            callback = null
+            forwarded = null
+        }
+    }
 }
 
 fun Context.loadSVG(
@@ -764,6 +665,9 @@ fun Context.loadSVG(
     roundCorners: Int,
     signature: ObjectKey,
     crossFadeDuration: Int = THUMBNAIL_FADE_DURATION_MS,
+    onLoaded: (() -> Unit)? = null,
+    priority: Priority = Priority.LOW,
+    onLoadStage: ((String, String?, String?) -> Unit)? = null,
 ) {
     target.scaleType = if (cropThumbnails) {
         ImageView.ScaleType.CENTER_CROP
@@ -771,7 +675,8 @@ fun Context.loadSVG(
         ImageView.ScaleType.FIT_CENTER
     }
 
-    val options = RequestOptions().signature(signature)
+    val options = RequestOptions().signature(signature).priority(priority)
+    val bindingToken = target.getTag(R.id.thumbnail_request_key)
     var builder = Glide.with(target)
         .`as`(PictureDrawable::class.java)
         .listener(SvgSoftwareLayerSetter())
@@ -791,7 +696,33 @@ fun Context.loadSVG(
         builder = builder.transform(CenterCrop(), RoundedCorners(cornerRadius))
     }
 
-    builder.into(target)
+    builder.listener(object : RequestListener<PictureDrawable> {
+        override fun onLoadFailed(
+            e: GlideException?, model: Any?, targetBitmap: Target<PictureDrawable>, isFirstResource: Boolean
+        ): Boolean {
+            val stale = target.getTag(R.id.thumbnail_request_key) !== bindingToken
+            onLoadStage?.invoke(if (stale) "STALE_CALLBACK_REJECTED" else "REQUEST_FAILED", "svg_failure", null)
+            return stale
+        }
+
+        override fun onResourceReady(
+            resource: PictureDrawable, model: Any, targetBitmap: Target<PictureDrawable>,
+            dataSource: DataSource, isFirstResource: Boolean
+        ): Boolean {
+            if (target.getTag(R.id.thumbnail_request_key) !== bindingToken) {
+                onLoadStage?.invoke("STALE_CALLBACK_REJECTED", "svg_resource", dataSource.name)
+                return true
+            }
+            onLoadStage?.invoke("RESOURCE_READY", "glide_svg", dataSource.name)
+            if (onLoaded != null) {
+                target.post {
+                    if (target.getTag(R.id.thumbnail_request_key) === bindingToken && target.drawable != null) onLoaded()
+                    else onLoadStage?.invoke("STALE_CALLBACK_REJECTED", "drawable_callback", dataSource.name)
+                }
+            }
+            return false
+        }
+    }).into(target)
 }
 
 // intended mostly for Android 11 issues, that fail loading PNG files bigger than 10 MB
@@ -801,7 +732,9 @@ fun Context.tryLoadingWithPicasso(
     cropThumbnails: Boolean,
     roundCorners: Int,
     signature: ObjectKey,
-    onError: (() -> Unit)? = null
+    onError: (() -> Unit)? = null,
+    onLoaded: (() -> Unit)? = null,
+    onLoadStage: ((String, String?, String?) -> Unit)? = null
 ) {
     val bindingToken = view.getTag(R.id.thumbnail_request_key)
     var pathToLoad = "file://$path"
@@ -828,13 +761,28 @@ fun Context.tryLoadingWithPicasso(
         // Picasso is a fallback: its own failure must terminate loading, and
         // an outdated callback must never replace a newer holder's image.
         builder.into(view, object : com.squareup.picasso.Callback {
-            override fun onSuccess() = Unit
+            override fun onSuccess() {
+                if (view.tag != path || view.getTag(R.id.thumbnail_request_key) !== bindingToken) {
+                    onLoadStage?.invoke("STALE_CALLBACK_REJECTED", "picasso_resource", null)
+                    return
+                }
+                // Picasso's callback runs after the ImageView is updated.
+                onLoadStage?.invoke("RESOURCE_READY", "picasso_callback", "UNKNOWN")
+                onLoaded?.invoke()
+            }
+
             override fun onError(e: Exception?) {
-                if (view.tag == path && view.getTag(R.id.thumbnail_request_key) == bindingToken) onError?.invoke()
+                if (view.tag == path && view.getTag(R.id.thumbnail_request_key) === bindingToken) {
+                    onLoadStage?.invoke("REQUEST_FAILED", "picasso_failure", null)
+                    onError?.invoke()
+                } else onLoadStage?.invoke("STALE_CALLBACK_REJECTED", "picasso_failure", null)
             }
         })
     } catch (e: Exception) {
-        if (view.tag == path && view.getTag(R.id.thumbnail_request_key) == bindingToken) onError?.invoke()
+        if (view.tag == path && view.getTag(R.id.thumbnail_request_key) === bindingToken) {
+            onLoadStage?.invoke("REQUEST_FAILED", "picasso_exception", null)
+            onError?.invoke()
+        }
     }
 }
 
@@ -953,6 +901,32 @@ fun Context.getCachedDirectories(
 
 }
 
+/** A bounded, provisional grid snapshot. Full cache callers keep their existing behavior. */
+internal fun Context.getMediaPageCache(
+    folder: String?, types: Int, target: Int, current: () -> Boolean,
+    allowed: (String) -> Boolean
+): ArrayList<Medium> {
+    val visibility = org.fossify.gallery.helpers.MediaPageVisibility(this, folder == null, allowed)
+    val accessByFolder = HashMap<String, () -> Boolean>()
+    val preview = ArrayList<Medium>()
+    val sorting = config.getFolderSorting(folder ?: SHOW_ALL)
+    val candidates = org.fossify.gallery.helpers.CachedMediaPreviewOrder.order(
+        mediaDB.getPreviewMedia(folder, types), sorting,
+        org.fossify.gallery.helpers.MediaFetcher(applicationContext)
+    )
+    for (item in candidates) {
+        if (!current() || preview.size == target) break
+        if (!visibility.allows(item.path)) continue
+        val access = accessByFolder.getOrPut(item.parentPath) {
+            org.fossify.gallery.helpers.FolderCachePreviewAccess.capture(this, item.parentPath)
+        }
+        if (!access()) continue
+        if (!visibility.allowsIndexedFile(item.path)) continue
+        preview.add(item)
+    }
+    return preview
+}
+
 fun Context.getCachedMedia(
     path: String,
     getVideosOnly: Boolean = false,
@@ -1059,6 +1033,10 @@ fun Context.getCachedMedia(
                 }
             }) as ArrayList<Medium>
 
+            // Cache rows are only preview candidates. Hide files confirmed missing
+            // under a readable parent; do not mutate Room or favorite relationships.
+            media = org.fossify.gallery.helpers.CachedMediaPreviewFilter.removeConfirmedMissing(media)
+
             val pathToUse = path.ifEmpty { SHOW_ALL }
             mediaFetcher.sortMedia(media, config.getFolderSorting(pathToUse))
             val grouped = mediaFetcher.groupMedia(media, pathToUse)
@@ -1112,6 +1090,8 @@ fun Context.updateDBMediaPath(oldPath: String, newPath: String) {
 }
 
 fun Context.updateDBDirectory(directory: Directory) {
+    // Physical metadata must pass the scope/access/version gate in the repository.
+    if (!directory.areFavorites() && !directory.isRecycleBin()) return
     try {
         directoryDB.updateDirectory(
             path = directory.path,
@@ -1323,6 +1303,10 @@ fun Context.addPathToDB(path: String) {
     }
 }
 
+/** Default covers retain the album's own sort/group rules; valid custom covers need neither. */
+fun Context.directoryCoverNeedsMediaOrder(path: String, covers: List<AlbumCover>): Boolean =
+    covers.none { it.path == path && getDoesFilePathExist(it.tmb, config.OTGPath) }
+
 fun Context.createDirectoryFromMedia(
     path: String,
     curMedia: ArrayList<Medium>,
@@ -1331,9 +1315,9 @@ fun Context.createDirectoryFromMedia(
     includedFolders: MutableSet<String>,
     getProperFileSize: Boolean,
     noMediaFolders: ArrayList<String>,
+    statistics: org.fossify.gallery.models.DirectoryStats? = null,
 ): Directory {
     val OTGPath = config.OTGPath
-    val grouped = MediaFetcher(this).groupMedia(curMedia, path)
     var thumbnail: String? = null
 
     albumCovers.forEach {
@@ -1343,134 +1327,55 @@ fun Context.createDirectoryFromMedia(
     }
 
     if (thumbnail == null) {
-        val sortedMedia = grouped.filter { it is Medium }.toMutableList() as ArrayList<Medium>
-        thumbnail = sortedMedia.firstOrNull { getDoesFilePathExist(it.path, OTGPath) }?.path ?: ""
+        // Only default covers need folder grouping. Preserve the album's internal
+        // order, without allocating another full list or mutating it for statistics.
+        thumbnail = MediaFetcher(this).groupMedia(curMedia, path).asSequence().filterIsInstance<Medium>()
+            .firstOrNull { getDoesFilePathExist(it.path, OTGPath) }?.path ?: ""
     }
 
     if (config.OTGPath.isNotEmpty() && thumbnail!!.startsWith(config.OTGPath)) {
         thumbnail = thumbnail!!.getOTGPublicPath(applicationContext)
     }
 
-    val isSortingAscending = config.directorySorting.isSortingAscending()
+    val stats = statistics ?: org.fossify.gallery.models.DirectoryStats.calculate(curMedia,
+        org.fossify.gallery.models.DirectoryStats.scope(config.filterMedia, config.shouldShowHidden), 0)
     val dirName = checkAppendingHidden(path, hiddenString, includedFolders, noMediaFolders)
-    val lastModified = if (isSortingAscending) {
-        curMedia.minOfOrNull { it.modified } ?: 0L
-    } else {
-        curMedia.maxOfOrNull { it.modified } ?: 0L
-    }
-
-    val dateTaken = if (isSortingAscending) {
-        curMedia.minOfOrNull { it.taken } ?: 0L
-    } else {
-        curMedia.maxOfOrNull { it.taken } ?: 0L
-    }
-
-    val size = if (getProperFileSize) curMedia.sumByLong { it.size } else 0L
-    val mediaTypes = curMedia.getDirMediaTypes()
-    val count = curMedia.size
-    val sortValue = getDirectorySortingValue(curMedia, path, dirName, size, count)
     return Directory(
         id = null,
         path = path,
         tmb = thumbnail!!,
         name = dirName,
         mediaCnt = curMedia.size,
-        modified = lastModified,
-        taken = dateTaken,
-        size = size,
+        modified = stats.maxModified,
+        taken = stats.maxTaken,
+        size = stats.bytes,
         location = getPathLocation(path),
-        types = mediaTypes,
-        sortValue = sortValue
+        types = stats.types,
+        sortValue = "",
+        stats = stats,
+        containsMediaFilesDirectly = curMedia.isNotEmpty()
     )
 }
 
-fun Context.getDirectorySortingValue(
-    media: ArrayList<Medium>,
-    path: String,
-    name: String,
-    size: Long,
-    count: Int
-): String {
-    val sorting = config.directorySorting
-    val sorted = when {
-        sorting and SORT_BY_NAME != 0 -> return name
-        sorting and SORT_BY_PATH != 0 -> return path
-        sorting and SORT_BY_SIZE != 0 -> return size.toString()
-        sorting and SORT_BY_COUNT != 0 -> return count.toString()
-        sorting and SORT_BY_DATE_MODIFIED != 0 -> media.sortedBy { it.modified }
-        sorting and SORT_BY_DATE_TAKEN != 0 -> media.sortedBy { it.taken }
-        else -> media
-    }
-
-    val relevantMedium = if (sorting.isSortingAscending()) {
-        sorted.firstOrNull() ?: return ""
-    } else {
-        sorted.lastOrNull() ?: return ""
-    }
-
-    val result: Any = when {
-        sorting and SORT_BY_DATE_MODIFIED != 0 -> relevantMedium.modified
-        sorting and SORT_BY_DATE_TAKEN != 0 -> relevantMedium.taken
-        else -> 0
-    }
-
-    return result.toString()
-}
 
 fun Context.updateDirectoryPath(path: String) {
-    val mediaFetcher = MediaFetcher(applicationContext)
-    val getImagesOnly = false
-    val getVideosOnly = false
-    val hiddenString = getString(R.string.hidden)
-    val albumCovers = config.parseAlbumCovers()
-    val includedFolders = config.includedFolders
-    val noMediaFolders = getNoMediaFoldersSync()
-
-    val sorting = config.getFolderSorting(path)
-    val grouping = config.getFolderGrouping(path)
-    val getProperDateTaken = config.directorySorting and SORT_BY_DATE_TAKEN != 0
-            || sorting and SORT_BY_DATE_TAKEN != 0
-            || grouping and GROUP_BY_DATE_TAKEN_DAILY != 0
-            || grouping and GROUP_BY_DATE_TAKEN_MONTHLY != 0
-
-    val getProperLastModified = config.directorySorting and SORT_BY_DATE_MODIFIED != 0
-            || sorting and SORT_BY_DATE_MODIFIED != 0
-            || grouping and GROUP_BY_LAST_MODIFIED_DAILY != 0
-            || grouping and GROUP_BY_LAST_MODIFIED_MONTHLY != 0
-
-    val getProperFileSize = config.directorySorting and SORT_BY_SIZE != 0
-
-    val lastModifieds = if (getProperLastModified) {
-        mediaFetcher.getFolderLastModifieds(path)
-    } else {
-        HashMap()
+    val cfg = config
+    if (!path.startsWith('/') || org.fossify.gallery.helpers.FolderUnlockSessionManager
+            .findProtectedAncestor(path, cfg::isFolderProtected) != null ||
+        (!cfg.temporarilyShowExcluded && path.isThisOrParentExcluded(cfg.excludedFolders))) return
+    val scope = org.fossify.gallery.helpers.DirectoryScanScope(cfg.filterMedia, cfg.shouldShowHidden)
+    val version = org.fossify.gallery.helpers.DirectoryMetadataRepository.begin(path)
+    try {
+        val fetcher = MediaFetcher(applicationContext, reportReadFailures = true)
+        val read = fetcher.readFolder(path, false, false, true, true, true, getFavoritePaths(),
+            false, hashMapOf(), fetcher.directoryDates(path), null,
+            sortResult = directoryCoverNeedsMediaOrder(path, cfg.parseAlbumCovers()))
+        org.fossify.gallery.helpers.DirectoryMetadataRepository.commit(this,
+            org.fossify.gallery.helpers.DirectoryScanSnapshot(path, version, scope, read, read.media))
+    } catch (error: Exception) {
+        org.fossify.gallery.helpers.DirectoryMetadataRepository.defer(path, version)
+        android.util.Log.w("GalleryDirs", "Cannot refresh directory metadata", error)
     }
-
-    val dateTakens = mediaFetcher.getFolderDateTakens(path)
-    val favoritePaths = getFavoritePaths()
-    val curMedia = mediaFetcher.getFilesFrom(
-        curPath = path,
-        isPickImage = getImagesOnly,
-        isPickVideo = getVideosOnly,
-        getProperDateTaken = getProperDateTaken,
-        getProperLastModified = getProperLastModified,
-        getProperFileSize = getProperFileSize,
-        favoritePaths = favoritePaths,
-        getVideoDurations = false,
-        lastModifieds = lastModifieds,
-        dateTakens = dateTakens,
-        android11Files = null
-    )
-    val directory = createDirectoryFromMedia(
-        path = path,
-        curMedia = curMedia,
-        albumCovers = albumCovers,
-        hiddenString = hiddenString,
-        includedFolders = includedFolders,
-        getProperFileSize = getProperFileSize,
-        noMediaFolders = noMediaFolders
-    )
-    updateDBDirectory(directory)
 }
 
 fun Context.getFileDateTaken(path: String): Long {

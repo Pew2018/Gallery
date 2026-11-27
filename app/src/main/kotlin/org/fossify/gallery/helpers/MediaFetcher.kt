@@ -35,28 +35,35 @@ class MediaFetcher(
     internal var traceRequest = 0L
     internal var pipelineDiagnostics: MediaPipelineDiagnostics? = null
     internal var preferredFolderOrder: List<String>? = null
+    internal var onPageCandidate: ((Medium, () -> Boolean) -> Unit)? = null
     internal var onFolderProgress: ((FolderMediaReadResult) -> Unit)? = null
+    private var dateMetadataFailed = false
+    private var allDateTakens: HashMap<String, Long>? = null
+    private val folderDateCache = hashMapOf<String, HashMap<String, Long>>()
     private val folderObservations = hashMapOf<String, FolderReadObservation>()
 
     internal fun readFolder(
         path: String, isPickImage: Boolean, isPickVideo: Boolean, date: Boolean, modified: Boolean, size: Boolean,
         favorites: ArrayList<String>, durations: Boolean, modifieds: HashMap<String, Long>,
-        dates: HashMap<String, Long>, indexed: HashMap<String, ArrayList<Medium>>?
+        dates: HashMap<String, Long>, indexed: HashMap<String, ArrayList<Medium>>?,
+        sortResult: Boolean = true
     ): FolderMediaReadResult {
         folderObservations.remove(path)
         directoryReadFailures.remove(path)
         var error: Exception? = null
         val media = try {
-            getFilesFrom(path, isPickImage, isPickVideo, date, modified, size, favorites, durations, modifieds, dates, indexed)
+            getFilesFrom(path, isPickImage, isPickVideo, date, modified, size, favorites, durations, modifieds, dates, indexed, sortResult)
         } catch (failure: Exception) {
             if (shouldStop || failure is java.util.concurrent.CancellationException || failure is android.os.OperationCanceledException)
                 throw java.util.concurrent.CancellationException()
             error = failure
             // Index rows are a fallback only. They cannot prove a .nomedia directory complete.
             try {
-                val indexedFallback = getAndroid11FolderMedia(isPickImage, isPickVideo, favorites, false, date, dates,
-                    allowedFolders = setOf(path))
-                ArrayList(indexedFallback[MediaStoreFolderKey.of(path)].orEmpty())
+                val indexedFallback = indexed ?: getAndroid11FolderMedia(isPickImage, isPickVideo, favorites,
+                    false, date, dates, allowedFolders = setOf(path))
+                ArrayList(indexedFallback[MediaStoreFolderKey.of(path)].orEmpty().filter {
+                    !isExternalStorageManager() || File(it.path).canRead()
+                })
             } catch (indexedError: Exception) {
                 if (shouldStop || indexedError is android.os.OperationCanceledException || indexedError is java.util.concurrent.CancellationException)
                     throw java.util.concurrent.CancellationException()
@@ -80,8 +87,17 @@ class MediaFetcher(
         }
         if (status != FolderReadStatus.COMPLETE) directoryReadFailures[path] =
             error ?: java.io.IOException("Incomplete directory read: $status")
+        pipelineDiagnostics?.add("directoryStatsCount")
         return FolderMediaReadResult(media, status, observation.method, observation.enumerated,
-            observation.reasons.toMap(), error, observation.accessCurrent)
+            observation.reasons.toMap(), error, observation.accessCurrent,
+            org.fossify.gallery.models.DirectoryStats.calculate(media,
+                org.fossify.gallery.models.DirectoryStats.scope(filterOverride ?: context.config.filterMedia,
+                    showDotFiles ?: context.config.shouldShowHidden),
+                if (status != FolderReadStatus.COMPLETE) 0 else
+                    org.fossify.gallery.models.DirectoryStats.COUNT or
+                    (if (size && "unknown_size_readable" !in observation.reasons) org.fossify.gallery.models.DirectoryStats.SIZE else 0) or
+                    (if (modified && "unknown_modified_readable" !in observation.reasons) org.fossify.gallery.models.DirectoryStats.MODIFIED else 0) or
+                    (if (date && !dateMetadataFailed && ("unknown_modified_readable" !in observation.reasons || media.none { it.takenIsFallback })) org.fossify.gallery.models.DirectoryStats.TAKEN else 0)))
     }
     private val directoryReadFailures = linkedMapOf<String, Exception>()
     internal val readFailures: Map<String, Exception> get() = directoryReadFailures.toMap()
@@ -150,7 +166,8 @@ class MediaFetcher(
             if (curMedia.isEmpty() || scopedFolder) {
                 // A nonempty index is not proof of a complete directory. Keep
                 // indexed-only accessible rows, and discover unindexed direct files.
-                val indexed = if (scopedFolder) curMedia.associateBy { it.path } else null
+                val indexed = if (scopedFolder) curMedia.associateBy { it.path }
+                    else android11Files?.get(MediaStoreFolderKey.of(curPath))?.associateBy { it.path }
                 val newMedia = getMediaInFolder(
                     curPath, isPickImage, isPickVideo, filterMedia, getProperDateTaken, getProperLastModified, getProperFileSize,
                     favoritePaths, getVideoDurations, lastModifieds, dateTakens,
@@ -186,10 +203,11 @@ class MediaFetcher(
         return curMedia
     }
 
-    fun getFoldersToScan(): ArrayList<String> {
+    fun getFoldersToScan(indexedFolders: Set<String>? = null, continueWithoutIndex: Boolean = false): ArrayList<String> {
         return try {
             val OTGPath = context.config.OTGPath
-            val folders = getLatestFileFolders()
+            val folders = if (indexedFolders == null) getLatestFileFolders()
+                else indexedFolders.filterTo(LinkedHashSet()) { it != "/storage/emulated/legacy" }
             folders.addAll(arrayListOf(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM).toString(),
                 "${Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM)}/Camera",
@@ -202,9 +220,18 @@ class MediaFetcher(
             val selection = getSelectionQuery(filterMedia)
             val selectionArgs = getSelectionArgsQuery(filterMedia).toTypedArray()
             if (filterMedia == 0) return arrayListOf()
-            val cursor = context.contentResolver.query(uri, projection, selection, selectionArgs, null, querySignal())
-            if (cursor == null && reportReadFailures) throw java.io.IOException("MediaStore did not return a cursor")
-            cursor?.let { folders.addAll(parseCursor(it)) }
+            var providerUnavailable = false
+            val cursor = if (indexedFolders != null) null else try {
+                context.contentResolver.query(uri, projection, selection, selectionArgs, null, querySignal())
+                    ?: if (reportReadFailures) throw java.io.IOException("MediaStore did not return a cursor") else null
+            } catch (error: Exception) {
+                querySignal()
+                if (!continueWithoutIndex) throw error
+                providerUnavailable = true
+                folderDiscovery = folderDiscovery.copy(truncated = true)
+                null
+            }
+            folders.addAll(parseCursor(cursor))
 
             val config = context.config
             val shouldShowHidden = config.shouldShowHidden
@@ -218,7 +245,7 @@ class MediaFetcher(
 
             val folderNoMediaStatuses = HashMap<String, Boolean>()
             val distinctPathsMap = HashMap<String, String>()
-            if (discoverUnindexedFolders) {
+            if (discoverUnindexedFolders || providerUnavailable) {
                 val roots = folders + includedPaths + listOf(
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).toString(),
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES).toString()
@@ -370,14 +397,14 @@ class MediaFetcher(
         return args
     }
 
-    private fun parseCursor(cursor: Cursor): LinkedHashSet<String> {
+    private fun parseCursor(cursor: Cursor?): LinkedHashSet<String> {
         val foldersToIgnore = arrayListOf("/storage/emulated/legacy")
         val config = context.config
         val includedFolders = config.includedFolders
         val OTGPath = config.OTGPath
         val foldersToScan = config.everShownFolders.filter { it == FAVORITES || it == RECYCLE_BIN || context.getDoesFilePathExist(it, OTGPath) }.toHashSet()
 
-        cursor.use {
+        cursor?.use {
             if (cursor.moveToFirst()) {
                 do {
                     if (shouldStop) throw java.util.concurrent.CancellationException("MediaStore folder listing retired")
@@ -537,6 +564,7 @@ class MediaFetcher(
         }
         var lastProgress = -500L
         fun publishScanProgress() {
+            if (physical) onPageCandidate?.invoke(media.last(), observation!!.accessCurrent)
             publishCandidates()
             if (!physical || onFolderProgress == null || shouldStop) return
             val now = android.os.SystemClock.elapsedRealtime()
@@ -625,6 +653,7 @@ class MediaFetcher(
             if (physical) {
                 if (metadata!!.size == 0L) { observation?.count("zero_bytes"); continue }
                 if (metadata.size == null) observation?.count("unknown_size_readable")
+                if (metadata.modified == null) observation?.count("unknown_modified_readable")
             } else {
                 if (checkProperFileSize || checkFileExistence) size = fileSizes.remove(path) ?: file.length()
                 if ((checkProperFileSize || checkFileExistence) && size <= 0L) continue
@@ -632,7 +661,11 @@ class MediaFetcher(
             }
 
             if (indexed != null && !isPortrait) {
-                media.add(indexed.copy(isFavorite = path in favoritePathSet))
+                // A fresh physical read wins over a stale MediaStore modification date/size.
+                media.add(indexed.copy(isFavorite = path in favoritePathSet,
+                    modified = metadata?.modified ?: indexed.modified,
+                    size = metadata?.size ?: indexed.size,
+                    taken = dateTakens[path] ?: if (indexed.takenIsFallback) metadata?.modified ?: indexed.taken else indexed.taken))
                 publishScanProgress()
                 continue
             }
@@ -642,31 +675,11 @@ class MediaFetcher(
                     media.add(this)
                 }
             } else {
-                var lastModified: Long
-                var newLastModified = lastModifieds[path]
-                if (newLastModified == null) {
-                    newLastModified = if (getProperLastModified) {
-                        (metadata?.modified ?: file.lastModified())
-                    } else {
-                        0L
-                    }
-                }
-                lastModified = newLastModified
-
-                var dateTaken = lastModified
+                val lastModified = metadata?.modified ?: if (getProperLastModified) {
+                    file.lastModified().takeIf { it != 0L } ?: lastModifieds[path] ?: 0L
+                } else 0L
+                val dateTaken = if (getProperDateTaken) dateTakens[path] ?: lastModified else lastModified
                 val videoDuration = if (getVideoDurations && isVideo) context.getDuration(path) ?: 0 else 0
-
-                if (getProperDateTaken) {
-                    var newDateTaken = dateTakens[path]
-                    if (newDateTaken == null) {
-                        newDateTaken = if (getProperLastModified) {
-                            lastModified
-                        } else {
-                            (metadata?.modified ?: file.lastModified())
-                        }
-                    }
-                    dateTaken = newDateTaken
-                }
 
                 val type = when {
                     isVideo -> TYPE_VIDEOS
@@ -678,7 +691,8 @@ class MediaFetcher(
                 }
 
                 val isFavorite = path in favoritePathSet
-                val medium = Medium(null, filename, path, file.parent, lastModified, dateTaken, size, type, videoDuration, isFavorite, 0L, 0L)
+                val medium = Medium(null, filename, path, file.parent, lastModified, dateTaken, size, type, videoDuration, isFavorite, 0L, 0L,
+                    takenIsFallback = path !in dateTakens)
                 media.add(medium)
                 publishScanProgress()
             }
@@ -705,6 +719,21 @@ class MediaFetcher(
             getProperDateTaken, dateTakens, allowedFolders)
     }
 
+    /** A direct-storage grant and MediaStore are independent capabilities. */
+    internal fun queryPageIndex(
+        isPickImage: Boolean, isPickVideo: Boolean, favorites: ArrayList<String>,
+        dates: HashMap<String, Long>, folders: Set<String>?,
+        onRow: (Medium) -> Unit
+    ): HashMap<String, ArrayList<Medium>>? {
+        return try {
+            getIndexedMedia(isPickImage, isPickVideo, favorites, false, true, dates, folders, onRow = onRow)
+        } catch (error: Exception) {
+            querySignal()
+            FolderRefreshDiagnostics.event(traceRequest, "index_preview_failed", detail = error.javaClass.simpleName)
+            null
+        }
+    }
+
     /** Optional metadata can fall back to File values, but must still cancel live queries. */
     private fun queryMetadataCursor(
         uri: Uri, projection: Array<String>, selection: String? = null, args: Array<String>? = null,
@@ -715,6 +744,7 @@ class MediaFetcher(
         } catch (error: android.os.OperationCanceledException) {
             throw error
         } catch (error: Exception) {
+            if (Images.Media.DATE_TAKEN in projection) dateMetadataFailed = true
             android.util.Log.w("GalleryMedia", "Optional indexed metadata unavailable", error)
         }
     }
@@ -752,7 +782,8 @@ class MediaFetcher(
         isPickImage: Boolean, isPickVideo: Boolean, favoritePaths: ArrayList<String>,
         getFavoritePathsOnly: Boolean, getProperDateTaken: Boolean,
         dateTakens: HashMap<String, Long>, allowedFolders: Set<String>?,
-        allowedPaths: Set<String> = emptySet()
+        allowedPaths: Set<String> = emptySet(),
+        onRow: ((Medium) -> Unit)? = null
     ): HashMap<String, ArrayList<Medium>> {
         querySignal() // Cancellation is not a successful empty library.
         val media = HashMap<String, ArrayList<Medium>>()
@@ -789,7 +820,7 @@ class MediaFetcher(
                     return@queryMediaCursor
                 }
 
-                try {
+                val accepted = try {
                     val mediaStoreId = cursor.getLongValue(Images.Media._ID)
                     val filename = cursor.getStringValue(Images.Media.DISPLAY_NAME)
                     val path = cursor.getStringValue(Images.Media.DATA)
@@ -852,14 +883,13 @@ class MediaFetcher(
                         dateTaken = dateTakens[path] ?: dateTaken
                     }
 
-                    if (dateTaken == 0L) {
-                        dateTaken = lastModified
-                    }
+                    val takenIsFallback = dateTaken == 0L
+                    if (takenIsFallback) dateTaken = lastModified
 
                     val videoDuration = Math.round(cursor.getIntValue(MediaStore.MediaColumns.DURATION) / 1000.toDouble()).toInt()
                     val isFavorite = path in favoritePathSet
                     val medium =
-                        Medium(null, filename, path, path.getParentPath(), lastModified, dateTaken, size, type, videoDuration, isFavorite, 0L, mediaStoreId)
+                        Medium(null, filename, path, path.getParentPath(), lastModified, dateTaken, size, type, videoDuration, isFavorite, 0L, mediaStoreId, takenIsFallback = takenIsFallback)
                     val parent = MediaStoreFolderKey.of(medium.parentPath)
                     val currentFolderMedia = media[parent]
                     if (currentFolderMedia == null) {
@@ -868,10 +898,13 @@ class MediaFetcher(
 
                     media[parent]?.add(medium)
                     indexedCount++
+                    medium
                 } catch (e: Exception) {
                     rowFailure = e
                     android.util.Log.w("GalleryMedia", "Could not read indexed media row", e)
+                    null
                 }
+                if (accepted != null) onRow?.invoke(accepted)
             }
         }
         GalleryPerfTrace.end(
@@ -952,7 +985,7 @@ class MediaFetcher(
             )
             val videoDuration = if (getVideoDurations) context.getDuration(path) ?: 0 else 0
             val isFavorite = favoritePaths.contains(path)
-            val medium = Medium(null, filename, path, folder, dateModified, dateTaken, size, type, videoDuration, isFavorite, 0L, 0L)
+            val medium = Medium(null, filename, path, folder, dateModified, dateTaken, size, type, videoDuration, isFavorite, 0L, 0L, takenIsFallback = true)
             media.add(medium)
         }
 
@@ -968,28 +1001,35 @@ class MediaFetcher(
                 if (!shouldStop) overrides[date.fullPath] = date.taken
             }
         } catch (_: Exception) {
-            // Preserve the existing best-effort behavior if the metadata DB is unavailable.
+            dateMetadataFailed = true
         }
         GalleryPerfTrace.end("date_overrides", started, overrides.size)
         return overrides
     }
+
+    /** Scoped indexes already include dates. Legacy disk scans query dates only, never modification dates. */
+    internal fun directoryDates(path: String): HashMap<String, Long> =
+        if (isRPlus() && !isExternalStorageManager()) getSelectedFolderDateOverrides(listOf(path))
+        else getFolderDateTakens(path)
 
     /** Only custom dates for selected profile folders; avoids loading the entire media store. */
     fun getSelectedFolderDateOverrides(folders: Collection<String>): HashMap<String, Long> {
         val dates = HashMap<String, Long>()
         folders.forEach { folder ->
             if (shouldStop) return@forEach
-            runCatching { context.dateTakensDB.getDateTakensFromPath(folder) }.getOrNull()
-                ?.forEach { dates[it.fullPath] = it.taken }
+            runCatching { context.dateTakensDB.getDateTakensFromPath(folder) }
+                .onFailure { dateMetadataFailed = true }.getOrNull()?.forEach { dates[it.fullPath] = it.taken }
         }
         return dates
     }
 
     fun getFolderDateTakens(folder: String): HashMap<String, Long> {
+        allDateTakens?.let { return it }
+        folderDateCache[folder]?.let { return it }
         val dateTakens = HashMap<String, Long>()
         if (folder != FAVORITES) {
             val projection = arrayOf(
-                Images.Media.DISPLAY_NAME,
+                Images.Media.DATA,
                 Images.Media.DATE_TAKEN
             )
 
@@ -1001,8 +1041,8 @@ class MediaFetcher(
                 try {
                     val dateTaken = cursor.getLongValue(Images.Media.DATE_TAKEN)
                     if (dateTaken != 0L) {
-                        val name = cursor.getStringValue(Images.Media.DISPLAY_NAME)
-                        dateTakens["$folder/$name"] = dateTaken
+                        val path = cursor.getStringValue(Images.Media.DATA)
+                        if (path.getParentPath() == folder) dateTakens[path] = dateTaken
                     }
                 } catch (e: Exception) {
                 }
@@ -1016,6 +1056,7 @@ class MediaFetcher(
                 context.dateTakensDB.getDateTakensFromPath(folder)
             }
         } catch (e: Exception) {
+            dateMetadataFailed = true
             return dateTakens
         }
 
@@ -1023,10 +1064,12 @@ class MediaFetcher(
             dateTakens[it.fullPath] = it.taken
         }
 
+        folderDateCache[folder] = dateTakens
         return dateTakens
     }
 
     fun getDateTakens(): HashMap<String, Long> {
+        allDateTakens?.let { return it }
         val dateTakens = HashMap<String, Long>()
         val projection = arrayOf(
             Images.Media.DATA,
@@ -1053,8 +1096,10 @@ class MediaFetcher(
                 dateTakens[it.fullPath] = it.taken
             }
         } catch (e: Exception) {
+            dateMetadataFailed = true
         }
 
+        allDateTakens = dateTakens
         return dateTakens
     }
 

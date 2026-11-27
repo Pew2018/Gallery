@@ -35,6 +35,8 @@ internal class FavoriteMediaLoadRequests {
 
     fun begin(): Long = ++generation
 
+    fun current(): Long = generation
+
     fun isCurrent(request: Long): Boolean = request == generation
 
     fun invalidate() {

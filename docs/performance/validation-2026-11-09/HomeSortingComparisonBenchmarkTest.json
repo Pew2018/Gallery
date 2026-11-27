@@ -1,0 +1,22 @@
+{
+  "class": "HomeSortingComparisonBenchmarkTest",
+  "tests": "1",
+  "failures": "0",
+  "errors": "0",
+  "skipped": "0",
+  "time": "0.682",
+  "cases": [
+    "measureActualDialogColdWarmDirectionsAndGrouping"
+  ],
+  "measurements": [
+    "HomeSortComparison cold firstUsableMs=113.58975 fullStatsMs=259.275042 counters=[9, 5, 360, 7, 360, 15, 363]",
+    "HomeSortComparison mode=4 dialogToCommitMs=58.321458 delta=[0, 0, 0, 0, 0, 0, 0]",
+    "HomeSortComparison mode=2 dialogToCommitMs=28.643917 delta=[0, 0, 0, 0, 0, 0, 0]",
+    "HomeSortComparison mode=1026 dialogToCommitMs=36.621792 delta=[0, 0, 0, 0, 0, 0, 0]",
+    "HomeSortComparison mode=8 dialogToCommitMs=45.818709 delta=[0, 0, 0, 0, 0, 0, 0]",
+    "HomeSortComparison mode=1032 dialogToCommitMs=48.095459 delta=[0, 0, 0, 0, 0, 0, 0]",
+    "HomeSortComparison mode=524288 dialogToCommitMs=37.51025 delta=[0, 0, 0, 0, 0, 0, 0]",
+    "HomeSortComparison mode=1 dialogToCommitMs=28.116666 delta=[0, 0, 0, 0, 0, 0, 0]",
+    "HomeSortComparison grouped commitMs=23.721 delta=[0, 0, 0, 0, 0, 0, 0]"
+  ]
+}

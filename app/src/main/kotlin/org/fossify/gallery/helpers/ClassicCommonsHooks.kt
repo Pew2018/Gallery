@@ -13,11 +13,20 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.core.graphics.ColorUtils
+import org.fossify.commons.activities.BaseSimpleActivity
+import org.fossify.gallery.activities.ViewPagerActivity
 import org.fossify.commons.extensions.getProperBackgroundColor
 import org.fossify.commons.extensions.getProperPrimaryColor
 
 /** Public, version-pinned build hooks. No reflection or access to Commons private state. */
 object ClassicCommonsHooks {
+    @JvmStatic
+    fun applyResumeBackground(activity: BaseSimpleActivity, color: Int) {
+        // The pager owns its transparent entry canvas and its stable black canvas.
+        // Keep Commons' normal page color for every other Activity.
+        if (activity !is ViewPagerActivity) activity.updateBackgroundColor(color)
+    }
+
     @JvmStatic
     fun prepareBuilder(builder: AlertDialog.Builder): AlertDialog.Builder {
         if (builder is com.google.android.material.dialog.MaterialAlertDialogBuilder) {

@@ -12,7 +12,8 @@ internal data class FolderMediaReadResult(
     val enumerated: Int,
     val reasons: Map<String, Int>,
     val error: Exception? = null,
-    val accessCurrent: () -> Boolean = { true }
+    val accessCurrent: () -> Boolean = { true },
+    val stats: org.fossify.gallery.models.DirectoryStats? = null
 ) {
     val accepted get() = media.size
     val confirmedPaths get() = media.mapTo(hashSetOf()) { it.path }
@@ -24,6 +25,40 @@ internal data class FolderMediaReadResult(
             FolderReadStatus.PARTIAL -> (fresh + old.filter { allowed(it.path) }).distinctBy { it.path }
             else -> old.filter { allowed(it.path) }
         })
+    }
+}
+
+/** A scoped-storage index may paint an early preview, but never certifies scan completeness. */
+internal object FolderMediaProgressPreview {
+    fun fromScopedIndex(
+        media: Collection<Medium>,
+        accessCurrent: () -> Boolean
+    ): FolderMediaReadResult? {
+        if (media.isEmpty()) return null
+        return FolderMediaReadResult(
+            media = ArrayList(media.map { it.copy() }),
+            status = FolderReadStatus.PARTIAL,
+            method = "mediastore_index_preview",
+            enumerated = 0,
+            reasons = mapOf("scan_in_progress" to 1),
+            accessCurrent = accessCurrent,
+        )
+    }
+
+    /**
+     * Keep the already complete indexed snapshot in later directory previews.
+     * Disk enumeration can discover extra rows, but publishing its small prefix
+     * alone would throw away the known range and make a usable list jump back.
+     */
+    fun retainIndexedSnapshot(
+        progress: FolderMediaReadResult,
+        indexed: Collection<Medium>,
+    ): FolderMediaReadResult {
+        if (indexed.isEmpty()) return progress
+        val byPath = LinkedHashMap<String, Medium>(indexed.size + progress.media.size)
+        indexed.forEach { byPath[it.path] = it }
+        progress.media.forEach { byPath[it.path] = it }
+        return progress.copy(media = ArrayList(byPath.values))
     }
 }
 

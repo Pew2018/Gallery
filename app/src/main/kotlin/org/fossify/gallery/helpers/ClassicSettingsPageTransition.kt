@@ -14,6 +14,9 @@ import android.view.ViewTreeObserver
 import java.util.WeakHashMap
 
 /** One visual snapshot plus the existing, interactive settings views. */
+// The one-shot run and the gesture-held step share one snapshot/overlay lifetime and the
+// same frame maths, so they stay in one place rather than crossing files through internals.
+@Suppress("TooManyFunctions")
 object ClassicSettingsPageTransition {
     const val DURATION_MS = 180L
     const val DISTANCE_DP = 8
@@ -23,9 +26,7 @@ object ClassicSettingsPageTransition {
         fun dispose() { if (!bitmap.isRecycled) bitmap.recycle() }
     }
 
-    fun direction(forward: Boolean, view: View): Int =
-        (if (forward) 1 else -1) * (if ((if (view.isLayoutDirectionResolved) view.layoutDirection
-            else view.resources.configuration.layoutDirection) == View.LAYOUT_DIRECTION_RTL) -1 else 1)
+    fun direction(forward: Boolean, view: View): Int = OxygenClassicMotion.horizontalDirection(forward, view)
 
     fun capture(container: View): Snapshot? {
         if (!container.isAttachedToWindow || container.width <= 0 || container.height <= 0) return null
@@ -43,7 +44,7 @@ object ClassicSettingsPageTransition {
         }
     }
 
-    private data class Run(
+    internal data class Run(
         val incoming: View,
         val outgoing: SnapshotDrawable,
         val onTitleCommit: () -> Unit,
@@ -52,12 +53,135 @@ object ClassicSettingsPageTransition {
         var preDrawListener: ViewTreeObserver.OnPreDrawListener? = null,
         var titleCommitted: Boolean = false,
         var distance: Float = 0f,
+        var progress: Float = 0f,
+        var startAlpha: Float = 1f,
+        var interactive: Boolean = false,
+        var settleDurationMs: Long = DURATION_MS,
         var detachListener: View.OnAttachStateChangeListener? = null
     )
 
+    /**
+     * A page change held at the finger's progress instead of playing on release.
+     *
+     * The caller renders the destination as soon as the gesture starts, then feeds the
+     * system's progress in. Nothing about the page's own state is committed here: on
+     * cancel the caller restores it through the lambda it passed in, on commit the
+     * remaining motion finishes.
+     */
+    class Step internal constructor(private val container: View, private val run: Run) {
+        val isActive: Boolean get() = runs[container] === run
+
+        fun render(progress: Float) {
+            if (!isActive) return
+            applyProgress(container, run, progress)
+        }
+
+        fun cancel(onDone: () -> Unit = {}) {
+            if (!isActive) { onDone(); return }
+            animateTo(container, run, 0f) {
+                // The snapshot still covers the container at 0, so the restored page can
+                // lay itself out underneath without the user seeing a wrong frame.
+                onDone()
+                val observer = container.viewTreeObserver
+                if (!observer.isAlive || !container.isAttachedToWindow) {
+                    finishRun(container, run, commitTitle = false, invokeFinished = true)
+                    return@animateTo
+                }
+                val listener = object : ViewTreeObserver.OnPreDrawListener {
+                    override fun onPreDraw(): Boolean {
+                        if (observer.isAlive) observer.removeOnPreDrawListener(this)
+                        if (runs[container] === run) {
+                            runs.remove(container)
+                            finishRun(container, run, commitTitle = false, invokeFinished = true)
+                        }
+                        return true
+                    }
+                }
+                observer.addOnPreDrawListener(listener)
+            }
+        }
+
+        fun commit(onDone: () -> Unit = {}) {
+            if (!isActive) { onDone(); return }
+            animateTo(container, run, 1f) {
+                if (runs[container] === run) runs.remove(container)
+                finishRun(container, run, commitTitle = true, invokeFinished = true)
+                onDone()
+            }
+        }
+    }
+
     private val runs = WeakHashMap<View, Run>()
 
-    private class SnapshotDrawable(private val bitmap: Bitmap) : Drawable() {
+    /** Finishes the remaining motion from wherever the finger left the page. */
+    private fun animateTo(container: View, run: Run, target: Float, onEnd: () -> Unit) {
+        val from = run.progress.coerceIn(0f, 1f)
+        val remaining = kotlin.math.abs(target - from)
+        if (remaining < 0.001f || !container.isAttachedToWindow) {
+            applyProgress(container, run, target)
+            onEnd()
+            return
+        }
+        val animator = ValueAnimator.ofFloat(from, target).apply {
+            duration = (run.settleDurationMs * remaining).toLong().coerceAtLeast(1L)
+            interpolator = OxygenClassicMotion.easing()
+            addUpdateListener { frame -> applyProgress(container, run, frame.animatedValue as Float) }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (run.animator === animation) run.animator = null
+                    onEnd()
+                }
+            })
+        }
+        run.animator = animator
+        animator.start()
+    }
+
+    /**
+     * Starts an interactive page change. The caller switches to the destination page in
+     * [prepareTarget]; cancelling is the caller's job, because only it knows the state
+     * that was replaced.
+     *
+     * [distanceDp], [incomingStartAlpha] and [settleDurationMs] describe the *caller's*
+     * motion so a gesture-held step finishes on the same clock and weight as the tap
+     * path it replaces (nested folder levels use one set of tokens for both).
+     */
+    fun begin(
+        container: View,
+        incoming: View,
+        incomingDirection: Int,
+        animationsEnabled: Boolean,
+        prepareTarget: () -> Unit,
+        onTitleCommit: () -> Unit = {},
+        distanceDp: Int = DISTANCE_DP,
+        incomingStartAlpha: Float = 1f,
+        settleDurationMs: Long = DURATION_MS
+    ): Step? {
+        if (!animationsEnabled) return null
+        cancel(container, incoming)
+        incoming.alpha = 1f
+        incoming.translationX = 0f
+        val image = capture(container) ?: return null
+        val outgoing = SnapshotDrawable(image.bitmap).apply {
+            setBounds(0, 0, container.width, container.height)
+        }
+        val run = Run(incoming, outgoing, onTitleCommit, {}, interactive = true)
+        run.distance = dp(container, distanceDp) * incomingDirection
+        run.startAlpha = incomingStartAlpha.coerceIn(0f, 1f)
+        run.settleDurationMs = settleDurationMs
+        container.overlay.add(outgoing)
+        runs[container] = run
+        run.detachListener = object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(view: View) = Unit
+            override fun onViewDetachedFromWindow(view: View) { cancel(container, incoming) }
+        }.also { container.addOnAttachStateChangeListener(it) }
+        prepareTarget()
+        container.requestLayout()
+        applyProgress(container, run, 0f)
+        return Step(container, run)
+    }
+
+    internal class SnapshotDrawable(private val bitmap: Bitmap) : Drawable() {
         var offsetX = 0f
         private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
         override fun draw(canvas: Canvas) {
@@ -145,7 +269,9 @@ object ClassicSettingsPageTransition {
 
     fun cancel(container: View, incoming: View) {
         val run = runs.remove(container)
-        if (run != null) finishRun(container, run, commitTitle = true, invokeFinished = false)
+        // An interrupted gesture still shows the page it started from, so its title must
+        // not be committed on the way out.
+        if (run != null) finishRun(container, run, commitTitle = !run.interactive, invokeFinished = false)
         incoming.animate().cancel()
         incoming.alpha = 1f
         incoming.translationX = 0f
@@ -188,6 +314,8 @@ object ClassicSettingsPageTransition {
     private fun applyProgress(container: View, run: Run, progress: Float) {
         if (runs[container] !== run) return
         val frameProgress = progress.coerceIn(0f, 1f)
+        run.progress = frameProgress
+        run.incoming.alpha = run.startAlpha + (1f - run.startAlpha) * frameProgress
         run.incoming.translationX = run.distance * (1f - frameProgress)
         // The incoming page remains opaque; the outgoing snapshot exits and fades
         // over it. This keeps the page surface covered and avoids a flash to the parent.

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Horizontal travel of the *folder* page's post-commit back exit.
+
+     Same 96dp contract as the shared page exit
+     (DefaultCrossActivityBackAnimation retargets the closing rect to
+     currentClosingRect.left + cross_activity_back_entering_start_offset, which is
+     96dp). Only the shape differs.
+
+     The shared resource uses fast_out_slow_in, whose slow start is correct for a page
+     that fades away on top of a parent that is itself moving in. On the folder branch
+     the parent does not move at all, so the foreground has to carry the departure:
+     travel is front-loaded, the fastest section coincides with the steep part of
+     oxygen_classic_folder_back_alpha, and the tail decelerates into the 96dp endpoint
+     on the frame the fade reaches 0 (90% of the 220 ms clock, i.e. 0.968 of the travel).
+
+     Measured travel fractions (same AnimationSet#getTransformationAt path):
+         progress   fast_out_slow_in   this curve
+         0.02       0.001             0.014
+         0.10       0.026             0.094
+         0.20       0.134             0.238
+         0.30       0.261             0.403
+         0.50       0.500             0.700
+         0.80       0.800             0.920
+         1.00       1.000             1.000
+
+     PathInterpolator contract: starts at (0,0), ends at (1,1), x strictly
+     increasing (0.16 -> 0.28 -> 0.50 -> 0.70 -> 0.87 -> 1). -->
+<pathInterpolator xmlns:android="http://schemas.android.com/apk/res/android"
+    android:pathData="M0,0 C0.16,0.10 0.28,0.42 0.50,0.70 C0.70,0.88 0.87,0.97 1,1" />

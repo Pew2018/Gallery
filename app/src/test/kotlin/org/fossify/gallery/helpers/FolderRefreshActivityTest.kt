@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.Intent
 import android.os.Bundle
 import android.os.Looper
+import android.view.View
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import org.fossify.commons.extensions.getSharedPrefs
 import org.fossify.commons.helpers.FAVORITES
@@ -73,14 +74,27 @@ class FolderRefreshActivityTest {
         }
         assertTrue("Activity/Adapter did not reach the expected state", condition())
     }
+    private fun publish(activity: MediaActivity, rows: ArrayList<org.fossify.gallery.models.ThumbnailItem>,
+                        cache: Boolean, request: Long, stage: DisplayedSourceStage? = null,
+                        access: (() -> Boolean)? = null) {
+        MediaActivity::class.java.getDeclaredMethod("publishMedia", ArrayList::class.java,
+            Boolean::class.javaPrimitiveType, Long::class.javaPrimitiveType, DisplayedSourceStage::class.java,
+            Function0::class.java, Function0::class.java).apply { isAccessible = true }
+            .invoke(activity, rows, cache, request, stage, access, null)
+    }
+
     private fun refresh(activity: MediaActivity) {
         val swipe = activity.findViewById<SwipeRefreshLayout>(R.id.media_refresh_layout)
         val listener = SwipeRefreshLayout::class.java.getDeclaredField("mListener").apply { isAccessible = true }
             .get(swipe) as SwipeRefreshLayout.OnRefreshListener
         listener.onRefresh()
     }
-    private fun withActivity(block: (MediaActivity) -> Unit) {
-        val intent = Intent(context, MediaActivity::class.java).putExtra(DIRECTORY, root.path)
+    private fun withActivity(path: String = root.path, block: (MediaActivity) -> Unit) {
+        val intent = Intent(context, MediaActivity::class.java).putExtra(DIRECTORY, path)
+        if (path == PhotoProfileMediaLoader.PATH) {
+            intent.putExtra(GalleryNavigation.EXTRA_SECTION, GallerySection.PHOTOS.name)
+            intent.putExtra(PhotoProfileMediaLoader.EXTRA_ID, PhotoProfileRepository.of(context).state().selectedId)
+        }
         val controller = Robolectric.buildActivity(MediaActivity::class.java, intent).create(Bundle()).start()
         try {
             val activity = controller.get()
@@ -89,6 +103,95 @@ class FolderRefreshActivityTest {
             block(activity)
             (field(activity, "mCurrAsyncTask").get(activity) as? org.fossify.gallery.asynctasks.GetMediaAsynctask)?.stopFetching()
         } finally { controller.stop().destroy() }
+    }
+
+    @Test fun profileRefreshEndsOnlyForTheCurrentFinalPublication() {
+        photo("profile.jpg")
+        val store = PhotoProfileRepository.of(context)
+        val id = java.util.UUID.randomUUID().toString()
+        store.save(PhotoProfile(id, "Refresh", listOf(PhotoSource(PhotoSourceType.FOLDER, root.path))))
+        withActivity(PhotoProfileMediaLoader.PATH) { activity ->
+            refresh(activity)
+            await { !field(activity, "mIsGettingMedia").getBoolean(activity) }
+            val swipe = activity.findViewById<SwipeRefreshLayout>(R.id.media_refresh_layout)
+            val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
+            val stale = requests.begin()
+            val current = requests.begin()
+            val row = Medium().apply {
+                path = File(root, "profile.jpg").path; parentPath = root.path; name = "profile.jpg"; type = TYPE_IMAGES
+            }
+            swipe.isRefreshing = true
+            publish(activity, arrayListOf(row), true, current)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertTrue("a preview must not finish an ongoing refresh", swipe.isRefreshing)
+            publish(activity, arrayListOf(row), false, stale)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertTrue("an old terminal must not stop the current circle", swipe.isRefreshing)
+            publish(activity, arrayListOf(row), false, current)
+            await { !field(activity, "mIsGettingMedia").getBoolean(activity) }
+            assertFalse("the current final profile result must stop the circle", swipe.isRefreshing)
+        }
+    }
+
+    @Test fun missingProfileRetiresAnAcceptedRefreshWithoutStartingAWorker() {
+        withActivity(PhotoProfileMediaLoader.PATH) { activity ->
+            val swipe = activity.findViewById<SwipeRefreshLayout>(R.id.media_refresh_layout)
+            swipe.isRefreshing = true
+            refresh(activity)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertFalse(swipe.isRefreshing)
+            assertFalse(field(activity, "mIsGettingMedia").getBoolean(activity))
+            assertFalse(activity.isFinishing)
+        }
+    }
+
+    @Test fun initialFolderLoadingTracksPublishedMediaRatherThanAdapterExistence() {
+        val controller = Robolectric.buildActivity(MediaActivity::class.java,
+            Intent(context, MediaActivity::class.java).putExtra(DIRECTORY, root.path)).create(Bundle())
+        try {
+            val activity = controller.get()
+            val resolver = activity.contentResolver
+            val oldAnimatorScale = android.provider.Settings.Global.getFloat(
+                resolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+            android.provider.Settings.Global.putFloat(resolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
+            try {
+                val grid = activity.findViewById<MyRecyclerView>(R.id.media_grid)
+                val adapter = MediaAdapter(activity, arrayListOf(), activity, false, false, root.path, grid) {}
+                grid.adapter = adapter
+                val setLoading = MediaActivity::class.java.getDeclaredMethod(
+                    "setMediaLoading", Boolean::class.javaPrimitiveType
+                ).apply { isAccessible = true }
+                val central = activity.findViewById<View>(R.id.loading_indicator)
+                val header = field(activity, "mediaHeaderProgress").get(activity) as View
+                assertNull("a normal folder has no root navigation section", field(activity, "mGallerySection").get(activity))
+                assertSame(adapter, grid.adapter)
+                assertFalse(activity.isFinishing)
+                OxygenProgressStyle.dispose(central as com.google.android.material.progressindicator.BaseProgressIndicator<*>)
+                OxygenProgressStyle.dispose(header as com.google.android.material.progressindicator.BaseProgressIndicator<*>)
+
+                setLoading.invoke(activity, true)
+                assertEquals("an empty adapter is still waiting for real content", View.VISIBLE, central.visibility)
+                assertEquals(View.GONE, header.visibility)
+
+                adapter.media.add(Medium().apply {
+                    path = File(root, "first.jpg").path
+                    parentPath = root.path
+                    name = "first.jpg"
+                    type = TYPE_IMAGES
+                })
+                setLoading.invoke(activity, true)
+                assertEquals("published media immediately retires the central spinner", View.GONE, central.visibility)
+                assertEquals("background discovery stays quiet after media is visible", View.GONE, header.visibility)
+
+                setLoading.invoke(activity, false)
+                assertEquals(View.GONE, central.visibility)
+                assertEquals(View.GONE, header.visibility)
+            } finally {
+                android.provider.Settings.Global.putFloat(resolver,
+                    android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, oldAnimatorScale)
+            }
+        } finally { controller.destroy() }
     }
 
     @Test fun pullRefreshAddsCopiedNoMediaImageToTheActualAdapterAndHomeCard() {
@@ -132,6 +235,7 @@ class FolderRefreshActivityTest {
             assertTrue(root.isDirectory)
             assertTrue(File(root, "movie.mp4").isFile)
             assertFalse(activity.isFinishing)
+            assertFalse(activity.findViewById<SwipeRefreshLayout>(R.id.media_refresh_layout).isRefreshing)
             assertTrue(paths(activity).isEmpty())
         }
     }
@@ -146,6 +250,7 @@ class FolderRefreshActivityTest {
                 refresh(activity)
                 await { !field(activity, "mIsGettingMedia").getBoolean(activity) }
                 assertEquals(setOf(old.path), paths(activity))
+                assertFalse(activity.findViewById<SwipeRefreshLayout>(R.id.media_refresh_layout).isRefreshing)
                 assertFalse(activity.isFinishing)
             } finally { parked.renameTo(root) }
         }
@@ -158,11 +263,12 @@ class FolderRefreshActivityTest {
             val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
             val stale = requests.begin()
             requests.begin()
-            MediaActivity::class.java.getDeclaredMethod("publishMedia", ArrayList::class.java,
-                Boolean::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
-                .invoke(activity, arrayListOf<org.fossify.gallery.models.ThumbnailItem>(Medium().apply { path = "${root.path}/stale.jpg" }), false, stale)
+            val swipe = activity.findViewById<SwipeRefreshLayout>(R.id.media_refresh_layout)
+            swipe.isRefreshing = true
+            publish(activity, arrayListOf(Medium().apply { path = "${root.path}/stale.jpg" }), false, stale)
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             assertEquals(setOf(fresh.path), paths(activity))
+            assertTrue("an old final folder result cannot stop a new refresh", swipe.isRefreshing)
         }
     }
     @Test fun slowFilePublishesNewImageBeforeTimeoutAndLateScanCannotOverwriteAdapter() {
@@ -202,6 +308,8 @@ class FolderRefreshActivityTest {
                 assertTrue(blocked.await(5, TimeUnit.SECONDS))
                 await { fresh.path in paths(activity) }
                 assertTrue("preview incorrectly marked the full scan complete", field(activity, "mIsGettingMedia").getBoolean(activity))
+                assertEquals("a committed first batch must not keep the central ring visible",
+                    View.GONE, activity.findViewById<View>(R.id.loading_indicator).visibility)
                 Shadows.shadowOf(Looper.getMainLooper()).idleFor(46, TimeUnit.SECONDS)
                 assertFalse(field(activity, "mIsGettingMedia").getBoolean(activity))
                 assertFalse(activity.isFinishing)
@@ -272,6 +380,123 @@ class FolderRefreshActivityTest {
         } finally { home.pause().stop().destroy() }
     }
 
+    @Test fun roomPreviewPaintsWhileBothScanWorkersAreOccupied() {
+        val cached = photo("cached-first.jpg")
+        val later = photo("disk-second.jpg")
+        dbExecutor.submit {
+            context.mediaDB.insert(Medium().apply {
+                name = cached.name
+                path = cached.path
+                parentPath = root.path
+                size = cached.length()
+                type = TYPE_IMAGES
+            })
+        }.get(5, TimeUnit.SECONDS)
+        val occupied = java.util.concurrent.CountDownLatch(2)
+        val release = java.util.concurrent.CountDownLatch(1)
+        try {
+            repeat(2) { GalleryMediaScanExecutor.execute {
+                occupied.countDown()
+                release.await(10, TimeUnit.SECONDS)
+            } }
+            assertTrue(occupied.await(3, TimeUnit.SECONDS))
+            withActivity { activity ->
+                refresh(activity)
+                await { paths(activity) == setOf(cached.path) }
+                assertTrue(field(activity, "mIsGettingMedia").getBoolean(activity))
+                assertFalse(field(activity, "displayedMediaIsFinal").getBoolean(activity))
+                release.countDown()
+                await { paths(activity) == setOf(cached.path, later.path) &&
+                    field(activity, "displayedMediaIsFinal").getBoolean(activity) }
+            }
+        } finally { release.countDown() }
+    }
+
+    @Test fun firstEntryTopIntentIsSavedAndConsumedByNavigation() = withActivity { activity ->
+        val intent = field(activity, "initialFolderTop")
+        intent.setBoolean(activity, true)
+        val save = MediaActivity::class.java.getDeclaredMethod("onSaveInstanceState", Bundle::class.java)
+            .apply { isAccessible = true }
+        val untouched = Bundle()
+        save.invoke(activity, untouched)
+        assertTrue(untouched.getBoolean("initialFolderTop"))
+        intent.setBoolean(activity, false)
+        val navigated = Bundle()
+        save.invoke(activity, navigated)
+        assertFalse(navigated.getBoolean("initialFolderTop"))
+    }
+
+    @Test fun fullIndexRefinesTheSortedViewportBeforeSlowDirectoryEnumeration() {
+        File(root, ".nomedia").delete()
+        val zeta = photo("zeta.jpg")
+        val alpha = photo("alpha.jpg")
+        context.config.saveCustomSorting(SHOW_ALL, org.fossify.commons.helpers.SORT_BY_NAME)
+        listOf(zeta, alpha).forEach { provider.add(it.path) }
+        val blocked = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val previews = arrayListOf<MediaPageBatch>()
+        val task = org.fossify.gallery.asynctasks.GetMediaAsynctask(context, "", showAll = true,
+            pagePreviewTarget = 1, onPagePreview = { previews.add(it) }) { }
+        val fetcherField = task.javaClass.getDeclaredField("mediaFetcher").apply { isAccessible = true }
+        val fetcher = fetcherField.get(task) as MediaFetcher
+        fetcher.folderFileAccess = object : FolderFileAccess {
+            override fun enumerate(folder: String): FolderEnumeration {
+                if (folder != root.path) return FolderEnumeration(emptyList())
+                blocked.countDown()
+                check(release.await(10, TimeUnit.SECONDS))
+                return FolderEnumeration(listOf(zeta, alpha))
+            }
+            override fun metadata(file: File) = FolderFileMetadata(file.length(), file.lastModified(), true, true)
+        }
+        try {
+            task.executeOnExecutor(GalleryMediaScanExecutor)
+            assertTrue(blocked.await(5, TimeUnit.SECONDS))
+            await { previews.size >= 2 }
+            assertEquals(listOf(zeta.path), previews.first().rows.map { it.path })
+            assertEquals(listOf(alpha.path), previews.last().rows.map { it.path })
+            assertEquals(DisplayedSourceStage.INDEX_PREVIEW, previews.last().stage)
+        } finally { release.countDown(); task.stopFetching() }
+    }
+
+    @Test fun allFilesIndexPublishesBeforeBlockedDiskReadAndExcludesHiddenAndProtectedRows() {
+        File(root, ".nomedia").delete()
+        val indexed = photo("indexed.jpg")
+        val hidden = photo(".hidden.jpg")
+        val protected = File(root, "protected").apply { mkdirs() }
+        val protectedPhoto = File(protected, "locked.jpg").apply { writeBytes(byteArrayOf(1)) }
+        context.config.addFolderProtection(protected.path, "test", org.fossify.commons.helpers.PROTECTION_PIN)
+        val unindexed = photo("unindexed.jpg")
+        listOf(indexed, hidden, protectedPhoto).forEach { provider.add(it.path) }
+        val blocked = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val previews = arrayListOf<MediaPageBatch>()
+        var final: List<Medium>? = null
+        val task = org.fossify.gallery.asynctasks.GetMediaAsynctask(context, "", showAll = true,
+            pagePreviewTarget = 1, onPagePreview = { previews.add(it) }) { final = it.filterIsInstance<Medium>() }
+        val fetcher = task.javaClass.getDeclaredField("mediaFetcher").apply { isAccessible = true }.get(task) as MediaFetcher
+        fetcher.folderFileAccess = object : FolderFileAccess {
+            override fun enumerate(folder: String): FolderEnumeration {
+                if (folder != root.path) return FolderEnumeration(emptyList())
+                blocked.countDown()
+                check(release.await(10, TimeUnit.SECONDS))
+                return FolderEnumeration(listOf(indexed, unindexed, hidden))
+            }
+            override fun metadata(file: File) = FolderFileMetadata(2, 1, true, true)
+        }
+        try {
+            task.executeOnExecutor(GalleryMediaScanExecutor)
+            assertTrue(blocked.await(5, TimeUnit.SECONDS))
+            await { previews.isNotEmpty() }
+            assertEquals(DisplayedSourceStage.INDEX_PREVIEW, previews.first().stage)
+            assertEquals(listOf(indexed.path), previews.first().rows.map { it.path })
+            assertNull(final)
+            release.countDown()
+            await { final != null }
+            assertEquals(setOf(indexed.path, unindexed.path), final!!.map { it.path }.toSet())
+            assertTrue(task.scanResult.complete)
+        } finally { release.countDown(); task.stopFetching() }
+    }
+
     @Test fun allFilesRetainsFailedFolderCacheAndNeverClaimsACompleteViewerCatalog() {
         val fresh = photo("good.jpg")
         val failed = File(root, "failed").apply { mkdirs() }
@@ -316,12 +541,109 @@ class FolderRefreshActivityTest {
             val media = arrayListOf<org.fossify.gallery.models.ThumbnailItem>(Medium().apply {
                 path = photo.path; parentPath = root.path; name = photo.name; type = TYPE_IMAGES
             })
-            MediaActivity::class.java.getDeclaredMethod("publishMedia", ArrayList::class.java,
-                Boolean::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
-                .invoke(activity, media, false, request)
+            publish(activity, media, false, request)
             await { !field(activity, "mIsGettingMedia").getBoolean(activity) }
             assertFalse(field(activity, "displayedMediaIsFinal").getBoolean(activity))
             assertEquals(setOf(photo.path), paths(activity))
+        }
+    }
+
+    @Test fun ordinaryFolderPublishesOnlyTheLatestScanStageAfterFastScrollerAndGridAreIdle() {
+        val initial = photo("old.jpg")
+        val partial = photo("partial.jpg")
+        val complete = photo("complete.jpg")
+        fun row(file: File) = Medium().apply {
+            path = file.path
+            parentPath = root.path
+            name = file.name
+            type = TYPE_IMAGES
+        }
+        withActivity { activity ->
+            val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
+            val request = requests.begin()
+            (field(activity, "mediaScanTerminals").get(activity) as GalleryScanTerminalGate).begin(request)
+            val grid = activity.findViewById<MyRecyclerView>(R.id.media_grid)
+            val setState = androidx.recyclerview.widget.RecyclerView::class.java
+                .getDeclaredMethod("setScrollState", Int::class.javaPrimitiveType).apply { isAccessible = true }
+            val drag = MediaActivity::class.java.getDeclaredMethod("onPhotoFastScrollStateChanged",
+                Boolean::class.javaPrimitiveType).apply { isAccessible = true }
+            publish(activity, arrayListOf(row(initial)), true, request, DisplayedSourceStage.CACHE_PREVIEW) { true }
+            val adapter = grid.adapter
+            drag.invoke(activity, true)
+            publish(activity, arrayListOf(row(partial)), true, request, DisplayedSourceStage.SCAN_PARTIAL) { true }
+            publish(activity, arrayListOf(row(complete), row(initial)), false, request,
+                DisplayedSourceStage.SCAN_COMPLETE) { true }
+            publish(activity, arrayListOf(row(partial)), true, request, DisplayedSourceStage.INDEX_PREVIEW) { true }
+            assertEquals(setOf(initial.path), paths(activity))
+
+            setState.invoke(grid, androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_SETTLING)
+            drag.invoke(activity, false)
+            assertEquals(setOf(initial.path), paths(activity))
+            setState.invoke(grid, androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE)
+            await { paths(activity) == setOf(complete.path, initial.path) }
+            assertSame(adapter, grid.adapter)
+        }
+    }
+
+    @Test fun progressivePageRegroupsCorrectedRowsAndRejectsOldSortingAfterCompletion() {
+        val old = photo("old.jpg")
+        val moved = photo("moved.png")
+        val newest = photo("newest.jpg")
+        val descending = org.fossify.commons.helpers.SORT_BY_DATE_TAKEN or org.fossify.commons.helpers.SORT_DESCENDING
+        val ascending = org.fossify.commons.helpers.SORT_BY_DATE_TAKEN
+        context.config.saveCustomSorting(root.path, descending)
+        context.config.saveFolderGrouping(root.path, GROUP_BY_EXTENSION)
+        fun row(file: File, taken: Long) =
+            Medium(null, file.name, file.path, root.path, taken, taken, 2, TYPE_IMAGES, 0, false, 0, 0)
+        withActivity { activity ->
+            val requests = field(activity, "mediaLoadRequests").get(activity) as FavoriteMediaLoadRequests
+            val request = requests.begin()
+            (field(activity, "mediaScanTerminals").get(activity) as GalleryScanTerminalGate).begin(request)
+            field(activity, "mediaRefreshRequest").setLong(activity, request)
+            field(activity, "mediaPageRequest").setLong(activity, request)
+            field(activity, "mIsGettingMedia").setBoolean(activity, true)
+            val preview = MediaActivity::class.java.getDeclaredMethod("publishPagePreview",
+                Long::class.javaPrimitiveType, MediaPageBatch::class.java).apply { isAccessible = true }
+            fun deliver(stage: DisplayedSourceStage, vararg rows: Medium, id: Long = request) =
+                preview.invoke(activity, id, MediaPageBatch(stage, rows.toList()) { true })
+            val grid = activity.findViewById<MyRecyclerView>(R.id.media_grid)
+            fun order() = (grid.adapter as? MediaAdapter)?.media.orEmpty().map {
+                when (it) {
+                    is Medium -> it.name
+                    is org.fossify.gallery.models.ThumbnailSection -> it.title
+                    else -> error("Unknown grid row")
+                }
+            }
+            deliver(DisplayedSourceStage.CACHE_PREVIEW, row(old, 10), row(moved, 12))
+            await { order() == listOf("JPG", old.name, "PNG", moved.name) }
+            val adapter = grid.adapter
+            deliver(DisplayedSourceStage.INDEX_PREVIEW, row(old, 10), row(moved, 14))
+            deliver(DisplayedSourceStage.SCAN_PARTIAL, row(newest, 20))
+            await { order() == listOf("JPG", newest.name, old.name, "PNG", moved.name) }
+
+            context.config.saveCustomSorting(root.path, ascending)
+            val gate = field(activity, "mediaSortOperations").get(activity) as MediaSortOperationGate
+            val reorder = MediaActivity::class.java.getDeclaredMethod("previewSortDuringFolderScan",
+                Long::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
+            assertEquals(true, reorder.invoke(activity, gate.begin(), android.os.SystemClock.elapsedRealtime()))
+            val expected = listOf("JPG", old.name, newest.name, "PNG", moved.name)
+            await { order() == expected }
+            assertFalse(field(activity, "displayedMediaIsFinal").getBoolean(activity))
+
+            field(activity, "mediaScanOutcomeRequest").setLong(activity, request)
+            field(activity, "mediaScanOutcome").set(activity, GalleryScanResult(GalleryScanState.COMPLETE))
+            val publishScan = MediaActivity::class.java.getDeclaredMethod("publishPageScan",
+                Long::class.javaPrimitiveType, Int::class.javaObjectType, ArrayList::class.java, Function0::class.java)
+                .apply { isAccessible = true }
+            publishScan.invoke(activity, request, descending, arrayListOf(row(newest, 20), row(old, 10), row(moved, 14)),
+                { true })
+            await { field(activity, "displayedMediaIsFinal").getBoolean(activity) }
+            assertEquals(expected, order())
+            assertSame(adapter, grid.adapter)
+            deliver(DisplayedSourceStage.SCAN_PARTIAL, row(newest, 1))
+            deliver(DisplayedSourceStage.SCAN_PARTIAL, row(newest, 1), id = request - 1)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(expected, order())
         }
     }
 
@@ -688,9 +1010,7 @@ class FolderRefreshActivityTest {
             })
             MediaActivity::class.java.getDeclaredMethod("armMediaRefreshDeadline", Long::class.javaPrimitiveType)
                 .apply { isAccessible = true }.invoke(activity, request)
-            MediaActivity::class.java.getDeclaredMethod("publishMedia", ArrayList::class.java,
-                Boolean::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
-                .invoke(activity, media, true, request)
+            publish(activity, media, true, request)
             assertTrue(field(activity, "mIsGettingMedia").getBoolean(activity))
             Shadows.shadowOf(Looper.getMainLooper()).idleFor(46, TimeUnit.SECONDS)
             assertFalse(field(activity, "mIsGettingMedia").getBoolean(activity))

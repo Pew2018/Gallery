@@ -1,7 +1,7 @@
 package org.fossify.gallery.helpers
 
 /** Source completeness is independent of whether a worker returned or a preview has rows. */
-internal enum class GalleryScanState { COMPLETE, PARTIAL, FAILED, TIMED_OUT, CANCELLED }
+internal enum class GalleryScanState { COMPLETE, PARTIAL, FAILED, ACCESS_REQUIRED, TIMED_OUT, CANCELLED }
 
 internal data class GalleryScanResult(
     val state: GalleryScanState,

@@ -117,6 +117,65 @@ class DirectoryMetadataRepositoryTest {
         assertNull(dbCount())
     }
 
+    @Test fun fullStatsRoundTripAndOmittedFieldsRetainPreviewWithoutClaimingCompleteness() {
+        val a = medium("a.jpg").apply { modified = 1; taken = 10 }
+        val b = medium("b.jpg").apply { modified = 100; taken = 1000 }
+        val rows = listOf(a, b)
+        val scopeKey = org.fossify.gallery.models.DirectoryStats.scope(scope.filterMedia, scope.showDotFiles)
+        val full = org.fossify.gallery.models.DirectoryStats.calculate(rows, scopeKey,
+            org.fossify.gallery.models.DirectoryStats.ALL)
+        val first = snapshot(DirectoryMetadataRepository.begin(root.path), rows)
+        assertTrue(commit(first.copy(readResult = first.readResult.copy(stats = full))))
+        val stored = readExecutor.submit<org.fossify.gallery.models.Directory> {
+            context.directoryDB.getByPath(root.path)!!
+        }.get()
+        assertEquals(full, stored.stats)
+        val omitted = org.fossify.gallery.models.DirectoryStats.calculate(listOf(Medium()), scopeKey,
+            org.fossify.gallery.models.DirectoryStats.COUNT)
+        val second = snapshot(DirectoryMetadataRepository.begin(root.path), listOf(Medium()))
+        assertTrue(commit(second.copy(readResult = second.readResult.copy(stats = omitted))))
+        val updated = readExecutor.submit<org.fossify.gallery.models.Directory> {
+            context.directoryDB.getByPath(root.path)!!
+        }.get()
+        assertEquals(6L, updated.size)
+        assertEquals(100L, updated.modified)
+        assertEquals(1000L, updated.taken)
+        assertEquals(1L, updated.stats.minModified)
+        assertEquals(10L, updated.stats.minTaken)
+        assertFalse(updated.stats.has(org.fossify.gallery.models.DirectoryStats.SIZE))
+        assertFalse(updated.stats.has(org.fossify.gallery.models.DirectoryStats.TAKEN))
+    }
+
+    @Test fun missingStatsSwitchesCoalesceWhileReadingAndBeforeObserverRebind() {
+        medium("coalesced.jpg")
+        val index = org.robolectric.Robolectric.buildContentProvider(PhotoProfileMediaLoadingTest.IndexedMediaProvider::class.java).create().get()
+        val provider = org.robolectric.Robolectric.buildContentProvider(HomeSortingWorkRegressionTest.BlockingDateProvider::class.java)
+            .create().get().also { it.delegate = index }
+        org.robolectric.shadows.ShadowContentResolver.registerProviderInternal("media", provider)
+        val stale = org.fossify.gallery.models.Directory().apply { path = root.path }
+        try {
+            context.config.directorySorting = org.fossify.commons.helpers.SORT_BY_SIZE
+            DirectoryMetadataRepository.ensureStatistics(context, listOf(stale))
+            assertTrue(provider.entered.await(10, TimeUnit.SECONDS))
+            repeat(12) {
+                context.config.directorySorting = if (it % 2 == 0) org.fossify.commons.helpers.SORT_BY_DATE_MODIFIED
+                    else org.fossify.commons.helpers.SORT_BY_DATE_TAKEN
+                DirectoryMetadataRepository.ensureStatistics(context, listOf(stale))
+            }
+            provider.release.countDown()
+            val complete = java.util.concurrent.CountDownLatch(1)
+            GalleryDirectoryMetadataExecutor.execute { complete.countDown() }
+            assertTrue(complete.await(10, TimeUnit.SECONDS))
+            val before = index.queries.size
+            assertEquals(1, dbCount())
+            repeat(12) { DirectoryMetadataRepository.ensureStatistics(context, listOf(stale)) }
+            val idle = java.util.concurrent.CountDownLatch(1)
+            GalleryDirectoryMetadataExecutor.execute { idle.countDown() }
+            assertTrue(idle.await(10, TimeUnit.SECONDS))
+            assertEquals("stale UI must not schedule the same completed work", before, index.queries.size)
+        } finally { provider.release.countDown(); index.db.close() }
+    }
+
     @Test fun deferredRepositoryReachesLaterThirtySixPathsAfterTwentyFourOfflinePaths() {
         val parent = File(root, "queue").apply { mkdirs() }
         val paths = (0 until 60).map { File(parent, "album$it") }

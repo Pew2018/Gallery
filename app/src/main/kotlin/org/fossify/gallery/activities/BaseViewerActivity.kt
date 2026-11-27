@@ -2,13 +2,10 @@ package org.fossify.gallery.activities
 
 import org.fossify.gallery.helpers.OxygenClassicActivityMotion
 
+import android.content.res.Configuration
 import android.os.Bundle
-import android.graphics.Color
-import android.os.Build
 import android.view.View
-import android.widget.FrameLayout
 import androidx.core.view.ViewCompat
-import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsCompat.Type
 import androidx.lifecycle.Lifecycle
@@ -19,6 +16,9 @@ import kotlinx.coroutines.launch
 import org.fossify.commons.extensions.updateMarginWithBase
 import org.fossify.commons.extensions.updatePaddingWithBase
 import org.fossify.gallery.extensions.config
+import org.fossify.gallery.helpers.OxygenSystemBars
+import org.fossify.gallery.helpers.OxygenThemeEngine
+import org.fossify.gallery.helpers.OxygenThemeTokens
 
 abstract class BaseViewerActivity : SimpleActivity() {
     override val padCutout: Boolean = false
@@ -41,53 +41,66 @@ abstract class BaseViewerActivity : SimpleActivity() {
         registerShowNotchCollector(contentRoot)
     }
 
+    protected open val viewerSystemBarProgress: Float get() = 1f
+    protected open val viewerStatusSurfaceVisible: Boolean get() = true
+
+    /**
+     * The navigation band is a separate surface with its own icons. Gallery drives it
+     * from the same immersive flag as the status band today, but the write path no longer
+     * assumes the two are the same decision: a frame that hides only one bar keeps the
+     * other bar's band and icon polarity intact.
+     */
+    protected open val viewerNavigationSurfaceVisible: Boolean get() = viewerStatusSurfaceVisible
+
+    private lateinit var viewerBarColors: OxygenThemeTokens
+
     override fun onResume() {
         super.onResume()
-        applyViewerSystemBars()
+        refreshViewerSystemBars()
     }
 
-    private fun applyViewerSystemBars() {
-        val decor = window.decorView
-        val bars = WindowCompat.getInsetsController(window, decor)
-        bars.isAppearanceLightStatusBars = false
-        bars.isAppearanceLightNavigationBars = false
-        if (Build.VERSION.SDK_INT < 35) {
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        refreshViewerSystemBars()
+    }
+
+    protected fun refreshViewerSystemBars() {
+        viewerBarColors = OxygenThemeEngine.snapshot(this, config)
+        updateViewerSystemBars()
+    }
+
+    protected fun updateViewerSystemBars() {
+        val changed = OxygenSystemBars.applyViewer(
+            this, viewerBarColors, viewerSystemBarProgress, viewerStatusSurfaceVisible,
+            viewerNavigationSurfaceVisible)
+        // Only actual changes are recorded: the entry clock calls this per frame and a
+        // per-frame log line would both cost time and hide the interesting frames.
+        if (changed && org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
+            val underlay = window.decorView.findViewWithTag<View>(OxygenSystemBars.STATUS_UNDERLAY)
+            val navUnderlay = window.decorView.findViewWithTag<View>(OxygenSystemBars.NAV_UNDERLAY)
+            val bars = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+            val underlayColor = (underlay?.background as? android.graphics.drawable.ColorDrawable)?.color
             @Suppress("DEPRECATION")
-            window.statusBarColor = getColor(org.fossify.gallery.R.color.viewer_status_surface)
-            @Suppress("DEPRECATION")
-            window.navigationBarColor = Color.BLACK
-        } else {
-            val host = decor as? FrameLayout ?: return
-            val underlay = host.findViewWithTag<View>(VIEWER_STATUS_UNDERLAY) ?: View(this).also { view ->
-                view.tag = VIEWER_STATUS_UNDERLAY
-                view.isClickable = false
-                view.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                host.addView(view, 0, FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    0,
-                    android.view.Gravity.TOP
-                ))
-                ViewCompat.setOnApplyWindowInsetsListener(view) { target, insets ->
-                    val top = insets.getInsets(
-                        WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()
-                    ).top
-                    target.layoutParams = (target.layoutParams as FrameLayout.LayoutParams).apply { height = top }
-                    insets
-                }
-            }
-            underlay.setBackgroundColor(getColor(org.fossify.gallery.R.color.viewer_status_surface))
-            ViewCompat.getRootWindowInsets(host)?.let { insets ->
-                val top = insets.getInsets(
-                    WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()
-                ).top
-                underlay.layoutParams = (underlay.layoutParams as FrameLayout.LayoutParams).apply { height = top }
-            }
-            ViewCompat.requestApplyInsets(underlay)
+            val legacyColor = window.statusBarColor
+            org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "Viewer", "viewer_status_appearance_changed",
+                null,
+                mapOf(
+                    "progress" to viewerSystemBarProgress,
+                    "statusBarVisible" to viewerStatusSurfaceVisible,
+                    "navigationBarVisible" to viewerNavigationSurfaceVisible,
+                    "iconAppearance" to if (bars.isAppearanceLightStatusBars) "DARK" else "LIGHT",
+                    "navigationIconAppearance" to if (bars.isAppearanceLightNavigationBars) "DARK" else "LIGHT",
+                    "underlayVisibility" to (underlay?.visibility == View.VISIBLE),
+                    "navigationUnderlayVisibility" to (navUnderlay?.visibility == View.VISIBLE),
+                    "backgroundColor" to (underlayColor ?: legacyColor),
+                    // The declared page endpoint, so a reader can tell an inherited
+                    // polarity from one the contrast latch happened to pick.
+                    "pageStatusIcons" to if (viewerBarColors.lightStatusBarIcons) "LIGHT" else "DARK",
+                    "pageNavigationIcons" to if (viewerBarColors.darkNavigationBarIcons) "DARK" else "LIGHT",
+                )
+            )
         }
-    }
-
-    private companion object {
-        const val VIEWER_STATUS_UNDERLAY = "gallery_viewer_status_underlay"
     }
 
     private fun registerShowNotchCollector(view: View) {

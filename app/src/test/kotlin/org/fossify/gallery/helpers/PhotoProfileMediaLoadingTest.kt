@@ -66,9 +66,9 @@ class PhotoProfileMediaLoadingTest {
                 MediaFetcher(context, TYPE_IMAGES).getPhotoProfileMedia(setOf(root.toString()), emptySet(), arrayListOf(indexed))
             }.associateBy { it.path }
             assertEquals(setOf(indexed, unindexed), result.keys)
-            assertEquals(321L, result.getValue(indexed).size)
+            assertEquals(3L, result.getValue(indexed).size) // physical metadata was already verified during supplementation
             assertEquals(9999L, result.getValue(indexed).taken)
-            assertEquals(12000L, result.getValue(indexed).modified)
+            assertEquals(java.io.File(indexed).lastModified(), result.getValue(indexed).modified)
             assertTrue(result.getValue(indexed).isFavorite)
             assertEquals(3L, result.getValue(unindexed).size)
             assertEquals(1, provider.queries.size)
@@ -198,6 +198,33 @@ class PhotoProfileMediaLoadingTest {
             val preview = stages.first { it.stage == PhotoLoadStage.CACHE_PREVIEW }
             val names = preview.media.map { it.name }
             assertEquals(names.sortedBy { it.lowercase(java.util.Locale.getDefault()) }, names)
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun cacheAndIndexedStagesUseTheSameMissingCaptureTimeFallback() {
+        val root = Files.createTempDirectory("photo-cache-date-fallback")
+        try {
+            val older = Files.write(root.resolve("older.jpg"), byteArrayOf(1)).toString()
+            val newer = Files.write(root.resolve("newer.jpg"), byteArrayOf(1)).toString()
+            val id = profile(root.toString())
+            val sorting = org.fossify.commons.helpers.SORT_BY_DATE_TAKEN or org.fossify.commons.helpers.SORT_DESCENDING
+            context.config.saveCustomSorting(PhotoProfileMediaLoader.PATH, sorting)
+            provider.add(older, taken = 100)
+            provider.add(newer, taken = 200)
+            background {
+                context.mediaDB.insertAll(listOf(
+                    Medium(null, "older.jpg", older, root.toString(), 100, 100, 1, TYPE_IMAGES, 0, false, 0, 0),
+                    Medium(null, "newer.jpg", newer, root.toString(), 200, 0, 1, TYPE_IMAGES, 0, false, 0, 0)
+                ))
+            }
+            val stages = arrayListOf<PhotoLoadResult>()
+            val final = background { PhotoProfileMediaLoader(context).loadStaged(id, true) { stages += it } }
+            assertEquals(PhotoLoadStage.CACHE_PREVIEW, stages.first().stage)
+            for (stage in stages + final) {
+                val expected = ArrayList(stage.media).also { MediaFetcher(context).sortMedia(it, sorting) }
+                assertEquals(expected, stage.media)
+            }
+            assertEquals(listOf(newer, older), stages.first().media.map { it.path })
         } finally { root.toFile().deleteRecursively() }
     }
 
@@ -498,6 +525,83 @@ class PhotoProfileMediaLoadingTest {
         } finally { root.toFile().deleteRecursively() }
     }
 
+    @Test @Config(sdk = [31], shadows = [ScopedEnvironment::class, ScopedMediaStore::class])
+    fun plainEnterReusesTheStableCatalogWhileExplicitRefreshPerformsTheFullQuery() {
+        val root = Files.createTempDirectory("photo-enter-refresh")
+        try {
+            val path = Files.write(root.resolve("indexed.jpg"), byteArrayOf(1)).toString()
+            provider.add(path)
+            val id = profile(root.toString())
+            assertEquals(PhotoLoadStage.COMPLETE,
+                background { PhotoProfileMediaLoader(context).loadStaged(id, allowPreview = false) }.stage)
+
+            provider.queries.clear()
+            val enter = background { PhotoProfileMediaLoader(context).loadStaged(id, allowPreview = false) }
+            assertEquals(listOf(path), enter.media.map { it.path })
+            assertTrue("A plain entry must reuse the stable catalog, not scan again",
+                provider.queries.none { it?.contains("_data LIKE", ignoreCase = true) == true })
+
+            provider.queries.clear()
+            val refresh = background {
+                PhotoProfileMediaLoader(context).loadStaged(id, allowPreview = false, forceScan = true)
+            }
+            assertEquals(listOf(path), refresh.media.map { it.path })
+            assertTrue("An explicit refresh must re-read the media index",
+                provider.queries.any { it?.contains("_data LIKE", ignoreCase = true) == true })
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test @Config(sdk = [31], shadows = [ScopedEnvironment::class, ScopedMediaStore::class])
+    fun hotCachePublishesABoundedPreviewBeforeTheIndexQuery() {
+        val root = Files.createTempDirectory("photo-preview-cache")
+        try {
+            val paths = (0 until 5).map { index ->
+                Files.write(root.resolve("photo-$index.jpg"), byteArrayOf(index.toByte())).toString()
+            }
+            paths.forEach { provider.add(it) }
+            val id = profile(root.toString())
+            assertEquals(PhotoLoadStage.COMPLETE,
+                background { PhotoProfileMediaLoader(context).loadStaged(id, allowPreview = false) }.stage)
+
+            provider.queries.clear()
+            val stages = ArrayList<PhotoLoadResult>()
+            var indexQueriesAtFirstStage = -1
+            val final = background {
+                PhotoProfileMediaLoader(context).loadStaged(id, allowPreview = true) { stage ->
+                    // onStage runs on this worker, before the loader reaches the index query.
+                    if (stages.isEmpty()) indexQueriesAtFirstStage = provider.queries.size
+                    stages.add(stage)
+                }
+            }
+
+            val preview = stages.firstOrNull { it.stage == PhotoLoadStage.CACHE_PREVIEW }
+            assertNotNull("A hot catalog must publish its first validated slice", preview)
+            assertEquals("The preview cannot wait for the indexed query", 0, indexQueriesAtFirstStage)
+            assertEquals(final.media.take(preview!!.media.size).map { it.path }, preview.media.map { it.path })
+            assertEquals(PhotoLoadStage.COMPLETE, final.stage)
+            assertEquals(paths.toSet(), final.media.map { it.path }.toSet())
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun coldCachePublishesNoPreviewAndStillConvergesToTheCompleteList() {
+        val root = Files.createTempDirectory("photo-preview-cold")
+        try {
+            val paths = (0 until 3).map { index ->
+                Files.write(root.resolve("cold-$index.jpg"), byteArrayOf(index.toByte())).toString()
+            }
+            val id = profile(root.toString())
+            val stages = ArrayList<PhotoLoadResult>()
+            val final = background {
+                PhotoProfileMediaLoader(context).loadStaged(id, allowPreview = true) { stages.add(it) }
+            }
+
+            assertTrue("An empty cache has no preview to publish",
+                stages.none { it.stage == PhotoLoadStage.CACHE_PREVIEW })
+            assertEquals(PhotoLoadStage.COMPLETE, final.stage)
+            assertEquals(paths.toSet(), final.media.map { it.path }.toSet())
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     @Test fun viewerSnapshotRechecksCanonicalTargetAndRejectsDeletedClickedFile() {
         val root = Files.createTempDirectory("photo-viewer-link")
         try {
@@ -708,6 +812,7 @@ class PhotoProfileMediaLoadingTest {
 
     class IndexedMediaProvider : ContentProvider() {
         lateinit var db: SQLiteDatabase
+        var rejectQueries = false
         val queries = ArrayList<String?>()
         val projections = ArrayList<List<String>>()
         override fun onCreate(): Boolean {
@@ -720,6 +825,7 @@ class PhotoProfileMediaLoadingTest {
                 arrayOf(path.substringAfterLast('/'), path, taken, size))
         }
         override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor {
+            if (rejectQueries) throw java.io.IOException("Injected MediaStore failure")
             queries.add(selection)
             projections.add(projection?.toList().orEmpty())
             return db.query("media", projection, selection, selectionArgs, null, null, sortOrder)

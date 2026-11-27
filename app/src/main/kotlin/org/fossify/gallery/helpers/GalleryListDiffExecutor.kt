@@ -1,12 +1,9 @@
 package org.fossify.gallery.helpers
 
 import java.util.concurrent.Executor
-import java.util.concurrent.Executors
 
-/** UI list reconciliation has its own bounded worker count, separate from media scans. */
+/** List diffs have their own strictly bounded queue, separate from media scans. */
 internal object GalleryListDiffExecutor : Executor {
-    private val workers = Executors.newFixedThreadPool(2) { work ->
-        Thread(work, "gallery-list-diff").apply { isDaemon = true }
-    }
+    private val workers = BoundedScanExecutor("gallery-list-diff", workers = 2, queued = 4)
     override fun execute(command: Runnable) = workers.execute(command)
 }

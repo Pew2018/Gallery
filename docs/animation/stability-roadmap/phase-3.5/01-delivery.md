@@ -1,0 +1,194 @@
+# 阶段 3.5：顶栏与主页进度条
+
+日期：2026-11-20。实施前 HEAD/origin 均为 3ee851b0954f0e398a99208dd79bba319c17cb22，工作区干净；仅使用 perf/home-gallery-sorting，无新分支、工作树、历史改写或强推。
+
+## 修改
+
+- Commons 7.1.3 的 AppTheme.Base 继承 Material3，actionModeStyle 为 AppCompat.ActionMode → Widget.Material3.ActionMode，内容高度通过 height → actionBarSize 解析，默认 64dp。此前 OxygenToolbarStyle 的普通行自定为 56dp。
+- 普通 MySearchMenu 改读同一 ActionMode 样式高度；共同取该高度与 20sp 文本加 24dp 纵向空间的较大值。选择态保持原默认高度，只在字体需要更高空间时一同适配。Insets 仍由原系统栏机制处理，不叠加状态栏高度。
+- 选择期间仅普通栏内容容器 INVISIBLE，普通栏表面继续绘制，保持测量和网格位置并避免 CAB 淡出时露出页面底色；CAB 真正退出后在预绘制恢复，快速反向切换会撤销旧恢复监听。退出/分离均清理监听。Commons 仍负责选择、数量、全选和操作回调。
+- MainActivity 删除 directoryHeaderProgress 的创建、挂载、样式、显示及销毁引用；保留 setDirectoryLoading 的 watchdog、超时、取消、错误及重试。主页转场 frameState 使用实际加载状态，不再通过进度条判断。MediaActivity、Viewer、对话框和下拉刷新提示未改。
+- Viewer/编辑器顶栏、Session、来源资格、几何计算、Glide 交接、缩放曲线及扫描链路未改。
+
+主要文件：OxygenToolbarStyle.kt、OxygenSelectionMode.kt、MainActivity.kt；增加 JVM 与 Android 原生 SelectionToolbarHeightTest。
+
+## 首轮交付验证（历史记录）
+
+使用 JDK 21、项目 Wrapper 与既有依赖；未升级 Commons。
+
+| 检查 | 结果 |
+| --- | --- |
+| 完整 JVM | 176 suites，1,270 tests，0 failures/errors/skipped；首轮交付版本 |
+| API 29 原生顶栏 | 默认字体、2 倍字体、横屏均通过；真实 CAB/普通行等高、底边与网格稳定、快速反向选择及回调交接通过 |
+| API 29 静态几何 | 普通文件夹、ALL_MEDIA、半可见首排各 20 组合全部通过，覆盖方形、横图、竖图、约 1:30 长图、EXIF 转置与裁切/圆角开关 |
+| API 29 完整下拖 | 取消/提交、切换媒体后返回、放大状态检查等完整既有用例单独复核通过 |
+| Debug / AndroidTest / ARM64 FOSS Release | 均构建成功；本地 Release 未签名，安装交付使用同提交 CI 签名包 |
+| Lint FossDebug | 非零：15 errors、806 warnings、2 hints；原提交生产代码同目录、同 JDK/任务重新构建对照，按级别/规则/文件/消息多重集比较，新增 0、移除 0 |
+| Detekt | 非零：原提交与最终版均 3,463 条、4,031 weighted issues；无新增规则或问题位置，原有 OxygenToolbarStyle TooManyFunctions 指标从 13 变为 15，其他问题完全一致，未更新/扩大 baseline |
+
+初轮与合并原生检查保留失败记录：ALL_MEDIA 出现夹具不可见/共享路线或 Glide 降级断言失败；一次完整下拖在双击放大断言失败，空闲条件单独复核通过。原提交 ALL_MEDIA 对照通过后继续排查，发现既有夹具只滚动一次，后续渐进发布会改变真实位置。仅修补 Android 测试：按当前路径/位置重新驱动真实 RecyclerView，等布局与 Adapter 更新完成后捕获当前缩略图；保持原 15 秒预算、全部 20 个组合、共享路线和 Glide 断言。修补后的 ALL_MEDIA 全部通过；未修改生产扫描、位置保留、资格校验或几何算法。最终背景保留修补后，合并运行另有两组矩阵遇到目标 renderer 晚于既有就绪预算到达，诊断确认来源几何有效、应用按原策略降级；无编译负载定向复核两组均通过，未调整超时或断言。最终普通文件夹矩阵、完整下拖及三种顶栏配置也通过。
+
+API 29 使用软件渲染模拟器。未连接真机；Pixel 8 Pro/API 36、本轮现代 API 原生测试及真机视觉效果未验证。文件夹/照片/收藏/列表的真实操作与视觉组合仍按下方一次合并验收检查。
+
+最终执行入口：
+
+```text
+:app:testFossDebugUnitTest
+:app:lintFossDebug
+:app:detekt
+:app:assembleFossDebug :app:assembleFossDebugAndroidTest
+:app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a
+```
+
+Detekt 依赖所在 Maven Central 端点返回 403，本机通过临时 Gradle init 脚本使用 Google 托管的 Maven Central 镜像运行该检查，未修改项目仓库/依赖。原提交的三个文件从 git show 导出后，与其余原有文件一起同配置检查，不创建工作树。
+
+## APK 与源码身份
+
+本地 ARM64 FOSS Release 未配置发布签名。可安装交付包沿用仓库 Arm64 FOSS Release APK (non-publishing) 工作流，以本次源码提交触发构建，保留原有签名、ABI、包名和 SHA-256 校验。具体提交 SHA、运行链接、下载位置和 APK 哈希在交付回复中列出；版本名/版本号不能独立证明源码身份。若 CI 使用临时密钥，以其声明为准，不声称可覆盖任意旧签名安装。
+
+## 一次合并真机验收
+
+1. 安装交付 ARM64 Release。主页文件夹与文件夹内文件分别长按、多选、全选、取消最后一项，抽查照片、收藏和列表；确认两态底边、网格位置稳定，数量及操作正常、无双标题。
+2. 默认/大字体，横竖屏与快速进入—退出—再进入选择态；核对按钮和标题不裁切。
+3. 主页加载、排序、下拉刷新和一次可触发的错误/重试，确认无线性进度条及占位；文件页和操作对话框的加载反馈保留。
+4. 首行与半可见缩略图，方图、横图、竖图、长图入场；普通返回、下拖取消及 A→B 返回 B。检查二次缩放、错位及清理；历史长图回程末段问题留给 4A，不计作已修复。
+
+没有 Pixel 8 Pro 本次 APK 的真机视觉证据，现代 API 的本轮原生结果也不以历史记录代替。阶段结论：**代码完成，待真机验收**；不自动标记阶段 3.5 通过。
+
+
+## 后续修补：刷新圆圈与顶栏交接（2026-11-20）
+
+执行方案为工作目录中的《Fossify Gallery 阶段3.5后续修补执行方案》。起点 HEAD/origin 为 8cd08828448a75c89106d63ed9f184247602d410，工作区干净；仅使用原 perf/home-gallery-sorting。保持已有提交历史，无新增分支、工作树、强推或无关修改。
+
+### 真机证据与修补前复现
+
+34 秒录屏 f437b0a32527ed7b42d109bd3806cc5d.mp4 与 Gallery-Diagnostics-20261120-013052.txt 显示刷新圆圈回缩后重现及选择栏交接空窗；用户另确认自定义照片配置同类问题。三次文件夹刷新都 COMPLETE，最终提交约 147/159/155 ms、11 项，不能把 UI 跳动解释为扫描卡死。原日志没有源码 SHA，版本号不能单独绑定安装包。
+
+在原生产代码的 API 29 包上加入真实手势与逐帧回归后，分别捕获：
+
+- 顶栏：普通内容已不可见时，CAB alpha 从 0 逐渐升至 1；退出时同类断档。记录有 normal=false/CAB=0、0.0079、0.0314 等实际帧，不只检查动画终态。
+- 普通文件夹：onRefresh 替换了刚刚完成下拉定位的圆圈动画，启动新的缩放动画。回调瞬间 scale 仍可能是 1，因此测试还检查实际动画是否被重启。
+- 自定义照片配置：初次完整结果结束了业务加载但圆圈仍处于 refreshing，后续真实下拉不能触发回调。JVM 同时复现当前 final 不能停止圆圈；预览和旧终态不得停止新圆圈的断言保留。
+
+原始失败与修补后结果均保留在交付验证记录中，不以删除断言、延长等待或重复运行直至通过掩盖问题。
+
+### 实际修改
+
+- MediaActivity.onRefresh 不再先设置 isRefreshing=false。控件已由真实下拉完成定位并开始旋转，普通文件夹和照片配置的既有请求入口继续承接该反馈，不重复启动动画。
+- 自定义照片配置通过现有请求/来源校验并发布非缓存完整结果时，补齐 isRefreshing=false。预览、旧请求、失败、配置不存在、权限和页面取消仍走原有守卫与收尾；watchdog、超时、扫描、排序、索引、发布和重试不改。
+- OxygenSelectionMode 只标记受管选择栏的展示交接；SimpleActivity 在 AppCompat 已完成 CAB 初始化/退出设置的原有生命周期回调中完成该交接。只取消该 CAB 的透明度淡入/淡出，保持完整前景同步切换；原业务回调、数量、全选及操作不替换。取消发生在动画未启动时也完成 CAB 视图清理。
+- OxygenToolbarStyle 保留实色表面、当前统一高度、字体规则和布局占位，只切换内容容器。删除等待 isShown 消失的逐帧恢复监听，不引入固定时长或轮询。未经过本项目 wrapper 的 ActionMode 保留原 AppCompat 透明度动画，有原生隔离断言。
+- Viewer/编辑器、Session、共享资格、照片几何、EXIF/Insets、Glide 交接及缩放曲线均未改。主页已删除的线性条不恢复，其他加载反馈保留。
+
+主要文件：MediaActivity.kt、SimpleActivity.kt、OxygenSelectionMode.kt、OxygenToolbarStyle.kt。复用并扩充 FolderRefreshActivityTest、JVM/原生 SelectionToolbarHeightTest 和 PhotoViewerInteractiveGestureTest。
+
+### 后续修补验证
+
+| 检查 | 结果 |
+| --- | --- |
+| 完整 JVM | 176 suites，1,272 tests，0 failures/errors/skipped。生产代码与 JVM 用例此后未改 |
+| Debug、AndroidTest、ARM64 FOSS Release | 构建成功；本地 Release 未签名，最终安装包使用同提交现有 CI 签名产物 |
+| Lint | 与修改前同目录、同 JDK 21、同任务的基线逐项完全一致：15 errors、806 warnings、2 hints；新增 0、移除 0；原存量错误仍使命令非零 |
+| Detekt | 原版/修补版均 3,463 条、4,031 weighted issues。无新增规则或问题位置；原有 onCreate 长度 145→144、publishMediaSnapshot 长度 241→242、SimpleActivity 函数数 18→20。未修改 baseline，原存量使命令非零 |
+| API 29 最终合并原生检查 | 7/7 通过：逐帧选择交接及无关模式隔离、普通文件夹与自定义照片配置真实下拉、三组静态照片矩阵（60 组合）、完整下拖取消/提交与切图返回 |
+| API 29 配置检查 | 相册实际 fontScale=2.0 的大字体通过；实际 orientation=2/fontScale=1.0 的横屏通过。逐帧记录同时校验顶栏底边与网格坐标 |
+| API 37 隔离设备 | 默认逐帧交接、两条真实下拉与普通静态矩阵 4/4 通过；实际 orientation=2/fontScale=1.0 的横屏和 orientation=1/fontScale=2.0 的大字体均通过 |
+
+原生检查在编译/R8/静态分析结束后顺序运行。API 29 默认交接采样 543 帧、实际横屏 967 帧；API 37 实际横屏 121 帧、实际大字体 484 帧，失败数均为 0；两条路径均 callbacks=1、scale=1→1、restarted=false、stopped=true。帧数来自测试采样，不用于宣称帧率或性能指标。原生数据是模拟器自动检查，不作为 Pixel 8 Pro 真机视觉验收。
+
+配置测试保留一轮 API 37 横屏旧实例/空引用失败，以及配置未实际应用的准备失败。仅写入旋转设置会受启动器/设置主页方向限制，测试改为通过平台支持的旋转接口、可旋转的显示设置页，先确认系统实际配置，再断言相册自身 orientation/fontScale；两个系统最终均通过，未改应用逻辑、测试预算或通过断言来绕过失败。
+
+### 封面候选项与剩余范围
+
+录屏中 Pictures (11) 返回主页后封面变化，但缺少有效自定义封面设置、前后 tmb 媒体身份和目录排序记录。代码核对确认有效自定义封面优先，否则沿用目录分组/排序后的媒体；本次后续补丁未触及封面生成或提交。仍无充分证据认定错绑或归因于本次补丁，不实施封面/扫描修复，也不将其标记已解决。
+
+后续修补只交付一个最终签名 ARM64 包。真机一次合并验收包含两条浏览路径的下拉刷新、选择/取消/全选、快速反向交接、默认/大字体与横竖屏，并抽查首行/半可见缩略图、代表性图像、普通返回/下拖取消和 A→B 返回 B。不安排大目录压力测试或 50 次往返。
+
+最终提交、CI、APK SHA-256、签名证书及本地/远程同步身份随交付回复和安装包身份文件提供。无同一修补版 APK 的 Pixel 8 Pro 真机视觉证据前，结论为**代码完成，待真机验收**；不自动标记阶段 3.5 通过。
+
+
+## 后续完善：加载首屏与回程交接（2026-11-20—21）
+
+本轮从 6bb8ec20e318ca46c4689bb7c676f51d47dab01d 开始，本地与远程一致且工作区干净；继续使用 perf/home-gallery-sorting，不新增分支或工作树。依据用户新增录屏 a891878517af101cdf5d8fe9eefa9973.mp4、Gallery-Diagnostics-20261120-223514.txt 及继续完善指令处理直接涉及的问题。日志没有源码 SHA，不能只以版本号认定录屏安装包身份。
+
+### 证据、边界及实际修改
+
+- **普通文件夹初次加载停在旧照片而非顶部。** 原适配器在后续结果补入排序靠前的照片时仍保留旧照片锚点。新增首屏意图，仅在普通实体文件夹首次打开、用户尚未滚动/快滚/搜索/排序/分组/打开照片时，让提交后的真实布局回到位置 0。用户动作立即取消意图；旋转保存该状态；已排队的置顶布局也可被用户滚动取消。收藏、回收站、自定义照片配置、Show All 及 Viewer 返回沿用原锚点机制。
+- **索引预览排序与最终扫描的交接。** 首次限量索引预览后，完整索引到达时先按现有排序规则挑出一个视口，逐项检查实际文件，使用 150 ms 软预算再发布预览；随机排序保留原稳定种子路径。预览检查复用实际文件大小和毫秒修改时间，避免同一文件在索引秒级时间与扫描毫秒时间间切换缩略图签名。权限、取消、来源校验、完整扫描及终态权威性保持原规则。原录屏 Camera 约 13 秒链路中最终排序只占约 6–8 ms，目录枚举及元数据检查占主要时间；本次不宣称完整扫描已提速或整个加载问题已解决。
+- **入场捕获期间换表。** 原日志中自定义配置由 1,337 项换为 4,989 项，恰逢共享来源捕获。现在入场 Session 持有独立发布租约，页面发布及适配器提交等待入场终结后按原守卫排空。来源 Holder 在 onStop 可以按原规则释放，发布租约继续由入场持有；完成、失败、取消和页面清理均释放，不放宽来源资格。
+- **照片回程裁切与末帧资源交接。** 对现有合格静态照片读取实际 Viewer 内容、目标缩略图、父级可见区及当前顶栏底边，复用静态照片几何的反向投影，裁掉目标父级外和顶栏上方的像素。共用既有返回时钟、时长和插值，不增加固定坐标补偿，不修改照片裁切算法或缩放曲线。回程末段在同一投影下交接到已加载的实际 Grid Drawable，消除窄长图低分辨率缩略图采样与高清图之间的末帧差异；共享既有 Bitmap，不另解码或复制像素缓冲。签名、绑定路径、版本及 Session 验证失败时沿用安全退化；视频、大图和特殊渲染不扩展共享资格。
+
+主要文件：MediaActivity.kt、MediaAdapter.kt、GetMediaAsynctask.kt、MediaPagePreview.kt、MediaTransitionSessionCoordinator.kt、MediaSharedSurface.kt、MeasuredPhotoReturnView.kt、OxygenClassicActivityMotion.kt、PhotoFragment.kt、ViewPagerActivity.kt。复用既有 JVM、刷新、选择交接和静态照片原生矩阵。
+
+### 验证口径
+
+新增 JVM 回归覆盖原先的旧照片锚点缺陷、用户取消已排队置顶、旋转状态、入场期间换表（包括先释放来源 Holder）和完整索引到达但枚举仍阻塞时的排序预览。没有给纯 UI 删除添加重复实现测试。
+
+原生矩阵使用方、横、竖、长图及 EXIF 转置，组合 FIT/CROP 与圆角开关。给图像加入颜色坐标标记，实际回程中离屏读取代理的终点绘制，与返回后实际 Grid 资源对照，同时核对裁切外透明、统一缩放和实测端点；这不是 Pixel 8 Pro 的录屏或真机视觉证据。测试使用真实可见的目标，准备足够尾部项目，让半可见用例实际跨过顶栏底边并作断言，不以缓存 Holder 充当屏幕可见项。
+
+保留准备及失败记录：SCOPED 的业务终态与完整物理扫描终态并不等同，测试等待业务结束及本用例所有图片提交，不伪造 COMPLETE；当前页通过 Activity 的实际选择器取得，不选残留 Fragment。原始 6bb8ec20e 同条件测试也无法保证系统焦点在 120 ms 入场内到达，故分别验证入场中原有 Back 回调和获得焦点后的真实系统 Back，未修改生产 Back 链路或延长预算。一次长链路日志出现 PNG incomplete input，测试图片补充 MediaStore 写入完成后发布及完整解码校验，保留失败证据，不放宽渲染断言。API 29 的半可见新增断言还捕获了准备不足：固定数量填充项不足以保证尾部可滚动，而且未固定排序时填充项也可能排在目标前方。用例按实际屏幕和列数计算数量，固定并最终恢复按名称排序/不分组，让 zz-padding 位于目标后方；先等待所有自有文件提交及业务终结，再按路径滚入目标。“全部媒体”的提交等待不再错误要求目标在定位前已经可见。保留实际跨越顶栏断言；应用代码不因此改变。 另一次普通矩阵诊断显示上一 Viewer 尚未销毁便启动下一用例，其销毁发生在下一次回程准备期间，平台没有派发 reentry，按原规则进入 platform_finished_without_motion 安全退化。几何矩阵现在在原 6 秒预算内同时等待上一 Viewer 销毁与来源恢复，隔离每个几何用例；不更改生产返回或退化规则，也不将此作为连续快速返回的新保证。
+
+最终完整 JVM 回归为 176 suites / 1,279 tests，0 failures/errors/skipped；Debug、AndroidTest 与 ARM64 FOSS Release 构建成功。本地 Release 未签名，安装包沿用同提交现有 CI 签名产物。Lint 与起点同 JDK 21、同任务逐项一致：15 errors、806 warnings、2 hints，新增/移除均 0；存量错误仍使命令非零。没有修改项目静态检查 baseline。
+
+Detekt 基线 3,463 条 / 4,031 weighted issues，本轮 3,461 条 / 4,029 weighted issues；删除既有两处超长行，无新增规则或函数问题位置，存量仍使命令非零。原有复杂度/长度记录随本次直接修改变化：GetMediaAsynctask.doInBackground 长度 297→303、复杂度 216→219；MediaActivity.onCreate 长度 144→145、复杂度 45→46，publishMediaSnapshot 长度 242→243、复杂度 155→156，launchPhotoViewerWithSharedElement 长度 146→153；Coordinator 函数数 34→35。保留原始及最终 XML，比较时只忽略行号移动和这些存量指标数值，不隐藏新规则或新增函数问题。先前新增视图的 ReturnCount、ComplexCondition 与超长行检查失败也保留，最终均已消除。
+
+| 最终生产源码的原生覆盖 | 结果 |
+| --- | --- |
+| API 29 默认交互 | 8 项非矩阵交互均通过：逐帧选择交接、初次排序顶部、普通文件夹/照片配置刷新、完整切图/下拖/取消/Back、照片/视频持有返回及视频顶栏裁切 |
+| API 29 静态照片矩阵 | 修正准备后的专门运行 3/3 通过，普通、实际半可见、ALL_MEDIA 共 60 组合；60 次末帧像素对照通过 |
+| API 29 大字体 | 实际 fontScale=2.0，顶栏及 20 组合矩阵 2/2 通过；CAB 采样 3,656 帧、0 失败，采样数不是帧率指标 |
+| API 29 横屏补跑 | 实际 orientation=2/fontScale=1.0，顶栏及 20 组合矩阵 2/2 通过；未改变断言或原等待预算 |
+| API 37 字体/方向 | 最终生产源码的实际 fontScale=2.0 和 orientation=2 各 2/2 通过，各含 20 组合矩阵，共 40 次末帧对照 |
+
+API 29 的合并运行与准备失败保留在记录中，不将含失败的合并日志标为整轮通过；仅重跑受准备修正影响的三个矩阵。API 37 本轮早先的默认合并 10/10 与完整文件权限下核心交互通过记录也保留；最终生产源码另由上述 API 29 默认覆盖和两个系统配置检查核对。API 29 大字体检查因主动逐帧重绘和全局空闲等待而耗时较长，实际已通过；检查结束转入横屏时被手动误中断，该中断记录保留，仅补跑横屏。没有为此修改选择栏测试、应用代码或等待预算。
+
+API 29 原设备设置已恢复并关闭，原 AVD 保留；本轮新建的临时 API 37 AVD 已清理。CI 与 APK 身份随本轮交付记录提供。
+
+### 一次合并真机验收与未覆盖项
+
+1. 在 Camera 等本次出现问题的普通文件夹中，不滚动等待加载结束，确认最终位于排序首项；另一次加载中主动滑动，确认后续结果不拉回顶部。改排序、下拉刷新及可触发的重试仍可用。
+2. 普通文件夹与自定义照片配置分别刷新、选择、取消、全选；抽查主页、照片、收藏和列表，确认圆圈不重现、顶栏和网格交接稳定。
+3. 首行及半可见项，代表性方/横/竖/长图打开和返回；普通返回、下拖取消、A 切到 B 返回 B，观察裁切、末段缩放和残影。默认/大字体及横竖屏各抽查一次，快速反向切换选择态。不安排无关压力目录或 50 次往返。
+
+封面候选项仍缺少身份、配置和排序证据，不标记已解决。本轮不代表完整 4A/5A、全部扫描性能或历史长图回程问题均通过。只有一份最终 ARM64 Release 安装包和一次合并真机验收；未取得同包 Pixel 8 Pro 视觉证据前，结论为 **代码完成，待真机验收**。CI 若使用临时密钥不能保证覆盖旧包，签名冲突时不要直接卸载或清除数据。
+
+
+## 最新收口：用户确认真机验收通过（2026-11-21）
+
+用户在本轮交付后明确反馈“我觉得验收通过了”，并要求按既定方案进入第四阶段。对应本轮交付源码为 88aa09179828dc1494df63aa345c097fdeb22ab7，ARM64 APK SHA-256 为 f2caced8dfe89c34f88dcf35c88de22fb8e7b7e10305ab567350bf3be65eb959，CI 为 https://github.com/Pew2018/Gallery/actions/runs/44857709381。
+
+最新阶段结论：**阶段 3.5 及本轮后续修补，通过用户真机验收并收口。** 上文“待真机验收”为交付当时的历史状态。本次依据用户确认记录通过，未收到新增录屏/日志，不补写逐场景、字体、方向或设备覆盖明细，也不声称独立复核了新的视觉证据。封面候选项、完整扫描性能和整个 4A/5A 不随此次确认自动通过。
+
+下一步为 4A 普通返回与下拖收口；4B 系统与预测性返回随后单独实施和验收。
+
+
+## 阶段 3.5 再交付：去掉 tip 上回加的主页进度条（2026-11-27）
+
+工作起点：`perf/home-gallery-sorting` tip `6afddd4c7adb6c355a61307868c9c508021e4d29`，工作区干净。本轮在 `cursor/phase-3-5-toolbar-progress-74d4` 上相对该 tip 交付；不改 main，不重做阶段 3 / Viewer 返回 / 文件夹页动画 / 设置入场。
+
+### 核对与修改
+
+1. **普通顶栏对齐选择态高度**  
+   tip 上 `OxygenToolbarStyle.render()` 与 `OxygenSelectionMode.style()` 已共用 `selectionContentHeight`；状态栏 Insets 仍由 `setupEdgeToEdge(padTopSystem=…)` 单独处理。JVM `SelectionToolbarHeightTest`（竖屏 / 横屏 / 大字体）确认两态内容行等高、底边与网格位置在进入/退出选择时稳定。本轮未再改顶栏尺寸、内边距或标题/按钮交接；不引入固定像素偏移，不改 Viewer/编辑器顶栏，不做阶段 5C 选择态颜色。
+
+2. **去掉主页线性进度条**  
+   `b004098cd` 曾在 tip 路径上把 `directoryHeaderProgress` / `setupDirectoryProgressIndicator()` 加回 `MainActivity`。本轮删除其创建、挂载、样式、显示、`loadingFrame` 显示与 `onDestroy` dispose；不留占位。`setDirectoryLoading` 保留 `directoryRefreshWatchdog`、超时、失败提示与重试。`GalleryBottomBar.attach` 的 `frameState` 改回按实际 `CONTENT` / `EMPTY` /（`mIsGettingDirs || categorizedLoadActive` → `LOADING`）报告，不再依赖进度条可见性。MediaActivity、Viewer、操作对话框与下拉刷新反馈未改。
+
+防回归：`SelectionToolbarHeightTest.homeDoesNotMountADirectoryHeaderProgressStrip` 断言主页 `main_menu` 下无 `LinearProgressIndicator`，且不再存在 `setupDirectoryProgressIndicator`。
+
+### 验证口径（本轮）
+
+| 检查 | 结果 |
+| --- | --- |
+| 聚焦 JVM：SelectionToolbarHeight / ClassicToolbarLayout / GalleryRootTransition / StaticPhotoEntryGeometry | **通过** |
+| 完整 `:app:testFossDebugUnitTest` | **通过**：217 suites / 1,654 tests，0 failures/errors/skipped |
+| `:app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a` | **通过**（本地未签名）：`gallery-32-foss-arm64-v8a-release-unsigned.apk`，SHA-256 `3e2c3169bc89de7ba2af4da50c0e876d1d5494f7c835fc033b12620a0dc7d7fa` |
+| 真机画面 / 原生仪器矩阵 | **未验证**（本环境无真机；不以历史真机结论代替本轮包） |
+
+### 一次合并验收清单（真机，未跑）
+
+- 主页文件夹页与文件页：进入/取消选择顶栏等高、网格不位移、无双标题；抽查照片、收藏、列表、大字体、横竖屏。
+- 主页加载与重试正常，无线性进度条占位；扫描/排序/索引仍执行。
+- 新布局下抽查首行、半可见缩略图与一张代表性照片入场（几何算法未改，端点沿用现有矩阵）。
+
+**本轮结论（代码）：** 两项目标在源码侧完成；JVM/Release 结果以最终提交记录为准。**真机验收：未验证。** 不自动标记阶段 3.5 整包通过。

@@ -45,8 +45,8 @@ class SplashActivity : BaseSplashActivity() {
     private fun launchActivity() {
         val lastAllFiles = config.lastMainViewAll
         val screen = GalleryNavigation.launchDestination(config.bottomNavigationOrder, lastAllFiles)
-        // Materialize the legacy fallback before changing the active section's showAll flag.
-        config.lastMainViewAll = lastAllFiles
+        // An upgrade must not reopen the removed home all-files mode.
+        config.lastMainViewAll = false
         config.showAll = screen.isAllFiles
         val destination = if (screen.section == GallerySection.PHOTOS) {
             // MainActivity used to record every launcher visit. Keep that bookkeeping

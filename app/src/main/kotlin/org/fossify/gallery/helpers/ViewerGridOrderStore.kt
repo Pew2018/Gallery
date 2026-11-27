@@ -27,8 +27,9 @@ internal object ViewerGridOrderStore {
 
     @Synchronized fun offer(source: String, selected: String, items: List<ThumbnailItem>,
         version: Long = 0L, contract: String? = null, includeCandidates: Boolean = false,
-        revision: Long = FolderContentRevision.current()): String? {
-        if (source.isBlank() || selected.isBlank()) return null
+        revision: Long = FolderContentRevision.current(),
+        isCurrent: () -> Boolean = { true }): String? {
+        if (!isCurrent() || source.isBlank() || selected.isBlank()) return null
         // A concurrent adapter commit may replace its backing list while the
         // handoff worker reads it; missing a snapshot must never prevent opening.
         val paths = runCatching {
@@ -38,6 +39,7 @@ internal object ViewerGridOrderStore {
         if (paths.isEmpty() || paths.size > MAX_ITEMS || selected !in paths) return null
         val id = UUID.randomUUID().toString()
         val candidates = if (includeCandidates) items.filterIsInstance<Medium>().map { it.copy() } else emptyList()
+        if (!isCurrent()) return null
         pending = Entry(id, source, selected, SystemClock.elapsedRealtime(), Evidence(paths, candidates, version, contract, revision))
         if (GalleryDiagnosticLogger.isEnabled()) GalleryDiagnosticLogger.event(
             DiagnosticLevel.INFO, "Viewer", "viewer_grid_handoff_capture", id,
@@ -45,6 +47,10 @@ internal object ViewerGridOrderStore {
                 "revision" to revision, "itemCount" to paths.size,
                 "mediaId" to GalleryDiagnosticLogger.anonymousId(selected), "containsSelected" to true))
         return id
+    }
+
+    @Synchronized fun clear(id: String?) {
+        if (id != null && pending?.id == id) pending = null
     }
 
     fun take(id: String?, source: String, selected: String): List<String>? = takeEvidence(id, source, selected)?.paths

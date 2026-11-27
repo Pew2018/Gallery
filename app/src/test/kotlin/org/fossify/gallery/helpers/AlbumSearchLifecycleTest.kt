@@ -41,11 +41,20 @@ class AlbumSearchLifecycleTest {
         try { block(controller.get()) } finally { controller.stop().destroy() }
     }
 
+    private fun prepare(activity: MainActivity) {
+        // setupAdapter now prepares asynchronously; wait for that stage, while
+        // leaving the deliberately manual DiffUtil executor under test control.
+        (field(activity, "directoryPresentationFuture").get(activity) as? java.util.concurrent.Future<*>)
+            ?.get(5, java.util.concurrent.TimeUnit.SECONDS)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+    }
+
     private fun publish(activity: MainActivity, directories: ArrayList<Directory>, query: String? = null,
                         isCurrent: () -> Boolean = { true }) {
         val method = MainActivity::class.java.declaredMethods.single { it.name == "setupAdapter" }
         method.isAccessible = true
         method.invoke(activity, directories, query, false, true, null, false, isCurrent, {}, {})
+        prepare(activity)
     }
 
     @Test fun newlyDiscoveredAlbumIsSearchableAndClearingSearchKeepsTheLatestCatalog() = withActivity { activity ->
@@ -112,6 +121,7 @@ class AlbumSearchLifecycleTest {
         field(activity, "mIsGettingDirs").setBoolean(activity, true)
         activity.config.directorySorting = org.fossify.commons.helpers.SORT_BY_NAME
         MainActivity::class.java.getDeclaredMethod("refreshDirectoryPresentation").apply { isAccessible = true }.invoke(activity)
+        prepare(activity)
         executor.drain()
         @Suppress("UNCHECKED_CAST")
         val catalog = field(activity, "mDirsIgnoringSearch").get(activity) as ArrayList<Directory>
@@ -135,6 +145,7 @@ class AlbumSearchLifecycleTest {
             null, recycler, false, diffExecutor = executor) {}
         recycler.adapter = adapter
         MainActivity::class.java.getDeclaredMethod("refreshDirectoryPresentation").apply { isAccessible = true }.invoke(activity)
+        prepare(activity)
         @Suppress("UNCHECKED_CAST")
         val catalog = field(activity, "mDirs").get(activity) as ArrayList<Directory>
         assertEquals(setOf(a.path, b.path), catalog.map { it.path }.toSet())

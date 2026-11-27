@@ -3,34 +3,39 @@ package org.fossify.gallery.helpers
 import android.content.Context
 import android.content.ComponentCallbacks2
 import android.content.res.Configuration
-import android.os.Handler
-import android.os.Looper
-import android.os.SystemClock
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.models.Medium
 import java.util.UUID
 
 /**
- * One-time in-process metadata handoff for a complete, public ordinary folder.
+ * In-process metadata handoff for a complete, public ordinary folder.
  * The list is prepared off the click path and is never an authorization token.
  */
 internal object FolderViewerSnapshotStore {
     const val EXTRA_ID = "org.fossify.gallery.FOLDER_VIEWER_SNAPSHOT"
-    private const val MAX_AGE_MS = 60_000L
+    private const val MAX_ITEMS = 50_000
 
     private data class Entry(
         val id: String,
         val folder: String,
         val fingerprint: String,
-        val checkpoint: FolderReturnCheckpoint,
-        val createdAt: Long,
-        val items: ArrayList<Medium>
+        val freshness: Freshness,
+        val items: List<Medium>
     )
-    data class Catalog(val items: ArrayList<Medium>, val checkpoint: FolderReturnCheckpoint)
+
+    class Freshness(val checkpoint: FolderReturnCheckpoint, private val observation: FolderScanObservation?) {
+        val observing get() = observation?.unchanged
+        fun isCurrent(context: Context, folder: String): Boolean {
+            if (checkpoint.access == null) return FolderReturnCheckpoint.isCurrent(context, folder, checkpoint)
+            return observing == true &&
+                FolderReturnCheckpoint.sameSnapshot(checkpoint, FolderReturnCheckpoint.captureForViewerScan(context, folder)) &&
+                observing == true
+        }
+    }
+
+    data class Catalog(val items: List<Medium>, val freshness: Freshness)
 
     @Volatile private var prepared: Entry? = null
-    private val expiryHandler = Handler(Looper.getMainLooper())
-    private var expiryCallback: Runnable? = null
     private var callbacksRegistered = false
     private var prepareGeneration = 0L
 
@@ -55,14 +60,13 @@ internal object FolderViewerSnapshotStore {
         ).joinToString("|")
     }
 
-    private fun allowed(context: Context, folder: String, selected: String?, items: List<Medium>): Boolean {
+    private fun allowed(context: Context, folder: String, items: List<Medium>, directAccess: Boolean): Boolean {
         val cfg = context.config
         val protected = FolderUnlockSessionManager.findProtectedAncestor(folder, cfg::isFolderProtected) != null
         val excluded = FavoriteFolderRules.isExcluded(folder, cfg.excludedFolders)
-        return items.isNotEmpty() && items.all { it.deletedTS == 0L && it.mediaStoreId > 0L } &&
-            FolderViewerSnapshotPolicy.isEligible(
-                folder, selected ?: items.first().path, items.map { it.path }, protected, excluded
-            ) && (selected == null || items.any { it.path == selected })
+        return items.size in 1..MAX_ITEMS &&
+            items.all { it.deletedTS == 0L && (directAccess || it.mediaStoreId > 0L) } &&
+            FolderViewerSnapshotPolicy.isEligible(folder, items.first().path, items.map { it.path }, protected, excluded)
     }
 
     /** Provider freshness checks and metadata copies must not hold the photo-tap monitor. */
@@ -72,30 +76,25 @@ internal object FolderViewerSnapshotStore {
         scanStart: FolderReturnCheckpoint?,
         scanEnd: FolderReturnCheckpoint?,
         items: List<Medium>,
+        observation: FolderScanObservation? = null,
         stillCurrent: () -> Boolean = { true }
     ): String? {
         val generation = synchronized(this) {
             if (!stillCurrent()) return null
             prepared = null
-            expiryCallback?.let(expiryHandler::removeCallbacks)
-            expiryCallback = null
             ++prepareGeneration
         }
-        if (!FolderReturnCheckpoint.sameSnapshot(scanStart, scanEnd) ||
-            !allowed(context, folder, null, items)) return null
+        if (scanEnd == null || !FolderReturnCheckpoint.sameSnapshot(scanStart, scanEnd) ||
+            !allowed(context, folder, items, scanEnd.access?.manager == true)) return null
 
-        // One detached metadata copy happens after the scan, never on photo tap.
         val id = UUID.randomUUID().toString()
-        val entry = Entry(id, folder, fingerprint(context, folder), scanEnd!!,
-            SystemClock.elapsedRealtime(), ArrayList(items.map { it.copy() }))
-        if (!stillCurrent() || !FolderReturnCheckpoint.isCurrent(context, folder, scanEnd)) return null
+        val freshness = Freshness(scanEnd, observation)
+        val entry = Entry(id, folder, fingerprint(context, folder), freshness, items.map { it.copy() })
+        if (!stillCurrent() || !freshness.isCurrent(context, folder)) return null
         synchronized(this) {
             if (generation != prepareGeneration || !stillCurrent()) return null
             prepared = entry
             registerMemoryCallbacks(context)
-            expiryCallback = Runnable { synchronized(this) { if (prepared?.id == id) prepared = null } }.also {
-                expiryHandler.postDelayed(it, MAX_AGE_MS)
-            }
         }
         return id
     }
@@ -104,11 +103,9 @@ internal object FolderViewerSnapshotStore {
     @Synchronized
     fun handoffId(context: Context, folder: String): String? {
         val entry = prepared ?: return null
-        if (SystemClock.elapsedRealtime() - entry.createdAt !in 0..MAX_AGE_MS ||
-            entry.folder != folder || entry.fingerprint != fingerprint(context, folder)) {
+        if (entry.folder != folder) return null
+        if (entry.fingerprint != fingerprint(context, folder) || entry.freshness.observing == false) {
             prepared = null
-            expiryCallback?.let(expiryHandler::removeCallbacks)
-            expiryCallback = null
             return null
         }
         return entry.id
@@ -117,26 +114,16 @@ internal object FolderViewerSnapshotStore {
     @Synchronized
     fun handoffCount(id: String?): Int? = prepared?.takeIf { id != null && it.id == id }?.items?.size
 
-    @Synchronized
-    fun take(context: Context, id: String?, folder: String, selected: String): Catalog? {
-        val entry = prepared
-        if (entry == null || id == null || id != entry.id) return null
-        prepared = null
-        expiryCallback?.let(expiryHandler::removeCallbacks)
-        expiryCallback = null
-        if (folder != entry.folder || SystemClock.elapsedRealtime() - entry.createdAt !in 0..MAX_AGE_MS ||
-            entry.fingerprint != fingerprint(context, folder) ||
-            entry.items.none { it.path == selected } || !allowed(context, folder, selected, entry.items) ||
-            !FolderReturnCheckpoint.isCurrent(context, folder, entry.checkpoint)) return null
-        // The deep copy was done while preparing the catalog. This shallow list
-        // wrapper is cheap and the returned medium instances are now viewer-owned.
-        return Catalog(ArrayList(entry.items), entry.checkpoint)
+    fun copyForViewer(context: Context, id: String, folder: String, selected: String): Catalog? {
+        val entry = prepared?.takeIf { it.id == id && it.folder == folder } ?: return null
+        if (entry.fingerprint != fingerprint(context, folder) ||
+            entry.items.none { it.path == selected } || !entry.freshness.isCurrent(context, folder)) return null
+        // Viewers mutate their media models. Each launch owns a separate copy.
+        return Catalog(entry.items.map { it.copy() }, entry.freshness)
     }
 
     @Synchronized private fun clear() {
         prepareGeneration++
         prepared = null
-        expiryCallback?.let(expiryHandler::removeCallbacks)
-        expiryCallback = null
     }
 }

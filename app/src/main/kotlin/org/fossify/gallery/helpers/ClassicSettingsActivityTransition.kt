@@ -1,7 +1,6 @@
 package org.fossify.gallery.helpers
 
 import android.app.Activity
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.View
@@ -52,12 +51,21 @@ object ClassicSettingsActivityTransition {
         return true
     }
 
-    @Suppress("DEPRECATION")
+    /**
+     * Hides the classic entrance animation only where the in-page snapshot fade is
+     * actually played (below Android 14).
+     *
+     * From Android 14 the platform owns both the entrance and the cross-Activity back,
+     * and [PredictiveBackSupport.systemDrivesPageTransition] disables the snapshot
+     * fade. A zero [Activity.overrideActivityTransition] here would be permanent and
+     * would still own the OPEN slot when a later, ordinary return re-enters this page.
+     */
     fun suppressWindowAnimation(activity: Activity) {
-        if (Build.VERSION.SDK_INT >= 34) {
-            activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_OPEN, 0, 0)
-            activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        if (PredictiveBackSupport.systemDrivesPageTransition) {
+            PredictiveBackSupport.clearPageTransitionOverrides(activity)
+        } else {
+            @Suppress("DEPRECATION")
+            activity.overridePendingTransition(0, 0)
         }
-        activity.overridePendingTransition(0, 0)
     }
 }

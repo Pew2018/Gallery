@@ -6,10 +6,28 @@
     android:layout_height="match_parent"
     android:background="@color/editor_canvas_surface">
 
+    <!-- The canvas scrim must stay behind the shared image while it expands. -->
+    <View
+        android:id="@+id/viewer_transition_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="false"
+        android:focusable="false"
+        android:visibility="gone" />
+
     <org.fossify.gallery.views.ProgressivePhotoViewPager
         android:id="@+id/view_pager"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
+
+    <TextView
+        android:id="@+id/viewer_entry_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true"
+        android:accessibilityLiveRegion="polite"
+        android:textColor="@android:color/white"
+        android:visibility="gone" />
 
     <com.google.android.material.progressindicator.LinearProgressIndicator
         android:id="@+id/photo_boundary_loading"

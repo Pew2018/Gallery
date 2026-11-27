@@ -27,7 +27,11 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
 import kotlin.math.roundToInt
 
-/** Measured View contracts and actual row callbacks; not hardware/GPU or permission-prompt tests. */
+/**
+ * Measured View contracts and actual row callbacks; not hardware/GPU or permission-prompt
+ * tests. Each category is now its own page, so a category assertion builds that page from
+ * the intent the hub row dispatched.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28, 35], application = Application::class)
 @LooperMode(LooperMode.Mode.PAUSED)
@@ -59,11 +63,14 @@ class SettingsPhaseTwoTest {
         .map { hub(activity).getChildAt(it) }.filterIsInstance<TiebaSettingsCategoryRow>()
     private fun visibleRows(activity: SettingsActivity): Set<Int> {
         val holder = activity.findViewById<LinearLayout>(R.id.settings_holder)
+        // Child 0 is either the hub container or the first section heading.
         return (1 until holder.childCount).map { holder.getChildAt(it) }
             .filter { it.visibility == View.VISIBLE }.map { it.id }.toSet()
     }
     private fun descendants(view: View): List<View> = listOf(view) + if (view is ViewGroup)
         (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) } else emptyList()
+
+    /** Clicks a hub row and builds the category page it dispatched. */
 
     @Test fun eightCategoriesAreIndependentAndResumePreservesRowsFocusAndRipple() {
         val controller = Robolectric.buildActivity(SettingsActivity::class.java).setup()
@@ -78,23 +85,27 @@ class SettingsPhaseTwoTest {
                 R.id.settings_autoplay_videos_holder, R.id.settings_manage_included_folders_holder,
                 R.id.settings_app_password_protection_holder, R.id.settings_change_date_time_format_holder)
             val seen = mutableSetOf<Int>()
-            categories.forEachIndexed { index, row ->
-                assertTrue(row.performClick())
-                assertEquals(View.GONE, hub(activity).visibility)
-                val visible = visibleRows(activity)
-                assertTrue(visible.contains(expected[index]))
-                assertTrue("Previous category leaked", seen.intersect(visible).isEmpty())
-                seen.addAll(visible)
-                // Every visible header must precede at least one visible row.
-                val holder = activity.findViewById<LinearLayout>(R.id.settings_holder)
-                val content = (1 until holder.childCount).map { holder.getChildAt(it) }.filter { it.visibility == View.VISIBLE }
-                content.forEachIndexed { i, view -> if (view.tag == "classic_section") {
-                    assertTrue(i < content.lastIndex)
-                    assertNotEquals("classic_section", content[i + 1].tag)
-                } }
-                activity.onBackPressedDispatcher.onBackPressed()
-                assertTrue(visibleRows(activity).isEmpty())
-                assertEquals(View.VISIBLE, hub(activity).visibility)
+            categories.forEachIndexed { index, _ ->
+                val pageController = openCategoryController(activity, index)
+                val page = pageController.get()
+                try {
+                    val visible = visibleRows(page)
+                    assertTrue(visible.contains(expected[index]))
+                    assertTrue("Previous category leaked", seen.intersect(visible).isEmpty())
+                    seen.addAll(visible)
+                    // Every visible header must precede at least one visible row.
+                    val holder = page.findViewById<LinearLayout>(R.id.settings_holder)
+                    val content = (0 until holder.childCount).map { holder.getChildAt(it) }
+                        .filter { it.visibility == View.VISIBLE }
+                    content.forEachIndexed { i, view ->
+                        if (view.tag == "classic_section") {
+                            assertTrue(i < content.lastIndex)
+                            assertNotEquals("classic_section", content[i + 1].tag)
+                        }
+                    }
+                } finally {
+                    pageController.pause().stop().destroy()
+                }
             }
             val first = categories.first()
             first.isFocusableInTouchMode = true
@@ -113,27 +124,30 @@ class SettingsPhaseTwoTest {
         val activity = controller.get()
         val config = org.fossify.gallery.helpers.Config.newInstance(activity)
         try {
-            rows(activity)[2].performClick()
-            val switch = activity.findViewById<org.fossify.gallery.views.ClassicSettingsSwitch>(R.id.settings_allow_zooming_images)
+            val photosController = openCategoryController(activity, 2)
+            val photos = photosController.get()
+            val switch = photos.findViewById<org.fossify.gallery.views.ClassicSettingsSwitch>(R.id.settings_allow_zooming_images)
             val before = config.allowZoomingImages
             switch.performClick()
             assertEquals(!before, config.allowZoomingImages)
             val children = listOf(R.id.settings_allow_rotating_with_gestures_holder,
                 R.id.settings_show_highest_quality_holder, R.id.settings_allow_one_to_one_zoom_holder)
-            children.forEach { assertEquals(if (!before) View.VISIBLE else View.GONE, activity.findViewById<View>(it).visibility) }
-            activity.onBackPressedDispatcher.onBackPressed()
-            rows(activity)[0].performClick()
-            children.forEach { assertEquals(View.GONE, activity.findViewById<View>(it).visibility) }
-            activity.onBackPressedDispatcher.onBackPressed()
-            rows(activity)[2].performClick()
-            children.forEach { assertEquals(if (!before) View.VISIBLE else View.GONE, activity.findViewById<View>(it).visibility) }
-            val saved = Bundle()
-            controller.saveInstanceState(saved).pause().stop().destroy()
-            val restored = Robolectric.buildActivity(SettingsActivity::class.java).create(saved).start().restoreInstanceState(saved).resume().visible()
+            children.forEach { assertEquals(if (!before) View.VISIBLE else View.GONE, photos.findViewById<View>(it).visibility) }
+            val appearanceController = openCategoryController(activity, 0)
             try {
-                assertEquals(View.GONE, hub(restored.get()).visibility)
-                assertEquals(!before, org.fossify.gallery.helpers.Config.newInstance(restored.get()).allowZoomingImages)
-                assertEquals(!before, restored.get().findViewById<org.fossify.gallery.views.ClassicSettingsSwitch>(R.id.settings_allow_zooming_images).isChecked)
+                children.forEach { assertEquals(View.GONE, appearanceController.get().findViewById<View>(it).visibility) }
+            } finally { appearanceController.pause().stop().destroy() }
+            val saved = Bundle()
+            photosController.saveInstanceState(saved).pause().stop().destroy()
+            // The system recreates the page with the intent that opened it.
+            val restored = Robolectric.buildActivity(SettingsActivity::class.java, photos.intent)
+                .create(saved).start().restoreInstanceState(saved).resume().visible()
+            try {
+                val restoredActivity = restored.get()
+                assertFalse(visibleRows(restoredActivity).isEmpty())
+                assertTrue(visibleRows(restoredActivity).contains(R.id.settings_allow_zooming_images_holder))
+                assertEquals(!before, org.fossify.gallery.helpers.Config.newInstance(restoredActivity).allowZoomingImages)
+                assertEquals(!before, restoredActivity.findViewById<org.fossify.gallery.views.ClassicSettingsSwitch>(R.id.settings_allow_zooming_images).isChecked)
             } finally { restored.pause().stop().destroy() }
         } finally { if (!activity.isDestroyed) controller.pause().stop().destroy() }
     }
@@ -142,59 +156,72 @@ class SettingsPhaseTwoTest {
         val controller = Robolectric.buildActivity(SettingsActivity::class.java).setup()
         try {
             val activity = controller.get()
-            rows(activity)[1].performClick()
-            assertEquals(View.GONE, activity.findViewById<View>(R.id.settings_enable_pull_to_refresh_holder).visibility)
-            activity.onBackPressedDispatcher.onBackPressed()
-            rows(activity)[4].performClick()
-            assertEquals(View.GONE, activity.findViewById<View>(R.id.settings_on_video_tap_holder).visibility)
-            activity.onBackPressedDispatcher.onBackPressed()
-            rows(activity)[5].performClick()
-            assertEquals(if (android.os.Build.VERSION.SDK_INT < 29) View.VISIBLE else View.GONE,
-                activity.findViewById<View>(R.id.settings_manage_hidden_folders_holder).visibility)
-            activity.onBackPressedDispatcher.onBackPressed()
+            val gallery = openCategoryController(activity, 1)
+            try {
+                assertEquals(View.GONE, gallery.get().findViewById<View>(R.id.settings_enable_pull_to_refresh_holder).visibility)
+            } finally { gallery.pause().stop().destroy() }
+            val videos = openCategoryController(activity, 4)
+            try {
+                assertEquals(View.GONE, videos.get().findViewById<View>(R.id.settings_on_video_tap_holder).visibility)
+            } finally { videos.pause().stop().destroy() }
+            val files = openCategoryController(activity, 5)
+            try {
+                assertEquals(if (android.os.Build.VERSION.SDK_INT < 29) View.VISIBLE else View.GONE,
+                    files.get().findViewById<View>(R.id.settings_manage_hidden_folders_holder).visibility)
+            } finally { files.pause().stop().destroy() }
             if (android.os.Build.VERSION.SDK_INT >= 30) {
-                rows(activity)[6].performClick()
-                assertEquals(View.GONE, activity.findViewById<View>(R.id.settings_hidden_item_password_protection_holder).visibility)
-                assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.settings_excluded_item_password_protection_holder).visibility)
-                org.robolectric.Shadows.shadowOf(activity.getSystemService(android.app.AppOpsManager::class.java)).setMode(
-                    "android:manage_external_storage",
-                    activity.applicationInfo.uid, activity.packageName, android.app.AppOpsManager.MODE_ALLOWED)
-                controller.pause().resume()
-                assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.settings_hidden_item_password_protection_holder).visibility)
-                assertEquals(View.GONE, activity.findViewById<View>(R.id.settings_excluded_item_password_protection_holder).visibility)
-                activity.onBackPressedDispatcher.onBackPressed()
+                val securityController = openCategoryController(activity, 6)
+                val security = securityController.get()
+                try {
+                    assertEquals(View.GONE, security.findViewById<View>(R.id.settings_hidden_item_password_protection_holder).visibility)
+                    assertEquals(View.VISIBLE, security.findViewById<View>(R.id.settings_excluded_item_password_protection_holder).visibility)
+                    org.robolectric.Shadows.shadowOf(security.getSystemService(android.app.AppOpsManager::class.java)).setMode(
+                        "android:manage_external_storage",
+                        security.applicationInfo.uid, security.packageName, android.app.AppOpsManager.MODE_ALLOWED)
+                    securityController.pause().resume()
+                    assertEquals(View.VISIBLE, security.findViewById<View>(R.id.settings_hidden_item_password_protection_holder).visibility)
+                    assertEquals(View.GONE, security.findViewById<View>(R.id.settings_excluded_item_password_protection_holder).visibility)
+                } finally { securityController.pause().stop().destroy() }
             }
-            rows(activity)[7].performClick()
-            assertEquals(if (android.os.Build.VERSION.SDK_INT >= 33) View.VISIBLE else View.GONE,
-                activity.findViewById<View>(R.id.settings_language_holder).visibility)
+            val advanced = openCategoryController(activity, 7)
+            try {
+                assertEquals(if (android.os.Build.VERSION.SDK_INT >= 33) View.VISIBLE else View.GONE,
+                    advanced.get().findViewById<View>(R.id.settings_language_holder).visibility)
+            } finally { advanced.pause().stop().destroy() }
         } finally { controller.pause().stop().destroy() }
     }
 
-    @Test fun hubAndCategoryScrollRestoreAfterLayoutAndResume() {
+    private fun openCategoryController(activity: SettingsActivity, index: Int):
+        org.robolectric.android.controller.ActivityController<SettingsActivity> {
+        assertTrue(rows(activity)[index].performClick())
+        val intent = requireNotNull(org.robolectric.Shadows.shadowOf(activity).nextStartedActivity)
+        return Robolectric.buildActivity(SettingsActivity::class.java, intent).setup()
+    }
+
+    @Test fun eachPageRestoresItsOwnScrollPositionOnResume() {
         val controller = Robolectric.buildActivity(SettingsActivity::class.java).setup()
         try {
             val activity = controller.get()
-            val scroll = activity.findViewById<View>(R.id.settings_nested_scrollview)
-            fun measurePage() = layout(scroll, dp(activity, 320), dp(activity, 240))
-            measurePage()
-            scroll.scrollTo(0, dp(activity, 160))
-            val hubY = scroll.scrollY
+            val hubScroll = activity.findViewById<View>(R.id.settings_nested_scrollview)
+            layout(hubScroll, dp(activity, 320), dp(activity, 240))
+            hubScroll.scrollTo(0, dp(activity, 160))
+            val hubY = hubScroll.scrollY
             assertTrue(hubY > 0)
-            rows(activity)[2].performClick()
-            measurePage()
-            assertEquals(0, scroll.scrollY)
-            scroll.scrollTo(0, dp(activity, 120))
-            val pageY = scroll.scrollY
-            assertTrue(pageY > 0)
-            activity.onBackPressedDispatcher.onBackPressed()
-            measurePage()
-            assertEquals(hubY, scroll.scrollY)
-            rows(activity)[2].performClick()
-            measurePage()
-            assertEquals(pageY, scroll.scrollY)
             controller.pause().resume()
-            measurePage()
-            assertEquals(pageY, scroll.scrollY)
+            layout(hubScroll, dp(activity, 320), dp(activity, 240))
+            assertEquals(hubY, hubScroll.scrollY)
+
+            val pageController = openCategoryController(activity, 2)
+            val page = pageController.get()
+            val pageScroll = page.findViewById<View>(R.id.settings_nested_scrollview)
+            layout(pageScroll, dp(page, 320), dp(page, 240))
+            pageScroll.scrollTo(0, dp(page, 120))
+            val pageY = pageScroll.scrollY
+            assertTrue(pageY > 0)
+            pageController.pause().resume()
+            layout(pageScroll, dp(page, 320), dp(page, 240))
+            assertEquals(pageY, pageScroll.scrollY)
+            pageController.pause().stop().destroy()
         } finally { controller.pause().stop().destroy() }
     }
 
@@ -202,18 +229,20 @@ class SettingsPhaseTwoTest {
         val controller = Robolectric.buildActivity(SettingsActivity::class.java).setup()
         try {
             val activity = controller.get()
-            rows(activity)[2].performClick()
-            val prefs = activity.getSharedPrefs()
+            val pageController = openCategoryController(activity, 2)
+            val page = pageController.get()
+            val prefs = page.getSharedPrefs()
             var changes = 0
             val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
                 if (key == ALLOW_ZOOMING_IMAGES) changes++
             }
             prefs.registerOnSharedPreferenceChangeListener(listener)
             try {
-                activity.findViewById<View>(R.id.settings_allow_zooming_images).performClick()
+                page.findViewById<View>(R.id.settings_allow_zooming_images).performClick()
                 org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
                 assertEquals(1, changes)
             } finally { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+            pageController.pause().stop().destroy()
         } finally { controller.pause().stop().destroy() }
     }
 

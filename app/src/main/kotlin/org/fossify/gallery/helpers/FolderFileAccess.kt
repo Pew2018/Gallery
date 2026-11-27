@@ -13,7 +13,7 @@ internal data class FolderEnumeration(
     val files: List<File>, val method: String = "direct", val limited: Boolean = false,
     val current: () -> Boolean = { true }
 )
-internal data class FolderFileMetadata(val size: Long?, val modified: Long, val readable: Boolean, val regular: Boolean)
+internal data class FolderFileMetadata(val size: Long?, val modified: Long?, val readable: Boolean, val regular: Boolean)
 internal interface FolderFileAccess {
     fun enumerate(folder: String): FolderEnumeration
     fun metadata(file: File): FolderFileMetadata
@@ -91,15 +91,17 @@ internal class DeviceFolderFileAccess(private val context: Context) : FolderFile
                 val regular = it.getString(2) != DocumentsContract.Document.MIME_TYPE_DIR
                 // An open descriptor proves readability; unknown size is retained as the project's 0 sentinel.
                 val readable = regular && context.contentResolver.openFileDescriptor(uri, "r")?.use { true } == true
-                FolderFileMetadata(size, it.getLong(1), readable, regular)
+                FolderFileMetadata(size, if (it.isNull(1)) null else it.getLong(1), readable, regular)
             }
         }
-        if (!file.exists()) throw IOException("File disappeared during scan")
-        val regular = file.isFile
-        val readable = file.canRead()
-        var size = file.length()
-        // File.length() conflates an I/O failure with a real zero. Confirm zero through an open file.
-        if (regular && readable && size == 0L) size = java.io.FileInputStream(file).use { it.channel.size() }
-        return FolderFileMetadata(size, file.lastModified(), readable, regular)
+        // One attribute read gives type, size, and millisecond mtime from
+        // the same file identity. An inaccessible path throws instead of
+        // masquerading as an empty file.
+        val attributes = java.nio.file.Files.readAttributes(
+            file.toPath(), java.nio.file.attribute.BasicFileAttributes::class.java
+        )
+        val regular = attributes.isRegularFile
+        return FolderFileMetadata(attributes.size(), attributes.lastModifiedTime().toMillis(),
+            regular && file.canRead(), regular)
     }
 }

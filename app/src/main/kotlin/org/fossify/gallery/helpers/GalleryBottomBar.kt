@@ -30,6 +30,28 @@ object GalleryBottomBar {
     // Root windows stay opaque. Feedback continues using a value-only clock snapshot.
     internal const val FIRST_DRAW_LIMIT_MS = 250L
     internal const val ROOT_FINISH_FALLBACK_MS = 5_000L
+    /**
+     * How long a destination that can only draw its loading state may hold the
+     * outgoing page. Content is preferred, but the handoff stays bounded: after this
+     * limit the stable loading frame is accepted and the source is retired.
+     */
+    internal const val LOADING_HANDOFF_LIMIT_MS = 700L
+
+    /**
+     * What the destination is actually showing on the frame being committed.
+     *
+     * A pending load request is not a frame. The previous contract treated any
+     * non-null state, including "loading requested", as a valid handoff frame, so a
+     * root switch could retire the source on a page that had drawn nothing but its
+     * background. Only real rows, a real empty/error state, or a loading indicator
+     * that is already on screen count.
+     */
+    enum class RootFrame {
+        CONTENT, EMPTY, ERROR, LOADING;
+
+        /** Whether this frame is evidence of content/resolution rather than a spinner. */
+        val commits: Boolean get() = this != LOADING
+    }
     private const val EXTRA_ROOT_TOKEN = "org.fossify.gallery.ROOT_TRANSITION_TOKEN"
     private data class PendingRoot(
         val source: java.lang.ref.WeakReference<Activity>,
@@ -57,6 +79,14 @@ object GalleryBottomBar {
 
     internal fun isRootTransition(activity: Activity): Boolean =
         activity.intent.getBooleanExtra(EXTRA_ROOT_TRANSITION, false) || activity in retiringSources
+
+    /**
+     * The token of the bottom-bar tap that opened this page, if any. Screens that
+     * record their own diagnostics need the same identifier the root transition
+     * events use, otherwise a tap cannot be joined to the load it caused.
+     */
+    internal fun navigationToken(activity: Activity): String? =
+        latestRequests[activity] ?: activity.intent.getStringExtra(EXTRA_ROOT_TOKEN)
 
     internal fun trace(activity: Activity, event: String, fields: Map<String, Any?> = emptyMap()) {
         if (!GalleryDiagnosticLogger.isEnabled()) return
@@ -103,13 +133,19 @@ object GalleryBottomBar {
         traceWindow(activity, "prepare_surface")
     }
 
-    @Suppress("DEPRECATION")
+    /**
+     * Defers to the theme (which declares no window animation) instead of holding a
+     * runtime override. The root switch itself is already zero-animated by the
+     * transient [ActivityOptions] passed in [open] and by the post-finish call in
+     * [finishOutgoing]; neither has to outlive that one handoff.
+     *
+     * In particular, an OVERRIDE_TRANSITION_OPEN zero left on a root page is still in
+     * force when that page is the destination of a later, ordinary child-page back,
+     * and an OVERRIDE_TRANSITION_CLOSE zero suppresses its exit-to-home preview.
+     */
     private fun disableRootWindowMotion(activity: Activity) {
+        // 0 means "take the animation from the theme", not "no animation at all".
         activity.window.setWindowAnimations(0)
-        if (android.os.Build.VERSION.SDK_INT >= 34) {
-            activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_OPEN, 0, 0)
-            activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE, 0, 0)
-        }
     }
 
     /** Activity teardown cancels callbacks rather than leaving a retained window/view. */
@@ -275,7 +311,7 @@ object GalleryBottomBar {
     /** Finish the source on a real destination frame, without blocking that frame. */
     internal fun coordinateFirstDraw(activity: Activity, parent: CoordinatorLayout,
         loadingFrame: () -> Unit = {},
-        frameState: () -> String? = { null }) {
+        frameState: () -> RootFrame? = { null }) {
         if (!activity.intent.getBooleanExtra(EXTRA_ROOT_TRANSITION, false)) return
         rootCleanups.remove(activity)?.invoke()
         // Keep root-window identity through Commons onResume and eventual finish.
@@ -300,21 +336,43 @@ object GalleryBottomBar {
         val revealLoading = Runnable { if (!acknowledged) loadingFrame() }
         var commitRequested = false
         var firstDraw = true
+        /**
+         * Commit the next real frame. Called from OnDraw, so the loading indicator or
+         * content is already part of the frame that is about to be presented.
+         */
+        fun requestCommit() {
+            if (commitRequested || acknowledged) return
+            commitRequested = true
+            if (android.os.Build.VERSION.SDK_INT >= 29 && parent.isHardwareAccelerated) {
+                parent.viewTreeObserver.registerFrameCommitCallback(afterDraw)
+            } else {
+                // Compatibility approximation; OnDraw alone is not an on-screen proof.
+                parent.postOnAnimation(afterDraw)
+            }
+        }
+        var loadingDeadlineArmed = false
+        // A destination that can only show its loading state still has to hand over
+        // eventually; the deadline keeps the outgoing page from being retained forever.
+        val loadingCommit = Runnable {
+            if (acknowledged || commitRequested) return@Runnable
+            trace(activity, "loading_frame_committed_after_limit")
+            requestCommit()
+        }
         drawn = android.view.ViewTreeObserver.OnDrawListener {
             val state = frameState()
             if (firstDraw) {
                 firstDraw = false
                 traceWindow(activity, "first_root_draw")
-                trace(activity, "first_page_state", mapOf("state" to (state ?: "blank")))
+                trace(activity, "first_page_state", mapOf("state" to (state?.name ?: "blank")))
             }
             if (!commitRequested && state != null) {
-                trace(activity, "valid_frame_draw", mapOf("state" to state))
-                commitRequested = true
-                if (android.os.Build.VERSION.SDK_INT >= 29 && parent.isHardwareAccelerated) {
-                    parent.viewTreeObserver.registerFrameCommitCallback(afterDraw)
-                } else {
-                    // Compatibility approximation; OnDraw alone is not an on-screen proof.
-                    parent.postOnAnimation(afterDraw)
+                if (state.commits) {
+                    trace(activity, "valid_frame_draw", mapOf("state" to state.name))
+                    requestCommit()
+                } else if (!loadingDeadlineArmed) {
+                    loadingDeadlineArmed = true
+                    trace(activity, "loading_frame_draw", mapOf("state" to state.name))
+                    parent.postDelayed(loadingCommit, LOADING_HANDOFF_LIMIT_MS)
                 }
             }
         }
@@ -331,6 +389,7 @@ object GalleryBottomBar {
             }
             mainHandler.removeCallbacks(afterDraw)
             parent.removeCallbacks(afterDraw)
+            parent.removeCallbacks(loadingCommit)
             if (android.os.Build.VERSION.SDK_INT >= 29 && parent.viewTreeObserver.isAlive) {
                 parent.viewTreeObserver.unregisterFrameCommitCallback(afterDraw)
             }
@@ -357,7 +416,7 @@ object GalleryBottomBar {
         parent: CoordinatorLayout,
         active: Tab,
         loadingFrame: () -> Unit = {},
-        frameState: () -> String? = { null },
+        frameState: () -> RootFrame? = { null },
         navigate: (Tab) -> Unit
     ) {
         val pending = pendingRoots[activity.intent.getStringExtra(EXTRA_ROOT_TOKEN)]

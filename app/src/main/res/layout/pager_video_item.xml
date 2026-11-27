@@ -43,7 +43,8 @@
     <ImageView
         android:id="@+id/video_preview"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:scaleType="fitCenter" />
 
     <org.fossify.gallery.views.MediaSideScroll
         android:id="@+id/video_volume_controller"

@@ -9,6 +9,7 @@ import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.ColorUtils
+import androidx.recyclerview.widget.RecyclerView
 import org.fossify.commons.extensions.baseConfig
 import org.fossify.gallery.R
 import org.junit.Assert.*
@@ -81,6 +82,30 @@ class FolderPickerPolishTest {
         assertSame("Touch target setup is idempotent", firstParams, thumb.layoutParams)
     }
 
+    @Test fun galleryScrollerUsesAxisSpecificInsetsAndHitTargets() {
+        val activity = activity()
+        val scroller = RecyclerViewFastScroller(activity)
+        val grid = RecyclerView(activity)
+        val tokens = OxygenThemeColors.resolve(
+            classic = true, mode = "system", systemDark = false, rawAccent = Color.BLUE,
+            legacyBackground = Color.WHITE, legacyText = Color.BLACK,
+        )
+        val bottomBar = (56 * activity.resources.displayMetrics.density + 0.5f).toInt()
+        val dp = { value: Int -> (value * activity.resources.displayMetrics.density + 0.5f).toInt() }
+
+        scroller.setScrollVertically(true)
+        OxygenFastScroller.apply(scroller, grid, tokens, bottomBar)
+        assertEquals("vertical track clears the bottom bar", bottomBar, scroller.trackMarginEnd)
+        assertEquals("vertical hit target keeps its designed width", dp(28), scroller.handleWidth)
+        assertEquals("vertical hit target keeps its designed height", dp(36), scroller.handleHeight)
+
+        scroller.setScrollVertically(false)
+        OxygenFastScroller.apply(scroller, grid, tokens, bottomBar)
+        assertEquals("horizontal track does not use a vertical bottom inset", 0, scroller.trackMarginEnd)
+        assertEquals("horizontal hit target uses its horizontal width", dp(36), scroller.handleWidth)
+        assertEquals("horizontal hit target uses its horizontal height", dp(28), scroller.handleHeight)
+    }
+
     @Test fun pickerDragUsesTrackLocalCoordinatesWithoutStatusBarJump() {
         assertEquals(0, OxygenFastScroller.positionForPickerDrag(0f, 600, 36, 40))
         assertEquals(20, OxygenFastScroller.positionForPickerDrag(282f, 600, 36, 40))
@@ -88,6 +113,29 @@ class FolderPickerPolishTest {
         assertEquals(39, OxygenFastScroller.positionForPickerDrag(999f, 600, 36, 40))
         assertEquals(0, OxygenFastScroller.positionForPickerDrag(-500f, 600, 36, 40))
         assertEquals(0, OxygenFastScroller.positionForPickerDrag(10f, 0, 0, 0))
+    }
+
+    @Test fun galleryDragMapsTheVisibleTrackToTheRealPixelScrollRange() {
+        assertEquals(0, OxygenFastScroller.scrollOffsetForDrag(
+            coordinate = 140f, trackStart = 100, trackLength = 1_000,
+            thumbLength = 80, range = 9_000, extent = 1_000,
+        ))
+        assertEquals(4_000, OxygenFastScroller.scrollOffsetForDrag(
+            coordinate = 600f, trackStart = 100, trackLength = 1_000,
+            thumbLength = 80, range = 9_000, extent = 1_000,
+        ))
+        assertEquals(8_000, OxygenFastScroller.scrollOffsetForDrag(
+            coordinate = 1_060f, trackStart = 100, trackLength = 1_000,
+            thumbLength = 80, range = 9_000, extent = 1_000,
+        ))
+        assertEquals(8_000, OxygenFastScroller.scrollOffsetForDrag(
+            coordinate = 2_000f, trackStart = 100, trackLength = 1_000,
+            thumbLength = 80, range = 9_000, extent = 1_000,
+        ))
+        assertEquals(0, OxygenFastScroller.scrollOffsetForDrag(
+            coordinate = 600f, trackStart = 100, trackLength = 1_000,
+            thumbLength = 80, range = 800, extent = 1_000,
+        ))
     }
 
     @Test fun popupThemesKeepReadableTextAgainstTheirActualSurfaces() {

@@ -1,0 +1,97 @@
+Type-safe project accessors is an incubating feature.
+Project accessors enabled, but root project name not explicitly set for 'buildSrc'. Checking out the project in different folders will impact the generated code and implicitly the buildscript classpath, breaking caching.
+> Task :buildSrc:compileJava UP-TO-DATE
+> Task :buildSrc:compileGroovy NO-SOURCE
+> Task :buildSrc:processResources NO-SOURCE
+> Task :buildSrc:classes UP-TO-DATE
+> Task :buildSrc:jar UP-TO-DATE
+
+> Configure project :app
+WARNING: The option setting 'android.enableJetifier=true' is deprecated.
+The current default is 'false'.
+It will be removed in version 10.0 of the Android Gradle plugin.
+Warning: No signing config found. Build will be unsigned.
+
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preFossReleaseBuild UP-TO-DATE
+> Task :app:dataBindingMergeDependencyArtifactsFossRelease UP-TO-DATE
+> Task :app:extractFossReleaseSupportedLocales UP-TO-DATE
+> Task :app:mapFossReleaseSourceSetPaths UP-TO-DATE
+> Task :app:generateFossReleaseLocaleConfig UP-TO-DATE
+> Task :app:generateFossReleaseResources UP-TO-DATE
+> Task :app:mergeFossReleaseResources UP-TO-DATE
+> Task :app:packageFossReleaseResources UP-TO-DATE
+> Task :app:processFossReleaseNavigationResources UP-TO-DATE
+> Task :app:parseFossReleaseLocalResources UP-TO-DATE
+> Task :app:dataBindingGenBaseClassesFossRelease UP-TO-DATE
+> Task :app:generateFossReleaseBuildConfig UP-TO-DATE
+> Task :app:generateFossReleaseRFile UP-TO-DATE
+> Task :app:kspFossReleaseKotlin UP-TO-DATE
+> Task :app:compileFossReleaseKotlin UP-TO-DATE
+> Task :app:javaPreCompileFossRelease UP-TO-DATE
+> Task :app:compileFossReleaseJavaWithJavac UP-TO-DATE
+> Task :app:checkFossReleaseAarMetadata UP-TO-DATE
+> Task :app:compileFossReleaseNavigationResources UP-TO-DATE
+> Task :app:createFossReleaseCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksFossRelease UP-TO-DATE
+> Task :app:processFossReleaseMainManifest UP-TO-DATE
+> Task :app:processFossReleaseManifest UP-TO-DATE
+> Task :app:processFossReleaseManifestForPackage UP-TO-DATE
+> Task :app:processFossReleaseResources UP-TO-DATE
+> Task :app:transformFossReleaseClassesWithAsm UP-TO-DATE
+> Task :app:bundleFossReleaseClassesToRuntimeJar UP-TO-DATE
+> Task :app:bundleFossReleaseClassesToCompileJar UP-TO-DATE
+> Task :app:kspFossReleaseUnitTestKotlin UP-TO-DATE
+> Task :app:preFossReleaseUnitTestBuild UP-TO-DATE
+> Task :app:compileFossReleaseUnitTestKotlin UP-TO-DATE
+> Task :app:javaPreCompileFossReleaseUnitTest UP-TO-DATE
+> Task :app:compileFossReleaseUnitTestJavaWithJavac UP-TO-DATE
+> Task :app:generateFossReleaseAssets UP-TO-DATE
+> Task :app:mergeFossReleaseAssets UP-TO-DATE
+> Task :app:convertLinkedResourcesToBinaryFossRelease UP-TO-DATE
+> Task :app:packageFossReleaseUnitTestForUnitTest UP-TO-DATE
+> Task :app:processFossReleaseUnitTestManifest UP-TO-DATE
+> Task :app:generateFossReleaseUnitTestConfig UP-TO-DATE
+> Task :app:processFossReleaseJavaRes UP-TO-DATE
+> Task :app:processFossReleaseUnitTestJavaRes UP-TO-DATE
+
+> Task :app:testFossReleaseUnitTest
+
+AlbumSearchLifecycleTest > sortingSearchResultsKeepsTheFullCatalogAndTheActiveScan FAILED
+    java.lang.AssertionError at AlbumSearchLifecycleTest.kt:118
+
+AlbumSearchLifecycleTest > newlyDiscoveredAlbumIsSearchableAndClearingSearchKeepsTheLatestCatalog FAILED
+    java.lang.AssertionError at AlbumSearchLifecycleTest.kt:63
+
+AlbumSearchLifecycleTest > sortingGroupedRowsDoesNotDiscardThePhysicalChildren FAILED
+    java.lang.AssertionError at AlbumSearchLifecycleTest.kt:140
+
+FavoriteAccessSessionManagerTest > symlinkChecksBothSourceAndTargetAndRetargetingRevokes FAILED
+    java.lang.AssertionError at FavoriteAccessSessionManagerTest.kt:174
+
+FolderDiskDiscoveryTest > canonicalAliasCannotBypassProtectedDescendant FAILED
+    java.lang.AssertionError at FolderDiskDiscoveryTest.kt:104
+
+8 tests completed, 5 failed
+
+> Task :app:testFossReleaseUnitTest FAILED
+
+[Incubating] Problems report is available at: file:///private/tmp/gallery-perf-baseline-6246f6b15/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:testFossReleaseUnitTest'.
+> There were failing tests. See the report at: file:///private/tmp/gallery-perf-baseline-6246f6b15/app/build/reports/tests/testFossReleaseUnitTest/index.html
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.5.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 11s
+41 actionable tasks: 1 executed, 40 up-to-date

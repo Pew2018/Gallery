@@ -33,6 +33,14 @@ import kotlin.system.exitProcess
 
 class SettingsActivity : SimpleActivity() {
     companion object {
+        /**
+         * Opens one category as its own page. The settings hub starts a new instance per
+         * category instead of swapping views inside one window: only a real page can be
+         * handed to the platform's predictive back, which is what makes the return here
+         * identical to folders, diagnostics and the folder lists.
+         */
+        const val EXTRA_CATEGORY = "settings_category"
+        const val EXTRA_CLICK_FAVORITE_PASSWORD = "settings_click_favorite_password"
         private const val PICK_IMPORT_SOURCE_INTENT = 1
         private const val SELECT_EXPORT_FAVORITES_FILE_INTENT = 2
         private const val SELECT_IMPORT_FAVORITES_FILE_INTENT = 3
@@ -50,12 +58,15 @@ class SettingsActivity : SimpleActivity() {
     private val binding by viewBinding(ActivitySettingsBinding::inflate)
     private var themeNavigationStarted = false
     private var themeTransitionSession = java.util.UUID.randomUUID().toString()
+
+    /** Non-null on a category page; null on the settings hub. Immutable for the instance. */
+    private val pageCategory: String? by lazy {
+        intent.getStringExtra(EXTRA_CATEGORY)?.takeIf { id -> settingsCategories.any { it.id == id } }
+    }
     private var activeSettingsCategory: String? = null
     private val settingsPageViews = mutableListOf<View>()
     private val settingsPageInitialVisibility = mutableListOf<Int>()
-    private lateinit var settingsHub: android.widget.LinearLayout
-    private lateinit var settingsBackCallback: OnBackPressedCallback
-    private var pendingSettingsCategory: String? = null
+    private var settingsHub: android.widget.LinearLayout? = null
     private var settingsTransitionEpoch = 0L
     private val settingsScrollPositions = mutableMapOf<String, Int>()
     private val settingsHubDividers = mutableListOf<View>()
@@ -140,18 +151,19 @@ class SettingsActivity : SimpleActivity() {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
         themeTransitionSession = savedInstanceState?.getString("theme_transition_session") ?: themeTransitionSession
-        activeSettingsCategory = savedInstanceState?.getString("settings_category")
-            ?.takeIf { id -> settingsCategories.any { it.id == id } }
+        activeSettingsCategory = pageCategory
         savedInstanceState?.getBundle("settings_scroll_positions")?.let { positions ->
             positions.keySet().forEach { key -> settingsScrollPositions[key] = positions.getInt(key) }
         }
 
-        settingsBackCallback = object : OnBackPressedCallback(false) {
-            override fun handleOnBackPressed() {
-                navigateSettingsBack()
-            }
+        // One page per window: no in-page back step exists, so the platform owns the
+        // gesture and draws the return itself. The classic window animation only stays
+        // in charge below Android 14, where no platform preview exists.
+        if (!PredictiveBackSupport.systemDrivesPageTransition) {
+            onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() = closePage()
+            })
         }
-        onBackPressedDispatcher.addCallback(this, settingsBackCallback)
 
         setupEdgeToEdge(
             padTopSystem = listOf(binding.settingsAppbar),
@@ -159,20 +171,21 @@ class SettingsActivity : SimpleActivity() {
         )
         // Resolve the first toolbar frame with the same theme token as onResume.
         binding.settingsToolbar.setBackgroundColor(OxygenThemeEngine.toolbarSurface(this, config))
+        // The app bar carries the status bar inset; without its own surface the scrolled
+        // rows show through above the toolbar.
+        binding.settingsAppbar.setBackgroundColor(OxygenThemeEngine.toolbarSurface(this, config))
+        // Sample after content and the final theme token are in place: the earlier
+        // pre-inflation frame reported Material3 defaults, not the page the gesture
+        // will actually see.
+        org.fossify.gallery.helpers.PredictiveBackDiagnostics.captureCreated(this)
     }
 
     override fun onDestroy() {
         settingsTransitionEpoch++
-        ClassicSettingsPageTransition.cancel(binding.settingsNestedScrollview, binding.settingsHolder)
         if (restoreOperation != null) PhotoAuthentication.requests.cancelOwner(this)
         restoreOperation?.close()
         restoreOperation = null
         super.onDestroy()
-    }
-
-    override fun onPause() {
-        ClassicSettingsPageTransition.cancel(binding.settingsNestedScrollview, binding.settingsHolder)
-        super.onPause()
     }
 
     override fun onResume() {
@@ -181,37 +194,68 @@ class SettingsActivity : SimpleActivity() {
         // All ordinary toolbars share the user's chosen surface, even on light themes.
         setupTopAppBar(binding.settingsAppbar, NavigationIcon.Arrow,
             topBarColor = OxygenThemeEngine.toolbarSurface(this, config))
+        binding.settingsAppbar.setBackgroundColor(OxygenThemeEngine.toolbarSurface(this, config))
         OxygenToolbarStyle.applyToolbar(this, binding.settingsToolbar)
         OxygenSystemBars.apply(this)
         // A resume rebind must not let a delayed navigation overwrite refreshed content.
         settingsTransitionEpoch++
-        ClassicSettingsPageTransition.cancel(binding.settingsNestedScrollview, binding.settingsHolder)
-        pendingSettingsCategory = null
-        val resumeY = if (::settingsHub.isInitialized) binding.settingsNestedScrollview.scrollY
-            else settingsScrollPositions[settingsPageKey()] ?: 0
+        // A page never changes inside this window any more, so the live scroll offset is
+        // authoritative; the saved map only matters for the first frame after recreation.
+        val resumeY = if (binding.settingsNestedScrollview.height > 0) {
+            binding.settingsNestedScrollview.scrollY
+        } else {
+            settingsScrollPositions[settingsPageKey()] ?: 0
+        }
         setupSettingItems()
         setupBottomNavigationOrder()
         setupSettingsHub()
-        settingsBackCallback.isEnabled = activeSettingsCategory != null
         restoreSettingsScroll(resumeY)
-        if (intent.getBooleanExtra(MANAGE_FAVORITE_PASSWORD, false)) {
-            intent.removeExtra(MANAGE_FAVORITE_PASSWORD)
-            openSettingsCategory(settingsCategories.first { it.id == "security" })
-            binding.settingsFavoritePasswordHolder.post {
-                binding.settingsFavoritePasswordHolder.performClick()
-            }
-        }
-        binding.settingsToolbar.setNavigationOnClickListener {
-            if (!navigateSettingsBack()) finish()
-        }
+        openRequestedFavoritePasswordPage()
+        binding.settingsToolbar.setNavigationOnClickListener { closePage() }
         // Keep an explicit return frame through resource recreation; the new instance
         // consumes it only after it has inflated the current appearance.
         if (!refreshThemeIfNeeded()) {
             ClassicSettingsActivityTransition.receive(
                 "settings:$themeTransitionSession", binding.settingsNestedScrollview, binding.settingsHolder,
-                OxygenClassicMotion.enabled(this), { binding.settingsToolbar.title = it },
-                binding.settingsToolbar.title ?: ""
+                OxygenClassicMotion.enabled(this) && !PredictiveBackSupport.systemDrivesPageTransition,
+                { binding.settingsToolbar.title = it }, binding.settingsToolbar.title ?: ""
             )
+        }
+    }
+
+    /**
+     * Leaves this page. From Android 14 the platform animates the window itself, so the
+     * only thing to do is finish; below that the classic page animation is the motion.
+     */
+    private fun closePage() {
+        org.fossify.gallery.helpers.PredictiveBackDiagnostics.captureClosing(this, "settings_back")
+        if (!PredictiveBackSupport.systemDrivesPageTransition) {
+            OxygenClassicActivityMotion.applyClose(this)
+        }
+        finish()
+    }
+
+    /**
+     * The favorite-password shortcut used to open the security category inside this
+     * window. It now opens that category page and clicks the row there.
+     */
+    private fun openRequestedFavoritePasswordPage() {
+        val requestedFromHub = intent.getBooleanExtra(MANAGE_FAVORITE_PASSWORD, false)
+        if (requestedFromHub) intent.removeExtra(MANAGE_FAVORITE_PASSWORD)
+        if (pageCategory == null) {
+            if (requestedFromHub) {
+                startActivity(Intent(this, SettingsActivity::class.java)
+                    .putExtra(EXTRA_CATEGORY, "security")
+                    .putExtra(EXTRA_CLICK_FAVORITE_PASSWORD, true))
+            }
+            return
+        }
+        val clickRow = requestedFromHub || intent.getBooleanExtra(EXTRA_CLICK_FAVORITE_PASSWORD, false)
+        if (pageCategory == "security" && clickRow) {
+            intent.removeExtra(EXTRA_CLICK_FAVORITE_PASSWORD)
+            binding.settingsFavoritePasswordHolder.post {
+                binding.settingsFavoritePasswordHolder.performClick()
+            }
         }
     }
 
@@ -219,32 +263,38 @@ class SettingsActivity : SimpleActivity() {
         if (settingsPageViews.isEmpty()) {
             settingsPageViews.addAll((0 until binding.settingsHolder.childCount).map { binding.settingsHolder.getChildAt(it) })
             settingsPageInitialVisibility.addAll(settingsPageViews.map { it.visibility })
+        }
+        // The hub only exists on the hub page. A category page is its own window, so it
+        // must not inflate the eight rows it can never return to.
+        if (settingsHub == null && pageCategory == null) {
             settingsHub = android.widget.LinearLayout(this).apply {
                 orientation = android.widget.LinearLayout.VERTICAL
                 setPadding(0, dp(8), 0, dp(16))
-            }
-            binding.settingsHolder.addView(settingsHub, 0)
+            }.also { binding.settingsHolder.addView(it, 0) }
         }
 
         val colors = OxygenThemeEngine.snapshot(this, config)
-        if (settingsHub.childCount == 0) {
-            settingsCategories.forEachIndexed { index, category ->
-                val row = org.fossify.gallery.views.TiebaSettingsCategoryRow(
-                    this, category.icon, getString(category.title), getString(category.summary), colors
-                ) { openSettingsCategory(category) }
-                settingsHub.addView(row, android.widget.LinearLayout.LayoutParams(-1, -2))
-                if (index < settingsCategories.lastIndex) {
-                    val divider = View(this)
-                    settingsHubDividers.add(divider)
-                    settingsHub.addView(divider, android.widget.LinearLayout.LayoutParams(-1, dp(1)))
+        val hub = settingsHub
+        if (hub != null) {
+            if (hub.childCount == 0) {
+                settingsCategories.forEachIndexed { index, category ->
+                    val row = org.fossify.gallery.views.TiebaSettingsCategoryRow(
+                        this, category.icon, getString(category.title), getString(category.summary), colors
+                    ) { openSettingsCategory(category) }
+                    hub.addView(row, android.widget.LinearLayout.LayoutParams(-1, -2))
+                    if (index < settingsCategories.lastIndex) {
+                        val divider = View(this)
+                        settingsHubDividers.add(divider)
+                        hub.addView(divider, android.widget.LinearLayout.LayoutParams(-1, dp(1)))
+                    }
                 }
             }
-        }
-        for (index in 0 until settingsHub.childCount) {
-            (settingsHub.getChildAt(index) as? org.fossify.gallery.views.TiebaSettingsCategoryRow)?.bindColors(colors)
-        }
-        settingsHubDividers.forEach {
-            it.setBackgroundColor(OxygenThemeColors.blend(colors.pageBackground, colors.primaryText, 0.10))
+            for (index in 0 until hub.childCount) {
+                (hub.getChildAt(index) as? org.fossify.gallery.views.TiebaSettingsCategoryRow)?.bindColors(colors)
+            }
+            settingsHubDividers.forEach {
+                it.setBackgroundColor(OxygenThemeColors.blend(colors.pageBackground, colors.primaryText, 0.10))
+            }
         }
         binding.settingsHolder.setSettingsDividerColor(
             OxygenThemeColors.blend(colors.pageBackground, colors.primaryText, 0.10)
@@ -254,39 +304,11 @@ class SettingsActivity : SimpleActivity() {
         renderSettingsPage()
     }
 
+    /** Opens a category as a real page, so the platform draws both transition directions. */
     private fun openSettingsCategory(category: SettingsCategory) {
-        if (pendingSettingsCategory == category.id ||
-            (pendingSettingsCategory == null && activeSettingsCategory == category.id)) return
+        if (pageCategory != null || isFinishing || isDestroyed) return
         rememberSettingsScroll()
-        pendingSettingsCategory = category.id
-        settingsBackCallback.isEnabled = true
-        animateSettingsPageChange(forward = true) {
-            activeSettingsCategory = category.id
-            pendingSettingsCategory = null
-            settingsBackCallback.isEnabled = true
-            renderSettingsPage(updateToolbarTitle = false)
-            restoreSettingsScroll(settingsScrollPositions[settingsPageKey()] ?: 0)
-        }
-    }
-
-    private fun animateSettingsPageChange(forward: Boolean, changePage: () -> Unit) {
-        val epoch = ++settingsTransitionEpoch
-        val direction = ClassicSettingsPageTransition.direction(forward, binding.settingsNestedScrollview)
-        ClassicSettingsPageTransition.run(
-            container = binding.settingsNestedScrollview,
-            incoming = binding.settingsHolder,
-            incomingDirection = direction,
-            animationsEnabled = OxygenClassicMotion.enabled(this),
-            prepareTarget = changePage,
-            onTitleCommit = {
-                if (settingsTransitionEpoch == epoch && !isDestroyed) updateSettingsToolbarTitle()
-            },
-            onFinished = {
-                if (settingsTransitionEpoch == epoch && !isDestroyed) {
-                    binding.settingsHolder.invalidate()
-                }
-            }
-        )
+        startActivity(Intent(this, SettingsActivity::class.java).putExtra(EXTRA_CATEGORY, category.id))
     }
 
     // Resolve conditional rows from live configuration rather than the first
@@ -317,7 +339,7 @@ class SettingsActivity : SimpleActivity() {
 
     private fun renderSettingsPage(updateToolbarTitle: Boolean = true) {
         val selected = settingsCategories.firstOrNull { it.id == activeSettingsCategory }
-        settingsHub.visibility = if (selected == null) View.VISIBLE else View.GONE
+        settingsHub?.visibility = if (selected == null) View.VISIBLE else View.GONE
         val rowAvailability = settingsPageViews.mapIndexed { index, view ->
             view.id to isSettingsRowAvailable(view.id, settingsPageInitialVisibility[index])
         }.toMap()
@@ -341,20 +363,6 @@ class SettingsActivity : SimpleActivity() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
-
-    private fun navigateSettingsBack(): Boolean {
-        if (activeSettingsCategory == null && pendingSettingsCategory == null) return false
-        rememberSettingsScroll()
-        pendingSettingsCategory = null
-        animateSettingsPageChange(forward = false) {
-            activeSettingsCategory = null
-            settingsBackCallback.isEnabled = false
-            renderSettingsPage(updateToolbarTitle = false)
-            restoreSettingsScroll(settingsScrollPositions[settingsPageKey()] ?: 0)
-        }
-        return true
-    }
-
 
     private fun settingsPageKey() = activeSettingsCategory ?: "hub"
 
@@ -535,16 +543,20 @@ class SettingsActivity : SimpleActivity() {
     private fun openThemeSettings() {
         if (themeNavigationStarted || isFinishing || isDestroyed) return
         themeNavigationStarted = true
-        ClassicSettingsPageTransition.cancel(binding.settingsNestedScrollview, binding.settingsHolder)
         rememberSettingsScroll()
+        // The snapshot handoff is a fade of the two pages' text. It only exists where no
+        // window transition can run (below Android 14); from 14 the platform animates the
+        // page itself and a second in-page fade would double the motion.
         ClassicSettingsActivityTransition.stage(
             "theme:$themeTransitionSession", binding.settingsNestedScrollview,
-            binding.settingsToolbar.title ?: "", true, OxygenClassicMotion.enabled(this)
+            binding.settingsToolbar.title ?: "", true,
+            OxygenClassicMotion.enabled(this) && !PredictiveBackSupport.systemDrivesPageTransition
         )
+        val intent = Intent(this, OxygenThemeActivity::class.java)
+            .putExtra(ClassicSettingsActivityTransition.EXTRA_SESSION, themeTransitionSession)
+        val legacyOptions = android.app.ActivityOptions.makeCustomAnimation(this, 0, 0).toBundle()
         try {
-            startActivity(Intent(this, OxygenThemeActivity::class.java)
-                .putExtra(ClassicSettingsActivityTransition.EXTRA_SESSION, themeTransitionSession),
-                android.app.ActivityOptions.makeCustomAnimation(this, 0, 0).toBundle())
+            PredictiveBackSupport.startPage(this, intent, legacyOptions)
         } catch (failure: RuntimeException) {
             themeNavigationStarted = false
             ClassicSettingsActivityTransition.clear()

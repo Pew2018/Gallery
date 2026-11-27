@@ -1,8 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="OxygenClassicRootTheme" parent="AppTheme">
-        <item name="android:windowDisablePreview">true</item>
         <item name="android:windowIsTranslucent">false</item>
+    </style>
+
+    <!-- Task background token. Android 16 Activity.onApplyThemeResource resolves
+         android:colorBackground from the *effective* theme into the Activity
+         TaskDescription (aosp 99b01a65, Activity.java:5593-5596); the Shell
+         cross-Activity back animation paints its background layer from
+         enteringTarget.taskInfo.taskDescription.backgroundColor
+         (CrossActivityBackAnimation.getBackgroundColor). Commons re-setTheme()s to
+         its own Material3-Dark themes at onCreate/onResume, so a value declared only
+         on AppTheme would be overwritten before the window shows. SimpleActivity
+         injects this style inside its onApplyThemeResource override so the write
+         happens after Commons' theme and always resolves to the page surface. -->
+    <style name="OxygenClassicTaskBackground">
+        <item name="android:colorBackground">@color/oxygen_classic_page</item>
     </style>
 
     <!-- OxygenOS 4.5.15 screenshot-derived visual baselines; user-selected
@@ -33,13 +46,117 @@
     <dimen name="oxygen_classic_dialog_motion_distance">6dp</dimen>
 
     <!-- Activity Window motion tokens; kept in XML for WindowManager-owned transitions. -->
-    <integer name="oxygen_classic_page_enter_duration_ms">170</integer>
+    <integer name="oxygen_classic_page_enter_duration_ms">180</integer>
     <integer name="oxygen_classic_page_exit_duration_ms">140</integer>
-    <dimen name="oxygen_classic_page_enter_offset">14dp</dimen>
+    <!-- Mirrored to -8dp in values-ldrtl: window animations are evaluated on the
+         surface, so RTL cannot be resolved from the view's layout direction. -->
+    <dimen name="oxygen_classic_page_enter_offset">8dp</dimen>
     <dimen name="oxygen_classic_page_return_offset">10dp</dimen>
+
+    <!-- Legacy page window (Android 13 and below). windowEnterAnimation is the
+         window-level TRANSIT_ENTER animation; Activity opens never read it. They read
+         activityOpenEnterAnimation (AppTransition.loadAnimation, TRANSIT_OLD_ACTIVITY_OPEN),
+         which has to be declared here as well, otherwise the style resolves it to 0 and
+         the platform plays no open animation at all. -->
     <style name="OxygenClassicPageWindow">
         <item name="android:windowEnterAnimation">@anim/oxygen_classic_page_open_enter</item>
         <item name="android:windowExitAnimation">@anim/oxygen_classic_page_open_exit</item>
+        <item name="android:activityOpenEnterAnimation">@anim/oxygen_classic_page_open_enter</item>
+    </style>
+
+    <!-- Post-commit clock of the platform's cross-Activity back animation.
+         CustomCrossActivityBackAnimation.getPostCommitAnimationDuration() is
+         min(2000, max(closeAnimation.duration, enterAnimation.duration)) and both
+         values come from the CLOSE pair declared below, so these tokens are the
+         Shell's commit clock *and* its window-removal deadline. Kept separate from the
+         classic page tokens above: those still drive the pre-Android-14 window
+         animation and must not change.
+
+         Why 240 ms and not DefaultCrossActivityBackAnimation's POST_COMMIT_DURATION
+         (450 ms): on the default branch the parent keeps moving for the whole clock
+         (0.9 -> 1 with a -96dp offset), so 450 ms of foreground presence is
+         proportionate. On *this* branch the parent is pinned to a full-screen base
+         rect, so the closing page is the only moving element. The foreground is fully
+         transparent at 60% of the resource (see the alpha interpolator), which left
+         ~180 ms of 450 ms - and, before this phase, ~333 ms - in which the window drew
+         nothing but still owned the touches and the window removal. 240 ms keeps the
+         fade at the same absolute length as before (144 ms) and cuts that invisible
+         tail to 96 ms, which is what removes the "it already finished but nothing
+         responds yet" reading after a commit.
+
+         Note that the Shell drives the pair through AnimationSet.getTransformationAt(),
+         which feeds the same 0..1 progress to every child, so the clock also has to
+         match the child durations - see oxygen_classic_page_back_exit.xml. -->
+    <integer name="oxygen_classic_page_back_duration_ms">210</integer>
+    <!-- Folder page (album grid -> home) only.
+         CustomCrossActivityBackAnimation.getPostCommitAnimationDuration() is
+         min(2000, max(close.duration, enter.duration)), so the folder pair must share
+         this clock on both sides or the longer one re-introduces a tail in which the
+         closing page has already reached alpha 0.
+         220 ms: the album page is the one return where the foreground is a dense grid
+         of images and text that the real Grid is already drawn behind, so every frame
+         of partial alpha is a literal cross-dissolve of two grids (the 2026-11-24 run
+         was reported as "叠加溶解"). Shortening the clock reduces the overlap window in
+         absolute time and the retimed alpha curve reduces its opacity; the fade still
+         ends at 82% of the travel, so the page leaves instead of evaporating. -->
+    <integer name="oxygen_classic_folder_back_duration_ms">200</integer>
+    <!-- DefaultCrossActivityBackAnimation.onGestureCommitted() slides the closing
+         page on to currentClosingRect.left + enteringStartOffset, and
+         cross_activity_back_entering_start_offset is 96dp in the Shell resources. -->
+    <dimen name="oxygen_classic_page_back_slide_distance">96dp</dimen>
+
+    <!-- Android 14+ predictive back, custom (CLOSE) branch of the platform's
+         CrossActivityBackAnimation.
+         WindowManager only takes that branch when the *closing* window declares a
+         non-default activityCloseExitAnimation (BackNavigationController
+         .isCustomizeExitAnimation), and then expects a loadable one
+         (CustomAnimationLoader.loadAll). A zero window animation or a style without
+         these two items silently falls back to DefaultCrossActivityBackAnimation,
+         which additionally scales the entering parent to 0.9, offsets it by 96dp and
+         leaves the Shell backdrop visible around both windows.
+         Choosing the custom branch keeps the entering parent on a full-screen base
+         rect, so the real previous page fills the screen. The price is that the Shell
+         then delegates the post-commit look to these two resources:
+         - CLOSE-enter must stay identity. It is also applied *during* the gesture at
+           getPreCommitEnteringBaseTransformation(progress * 0.2), so any geometry here
+           would displace the real parent and break the full-screen preview.
+         - CLOSE-exit is the closing page's only post-commit motion: the Shell freezes
+           currentClosingRect at the release position and never advances it. Identity
+           would leave the page standing still until the window is torn down, which is
+           the hard cut this pair must not reintroduce.
+
+         OPEN is declared here for the *opposite* reason: leaving it out does not keep
+         the platform default open transition. Once a main window declares a non-zero
+         windowAnimations style, Transition.calculateAnimationOptionsForActivityTransition
+         attaches ANIM_FROM_STYLE with that style, and TransitionAnimationHelper
+         .loadAttributeAnimation then reads activityOpenEnterAnimation *from our style
+         only* - it never falls back to the framework default. A CLOSE-only style
+         therefore resolved OPEN to 0 and the open transition finished with no
+         animation at all (DefaultTransitionHandler finishes immediately when no
+         animator was attached). Declaring the same resource the legacy style uses
+         restores one animation on both eras; the CLOSE pair is untouched, so
+         BackNavigationController.isCustomizeExitAnimation keeps selecting this custom
+         branch. -->
+    <style name="OxygenClassicPageBackWindow">
+        <item name="android:activityOpenEnterAnimation">@anim/oxygen_classic_page_open_enter</item>
+        <item name="android:activityCloseEnterAnimation">@anim/oxygen_classic_page_back_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/oxygen_classic_page_back_exit</item>
+    </style>
+
+    <!-- Folder page (album grid -> home) only.
+         Same branch, same tokens, same CLOSE-enter, one difference: the CLOSE-exit
+         uses the folder curves. The folder page is the only page whose entering
+         parent is guaranteed static (CustomCrossActivityBackAnimation keeps it on a
+         full-screen base rect), so its foreground has to stay visible long enough to
+         be seen leaving; a dissolve that ends at 26% of the clock does not.
+         Everything else the platform requires from this style is repeated here rather
+         than inherited: WindowManager reads activityOpenEnterAnimation from the
+         closing window's own style, so a CLOSE-only style would resolve OPEN to 0 and
+         the folder would open with no animation at all. -->
+    <style name="OxygenClassicFolderBackWindow">
+        <item name="android:activityOpenEnterAnimation">@anim/oxygen_classic_page_open_enter</item>
+        <item name="android:activityCloseEnterAnimation">@anim/oxygen_classic_folder_back_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/oxygen_classic_folder_back_exit</item>
     </style>
 
     <!-- Screenshot-fit/application tokens, not extracted OxygenOS ROM resources. -->

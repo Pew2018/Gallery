@@ -70,3 +70,65 @@ Device verification still required: type an unmatched search during first-entry 
 clear it during final publication, switch profile immediately after tapping a thumbnail,
 return from the viewer after another app changes the selected directory, and confirm
 that unchanged live grids keep their visible anchor without a blank reload.
+
+## Phase 1: navigation entry reason and bounded first slice
+
+`MediaActivity` now classifies the Photos load reason explicitly instead of inheriting
+`REFRESH` from a default parameter. Plain entry, resume, layout/grouping changes and retries
+use `ENTER` and may reuse a catalog whose scope, content revision, favorites and freshness
+checkpoint are still current. Only the swipe-refresh listener, explicit retry, and paths
+that observed real media changes force a full check (`REFRESH`). Permission, source,
+protection, visibility and filter changes use `SCOPE_CHANGED`, which the scope key already
+invalidates.
+
+The preview path no longer filters and sorts the whole in-memory catalog before showing the
+first 160 rows. `CachedMediaPreviewOrder.select` trusts the catalog order only because a
+readable cache entry belongs to the exact scope (sorting included), checks existence for at
+most the rows it can show, and still runs the full access/protection validation batch.
+Random sorting and Room-only candidates always fall back to the full filter + sort path.
+`COMPLETE` remains the only authority and still performs the full scan/validation.
+
+Diagnostics now emit `photo_cache_lookup_end`, `photo_cache_missing_filter_end`,
+`photo_cache_order_ready`, `photo_preview_slice_ready`, `photo_preview_access_validated`,
+`photo_preview_ui_enqueued`, `photo_preview_adapter_committed` and
+`photo_preview_first_draw_observed`. Only the last one is a frame-commit observation; it is
+still not proof that the display scanned the frame out.
+
+Adapter publications that keep the whole displayed prefix and only append rows now use the
+existing APPEND commit regardless of the stage label. A head insertion in date-descending
+order breaks the prefix and still uses DiffUtil. Device timing/700 ms/diff jank acceptance
+remains open; see `docs/performance/root-navigation-photo-publication-phase1.md`.
+
+## Phase 1.1: two-level cache eligibility and a bounded cold path
+
+The Phase 1 fast path never fired on a device with all-files access. A complete-catalog
+reuse proof requires a catalog checkpoint, `PhotoProfileCatalogCheckpoint.capture()` returns
+null under `Environment.isExternalStorageManager()`, and the reuse check deleted the whole
+entry when the checkpoint was missing. Every entry therefore paid the Room full-filter path
+again: 938-2416 ms for 4995 rows in the 16:23 device export.
+
+Eligibility is now evaluated in two levels:
+
+- `PREVIEW_ELIGIBLE`: same profile scope (sorting included), same content revision, same
+  favorite relation, inside the 60 s limit. This is enough to *show* validated metadata.
+- `COMPLETE_REUSABLE`: additionally backed by a checkpoint that still matches the live
+  volume/folder state. Only this may skip the scan.
+
+Only a proven-stale entry (`CONTENT_REVISION_CHANGED`, `EXPIRED`) is evicted. A scope or
+favorite mismatch rejects the entry but never deletes it, because the mismatch may mean an
+old request is evaluating a newer entry. `evict()` re-checks reference identity first.
+
+The Room cold path now orders candidates (about 1 ms for 5k rows) and then walks a bounded
+window: 160 target rows, 640 candidate budget, one memoized parent-readability probe per
+folder for that batch. An exhausted budget publishes a partial, explicitly incomplete
+preview instead of scanning the whole catalog; an empty result publishes nothing and lets
+the indexed/filesystem stages converge. Random sorting keeps the previous full path.
+
+New checks: `PhotoProfileCacheEligibilityTest`, `PhotoCachePreviewWorkTest`,
+`PhotoPublicationPolicyTest`, `ThumbnailRecoveryPolicyTest`,
+`PhotoCachePreviewMeasurementTest`. Releasing the fast scroller now clears the adapter's
+thumbnail pause unconditionally, before the publication guard, so a held publication can no
+longer leave the settled viewport blank.
+
+Acceptance on device is still open; see
+`docs/performance/root-navigation-photo-publication-phase1.1.md`.

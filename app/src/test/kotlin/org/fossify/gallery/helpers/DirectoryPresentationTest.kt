@@ -47,6 +47,22 @@ class DirectoryPresentationTest {
         assertSame(a, source.first())
     }
 
+    @Test fun adapterAggregateMutationCannotPoisonTheDirectCatalogOrDoubleCountChildren() {
+        val parent = directory("/root/A", size = 3, count = 1)
+        val child = directory("/root/A/child", size = 300, count = 100)
+        val card = parent.copy(name = "Updated", mediaCnt = 101, size = 303, subfoldersMediaCount = 101)
+        val merged = DirectoryPresentation.mergeCatalogMetadata(listOf(parent, child), listOf(card), emptySet())
+        assertEquals(listOf(1, 100), merged.map { it.mediaCnt })
+        assertEquals(listOf(3L, 300L), merged.map { it.size })
+        assertEquals("Updated", merged.first().name)
+        assertEquals("A", parent.name)
+        val grouped = context.getDirsToShow(merged, merged, "/root", groupDirectSubfolders = true)
+        assertEquals(101, grouped.single().mediaCnt)
+        assertEquals(303L, grouped.single().size)
+        assertEquals(listOf("/root/A/child"),
+            DirectoryPresentation.mergeCatalogMetadata(merged, emptyList(), setOf("/root/AB")).drop(1).map { it.path })
+    }
+
     @Test fun intermediateBatchesKeepExistingPathsAndAppendOnlyNewCards() {
         val a = directory("/a")
         val b = directory("/b")

@@ -3,6 +3,7 @@ package org.fossify.gallery.helpers
 import android.app.Application
 import android.os.Looper
 import org.fossify.gallery.models.Medium
+import org.fossify.gallery.activities.MainActivity
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,6 +20,29 @@ import java.util.concurrent.atomic.AtomicInteger
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], application = Application::class)
 class RefreshReliabilityTest {
+    @Test fun homeDirectoryScanDeadlineIsTwoAndAHalfMinutesWithoutChangingOtherWatchdogs() {
+        assertEquals(150_000L, MainActivity.HOME_DIRECTORY_SCAN_TIMEOUT_MS)
+        assertEquals(45_000L, RefreshWatchdog.TIMEOUT_MS)
+
+        val watchdog = RefreshWatchdog()
+        val expired = AtomicInteger()
+        watchdog.arm(MainActivity.HOME_DIRECTORY_SCAN_TIMEOUT_MS) { expired.incrementAndGet() }
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(149_999, TimeUnit.MILLISECONDS)
+        assertEquals(0, expired.get())
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.MILLISECONDS)
+        assertEquals(1, expired.get())
+    }
+
+    @Test fun manualRefreshCancelsTheLongHomeDeadline() {
+        val watchdog = RefreshWatchdog()
+        val expired = AtomicInteger()
+        watchdog.arm(MainActivity.HOME_DIRECTORY_SCAN_TIMEOUT_MS) { expired.incrementAndGet() }
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(120, TimeUnit.SECONDS)
+        watchdog.stop()
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(30, TimeUnit.SECONDS)
+        assertEquals(0, expired.get())
+    }
+
     @Test fun watchdogExpiresExactlyOnceAndANewRequestGetsItsOwnDeadline() {
         val watchdog = RefreshWatchdog()
         val expired = AtomicInteger()

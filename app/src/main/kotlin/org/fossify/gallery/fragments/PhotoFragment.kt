@@ -5,7 +5,9 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.RectF
 import android.graphics.Matrix
+import android.graphics.PointF
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
@@ -20,6 +22,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.ImageView
 import androidx.core.graphics.drawable.toBitmapOrNull
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat.Type
@@ -82,9 +85,18 @@ import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.getBottomActionsHeight
 import org.fossify.gallery.extensions.sendFakeClick
 import org.fossify.gallery.helpers.ColorModeHelper
+import org.fossify.gallery.helpers.GestureZoomBaseline
 import org.fossify.gallery.helpers.HIGH_TILE_DPI
 import org.fossify.gallery.helpers.LOW_TILE_DPI
 import org.fossify.gallery.helpers.MAX_ZOOM_EQUALITY_TOLERANCE
+import org.fossify.gallery.helpers.MediaSharedSurface
+import org.fossify.gallery.helpers.PhotoViewerTransition
+import org.fossify.gallery.helpers.StaticPhotoEntryGeometry
+import org.fossify.gallery.helpers.StaticPhotoEntryView
+import org.fossify.gallery.helpers.StaticPhotoHeader
+import org.fossify.gallery.helpers.StaticPhotoSource
+import org.fossify.gallery.helpers.StaticPhotoViewGeometry
+import org.fossify.gallery.helpers.MediaTransitionGeometry
 import org.fossify.gallery.helpers.MEDIUM
 import org.fossify.gallery.helpers.MyGlideImageDecoder
 import org.fossify.gallery.helpers.NORMAL_TILE_DPI
@@ -124,21 +136,272 @@ class PhotoFragment : ViewPagerFragment() {
     private var mLoadZoomableViewHandler = Handler()
     private var mScreenWidth = 0
     private var mScreenHeight = 0
-    private var mCurrentGestureViewZoom = 1f
-    private var mInitialZoom = 1f
-    private var mHasInitialZoom = false
+    // Fit-baseline ownership across preview→full resource upgrades; see
+    // [GestureZoomBaseline] for why a stale absolute zoom must never gate returns.
+    private var zoomBaseline = GestureZoomBaseline(MAX_ZOOM_EQUALITY_TOLERANCE.toFloat())
+    private var mSubsamplingImageReady = false
+    private var mSubsamplingImageLoading = false
     private var mReportedImagePath: String? = null
     private var detailsGeneration = 0L
 
-    private fun reportImageRendered() {
+    private var imageRequestGeneration = 0L
+    private var deliveredImage: Drawable? = null
+    private var deliveredImageRole = "FULL"
+    private var hasPicassoRequest = false
+    private var staticPhotoHeader: Pair<String, StaticPhotoHeader>? = null
+    private var staticGlideGeneration = -1L
+    private var staticGlideSignature: String? = null
+
+    private fun beginImageRequest(): Long {
+        val request = ++imageRequestGeneration
+        deliveredImage = null
+        mReportedImagePath = null
+        if (hasPicassoRequest) {
+            hasPicassoRequest = false
+            Picasso.get().cancelRequest(binding.gesturesView)
+        }
+        return request
+    }
+
+    private fun reportImageRendered(resource: Drawable? = deliveredImage) {
+        if (resource == null) return
+        deliveredImage = resource
         val path = mMedium.path
+        logResourceBound(resource)
         if (mReportedImagePath == path || !mIsFragmentVisible) return
-        binding.gesturesView.post {
-            if (mIsFragmentVisible && mReportedImagePath != path && binding.gesturesView.drawable != null && mMedium.path == path) {
+        val request = imageRequestGeneration
+        val root = binding.root
+        val image = binding.gesturesView
+        image.post {
+            if (request == imageRequestGeneration && view === root && mIsFragmentVisible &&
+                mReportedImagePath != path && image.drawable === resource && mMedium.path == path) {
                 mReportedImagePath = path
-                listener?.imageRendered(path)
+                listener?.imageRendered(path, this)
             }
         }
+    }
+
+    /**
+     * Makes every resource binding observable, not just the first one (P1-B): the
+     * entry gate deduplicates its Activity notification, but the preview→full quality
+     * handoff must stay measurable - when the full decode landed, at which geometry,
+     * and whether the user's zoom state survived it.
+     */
+    private fun logResourceBound(resource: Drawable) {
+        if (!org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) return
+        if (!this::binding.isInitialized) return
+        val settings = binding.gesturesView.controller.settings
+        val requestedAt = activity?.intent
+            ?.let { org.fossify.gallery.helpers.ViewerEntryDiagnostics.requestedAt(it) } ?: 0L
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "ViewerEntry", "viewer_entry_resource_bound",
+            fields = mapOf(
+                "role" to deliveredImageRole,
+                "generation" to imageRequestGeneration,
+                "renderer" to rendererKind(),
+                "mediaId" to mMedium.path.let(org.fossify.gallery.helpers.GalleryDiagnosticLogger::anonymousId),
+                "viewerSessionId" to viewerSessionId(),
+                "source" to (if (resource is BitmapDrawable) "bitmap" else resource.javaClass.simpleName),
+                "intrinsic" to "${resource.intrinsicWidth}x${resource.intrinsicHeight}",
+                "imageWidth" to settings.imageWidth.takeIf { settings.hasImageSize() },
+                "imageHeight" to settings.imageHeight.takeIf { settings.hasImageSize() },
+                "viewportWidth" to settings.viewportWidth.takeIf { settings.hasViewportSize() },
+                "viewportHeight" to settings.viewportHeight.takeIf { settings.hasViewportSize() },
+                "zoom" to zoomBaseline.currentZoom,
+                "fitZoom" to zoomBaseline.initialZoom,
+                "hasBaseline" to zoomBaseline.hasBaseline,
+                "atFit" to zoomBaseline.isAtFit(),
+                "entryElapsedMs" to org.fossify.gallery.helpers.ViewerEntryDiagnostics.elapsedSince(requestedAt),
+            ))
+    }
+
+    /** Records which pipeline stage delivered the current drawable (PREVIEW / FULL). */
+    private fun reportResourceStage(resource: Drawable, dataSource: DataSource, isPreview: Boolean) {
+        // The role is bookkeeping, not logging: it must be correct even when
+        // diagnostics are off (the next binding's `viewer_entry_resource_bound`
+        // reports it, and tests pin the distinction).
+        deliveredImageRole = if (isPreview) "PREVIEW" else "FULL"
+        if (!org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) return
+        val requestedAt = activity?.intent
+            ?.let { org.fossify.gallery.helpers.ViewerEntryDiagnostics.requestedAt(it) } ?: 0L
+        org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+            org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "ViewerEntry",
+            if (isPreview) "viewer_entry_preview_ready" else "viewer_entry_full_resource_ready",
+            fields = mapOf(
+                "generation" to imageRequestGeneration,
+                "renderer" to rendererKind(),
+                "mediaId" to mMedium.path.let(org.fossify.gallery.helpers.GalleryDiagnosticLogger::anonymousId),
+                "viewerSessionId" to viewerSessionId(),
+                "cacheSource" to dataSource.name,
+                "intrinsic" to "${resource.intrinsicWidth}x${resource.intrinsicHeight}",
+                "entryElapsedMs" to org.fossify.gallery.helpers.ViewerEntryDiagnostics.elapsedSince(requestedAt),
+            ))
+    }
+
+    /** Which renderer currently owns the pixels, for diagnostics. */
+    private fun rendererKind(): String = when {
+        mIsSubsamplingVisible -> "subsampling"
+        binding.gifViewFrame.visibility == View.VISIBLE -> "gif"
+        else -> "glide"
+    }
+
+    /** The Viewer session that started this page, for cross-event correlation. */
+    private fun viewerSessionId(): Long =
+        activity?.intent?.getLongExtra(
+            org.fossify.gallery.helpers.ViewerEntryDiagnostics.EXTRA_VIEWER_SESSION_ID, 0L) ?: 0L
+
+    internal fun entryRenderer(): View? = if (view != null && ::binding.isInitialized &&
+        deliveredImage != null && binding.gesturesView.drawable === deliveredImage) binding.gesturesView else null
+
+    internal fun takeOverSharedEntry(proxy: View) = sharedEntryImageGeneration == imageRequestGeneration &&
+        entryRenderer()?.isAttachedToWindow == true && sharedSurface?.takeOver(proxy) == true
+
+    private var sharedSurface: MediaSharedSurface? = null
+    private var sharedEntryImageGeneration = -1L
+    internal fun prepareStaticPhotoEntry(
+        path: String, source: StaticPhotoSource, onRejected: (String) -> Unit,
+    ): StaticPhotoEntryView? {
+        fun reject(reason: String): StaticPhotoEntryView? {
+            onRejected(reason)
+            return null
+        }
+
+        if (!mIsFragmentVisible || view == null || !::mMedium.isInitialized || mMedium.path != path ||
+            source.path != path || mReportedImagePath != path) return reject("selection")
+        if (source.signature != staticGlideSignature ||
+            source.invalidation != org.fossify.gallery.helpers.ViewerContentInvalidationRegistry.current(path)) {
+            return reject("content_version")
+        }
+        if (mCurrentRotationDegrees != 0 || (zoomBaseline.hasBaseline && !zoomBaseline.isAtFit()) || mIsSubsamplingVisible) {
+            return reject("renderer_transform")
+        }
+        if (staticGlideGeneration != imageRequestGeneration) return reject("glide_generation")
+        val header = staticPhotoHeader?.takeIf { it.first == getFilePathToShow() }?.second ?: return reject("image_header")
+        val renderer = entryRenderer() as? ImageView ?: return reject("renderer")
+        val drawable = renderer.drawable as? BitmapDrawable ?: return reject("renderer_drawable")
+        val target = StaticPhotoViewGeometry.read(renderer, onRejected = onRejected) ?: return null
+        val photo = source.thumbnail.project(source.view.pixels, header) ?: return reject("thumbnail_projection")
+        if (!MediaTransitionGeometry.isUsable(photo.rect())) return reject("thumbnail_pixels")
+        if (!photo.matchesOrientedAspect(header) || !target.pixels.matchesOrientedAspect(header)) {
+            return reject("oriented_aspect")
+        }
+        val surface = sharedSurface ?: MediaSharedSurface(binding.root).also { sharedSurface = it }
+        return surface.prepareStaticEntry(drawable, StaticPhotoEntryGeometry(source, target, photo), renderer)?.also {
+            sharedEntryImageGeneration = imageRequestGeneration
+        }
+    }
+
+    internal fun validatesStaticPhotoHandoff(proxy: StaticPhotoEntryView): Boolean {
+        val renderer = entryRenderer() as? ImageView ?: return false
+        return sharedSurface?.currentView === proxy && mIsFragmentVisible && mMedium.path == proxy.geometry.source.path &&
+            sharedEntryImageGeneration == imageRequestGeneration && staticGlideGeneration == imageRequestGeneration &&
+            proxy.geometry.source.invalidation == org.fossify.gallery.helpers.ViewerContentInvalidationRegistry.current(mMedium.path) &&
+            renderer.isAttachedToWindow &&
+                StaticPhotoViewGeometry.read(renderer)?.nearForHandoff(proxy.geometry.target) == true
+    }
+
+    private var subsamplingGeneration = 0L
+
+    /** Why the last [sharedElementViewFor] returned null, for return diagnostics. */
+    var lastProxyRejection: String? = null
+        private set
+
+    /** Share pixels, not the full-screen renderer and its black letterboxes. */
+    fun sharedElementViewFor(path: String, deferTakeover: Boolean = false): View? {
+        fun reject(reason: Int): View? {
+            org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_transition_photo_unavailable", reason)
+            lastProxyRejection = org.fossify.gallery.helpers.ViewerProxyRejection.name(reason)
+            if (org.fossify.gallery.helpers.GalleryDiagnosticLogger.isEnabled()) {
+                // The bare integer stays for dashboard continuity; the state that
+                // produced it (zoom baseline, generation) is now recorded beside it.
+                org.fossify.gallery.helpers.GalleryDiagnosticLogger.event(
+                    org.fossify.gallery.helpers.DiagnosticLevel.DEBUG, "ViewerTransition",
+                    "viewer_photo_proxy_rejected",
+                    fields = mapOf(
+                        "reason" to lastProxyRejection,
+                        "generation" to imageRequestGeneration,
+                        "renderer" to rendererKind(),
+                        "mediaId" to mMedium.path.let(org.fossify.gallery.helpers.GalleryDiagnosticLogger::anonymousId),
+                        "viewerSessionId" to viewerSessionId(),
+                        "zoom" to zoomBaseline.currentZoom,
+                        "fitZoom" to zoomBaseline.initialZoom,
+                        "hasBaseline" to zoomBaseline.hasBaseline,
+                        "atFit" to zoomBaseline.isAtFit(),
+                    ))
+            }
+            return null
+        }
+        if (!mIsFragmentVisible || view == null || !::mMedium.isInitialized || mMedium.path != path) return reject(1)
+        if (mReportedImagePath != path) return reject(2)
+        if (mCurrentRotationDegrees != 0) return reject(3)
+        if (!zoomBaseline.isAtFit()) return reject(4)
+        if (binding.gifViewFrame.visibility == View.VISIBLE) return reject(5)
+        val drawable = binding.gesturesView.drawable ?: return reject(6)
+        val gestureBounds = MediaTransitionGeometry.imageBounds(binding.gesturesView) ?: return reject(7)
+        val bounds = if (mIsSubsamplingVisible) {
+            val tiles = binding.subsamplingView
+            if (!tiles.isZoomedOut()) return reject(8)
+            val quarterTurn = tiles.orientation == 90 || tiles.orientation == 270
+            val width = if (quarterTurn) tiles.sHeight else tiles.sWidth
+            val height = if (quarterTurn) tiles.sWidth else tiles.sHeight
+            val start = tiles.sourceToViewCoord(PointF(0f, 0f)) ?: return reject(9)
+            val end = tiles.sourceToViewCoord(PointF(width.toFloat(), height.toFloat())) ?: return reject(9)
+            val tileBounds = RectF(start.x, start.y, end.x, end.y).apply {
+                offset(tiles.left.toFloat(), tiles.top.toFloat())
+            }
+            // The Glide drawable can stand in for the tile renderer only at
+            // its matching fitted rectangle. Zoomed/panned media fades out.
+            if (!MediaTransitionGeometry.sameBounds(gestureBounds, tileBounds)) return reject(9)
+            tileBounds
+        } else gestureBounds
+        val surface = sharedSurface ?: MediaSharedSurface(binding.root).also { sharedSurface = it }
+        val proxy = surface.prepare(drawable, bounds, binding.gesturesView, binding.subsamplingView,
+            deferTakeover = deferTakeover,
+            photoHeader = sharedPhotoHeader(drawable))
+        if (proxy == null) {
+            lastProxyRejection = org.fossify.gallery.helpers.ViewerProxyRejection.PROXY_PREPARE_REJECTED
+        } else {
+            if (deferTakeover) sharedEntryImageGeneration = imageRequestGeneration
+            lastProxyRejection = null
+        }
+        return proxy
+    }
+
+    private fun sharedPhotoHeader(drawable: Drawable): StaticPhotoHeader? {
+        if (mIsSubsamplingVisible || drawable !is BitmapDrawable) return null
+        if (staticGlideGeneration != imageRequestGeneration) return null
+        return staticPhotoHeader?.takeIf { it.first == getFilePathToShow() }?.second
+    }
+
+    internal fun clearSharedEntrySurface() {
+        sharedSurface?.clear()
+        sharedSurface = null
+    }
+
+    fun finishSharedTransition() {
+        clearSharedEntrySurface()
+        if (view != null && mIsFragmentVisible) {
+            revealReadySubsamplingImage()
+            scheduleZoomableView()
+        }
+    }
+
+    /** Horizontal paging stays with this pager only while the photo is at fitted scale. */
+    fun canPageHorizontallyFromCurrentPhoto(): Boolean =
+        mCurrentRotationDegrees == 0 && when {
+            binding.gifViewFrame.visibility == View.VISIBLE -> binding.gifViewFrame.controller.state.zoom <= 1.001f
+            mIsSubsamplingVisible -> binding.subsamplingView.isZoomedOut()
+            else -> zoomBaseline.zoomMatchesBaseline()
+        }
+
+    /** Expose the source grid around the moving photo until the shared bounds settle. */
+    fun setTransitionCanvasTransparent(transparent: Boolean) {
+        if (!this::binding.isInitialized) return
+        val color = if (transparent) Color.TRANSPARENT else Color.BLACK
+        binding.root.setBackgroundColor(color)
+        binding.gesturesView.setBackgroundColor(color)
+        binding.subsamplingView.setBackgroundColor(color)
+        binding.gifViewFrame.setBackgroundColor(color)
     }
 
     private var mStoredShowExtendedDetails = false
@@ -172,6 +435,10 @@ class PhotoFragment : ViewPagerFragment() {
         binding.gesturesView.setBackgroundColor(Color.BLACK)
         binding.subsamplingView.setBackgroundColor(Color.BLACK)
         binding.gifViewFrame.setBackgroundColor(Color.BLACK)
+        if ((activity as? org.fossify.gallery.activities.ViewPagerActivity)
+                ?.shouldKeepPhotoCanvasTransparent() == true) {
+            setTransitionCanvasTransparent(true)
+        }
         if (!arguments.getBoolean(SHOULD_INIT_FRAGMENT, true)) {
             return mView
         }
@@ -200,23 +467,15 @@ class PhotoFragment : ViewPagerFragment() {
                 }
             })
 
-            gifView.setOnTouchListener { v, event ->
-                if (context.config.allowDownGesture && gifViewFrame.controller.state.zoom == 1f) handleEvent(event)
-                false
-            }
+            gifView.setOnTouchListener { v, event -> handlePhotoDismissTouch(v, event) }
 
             setupGesturesViewStateListener()
             gesturesView.setOnTouchListener { v, event ->
-                val allowDownGesture = context.config.allowDownGesture
-                if (allowDownGesture && abs(mCurrentGestureViewZoom - mInitialZoom) < MAX_ZOOM_EQUALITY_TOLERANCE) {
-                    handleEvent(event)
-                }
-                false
+                handlePhotoDismissTouch(v, event)
             }
 
             subsamplingView.setOnTouchListener { v, event ->
-                if (subsamplingView.isZoomedOut() && context.config.allowDownGesture) handleEvent(event)
-                false
+                handlePhotoDismissTouch(v, event)
             }
         }
 
@@ -284,6 +543,21 @@ class PhotoFragment : ViewPagerFragment() {
         return mView
     }
 
+    private fun handlePhotoDismissTouch(view: View, event: MotionEvent): Boolean {
+        if (activity !is ViewPagerActivity) {
+            handleEvent(event)
+            return false
+        }
+        return handleMediaDismissTouch(view, event) {
+            mCurrentRotationDegrees == 0 && when (view) {
+                binding.gesturesView -> zoomBaseline.zoomMatchesBaseline()
+                binding.subsamplingView -> binding.subsamplingView.isZoomedOut()
+                binding.gifView -> binding.gifViewFrame.controller.state.zoom <= 1.001f
+                else -> false
+            }
+        }
+    }
+
     override fun onPause() {
         super.onPause()
         activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -300,6 +574,11 @@ class PhotoFragment : ViewPagerFragment() {
         if (mWasInit) {
             if (config.allowZoomingImages != mStoredAllowDeepZoomableImages || config.showHighestQuality != mStoredShowHighestQuality) {
                 mIsSubsamplingVisible = false
+                mSubsamplingImageLoading = false
+                mSubsamplingImageReady = false
+                binding.subsamplingView.animate().cancel()
+                subsamplingGeneration++
+                binding.subsamplingView.recycle()
                 binding.subsamplingView.beGone()
                 loadImage()
             } else if (mMedium.isGIF()) {
@@ -331,6 +610,9 @@ class PhotoFragment : ViewPagerFragment() {
     }
 
     override fun onDestroyView() {
+        beginImageRequest()
+        subsamplingGeneration++
+        clearSharedEntrySurface()
         org.fossify.gallery.helpers.ViewerChromeMotion.cancel(binding.root)
         detailsGeneration++
         super.onDestroyView()
@@ -415,7 +697,7 @@ class PhotoFragment : ViewPagerFragment() {
     private fun photoFragmentVisibilityChanged(isVisible: Boolean) {
         if (isVisible) {
             applyProperColorMode(binding.gesturesView.drawable)
-            scheduleZoomableView()
+            if (mSubsamplingImageReady) revealReadySubsamplingImage() else scheduleZoomableView()
         } else {
             hideZoomableView()
             ColorModeHelper.resetColorMode(activity)
@@ -429,6 +711,8 @@ class PhotoFragment : ViewPagerFragment() {
         else -> 0
     }
 
+    private fun gestureImageIsAtFit(): Boolean = zoomBaseline.isAtFit()
+
     private fun rotateViaMatrix(original: Bitmap, orientation: Int): Bitmap {
         val degrees = degreesForRotation(orientation).toFloat()
         return if (degrees == 0f) {
@@ -441,16 +725,28 @@ class PhotoFragment : ViewPagerFragment() {
     }
 
     private fun loadImage() {
-        mHasInitialZoom = false
+        val request = beginImageRequest()
+        val root = binding.root
+        zoomBaseline.invalidate()
         checkScreenDimensions()
 
         if (mMedium.isPortrait() && context != null) {
             showPortraitStripe()
         }
 
+        val entryPath = activity?.intent?.takeIf { it.getBooleanExtra(PhotoViewerTransition.EXTRA_STATIC_PHOTO, false) }
+            ?.getStringExtra(PhotoViewerTransition.EXTRA_PATH)
+        val staticPath = getFilePathToShow().takeIf { entryPath == mMedium.path }
+        // Read the header before starting Glide: loadWithGlide derives its signature
+        // from staticPhotoHeader, and starting the request first would bump
+        // imageRequestGeneration and discard this header callback.
         ensureBackgroundThread {
-            mImageOrientation = getImageOrientation()
+            val orientation = getImageOrientation()
+            val header = staticPath?.let { path -> StaticPhotoHeader.read(path, orientation)?.let { path to it } }
             activity?.runOnUiThread {
+                if (request != imageRequestGeneration || binding.root !== root) return@runOnUiThread
+                staticPhotoHeader = header
+                mImageOrientation = orientation
                 when {
                     mMedium.isGIF() -> loadGif()
                     mMedium.isSVG() -> loadSVG()
@@ -500,7 +796,7 @@ class PhotoFragment : ViewPagerFragment() {
         if (context != null) {
             val drawable = APNGDrawable.fromFile(mMedium.path)
             binding.gesturesView.setImageDrawable(drawable)
-            reportImageRendered()
+            reportImageRendered(drawable)
         }
     }
 
@@ -513,31 +809,38 @@ class PhotoFragment : ViewPagerFragment() {
             }
 
             binding.gesturesView.setImageDrawable(drawable)
-            reportImageRendered()
+            reportImageRendered(drawable)
         }
     }
 
     private fun loadBitmap(addZoomableView: Boolean = true) {
-        mHasInitialZoom = false
+        val request = beginImageRequest()
+        zoomBaseline.invalidate()
         if (context == null) return
         val path = getFilePathToShow()
         if (path.isWebP()) {
             val drawable = WebPDrawable.fromFile(path)
             if (drawable.intrinsicWidth == 0) {
-                loadWithGlide(path, addZoomableView)
+                loadWithGlide(path, addZoomableView, request)
             } else {
                 binding.gesturesView.setImageDrawable(drawable)
-                reportImageRendered()
+                reportImageRendered(drawable)
             }
         } else {
-            loadWithGlide(path, addZoomableView)
+            loadWithGlide(path, addZoomableView, request)
         }
     }
 
-    private fun loadWithGlide(path: String, addZoomableView: Boolean) {
+    private fun loadWithGlide(path: String, addZoomableView: Boolean, request: Long) {
+        val source = (activity as? ViewPagerActivity)?.staticPhotoEntrySource(mMedium.path)
+        val verifiedSignature = source?.takeIf {
+            val version = staticPhotoHeader?.takeIf { header -> header.first == path }?.second?.fileVersion
+            version?.matchesGrid(it) == true &&
+                version.invalidation == org.fossify.gallery.helpers.ViewerContentInvalidationRegistry.current(mMedium.path)
+        }?.signature
         val priority = if (mIsFragmentVisible) Priority.IMMEDIATE else Priority.NORMAL
         val options = RequestOptions()
-            .signature(mMedium.getKey())
+            .signature(verifiedSignature?.let { com.bumptech.glide.signature.ObjectKey(it) } ?: mMedium.getKey())
             .format(DecodeFormat.PREFER_ARGB_8888)
             .priority(priority)
             .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
@@ -551,14 +854,33 @@ class PhotoFragment : ViewPagerFragment() {
                 }
             }
 
-        Glide.with(requireContext())
+        // Only the entry photo, whose identity and file version were checked against the
+        // Grid source, gets a proportional preview. The renderer-ready gate stays exactly
+        // where it is: this preview *is* a renderer frame with the same signature,
+        // fit-center transform and aspect, so the shared proxy geometry remains derived
+        // from the real view instead of guessed. The full decode keeps running and
+        // replaces the drawable in place - no lease, handoff or timeout is bypassed.
+        val previewEnabled = org.fossify.gallery.helpers.ViewerEntryPreviewPolicy.allow(
+            isEntryMedia = source != null,
+            hasVerifiedGridSource = verifiedSignature != null,
+            rotationDegrees = mCurrentRotationDegrees,
+            subsamplingVisible = mIsSubsamplingVisible,
+        )
+        val requestBuilder = Glide.with(requireContext())
             .load(path)
             .apply(options)
-            .listener(object : RequestListener<Drawable> {
+        if (previewEnabled) {
+            requestBuilder.thumbnail(org.fossify.gallery.helpers.ViewerEntryPreviewPolicy.PREVIEW_SIZE_MULTIPLIER)
+            org.fossify.gallery.helpers.GalleryPerfTrace.event(
+                "viewer_entry_preview_strategy",
+                (org.fossify.gallery.helpers.ViewerEntryPreviewPolicy.PREVIEW_SIZE_MULTIPLIER * 100f).toInt())
+        }
+        requestBuilder.listener(object : RequestListener<Drawable> {
                 override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
+                    if (request != imageRequestGeneration) return true
                     resetColorModeIfVisible()
                     if (activity != null && !activity!!.isDestroyed && !activity!!.isFinishing) {
-                        tryLoadingWithPicasso(addZoomableView)
+                        tryLoadingWithPicasso(addZoomableView, request)
                     }
                     return false
                 }
@@ -570,19 +892,28 @@ class PhotoFragment : ViewPagerFragment() {
                     dataSource: DataSource,
                     isFirstResource: Boolean
                 ): Boolean {
+                    if (request != imageRequestGeneration) return true
+                    // Glide reports the size-multiplied preview first, then the full
+                    // decode. Both go through the same renderer pipeline: no second
+                    // readiness path, no changed geometry, no lease to hand over.
+                    // `reportImageRendered` deduplicates the frame notification to the
+                    // Activity, so the entry gate still releases exactly once.
+                    reportResourceStage(resource, dataSource, isFirstResource)
+                    staticGlideGeneration = request
+                    staticGlideSignature = verifiedSignature
                     applyProperColorMode(resource)
                     val allowZoomingImages = context?.config?.allowZoomingImages ?: true
                     binding.gesturesView.controller.settings.isZoomEnabled = mMedium.isRaw() || mCurrentRotationDegrees != 0 || allowZoomingImages == false
                     if (mIsFragmentVisible && addZoomableView) {
                         scheduleZoomableView()
                     }
-                    reportImageRendered()
+                    reportImageRendered(resource)
                     return false
                 }
             }).into(binding.gesturesView)
     }
 
-    private fun tryLoadingWithPicasso(addZoomableView: Boolean) {
+    private fun tryLoadingWithPicasso(addZoomableView: Boolean, request: Long) {
         var pathToLoad = if (getFilePathToShow().startsWith("content://")) getFilePathToShow() else "file://${getFilePathToShow()}"
         pathToLoad = pathToLoad.replace("%", "%25").replace("#", "%23")
 
@@ -599,18 +930,23 @@ class PhotoFragment : ViewPagerFragment() {
                 degreesForRotation(mImageOrientation).toFloat()
             }
 
+            hasPicassoRequest = true
             picasso.into(binding.gesturesView, object : Callback {
                 override fun onSuccess() {
+                    if (request != imageRequestGeneration) return
+                    hasPicassoRequest = false
                     applyProperColorMode(binding.gesturesView.drawable)
                     binding.gesturesView.controller.settings.isZoomEnabled =
                         mMedium.isRaw() || mCurrentRotationDegrees != 0 || context?.config?.allowZoomingImages == false
                     if (mIsFragmentVisible && addZoomableView) {
                         scheduleZoomableView()
                     }
-                    reportImageRendered()
+                    reportImageRendered(binding.gesturesView.drawable)
                 }
 
                 override fun onError(e: Exception?) {
+                    if (request != imageRequestGeneration) return
+                    hasPicassoRequest = false
                     resetColorModeIfVisible()
                     if (mMedium.path != mOriginalPath) {
                         mMedium.path = mOriginalPath
@@ -618,14 +954,22 @@ class PhotoFragment : ViewPagerFragment() {
                         // TODO: Implement panorama using a FOSS library
                         // checkIfPanorama()
                     } else {
-                        binding.errorMessageHolder.errorMessage.apply {
-                            setTextColor(Color.WHITE)
-                            fadeIn()
-                        }
+                        showImageLoadError(request)
                     }
                 }
             })
-        } catch (ignored: Exception) {
+        } catch (_: Exception) {
+            hasPicassoRequest = false
+            showImageLoadError(request)
+        }
+    }
+
+    private fun showImageLoadError(request: Long) {
+        if (request != imageRequestGeneration || view !== binding.root) return
+        listener?.entryMediaLoadFailed(mMedium.path, this)
+        binding.errorMessageHolder.errorMessage.apply {
+            setTextColor(Color.WHITE)
+            fadeIn()
         }
     }
 
@@ -633,20 +977,43 @@ class PhotoFragment : ViewPagerFragment() {
         binding.gesturesView.controller.addOnStateChangeListener(object : GestureController.OnStateChangeListener {
             override fun onStateChanged(state: State) {
                 val settings = binding.gesturesView.controller.settings
-                if (settings.hasImageSize() && settings.hasViewportSize() && !mHasInitialZoom) {
-                    val zoomByWidth = settings.viewportWidth.toFloat() / settings.imageWidth
-                    val zoomByHeight = settings.viewportHeight.toFloat() / settings.imageHeight
-                    val fitZoom = maxOf(zoomByWidth, zoomByHeight)
-                    mInitialZoom = state.zoom
-                    var target = fitZoom
-                    if (abs(target - mInitialZoom) < MAX_ZOOM_EQUALITY_TOLERANCE) {
-                        target = mInitialZoom * DEFAULT_DOUBLE_TAP_ZOOM
+                // The baseline policy owns the fit zoom across renderer resource
+                // changes: a preview→full upgrade must keep the user at fit at fit,
+                // and must keep a zoomed-in user zoomed in. Both deltas arrive here
+                // looking like ordinary state changes; only the image size tells
+                // them apart.
+                when (val update = zoomBaseline.onStateChanged(
+                    imageWidth = settings.imageWidth,
+                    imageHeight = settings.imageHeight,
+                    hasSizes = settings.hasImageSize() && settings.hasViewportSize(),
+                    stateZoom = state.zoom,
+                )) {
+                    is GestureZoomBaseline.Update.Rebased -> {
+                        // A fresh fit baseline was captured for the current renderer
+                        // resource; recompute the double-tap target exactly as the
+                        // original capture path did.
+                        val zoomByWidth = settings.viewportWidth.toFloat() / settings.imageWidth
+                        val zoomByHeight = settings.viewportHeight.toFloat() / settings.imageHeight
+                        val fitZoom = maxOf(zoomByWidth, zoomByHeight)
+                        var target = fitZoom
+                        if (abs(target - zoomBaseline.initialZoom) < MAX_ZOOM_EQUALITY_TOLERANCE) {
+                            target = zoomBaseline.initialZoom * DEFAULT_DOUBLE_TAP_ZOOM
+                        }
+                        settings.doubleTapZoom = target.coerceAtMost(settings.maxZoom)
                     }
-                    settings.doubleTapZoom = target.coerceAtMost(settings.maxZoom)
-                    mHasInitialZoom = true
+                    is GestureZoomBaseline.Update.Scaled -> {
+                        // The fit baseline mapped through the resource-upgrade patch;
+                        // keep the double-tap target in the same coordinate system.
+                        settings.doubleTapZoom = (settings.doubleTapZoom * update.scale)
+                            .coerceAtMost(settings.maxZoom)
+                    }
+                    GestureZoomBaseline.Update.None -> Unit
                 }
-
-                mCurrentGestureViewZoom = state.zoom
+                if (mSubsamplingImageReady) {
+                    revealReadySubsamplingImage()
+                } else if (!mSubsamplingImageLoading && !mIsSubsamplingVisible && mIsFragmentVisible) {
+                    scheduleZoomableView()
+                }
             }
         })
     }
@@ -763,17 +1130,25 @@ class PhotoFragment : ViewPagerFragment() {
     }
 
     private fun scheduleZoomableView() {
+        if ((activity as? org.fossify.gallery.activities.ViewPagerActivity)?.isMediaTransitionRunning() == true) return
         mLoadZoomableViewHandler.removeCallbacksAndMessages(null)
         mLoadZoomableViewHandler.postDelayed({
-            if (mIsFragmentVisible && context?.config?.allowZoomingImages == true && (mMedium.isImage() || mMedium.isPortrait()) && !mIsSubsamplingVisible) {
-                addZoomableView()
+            if (mIsFragmentVisible && context?.config?.allowZoomingImages == true &&
+                (mMedium.isImage() || mMedium.isPortrait()) && !mIsSubsamplingVisible) {
+                if (mSubsamplingImageReady) revealReadySubsamplingImage()
+                else if (!mSubsamplingImageLoading && gestureImageIsAtFit()) addZoomableView()
             }
         }, ZOOMABLE_VIEW_LOAD_DELAY)
     }
 
     private fun addZoomableView() {
+        if ((activity as? org.fossify.gallery.activities.ViewPagerActivity)?.isMediaTransitionRunning() == true ||
+            mSubsamplingImageLoading || mIsSubsamplingVisible || !gestureImageIsAtFit()) return
         val rotation = degreesForRotation(mImageOrientation)
-        mIsSubsamplingVisible = true
+        val generation = ++subsamplingGeneration
+        val root = binding.root
+        mSubsamplingImageLoading = true
+        mSubsamplingImageReady = false
         val config = requireContext().config
         val showHighestQuality = config.showHighestQuality
         val minTileDpi = if (showHighestQuality) -1 else getMinTileDpi()
@@ -798,14 +1173,19 @@ class PhotoFragment : ViewPagerFragment() {
             bitmapDecoderFactory = bitmapDecoder
             regionDecoderFactory = regionDecoder
             maxScale = 10f
-            beVisible()
+            // Decode offscreen while Glide remains the interactive renderer.
+            // This prevents a first-frame zoom reset and avoids intercepting a
+            // user's gesture before the matching high-resolution image is ready.
+            visibility = View.INVISIBLE
             rotationEnabled = config.allowRotatingWithGestures
             isOneToOneZoomEnabled = config.allowOneToOneZoom
             orientation = newOrientation
-            setImage(getFilePathToShow())
+            alpha = 0f
+            mSubsamplingImageReady = false
 
             onImageEventListener = object : SubsamplingScaleImageView.OnImageEventListener {
                 override fun onReady() {
+                    if (generation != subsamplingGeneration || view !== root) return
                     // Async decoder readiness must not overwrite the black letterbox
                     // with the current (potentially light) gallery theme surface.
                     background = ColorDrawable(Color.BLACK)
@@ -813,16 +1193,25 @@ class PhotoFragment : ViewPagerFragment() {
                     val useWidth = if (mImageOrientation == ORIENTATION_ROTATE_90 || mImageOrientation == ORIENTATION_ROTATE_270) sHeight else sWidth
                     val useHeight = if (mImageOrientation == ORIENTATION_ROTATE_90 || mImageOrientation == ORIENTATION_ROTATE_270) sWidth else sHeight
                     doubleTapZoomScale = getDoubleTapZoomScale(useWidth, useHeight)
+                    mSubsamplingImageLoading = false
+                    mSubsamplingImageReady = true
+                    revealReadySubsamplingImage()
                 }
 
                 override fun onImageLoadError(e: Exception) {
+                    if (generation != subsamplingGeneration || view !== root) return
                     binding.gesturesView.controller.settings.isZoomEnabled = true
                     background = ColorDrawable(Color.TRANSPARENT)
+                    animate().cancel()
+                    alpha = 0f
                     mIsSubsamplingVisible = false
+                    mSubsamplingImageLoading = false
+                    mSubsamplingImageReady = false
                     beGone()
                 }
 
                 override fun onImageRotation(degrees: Int) {
+                    if (generation != subsamplingGeneration || view !== root) return
                     val fullRotation = (rotation + degrees) % 360
                     val useWidth = if (fullRotation == 90 || fullRotation == 270) sHeight else sWidth
                     val useHeight = if (fullRotation == 90 || fullRotation == 270) sWidth else sHeight
@@ -836,10 +1225,27 @@ class PhotoFragment : ViewPagerFragment() {
                 }
 
                 override fun onUpEvent() {
+                    if (generation != subsamplingGeneration || view !== root) return
                     mShouldResetImage = false
                 }
             }
+            // Install listeners before setImage: cached/small sources may report
+            // readiness immediately. Keep the Glide frame underneath until the
+            // matching fit-center Subsampling render is ready.
+            setImage(getFilePathToShow())
         }
+    }
+
+    private fun revealReadySubsamplingImage() {
+        if (!mSubsamplingImageReady || mSubsamplingImageLoading || mIsSubsamplingVisible ||
+            !gestureImageIsAtFit() || !mIsFragmentVisible ||
+            (activity as? ViewPagerActivity)?.isMediaTransitionRunning() == true ||
+            !this::binding.isInitialized || binding.subsamplingView.visibility == View.GONE) return
+        mIsSubsamplingVisible = true
+        binding.subsamplingView.visibility = View.VISIBLE
+        binding.subsamplingView.animate().cancel()
+        binding.subsamplingView.alpha = 0f
+        binding.subsamplingView.animate().alpha(1f).setDuration(90L).start()
     }
 
     private fun getMinTileDpi(): Int {
@@ -934,6 +1340,7 @@ class PhotoFragment : ViewPagerFragment() {
         if (mIsSubsamplingVisible) {
             binding.subsamplingView.rotateBy(degrees)
         } else {
+            hideZoomableView()
             mCurrentRotationDegrees = (mCurrentRotationDegrees + degrees) % 360
             mLoadZoomableViewHandler.removeCallbacksAndMessages(null)
             mIsSubsamplingVisible = false
@@ -966,6 +1373,11 @@ class PhotoFragment : ViewPagerFragment() {
     private fun hideZoomableView() {
         if (context?.config?.allowZoomingImages == true) {
             mIsSubsamplingVisible = false
+            mSubsamplingImageLoading = false
+            mSubsamplingImageReady = false
+            binding.subsamplingView.animate().cancel()
+            binding.subsamplingView.alpha = 1f
+            subsamplingGeneration++
             binding.subsamplingView.recycle()
             binding.subsamplingView.beGone()
             mLoadZoomableViewHandler.removeCallbacksAndMessages(null)

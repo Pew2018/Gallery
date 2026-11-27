@@ -97,9 +97,14 @@ class OxygenThemeActivity : SimpleActivity() {
             insets
         }
         ViewCompat.requestApplyInsets(root)
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() = goBack()
-        })
+        // From Android 14 the platform animates the return to Settings itself, including
+        // the preview behind the finger. A permanently enabled callback here would take
+        // the gesture away from it and leave the page static until release.
+        if (!PredictiveBackSupport.systemDrivesPageTransition) {
+            onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() = goBack()
+            })
+        }
         buildPage()
         val y = savedInstanceState?.getInt("classic_theme_scroll") ?: 0
         scroll.doOnLayout { scroll.scrollTo(0, y) }
@@ -109,9 +114,16 @@ class OxygenThemeActivity : SimpleActivity() {
         if (returningToSettings) return
         returningToSettings = true
         ClassicSettingsPageTransition.cancel(scroll, body)
+        if (PredictiveBackSupport.systemDrivesPageTransition) {
+            // The platform owns the return window; staging a snapshot or suppressing the
+            // window animation here would double the motion it is already drawing.
+            finish()
+            return
+        }
         transitionSession?.let { session ->
             ClassicSettingsActivityTransition.stage(
-                "settings:$session", scroll, titleText.text, false, OxygenClassicMotion.enabled(this)
+                "settings:$session", scroll, titleText.text, false,
+                OxygenClassicMotion.enabled(this) && !PredictiveBackSupport.systemDrivesPageTransition
             )
         }
         finish()
@@ -142,7 +154,8 @@ class OxygenThemeActivity : SimpleActivity() {
             initialNavigation = false
             transitionSession?.let { session ->
                 ClassicSettingsActivityTransition.receive(
-                    "theme:$session", scroll, body, OxygenClassicMotion.enabled(this),
+                    "theme:$session", scroll, body,
+                    OxygenClassicMotion.enabled(this) && !PredictiveBackSupport.systemDrivesPageTransition,
                     { titleText.text = it }, titleText.text
                 )
             }

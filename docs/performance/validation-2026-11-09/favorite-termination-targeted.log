@@ -1,0 +1,83 @@
+Type-safe project accessors is an incubating feature.
+Project accessors enabled, but root project name not explicitly set for 'buildSrc'. Checking out the project in different folders will impact the generated code and implicitly the buildscript classpath, breaking caching.
+> Task :buildSrc:compileJava UP-TO-DATE
+> Task :buildSrc:compileGroovy NO-SOURCE
+> Task :buildSrc:processResources NO-SOURCE
+> Task :buildSrc:classes UP-TO-DATE
+> Task :buildSrc:jar UP-TO-DATE
+
+> Configure project :app
+WARNING: The option setting 'android.enableJetifier=true' is deprecated.
+The current default is 'false'.
+It will be removed in version 10.0 of the Android Gradle plugin.
+Warning: No signing config found. Build will be unsigned.
+
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preFossReleaseBuild UP-TO-DATE
+> Task :app:dataBindingMergeDependencyArtifactsFossRelease UP-TO-DATE
+> Task :app:extractFossReleaseSupportedLocales UP-TO-DATE
+> Task :app:mapFossReleaseSourceSetPaths UP-TO-DATE
+> Task :app:generateFossReleaseLocaleConfig UP-TO-DATE
+> Task :app:generateFossReleaseResources UP-TO-DATE
+> Task :app:mergeFossReleaseResources UP-TO-DATE
+> Task :app:packageFossReleaseResources UP-TO-DATE
+> Task :app:processFossReleaseNavigationResources UP-TO-DATE
+> Task :app:parseFossReleaseLocalResources UP-TO-DATE
+> Task :app:dataBindingGenBaseClassesFossRelease UP-TO-DATE
+> Task :app:generateFossReleaseBuildConfig UP-TO-DATE
+> Task :app:generateFossReleaseRFile UP-TO-DATE
+> Task :app:javaPreCompileFossRelease UP-TO-DATE
+> Task :app:checkFossReleaseAarMetadata UP-TO-DATE
+> Task :app:compileFossReleaseNavigationResources UP-TO-DATE
+> Task :app:createFossReleaseCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksFossRelease UP-TO-DATE
+> Task :app:processFossReleaseMainManifest UP-TO-DATE
+> Task :app:processFossReleaseManifest UP-TO-DATE
+> Task :app:processFossReleaseManifestForPackage UP-TO-DATE
+> Task :app:processFossReleaseResources UP-TO-DATE
+> Task :app:preFossReleaseUnitTestBuild UP-TO-DATE
+> Task :app:javaPreCompileFossReleaseUnitTest UP-TO-DATE
+> Task :app:generateFossReleaseAssets UP-TO-DATE
+> Task :app:mergeFossReleaseAssets UP-TO-DATE
+> Task :app:convertLinkedResourcesToBinaryFossRelease UP-TO-DATE
+> Task :app:packageFossReleaseUnitTestForUnitTest UP-TO-DATE
+> Task :app:processFossReleaseUnitTestManifest UP-TO-DATE
+> Task :app:generateFossReleaseUnitTestConfig UP-TO-DATE
+> Task :app:kspFossReleaseKotlin
+
+> Task :app:compileFossReleaseKotlin
+w: file:///Users/patrick/Documents/ChatGPT/%E7%9B%B8%E5%86%8C%E4%BF%AE%E6%94%B9/Gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:248:37 'constructor(): Handler' is deprecated. Deprecated in Java.
+w: file:///Users/patrick/Documents/ChatGPT/%E7%9B%B8%E5%86%8C%E4%BF%AE%E6%94%B9/Gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:249:42 'constructor(): Handler' is deprecated. Deprecated in Java.
+w: file:///Users/patrick/Documents/ChatGPT/%E7%9B%B8%E5%86%8C%E4%BF%AE%E6%94%B9/Gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:883:26 'fun toggleHideOnScroll(hideOnScroll: Boolean): Unit' is deprecated. This feature is broken for now.
+w: file:///Users/patrick/Documents/ChatGPT/%E7%9B%B8%E5%86%8C%E4%BF%AE%E6%94%B9/Gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:2076:42 'fun get(p0: String!): Any?' is deprecated. Deprecated in Java.
+w: file:///Users/patrick/Documents/ChatGPT/%E7%9B%B8%E5%86%8C%E4%BF%AE%E6%94%B9/Gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:2190:17 'fun startActivityForResult(p0: Intent, p1: Int): Unit' is deprecated. Deprecated in Java.
+w: file:///Users/patrick/Documents/ChatGPT/%E7%9B%B8%E5%86%8C%E4%BF%AE%E6%94%B9/Gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:2196:17 'fun startActivityForResult(p0: Intent, p1: Int): Unit' is deprecated. Deprecated in Java.
+w: file:///Users/patrick/Documents/ChatGPT/%E7%9B%B8%E5%86%8C%E4%BF%AE%E6%94%B9/Gallery/app/src/main/kotlin/org/fossify/gallery/activities/MainActivity.kt:3157:13 'constructor(): Handler' is deprecated. Deprecated in Java.
+
+> Task :app:compileFossReleaseJavaWithJavac UP-TO-DATE
+> Task :app:processFossReleaseJavaRes UP-TO-DATE
+> Task :app:transformFossReleaseClassesWithAsm
+> Task :app:bundleFossReleaseClassesToCompileJar
+> Task :app:bundleFossReleaseClassesToRuntimeJar
+> Task :app:kspFossReleaseUnitTestKotlin
+> Task :app:compileFossReleaseUnitTestKotlin
+> Task :app:compileFossReleaseUnitTestJavaWithJavac UP-TO-DATE
+> Task :app:processFossReleaseUnitTestJavaRes UP-TO-DATE
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by org.robolectric.nativeruntime.DefaultNativeRuntimeLoader in an unnamed module
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+> Task :app:testFossReleaseUnitTest
+
+[Incubating] Problems report is available at: file:///Users/patrick/Documents/ChatGPT/%E7%9B%B8%E5%86%8C%E4%BF%AE%E6%94%B9/Gallery/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.5.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 16s
+41 actionable tasks: 8 executed, 33 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.5.1/userguide/configuration_cache_enabling.html

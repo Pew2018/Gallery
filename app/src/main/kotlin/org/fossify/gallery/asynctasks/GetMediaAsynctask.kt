@@ -5,6 +5,8 @@ import android.os.AsyncTask
 import org.fossify.commons.extensions.getDuration
 import org.fossify.commons.extensions.isExternalStorageManager
 import org.fossify.commons.extensions.isPathOnOTG
+import org.fossify.commons.extensions.isRestrictedWithSAFSdk30
+import org.fossify.commons.helpers.SORT_BY_RANDOM
 import org.fossify.commons.helpers.isRPlus
 import org.fossify.commons.helpers.FAVORITES
 import org.fossify.commons.helpers.SORT_BY_DATE_MODIFIED
@@ -29,6 +31,16 @@ internal class GetMediaAsynctask(
     private val photoAllowPreview: Boolean = true,
     private val photoAnchorPath: String? = null,
     private val photoReuseProducer: Boolean = false,
+    private val photoOrder: StagedMediaOrder? = null,
+    /** Root-transition token of the tap that started this load, when there is one. */
+    private val photoNavigationToken: String? = null,
+    /** Process-unique diagnostic id shared with the grid-side events of the same tap. */
+    private val photoDiagnosticRequestId: String? = null,
+    /** Displayed rows kept for visual continuity during a refresh of the same scope. */
+    private val photoRefreshBaseline: PhotoRefreshBaseline? = null,
+    private val photoDisplayedGridSize: Int = 0,
+    private val photoBaselineComplete: Boolean = false,
+    private val photoBrowseHeadroom: () -> Int = { Int.MAX_VALUE },
     private val onPhotoResult: ((PhotoLoadResult) -> Unit)? = null,
     private val manualRefresh: Boolean = false,
     private val folderSessionId: String? = null,
@@ -37,6 +49,9 @@ internal class GetMediaAsynctask(
     private val folderPriorityPaths: List<String>? = null,
     private val onScanCancelled: (() -> Unit)? = null,
     private val retainSortMetadata: Boolean = false,
+    private val pagePreviewTarget: Int = 0,
+    private val reuseAllMediaIndex: Boolean = false,
+    private val onPagePreview: ((MediaPageBatch) -> Unit)? = null,
     private val onFolderPreview: ((FolderMediaReadResult, ArrayList<ThumbnailItem>) -> Unit)? = null,
     private val onSortingMetadataRefreshRequired: (() -> Unit)? = null,
     private val onFavoritePreview: ((List<Medium>, Set<String>) -> Unit)? = null,
@@ -59,8 +74,10 @@ internal class GetMediaAsynctask(
                 android.os.Build.VERSION.SDK_INT < 30 -> "LEGACY"
                 android.os.Environment.isExternalStorageManager() -> "ALL_FILES"
                 else -> "SCOPED_STORAGE"
-            }
+            },
+            diagnosticRequestId = photoDiagnosticRequestId
         ) else null
+    internal var requestDiagnostics: MediaRequestDiagnostics? = null
     private val createdAtElapsedMs = android.os.SystemClock.elapsedRealtime()
     private var queuedAtElapsedMs = createdAtElapsedMs
     private var workerStartedElapsedMs = createdAtElapsedMs
@@ -80,6 +97,12 @@ internal class GetMediaAsynctask(
         }
     }
     internal var folderReadResult: FolderMediaReadResult? = null
+    internal var preparedSorting: Int? = null
+        private set
+    internal var pageAccessCurrent: (() -> Boolean)? = null
+        private set
+    internal var pageAccessCurrentAfterFilterChange: (() -> Boolean)? = null
+        private set
     private var sortingMetadataRefreshRequired = false
         private set
     /** Captured before cache fallback/group headers; never use an Adapter for directory counts. */
@@ -95,6 +118,32 @@ internal class GetMediaAsynctask(
     /** Non-null only when a public single-folder scan was stable at start and completion. */
     internal var folderCatalogCheckpoint: FolderReturnCheckpoint? = null
         private set
+    @Volatile internal var viewerScanCheckpoint: FolderReturnCheckpoint? = null
+        private set
+    @Volatile private var viewerFolderObservation: org.fossify.gallery.helpers.FolderScanObservation? = null
+    internal val viewerFolderUnchanged get() = viewerFolderObservation?.unchanged == true
+    internal val folderCatalogObservation get() = viewerFolderObservation
+
+    private fun observeViewerFolder() {
+        if (isCancelled || mediaFetcher.shouldStop) return
+        val checkpoint = FolderReturnCheckpoint.captureForViewerScan(context, mPath) ?: return
+        val observation = runCatching {
+            org.fossify.gallery.helpers.FolderScanObservation(java.io.File(checkpoint.canonicalFolder))
+        }.getOrNull() ?: return
+        synchronized(this) {
+            if (isCancelled || mediaFetcher.shouldStop) {
+                observation.stop()
+            } else {
+                viewerFolderObservation = observation
+                viewerScanCheckpoint = checkpoint
+            }
+        }
+    }
+
+    @Synchronized internal fun stopWatchingViewerFolder() {
+        viewerFolderObservation?.stop()
+        viewerFolderObservation = null
+    }
     @Volatile var favoriteRelationshipSnapshot: Set<String>? = null
         private set
 
@@ -104,6 +153,7 @@ internal class GetMediaAsynctask(
     override fun onPreExecute() {
         super.onPreExecute()
         queuedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
+        requestDiagnostics?.admit()
     }
 
     private fun folderAllowed(path: String): Boolean {
@@ -113,17 +163,21 @@ internal class GetMediaAsynctask(
     }
     override fun doInBackground(vararg params: Void): ArrayList<ThumbnailItem> {
         workerStartedElapsedMs = android.os.SystemClock.elapsedRealtime()
+        requestDiagnostics?.workerStarted()
         FolderRefreshDiagnostics.event(requestId, "scan_started", detail = "source=${if (photoProfileId != null) "photo_profile" else if (showAll) "all_media" else if (mPath == FAVORITES) "favorites" else "folder"}")
         FolderRefreshDiagnostics.event(requestId, "worker_started")
         return try {
         val noMediaFolder = !showAll && mPath.startsWith('/') && photoProfileId == null &&
             mPath != PhotoProfileMediaLoader.PATH && mediaFetcher.noMediaSnapshot.contains(mPath)
-        val folderCheckpointStarted = if (!noMediaFolder && !showAll && mPath.startsWith('/') && mPath != FAVORITES &&
-            mPath != RECYCLE_BIN && photoProfileId == null) {
-            runCatching { FolderReturnCheckpoint.capture(context, mPath) }.getOrNull()
-        } else null
+        if (noMediaFolder) requestDiagnostics?.workerSource(ViewerScopeType.NOMEDIA_FOLDER)
+        if (!noMediaFolder && !showAll && !isPickImage && !isPickVideo && folderSessionId == null &&
+            onPagePreview != null && mPath.startsWith('/') && mPath != RECYCLE_BIN && photoProfileId == null) {
+            observeViewerFolder()
+        }
         if (mPath == PhotoProfileMediaLoader.PATH || photoProfileId != null) {
-            val loader = PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId, { isCancelled }, pipelineDiagnostics)
+            val loader = PhotoProfileMediaLoader(context, mediaFetcher, photoSessionId, { isCancelled }, pipelineDiagnostics, photoOrder,
+                photoNavigationToken, photoDiagnosticRequestId ?: GalleryDiagnosticLogger.nextPhotoRequestId(),
+                photoRefreshBaseline, photoDisplayedGridSize, photoBaselineComplete, photoBrowseHeadroom)
             val final = loader.loadStaged(photoProfileId, photoAllowPreview && onPhotoResult != null, photoAnchorPath,
                 forceScan = manualRefresh, reuseActiveProducer = photoReuseProducer) {
                 if (!isCancelled) publishProgress(it.snapshotForUi())
@@ -139,7 +193,9 @@ internal class GetMediaAsynctask(
         // Retain sortable fields for physical folders and Favorites in this one
         // scan. A choice made while scanning must not restart enumeration just
         // because its numeric fields were not requested at scan start.
-        val physicalSortMetadata = retainSortMetadata && !showAll && (mPath.startsWith('/') || mPath == FAVORITES) &&
+        val progressivePage = onPagePreview != null
+        val usePageIndex = progressivePage || reuseAllMediaIndex
+        val physicalSortMetadata = retainSortMetadata && (showAll || mPath.startsWith('/') || mPath == FAVORITES) &&
             mPath != RECYCLE_BIN
         val getProperDateTaken = physicalSortMetadata || folderSorting and SORT_BY_DATE_TAKEN != 0 ||
             folderGrouping and GROUP_BY_DATE_TAKEN_DAILY != 0 ||
@@ -164,10 +220,14 @@ internal class GetMediaAsynctask(
             }
             (favoritePathsOverride ?: savedFavorites).filter { it in allowed }.toCollection(ArrayList())
         } else favoritePathsOverride ?: savedFavorites
-        val ordinaryFolder = onFolderPreview != null && !showAll && mPath.startsWith('/') && mPath != RECYCLE_BIN && mPath != FAVORITES
+        val ordinaryFolder = (onFolderPreview != null || progressivePage) && !showAll &&
+            mPath.startsWith('/') && mPath != RECYCLE_BIN && mPath != FAVORITES
         // Publish the basic folder catalog before optional video metadata extraction.
-        val getVideoDurations = context.config.showThumbnailVideoDuration && !ordinaryFolder
-        val scopedAvailable = isRPlus() && !isExternalStorageManager()
+        val getVideoDurations = context.config.showThumbnailVideoDuration && !ordinaryFolder && !progressivePage
+        // MediaStore indexing and direct filesystem access are separate
+        // capabilities. MANAGE_EXTERNAL_STORAGE enables the latter; it does
+        // not make indexed rows unavailable as an early, validated preview.
+        val scopedAvailable = isRPlus()
         val scopedFolder = MediaQueryScope.shouldUseFolderQuery(
             showAll = showAll,
             path = mPath,
@@ -176,47 +236,128 @@ internal class GetMediaAsynctask(
         )
         // The scoped cursor already returns DATE_MODIFIED and DATE_TAKEN.
         // Only user-edited dates need a separate Room lookup.
-        val indexedMetadata = scopedAvailable && (showAll || scopedFolder)
-        val lastModifieds = if (getProperLastModified && !indexedMetadata && !noMediaFolder) {
+        val pageIndex = usePageIndex && (showAll ||
+            (ordinaryFolder && !context.isPathOnOTG(mPath) && !noMediaFolder &&
+                !context.isRestrictedWithSAFSdk30(mPath)))
+        val indexedMetadata = pageIndex || (scopedAvailable && (showAll || scopedFolder))
+        val lastModifieds = if (getProperLastModified && !indexedMetadata && !noMediaFolder && (showAll || !mPath.startsWith('/'))) {
             if (!showAll && mPath.startsWith('/')) mediaFetcher.getFolderLastModifieds(mPath) else mediaFetcher.getLastModifieds()
         } else HashMap()
         val dateTakens = when {
             !getProperDateTaken -> HashMap<String, Long>()
-            noMediaFolder || scopedFolder -> mediaFetcher.getSelectedFolderDateOverrides(listOf(mPath))
-            scopedAvailable && showAll -> mediaFetcher.getCustomDateTakenOverrides()
+            (pageIndex || scopedAvailable) && showAll -> mediaFetcher.getCustomDateTakenOverrides()
+            noMediaFolder || scopedFolder || pageIndex -> mediaFetcher.getSelectedFolderDateOverrides(listOf(mPath))
             !showAll && mPath.startsWith('/') -> mediaFetcher.getFolderDateTakens(mPath)
             else -> mediaFetcher.getDateTakens()
+        }
+
+        val access = if (progressivePage) DirectoryAccessState.capture(context) else null
+        fun accessCurrent(ignoreMediaTypeFilter: Boolean = false) = runCatching {
+            val sameAccess = access == null || DirectoryAccessState.capture(context).let { current ->
+                (if (ignoreMediaTypeFilter) access.copy(filter = current.filter) else access) == current
+            }
+            sameAccess && (folderSessionId == null || FolderUnlockSessionManager.isActive(folderSessionId))
+        }.getOrDefault(false)
+        if (progressivePage) {
+            pageAccessCurrent = { accessCurrent() }
+            pageAccessCurrentAfterFilterChange = { accessCurrent(ignoreMediaTypeFilter = true) }
+        }
+        val visibility = MediaPageVisibility(context, showAll, ::folderAllowed)
+        if (ordinaryFolder && !folderAllowed(java.io.File(mPath, "access-probe").path)) {
+            throw SecurityException("Folder authorization required")
+        }
+        fun deliver(stage: DisplayedSourceStage, rows: List<Medium>, sourceCurrent: () -> Boolean) {
+            if (isCancelled || rows.isEmpty()) return
+            val batch = MediaPageBatch(stage, rows) { accessCurrent() && sourceCurrent() }
+            FolderRefreshDiagnostics.event(requestId,
+                if (stage == DisplayedSourceStage.INDEX_PREVIEW) "media_index_preview_ready" else "media_scan_partial",
+                detail = "count=${rows.size}")
+            delivery.post { if (!isCancelled) onPagePreview?.invoke(batch) }
+        }
+
+        var indexAvailable = false
+        val indexed = if (pageIndex) {
+            val preview = LinkedHashMap<String, Medium>()
+            val started = android.os.SystemClock.elapsedRealtime()
+            var published = false
+            fun publishIndex() {
+                if (published || preview.isEmpty()) return
+                published = true
+                deliver(DisplayedSourceStage.INDEX_PREVIEW, ArrayList(preview.values)) { true }
+            }
+            mediaFetcher.queryPageIndex(isPickImage, isPickVideo, favoritePaths, dateTakens,
+                if (showAll) null else setOf(mPath)) { item ->
+                if (progressivePage && !published) {
+                    val verified = visibility.checkedIndexedFile(item)
+                    if (verified != null) preview.putIfAbsent(item.path, verified)
+                    if (preview.size >= pagePreviewTarget || android.os.SystemClock.elapsedRealtime() - started >= 150L) {
+                        publishIndex()
+                    }
+                }
+            }?.also {
+                indexAvailable = true
+                publishIndex()
+                if (progressivePage) {
+                    val refined = IndexedMediaViewport.select(it.values.flatten(), folderSorting,
+                        mediaFetcher, visibility, pagePreviewTarget) { !isCancelled && !mediaFetcher.shouldStop }
+                    if (refined.isNotEmpty()) deliver(DisplayedSourceStage.INDEX_PREVIEW, refined) { true }
+                }
+            } ?: hashMapOf()
+        } else null
+
+        if (progressivePage) {
+            val candidates = HashSet<String>()
+            val pending = ArrayList<Medium>()
+            val sourceChecks = LinkedHashMap<String, () -> Boolean>()
+            val cadence = MediaPreviewCadence(pagePreviewTarget, workerStartedElapsedMs)
+            mediaFetcher.onPageCandidate = { item, current ->
+                if (visibility.allows(item.path) && candidates.add(item.path)) {
+                    if (candidates.size == 1) FolderRefreshDiagnostics.event(requestId, "media_first_candidate_ready")
+                    pending.add(item.copy())
+                    sourceChecks.putIfAbsent(item.parentPath, current)
+                    if (cadence.shouldPublish(candidates.size, android.os.SystemClock.elapsedRealtime())) {
+                        val checks = sourceChecks.values.toList()
+                        deliver(DisplayedSourceStage.SCAN_PARTIAL, ArrayList(pending)) { checks.all { it() } }
+                        pending.clear()
+                        sourceChecks.clear()
+                    }
+                }
+            }
         }
 
         successfulSources = if (showAll) 0 else 1
         val scanStarted = GalleryPerfTrace.begin()
         val media = if (showAll) {
-            val foldersToScan = mediaFetcher.getFoldersToScan().filter { it != RECYCLE_BIN && it != FAVORITES && FolderUnlockSessionManager.findProtectedAncestor(it, context.config::isFolderProtected) == null }
+            val foldersToScan = mediaFetcher.getFoldersToScan(indexedFolders = indexed?.keys?.takeIf { indexAvailable },
+                continueWithoutIndex = usePageIndex).filter { it != RECYCLE_BIN && it != FAVORITES && FolderUnlockSessionManager.findProtectedAncestor(it, context.config::isFolderProtected) == null }
             // Scoped-storage MediaStore can be queried just once for all folders.
             // Reusing the grouped result avoids O(folderCount) full-store queries.
-            val scopedFiles = mediaFetcher.getAndroid11FolderMedia(
+            val scopedFiles = indexed ?: mediaFetcher.getAndroid11FolderMedia(
                 isPickImage, isPickVideo, favoritePaths, false, getProperDateTaken, dateTakens
             )
             val result = FolderMediaScan.load(foldersToScan, cachedMediaFallback,
                 cancelled = { isCancelled || mediaFetcher.shouldStop }) { folder ->
                 val read = mediaFetcher.readFolder(
                     folder, isPickImage, isPickVideo, getProperDateTaken, getProperLastModified, getProperFileSize,
-                    favoritePaths, getVideoDurations, lastModifieds, dateTakens, scopedFiles)
+                    favoritePaths, getVideoDurations, lastModifieds, dateTakens, scopedFiles, sortResult = !progressivePage)
                 if (!read.accessCurrent()) throw SecurityException("Folder authorization expired")
                 if (read.status != FolderReadStatus.COMPLETE) {
                     folderFailures = folderFailures + (folder to (read.error ?: java.io.IOException("Incomplete folder refresh")))
                     if (read.status != FolderReadStatus.PARTIAL) throw folderFailures.getValue(folder)
                 }
-                read.presentation(cachedMediaFallback.filter { java.io.File(it.path).parent == folder }, ::folderAllowed)
+                read.presentation(cachedMediaFallback.filter { java.io.File(it.path).parent == folder }) {
+                    folderAllowed(it) && (!usePageIndex || visibility.allows(it))
+                }
             }
             successfulSources = result.successfulSources
             folderFailures = folderFailures + result.failures
             val media = result.media
+            if (usePageIndex) media.removeAll { !folderAllowed(it.path) || !visibility.allows(it.path) }
 
-            mediaFetcher.sortMedia(media, context.config.getFolderSorting(SHOW_ALL))
+            if (!progressivePage) mediaFetcher.sortMedia(media, context.config.getFolderSorting(SHOW_ALL))
             media
         } else {
-            val indexedFolder = if (noMediaFolder) hashMapOf() else if (scopedFolder) {
+            val indexedFolder = indexed ?: if (noMediaFolder) hashMapOf() else if (scopedFolder) {
                 mediaFetcher.getAndroid11FolderMedia(
                     isPickImage, isPickVideo, favoritePaths, false, getProperDateTaken,
                     HashMap(dateTakens), allowedFolders = setOf(mPath)
@@ -230,29 +371,39 @@ internal class GetMediaAsynctask(
                 }
                 if (!allowed(java.io.File(mPath, "access-probe").path)) throw SecurityException("Folder authorization required")
                 val folderKey = MediaStoreFolderKey.of(mPath)
+                val indexedFolderMedia = indexedFolder?.get(folderKey).orEmpty()
                 val folderCache = cachedMediaFallback.filter { item ->
                     val parent = java.io.File(item.path).parent.orEmpty()
                     MediaStoreFolderKey.of(parent) == folderKey ||
                         (item.type == TYPE_PORTRAITS &&
                             MediaStoreFolderKey.of(java.io.File(parent).parent.orEmpty()) == folderKey)
                 }
-                mediaFetcher.onFolderProgress = { progress ->
-                    if (!isCancelled && onFolderPreview != null && folderCache.isEmpty()) {
-                        val merged = progress.presentation(folderCache.filter {
-                            it.type and context.config.filterMedia != 0 &&
-                                (context.config.shouldShowHidden || !it.name.startsWith('.')) &&
-                                (!isPickImage || it.type != TYPE_VIDEOS) && (!isPickVideo || it.type != TYPE_IMAGES)
-                        }, ::folderAllowed)
-                        mediaFetcher.sortMedia(merged, folderSorting)
-                        val grouped = mediaFetcher.groupMedia(merged, pathToUse)
-                        delivery.post {
-                            if (!isCancelled && progress.accessCurrent()) onFolderPreview.invoke(progress, grouped)
-                        }
+                val folderProbe = java.io.File(mPath, "access-probe").path
+                fun publishFolderPreview(progress: FolderMediaReadResult) {
+                    if (isCancelled || onFolderPreview == null) return
+                    val retained = if (progress.method == "mediastore_index_preview") progress
+                        else FolderMediaProgressPreview.retainIndexedSnapshot(progress, indexedFolderMedia)
+                    // A cache is a preview, not proof that the scan is finished.
+                    // Keep cached rows while the live read is partial, then let a
+                    // successful complete read remove paths confirmed absent.
+                    val merged = retained.presentation(folderCache, ::folderAllowed)
+                    if (merged.isEmpty()) return
+                    mediaFetcher.sortMedia(merged, folderSorting)
+                    val grouped = mediaFetcher.groupMedia(merged, pathToUse)
+                    delivery.post {
+                        if (!isCancelled && retained.accessCurrent()) onFolderPreview?.invoke(retained, grouped)
                     }
+                }
+                if (!progressivePage) mediaFetcher.onFolderProgress = ::publishFolderPreview
+                if (scopedFolder && !progressivePage) {
+                    val indexPreview = FolderMediaProgressPreview.fromScopedIndex(
+                        indexedFolder?.get(folderKey).orEmpty()
+                    ) { !isCancelled && allowed(folderProbe) }
+                    if (indexPreview != null) publishFolderPreview(indexPreview)
                 }
                 val read = mediaFetcher.readFolder(
                     mPath, isPickImage, isPickVideo, getProperDateTaken, getProperLastModified, getProperFileSize, favoritePaths,
-                    getVideoDurations, lastModifieds, dateTakens, indexedFolder)
+                    getVideoDurations, lastModifieds, dateTakens, indexedFolder, sortResult = false)
                 folderReadResult = read
                 folderStatsMediaSnapshot = read.media.map { it.copy() }
                 when (read.status) {
@@ -265,8 +416,8 @@ internal class GetMediaAsynctask(
                         (context.config.shouldShowHidden || !it.name.startsWith('.')) &&
                         (!isPickImage || it.type != TYPE_VIDEOS) && (!isPickVideo || it.type != TYPE_IMAGES)
                 }
-                val presented = read.presentation(fallback, ::allowed)
-                mediaFetcher.sortMedia(presented, folderSorting)
+                val presented = read.presentation(fallback) { allowed(it) && (!progressivePage || visibility.allows(it)) }
+                if (!progressivePage) mediaFetcher.sortMedia(presented, folderSorting)
                 presented
             } else {
                 val staged = ArrayList<Medium>()
@@ -305,7 +456,7 @@ internal class GetMediaAsynctask(
             // the latest effective setting to the complete source before grouping
             // and publishing, so the earlier task snapshot cannot restore old order.
             val latestSorting = context.config.getFolderSorting(pathToUse)
-            if (latestSorting != folderSorting) {
+            if (!progressivePage && latestSorting != folderSorting) {
                 val needsUnavailableMetadata =
                     (latestSorting and SORT_BY_DATE_TAKEN != 0 && !getProperDateTaken) ||
                     (latestSorting and SORT_BY_DATE_MODIFIED != 0 && !getProperLastModified) ||
@@ -327,7 +478,16 @@ internal class GetMediaAsynctask(
                 else mediaFetcher.sortMedia(media, latestSorting)
             }
         }
-        val result = FolderRefreshDiagnostics.measure(requestId, "grouping") { mediaFetcher.groupMedia(media, pathToUse) }
+        if (progressivePage) {
+            media.forEach { if (it.taken <= 0L) it.taken = it.modified }
+            val latestSorting = context.config.getFolderSorting(pathToUse)
+            if (latestSorting and SORT_BY_RANDOM == 0) mediaFetcher.sortMedia(media, latestSorting)
+            preparedSorting = latestSorting
+        }
+        val result = if (progressivePage && preparedSorting?.and(SORT_BY_RANDOM) != 0) {
+            // The page applies its request-local random order before grouping.
+            ArrayList<ThumbnailItem>(media)
+        } else FolderRefreshDiagnostics.measure(requestId, "grouping") { mediaFetcher.groupMedia(media, pathToUse) }
         val safeResult = if (mPath == FAVORITES && favoriteSessionId != null) {
             // Revalidate the complete captured snapshot once after scanning,
             // then use the returned capability set for a pure in-memory filter.
@@ -341,11 +501,15 @@ internal class GetMediaAsynctask(
         if (mPath == FAVORITES && context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             android.util.Log.d("GalleryFavorites", "savedPaths=${favoritePaths.size}, scannedMedia=${safeResult.count { it is Medium }}")
         }
-        if (folderCheckpointStarted != null && folderFailures.isEmpty() && !isCancelled && scanFailure == null) {
+        val scanCheckpoint = viewerScanCheckpoint
+        val folderRead = folderReadResult
+        if (scanCheckpoint != null && scanResult.complete && folderRead?.status == FolderReadStatus.COMPLETE &&
+            folderRead.method == "direct" && folderRead.accessCurrent() && viewerFolderUnchanged &&
+            preparedSorting?.and(SORT_BY_RANDOM) == 0 && !isCancelled) {
             val freshnessStarted = GalleryPerfTrace.begin()
-            val finished = runCatching { FolderReturnCheckpoint.capture(context, mPath) }.getOrNull()
+            val finished = FolderReturnCheckpoint.captureForViewerScan(context, mPath)
             folderCatalogCheckpoint = finished.takeIf {
-                FolderReturnCheckpoint.sameSnapshot(folderCheckpointStarted, it)
+                viewerFolderUnchanged && FolderReturnCheckpoint.sameSnapshot(scanCheckpoint, it)
             }
             GalleryPerfTrace.end("viewer_catalog_freshness", freshnessStarted, if (folderCatalogCheckpoint != null) 1 else 0)
         }
@@ -361,11 +525,15 @@ internal class GetMediaAsynctask(
                 if (error is InterruptedException) Thread.currentThread().interrupt()
                 return ArrayList()
             }
-            scanResult = GalleryScanResult(GalleryScanState.FAILED, folderFailures.keys, error)
+            scanResult = GalleryScanResult(
+                if (error is SecurityException) GalleryScanState.ACCESS_REQUIRED else GalleryScanState.FAILED,
+                folderFailures.keys, error
+            )
             scanFailure = error
             ArrayList()
         } finally {
             workerFinishedElapsedMs = android.os.SystemClock.elapsedRealtime()
+            requestDiagnostics?.workerFinished(scanResult.state, isCancelled)
         }
     }
 
@@ -389,6 +557,7 @@ internal class GetMediaAsynctask(
         if (isCancelled || scanResult.state == GalleryScanState.CANCELLED) {
             FolderRefreshDiagnostics.event(requestId, "scan_cancelled")
             finishPipelineDiagnostics("CANCELLED", media)
+            onScanCancelled?.invoke()
             return
         }
         val error = scanFailure ?: if (scanResult.state == GalleryScanState.FAILED)
@@ -420,7 +589,10 @@ internal class GetMediaAsynctask(
             }
             callback(media)
             val read = folderReadResult
-            if (read != null && onFolderPreview != null && context.config.showThumbnailVideoDuration && !isCancelled) {
+            if ((read != null && (onFolderPreview != null || onPagePreview != null) || showAll && onPagePreview != null) &&
+                context.config.showThumbnailVideoDuration && !isCancelled) {
+                fun detailsCurrent() = !isCancelled && !mediaFetcher.shouldStop &&
+                    read?.accessCurrent?.invoke() != false && pageAccessCurrent?.invoke() != false
                 val old = cachedMediaFallback.associateBy { it.path }
                 val base = media.filterIsInstance<Medium>().map { item ->
                     val cached = old[item.path]
@@ -428,7 +600,7 @@ internal class GetMediaAsynctask(
                         item.copy(videoDuration = cached.videoDuration) else item
                 }
                 VideoDurationEnricher.enrich(base,
-                    current = { !isCancelled && !mediaFetcher.shouldStop && read.accessCurrent() },
+                    current = ::detailsCurrent,
                     read = { path ->
                         if (!folderAllowed(path)) 0 else FolderRefreshDiagnostics.measure(requestId, "video_duration") {
                             durationReader(path)
@@ -437,14 +609,16 @@ internal class GetMediaAsynctask(
                         val safe = enriched.filter { folderAllowed(it.path) }.toCollection(ArrayList())
                         // Optional details must not re-enter the scan-complete callback,
                         // regroup the catalog, or repeat cache pruning/viewer preparation.
-                        delivery.post { if (!isCancelled && read.accessCurrent()) onFolderDetails?.invoke(safe) }
+                        delivery.post { if (detailsCurrent()) onFolderDetails?.invoke(safe) }
                     })
             }
         }
     }
 
     override fun onCancelled(media: ArrayList<ThumbnailItem>?) {
+        stopWatchingViewerFolder()
         super.onCancelled(media)
+        requestDiagnostics?.skip("cancelled_before_start")
         finishPipelineDiagnostics("CANCELLED", media.orEmpty())
         onScanCancelled?.invoke()
     }
@@ -466,18 +640,22 @@ internal class GetMediaAsynctask(
 
     /** A timed-out business request must not be diagnosed as just CANCELLED. */
     fun reportTimedOut() {
+        requestDiagnostics?.cancellationRequested("timed_out")
         finishPipelineDiagnostics("TIMED_OUT", emptyList())
     }
 
     /** A rejected executor never started the scan, and has no post-execute result. */
     fun reportRejectedExecution() {
+        requestDiagnostics?.skip("executor_rejected")
         finishPipelineDiagnostics("FAILED", emptyList())
     }
 
-    fun stopFetching() {
+    fun stopFetching(diagnosticReason: String = "stop_fetching") {
+        requestDiagnostics?.cancellationRequested(diagnosticReason)
         scanResult = GalleryScanResult(GalleryScanState.CANCELLED)
         FolderRefreshDiagnostics.event(requestId, "scan_cancelled", detail = "reason=stop_fetching")
         mediaFetcher.shouldStop = true
+        stopWatchingViewerFolder()
         cancel(true)
         delivery.removeCallbacksAndMessages(null)
     }

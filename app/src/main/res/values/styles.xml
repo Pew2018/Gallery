@@ -1,6 +1,12 @@
 <resources>
 
-    <style name="AppTheme" parent="AppTheme.Base" />
+    <style name="AppTheme" parent="AppTheme.Base">
+        <!-- The platform's predictive-back reveal reads the theme's window background,
+             not the runtime override installed by SimpleActivity. Base is Material3 Dark,
+             so without this the reveal area is black on light themes. Match the classic
+             page surface (#FAFAFA, with a #212121 night variant) instead. -->
+        <item name="android:windowBackground">@color/oxygen_classic_page</item>
+    </style>
 
     <style name="CustomBottomSheetDialogTheme" parent="Theme.Design.Light.BottomSheetDialog">
         <item name="bottomSheetStyle">@style/CustomBottomSheetStyle</item>
@@ -16,4 +22,23 @@
     </style>
 
     <style name="FullScreenTheme" parent="FullScreenTheme.Base" />
+
+    <style name="GalleryPageTransitionTheme" parent="OxygenClassicRootTheme">
+        <item name="android:windowContentTransitions">true</item>
+    </style>
+
+    <!-- Full-screen Viewer page. The platform scene transition is the only visual
+         driver for the photo entering and returning to the Grid; the Viewer keeps
+         its own back callback so the same shared element can be driven interactively.
+         This necessarily makes the Viewer ineligible for the system cross-Activity
+         preview on Android 14+: mHasSceneTransition and windowIsTranslucent both
+         select TYPE_CALLBACK, which is the 7ee6610 delivery contract. -->
+    <style name="GalleryViewerTransitionTheme" parent="TranslucentTheme">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowContentTransitions">true</item>
+        <item name="android:windowSharedElementEnterTransition">@android:transition/move</item>
+        <item name="android:windowSharedElementReturnTransition">@android:transition/move</item>
+    </style>
 </resources>

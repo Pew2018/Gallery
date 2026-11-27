@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A forward page arrives from the inline start edge. Window animation
+         resources are evaluated on the surface, not through the view hierarchy,
+         so the mirror has to happen in the resource configuration itself. -->
+    <dimen name="oxygen_classic_page_enter_offset">-8dp</dimen>
+</resources>

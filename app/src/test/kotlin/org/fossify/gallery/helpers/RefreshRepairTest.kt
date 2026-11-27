@@ -58,7 +58,7 @@ class RefreshRepairTest {
             val refreshed = background { scan(root.toString()) }
             assertEquals(setOf(old, indexedOnly, added), refreshed.map { it.path }.toSet())
             assertEquals(3, refreshed.size)
-            assertEquals(123L, refreshed.single { it.path == old }.size)
+            assertEquals(1L, refreshed.single { it.path == old }.size) // freshly read file wins over stale index size
             assertEquals(2L, refreshed.single { it.path == added }.size)
             assertTrue("all source queries remain folder bounded", provider.queries.all { it?.contains("LIKE") == true })
             val controller = Robolectric.buildActivity(org.fossify.gallery.activities.SimpleActivity::class.java).setup()
@@ -184,6 +184,44 @@ class RefreshRepairTest {
             assertNull(work.get(5, TimeUnit.SECONDS))
             assertNull(FolderViewerSnapshotStore.handoffId(context, root.toString()))
         } finally { release.countDown(); pool.shutdownNow(); root.toFile().deleteRecursively() }
+    }
+
+    @Test fun completeCatalogCanBeCopiedFiftyTimesAndRejectsStaleOrUnauthorizedEntries() {
+        val root = Files.createTempDirectory("reusable-catalog")
+        val observation = FolderScanObservation(root.toFile())
+        val permissions = arrayOf(android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            android.Manifest.permission.ACCESS_MEDIA_LOCATION)
+        val application = org.robolectric.Shadows.shadowOf(context)
+        application.grantPermissions(*permissions)
+        try {
+            val folder = root.toString()
+            val first = Medium().apply { path = "$folder/a.jpg"; mediaStoreId = 1 }
+            val second = Medium().apply { path = "$folder/b.jpg"; mediaStoreId = 2 }
+            val rows = listOf(first, second)
+            background {
+                val proof = FolderReturnCheckpoint.captureForViewerScan(context, folder)!!
+                assertNull(FolderViewerSnapshotStore.prepare(context, folder, proof, null, rows, observation))
+                val id = FolderViewerSnapshotStore.prepare(context, folder, proof, proof, rows, observation)!!
+                repeat(50) {
+                    assertEquals(id, FolderViewerSnapshotStore.handoffId(context, folder))
+                    val catalog = FolderViewerSnapshotStore.copyForViewer(context, id, folder, first.path)!!
+                    assertEquals(rows.map { it.path }, catalog.items.map { it.path })
+                    catalog.items[0].path = "$folder/modified-in-viewer.jpg"
+                }
+                assertNull(FolderViewerSnapshotStore.copyForViewer(context, id, folder, "$folder/absent.jpg"))
+                assertNull(FolderViewerSnapshotStore.copyForViewer(context, id, "$folder/other", first.path))
+                application.denyPermissions(android.Manifest.permission.ACCESS_MEDIA_LOCATION)
+                assertNull(FolderViewerSnapshotStore.copyForViewer(context, id, folder, first.path))
+                application.grantPermissions(android.Manifest.permission.ACCESS_MEDIA_LOCATION)
+                assertNotNull(FolderViewerSnapshotStore.copyForViewer(context, id, folder, first.path))
+                FolderContentRevision.changed()
+                assertNull(FolderViewerSnapshotStore.copyForViewer(context, id, folder, first.path))
+            }
+        } finally {
+            observation.stop()
+            application.denyPermissions(*permissions)
+            root.toFile().deleteRecursively()
+        }
     }
 
     @Test fun cacheFailureAndRejectedExecutorDeliverExactlyOneFailure() {

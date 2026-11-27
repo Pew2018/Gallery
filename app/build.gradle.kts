@@ -1,3 +1,4 @@
+import java.io.File
 import com.android.build.api.variant.FilterConfiguration
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
@@ -24,6 +25,19 @@ fun hasSigningVars(): Boolean {
 }
 
 val baseVersionCode = project.property("VERSION_CODE").toString().toInt()
+/**
+ * Source identity embedded in the APK for diagnostics.
+ *
+ * CI exports GITHUB_SHA; a local checkout falls back to HEAD. Both are resolved once
+ * during configuration, so the same commit always produces the same value and no git
+ * binary is required at runtime. "unknown" (not a timestamp, not a random id) is used
+ * when neither is available.
+ */
+val sourceIdentity: String = (providers.environmentVariable("GITHUB_SHA").orNull
+    ?: runCatching {
+        providers.exec { commandLine("git", "rev-parse", "HEAD") }.standardOutput.asText.get()
+    }.getOrNull())
+    ?.trim()?.takeIf { it.length >= 7 }?.take(12) ?: "unknown"
 val abiCodes = mapOf("armeabi-v7a" to 1, "arm64-v8a" to 2, "x86" to 3, "x86_64" to 4)
 val abiSplits = providers.gradleProperty("ABI_SPLITS").map(String::toBoolean).getOrElse(false)
 // Only opt-in CI uses this; normal release defaults and ABI matrix are unchanged.
@@ -46,9 +60,14 @@ android {
         targetSdk = project.libs.versions.app.build.targetSDK.get().toInt()
         versionName = project.property("VERSION_NAME").toString()
         versionCode = baseVersionCode
+        // Diagnostics must be able to name the source of a release APK. Resolved once
+        // at configuration time from CI's commit or the checkout's HEAD, so the value
+        // is reproducible per commit and absent (not random) outside a git checkout.
+        buildConfigField("String", "SOURCE_IDENTITY", "\"$sourceIdentity\"")
     }
 
-    testBuildType = "release"
+    // Keep instrumentation runnable from a normal local checkout without release signing keys.
+    testBuildType = "debug"
 
     signingConfigs {
         if (keystorePropertiesFile.exists()) {
@@ -77,9 +96,21 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        // Debug trace paths call android.util.Log; plain JVM test stubs should
+        // return their defaults instead of throwing for nonessential log output.
+        unitTests.isReturnDefaultValues = true
         unitTests.all {
             // Large backup fixtures plus the native-render matrix exceed Gradle's 512 MiB test default.
             it.maxHeapSize = "2g"
+            // macOS exposes /var via /private/var. Keep host temp fixtures on a
+            // canonical root so symlink/security tests exercise their intended alias.
+            it.systemProperty("java.io.tmpdir", File(System.getProperty("java.io.tmpdir")).canonicalPath)
+            // Sandboxed/offline hosts can point Robolectric at a pre-populated
+            // android-all directory instead of writing into ~/.m2.
+            providers.environmentVariable("ROBOLECTRIC_DEPENDENCY_DIR").orNull?.let { dir ->
+                it.systemProperty("robolectric.dependency.dir", dir)
+                it.systemProperty("robolectric.offline", "true")
+            }
             it.jvmArgs(
                 "--add-opens=java.base/java.lang=ALL-UNNAMED",
                 "--add-opens=java.base/java.util=ALL-UNNAMED",
@@ -205,6 +236,10 @@ dependencies {
     testImplementation(libs.okhttp)
     // Test-only Android View measurement, interaction and native Canvas rendering.
     testImplementation("org.robolectric:robolectric:4.16.1")
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation("androidx.test:core:1.5.0")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("junit:junit:4.13.2")
     implementation(libs.fossify.commons)
     // Match Commons 7.1.3 while distinguishing retryable biometric mismatch
     // callbacks from terminal system errors.
@@ -250,9 +285,39 @@ androidComponents {
         variant.instrumentation.transformClassesWith(
             org.fossify.gallery.build.ClassicCommonsVisitorFactory::class.java,
             com.android.build.api.instrumentation.InstrumentationScope.ALL
-        ) {}
+        ) {
+            // Invalidate AGP's cached external artifacts when the patch changes.
+            it.patchRevision.set(2)
+        }
         variant.instrumentation.setAsmFramesComputationMode(
             com.android.build.api.instrumentation.FramesComputationMode.COMPUTE_FRAMES_FOR_INSTRUMENTED_METHODS
         )
+
+        // AGP applies external dependency instrumentation for the APK, but host tests
+        // load the original AAR classes. Patch just the resume class with the same visitor.
+        val capitalizedVariant = variant.name.replaceFirstChar { it.uppercaseChar() }
+        val commons = variant.runtimeConfiguration.incoming.artifactView {
+            componentFilter { id ->
+                id is org.gradle.api.artifacts.component.ModuleComponentIdentifier &&
+                    id.group == "org.fossify" && id.module == "commons"
+            }
+            attributes {
+                attribute(org.gradle.api.artifacts.type.ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE,
+                    "android-classes-jar")
+            }
+        }.files
+        val testCommons = tasks.register<org.fossify.gallery.build.TestCommonsResumeClass>(
+            "patch${capitalizedVariant}CommonsResumeForUnitTest"
+        ) {
+            commonsClasses.from(commons)
+            outputDirectory.set(layout.buildDirectory.dir("generated/commonsResumeUnitTest/${variant.name}"))
+        }
+        // AGP assigns the test classpath while registering its tasks.
+        gradle.projectsEvaluated {
+            tasks.withType<Test>().matching { it.name == "test${capitalizedVariant}UnitTest" }.configureEach {
+                classpath = files(testCommons.flatMap { it.outputDirectory }) + classpath
+                dependsOn(testCommons)
+            }
+        }
     }
 }

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Alpha-out curve for the CLOSE-exit of the platform's custom cross-Activity
+     back animation.
+
+     The Shell evaluates this resource with Animation#getTransformationAt(progress),
+     which *does* apply the child interpolator (Animation.java: interpolatedTime =
+     mInterpolator.getInterpolation(normalizedTime)) but never renormalises by the
+     child duration. An interpolator is therefore the only supported way to make the
+     closing page fade faster than the geometry clock. Shortening the alpha child
+     duration would change nothing on the Shell path and would desynchronise the plain
+     finish() window transition, which is driven by the same resource.
+
+     Output y is the alpha interpolation fraction, so alpha = 1 - y. The curve reaches
+     y = 1 at x = 0.60 and stays there, i.e. the closing page is gone after ~144 ms of
+     the 240 ms post-commit clock.
+
+     Before phase 2 this curve reached y = 1 at x = 0.26 of a 450 ms clock (~117 ms)
+     and then held alpha 0 for ~333 ms while the window was still alive and still
+     holding input. The absolute fade length is deliberately close to the old one
+     (~144 ms vs ~117 ms, both far below the Shell's 450 ms reference); what changed is
+     that the invisible remainder no longer takes three quarters of the clock.
+
+     Measured through AnimationSet#getTransformationAt (the Shell's own path):
+         progress   alpha
+         0.02       0.949
+         0.10       0.733
+         0.20       0.482
+         0.30       0.279
+         0.40       0.130
+         0.50       0.031
+         0.60       0.000
+     The 0.20 -> 0.40 band is where the closing page hands the screen to the already
+     composed parent; below 0.10 the page is still essentially opaque, so a commit
+     does not read as a flash.
+
+     PathInterpolator contract (PathInterpolator#initPath): the path must start at
+     (0,0), end at (1,1), and x must be monotonic. The cubic keeps x increasing
+     (0.12 -> 0.28 -> 0.55) and y increasing, and the final horizontal segment keeps x
+     increasing with y pinned at 1. Endpoints are exact so the shell's unclamped 0..1
+     progress evaluates to alpha 1 at 0 and 0 at 1. -->
+<pathInterpolator xmlns:android="http://schemas.android.com/apk/res/android"
+    android:pathData="M0,0 C0.12,0.30 0.28,0.86 0.55,1 C0.70,1 0.85,1 1,1" />

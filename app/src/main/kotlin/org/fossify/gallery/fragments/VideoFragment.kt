@@ -2,11 +2,15 @@
 
 package org.fossify.gallery.fragments
 
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.res.Configuration
 import android.content.res.ColorStateList
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.Color
-import android.graphics.Point
+import android.graphics.Matrix
+import android.graphics.RectF
 import android.graphics.SurfaceTexture
 import android.net.Uri
 import android.os.Bundle
@@ -29,6 +33,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.view.ViewCompat
+import androidx.core.view.doOnPreDraw
 import androidx.core.view.WindowInsetsCompat.Type
 import androidx.core.view.updateLayoutParams
 import androidx.media3.common.AudioAttributes
@@ -50,6 +55,10 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.bumptech.glide.Glide
+import com.bumptech.glide.request.RequestListener
+import com.bumptech.glide.request.target.Target
+import com.bumptech.glide.load.DataSource as GlideDataSource
+import com.bumptech.glide.load.engine.GlideException
 import org.fossify.commons.extensions.beGone
 import org.fossify.commons.extensions.beGoneIf
 import org.fossify.commons.extensions.beVisible
@@ -59,7 +68,6 @@ import org.fossify.commons.extensions.fadeOut
 import org.fossify.commons.extensions.getDuration
 import org.fossify.commons.extensions.getFormattedDuration
 import org.fossify.commons.extensions.getProperTextColor
-import org.fossify.commons.extensions.getVideoResolution
 import org.fossify.commons.extensions.isGone
 import org.fossify.commons.extensions.isVisible
 import org.fossify.commons.extensions.onGlobalLayout
@@ -72,15 +80,20 @@ import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.gallery.R
 import org.fossify.gallery.activities.BaseViewerActivity
 import org.fossify.gallery.activities.VideoActivity
+import org.fossify.gallery.activities.ViewPagerActivity
 import org.fossify.gallery.databinding.PagerVideoItemBinding
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.getActionBarHeight
 import org.fossify.gallery.extensions.getBottomActionsHeight
 import org.fossify.gallery.extensions.getFormattedDuration
+import org.fossify.gallery.helpers.OxygenClassicMotion
 import org.fossify.gallery.extensions.getFriendlyMessage
 import org.fossify.gallery.extensions.launchGesturePlayer
 import org.fossify.gallery.extensions.parseFileChannel
 import org.fossify.gallery.helpers.Config
+import org.fossify.gallery.helpers.MediaSharedSurface
+import org.fossify.gallery.helpers.MediaTransitionGeometry
+import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.OxygenThemeEngine
 import org.fossify.gallery.helpers.VideoPreviewFrameHandoff
 import org.fossify.gallery.helpers.EXOPLAYER_MAX_BUFFER_MS
@@ -124,7 +137,9 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
 
     private var mExoPlayer: ExoPlayer? = null
     private var mVideoSurface: Surface? = null
-    private var mVideoSize = Point(1, 1)
+    private var decodedAspect: Float? = null
+    private var targetVideoBounds: RectF? = null
+    private var videoBoundsAnimator: ValueAnimator? = null
     private val mTimerHandler = Handler(Looper.getMainLooper())
     private val mProgressRunnable = object : Runnable {
         override fun run() {
@@ -163,6 +178,123 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     private lateinit var mVolumeSideScroll: MediaSideScroll
     private lateinit var binding: PagerVideoItemBinding
     private var videoPreviewFrameHandoff: VideoPreviewFrameHandoff? = null
+
+    private var sharedSurface: MediaSharedSurface? = null
+    private var previewReady = false
+    private var previewGeneration = 0L
+    private var sharedEntryPreviewGeneration = -1L
+    private var sharedTransitionRunning = false
+
+    /** Use a frozen, content-only frame throughout the transition. */
+    fun sharedElementViewFor(path: String, deferTakeover: Boolean = false, returnRequestId: Long = 0L): View? {
+        fun reject(reason: String): View? {
+            org.fossify.gallery.helpers.ViewerReturnDiagnostics.event(returnRequestId, "video_proxy_rejected") {
+                mapOf("reason" to reason)
+            }
+            return null
+        }
+        if (!::mMedium.isInitialized || mMedium.path != path) return reject("identity")
+        if (!mIsFragmentVisible || !isAdded || view == null) return reject("fragment")
+        if (!previewReady) return reject("preview_pending")
+        if (videoBoundsAnimator?.isRunning == true) return reject("geometry_running")
+        if (binding.videoSurfaceFrame.controller.state.zoom != 1f) return reject("zoom")
+        val surface = sharedSurface ?: MediaSharedSurface(binding.root).also { sharedSurface = it }
+        if (sharedTransitionRunning) return surface.currentView ?: reject("proxy_missing")
+        val preview = binding.videoPreview
+        val (drawable, bounds) = if (preview.isVisible()) {
+            val image = preview.drawable ?: return reject("preview_drawable")
+            val rect = if (preview.scaleType == ImageView.ScaleType.CENTER_CROP) {
+                RectF(preview.left.toFloat(), preview.top.toFloat(), preview.right.toFloat(), preview.bottom.toFloat())
+            } else MediaTransitionGeometry.imageBounds(preview) ?: return reject("preview_bounds")
+            image to rect
+        } else {
+            if (!mTextureView.isAvailable || mTextureView.width <= 0 || mTextureView.height <= 0) return reject("texture_unavailable")
+            val frame = runCatching { mTextureView.bitmap }.getOrNull() ?: return reject("texture_frame")
+            BitmapDrawable(resources, frame) to displayedTextureBounds()
+        }
+        return surface.prepare(drawable, bounds, preview, binding.videoSurfaceFrame, deferTakeover = deferTakeover)?.also {
+            sharedTransitionRunning = true
+            if (deferTakeover) sharedEntryPreviewGeneration = previewGeneration
+            if (preview.isVisible()) videoPreviewFrameHandoff?.setTransitionRunning(true)
+        } ?: reject("proxy_prepare")
+    }
+
+    internal fun takeOverSharedEntry(proxy: View) = sharedEntryPreviewGeneration == previewGeneration &&
+        entryRenderer()?.isAttachedToWindow == true && sharedSurface?.takeOver(proxy) == true
+
+    internal fun entryRenderer(): View? {
+        if (view == null) return null
+        val preview = binding.videoPreview
+        if (previewReady && preview.isVisible() && preview.drawable != null) return preview
+        return mTextureView.takeIf { it.isAvailable && !preview.isVisible() }
+    }
+
+    private fun displayedTextureBounds(): RectF {
+        val frame = binding.videoSurfaceFrame
+        val rect = RectF(mTextureView.left.toFloat(), mTextureView.top.toFloat(),
+            mTextureView.right.toFloat(), mTextureView.bottom.toFloat())
+        val matrix = Matrix()
+        frame.controller.state.get(matrix)
+        matrix.mapRect(rect)
+        rect.offset(frame.left.toFloat(), frame.top.toFloat())
+        return rect
+    }
+
+    internal fun clearSharedEntrySurface() {
+        sharedSurface?.clear()
+        sharedSurface = null
+    }
+
+    fun finishSharedTransition() {
+        clearSharedEntrySurface()
+        sharedTransitionRunning = false
+        if (view != null) setVideoSize(animateAspectChange = true)
+        videoPreviewFrameHandoff?.setTransitionRunning(false)
+    }
+
+    fun setSharedChromeAlpha(progress: Float) {
+        if (!this::binding.isInitialized) return
+        val alpha = if (mIsFullscreen) 0f else progress
+        listOf(binding.videoPlayOutline, binding.bottomVideoTimeHolder.root, binding.videoDetails).forEach {
+            it.alpha = alpha
+        }
+    }
+
+    private fun loadPreview() {
+        val request = ++previewGeneration
+        previewReady = false
+        val path = mMedium.path
+        val preview = binding.videoPreview
+        val root = binding.root
+        Glide.with(this).load(path).signature(mMedium.getKey())
+            .fitCenter().dontAnimate()
+            .listener(object : RequestListener<Drawable> {
+                override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean): Boolean {
+                    if (request != previewGeneration) return true
+                    preview.post {
+                        if (request == previewGeneration && view === root && mMedium.path == path && mIsFragmentVisible) {
+                            listener?.entryMediaLoadFailed(path, this@VideoFragment)
+                        }
+                    }
+                    return false
+                }
+                override fun onResourceReady(resource: Drawable, model: Any, target: Target<Drawable>?,
+                    dataSource: GlideDataSource, isFirstResource: Boolean): Boolean {
+                    if (request != previewGeneration) return true
+                    preview.post {
+                        if (request == previewGeneration && view === root && mMedium.path == path && preview.drawable === resource) {
+                            previewReady = true
+                            setVideoSize()
+                            root.doOnPreDraw {
+                                if (request == previewGeneration && view === root && mMedium.path == path &&
+                                    mIsFragmentVisible && preview.drawable === resource) listener?.imageRendered(path, this@VideoFragment)
+                            }
+                        }
+                    }
+                    return false
+                }
+            }).into(preview)
+    }
     private lateinit var mView: View
     private lateinit var mMedium: Medium
     private lateinit var mConfig: Config
@@ -265,20 +397,39 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                     }
                 })
 
+            var playbackGestureCancelled = false
             videoSurfaceFrame.setOnTouchListener { view, event ->
-                if (videoSurfaceFrame.controller.state.zoom == 1f) {
-                    handleEvent(event)
-                }
+                val zoomedOut = videoSurfaceFrame.controller.state.zoom == 1f
+                if (activity !is ViewPagerActivity && zoomedOut) handleEvent(event)
                 handleTouchHoldEvent(event)
-                if (mIsLongPressActive) {
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) playbackGestureCancelled = false
+                val dismissing = activity is ViewPagerActivity && handleMediaDismissTouch(view, event) {
+                    zoomedOut && previewReady && !mIsLongPressActive
+                }
+                if (dismissing || mIsLongPressActive) {
+                    mTimerHandler.removeCallbacks(mTouchHoldRunnable)
+                    if (!playbackGestureCancelled) {
+                        playbackGestureCancelled = true
+                        val cancel = MotionEvent.obtain(event)
+                        cancel.action = MotionEvent.ACTION_CANCEL
+                        gestureDetector.onTouchEvent(cancel)
+                        cancel.recycle()
+                    }
                     return@setOnTouchListener true
                 }
-
-                gestureDetector.onTouchEvent(event)
+                if (!playbackGestureCancelled) gestureDetector.onTouchEvent(event)
                 false
             }
         }
-        videoPreviewFrameHandoff = VideoPreviewFrameHandoff(binding.videoPreview)
+        if ((activity as? ViewPagerActivity)?.isMediaTransitionRunning() == true) {
+            setSharedChromeAlpha(0f)
+        }
+        val previewRoot = binding.root
+        videoPreviewFrameHandoff = VideoPreviewFrameHandoff(binding.videoPreview, onFrameVisible = {
+            if (view === previewRoot && mIsFragmentVisible) listener?.imageRendered(mMedium.path, this)
+        }).also {
+            it.setTransitionRunning((activity as? ViewPagerActivity)?.isMediaTransitionRunning() == true)
+        }
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.videoHolder) { _, insets ->
             val system = insets.getInsetsIgnoringVisibility(Type.systemBars())
@@ -298,13 +449,18 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
 
         mView = binding.root
+        binding.videoSurfaceFrame.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) setVideoSize()
+        }
+
+        mTextureView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateTextureCrop() }
 
         if (!arguments.getBoolean(SHOULD_INIT_FRAGMENT, true)) {
             return mView
         }
 
         storeStateVariables()
-        Glide.with(context).load(mMedium.path).signature(mMedium.getKey()).into(binding.videoPreview)
+        loadPreview()
 
         // setMenuVisibility is not called at VideoActivity (third party intent)
         if (!mIsFragmentVisible && activity is VideoActivity) {
@@ -315,20 +471,13 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         initTimeHolder()
         // checkIfPanorama() TODO: Implement panorama using a FOSS library
 
-        ensureBackgroundThread {
-            activity.getVideoResolution(mMedium.path)?.apply {
-                mVideoSize.x = x
-                mVideoSize.y = y
-            }
-        }
-
         if (mIsPanorama) {
             binding.apply {
                 panoramaOutline.beVisible()
                 videoPlayOutline.beGone()
                 mVolumeSideScroll.beGone()
                 mBrightnessSideScroll.beGone()
-                Glide.with(context).load(mMedium.path).signature(mMedium.getKey()).into(videoPreview)
+                loadPreview()
             }
         }
 
@@ -415,6 +564,15 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
     }
 
     override fun onDestroyView() {
+        previewGeneration++
+        clearSharedEntrySurface()
+        previewReady = false
+        decodedAspect = null
+        targetVideoBounds = null
+        videoBoundsAnimator?.cancel()
+        videoBoundsAnimator = null
+        sharedTransitionRunning = false
+        Glide.with(this).clear(binding.videoPreview)
         org.fossify.gallery.helpers.ViewerChromeMotion.cancel(binding.root)
         detailsGeneration++
         // Fragment views are discarded on rotation too. Never keep their player,
@@ -433,6 +591,15 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
 
         mIsFragmentVisible = menuVisible
+        if (menuVisible && previewReady) {
+            val root = binding.root
+            val path = mMedium.path
+            val request = previewGeneration
+            root.post {
+                if (request == previewGeneration && view === root && mIsFragmentVisible &&
+                    mMedium.path == path && entryRenderer() != null) listener?.imageRendered(path, this)
+            }
+        }
         val shouldPlayVideo = mWasFragmentInit && menuVisible && mConfig.autoplayVideos && !mConfig.gestureVideoPlayer
         if (shouldPlayVideo) playVideo()
     }
@@ -587,13 +754,19 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
                 // Player.STATE_READY alone does not guarantee that the Surface has one.
                 if (mExoPlayer === listenerPlayer && view != null) {
                     videoPreviewFrameHandoff?.onRenderedFirstFrame(listenerPlayer)
+                    // A fast decoder must not release the shared transition before its
+                    // stable preview has loaded. loadPreview owns that readiness signal.
+                    org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_video_first_frame")
                 }
             }
 
             override fun onVideoSizeChanged(videoSize: VideoSize) {
-                mVideoSize.x = videoSize.width
-                mVideoSize.y = (videoSize.height / videoSize.pixelWidthHeightRatio).toInt()
-                setVideoSize()
+                if (mExoPlayer !== listenerPlayer || view == null) return
+                val aspect = videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
+                if (aspect.isFinite() && aspect > 0f) {
+                    decodedAspect = aspect
+                    setVideoSize(animateAspectChange = true)
+                }
             }
 
             override fun onPlayerErrorChanged(error: PlaybackException?) {
@@ -1009,31 +1182,61 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         mExoPlayer?.let { attachVideoSurface(it, surface) }
     }
 
-    private fun setVideoSize() {
-        if (activity == null || mConfig.gestureVideoPlayer) return
-
-        val videoProportion = mVideoSize.x.toFloat() / mVideoSize.y.toFloat()
-        val display = requireActivity().windowManager.defaultDisplay
-        val screenWidth: Int
-        val screenHeight: Int
-
-        val realMetrics = DisplayMetrics()
-        display.getRealMetrics(realMetrics)
-        screenWidth = realMetrics.widthPixels
-        screenHeight = realMetrics.heightPixels
-
-        val screenProportion = screenWidth.toFloat() / screenHeight.toFloat()
-
-        mTextureView.layoutParams.apply {
-            if (videoProportion > screenProportion) {
-                width = screenWidth
-                height = (screenWidth.toFloat() / videoProportion).toInt()
-            } else {
-                width = (videoProportion * screenHeight.toFloat()).toInt()
-                height = screenHeight
-            }
-            mTextureView.layoutParams = this
+    private fun setVideoSize(animateAspectChange: Boolean = false) {
+        val activity = activity ?: return
+        if (mConfig.gestureVideoPlayer || mIsPanorama || sharedTransitionRunning) return
+        val preview = binding.videoPreview.drawable
+        val aspect = decodedAspect ?: preview?.let { it.intrinsicWidth.toFloat() / it.intrinsicHeight } ?: return
+        val frame = binding.videoSurfaceFrame
+        val bounds = MediaTransitionGeometry.fit(frame.width, frame.height, aspect) ?: return
+        updateTextureCrop()
+        val previous = targetVideoBounds
+        if (previous == bounds) return
+        targetVideoBounds = bounds
+        videoBoundsAnimator?.cancel()
+        val current = displayedTextureBounds()
+        if (!animateAspectChange || previous == null ||
+            (activity as? ViewPagerActivity)?.isMediaTransitionRunning() == true ||
+            !MediaTransitionGeometry.isUsable(current) ||
+            MediaTransitionGeometry.sameBounds(current, bounds) ||
+            frame.controller.state.zoom != 1f || !OxygenClassicMotion.enabled(activity)) {
+            layoutVideoViewport(MediaTransitionGeometry.viewportSize(bounds, bounds, 1f))
+            return
         }
+
+        // A decoder can report a different display aspect after the shared
+        // element lands. Move both renderers through the same visible rectangle.
+        // Whichever layer is showing may center-crop until the decoded fit settles.
+        videoBoundsAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = PhotoViewerTransition.DURATION_MS
+            interpolator = OxygenClassicMotion.easing()
+            addUpdateListener { layoutVideoViewport(MediaTransitionGeometry.viewportSize(current, bounds, it.animatedFraction)) }
+            start()
+        }
+    }
+
+    private fun layoutVideoViewport(size: Pair<Int, Int>) {
+        val (width, height) = size
+        if (mTextureView.layoutParams.width != width || mTextureView.layoutParams.height != height) {
+            mTextureView.updateLayoutParams<ViewGroup.LayoutParams> {
+                this.width = width
+                this.height = height
+            }
+        }
+        val preview = binding.videoPreview
+        preview.scaleType = ImageView.ScaleType.CENTER_CROP
+        if (preview.layoutParams.width != width || preview.layoutParams.height != height) {
+            preview.updateLayoutParams<RelativeLayout.LayoutParams> {
+                this.width = width
+                this.height = height
+                addRule(RelativeLayout.CENTER_IN_PARENT)
+            }
+        }
+    }
+
+    private fun updateTextureCrop() {
+        val aspect = decodedAspect ?: return
+        MediaTransitionGeometry.textureCrop(mTextureView.width, mTextureView.height, aspect)?.let(mTextureView::setTransform)
     }
 
     private fun handleTouchHoldEvent(event: MotionEvent) {

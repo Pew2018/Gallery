@@ -19,6 +19,23 @@ import java.util.concurrent.Executor
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], application = Application::class)
 class DirectoryAdapterRefreshTest {
+    private var previousPicasso: Any? = null
+    private var hostPicasso: com.squareup.picasso.Picasso? = null
+    private val picassoSingleton get() = com.squareup.picasso.Picasso::class.java.getDeclaredField("singleton").apply { isAccessible = true }
+
+    @org.junit.Before fun installHostImages() {
+        // Plain Application has no startup provider. This fixture must also run
+        // alone, without depending on another test having initialized Picasso.
+        previousPicasso = picassoSingleton.get(null)
+        hostPicasso = com.squareup.picasso.Picasso.Builder(org.robolectric.RuntimeEnvironment.getApplication()).build()
+        picassoSingleton.set(null, hostPicasso)
+    }
+
+    @org.junit.After fun releaseHostImages() {
+        picassoSingleton.set(null, previousPicasso)
+        hostPicasso?.shutdown()
+    }
+
     private class ManualExecutor : Executor {
         val tasks = ArrayDeque<Runnable>()
         override fun execute(command: Runnable) { tasks.addLast(command) }

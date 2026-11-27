@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shareInterpolator="false">
+    <!-- CLOSE-exit of the platform's custom cross-Activity back animation, and the
+         closing window's exit animation for a plain toolbar/back-button finish.
+
+         Why this file carries the whole exit:
+         CustomCrossActivityBackAnimation never advances currentClosingRect after the
+         gesture is committed. It keeps the rect the finger released on and applies only
+         this animation's alpha and matrix, then removes the window when
+         getPostCommitAnimationDuration() expires. An identity alpha therefore left the
+         closing page standing still at the release position until its leash was removed,
+         which is the hard pop this pair must not reintroduce.
+
+         Both children run on the full post-commit clock and differ only by interpolator.
+         That is deliberate: AnimationSet.getTransformationAt() (used by the Shell)
+         forwards the raw 0..1 progress to every child without renormalising by the
+         child's duration or startOffset, so a shorter child would simply be evaluated
+         past its end (Animation.getTransformationAt does not clamp either). Giving both
+         children duration == the set duration keeps the Shell's progress-driven mapping
+         and the normal time-driven window transition (toolbar back) in agreement.
+
+         Shape:
+         - alpha 1 -> 0 with oxygen_classic_page_back_alpha: the alpha is fully gone at
+           60% of the post-commit progress (~144 ms of 240 ms). The real parent page is
+           already fully composed underneath, so any foreground alpha left after that
+           reads as a double-exposed text/list ghost. A plain built-in interpolator
+           cannot express that: decelerate_quad still leaves 56% opacity at progress
+           0.25. The platform reference, DefaultCrossActivityBackAnimation, fades the
+           closing page out completely at 20% of a 450 ms clock; this curve keeps a
+           comparably short absolute fade (~144 ms) on a much shorter clock, so the
+           remaining 96 ms is the only part of the exit without a visible foreground.
+         - translate 0 -> 96dp, fast_out_slow_in (the XML approximation of the Shell's
+           EMPHASIZED curve). 96dp is DefaultCrossActivityBackAnimation's
+           cross_activity_back_entering_start_offset; on commit it retargets the closing
+           rect to currentClosingRect.left + 96dp. +X is correct for *both* swipe edges:
+           the pre-commit phase already owns left/right direction and the post-commit
+           target is always the release position moved further along +X.
+         Do not add scale or rotation: the Shell composes this matrix under its own scale
+         and crop, so extra geometry would fight it. -->
+    <alpha
+        android:fromAlpha="1.0"
+        android:toAlpha="0.0"
+        android:interpolator="@interpolator/oxygen_classic_page_back_alpha"
+        android:startOffset="0"
+        android:duration="@integer/oxygen_classic_page_back_duration_ms" />
+
+    <translate
+        android:fromXDelta="0"
+        android:toXDelta="@dimen/oxygen_classic_page_back_slide_distance"
+        android:interpolator="@android:interpolator/fast_out_slow_in"
+        android:startOffset="0"
+        android:duration="@integer/oxygen_classic_page_back_duration_ms" />
+</set>

@@ -193,7 +193,10 @@ object OxygenThemeColors {
             disabledText = blend(page, text, 0.38),
             interactiveAccent = readableAccent(rawAccent, page),
             toolbarBackground = toolbar, toolbarForeground = WHITE,
-            statusBarBackground = blend(toolbar, BLACK, 0.09),
+            // One continuous surface: the status bar band is the toolbar colour, not a
+            // second shade of it. A darkened band produced a visible ~36dp seam above
+            // every toolbar on light themes, which read as an unthemed background.
+            statusBarBackground = toolbar,
             lightStatusBarIcons = true,
             navigationBarBackground = page, darkNavigationBarIcons = autoForeground(page) == BLACK,
             dialogBackground = if (classic) {

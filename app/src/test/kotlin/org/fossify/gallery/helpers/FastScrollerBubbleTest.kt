@@ -1,5 +1,15 @@
 package org.fossify.gallery.helpers
 
+import android.app.Application
+import android.os.Looper
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.qtalk.recyclerviewfastscroller.RecyclerViewFastScroller
+import org.fossify.gallery.R
 import org.fossify.gallery.models.Medium
 import org.fossify.gallery.models.ThumbnailItem
 import org.fossify.gallery.models.ThumbnailSection
@@ -7,8 +17,112 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
+import org.robolectric.annotation.Config
+import java.util.concurrent.TimeUnit
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 class FastScrollerBubbleTest {
+    @Test fun thumbDragShowsPopupAndEdgeTrackDoesNotStartASession() {
+        exerciseScroller(vertical = true)
+    }
+
+    @Test fun horizontalThumbDragUsesVisibleRowsAndCancelsOnDetach() {
+        exerciseScroller(vertical = false)
+    }
+
+    private fun exerciseScroller(vertical: Boolean) {
+        val controller = Robolectric.buildActivity(AppCompatActivity::class.java)
+        val activity = controller.get()
+        activity.setTheme(R.style.AppTheme)
+        controller.setup()
+        val scroller = RecyclerViewFastScroller(activity)
+        val recycler = RecyclerView(activity)
+        val orientation = if (vertical) RecyclerView.VERTICAL else RecyclerView.HORIZONTAL
+        val manager = LinearLayoutManager(activity, orientation, false)
+        recycler.layoutManager = manager
+        recycler.adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>(), RecyclerViewFastScroller.OnPopupTextUpdate {
+            override fun onChange(position: Int) = "visible-$position"
+            override fun getItemCount() = 80
+            override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+                return object : RecyclerView.ViewHolder(View(parent.context).apply {
+                    layoutParams = RecyclerView.LayoutParams(56, 56)
+                }) {}
+            }
+            override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) = Unit
+        }
+        scroller.addView(recycler, 0, ViewGroup.LayoutParams(-1, -1))
+        scroller.attachFastScrollerToRecyclerView(recycler)
+        scroller.setScrollVertically(vertical)
+        val thumb = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.thumbIV)
+        val track = scroller.findViewById<View>(com.qtalk.recyclerviewfastscroller.R.id.trackView)
+        val popup = scroller.popupTextView
+        val states = mutableListOf<Boolean>()
+        OxygenFastScroller.installGalleryTouchHandling(scroller, recycler) { states += it }
+        activity.setContentView(scroller)
+        controller.visible()
+        val main = Shadows.shadowOf(Looper.getMainLooper())
+        main.idle()
+        scroller.measure(View.MeasureSpec.makeMeasureSpec(440, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY))
+        scroller.layout(0, 0, 440, 600)
+        OxygenFastScroller.setRangeAvailable(scroller, true)
+        popup.scaleX = 0f
+        popup.scaleY = 0f
+        popup.alpha = 0f
+        assertEquals(View.INVISIBLE, popup.visibility)
+
+        fun touch(view: View, action: Int, x: Float, y: Float, consumed: Boolean = true) {
+            val event = MotionEvent.obtain(0L, 0L, action, x, y, 0)
+            try {
+                assertEquals(consumed, view.dispatchTouchEvent(event))
+            } finally {
+                event.recycle()
+            }
+        }
+
+        touch(thumb, MotionEvent.ACTION_DOWN, thumb.width / 2f, thumb.height / 2f)
+        assertEquals(listOf(true), states)
+        assertEquals(View.VISIBLE, popup.visibility)
+        assertEquals(1f, popup.scaleX, 0f)
+        assertEquals(1f, popup.scaleY, 0f)
+        assertEquals(1f, popup.alpha, 0f)
+        assertEquals("visible-0", popup.text.toString())
+        OxygenFastScroller.installGalleryTouchHandling(scroller, recycler) { error("existing drag replaced") }
+        touch(thumb, MotionEvent.ACTION_MOVE, if (vertical) 12f else 200f, if (vertical) 230f else 12f)
+        assertTrue(manager.findFirstVisibleItemPosition() > 0)
+        assertEquals("visible-${manager.findFirstVisibleItemPosition()}", popup.text.toString())
+        touch(thumb, MotionEvent.ACTION_UP, 12f, 12f)
+        main.idleFor(400, TimeUnit.MILLISECONDS)
+        assertEquals(View.VISIBLE, popup.visibility)
+
+        // A touch on the edge rail, away from the handle, must not start a drag.
+        val positionBeforeEdge = manager.findFirstVisibleItemPosition()
+        val x = if (vertical) 4f else track.width - 8f
+        val y = if (vertical) track.height - 8f else 4f
+        touch(track, MotionEvent.ACTION_DOWN, x, y, consumed = false)
+        touch(track, MotionEvent.ACTION_MOVE, x, if (vertical) y - 80f else y, consumed = false)
+        main.idleFor(400, TimeUnit.MILLISECONDS)
+        assertEquals(listOf(true, false), states)
+        assertEquals(positionBeforeEdge, manager.findFirstVisibleItemPosition())
+        assertEquals(View.VISIBLE, popup.visibility)
+        assertEquals("visible-$positionBeforeEdge", popup.text.toString())
+        if (vertical) {
+            main.idleFor(651, TimeUnit.MILLISECONDS)
+        } else {
+            OxygenFastScroller.disposeGalleryTouchHandling(scroller)
+        }
+        assertEquals(listOf(true, false, true, false), states)
+        assertEquals(View.INVISIBLE, popup.visibility)
+        OxygenFastScroller.setRangeAvailable(scroller, true)
+        assertEquals(View.INVISIBLE, popup.visibility)
+        controller.pause().stop().destroy()
+    }
+
     @Test
     fun sectionUsesFirstFollowingMedia() {
         val items = listOf(section("2024"), medium(), medium())

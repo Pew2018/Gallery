@@ -1,0 +1,11 @@
+{
+  "class": "DirectoryStatsMigrationTest",
+  "tests": "1",
+  "failures": "0",
+  "errors": "0",
+  "skipped": "0",
+  "time": "0.028",
+  "cases": [
+    "realV11DatabaseOpensWithRoomValidationAndPreservesAllTables"
+  ]
+}

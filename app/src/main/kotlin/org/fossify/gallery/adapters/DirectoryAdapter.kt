@@ -105,6 +105,7 @@ import org.fossify.gallery.helpers.FOLDER_STYLE_SQUARE
 import org.fossify.gallery.helpers.LOCATION_INTERNAL
 import org.fossify.gallery.helpers.LOCATION_SD
 import org.fossify.gallery.helpers.DirectoryThumbnailBinder
+import org.fossify.gallery.helpers.DirectoryGridItemAnimator
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.OxygenSelectionMode
@@ -321,6 +322,8 @@ class DirectoryAdapter(
             Picasso.get().cancelRequest(thumbnail)
             Glide.with(activity).clear(thumbnail)
             thumbnail.setImageDrawable(null)
+            thumbnail.setTag(R.id.thumbnail_request_key, null)
+            thumbnail.setTag(R.id.thumbnail_loaded_key, null)
             thumbnail.tag = null
         }
     }
@@ -644,7 +647,11 @@ class DirectoryAdapter(
         val paths = getSelectedPaths()
         if (FAVORITES !in paths) return false
         if (paths.size == 1) {
+            // Open the security page directly: a category page is its own window now, so
+            // going through the hub would leave an extra page between this folder and the
+            // row the user asked for.
             activity.startActivity(Intent(activity, SettingsActivity::class.java)
+                .putExtra(SettingsActivity.EXTRA_CATEGORY, "security")
                 .putExtra(MANAGE_FAVORITE_PASSWORD, true))
             finishActMode()
         }
@@ -973,6 +980,7 @@ class DirectoryAdapter(
         onDiscarded: () -> Unit = {}
     ) {
         if (!isCurrent() || activity.isDestroyed) { onDiscarded(); return }
+        (recyclerView.itemAnimator as? DirectoryGridItemAnimator)?.clearUserReorderMoves()
         latestDirectoryUpdate?.takeIf { it.onCommitted !== onCommitted }?.onDiscarded?.invoke()
         val generation = ++diffGeneration
         val snapshots = newDirs.mapTo(ArrayList()) { it.snapshot() }
@@ -998,7 +1006,7 @@ class DirectoryAdapter(
         val old = dirs.mapTo(ArrayList()) { it.snapshot() }
         diffExecutor.execute {
             if (generation != diffGeneration) return@execute
-            val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
+            val calculationStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
             val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
                 override fun getOldListSize() = old.size
                 override fun getNewListSize() = directories.size
@@ -1007,6 +1015,9 @@ class DirectoryAdapter(
                 override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int) =
                     DirectoryPresentation.sameContent(old[oldItemPosition], directories[newItemPosition])
             })
+            org.fossify.gallery.helpers.GalleryPerfTrace.end(
+                "album_diff_calculate", calculationStarted, directories.size
+            )
             activity.runOnUiThread {
                 if (generation != diffGeneration || activity.isDestroyed ||
                     recyclerView.adapter !== this || !isCurrent()) return@runOnUiThread
@@ -1022,11 +1033,12 @@ class DirectoryAdapter(
                 }
                 directoryScrollAnchor.clear()
                 directoryScrollAnchor.remember(recyclerView, dirs.map { it.path })
+                val commitStarted = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
                 dirs = directories
                 latestDirectoryUpdate = null
                 fillLockedFolders()
                 diff.dispatchUpdatesTo(this)
-                org.fossify.gallery.helpers.GalleryPerfTrace.end("album_diff_commit", started, directories.size)
+                org.fossify.gallery.helpers.GalleryPerfTrace.end("album_diff_commit", commitStarted, directories.size)
                 if (forceDirectoryRebind) {
                     forceDirectoryRebind = false
                     notifyItemRangeChanged(0, itemCount)
@@ -1054,6 +1066,7 @@ class DirectoryAdapter(
     private fun setupView(view: View, directory: Directory, holder: ViewHolder) {
         val isSelected = selectedKeys.contains(directory.path.hashCode())
         bindItem(view).apply {
+            dirThumbnail.setTag(R.id.directory_bound_path, directory.path)
             dirPath?.text = "${directory.path.substringBeforeLast("/")}/"
             dirCheck.beVisibleIf(isSelected)
             if (isSelected) {
@@ -1089,6 +1102,8 @@ class DirectoryAdapter(
                 Picasso.get().cancelRequest(dirThumbnail)
                 Glide.with(activity).clear(dirThumbnail)
                 dirThumbnail.setImageDrawable(null)
+                dirThumbnail.setTag(R.id.thumbnail_request_key, null)
+                dirThumbnail.setTag(R.id.thumbnail_loaded_key, null)
                 dirThumbnail.tag = null
                 dirLock.beVisible()
                 dirLock.background = ColorDrawable(root.context.getProperBackgroundColor())
@@ -1179,6 +1194,8 @@ class DirectoryAdapter(
     }
 
     override fun onRowMoved(fromPosition: Int, toPosition: Int) {
+        val firstAffectedPosition = minOf(fromPosition, toPosition)
+        val lastAffectedPosition = maxOf(fromPosition, toPosition)
         if (fromPosition < toPosition) {
             for (i in fromPosition until toPosition) {
                 Collections.swap(dirs, i, i + 1)
@@ -1189,6 +1206,10 @@ class DirectoryAdapter(
             }
         }
 
+        val reorderedIds = (firstAffectedPosition..lastAffectedPosition)
+            .map(::getItemId)
+            .filter { it != RecyclerView.NO_ID }
+        (recyclerView.itemAnimator as? DirectoryGridItemAnimator)?.allowUserReorderMoves(reorderedIds)
         notifyItemMoved(fromPosition, toPosition)
     }
 

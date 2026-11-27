@@ -12,9 +12,24 @@ object DirectoryPresentation {
         return ordered
     }
 
+    /** Adapter cards may contain aggregate statistics. Only their presentation
+     * metadata can be merged back into the direct-member catalog after a mutation.
+     */
+    fun mergeCatalogMetadata(source: List<Directory>, cards: List<Directory>, removedPaths: Set<String>): ArrayList<Directory> {
+        val updates = cards.associateBy { it.path }
+        return source.filterNot { directory -> removedPaths.any { path ->
+            directory.path == path || directory.path.startsWith("${path.trimEnd('/')}/")
+        } }.mapTo(ArrayList()) { directory ->
+            directory.snapshot().apply {
+                updates[path]?.let { card -> name = card.name; tmb = card.tmb; folderStatuses = card.folderStatuses }
+            }
+        }
+    }
+
     /** Room row identity is not rendered content; path remains the adapter identity. */
     fun sameContent(first: Directory, second: Directory) =
-        first.copy(id = null) == second.copy(id = null) && first.folderStatuses == second.folderStatuses
+        first.copy(id = null, stats = first.stats.copy(scannedAt = 0)) ==
+            second.copy(id = null, stats = second.stats.copy(scannedAt = 0)) && first.folderStatuses == second.folderStatuses
 
     fun sameContents(first: List<Directory>, second: List<Directory>) =
         first.size == second.size && first.indices.all { sameContent(first[it], second[it]) }
