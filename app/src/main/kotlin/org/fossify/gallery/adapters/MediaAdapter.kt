@@ -1580,9 +1580,16 @@ class MediaAdapter(
             mediumCheck.background?.applyColorFilter(properPrimaryColor)
             mediumCheck.applyColorFilter(contrastColor)
             OxygenSelectionMotion.bind(
-                listOf(mediumThumbnail), mediumCheck, medium.path, isSelected,
-                OxygenSelectionMotion.onScreen(mediumThumbnail),
-                OxygenSelectionDrag.inSwipe(),
+                contents = listOf(mediumThumbnail),
+                check = mediumCheck,
+                key = medium.path,
+                selected = isSelected,
+                play = OxygenSelectionMotion.onScreen(mediumThumbnail),
+                brief = OxygenSelectionDrag.inSwipe(),
+                inSelectionMode = actModeCallback.isSelectable,
+                backdrop = if (isListViewType) null else mediaItemHolder,
+                accent = properPrimaryColor,
+                contrast = contrastColor,
             )
 
             if (isListViewType) {

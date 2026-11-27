@@ -202,8 +202,8 @@ object OxygenSystemBars {
     /**
      * Selection status sits on the same underlay (and, before API 35, the same
      * window status color) as the page. Navigation is left on the current theme.
-     * The accent-derived selection status is dark enough for light icons — the
-     * same polarity the theme toolbar uses.
+     * Grey 700 selection status is dark enough for light icons — the same
+     * polarity the theme toolbar uses.
      */
     private fun paintSelectionStatus(activity: Activity, host: FrameLayout) {
         val status = OxygenSelectionChrome.frame(activity).status

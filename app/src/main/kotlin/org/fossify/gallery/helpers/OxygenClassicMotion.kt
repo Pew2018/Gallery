@@ -33,7 +33,8 @@ object OxygenClassicMotion {
     const val TOGGLE_CHECKBOX_MS = 200L
     /** Selection chrome and thumbnail motion. Phase 7 owns any further timing polish. */
     const val SELECTION_CHROME_MS = 180L
-    const val SELECTION_CONTENT_MS = 160L
+    /** Thumbnail shrink / check; slight decelerate, no spring (≈ Google Photos). */
+    const val SELECTION_CONTENT_MS = 200L
     /** While a long-press drag is settling cells, keep each cell brief. */
     const val SELECTION_SWIPE_MS = 110L
 

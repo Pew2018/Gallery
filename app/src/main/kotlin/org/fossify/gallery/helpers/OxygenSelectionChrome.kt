@@ -16,11 +16,15 @@ import java.lang.ref.WeakReference
 import kotlin.math.abs
 
 /**
- * Blends the ordinary toolbar and status bar into accent-derived selection chrome.
- * The saved accent is only read, never written. A later count update paints the
- * current frame and does not start another blend.
+ * Blends the ordinary toolbar and status bar into the fixed Grey 600 selection chrome.
+ * The saved accent is only read for the live theme restore, never written. A later
+ * count update paints the current frame and does not start another blend.
  */
 object OxygenSelectionChrome {
+    /** MD1 Contextual Action Bar surface (Grey 600). */
+    const val TOOLBAR_COLOR = 0xFF757575.toInt()
+    /** Matching status band (Grey 700). */
+    const val STATUS_COLOR = 0xFF616161.toInt()
     const val FOREGROUND_COLOR = Color.WHITE
 
     private const val ENDPOINT = 0.001f
@@ -38,13 +42,11 @@ object OxygenSelectionChrome {
 
     internal fun animator(activity: Activity) = states[activity]?.animator?.takeIf { it.isRunning }
 
-    /** Accent-derived selection targets for the live theme. */
+    /** Fixed Grey 600 / Grey 700 selection targets. Accent darkening is not used. */
     fun targets(activity: Activity): Targets {
-        val colors = OxygenThemeEngine.snapshot(activity, activity.config)
-        val toolbar = OxygenThemeColors.selectionToolbar(colors.rawAccent)
         return Targets(
-            toolbar = toolbar,
-            status = OxygenThemeColors.selectionStatus(toolbar),
+            toolbar = TOOLBAR_COLOR,
+            status = STATUS_COLOR,
             foreground = FOREGROUND_COLOR,
         )
     }

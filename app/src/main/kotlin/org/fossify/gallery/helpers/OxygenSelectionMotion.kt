@@ -3,9 +3,12 @@ package org.fossify.gallery.helpers
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
+import android.graphics.Color
 import android.graphics.Rect
+import android.graphics.drawable.GradientDrawable
 import android.view.View
 import android.widget.ImageView
+import android.widget.RelativeLayout
 import org.fossify.gallery.R
 import java.lang.ref.WeakReference
 
@@ -13,19 +16,32 @@ import java.lang.ref.WeakReference
  * Shrinks the thumbnail (and a folder lock overlay) and reveals the existing check.
  * The cell, name and count are not scaled. A different item, or one that is not
  * currently on screen, snaps to the end so select-all does not animate off-screen rows.
+ * While selection mode is on, unselected cells keep a faint hollow mark at the start corner.
  */
 object OxygenSelectionMotion {
-    const val CONTENT_SCALE = 0.92f
-    /** Check grows slightly during the second half of the shrink. */
-    const val CHECK_START_SCALE = 0.86f
-    const val CHECK_FADE_START = 0.5f
+    /** In-cell shrink; keep ≥ 0.90 on two-column grids so the grey reveal stays thin. */
+    const val CONTENT_SCALE = 0.91f
+    /** Check grows with the shrink (no delayed second-half fade). */
+    const val CHECK_START_SCALE = 0.9f
+    const val CHECK_FADE_START = 0f
+    /** Light grey cell floor under a shrunk thumb — not a stroke. */
+    const val CELL_BACKDROP = 0xFFE8E8E8.toInt()
+    private const val HOLLOW_STROKE_DP = 1.5f
+    private const val HOLLOW_ALPHA = 0.42f
 
     private class State {
         var key: String? = null
         var selected = false
+        var inSelectionMode = false
         var animator: ValueAnimator? = null
         var contents: List<WeakReference<View>> = emptyList()
         var check: WeakReference<ImageView>? = null
+        var backdrop: WeakReference<View>? = null
+        var accent = Color.TRANSPARENT
+        var contrast = Color.WHITE
+        var hollow: GradientDrawable? = null
+        var checkSrc: Int = org.fossify.commons.R.drawable.ic_check_vector
+        var hadDrawable = false
     }
 
     internal fun animator(content: View) =
@@ -44,6 +60,10 @@ object OxygenSelectionMotion {
         selected: Boolean,
         play: Boolean,
         brief: Boolean = false,
+        inSelectionMode: Boolean = selected,
+        backdrop: View? = null,
+        accent: Int = Color.TRANSPARENT,
+        contrast: Int = Color.WHITE,
     ) {
         val primary = contents.first()
         val state = primary.getTag(R.id.selection_motion) as? State ?: State().also {
@@ -57,8 +77,14 @@ object OxygenSelectionMotion {
         }
         state.key = key
         state.selected = selected
+        state.inSelectionMode = inSelectionMode
         state.contents = contents.map { WeakReference(it) }
         state.check = WeakReference(check)
+        state.backdrop = backdrop?.let { WeakReference(it) }
+        if (accent != Color.TRANSPARENT) state.accent = accent
+        state.contrast = contrast
+        if (check.drawable != null) state.hadDrawable = true
+        paintBackdrop(state, inSelectionMode)
         val animate = changed && play && OxygenClassicMotion.enabled(primary.context)
         if (!animate) {
             hold(state, changed, sameItem, selected)
@@ -72,6 +98,9 @@ object OxygenSelectionMotion {
             state.animator?.cancel()
             state.animator = null
             apply(state, if (selected) 1f else 0f)
+        } else if (state.inSelectionMode && !selected) {
+            // Selection-mode hollow can appear without interrupting a running restore.
+            apply(state, fractionOf(state.contents.firstOrNull()?.get() ?: return))
         }
     }
 
@@ -108,8 +137,10 @@ object OxygenSelectionMotion {
         state.animator?.cancel()
         state.animator = null
         state.selected = false
+        state.inSelectionMode = false
         state.key = null
         apply(state, 0f)
+        paintBackdrop(state, false)
         content.setTag(R.id.selection_motion, null)
     }
 
@@ -130,6 +161,7 @@ object OxygenSelectionMotion {
 
     internal fun checkProgress(fraction: Float): Float {
         val t = fraction.coerceIn(0f, 1f)
+        if (CHECK_FADE_START <= 0f) return t
         if (t <= CHECK_FADE_START) return 0f
         return ((t - CHECK_FADE_START) / (1f - CHECK_FADE_START)).coerceIn(0f, 1f)
     }
@@ -150,6 +182,19 @@ object OxygenSelectionMotion {
             }
         }
         val mark = state.check?.get() ?: return
+        if (state.inSelectionMode && !state.selected && t <= 0f) {
+            paintHollow(mark, state)
+            mark.pivotX = mark.width / 2f
+            mark.pivotY = mark.height / 2f
+            mark.scaleX = 1f
+            mark.scaleY = 1f
+            mark.alpha = HOLLOW_ALPHA
+            mark.translationX = 0f
+            mark.translationY = 0f
+            mark.visibility = View.VISIBLE
+            return
+        }
+        paintSolid(mark, state)
         val markT = checkProgress(t)
         mark.pivotX = mark.width / 2f
         mark.pivotY = mark.height / 2f
@@ -157,20 +202,76 @@ object OxygenSelectionMotion {
         mark.scaleX = markScale
         mark.scaleY = markScale
         mark.alpha = markT
-        // Sit on the inset image's top-end corner, not the full cell frame.
         val insetX = width * (1f - scale) / 2f
         val insetY = height * (1f - scale) / 2f
+        val towardStart = alignsStart(mark)
         val rtl = mark.layoutDirection == View.LAYOUT_DIRECTION_RTL
-        mark.translationX = if (rtl) insetX else -insetX
-        mark.translationY = insetY
-        mark.visibility = if (t <= 0f && !state.selected) View.GONE else View.VISIBLE
-        if (t <= 0f && !state.selected) {
-            mark.translationX = 0f
-            mark.translationY = 0f
-            mark.scaleX = 1f
-            mark.scaleY = 1f
-            mark.alpha = 0f
+        mark.translationX = when {
+            towardStart && !rtl -> insetX
+            towardStart && rtl -> -insetX
+            !towardStart && !rtl -> -insetX
+            else -> insetX
         }
+        mark.translationY = insetY
+        when {
+            t > 0f || state.selected -> mark.visibility = View.VISIBLE
+            state.inSelectionMode -> {
+                paintHollow(mark, state)
+                mark.alpha = HOLLOW_ALPHA
+                mark.scaleX = 1f
+                mark.scaleY = 1f
+                mark.translationX = 0f
+                mark.translationY = 0f
+                mark.visibility = View.VISIBLE
+            }
+            else -> {
+                mark.translationX = 0f
+                mark.translationY = 0f
+                mark.scaleX = 1f
+                mark.scaleY = 1f
+                mark.alpha = 0f
+                mark.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun alignsStart(mark: ImageView): Boolean {
+        val params = mark.layoutParams as? RelativeLayout.LayoutParams ?: return false
+        return params.rules[RelativeLayout.ALIGN_PARENT_START] == RelativeLayout.TRUE ||
+            params.rules[RelativeLayout.ALIGN_PARENT_LEFT] == RelativeLayout.TRUE
+    }
+
+    private fun paintHollow(mark: ImageView, state: State) {
+        val stroke = (HOLLOW_STROKE_DP * mark.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+        val hollow = state.hollow ?: GradientDrawable().also {
+            it.shape = GradientDrawable.OVAL
+            state.hollow = it
+        }
+        hollow.setColor(Color.TRANSPARENT)
+        hollow.setStroke(stroke, Color.argb(180, 255, 255, 255))
+        mark.background = hollow
+        mark.setImageDrawable(null)
+        mark.clearColorFilter()
+        mark.imageTintList = null
+    }
+
+    private fun paintSolid(mark: ImageView, state: State) {
+        if (mark.background is GradientDrawable && state.hollow === mark.background) {
+            mark.setBackgroundResource(R.drawable.circle_background)
+        }
+        if (mark.drawable == null && state.hadDrawable) {
+            mark.setImageResource(state.checkSrc)
+        }
+        if (state.accent != Color.TRANSPARENT) {
+            mark.background?.mutate()?.setTint(state.accent)
+        }
+        mark.imageTintList = android.content.res.ColorStateList.valueOf(state.contrast)
+    }
+
+    private fun paintBackdrop(state: State, inSelectionMode: Boolean) {
+        val view = state.backdrop?.get() ?: return
+        if (inSelectionMode) view.setBackgroundColor(CELL_BACKDROP)
+        else view.background = null
     }
 
     private fun fractionOf(view: View): Float {

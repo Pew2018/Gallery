@@ -1205,9 +1205,16 @@ class DirectoryAdapter(
                 listOf(dirThumbnail)
             }
             OxygenSelectionMotion.bind(
-                selectionContent, dirCheck, directory.path, isSelected,
-                OxygenSelectionMotion.onScreen(dirThumbnail),
-                OxygenSelectionDrag.inSwipe(),
+                contents = selectionContent,
+                check = dirCheck,
+                key = directory.path,
+                selected = isSelected,
+                play = OxygenSelectionMotion.onScreen(dirThumbnail),
+                brief = OxygenSelectionDrag.inSwipe(),
+                inSelectionMode = actModeCallback.isSelectable,
+                backdrop = if (isListViewType) null else dirHolder,
+                accent = properPrimaryColor,
+                contrast = contrastColor,
             )
         }
     }
