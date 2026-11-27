@@ -109,6 +109,7 @@ import org.fossify.gallery.helpers.DirectoryGridItemAnimator
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.OxygenSelectionMode
+import org.fossify.gallery.helpers.OxygenSelectionMotion
 import org.fossify.gallery.helpers.ROUNDED_CORNERS_BIG
 import org.fossify.gallery.helpers.ROUNDED_CORNERS_NONE
 import org.fossify.gallery.helpers.ROUNDED_CORNERS_SMALL
@@ -319,6 +320,7 @@ class DirectoryAdapter(
         super.onViewRecycled(holder)
         if (!activity.isDestroyed) {
             val thumbnail = bindItem(holder.itemView).dirThumbnail
+            OxygenSelectionMotion.release(thumbnail)
             Picasso.get().cancelRequest(thumbnail)
             Glide.with(activity).clear(thumbnail)
             thumbnail.setImageDrawable(null)
@@ -1068,11 +1070,8 @@ class DirectoryAdapter(
         bindItem(view).apply {
             dirThumbnail.setTag(R.id.directory_bound_path, directory.path)
             dirPath?.text = "${directory.path.substringBeforeLast("/")}/"
-            dirCheck.beVisibleIf(isSelected)
-            if (isSelected) {
-                dirCheck.background?.applyColorFilter(properPrimaryColor)
-                dirCheck.applyColorFilter(contrastColor)
-            }
+            dirCheck.background?.applyColorFilter(properPrimaryColor)
+            dirCheck.applyColorFilter(contrastColor)
 
             if (isListViewType) {
                 dirHolder.isSelected = isSelected
@@ -1190,6 +1189,15 @@ class DirectoryAdapter(
                     false
                 }
             }
+            val selectionContent = if (dirLock.visibility == View.VISIBLE) {
+                listOf(dirThumbnail, dirLock)
+            } else {
+                listOf(dirThumbnail)
+            }
+            OxygenSelectionMotion.bind(
+                selectionContent, dirCheck, directory.path, isSelected,
+                OxygenSelectionMotion.onScreen(dirThumbnail),
+            )
         }
     }
 

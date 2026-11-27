@@ -6,4 +6,5 @@
     <item name="directory_bound_path" type="id" />
     <item name="interactive_grid_thumbnail" type="id" />
     <item name="media_bound_path" type="id" />
+    <item name="selection_motion" type="id" />
 </resources>

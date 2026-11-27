@@ -1,19 +1,13 @@
 package org.fossify.gallery.helpers
 
 import android.app.Activity
-import android.content.res.ColorStateList
-import android.os.Build
 import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
-import android.view.ViewGroup
-import android.widget.ImageView
 import android.widget.TextView
-import androidx.core.view.WindowCompat
 import org.fossify.commons.interfaces.MyActionModeCallback
 import org.fossify.gallery.R
-import org.fossify.gallery.extensions.config
 
 /**
  * Wraps Commons' action callback instead of replacing selection behavior.
@@ -61,27 +55,20 @@ object OxygenSelectionMode {
                 layoutView = null
                 layoutListener = null
             }
-            private var oldStatusBarColor: Int? = null
-            private var oldLightStatusIcons: Boolean? = null
-
             override fun onCreateActionMode(mode: ActionMode, menu: Menu?): Boolean {
                 val created = delegate.onCreateActionMode(mode, menu)
                 isSelectable = delegate.isSelectable
                 if (!created) return false
                 active = true
                 pendingPresentation[activity] = true
-                oldStatusBarColor = activity.window.statusBarColor
-                oldLightStatusIcons = WindowCompat.getInsetsController(
-                    activity.window, activity.window.decorView
-                ).isAppearanceLightStatusBars
-                style(mode, menu)
+                style(mode)
                 // Register after Commons' own one-shot global-layout tint callback.
                 // This runs once after attachment, with no delayed polling/repeated listener.
                 mode.customView?.let { view ->
                     layoutView = view
                     val listener = android.view.ViewTreeObserver.OnGlobalLayoutListener {
                         clearLayoutListener()
-                        if (active && !activity.isFinishing && !activity.isDestroyed) style(mode, mode.menu)
+                        if (active && !activity.isFinishing && !activity.isDestroyed) style(mode)
                     }
                     layoutListener = listener
                     view.viewTreeObserver.addOnGlobalLayoutListener(listener)
@@ -91,7 +78,7 @@ object OxygenSelectionMode {
 
             override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
                 val result = delegate.onPrepareActionMode(mode, menu)
-                if (active) style(mode, menu)
+                if (active) style(mode)
                 return result
             }
 
@@ -104,46 +91,31 @@ object OxygenSelectionMode {
                 delegate.onDestroyActionMode(mode)
                 pendingPresentation[activity] = false
                 isSelectable = delegate.isSelectable
-                if (Build.VERSION.SDK_INT < 35) {
-                    oldStatusBarColor?.let { activity.window.statusBarColor = it }
-                }
-                oldLightStatusIcons?.let {
-                    WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-                        .isAppearanceLightStatusBars = it
-                }
-                // Delegate may restore a stale Commons color, including on API 35+.
+                // Blend back to the live theme. A saved accent is read again here and
+                // is not replaced by the selection gray.
+                OxygenSelectionChrome.move(activity, 0f)
                 OxygenToolbarStyle.refresh(activity)
                 OxygenSystemBars.apply(activity)
-                oldStatusBarColor = null
-                oldLightStatusIcons = null
             }
 
             // Commons owns this AppCompat CAB; only adapt its existing content-height hook.
             @android.annotation.SuppressLint("RestrictedApi")
-            private fun style(mode: ActionMode, menu: Menu?) {
-                val surface = OxygenThemeEngine.toolbarSurface(activity, activity.config)
-                val foreground = OxygenThemeEngine.toolbarForeground(activity, activity.config)
+            private fun style(mode: ActionMode) {
                 val title = mode.customView as? TextView
-                title?.setTextColor(foreground)
                 title?.textSize = 20f
                 SelectionCountFormatter.selectedCount(title?.text)?.let { count ->
                     title?.text = activity.getString(R.string.oxygen_selected_count, count)
                 }
-
-                // ActionBarContextView is separate from the normal search toolbar.
-                (contextBar(title) ?: activity.findViewById<View>(androidx.appcompat.R.id.action_mode_bar))
-                    ?.let { bar ->
-                        if (bar is androidx.appcompat.widget.ActionBarContextView) {
-                            bar.contentHeight = OxygenToolbarStyle.selectionContentHeight(activity)
-                        }
-                        bar.setBackgroundColor(surface)
-                        tintClose(bar, foreground)
-                    }
-                OxygenToolbarStyle.tintMenu(menu, foreground)
-                OxygenSystemBars.apply(activity)
+                val bar = contextBar(title)
+                    ?: activity.findViewById<View>(androidx.appcompat.R.id.action_mode_bar)
+                if (bar is androidx.appcompat.widget.ActionBarContextView) {
+                    bar.contentHeight = OxygenToolbarStyle.selectionContentHeight(activity)
+                }
+                // Count changes call style again. The same target does not restart the blend.
+                OxygenSelectionChrome.attach(activity, mode)
+                OxygenSelectionChrome.move(activity, 1f)
             }
 
-            @android.annotation.SuppressLint("RestrictedApi")
             private fun contextBar(view: View?): View? {
                 var parent = view
                 while (parent != null) {
@@ -151,20 +123,6 @@ object OxygenSelectionMode {
                     parent = parent.parent as? View
                 }
                 return null
-            }
-
-            private fun tintClose(root: View, foreground: Int) {
-                fun tintImages(view: View) {
-                    if (view is ImageView) {
-                        view.clearColorFilter()
-                        view.drawable?.mutate()?.clearColorFilter()
-                        view.imageTintList = ColorStateList.valueOf(foreground)
-                    }
-                    if (view is ViewGroup) {
-                        for (i in 0 until view.childCount) tintImages(view.getChildAt(i))
-                    }
-                }
-                tintImages(root) // Includes the close and overflow buttons.
             }
         }
 }

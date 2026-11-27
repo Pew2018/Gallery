@@ -108,6 +108,7 @@ import org.fossify.gallery.helpers.PhotoViewerTransition
 import org.fossify.gallery.helpers.StaticPhotoHeader
 import org.fossify.gallery.helpers.StaticPhotoThumbnail
 import org.fossify.gallery.helpers.OxygenSelectionMode
+import org.fossify.gallery.helpers.OxygenSelectionMotion
 import org.fossify.gallery.helpers.PATH
 import org.fossify.gallery.helpers.RECYCLE_BIN
 import org.fossify.gallery.helpers.ROUNDED_CORNERS_BIG
@@ -296,6 +297,7 @@ class MediaAdapter(
             val itemView = holder.itemView
             val tmb = itemView.allViews.firstOrNull { it.id == R.id.medium_thumbnail }
             if (tmb is ImageView) {
+                OxygenSelectionMotion.release(tmb)
                 InteractiveGridThumbnail.restoreBeforeRebind(tmb)
                 if (tmb.transitionName == PhotoViewerTransition.ELEMENT_NAME) tmb.transitionName = null
                 cancelThumbnailLoad(tmb, "holder_recycled")
@@ -1565,11 +1567,12 @@ class MediaAdapter(
                 videoDuration?.setTextColor(textColor)
             }
 
-            mediumCheck.beVisibleIf(isSelected)
-            if (isSelected) {
-                mediumCheck.background?.applyColorFilter(properPrimaryColor)
-                mediumCheck.applyColorFilter(contrastColor)
-            }
+            mediumCheck.background?.applyColorFilter(properPrimaryColor)
+            mediumCheck.applyColorFilter(contrastColor)
+            OxygenSelectionMotion.bind(
+                listOf(mediumThumbnail), mediumCheck, medium.path, isSelected,
+                OxygenSelectionMotion.onScreen(mediumThumbnail),
+            )
 
             if (isListViewType) {
                 mediaItemHolder.isSelected = isSelected

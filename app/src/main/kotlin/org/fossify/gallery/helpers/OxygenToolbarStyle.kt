@@ -116,7 +116,8 @@ object OxygenToolbarStyle {
             state.transition = null
         }
         state.renderedOpen = opened
-        val foreground = OxygenThemeEngine.toolbarForeground(activity, activity.config)
+        val presented = OxygenSelectionChrome.frame(activity)
+        val foreground = presented.foreground
         val icon = menu.binding.topToolbarSearchIcon
         val input = menu.binding.topToolbarSearch
         val actions = menu.binding.topToolbar
@@ -125,7 +126,7 @@ object OxygenToolbarStyle {
         container.layoutParams = container.layoutParams.apply {
             height = ViewGroup.LayoutParams.MATCH_PARENT
         }
-        val surface = OxygenThemeEngine.toolbarSurface(activity, activity.config)
+        val surface = presented.toolbar
         val rowHeight = selectionContentHeight(activity)
         menu.setBackgroundColor(surface)
         menu.binding.searchBarContainer.layoutParams = menu.binding.searchBarContainer.layoutParams.apply {
@@ -351,10 +352,33 @@ object OxygenToolbarStyle {
         animator.start()
     }
 
+    /**
+     * Recolors a hooked search toolbar without measuring it again. Selection frames
+     * call this on every blend step so the height settled in phase 3.5 stays put.
+     */
+    internal fun recolorSelection(activity: Activity, toolbar: Int, foreground: Int) {
+        val tint = ColorStateList.valueOf(foreground)
+        hooked.keys.forEach { menu ->
+            if (menu.context !== activity) return@forEach
+            menu.setBackgroundColor(toolbar)
+            menu.binding.toolbarContainer.background = ColorDrawable(toolbar)
+            menu.binding.topToolbar.background = ColorDrawable(toolbar)
+            menu.binding.topToolbarSearchIcon.imageTintList = tint
+            menu.binding.topToolbarSearch.setTextColor(foreground)
+            menu.binding.topToolbarSearch.setHintTextColor(ColorUtils.setAlphaComponent(foreground, 160))
+            menu.binding.toolbarContainer.findViewWithTag<TextView>(TITLE_TAG)?.setTextColor(foreground)
+            menu.binding.toolbarContainer.findViewWithTag<ImageView>(BACK_TAG)?.imageTintList = tint
+            menu.binding.topToolbar.setTitleTextColor(foreground)
+            menu.binding.topToolbar.setNavigationIconTint(foreground)
+            menu.binding.topToolbar.overflowIcon?.mutate()?.setTint(foreground)
+            tintMenu(menu.binding.topToolbar.menu, foreground)
+        }
+    }
+
     /** Final styling boundary after Commons setupTopAppBar/updateColors/menu mutations. */
     fun applyToolbar(activity: Activity, toolbar: MaterialToolbar, contentHeight: Int? = null) {
-        val colors = OxygenThemeEngine.snapshot(activity, activity.config)
-        val foreground = colors.toolbarForeground
+        val presented = OxygenSelectionChrome.frame(activity)
+        val foreground = presented.foreground
         val density = activity.resources.displayMetrics.density
         val height = contentHeight ?: maxOf((56 * density + 0.5f).toInt(),
             (20 * activity.resources.displayMetrics.scaledDensity + 24 * density).toInt())
@@ -374,7 +398,7 @@ object OxygenToolbarStyle {
         toolbar.contentInsetStartWithNavigation = 0
         // Use the exact opaque color tested by WCAG, without a Material elevation overlay.
         toolbar.backgroundTintList = null
-        toolbar.background = ColorDrawable(colors.toolbarBackground)
+        toolbar.background = ColorDrawable(presented.toolbar)
         toolbar.elevation = 0f
         toolbar.stateListAnimator = null
         toolbar.setTitleTextAppearance(activity, org.fossify.gallery.R.style.OxygenClassicToolbarTitle)
@@ -514,7 +538,7 @@ object OxygenToolbarStyle {
                 return
             }
             is org.fossify.commons.views.MyAppBarLayout ->
-                root.setBackgroundColor(OxygenThemeEngine.toolbarSurface(activity, activity.config))
+                root.setBackgroundColor(OxygenSelectionChrome.frame(activity).toolbar)
             is MaterialToolbar -> applyToolbar(activity, root)
         }
         if (root is ViewGroup) {

@@ -67,6 +67,11 @@ object OxygenSystemBars {
             applyViewer(activity, tokens, state.viewerProgress, state.viewerVisible, state.viewerNavigationVisible)
             return
         }
+        val selection = OxygenSelectionChrome.progress(activity)
+        if (selection > PAGE_ENDPOINT_EPSILON) {
+            paintSelectionStatus(activity, host, selection)
+            return
+        }
         val colors = OxygenThemeEngine.snapshot(activity, activity.config)
         if (Build.VERSION.SDK_INT < 35) {
             @Suppress("DEPRECATION")
@@ -192,6 +197,26 @@ object OxygenSystemBars {
     /** Drops a window's recorded ownership, e.g. when a Viewer window finishes. */
     fun forget(activity: Activity) {
         (activity.window.decorView as? FrameLayout)?.let { windows.remove(it) }
+    }
+
+    /**
+     * Selection status sits on the same underlay (and, before API 35, the same
+     * window status color) as the page. Navigation is left on the current theme.
+     * #616161 is dark, so the icons stay light — the same polarity the theme toolbar uses.
+     */
+    private fun paintSelectionStatus(activity: Activity, host: FrameLayout, progress: Float) {
+        val theme = OxygenThemeEngine.snapshot(activity, activity.config)
+        val status = blendOpaqueSurface(theme.statusBarBackground, OxygenSelectionChrome.STATUS_COLOR, progress)
+        val bars = WindowCompat.getInsetsController(activity.window, host)
+        if (bars.isAppearanceLightStatusBars) bars.isAppearanceLightStatusBars = false
+        if (Build.VERSION.SDK_INT < 35) {
+            @Suppress("DEPRECATION")
+            if (activity.window.statusBarColor != status) activity.window.statusBarColor = status
+        }
+        val underlay = statusUnderlay(activity, host)
+        if ((underlay.background as? android.graphics.drawable.ColorDrawable)?.color != status) {
+            underlay.setBackgroundColor(status)
+        }
     }
 
     // Float interpolation can truncate 255 to 254 even when both endpoints are opaque.
