@@ -3,7 +3,6 @@ package org.fossify.gallery.activities
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
 import org.fossify.gallery.helpers.FolderUnlockSessionManager
 import org.fossify.gallery.helpers.ViewerAccessCoordinator
-import org.fossify.gallery.helpers.OxygenProgressStyle
 import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
@@ -412,27 +411,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private var mStoredStyleString = ""
     private val binding by viewBinding(ActivityMainBinding::inflate)
 
-    /**
-     * The album root had no visible loading state of its own. The root handoff is
-     * zero-animated, so its first presented frame used to be the bare page background
-     * while the folder cache/scan was still running. This is the same 3 dp progress
-     * strip the folder and media roots already use.
-     */
-    private var directoryHeaderProgress: com.google.android.material.progressindicator.LinearProgressIndicator? = null
-
-    private fun setupDirectoryProgressIndicator() {
-        if (directoryHeaderProgress != null) return
-        directoryHeaderProgress = com.google.android.material.progressindicator.LinearProgressIndicator(this).apply {
-            isIndeterminate = true
-            visibility = View.GONE
-            OxygenProgressStyle.apply(this@MainActivity, config, this)
-        }.also { indicator ->
-            binding.mainMenu.addView(indicator, android.widget.LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                OxygenProgressStyle.thicknessPx(this)
-            ))
-        }
-    }
     private var directoryTraceRequest = 0L
 
     /** Preserve cached album cards; an empty, failed scan needs a retry action. */
@@ -458,9 +436,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     private val directoryRefreshWatchdog = org.fossify.gallery.helpers.RefreshWatchdog()
     private fun setDirectoryLoading(loading: Boolean) {
         val update = {
-            // The root handoff reveals this strip for its bounded first frame; any
-            // settled load state must take it back down.
-            if (!loading) directoryHeaderProgress?.let { OxygenProgressStyle.setLoading(it, false) }
             if (loading) directoryRefreshWatchdog.arm(HOME_DIRECTORY_SCAN_TIMEOUT_MS) {
                 org.fossify.gallery.helpers.FolderRefreshDiagnostics.event(directoryTraceRequest, "album_timeout")
                 val request = directoryScanEpoch.currentVersion()
@@ -534,24 +509,17 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
         }
 
         if (!mIsThirdPartyIntent) {
-            setupDirectoryProgressIndicator()
             GalleryBottomBar.attach(this, binding.root,
                 if (mShowingFolderFavorites) GalleryBottomBar.Tab.FAVORITES else GalleryBottomBar.Tab.ALL,
-                loadingFrame = {
-                    directoryHeaderProgress?.let { indicator ->
-                        OxygenProgressStyle.setLoading(indicator, true)
-                        OxygenProgressStyle.revealPending(indicator)
-                    }
-                },
                 frameState = {
-                    // Report what is on screen, not what was requested. A pending
-                    // scan with no visible indicator is a blank frame, not "loading".
+                    // Home no longer mounts a linear strip. Report the actual scan /
+                    // empty / content frame so root handoff can still bound a blank wait.
                     when {
                         binding.directoriesGrid.isShown && binding.directoriesGrid.childCount > 0 ->
                             GalleryBottomBar.RootFrame.CONTENT
                         binding.directoriesEmptyPlaceholder.isShown ||
                             binding.directoriesEmptyPlaceholder2.isShown -> GalleryBottomBar.RootFrame.EMPTY
-                        directoryHeaderProgress?.isShown == true -> GalleryBottomBar.RootFrame.LOADING
+                        mIsGettingDirs || categorizedLoadActive -> GalleryBottomBar.RootFrame.LOADING
                         else -> null
                     }
                 }
@@ -789,8 +757,6 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     override fun onDestroy() {
-        directoryHeaderProgress?.let(OxygenProgressStyle::dispose)
-        directoryHeaderProgress = null
         directoryPresentationGeneration.incrementAndGet()
         directoryPresentationFuture?.cancel(true)
         directoryPresentationFuture = null

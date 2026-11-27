@@ -6,13 +6,17 @@ import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
+import com.google.android.material.progressindicator.LinearProgressIndicator
+import org.fossify.gallery.activities.MainActivity
 import org.fossify.gallery.activities.SimpleActivity
 import androidx.appcompat.widget.ActionBarContextView
 import org.fossify.commons.interfaces.MyActionModeCallback
 import org.fossify.commons.views.MySearchMenu
 import org.fossify.gallery.R
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -24,6 +28,32 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], application = Application::class)
 class SelectionToolbarHeightTest {
+    @Test fun homeDoesNotMountADirectoryHeaderProgressStrip() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        try {
+            val menu = controller.get().findViewById<MySearchMenu>(R.id.main_menu)
+            assertFalse(
+                "home must not remount the album LinearProgressIndicator under the toolbar",
+                hasLinearProgress(menu)
+            )
+            assertTrue(
+                MainActivity::class.java.declaredMethods.none { it.name == "setupDirectoryProgressIndicator" }
+            )
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    private fun hasLinearProgress(root: View): Boolean {
+        if (root is LinearProgressIndicator) return true
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                if (hasLinearProgress(root.getChildAt(i))) return true
+            }
+        }
+        return false
+    }
+
     @Test fun portraitRowsShareTheExistingContextHeight() = verifyRows(360, 720)
 
     @Test @Config(qualifiers = "land")

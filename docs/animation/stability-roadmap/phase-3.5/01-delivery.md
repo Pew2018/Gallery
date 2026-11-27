@@ -160,3 +160,35 @@ API 29 原设备设置已恢复并关闭，原 AVD 保留；本轮新建的临�
 最新阶段结论：**阶段 3.5 及本轮后续修补，通过用户真机验收并收口。** 上文“待真机验收”为交付当时的历史状态。本次依据用户确认记录通过，未收到新增录屏/日志，不补写逐场景、字体、方向或设备覆盖明细，也不声称独立复核了新的视觉证据。封面候选项、完整扫描性能和整个 4A/5A 不随此次确认自动通过。
 
 下一步为 4A 普通返回与下拖收口；4B 系统与预测性返回随后单独实施和验收。
+
+
+## 阶段 3.5 再交付：去掉 tip 上回加的主页进度条（2026-11-27）
+
+工作起点：`perf/home-gallery-sorting` tip `6afddd4c7adb6c355a61307868c9c508021e4d29`，工作区干净。本轮在 `cursor/phase-3-5-toolbar-progress-74d4` 上相对该 tip 交付；不改 main，不重做阶段 3 / Viewer 返回 / 文件夹页动画 / 设置入场。
+
+### 核对与修改
+
+1. **普通顶栏对齐选择态高度**  
+   tip 上 `OxygenToolbarStyle.render()` 与 `OxygenSelectionMode.style()` 已共用 `selectionContentHeight`；状态栏 Insets 仍由 `setupEdgeToEdge(padTopSystem=…)` 单独处理。JVM `SelectionToolbarHeightTest`（竖屏 / 横屏 / 大字体）确认两态内容行等高、底边与网格位置在进入/退出选择时稳定。本轮未再改顶栏尺寸、内边距或标题/按钮交接；不引入固定像素偏移，不改 Viewer/编辑器顶栏，不做阶段 5C 选择态颜色。
+
+2. **去掉主页线性进度条**  
+   `b004098cd` 曾在 tip 路径上把 `directoryHeaderProgress` / `setupDirectoryProgressIndicator()` 加回 `MainActivity`。本轮删除其创建、挂载、样式、显示、`loadingFrame` 显示与 `onDestroy` dispose；不留占位。`setDirectoryLoading` 保留 `directoryRefreshWatchdog`、超时、失败提示与重试。`GalleryBottomBar.attach` 的 `frameState` 改回按实际 `CONTENT` / `EMPTY` /（`mIsGettingDirs || categorizedLoadActive` → `LOADING`）报告，不再依赖进度条可见性。MediaActivity、Viewer、操作对话框与下拉刷新反馈未改。
+
+防回归：`SelectionToolbarHeightTest.homeDoesNotMountADirectoryHeaderProgressStrip` 断言主页 `main_menu` 下无 `LinearProgressIndicator`，且不再存在 `setupDirectoryProgressIndicator`。
+
+### 验证口径（本轮）
+
+| 检查 | 结果 |
+| --- | --- |
+| 聚焦 JVM：SelectionToolbarHeight / ClassicToolbarLayout / GalleryRootTransition / StaticPhotoEntryGeometry | **通过** |
+| 完整 `:app:testFossDebugUnitTest` | **通过**：217 suites / 1,654 tests，0 failures/errors/skipped |
+| `:app:assembleFossRelease -PABI_SPLITS=true -PABI_TARGET=arm64-v8a` | **通过**（本地未签名）：`gallery-32-foss-arm64-v8a-release-unsigned.apk`，SHA-256 `3e2c3169bc89de7ba2af4da50c0e876d1d5494f7c835fc033b12620a0dc7d7fa` |
+| 真机画面 / 原生仪器矩阵 | **未验证**（本环境无真机；不以历史真机结论代替本轮包） |
+
+### 一次合并验收清单（真机，未跑）
+
+- 主页文件夹页与文件页：进入/取消选择顶栏等高、网格不位移、无双标题；抽查照片、收藏、列表、大字体、横竖屏。
+- 主页加载与重试正常，无线性进度条占位；扫描/排序/索引仍执行。
+- 新布局下抽查首行、半可见缩略图与一张代表性照片入场（几何算法未改，端点沿用现有矩阵）。
+
+**本轮结论（代码）：** 两项目标在源码侧完成；JVM/Release 结果以最终提交记录为准。**真机验收：未验证。** 不自动标记阶段 3.5 整包通过。
