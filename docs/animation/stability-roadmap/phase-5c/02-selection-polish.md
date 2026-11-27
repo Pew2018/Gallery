@@ -58,4 +58,4 @@ JDK 21，Gradle 9.5.1，`ANDROID_HOME` 指向本机 SDK 36。
 
 未通过：无（上述 JVM 项）。真机观感未验证。
 
-源码提交 SHA 写在本文件随后的文档提交中（见下方“提交 SHA”行，于 push 后填入）。
+提交 SHA：`564a6d810`（完整 `564a6d810c…` 以 git 为准）。Actions 结果在 push 后填写。
