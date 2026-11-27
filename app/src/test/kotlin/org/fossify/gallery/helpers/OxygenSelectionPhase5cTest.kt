@@ -37,49 +37,52 @@ import org.robolectric.annotation.Config
 @Config(sdk = [29], application = Application::class)
 class OxygenSelectionPhase5cTest {
     @Test
-    fun selectionChromeUsesFixedGreyAndRestoresTheLiveTheme() {
+    fun selectionChromeStaysOnTheLiveTheme() {
         val fixture = host()
         try {
             val themeToolbar = OxygenThemeEngine.toolbarSurface(fixture.activity, fixture.activity.config)
             val themeStatus = OxygenThemeEngine.statusBarSurface(fixture.activity, fixture.activity.config)
+            val themeForeground = OxygenThemeEngine.snapshot(fixture.activity, fixture.activity.config).toolbarForeground
             val targets = OxygenSelectionChrome.targets(fixture.activity)
-            assertEquals(OxygenSelectionChrome.TOOLBAR_COLOR, targets.toolbar)
-            assertEquals(OxygenSelectionChrome.STATUS_COLOR, targets.status)
-            assertNotEquals(targets.toolbar, themeToolbar)
-            assertNotEquals(targets.toolbar, ACCENT)
+            assertEquals(themeToolbar, targets.toolbar)
+            assertEquals(themeStatus, targets.status)
+            assertEquals(themeForeground, targets.foreground)
+            assertNotEquals(0xFF757575.toInt(), targets.toolbar)
+            assertNotEquals(0xFF616161.toInt(), targets.status)
             OxygenSystemBars.apply(fixture.activity)
             val navigation = fixture.activity.window.navigationBarColor
             val menuHeight = fixture.menu.binding.searchBarContainer.height
             val contentHeight = OxygenToolbarStyle.selectionContentHeight(fixture.activity)
 
             val mode = fixture.activity.startActionMode(fixture.callback)!!
-            val entering = OxygenSelectionChrome.animator(fixture.activity)!!
-            entering.setCurrentFraction(1f)
+            assertNull(OxygenSelectionChrome.animator(fixture.activity))
+            assertEquals(0f, OxygenSelectionChrome.progress(fixture.activity), 0f)
             val bar = fixture.activity.findViewById<ActionBarContextView>(androidx.appcompat.R.id.action_mode_bar)
-            assertEquals(OxygenSelectionChrome.TOOLBAR_COLOR, (bar.background as ColorDrawable).color)
-            assertEquals(OxygenSelectionChrome.TOOLBAR_COLOR, colorOf(fixture.menu.binding.toolbarContainer))
-            assertEquals(OxygenSelectionChrome.FOREGROUND_COLOR, (mode.customView as TextView).currentTextColor)
-            assertEquals(OxygenSelectionChrome.STATUS_COLOR, statusColor(fixture.activity))
+            assertEquals(themeToolbar, (bar.background as ColorDrawable).color)
+            assertEquals(themeToolbar, colorOf(fixture.menu.binding.toolbarContainer))
+            assertEquals(themeForeground, (mode.customView as TextView).currentTextColor)
+            assertEquals(themeStatus, statusColor(fixture.activity))
             assertEquals(navigation, fixture.activity.window.navigationBarColor)
             assertEquals(menuHeight, fixture.menu.binding.searchBarContainer.height)
             assertEquals(contentHeight, bar.contentHeight)
             assertEquals(ACCENT, fixture.activity.config.oxygenCustomAccent)
 
-            val midAnimator = OxygenSelectionChrome.animator(fixture.activity)!!
-            midAnimator.setCurrentFraction(0.4f)
-            val mid = OxygenSelectionChrome.progress(fixture.activity)
             (mode.customView as TextView).text = "4 / 9"
             assertTrue(fixture.callback.onPrepareActionMode(mode, mode.menu))
-            assertSame(midAnimator, OxygenSelectionChrome.animator(fixture.activity))
-            assertEquals(mid, OxygenSelectionChrome.progress(fixture.activity), 0f)
-            assertNotEquals(themeToolbar, (bar.background as ColorDrawable).color)
+            assertNull(OxygenSelectionChrome.animator(fixture.activity))
+            assertEquals(0f, OxygenSelectionChrome.progress(fixture.activity), 0f)
+            assertEquals(themeToolbar, (bar.background as ColorDrawable).color)
+            assertEquals(themeStatus, statusColor(fixture.activity))
+
+            // Drag-style restyle must not introduce a grey interim.
+            OxygenSelectionChrome.move(fixture.activity, 1f)
+            assertEquals(0f, OxygenSelectionChrome.progress(fixture.activity), 0f)
+            assertEquals(themeToolbar, (bar.background as ColorDrawable).color)
+            assertEquals(themeStatus, statusColor(fixture.activity))
 
             mode.finish()
-            val leaving = OxygenSelectionChrome.animator(fixture.activity)!!
-            assertNotEquals(midAnimator, leaving)
-            assertEquals(mid, OxygenSelectionChrome.progress(fixture.activity), 0.02f)
-            leaving.setCurrentFraction(1f)
-            assertEquals(0f, OxygenSelectionChrome.progress(fixture.activity), 0.001f)
+            assertNull(OxygenSelectionChrome.animator(fixture.activity))
+            assertEquals(0f, OxygenSelectionChrome.progress(fixture.activity), 0f)
             assertEquals(themeToolbar, colorOf(fixture.menu.binding.toolbarContainer))
             assertEquals(themeStatus, statusColor(fixture.activity))
             assertEquals(ACCENT, fixture.activity.config.oxygenCustomAccent)
@@ -91,21 +94,22 @@ class OxygenSelectionPhase5cTest {
     }
 
     @Test
-    fun disabledAnimationsLandOnTheSelectionAndThemeEndpoints() {
+    fun disabledAnimationsStillKeepThemeChrome() {
         val fixture = host()
         val prior = animatorScale(fixture.activity)
         Settings.Global.putFloat(fixture.activity.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
         try {
             val themeToolbar = OxygenThemeEngine.toolbarSurface(fixture.activity, fixture.activity.config)
             val themeStatus = OxygenThemeEngine.statusBarSurface(fixture.activity, fixture.activity.config)
+            val themeForeground = OxygenThemeEngine.snapshot(fixture.activity, fixture.activity.config).toolbarForeground
             val mode = fixture.activity.startActionMode(fixture.callback)!!
             assertNull(OxygenSelectionChrome.animator(fixture.activity))
-            assertEquals(1f, OxygenSelectionChrome.progress(fixture.activity), 0f)
+            assertEquals(0f, OxygenSelectionChrome.progress(fixture.activity), 0f)
             val bar = fixture.activity.findViewById<View>(androidx.appcompat.R.id.action_mode_bar)
-            assertEquals(OxygenSelectionChrome.TOOLBAR_COLOR, (bar.background as ColorDrawable).color)
-            assertEquals(OxygenSelectionChrome.TOOLBAR_COLOR, colorOf(fixture.menu.binding.toolbarContainer))
-            assertEquals(OxygenSelectionChrome.STATUS_COLOR, statusColor(fixture.activity))
-            assertEquals(OxygenSelectionChrome.FOREGROUND_COLOR, (mode.customView as TextView).currentTextColor)
+            assertEquals(themeToolbar, (bar.background as ColorDrawable).color)
+            assertEquals(themeToolbar, colorOf(fixture.menu.binding.toolbarContainer))
+            assertEquals(themeStatus, statusColor(fixture.activity))
+            assertEquals(themeForeground, (mode.customView as TextView).currentTextColor)
             mode.finish()
             assertEquals(0f, OxygenSelectionChrome.progress(fixture.activity), 0f)
             assertEquals(themeToolbar, colorOf(fixture.menu.binding.toolbarContainer))
@@ -119,14 +123,15 @@ class OxygenSelectionPhase5cTest {
 
     @Test
     @Config(sdk = [36])
-    fun selectionStatusUsesTheExistingUnderlayOnModernApis() {
+    fun selectionStatusKeepsThemeUnderlayOnModernApis() {
         val fixture = host()
         val prior = animatorScale(fixture.activity)
         Settings.Global.putFloat(fixture.activity.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
         try {
+            val themeStatus = OxygenThemeEngine.statusBarSurface(fixture.activity, fixture.activity.config)
             fixture.activity.startActionMode(fixture.callback)
             val underlay = fixture.activity.window.decorView.findViewWithTag<View>(OxygenSystemBars.STATUS_UNDERLAY)
-            assertEquals(OxygenSelectionChrome.STATUS_COLOR, (underlay.background as ColorDrawable).color)
+            assertEquals(themeStatus, (underlay.background as ColorDrawable).color)
         } finally {
             Settings.Global.putFloat(fixture.activity.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, prior)
             fixture.close()
@@ -180,9 +185,14 @@ class OxygenSelectionPhase5cTest {
             running.setCurrentFraction(0.08f)
             val scale = thumb.scaleX
             assertTrue(scale > OxygenSelectionMotion.CONTENT_SCALE)
+            assertTrue(scale < 1f)
             assertEquals(1f, binding.root.scaleX, 0f)
             assertEquals(1f, binding.mediumName.scaleX, 0f)
             assertTrue(binding.mediumCheck.alpha > 0f)
+            assertTrue(
+                "check should grow from a reduced start, not pop full-size",
+                binding.mediumCheck.scaleX < 1f,
+            )
             OxygenSelectionMotion.bind(
                 listOf(thumb), binding.mediumCheck, "a.jpg", true, true,
                 inSelectionMode = true, backdrop = binding.root,
@@ -382,11 +392,7 @@ class OxygenSelectionPhase5cTest {
             // New gesture on an already-selected cell → deselect mode.
             selected.addAll(listOf(0, 1, 2, 3))
             recycler.dispatchTouchEvent(MotionEvent.obtain(1, 1, MotionEvent.ACTION_DOWN, 10f, 10f, 0))
-            // findChildViewUnder may miss without real children laid out; seed down via selectItem path
-            // by pretending down snapshot through selecting a selected cell with empty down.
-            // Force deselect by having selected state at selectItem when down missed:
             listener.selectItem(0)
-            // Without a matching down snapshot, begin uses isSelected(0)=true → deselect mode.
             assertFalse(selected.contains(0))
             listener.selectRange(0, 3, 0, 3)
             assertTrue(selected.none { it in 0..3 })
