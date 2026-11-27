@@ -58,4 +58,6 @@ JDK 21，Gradle 9.5.1，`ANDROID_HOME` 指向本机 SDK 36。
 
 未通过：无（上述 JVM 项）。真机观感未验证。
 
-提交 SHA：`564a6d810`（完整 `564a6d810c…` 以 git 为准）。Actions 结果在 push 后填写。
+提交 SHA：实现 `564a6d810d6d9e1380a575c3108137f122da49df`；文档 tip `72bbb5636acb29b2137db52ce026c3390f964628`。
+
+Actions：`Arm64 FOSS Release APK (non-publishing)` run [45940617313](https://github.com/Pew2018/Gallery/actions/runs/45940617313) 对 tip `72bbb5636` **success**（香港时间 2026-11-27 12:38 左右完成；assemble + APK/签名/ABI 校验通过）。
