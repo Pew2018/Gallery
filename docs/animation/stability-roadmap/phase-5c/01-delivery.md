@@ -2,7 +2,7 @@
 
 日期：2026-11-27（香港时间）。起点 HEAD 与 origin/perf/home-gallery-sorting 均为 ab914a3ae4588be8dce10e97d6e856fa1c1e49dd（`fix(gallery): drop home directory progress strip for phase 3.5`），工作区在该提交上干净。只在 `perf/home-gallery-sorting` 提交，没有新分支，没有回到 main。阶段 3.5 的顶栏高度、选择栏内容高度和主页进度条删除保持不变。4A、4B、5A、文件夹动画和设置动画未重做。
 
-源码身份：本说明与实现在同一提交，父提交为上面的 ab914a3ae。提交 SHA 以该提交进入 `perf/home-gallery-sorting` 后的 `git rev-parse HEAD` 为准。
+源码身份：实现与阶段说明在 `36dc097eb008af3182409eb20339ee0bde52684e`，父提交 `ab914a3ae4588be8dce10e97d6e856fa1c1e49dd`。本行在随后的文档提交中写入，代码差异仍在 36dc097eb。
 
 ## 改了什么
 
