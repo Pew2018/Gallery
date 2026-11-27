@@ -51,3 +51,7 @@ JDK 21，Gradle 9.5.1，`ANDROID_HOME` → SDK 36。
 | 顶栏高度 3.5 | 完成 | 通过 | 未验证 |
 
 未通过：无（上述 JVM 项）。真机观感未验证。
+
+提交 SHA：实现 `4d034f1fd767cc4a72ff7de9bcf990ac91ba29cd`。
+
+Actions：`Arm64 FOSS Release APK (non-publishing)` run [45996520446](https://github.com/Pew2018/Gallery/actions/runs/45996520446) 对 tip `4d034f1fd` **success**（香港时间 2026-11-27 20:17 左右完成；assemble + APK/签名/ABI 校验通过）。
