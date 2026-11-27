@@ -8,19 +8,14 @@ on:
   pull_request_target:
     types: [opened, edited]
 
+# This fork does not ship FossifyOrg APP_ID / APP_PRIVATE_KEY. Calling the
+# reusable workflow fails in create-github-app-token before any image work.
+# Keep a green no-op so PR checks are not blocked on missing org secrets.
 jobs:
-  # FossifyOrg's reusable workflow needs APP_ID + APP_PRIVATE_KEY. This fork may
-  # not have those org secrets; skip cleanly instead of failing create-github-app-token.
-  call-image-minimizer-workflow:
-    if: ${{ secrets.APP_ID != '' && secrets.APP_PRIVATE_KEY != '' }}
-    uses: FossifyOrg/.github/.github/workflows/image-minimizer.yml@main
-    secrets: inherit
-
-  skip-without-app-credentials:
-    if: ${{ secrets.APP_ID == '' || secrets.APP_PRIVATE_KEY == '' }}
+  soft-skip:
     runs-on: ubuntu-latest
     steps:
-      - name: Skip Image Minimizer without app credentials
+      - name: Soft-skip FossifyOrg image minimizer
         run: |
-          echo "APP_ID / APP_PRIVATE_KEY are not configured on this repository."
-          echo "Skipping FossifyOrg image-minimizer / contribution-policy jobs."
+          echo "APP_ID / APP_PRIVATE_KEY are not configured on Pew2018/Gallery."
+          echo "Skipping FossifyOrg image-minimizer and contribution-policy jobs."
