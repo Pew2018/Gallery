@@ -9,6 +9,18 @@ on:
     types: [opened, edited]
 
 jobs:
+  # FossifyOrg's reusable workflow needs APP_ID + APP_PRIVATE_KEY. This fork may
+  # not have those org secrets; skip cleanly instead of failing create-github-app-token.
   call-image-minimizer-workflow:
+    if: ${{ secrets.APP_ID != '' && secrets.APP_PRIVATE_KEY != '' }}
     uses: FossifyOrg/.github/.github/workflows/image-minimizer.yml@main
     secrets: inherit
+
+  skip-without-app-credentials:
+    if: ${{ secrets.APP_ID == '' || secrets.APP_PRIVATE_KEY == '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip Image Minimizer without app credentials
+        run: |
+          echo "APP_ID / APP_PRIVATE_KEY are not configured on this repository."
+          echo "Skipping FossifyOrg image-minimizer / contribution-policy jobs."

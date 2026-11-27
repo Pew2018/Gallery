@@ -21,6 +21,7 @@ on:
       - feature/oxygenos-ui-animation-consistency
       - fix/bottom-bar-tap-ripple
       - fix/photo-profile-toolbar-stability
+      - cursor/selection-theme-chrome-motion-c1c3
     paths:
       - "app/**"
       - "buildSrc/**"
