@@ -9,6 +9,7 @@ import android.graphics.drawable.GradientDrawable
 import android.view.View
 import android.widget.ImageView
 import android.widget.RelativeLayout
+import androidx.core.graphics.ColorUtils
 import org.fossify.gallery.R
 import java.lang.ref.WeakReference
 
@@ -17,12 +18,16 @@ import java.lang.ref.WeakReference
  * The cell, name and count are not scaled. A different item, or one that is not
  * currently on screen, snaps to the end so select-all does not animate off-screen rows.
  * While selection mode is on, unselected cells keep a faint hollow mark at the start corner.
+ *
+ * Scale and check share one fraction so they stay interruptible and coordinated —
+ * matching the Google Photos select/deselect cadence (continuous inset, no hard-cut check).
  */
 object OxygenSelectionMotion {
-    /** In-cell shrink; keep ≥ 0.90 on two-column grids so the grey reveal stays thin. */
-    const val CONTENT_SCALE = 0.91f
-    /** Check grows with the shrink (no delayed second-half fade). */
-    const val CHECK_START_SCALE = 0.9f
+    /** In-cell shrink; enough grey reveal to read as inset without collapsing two-column cells. */
+    const val CONTENT_SCALE = 0.88f
+    /** Check grows with the shrink from a clearly smaller start (avoids a full-size pop). */
+    const val CHECK_START_SCALE = 0.5f
+    /** Check tracks the same clock as the thumb; no delayed second-half-only fade. */
     const val CHECK_FADE_START = 0f
     /** Light grey cell floor under a shrunk thumb — not a stroke. */
     const val CELL_BACKDROP = 0xFFE8E8E8.toInt()
@@ -107,6 +112,9 @@ object OxygenSelectionMotion {
     private fun play(state: State, primary: View, selected: Boolean, brief: Boolean) {
         val from = fractionOf(primary)
         state.animator?.cancel()
+        // Paint the first frame immediately so hollow→solid never blanks for a frame
+        // before the ValueAnimator's first pulse (the hard-cut seen in the local recording).
+        apply(state, from)
         val animator = ValueAnimator.ofFloat(from, if (selected) 1f else 0f).apply {
             duration = if (brief) OxygenClassicMotion.SELECTION_SWIPE_MS
             else OxygenClassicMotion.SELECTION_CONTENT_MS
@@ -194,14 +202,21 @@ object OxygenSelectionMotion {
             mark.visibility = View.VISIBLE
             return
         }
-        paintSolid(mark, state)
         val markT = checkProgress(t)
+        if (markT >= 1f && state.selected) paintSolid(mark, state)
+        else paintCheck(mark, state, markT)
         mark.pivotX = mark.width / 2f
         mark.pivotY = mark.height / 2f
         val markScale = CHECK_START_SCALE + (1f - CHECK_START_SCALE) * markT
         mark.scaleX = markScale
         mark.scaleY = markScale
-        mark.alpha = markT
+        // Keep opacity at least the hollow floor while still in selection mode so
+        // hollow→solid never dips through a blank frame (the hard cut in the recording).
+        mark.alpha = if (state.inSelectionMode) {
+            HOLLOW_ALPHA + (1f - HOLLOW_ALPHA) * markT
+        } else {
+            markT
+        }
         val insetX = width * (1f - scale) / 2f
         val insetY = height * (1f - scale) / 2f
         val towardStart = alignsStart(mark)
@@ -255,16 +270,42 @@ object OxygenSelectionMotion {
         mark.imageTintList = null
     }
 
-    private fun paintSolid(mark: ImageView, state: State) {
-        if (mark.background is GradientDrawable && state.hollow === mark.background) {
-            mark.setBackgroundResource(R.drawable.circle_background)
+    /**
+     * Fills the same oval the hollow used so select/deselect morphs the ring into the
+     * accent disc instead of swapping drawables in one frame.
+     */
+    private fun paintCheck(mark: ImageView, state: State, markT: Float) {
+        val stroke = (HOLLOW_STROKE_DP * mark.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+        val oval = state.hollow ?: GradientDrawable().also {
+            it.shape = GradientDrawable.OVAL
+            state.hollow = it
         }
+        val accent = if (state.accent != Color.TRANSPARENT) state.accent else Color.GRAY
+        val fill = ColorUtils.setAlphaComponent(accent, (255f * markT.coerceIn(0f, 1f)).toInt())
+        oval.setColor(fill)
+        val strokeAlpha = ((1f - markT.coerceIn(0f, 1f)) * 180f).toInt().coerceIn(0, 180)
+        if (strokeAlpha > 0) oval.setStroke(stroke, Color.argb(strokeAlpha, 255, 255, 255))
+        else oval.setStroke(0, Color.TRANSPARENT)
+        mark.background = oval
         if (mark.drawable == null && state.hadDrawable) {
             mark.setImageResource(state.checkSrc)
         }
-        if (state.accent != Color.TRANSPARENT) {
-            mark.background?.mutate()?.setTint(state.accent)
+        val iconAlpha = (255f * markT.coerceIn(0f, 1f)).toInt().coerceIn(0, 255)
+        mark.drawable?.mutate()?.alpha = iconAlpha
+        mark.imageTintList = android.content.res.ColorStateList.valueOf(state.contrast)
+        mark.clearColorFilter()
+    }
+
+    private fun paintSolid(mark: ImageView, state: State) {
+        paintCheck(mark, state, 1f)
+        if (mark.background is GradientDrawable && state.hollow === mark.background) {
+            // Settled selected state uses the themed circle resource when available.
+            mark.setBackgroundResource(R.drawable.circle_background)
+            if (state.accent != Color.TRANSPARENT) {
+                mark.background?.mutate()?.setTint(state.accent)
+            }
         }
+        mark.drawable?.mutate()?.alpha = 255
         mark.imageTintList = android.content.res.ColorStateList.valueOf(state.contrast)
     }
 

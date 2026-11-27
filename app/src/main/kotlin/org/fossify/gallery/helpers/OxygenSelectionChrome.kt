@@ -1,38 +1,25 @@
 package org.fossify.gallery.helpers
 
-import android.animation.Animator
-import android.animation.AnimatorListenerAdapter
-import android.animation.ValueAnimator
 import android.app.Activity
-import android.graphics.Color
 import android.view.ActionMode
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
-import androidx.core.graphics.ColorUtils
 import org.fossify.gallery.extensions.config
 import java.lang.ref.WeakReference
-import kotlin.math.abs
 
 /**
- * Blends the ordinary toolbar and status bar into the fixed Grey 600 selection chrome.
- * The saved accent is only read for the live theme restore, never written. A later
- * count update paints the current frame and does not start another blend.
+ * Keeps the toolbar and status bar on the live theme during selection.
+ * The CAB still hosts the count, close control and actions; only the old
+ * Grey 600/700 (and accent-darkened) recolor path is retired so enter, drag
+ * and exit never retarget chrome colors.
  */
 object OxygenSelectionChrome {
-    /** MD1 Contextual Action Bar surface (Grey 600). */
-    const val TOOLBAR_COLOR = 0xFF757575.toInt()
-    /** Matching status band (Grey 700). */
-    const val STATUS_COLOR = 0xFF616161.toInt()
-    const val FOREGROUND_COLOR = Color.WHITE
-
-    private const val ENDPOINT = 0.001f
-
     private class State {
         var progress = 0f
         var target = 0f
-        var animator: ValueAnimator? = null
+        var animator: android.animation.ValueAnimator? = null
         var mode: WeakReference<ActionMode>? = null
     }
 
@@ -42,28 +29,24 @@ object OxygenSelectionChrome {
 
     internal fun animator(activity: Activity) = states[activity]?.animator?.takeIf { it.isRunning }
 
-    /** Fixed Grey 600 / Grey 700 selection targets. Accent darkening is not used. */
+    /** Live theme surfaces — selection no longer substitutes a fixed grey CAB. */
     fun targets(activity: Activity): Targets {
+        val colors = OxygenThemeEngine.snapshot(activity, activity.config)
         return Targets(
-            toolbar = TOOLBAR_COLOR,
-            status = STATUS_COLOR,
-            foreground = FOREGROUND_COLOR,
+            toolbar = OxygenThemeColors.opaque(colors.toolbarBackground),
+            status = OxygenThemeColors.opaque(colors.statusBarBackground),
+            foreground = OxygenThemeColors.opaque(colors.toolbarForeground),
         )
     }
 
-    /** Toolbar, status, foreground and blend position. Progress 0 is the live theme. */
+    /** Toolbar, status and foreground stay on the live theme. Progress is always 0. */
     fun frame(activity: Activity): Frame {
-        val colors = OxygenThemeEngine.snapshot(activity, activity.config)
-        val themeBar = colors.toolbarBackground
-        val themeStatus = colors.statusBarBackground
-        val themeText = colors.toolbarForeground
         val target = targets(activity)
-        val progress = progress(activity)
         return Frame(
-            toolbar = OxygenThemeColors.opaque(ColorUtils.blendARGB(themeBar, target.toolbar, progress)),
-            status = OxygenThemeColors.opaque(ColorUtils.blendARGB(themeStatus, target.status, progress)),
-            foreground = OxygenThemeColors.opaque(ColorUtils.blendARGB(themeText, target.foreground, progress)),
-            progress = progress,
+            toolbar = target.toolbar,
+            status = target.status,
+            foreground = target.foreground,
+            progress = progress(activity),
         )
     }
 
@@ -71,58 +54,18 @@ object OxygenSelectionChrome {
         states.getOrPut(activity) { State() }.mode = WeakReference(mode)
     }
 
+    /**
+     * Selection no longer blends chrome colors. Progress is forced to 0 so status
+     * bars keep the ordinary theme polarity path; paint still runs so AppCompat's
+     * primary-colored CAB is overwritten with the live theme.
+     */
     internal fun move(activity: Activity, target: Float) {
         val state = states.getOrPut(activity) { State() }
-        val running = state.animator?.takeIf { it.isRunning }
-        val settled = abs(state.progress - target) <= ENDPOINT
-        if (settled && (running == null || state.target == target)) {
-            state.target = target
-            paint(activity)
-            return
-        }
-        if (!OxygenClassicMotion.enabled(activity)) {
-            running?.cancel()
-            state.animator = null
-            state.target = target
-            state.progress = target
-            paint(activity)
-            return
-        }
-        if (running != null && state.target == target) {
-            paint(activity)
-            return
-        }
-        running?.cancel()
+        state.animator?.cancel()
         state.animator = null
-        state.target = target
-        start(activity, state, target)
-    }
-
-    private fun start(activity: Activity, state: State, target: Float) {
-        val animator = ValueAnimator.ofFloat(state.progress, target).apply {
-            duration = OxygenClassicMotion.SELECTION_CHROME_MS
-            interpolator = OxygenClassicMotion.easing()
-            addUpdateListener {
-                if (activity.isDestroyed) {
-                    cancel()
-                    return@addUpdateListener
-                }
-                state.progress = it.animatedValue as Float
-                paint(activity)
-            }
-            addListener(object : AnimatorListenerAdapter() {
-                private var cancelled = false
-                override fun onAnimationCancel(animation: Animator) {
-                    cancelled = true
-                }
-                override fun onAnimationEnd(animation: Animator) {
-                    if (cancelled || state.animator !== animation) return
-                    state.animator = null
-                }
-            })
-        }
-        state.animator = animator
-        animator.start()
+        state.target = 0f
+        state.progress = 0f
+        paint(activity)
     }
 
     private fun paint(activity: Activity) {

@@ -91,8 +91,7 @@ object OxygenSelectionMode {
                 delegate.onDestroyActionMode(mode)
                 pendingPresentation[activity] = false
                 isSelectable = delegate.isSelectable
-                // Blend back to the live theme. A saved accent is read again here and
-                // is never overwritten by the selection chrome.
+                // Repaint the live theme over any AppCompat CAB primary tint.
                 OxygenSelectionChrome.move(activity, 0f)
                 OxygenToolbarStyle.refresh(activity)
                 OxygenSystemBars.apply(activity)
@@ -111,7 +110,7 @@ object OxygenSelectionMode {
                 if (bar is androidx.appcompat.widget.ActionBarContextView) {
                     bar.contentHeight = OxygenToolbarStyle.selectionContentHeight(activity)
                 }
-                // Count changes call style again. The same target does not restart the blend.
+                // Count changes call style again. Chrome stays on the live theme.
                 OxygenSelectionChrome.attach(activity, mode)
                 OxygenSelectionChrome.move(activity, 1f)
             }

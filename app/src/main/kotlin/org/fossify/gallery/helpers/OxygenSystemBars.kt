@@ -202,13 +202,17 @@ object OxygenSystemBars {
     /**
      * Selection status sits on the same underlay (and, before API 35, the same
      * window status color) as the page. Navigation is left on the current theme.
-     * Grey 700 selection status is dark enough for light icons — the same
-     * polarity the theme toolbar uses.
+     * Chrome progress is normally 0 (theme-locked), so this path only runs if a
+     * caller still reports an in-flight selection frame; polarity follows the
+     * live theme status icons rather than assuming a dark Grey 700 band.
      */
     private fun paintSelectionStatus(activity: Activity, host: FrameLayout) {
+        val colors = OxygenThemeEngine.snapshot(activity, activity.config)
         val status = OxygenSelectionChrome.frame(activity).status
         val bars = WindowCompat.getInsetsController(activity.window, host)
-        if (bars.isAppearanceLightStatusBars) bars.isAppearanceLightStatusBars = false
+        val darkStatus = !colors.lightStatusBarIcons
+        bars(host).statusPolarity.adopt(darkStatus)
+        bars.isAppearanceLightStatusBars = darkStatus
         if (Build.VERSION.SDK_INT < 35) {
             @Suppress("DEPRECATION")
             if (activity.window.statusBarColor != status) activity.window.statusBarColor = status
