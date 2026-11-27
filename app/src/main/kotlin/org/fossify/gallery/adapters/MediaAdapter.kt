@@ -1585,7 +1585,6 @@ class MediaAdapter(
                 key = medium.path,
                 selected = isSelected,
                 play = OxygenSelectionMotion.onScreen(mediumThumbnail),
-                brief = OxygenSelectionDrag.inSwipe(),
                 inSelectionMode = actModeCallback.isSelectable,
                 backdrop = if (isListViewType) null else mediaItemHolder,
                 accent = properPrimaryColor,

@@ -1210,7 +1210,6 @@ class DirectoryAdapter(
                 key = directory.path,
                 selected = isSelected,
                 play = OxygenSelectionMotion.onScreen(dirThumbnail),
-                brief = OxygenSelectionDrag.inSwipe(),
                 inSelectionMode = actModeCallback.isSelectable,
                 backdrop = if (isListViewType) null else dirHolder,
                 accent = properPrimaryColor,

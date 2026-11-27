@@ -1,33 +1,20 @@
 package org.fossify.gallery.helpers
 
 import android.view.MotionEvent
-import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.fossify.commons.views.MyRecyclerView
 
 /**
- * Long-press drag selection settled as the rectangle from the anchor cell to the
- * current fingertip — not only the cells the finger path touched.
+ * Long-press drag selection is the closed reading-order span from the anchor
+ * cell to the cell under the finger. Every selectable index in between is
+ * included, including cells the finger never touched.
  *
  * Mode is fixed when the gesture starts from the ACTION_DOWN hit: unselected →
- * select the rectangle; already selected → clear the rectangle. Staying inside
- * the same cell does not jitter. Cells that leave a shrinking rectangle restore
- * their pre-gesture state. State is left as-is when the finger lifts.
+ * select the span; already selected → clear the span. Staying inside the same
+ * cell does not jitter. Cells that leave a shrinking span restore their
+ * pre-gesture state. State is left as-is when the finger lifts.
  */
 object OxygenSelectionDrag {
-    private var swipeDepth = 0
-
-    fun inSwipe(): Boolean = swipeDepth > 0
-
-    private inline fun duringSwipe(block: () -> Unit) {
-        swipeDepth++
-        try {
-            block()
-        } finally {
-            swipeDepth--
-        }
-    }
-
     fun install(
         recyclerView: MyRecyclerView,
         positionOffset: () -> Int,
@@ -77,9 +64,7 @@ object OxygenSelectionDrag {
                 }
                 val current = (lastDraggedIndex - positionOffset()).coerceAtLeast(0)
                 if (current == session.lastCurrent) return
-                duringSwipe {
-                    settleRect(session, current, isSelectable, isSelected, toggle, recyclerView, positionOffset)
-                }
+                settleSpan(session, current, isSelectable, isSelected, toggle, recyclerView, positionOffset)
                 session.lastCurrent = current
             }
         })
@@ -103,12 +88,10 @@ object OxygenSelectionDrag {
         session.selecting = !wasSelected
         session.baseline.clear()
         session.applied = emptySet()
-        duringSwipe {
-            settleRect(session, position, isSelectable, isSelected, toggle, recyclerView, positionOffset)
-        }
+        settleSpan(session, position, isSelectable, isSelected, toggle, recyclerView, positionOffset)
     }
 
-    private fun settleRect(
+    private fun settleSpan(
         session: Session,
         current: Int,
         isSelectable: (Int) -> Boolean,
@@ -150,56 +133,28 @@ object OxygenSelectionDrag {
         positionOffset: Int,
         isSelectable: (Int) -> Boolean,
     ): Set<Int> {
-        val adapter = recyclerView.adapter ?: return linkedSetOf(anchor, current).filter(isSelectable).toSet()
+        val adapter = recyclerView.adapter
+            ?: return linkedSetOf(anchor, current).filter { it >= 0 }.filter(isSelectable).toSet()
         val itemCount = (adapter.itemCount - positionOffset).coerceAtLeast(0)
-        if (itemCount <= 0) return emptySet()
-        val lm = recyclerView.layoutManager as? GridLayoutManager
-        val spanCount = lm?.spanCount?.coerceAtLeast(1) ?: 1
-        val lookup = lm?.spanSizeLookup
-        fun row(adjusted: Int): Int {
-            val raw = adjusted + positionOffset
-            return lookup?.getSpanGroupIndex(raw, spanCount) ?: adjusted
-        }
-        fun col(adjusted: Int): Int {
-            val raw = adjusted + positionOffset
-            return lookup?.getSpanIndex(raw, spanCount) ?: 0
-        }
-        val minRow = minOf(row(anchor), row(current))
-        val maxRow = maxOf(row(anchor), row(current))
-        val minCol = minOf(col(anchor), col(current))
-        val maxCol = maxOf(col(anchor), col(current))
-        val result = linkedSetOf<Int>()
-        for (pos in 0 until itemCount) {
-            if (!isSelectable(pos)) continue
-            val r = row(pos)
-            val c = col(pos)
-            if (r in minRow..maxRow && c in minCol..maxCol) result.add(pos)
-        }
-        return result
+        return rectPositions(anchor, current, itemCount, isSelectable)
     }
 
-    /** Pure geometry helper for unit tests (flat grid, every cell selectable). */
+    /**
+     * Closed index span from the anchor to the current cell. Column geometry is
+     * ignored: a finger that stays in one column still covers the other column.
+     */
     internal fun rectPositions(
         anchor: Int,
         current: Int,
-        spanCount: Int,
         itemCount: Int,
+        isSelectable: (Int) -> Boolean = { true },
     ): Set<Int> {
-        val spans = spanCount.coerceAtLeast(1)
-        val aRow = anchor / spans
-        val aCol = anchor % spans
-        val cRow = current / spans
-        val cCol = current % spans
-        val minRow = minOf(aRow, cRow)
-        val maxRow = maxOf(aRow, cRow)
-        val minCol = minOf(aCol, cCol)
-        val maxCol = maxOf(aCol, cCol)
+        if (itemCount <= 0) return emptySet()
+        val start = minOf(anchor, current)
+        val end = maxOf(anchor, current)
         val result = linkedSetOf<Int>()
-        for (row in minRow..maxRow) {
-            for (col in minCol..maxCol) {
-                val pos = row * spans + col
-                if (pos in 0 until itemCount) result.add(pos)
-            }
+        for (pos in 0 until itemCount) {
+            if (pos in start..end && isSelectable(pos)) result.add(pos)
         }
         return result
     }

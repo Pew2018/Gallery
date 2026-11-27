@@ -205,6 +205,7 @@ class OxygenSelectionPhase5cTest {
             assertEquals(View.VISIBLE, binding.mediumCheck.visibility)
             assertEquals(1f, binding.mediumCheck.alpha, 0.001f)
             assertEquals(1f, binding.mediumCheck.scaleX, 0.001f)
+            assertTrue(binding.mediumCheck.background is android.graphics.drawable.GradientDrawable)
             val inset = thumb.width * (1f - OxygenSelectionMotion.CONTENT_SCALE) / 2f
             assertEquals(inset, binding.mediumCheck.translationX, 0.5f)
             assertEquals(inset, binding.mediumCheck.translationY, 0.5f)
@@ -316,7 +317,7 @@ class OxygenSelectionPhase5cTest {
     }
 
     @Test
-    fun swipeBindUsesTheShorterDuration() {
+    fun dragBindUsesTheSameDurationAsATap() {
         val fixture = host()
         try {
             val thumb = ImageView(fixture.activity)
@@ -324,21 +325,23 @@ class OxygenSelectionPhase5cTest {
             layout(thumb, 120, 120)
             layout(check, 24, 24)
             OxygenSelectionMotion.bind(listOf(thumb), check, "a.jpg", false, false)
-            OxygenSelectionMotion.bind(listOf(thumb), check, "a.jpg", true, true, brief = true)
+            OxygenSelectionMotion.bind(listOf(thumb), check, "a.jpg", true, true)
             val running = OxygenSelectionMotion.animator(thumb)!!
-            assertEquals(OxygenClassicMotion.SELECTION_SWIPE_MS, running.duration)
+            assertEquals(OxygenClassicMotion.SELECTION_CONTENT_MS, running.duration)
         } finally {
             fixture.close()
         }
     }
 
     @Test
-    fun dragRectangleSelectsTheBoundingBoxNotJustThePath() {
-        // 2-column grid: from 0 through 1 to 3 must include 2 as well.
-        assertEquals(setOf(0, 1, 2, 3), OxygenSelectionDrag.rectPositions(0, 3, spanCount = 2, itemCount = 8))
-        assertEquals(setOf(0, 1), OxygenSelectionDrag.rectPositions(0, 1, spanCount = 2, itemCount = 8))
-        assertEquals(setOf(1, 3), OxygenSelectionDrag.rectPositions(1, 3, spanCount = 2, itemCount = 8))
-        assertEquals(setOf(0, 1, 2, 3, 4, 5), OxygenSelectionDrag.rectPositions(5, 0, spanCount = 2, itemCount = 8))
+    fun dragRangeFillsEveryIndexBetweenTheAnchorAndTheFinger() {
+        // Two columns, finger stays on the left: 1 → 5 must include 2 and 4.
+        assertEquals(setOf(0, 1, 2, 3, 4), OxygenSelectionDrag.rectPositions(0, 4, itemCount = 10))
+        assertEquals(setOf(0, 1, 2, 3), OxygenSelectionDrag.rectPositions(0, 3, itemCount = 8))
+        assertEquals(setOf(0, 1), OxygenSelectionDrag.rectPositions(0, 1, itemCount = 8))
+        assertEquals(setOf(1, 2, 3), OxygenSelectionDrag.rectPositions(1, 3, itemCount = 8))
+        assertEquals(setOf(0, 1, 2, 3, 4, 5), OxygenSelectionDrag.rectPositions(5, 0, itemCount = 8))
+        assertEquals(setOf(0, 1, 3, 4), OxygenSelectionDrag.rectPositions(0, 4, itemCount = 6) { it != 2 })
     }
 
     @Test
@@ -383,11 +386,15 @@ class OxygenSelectionPhase5cTest {
             assertTrue(selected.containsAll(listOf(0, 1, 2, 3)))
             listener.selectRange(0, 3, 0, 3)
             assertEquals(true to 3, lastToggle)
-            // Shrink back toward 1: 2 and 3 leave the rect and restore unselected.
-            listener.selectRange(0, 1, 0, 3)
+            // Same column, later cell: the other column in between is included.
+            listener.selectRange(0, 4, 0, 4)
+            assertTrue(selected.containsAll(listOf(0, 1, 2, 3, 4)))
+            // Shrink back toward 1: cells past the finger restore their prior state.
+            listener.selectRange(0, 1, 0, 4)
             assertTrue(selected.containsAll(listOf(0, 1)))
             assertFalse(selected.contains(2))
             assertFalse(selected.contains(3))
+            assertFalse(selected.contains(4))
 
             // New gesture on an already-selected cell → deselect mode.
             selected.addAll(listOf(0, 1, 2, 3))

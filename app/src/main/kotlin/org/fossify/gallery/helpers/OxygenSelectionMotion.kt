@@ -64,7 +64,6 @@ object OxygenSelectionMotion {
         key: String,
         selected: Boolean,
         play: Boolean,
-        brief: Boolean = false,
         inSelectionMode: Boolean = selected,
         backdrop: View? = null,
         accent: Int = Color.TRANSPARENT,
@@ -95,7 +94,7 @@ object OxygenSelectionMotion {
             hold(state, changed, sameItem, selected)
             return
         }
-        play(state, primary, selected, brief)
+        play(state, primary, selected)
     }
 
     private fun hold(state: State, changed: Boolean, sameItem: Boolean, selected: Boolean) {
@@ -109,15 +108,14 @@ object OxygenSelectionMotion {
         }
     }
 
-    private fun play(state: State, primary: View, selected: Boolean, brief: Boolean) {
+    private fun play(state: State, primary: View, selected: Boolean) {
         val from = fractionOf(primary)
         state.animator?.cancel()
         // Paint the first frame immediately so hollow→solid never blanks for a frame
         // before the ValueAnimator's first pulse (the hard-cut seen in the local recording).
         apply(state, from)
         val animator = ValueAnimator.ofFloat(from, if (selected) 1f else 0f).apply {
-            duration = if (brief) OxygenClassicMotion.SELECTION_SWIPE_MS
-            else OxygenClassicMotion.SELECTION_CONTENT_MS
+            duration = OxygenClassicMotion.SELECTION_CONTENT_MS
             interpolator = OxygenClassicMotion.selectionContentEasing()
             addUpdateListener { apply(state, it.animatedValue as Float) }
             addListener(object : AnimatorListenerAdapter() {
@@ -203,8 +201,9 @@ object OxygenSelectionMotion {
             return
         }
         val markT = checkProgress(t)
-        if (markT >= 1f && state.selected) paintSolid(mark, state)
-        else paintCheck(mark, state, markT)
+        // Stay on the interpolated oval. Swapping in circle_background at the
+        // settled frame cuts the disc the morph just painted.
+        paintCheck(mark, state, markT)
         mark.pivotX = mark.width / 2f
         mark.pivotY = mark.height / 2f
         val markScale = CHECK_START_SCALE + (1f - CHECK_START_SCALE) * markT
@@ -294,19 +293,6 @@ object OxygenSelectionMotion {
         mark.drawable?.mutate()?.alpha = iconAlpha
         mark.imageTintList = android.content.res.ColorStateList.valueOf(state.contrast)
         mark.clearColorFilter()
-    }
-
-    private fun paintSolid(mark: ImageView, state: State) {
-        paintCheck(mark, state, 1f)
-        if (mark.background is GradientDrawable && state.hollow === mark.background) {
-            // Settled selected state uses the themed circle resource when available.
-            mark.setBackgroundResource(R.drawable.circle_background)
-            if (state.accent != Color.TRANSPARENT) {
-                mark.background?.mutate()?.setTint(state.accent)
-            }
-        }
-        mark.drawable?.mutate()?.alpha = 255
-        mark.imageTintList = android.content.res.ColorStateList.valueOf(state.contrast)
     }
 
     private fun paintBackdrop(state: State, inSelectionMode: Boolean) {

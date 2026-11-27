@@ -41,8 +41,6 @@ object OxygenClassicMotion {
      * cadence observed in the local reference recording; not a global Phase 7 reopen.
      */
     const val SELECTION_CONTENT_MS = 180L
-    /** While a long-press drag is settling cells, keep each cell brief. */
-    const val SELECTION_SWIPE_MS = 100L
 
     /** Ease-out for thumbnail shrink / check reveal (fast out, settle). */
     fun selectionContentEasing() = PathInterpolator(0f, 0f, 0.2f, 1f)
