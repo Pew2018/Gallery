@@ -504,7 +504,17 @@ fun BaseSimpleActivity.restoreRecycleBinPaths(paths: ArrayList<String>, callback
 fun BaseSimpleActivity.emptyTheRecycleBin(callback: (() -> Unit)? = null) {
     ensureBackgroundThread {
         try {
-            recycleBin.deleteRecursively()
+            // recycleBin is filesDir. Recycled media lives under it as
+            // "$recycleBinPath/$source", but the same directory also holds
+            // diagnostics/ and the restore checkpoint AtomicFile. Delete only
+            // recycled media children; never wipe filesDir itself.
+            recycleBin.listFiles()?.forEach { child ->
+                val name = child.name
+                if (name == "diagnostics" || name.startsWith("gallery-restore-checkpoint.json")) {
+                    return@forEach
+                }
+                child.deleteRecursively()
+            }
             mediaDB.clearRecycleBin()
             org.fossify.gallery.helpers.RecycleBinMembershipRevision.changed()
             directoryDB.deleteRecycleBin()

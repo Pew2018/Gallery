@@ -13,6 +13,7 @@ import android.widget.RelativeLayout
 import android.widget.TextView
 import org.fossify.commons.extensions.onGlobalLayout
 import org.fossify.gallery.R
+import org.fossify.gallery.helpers.OxygenClassicMotion
 import org.fossify.gallery.extensions.audioManager
 import org.fossify.gallery.helpers.DRAG_THRESHOLD
 import kotlin.math.max
@@ -167,10 +168,7 @@ class MediaSideScroll(context: Context, attrs: AttributeSet) : RelativeLayout(co
         val absolutePercent = ((newVolume / maxVolume.toFloat()) * 100).toInt()
         showValue(absolutePercent)
 
-        mSlideInfoFadeHandler.removeCallbacksAndMessages(null)
-        mSlideInfoFadeHandler.postDelayed({
-            slideInfoView.animate().alpha(0f)
-        }, SLIDE_INFO_FADE_DELAY)
+        scheduleSlideInfoFade()
     }
 
     private fun brightnessPercentChanged(percent: Int) {
@@ -186,14 +184,23 @@ class MediaSideScroll(context: Context, attrs: AttributeSet) : RelativeLayout(co
         attributes.screenBrightness = absolutePercent / 100f
         activity!!.window.attributes = attributes
 
+        scheduleSlideInfoFade()
+    }
+
+    private fun scheduleSlideInfoFade() {
         mSlideInfoFadeHandler.removeCallbacksAndMessages(null)
         mSlideInfoFadeHandler.postDelayed({
+            slideInfoView.animate().cancel()
             slideInfoView.animate().alpha(0f)
+                .setDuration(OxygenClassicMotion.VIEWER_CHROME_EXIT_MS)
+                .setInterpolator(OxygenClassicMotion.easing())
+                .start()
         }, SLIDE_INFO_FADE_DELAY)
     }
 
     private fun showValue(percent: Int) {
         slideInfoView.apply {
+            animate().cancel()
             text = "$mSlideInfoText:\n$percent%"
             alpha = 1f
         }

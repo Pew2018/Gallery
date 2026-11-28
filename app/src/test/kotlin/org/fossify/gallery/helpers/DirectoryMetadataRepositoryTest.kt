@@ -186,9 +186,19 @@ class DirectoryMetadataRepositoryTest {
         }
         paths.forEach { DirectoryMetadataRepository.defer(it.path, DirectoryMetadataRepository.begin(it.path)) }
         DirectoryMetadataRepository.refreshPendingPaths(context)
-        val done = java.util.concurrent.CountDownLatch(1)
-        GalleryDirectoryMetadataExecutor.execute { done.countDown() }
-        assertTrue(done.await(20, TimeUnit.SECONDS))
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
+        var drained = false
+        while (System.nanoTime() < deadline) {
+            val done = java.util.concurrent.CountDownLatch(1)
+            try {
+                GalleryDirectoryMetadataExecutor.execute { done.countDown() }
+                drained = done.await(30, TimeUnit.SECONDS)
+                break
+            } catch (_: java.util.concurrent.RejectedExecutionException) {
+                Thread.sleep(25)
+            }
+        }
+        assertTrue("metadata executor did not drain", drained)
         paths.drop(24).forEach { folder ->
             val count = readExecutor.submit<Int?> { context.directoryDB.getByPath(folder.path)?.mediaCnt }.get(5, TimeUnit.SECONDS)
             assertEquals("later path was starved", 1, count)

@@ -5196,6 +5196,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         val task = scanTask ?: return
         task.requestDiagnostics = mediaDiagnostic(request)
         mCurrAsyncTask = task
+        if (!mShowAll && requestedFolder.startsWith('/') && requestedFolder != RECYCLE_BIN) {
+            org.fossify.gallery.helpers.RunningFolderScan.publish(task)
+        }
         try {
             org.fossify.gallery.helpers.FolderRefreshDiagnostics.event(request, "folder_queued")
             task.executeOnExecutor(org.fossify.gallery.helpers.GalleryMediaScanExecutor)
@@ -5626,10 +5629,14 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         val handoffContract = org.fossify.gallery.helpers.ViewerGridOrderStore.contract(
             config.getFolderSorting(if (showAll) SHOW_ALL else source), config.filterMedia, config.shouldShowHidden,
             mCommittedSearchText, if (source == FAVORITES) favoriteToken else folderToken, contentRevision)
-        val neighborId = org.fossify.gallery.helpers.ViewerNeighborWindow.captureAround(displayedOrder, path)?.let { neighbors ->
+        val neighbors = org.fossify.gallery.helpers.ViewerNeighborWindow.captureAround(displayedOrder, path)
+        neighbors?.forEach { neighbor ->
+            if (neighbor.path != path) getMediaAdapter()?.promoteQueuedThumbnail(neighbor.path)
+        }
+        val neighborId = neighbors?.let {
             org.fossify.gallery.helpers.ViewerNeighborHandoffStore.offer(
                 org.fossify.gallery.helpers.ViewerNeighborWindow(
-                    path, neighborSourceType, neighborSourceKey, neighbors,
+                    path, neighborSourceType, neighborSourceKey, it,
                     displayedMediaIsFinal && !mIsGettingMedia
                 )
             )
@@ -5646,6 +5653,9 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             val gridOrderId = if (!showAll && (source == FAVORITES || source.startsWith('/'))) {
                 org.fossify.gallery.helpers.ViewerGridOrderStore.offer(source, path, displayedOrder,
                     committedVersion, handoffContract, includeCandidates = source.startsWith('/') && !showAll,
+                    // Favorites keep the full path order but only the ±64 Mediums.
+                    // The click thread must not walk the whole album to build that window.
+                    committedWindowOnly = source == FAVORITES,
                     revision = contentRevision, isCurrent = { viewerLaunchGate.isCurrent(request) })
             } else null
             val checkpoint = if (completePublicFolder) FolderReturnCheckpoint.capture(app, source) else null
@@ -6128,14 +6138,21 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
         val ticket = viewerLaunchGate.begin(viewerLaunchBlocked()) ?: return
         val version = adapter.committedVersion
         val revision = org.fossify.gallery.helpers.PhotoContentRevision.current()
-        val neighborId = org.fossify.gallery.helpers.ViewerNeighborWindow.captureAround(displayedOrder, path)?.let { neighbors ->
+        val neighbors = org.fossify.gallery.helpers.ViewerNeighborWindow.captureAround(displayedOrder, path)
+        neighbors?.forEach { neighbor ->
+            if (neighbor.path != path) getMediaAdapter()?.promoteQueuedThumbnail(neighbor.path)
+        }
+        val neighborId = neighbors?.let {
             org.fossify.gallery.helpers.ViewerNeighborHandoffStore.offer(
                 org.fossify.gallery.helpers.ViewerNeighborWindow(
                     path, org.fossify.gallery.helpers.ViewerSourceType.PHOTO_PROFILE,
-                    requestedPhotoId, neighbors, displayedMediaIsFinal && !mIsGettingMedia
+                    requestedPhotoId, it, displayedMediaIsFinal && !mIsGettingMedia
                 )
             )
         }
+        // Size is O(1). Only a cache-preview-sized grid is copied, and only on the handoff worker.
+        val handoffPhotoPreview = displayedPublicationStage == org.fossify.gallery.helpers.MediaPublicationStage.PREVIEW &&
+            displayedOrder.size <= org.fossify.gallery.helpers.CachedMediaPreviewOrder.LIMIT * 2
         prepareViewerHandoff(ticket, neighborId, worker = worker@{
             val started = org.fossify.gallery.helpers.GalleryPerfTrace.begin()
             val access = org.fossify.gallery.helpers.PhotoProfileLoadContext.captureNeighbors(
@@ -6150,11 +6167,18 @@ class MediaActivity : SimpleActivity(), MediaOperationsListener, FolderBackPage 
             val catalogId = org.fossify.gallery.helpers.PhotoSessionViewerCatalogStore.handoffId(app, requestedPhotoId, token)
             org.fossify.gallery.helpers.GalleryPerfTrace.end(
                 if (catalogId == null) "viewer_catalog_miss" else "viewer_catalog_hit", started)
+            val previewCandidates = if (handoffPhotoPreview) {
+                val mediums = displayedOrder.filterIsInstance<org.fossify.gallery.models.Medium>()
+                mediums.takeIf {
+                    it.size <= org.fossify.gallery.helpers.CachedMediaPreviewOrder.LIMIT && it.any { item -> item.path == path }
+                }
+            } else null
             val orderId = org.fossify.gallery.helpers.ViewerGridOrderStore.offer(
                 PhotoProfileMediaLoader.PATH + requestedPhotoId + token.orEmpty(), path, displayedOrder,
                 version = version,
                 contract = org.fossify.gallery.helpers.ViewerGridOrderStore.contract(
                     scope.sorting, scope.filter, scope.hiddenPreference, query, token, revision),
+                boundedCandidates = previewCandidates,
                 revision = revision, isCurrent = { viewerLaunchGate.isCurrent(ticket) }
             )
             PreparedViewerHandoff(orderId, catalogId, photoAccess = access)

@@ -136,6 +136,20 @@ class FolderPickerPolishTest {
             coordinate = 600f, trackStart = 100, trackLength = 1_000,
             thumbLength = 80, range = 800, extent = 1_000,
         ))
+        assertEquals(
+            8_000,
+            OxygenFastScroller.scrollOffsetForDrag(
+                coordinate = 140f, trackStart = 100, trackLength = 1_000,
+                thumbLength = 80, range = 9_000, extent = 1_000, reverse = true,
+            ),
+        )
+        assertEquals(
+            0,
+            OxygenFastScroller.scrollOffsetForDrag(
+                coordinate = 1_060f, trackStart = 100, trackLength = 1_000,
+                thumbLength = 80, range = 9_000, extent = 1_000, reverse = true,
+            ),
+        )
     }
 
     @Test fun popupThemesKeepReadableTextAgainstTheirActualSurfaces() {

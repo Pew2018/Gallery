@@ -127,7 +127,7 @@ class PhotoProfileManageActivity : SimpleActivity() {
         binding.root.setBackgroundColor(colors.pageBackground)
         binding.photoProfileManageContent.setBackgroundColor(colors.pageBackground)
         binding.photoProfileManageCreate.background = OxygenClassicDialog.ripple(
-            colors.interactiveAccent, resources.displayMetrics.density
+            colors.primaryText, resources.displayMetrics.density
         )
         binding.photoProfileManageCreateIcon.imageTintList =
             android.content.res.ColorStateList.valueOf(colors.interactiveAccent)

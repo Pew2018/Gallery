@@ -94,7 +94,9 @@ internal class FavoritesReturnCover(context: Context) : View(context) {
         failed = false
         revealing = true
         val generation = ++epoch
-        animate().alpha(0f).setDuration(100L).withEndAction {
+        animate().cancel()
+        animate().alpha(0f).setDuration(OxygenClassicMotion.VIEWER_LOADING_FADE_MS)
+            .setInterpolator(OxygenClassicMotion.easing()).withEndAction {
             if (generation == epoch && isCurrent()) dismiss()
             else if (generation == epoch) pause()
         }.start()

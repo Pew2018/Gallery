@@ -1083,7 +1083,7 @@ fun Context.updateDBMediaPath(oldPath: String, newPath: String) {
     val newFilename = newPath.getFilenameFromPath()
     val newParentPath = newPath.getParentPath()
     try {
-        mediaDB.updateMedium(newFilename, newPath, newParentPath, oldPath)
+        mediaDB.updateMedium(oldPath, newParentPath, newFilename, newPath)
         favoritesDB.updateFavorite(newFilename, newPath, newParentPath, oldPath)
     } catch (ignored: Exception) {
     }
@@ -1093,16 +1093,10 @@ fun Context.updateDBDirectory(directory: Directory) {
     // Physical metadata must pass the scope/access/version gate in the repository.
     if (!directory.areFavorites() && !directory.isRecycleBin()) return
     try {
-        directoryDB.updateDirectory(
-            path = directory.path,
-            thumbnail = directory.tmb,
-            mediaCnt = directory.mediaCnt,
-            lastModified = directory.modified,
-            dateTaken = directory.taken,
-            size = directory.size,
-            mediaTypes = directory.types,
-            sortValue = directory.sortValue
-        )
+        // Favorites and the recycle bin need the full row (including DirectoryStats)
+        // so ascending date sorts use minModified/minTaken. updateDirectory() clears
+        // stats_known and never writes the min fields.
+        directoryDB.update(directory)
     } catch (error: Exception) {
         android.util.Log.w("GalleryDirs", "Cannot update directory statistics", error)
     }

@@ -2,6 +2,7 @@
 
 package org.fossify.gallery.activities
 
+import org.fossify.gallery.helpers.OxygenClassicMotion
 import org.fossify.gallery.helpers.OxygenToolbarStyle
 import org.fossify.commons.helpers.REAL_FILE_PATH
 import org.fossify.gallery.helpers.FOLDER_UNLOCK_SESSION
@@ -830,6 +831,16 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
         }
     }
 
+    private fun fadeChrome(views: Array<android.view.View>, alpha: Float) {
+        val duration = if (alpha == 1f) OxygenClassicMotion.VIEWER_CHROME_ENTER_MS
+            else OxygenClassicMotion.VIEWER_CHROME_EXIT_MS
+        val easing = OxygenClassicMotion.easing()
+        views.forEach {
+            it.animate().cancel()
+            it.animate().alpha(alpha).setDuration(duration).setInterpolator(easing).start()
+        }
+    }
+
     private fun fullscreenToggled(isFullScreen: Boolean) {
         mIsFullscreen = isFullScreen
         if (isFullScreen) {
@@ -839,7 +850,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
         }
 
         val newAlpha = if (isFullScreen) 0f else 1f
-        arrayOf(
+        fadeChrome(arrayOf(
             binding.bottomVideoTimeHolder.videoPrevFile,
             binding.bottomVideoTimeHolder.videoTogglePlayPause,
             binding.bottomVideoTimeHolder.videoNextFile,
@@ -850,9 +861,7 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
             binding.bottomVideoTimeHolder.videoDuration,
             binding.topShadow,
             binding.videoBottomGradient
-        ).forEach {
-            it.animate().alpha(newAlpha).start()
-        }
+        ), newAlpha)
         binding.bottomVideoTimeHolder.videoSeekbar.setOnSeekBarChangeListener(if (mIsFullscreen) null else this)
         arrayOf(
             binding.bottomVideoTimeHolder.videoPrevFile,
@@ -865,11 +874,17 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
             it.isClickable = !mIsFullscreen
         }
 
-        binding.videoAppbar.animate().alpha(newAlpha).withStartAction {
-            binding.videoAppbar.beVisible()
-        }.withEndAction {
-            binding.videoAppbar.beVisibleIf(newAlpha == 1f)
-        }.start()
+        val chromeDuration = if (newAlpha == 1f) OxygenClassicMotion.VIEWER_CHROME_ENTER_MS
+            else OxygenClassicMotion.VIEWER_CHROME_EXIT_MS
+        binding.videoAppbar.animate().cancel()
+        binding.videoAppbar.animate().alpha(newAlpha)
+            .setDuration(chromeDuration)
+            .setInterpolator(OxygenClassicMotion.easing())
+            .withStartAction {
+                binding.videoAppbar.beVisible()
+            }.withEndAction {
+                binding.videoAppbar.beVisibleIf(newAlpha == 1f)
+            }.start()
     }
 
     private fun showPlaybackSpeedPicker() {
@@ -957,13 +972,11 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
                     )) && binding.videoSurfaceFrame.controller.state.zoom == 1f
                 ) {
                     if (!mIsDragged) {
-                        arrayOf(
+                        fadeChrome(arrayOf(
                             binding.bottomVideoTimeHolder.videoCurrTime,
                             binding.bottomVideoTimeHolder.videoSeekbar,
                             binding.bottomVideoTimeHolder.videoDuration,
-                        ).forEach {
-                            it.animate().alpha(1f).start()
-                        }
+                        ), 1f)
                     }
                     mIgnoreCloseDown = true
                     mIsDragged = true
@@ -993,13 +1006,11 @@ open class VideoPlayerActivity : BaseViewerActivity(), SeekBar.OnSeekBarChangeLi
                 mIgnoreCloseDown = false
                 if (mIsDragged) {
                     if (mIsFullscreen) {
-                        arrayOf(
+                        fadeChrome(arrayOf(
                             binding.bottomVideoTimeHolder.videoCurrTime,
                             binding.bottomVideoTimeHolder.videoSeekbar,
                             binding.bottomVideoTimeHolder.videoDuration,
-                        ).forEach {
-                            it.animate().alpha(0f).start()
-                        }
+                        ), 0f)
                     }
 
                     if (!mIsPlaying) {

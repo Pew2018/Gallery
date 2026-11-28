@@ -96,10 +96,21 @@ internal object DirectoryMetadataRepository {
         version
     }
 
+    /** Uncommitted ticket for [path], if a scan is still in flight. */
+    fun activeRequestVersion(path: String): Long? = synchronized(lock) {
+        val version = activeRequests[path] ?: return@synchronized null
+        version.takeIf { committedRequests[path] != it }
+    }
+
     fun defer(path: String, requestVersion: Long) {
         if (requestVersion == 0L) return
         synchronized(lock) {
-            if (activeRequests[path] == requestVersion && committedRequests[path] != requestVersion) pending.add(path)
+            if (activeRequests[path] == requestVersion && committedRequests[path] != requestVersion) {
+                pending.add(path)
+                // Release the abandoned ticket so a later refreshPendingPaths wake
+                // can begin a new version instead of starving behind this one.
+                activeRequests.remove(path)
+            }
         }
     }
 
@@ -250,6 +261,7 @@ internal object DirectoryMetadataRepository {
                     // Unreadable heads cannot starve any of the later ready paths.
                     val batches = pending.ready().chunked(24)
                     for (batch in batches) for (path in batch) {
+                        var claimed = false
                         try {
                             val cfg = context.config
                             if (FolderUnlockSessionManager.findProtectedAncestor(path, cfg::isFolderProtected) != null ||
@@ -258,7 +270,15 @@ internal object DirectoryMetadataRepository {
                                 continue
                             val scope = DirectoryScanScope(cfg.filterMedia, cfg.shouldShowHidden)
                             if (!scope.matches(context)) continue
-                            val version = begin(path)
+                            // Do not steal an in-flight foreground ticket. Leave the path
+                            // pending until that scan commits or defers.
+                            val version = synchronized(lock) {
+                                val existing = activeRequests[path]
+                                if (existing != null && committedRequests[path] != existing) return@synchronized 0L
+                                begin(path)
+                            }
+                            if (version == 0L) continue
+                            claimed = true
                             try {
                                 val fetcher = MediaFetcher(context.applicationContext, reportReadFailures = true)
                                 val read = fetcher.readFolder(path, false, false, true, true,
@@ -271,7 +291,9 @@ internal object DirectoryMetadataRepository {
                                 defer(path, version)
                                 Log.w("GalleryDirs", "Deferred directory scan failed (id=${GalleryDiagnosticLogger.anonymousId(path)})", error)
                             }
-                        } finally { pending.failed(path) }
+                        } finally {
+                            if (claimed) pending.failed(path)
+                        }
                     }
                 } finally {
                     retryRunning.set(false)

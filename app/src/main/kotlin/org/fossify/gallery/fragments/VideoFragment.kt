@@ -250,6 +250,11 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         sharedTransitionRunning = false
         if (view != null) setVideoSize(animateAspectChange = true)
         videoPreviewFrameHandoff?.setTransitionRunning(false)
+        // Neighbor pages created during shared entry were alpha-zeroed with the
+        // entering page; only the current page receives the activity chrome fade.
+        // Restore idle controls once entry is done so a later swipe does not land
+        // on an invisible play outline.
+        restoreIdleVideoChrome()
     }
 
     fun setSharedChromeAlpha(progress: Float) {
@@ -258,6 +263,13 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         listOf(binding.videoPlayOutline, binding.bottomVideoTimeHolder.root, binding.videoDetails).forEach {
             it.alpha = alpha
         }
+    }
+
+    /** Bring play / seek / details back when this page is idle and not fullscreen. */
+    private fun restoreIdleVideoChrome() {
+        if (!this::binding.isInitialized || mIsFullscreen) return
+        if ((activity as? ViewPagerActivity)?.isMediaTransitionRunning() == true) return
+        setSharedChromeAlpha(1f)
     }
 
     private fun loadPreview() {
@@ -551,6 +563,7 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
 
         checkExtendedDetails()
         initTimeHolder()
+        restoreIdleVideoChrome()
         storeStateVariables()
     }
 
@@ -591,13 +604,16 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
 
         mIsFragmentVisible = menuVisible
-        if (menuVisible && previewReady) {
-            val root = binding.root
-            val path = mMedium.path
-            val request = previewGeneration
-            root.post {
-                if (request == previewGeneration && view === root && mIsFragmentVisible &&
-                    mMedium.path == path && entryRenderer() != null) listener?.imageRendered(path, this)
+        if (menuVisible) {
+            restoreIdleVideoChrome()
+            if (previewReady) {
+                val root = binding.root
+                val path = mMedium.path
+                val request = previewGeneration
+                root.post {
+                    if (request == previewGeneration && view === root && mIsFragmentVisible &&
+                        mMedium.path == path && entryRenderer() != null) listener?.imageRendered(path, this)
+                }
             }
         }
         val shouldPlayVideo = mWasFragmentInit && menuVisible && mConfig.autoplayVideos && !mConfig.gestureVideoPlayer
@@ -744,7 +760,13 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
 
             override fun onPlaybackStateChanged(@Player.State playbackState: Int) {
                 when (playbackState) {
-                    Player.STATE_READY -> videoPrepared()
+                    Player.STATE_READY -> {
+                        // Media3 can deliver READY after releaseExoPlayer(). Match the
+                        // identity/view guards used by the adjacent listener callbacks.
+                        if (mExoPlayer === listenerPlayer && view != null) {
+                            videoPrepared(listenerPlayer)
+                        }
+                    }
                     Player.STATE_ENDED -> videoCompleted()
                 }
             }
@@ -1094,13 +1116,13 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
     }
 
-    private fun videoPrepared() {
+    private fun videoPrepared(player: ExoPlayer) {
         if (mDuration == 0L) {
-            mDuration = mExoPlayer!!.duration
+            mDuration = player.duration
             setupTimeHolder()
             setPosition(mCurrTime)
 
-            if (mIsFragmentVisible && (mConfig.autoplayVideos)) {
+            if (mIsFragmentVisible && mConfig.autoplayVideos && isAdded && view != null) {
                 playVideo()
             }
         }
@@ -1113,11 +1135,13 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         mIsPlayerPrepared = true
         if (mPlayOnPrepared && !mIsPlaying) {
             if (mPositionAtPause != 0L) {
-                mExoPlayer?.seekTo(mPositionAtPause)
+                player.seekTo(mPositionAtPause)
                 mPositionAtPause = 0L
             }
             updatePlaybackSpeed(mConfig.playbackSpeed)
-            playVideo()
+            if (isAdded && view != null) {
+                playVideo()
+            }
         }
         mWasPlayerInited = true
         mPlayOnPrepared = false

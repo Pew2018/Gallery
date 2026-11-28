@@ -47,6 +47,15 @@ object OxygenThemeColors {
     const val WHITE: Int = -1
     val BLACK: Int = 0xFF000000.toInt()
 
+    /**
+     * Material 3 pressed state layer (`md.sys.state.pressed.state-layer-opacity` = 0.10).
+     * The ink is the content color. An accent hue is not a state layer.
+     */
+    const val STATE_LAYER_PRESSED_ALPHA: Int = 26
+
+    fun pressedStateLayer(contentColor: Int): Int =
+        (STATE_LAYER_PRESSED_ALPHA shl 24) or (contentColor and 0x00FFFFFF)
+
     private const val SWITCH_TRACK_ALPHA = 115 // round(0.45 * 255)
     private const val SWITCH_DISABLED_ALPHA = 0.38
 

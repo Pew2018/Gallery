@@ -286,6 +286,7 @@ object OxygenFastScroller {
                 if (vertical) track.height else track.width,
                 if (vertical) thumb.height else thumb.width,
                 range, extent,
+                reverse = reverseTrack(),
             )
             if (vertical) recycler.scrollBy(0, target - recycler.computeVerticalScrollOffset())
             else recycler.scrollBy(target - recycler.computeHorizontalScrollOffset(), 0)
@@ -303,6 +304,13 @@ object OxygenFastScroller {
             FastScrollerBubble.position(popup, thumb, scroller, vertical)
         }
 
+        private fun reverseTrack(): Boolean {
+            if (vertical) return false
+            val manager = recycler.layoutManager as? LinearLayoutManager ?: return false
+            val rtl = recycler.layoutDirection == View.LAYOUT_DIRECTION_RTL
+            return manager.reverseLayout xor rtl
+        }
+
         fun syncThumb() {
             val range = if (vertical) recycler.computeVerticalScrollRange() else recycler.computeHorizontalScrollRange()
             val extent = if (vertical) recycler.computeVerticalScrollExtent() else recycler.computeHorizontalScrollExtent()
@@ -310,8 +318,9 @@ object OxygenFastScroller {
             if (maxOffset <= 0) return
             val offset = if (vertical) recycler.computeVerticalScrollOffset() else recycler.computeHorizontalScrollOffset()
             val fraction = offset.coerceIn(0, maxOffset).toFloat() / maxOffset
-            if (vertical) thumb.y = (track.height - thumb.height).coerceAtLeast(0) * fraction
-            else thumb.x = (track.width - thumb.width).coerceAtLeast(0) * fraction
+            val display = if (reverseTrack()) 1f - fraction else fraction
+            if (vertical) thumb.y = (track.height - thumb.height).coerceAtLeast(0) * display
+            else thumb.x = (track.width - thumb.width).coerceAtLeast(0) * display
         }
 
         override fun onPreDraw(): Boolean {
@@ -367,12 +376,14 @@ object OxygenFastScroller {
         thumbLength: Int,
         range: Int,
         extent: Int,
+        reverse: Boolean = false,
     ): Int {
         val maxOffset = (range - extent).coerceAtLeast(0)
         if (maxOffset == 0) return 0
         val travel = (trackLength - thumbLength).coerceAtLeast(1).toFloat()
         val fraction = ((coordinate - trackStart - thumbLength / 2f) / travel).coerceIn(0f, 1f)
-        return (fraction * maxOffset).roundToInt()
+        val oriented = if (reverse) 1f - fraction else fraction
+        return (oriented * maxOffset).roundToInt()
     }
 
     /** Apply only to picker dialogs, not the Gallery's main scrollers. */
@@ -402,10 +413,13 @@ object OxygenFastScroller {
 
             // Use one screen-coordinate system and pixel scroll offsets. This
             // avoids the library's raw-screen/window-origin mismatch and keeps
-            // dragging smooth even when picker row heights differ.
+            // dragging smooth even when picker row heights differ. Only the
+            // handle may start a drag; the rail must let edge-back through.
             val listener = View.OnTouchListener { touched, event ->
+                if (touched !== thumb) return@OnTouchListener false
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
+                        if (!state.canScroll()) return@OnTouchListener false
                         state.beginDrag()
                         touched.parent?.requestDisallowInterceptTouchEvent(true)
                         scroller.parent?.requestDisallowInterceptTouchEvent(true)
@@ -428,7 +442,9 @@ object OxygenFastScroller {
                 }
             }
             thumb.setOnTouchListener(listener)
-            track.setOnTouchListener(listener)
+            track.setOnTouchListener { _, _ -> false }
+            track.isClickable = false
+            track.isLongClickable = false
         }
     }
 
@@ -498,6 +514,12 @@ object OxygenFastScroller {
             else updateVisibility()
         }
 
+        fun canScroll(): Boolean {
+            val vertical = scroller.fastScrollDirection == RecyclerViewFastScroller.FastScrollDirection.VERTICAL
+            val metrics = metrics(vertical)
+            return metrics.range > metrics.extent
+        }
+
         fun beginDrag() {
             dragging = true
             revealThumb()
@@ -508,6 +530,13 @@ object OxygenFastScroller {
             dragging = false
             if (recycler.scrollState == RecyclerView.SCROLL_STATE_IDLE) scheduleHide()
             else revealThumb()
+        }
+
+        private fun reverseTrack(vertical: Boolean): Boolean {
+            if (vertical) return false
+            val manager = recycler.layoutManager as? LinearLayoutManager ?: return false
+            val rtl = recycler.layoutDirection == View.LAYOUT_DIRECTION_RTL
+            return manager.reverseLayout xor rtl
         }
 
         fun dragTo(event: MotionEvent) {
@@ -523,11 +552,12 @@ object OxygenFastScroller {
             val coordinate = if (vertical) event.rawY - location[1] else event.rawX - location[0]
             val fraction = ((coordinate - thumbLength / 2f) / (trackLength - thumbLength))
                 .coerceIn(0f, 1f)
-            val target = (fraction * scrollable).roundToInt().coerceIn(0, scrollable)
+            val oriented = if (reverseTrack(vertical)) 1f - fraction else fraction
+            val target = (oriented * scrollable).roundToInt().coerceIn(0, scrollable)
             val delta = target - metrics.offset
             if (vertical) recycler.scrollBy(0, delta) else recycler.scrollBy(delta, 0)
             syncPosition()
-            updatePopup(fraction)
+            updatePopup(oriented)
             revealThumb()
         }
 
@@ -552,7 +582,8 @@ object OxygenFastScroller {
                 if (vertical) !recycler.canScrollVertically(1) else !recycler.canScrollHorizontally(1) -> 1f
                 else -> metric.offset.toFloat().coerceIn(0f, scrollable.toFloat()) / scrollable.toFloat()
             }
-            val desired = (fraction * travel).roundToInt().coerceIn(0, travel)
+            val display = if (reverseTrack(vertical)) 1f - fraction else fraction
+            val desired = (display * travel).roundToInt().coerceIn(0, travel)
 
             val trackLocation = IntArray(2)
             val thumbLocation = IntArray(2)
@@ -619,7 +650,8 @@ object OxygenFastScroller {
         private fun fadeThumbOut() {
             if (dragging || recycler.scrollState != RecyclerView.SCROLL_STATE_IDLE) return
             thumb.animate().cancel()
-            thumb.animate().alpha(0f).setDuration(FADE_DURATION_MS).withEndAction {
+            thumb.animate().alpha(0f).setDuration(FADE_DURATION_MS)
+                .setInterpolator(OxygenClassicMotion.easing()).withEndAction {
                 if (!dragging && recycler.scrollState == RecyclerView.SCROLL_STATE_IDLE) thumb.visibility = View.INVISIBLE
             }.start()
         }

@@ -22,6 +22,7 @@ on:
       - fix/bottom-bar-tap-ripple
       - fix/photo-profile-toolbar-stability
       - cursor/selection-theme-chrome-motion-c1c3
+      - cursor/audit-fixes-7a8d
     paths:
       - "app/**"
       - "buildSrc/**"

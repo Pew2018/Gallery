@@ -206,7 +206,7 @@ object OxygenToolbarStyle {
             it.isClickable = true
             it.isFocusable = true
             it.background = RippleDrawable(
-                ColorStateList.valueOf(Color.argb(28, Color.red(foreground), Color.green(foreground), Color.blue(foreground))),
+                ColorStateList.valueOf(OxygenThemeColors.pressedStateLayer(foreground)),
                 ColorDrawable(Color.TRANSPARENT), null
             )
             it.setOnClickListener {
@@ -220,7 +220,7 @@ object OxygenToolbarStyle {
         }
         back.imageTintList = ColorStateList.valueOf(foreground)
         back.background = RippleDrawable(
-            ColorStateList.valueOf(ColorUtils.setAlphaComponent(foreground, 28)),
+            ColorStateList.valueOf(OxygenThemeColors.pressedStateLayer(foreground)),
             ColorDrawable(Color.TRANSPARENT), null
         )
         // GONE removes both the hit target and accessibility node during search.
@@ -456,7 +456,7 @@ object OxygenToolbarStyle {
         back.setPadding(dp(12), dp(12), dp(12), dp(12))
         back.imageTintList = ColorStateList.valueOf(colors.toolbarForeground)
         back.background = RippleDrawable(
-            ColorStateList.valueOf(ColorUtils.setAlphaComponent(colors.toolbarForeground, 28)),
+            ColorStateList.valueOf(OxygenThemeColors.pressedStateLayer(colors.toolbarForeground)),
             ColorDrawable(Color.TRANSPARENT), null
         )
         title.textSize = 20f

@@ -18,6 +18,8 @@ import org.fossify.gallery.extensions.getFavoritePaths
 import org.fossify.gallery.helpers.*
 import org.fossify.gallery.models.Medium
 import org.fossify.gallery.models.ThumbnailItem
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 
 internal class GetMediaAsynctask(
     val context: Context, val mPath: String, val isPickImage: Boolean = false, val isPickVideo: Boolean = false,
@@ -110,6 +112,58 @@ internal class GetMediaAsynctask(
         private set
     internal var scanResult = GalleryScanResult(GalleryScanState.CANCELLED)
         private set
+    private val folderSubscribers = CopyOnWriteArrayList<FolderScanSubscriber>()
+    private val subscriberClosed = AtomicBoolean(false)
+
+    internal val sharesFolderScan: Boolean
+        get() = !showAll && mPath.startsWith('/') && mPath != RECYCLE_BIN && mPath != FAVORITES
+
+    internal fun matchesSharedFolder(folder: String, session: String?): Boolean =
+        sharesFolderScan && mPath == folder && folderSessionId == session &&
+            !isCancelled && status != AsyncTask.Status.FINISHED && !subscriberClosed.get()
+
+    /** Returns false once this scan can no longer deliver a later result. */
+    internal fun addFolderSubscriber(subscriber: FolderScanSubscriber): Boolean {
+        if (!matchesSharedFolder(mPath, folderSessionId)) return false
+        folderSubscribers.add(subscriber)
+        if (subscriberClosed.get()) {
+            folderSubscribers.remove(subscriber)
+            return false
+        }
+        return true
+    }
+
+    internal fun removeFolderSubscriber(subscriber: FolderScanSubscriber) {
+        folderSubscribers.remove(subscriber)
+    }
+
+    private fun notifyPreview(stage: DisplayedSourceStage, rows: List<Medium>) {
+        if (subscriberClosed.get() || folderSubscribers.isEmpty()) return
+        folderSubscribers.forEach { runCatching { it.onPreview(stage, rows) } }
+    }
+
+    private fun notifyComplete(media: List<ThumbnailItem>) {
+        if (!subscriberClosed.compareAndSet(false, true)) return
+        RunningFolderScan.clear(this)
+        val result = scanResult
+        folderSubscribers.forEach { runCatching { it.onComplete(media, result) } }
+        folderSubscribers.clear()
+    }
+
+    private fun notifyFailure(error: Exception) {
+        if (!subscriberClosed.compareAndSet(false, true)) return
+        RunningFolderScan.clear(this)
+        folderSubscribers.forEach { runCatching { it.onFailure(error) } }
+        folderSubscribers.clear()
+    }
+
+    private fun notifyCancelled() {
+        if (!subscriberClosed.compareAndSet(false, true)) return
+        RunningFolderScan.clear(this)
+        folderSubscribers.forEach { runCatching { it.onCancelled() } }
+        folderSubscribers.clear()
+    }
+
     private var successfulSources = 0
     private var scanFailure: Exception? = null
     private var folderFailures: Map<String, Exception> = emptyMap()
@@ -272,7 +326,12 @@ internal class GetMediaAsynctask(
             FolderRefreshDiagnostics.event(requestId,
                 if (stage == DisplayedSourceStage.INDEX_PREVIEW) "media_index_preview_ready" else "media_scan_partial",
                 detail = "count=${rows.size}")
-            delivery.post { if (!isCancelled) onPagePreview?.invoke(batch) }
+            delivery.post {
+                if (!isCancelled) {
+                    onPagePreview?.invoke(batch)
+                    notifyPreview(stage, rows)
+                }
+            }
         }
 
         var indexAvailable = false
@@ -487,16 +546,43 @@ internal class GetMediaAsynctask(
         val result = if (progressivePage && preparedSorting?.and(SORT_BY_RANDOM) != 0) {
             // The page applies its request-local random order before grouping.
             ArrayList<ThumbnailItem>(media)
+        } else if (mPath == FAVORITES && favoriteSessionId != null) {
+            // Favorites revalidation happens below before grouping so filtered-out
+            // media cannot leave orphan ThumbnailSection headers behind.
+            ArrayList<ThumbnailItem>(media)
         } else FolderRefreshDiagnostics.measure(requestId, "grouping") { mediaFetcher.groupMedia(media, pathToUse) }
         val safeResult = if (mPath == FAVORITES && favoriteSessionId != null) {
-            // Revalidate the complete captured snapshot once after scanning,
-            // then use the returned capability set for a pure in-memory filter.
+            // Revalidate the complete captured snapshot once after scanning.
             val currentFavorites = context.getFavoritePaths().toSet()
-            val allowed = FavoriteAccessSessionManager.retainFavorites(favoriteSessionId, currentFavorites).orEmpty()
-            if (allowed.isEmpty()) ArrayList() else ArrayList(result.filter { item ->
-                val path = (item as? Medium)?.path
-                path == null || path in allowed
-            })
+            val allowed = FavoriteAccessSessionManager.retainFavorites(favoriteSessionId, currentFavorites)
+            when {
+                allowed == null && Thread.currentThread().isInterrupted -> {
+                    scanResult = GalleryScanResult(GalleryScanState.CANCELLED)
+                    mediaFetcher.shouldStop = true
+                    ArrayList()
+                }
+                allowed == null && (
+                    !FavoriteAccessSessionManager.isActive(favoriteSessionId) ||
+                        FavoriteAccessSessionManager.getCapturedPaths(favoriteSessionId) == null
+                    ) -> {
+                    // Session gone or credential no longer valid: publish an empty
+                    // unauthorized view. Do not keep the pre-revalidation grid.
+                    ArrayList()
+                }
+                allowed == null -> {
+                    // Session is still current; snapshot read failed.
+                    scanResult = GalleryScanResult(GalleryScanState.FAILED)
+                    scanFailure = java.io.IOException("Favorite revalidation failed")
+                    ArrayList()
+                }
+                allowed.isEmpty() -> ArrayList()
+                else -> FolderRefreshDiagnostics.measure(requestId, "grouping") {
+                    mediaFetcher.groupMedia(
+                        media.filter { it.path in allowed }.toCollection(ArrayList()),
+                        pathToUse,
+                    )
+                }
+            }
         } else result
         if (mPath == FAVORITES && context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             android.util.Log.d("GalleryFavorites", "savedPaths=${favoritePaths.size}, scannedMedia=${safeResult.count { it is Medium }}")
@@ -558,6 +644,7 @@ internal class GetMediaAsynctask(
             FolderRefreshDiagnostics.event(requestId, "scan_cancelled")
             finishPipelineDiagnostics("CANCELLED", media)
             onScanCancelled?.invoke()
+            notifyCancelled()
             return
         }
         val error = scanFailure ?: if (scanResult.state == GalleryScanState.FAILED)
@@ -566,6 +653,7 @@ internal class GetMediaAsynctask(
             FolderRefreshDiagnostics.event(requestId, "scan_failed", detail = "type=${error.javaClass.simpleName}")
             finishPipelineDiagnostics(if (error is SecurityException) "ACCESS_REQUIRED" else "FAILED", media)
             onFailure(error)
+            notifyFailure(error)
             return
         }
         FolderRefreshDiagnostics.event(requestId, "scan_completed", detail = "count=${media.size} state=${scanResult.state.name}")
@@ -588,6 +676,7 @@ internal class GetMediaAsynctask(
                 return
             }
             callback(media)
+            notifyComplete(media)
             val read = folderReadResult
             if ((read != null && (onFolderPreview != null || onPagePreview != null) || showAll && onPagePreview != null) &&
                 context.config.showThumbnailVideoDuration && !isCancelled) {
@@ -621,6 +710,7 @@ internal class GetMediaAsynctask(
         requestDiagnostics?.skip("cancelled_before_start")
         finishPipelineDiagnostics("CANCELLED", media.orEmpty())
         onScanCancelled?.invoke()
+        notifyCancelled()
     }
 
     private fun finishPipelineDiagnostics(terminalState: String, media: List<ThumbnailItem>) {
@@ -658,6 +748,7 @@ internal class GetMediaAsynctask(
         stopWatchingViewerFolder()
         cancel(true)
         delivery.removeCallbacksAndMessages(null)
+        notifyCancelled()
     }
 }
 

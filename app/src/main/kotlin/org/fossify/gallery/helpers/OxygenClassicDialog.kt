@@ -304,7 +304,7 @@ object OxygenClassicDialog {
             setColor(value)
             cornerRadius = 3f * density
         }
-        return RippleDrawable(ColorStateList.valueOf(ColorUtils.setAlphaComponent(color, 24)),
+        return RippleDrawable(ColorStateList.valueOf(OxygenThemeColors.pressedStateLayer(color)),
             shape(fill), shape(Color.WHITE))
     }
 
@@ -358,7 +358,7 @@ object OxygenClassicDialog {
 
         button.backgroundTintList = null
         button.background = RippleDrawable(
-            ColorStateList.valueOf(ColorUtils.setAlphaComponent(readableAccent, 26)),
+            ColorStateList.valueOf(OxygenThemeColors.pressedStateLayer(dialogText)),
             outline,
             rippleMask
         )
@@ -479,7 +479,7 @@ object OxygenClassicDialog {
                     org.fossify.commons.R.id.pin_3, org.fossify.commons.R.id.pin_4, org.fossify.commons.R.id.pin_5,
                     org.fossify.commons.R.id.pin_6, org.fossify.commons.R.id.pin_7, org.fossify.commons.R.id.pin_8,
                     org.fossify.commons.R.id.pin_9, org.fossify.commons.R.id.pin_0, org.fossify.commons.R.id.pin_c,
-                    org.fossify.commons.R.id.pin_ok)) v.background = ripple(readableAccent, dp)
+                    org.fossify.commons.R.id.pin_ok)) v.background = ripple(dialogText, dp)
                 if (v is com.andrognito.patternlockview.PatternLockView) {
                     v.normalStateColor = inactive
                     v.correctStateColor = readableAccent
@@ -503,7 +503,7 @@ object OxygenClassicDialog {
                     v.setTabTextColors(inactive, readableAccent)
                     v.setSelectedTabIndicatorColor(readableAccent)
                     v.setSelectedTabIndicatorHeight((2f * dp).toInt())
-                    v.tabRippleColor = ColorStateList.valueOf(ColorUtils.setAlphaComponent(dialogText, 24))
+                    v.tabRippleColor = ColorStateList.valueOf(OxygenThemeColors.pressedStateLayer(dialogText))
                     v.setUnboundedRipple(false)
                 }
                 if (v is FloatingActionButton) {
@@ -578,7 +578,7 @@ object OxygenClassicDialog {
                         arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf(android.R.attr.state_checked), intArrayOf()),
                         intArrayOf(disabled, readableAccent, dialogText)
                     ))
-                    v.background = RippleDrawable(ColorStateList.valueOf(ColorUtils.setAlphaComponent(readableAccent, 24)),
+                    v.background = RippleDrawable(ColorStateList.valueOf(OxygenThemeColors.pressedStateLayer(dialogText)),
                         TiebaDialogChoices.selectedBackground(readableAccent, surface), android.graphics.drawable.ColorDrawable(Color.WHITE))
                 }
             }
@@ -635,14 +635,14 @@ object OxygenClassicDialog {
                     // The independent parent keeps a full-width rectangular ripple instead.
                     // Retain the existing 12dp icon-to-label gap; it no longer controls the ripple.
                     button.buttonDrawable = InsetDrawable(button.buttonDrawable, 0, 0, (12 * dp).toInt(), 0)
-                    row.background = ripple(readableAccent, dp)
+                    row.background = ripple(dialogText, dp)
                     button.background = null
                     button.setPaddingRelative(0, (8 * dp).toInt(), 0, (8 * dp).toInt())
                 } else if (deleteConfirmationRow != null) {
                     // Keep this dialog's original content height while the row owns the touch ripple.
-                    deleteConfirmationRow.background = ripple(readableAccent, dp)
+                    deleteConfirmationRow.background = ripple(dialogText, dp)
                     button.background = null
-                } else button.background = ripple(readableAccent, dp)
+                } else button.background = ripple(dialogText, dp)
                 button.isAllCaps = false
                 button.minHeight = ((if (row != null) 56f else 48f) * dp).toInt()
                 button.gravity = Gravity.CENTER_VERTICAL or Gravity.START
@@ -683,7 +683,7 @@ object OxygenClassicDialog {
                 minWidth = (64 * dp).toInt()
                 setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-                this.background = ripple(readableAccent, dp)
+                this.background = ripple(dialogText, dp)
             }
         }
         // Keep the original Buttons, callbacks and AppCompat's narrow-window

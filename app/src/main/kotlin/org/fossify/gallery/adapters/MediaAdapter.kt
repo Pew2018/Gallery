@@ -1504,7 +1504,8 @@ class MediaAdapter(
             val image = grid.getChildAt(index).findViewById<ImageView>(R.id.medium_thumbnail) ?: continue
             if (image.getTag(R.id.media_bound_path) != path) continue
             val load = thumbnailLoad(image) ?: continue
-            if (load.pending == null) continue
+            // Only a request that has not started, and only under this cell's own key.
+            if (load.pending == null || image.getTag(R.id.thumbnail_request_key) !== load.token) continue
             load.start(Priority.HIGH)
             return true
         }

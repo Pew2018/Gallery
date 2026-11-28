@@ -1242,10 +1242,11 @@ class PhotoFragment : ViewPagerFragment() {
             (activity as? ViewPagerActivity)?.isMediaTransitionRunning() == true ||
             !this::binding.isInitialized || binding.subsamplingView.visibility == View.GONE) return
         mIsSubsamplingVisible = true
-        binding.subsamplingView.visibility = View.VISIBLE
+        // The Glide frame is already the same picture. Fading the high-resolution
+        // view up from transparent double-exposes the two for a frame and reads as a flash.
         binding.subsamplingView.animate().cancel()
-        binding.subsamplingView.alpha = 0f
-        binding.subsamplingView.animate().alpha(1f).setDuration(90L).start()
+        binding.subsamplingView.alpha = 1f
+        binding.subsamplingView.visibility = View.VISIBLE
     }
 
     private fun getMinTileDpi(): Int {
