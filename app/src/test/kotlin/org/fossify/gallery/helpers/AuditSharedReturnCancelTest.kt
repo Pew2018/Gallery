@@ -41,4 +41,32 @@ class AuditSharedReturnCancelTest {
         assertEquals(State.COMPLETE, session.outcome)
         assertTrue(session.clean())
     }
+
+    @Test fun cancelStayOpenReleasesClipCleanupButDiscardsProxyTeardown() {
+        val session = MediaTransitionSessionCoordinator()
+        assertTrue(session.entryFinished(session.entry, withoutSharedEntry = true))
+        val returning = requireNotNull(session.beginReturn())
+        val leases = session.leases()
+        var unlocked = false
+        var clipRestored = false
+        var proxyTornDown = false
+        assertTrue(leases.acquire(returning, MediaTransitionSessionCoordinator.Resource.INPUT) { unlocked = true })
+        assertTrue(leases.acquire(returning, MediaTransitionSessionCoordinator.Resource.RETURN_TOOLBAR_CLIP) {
+            clipRestored = true
+        })
+        assertTrue(leases.acquire(returning, MediaTransitionSessionCoordinator.Resource.PROXY) {
+            proxyTornDown = true
+        })
+        assertTrue(session.finishViewerMotion(returning, cancelled = true))
+
+        assertTrue(leases.release(returning, MediaTransitionSessionCoordinator.Resource.INPUT))
+        assertTrue(leases.release(returning, MediaTransitionSessionCoordinator.Resource.RETURN_TOOLBAR_CLIP))
+        leases.discardRemaining()
+        assertTrue(unlocked)
+        assertTrue(clipRestored)
+        assertFalse("PROXY finish-time teardown must not run while Viewer stays open", proxyTornDown)
+        assertTrue(session.abortCancelledReturn(returning))
+        assertEquals(State.VIEWING, session.state)
+        assertNull(session.returnOperation)
+    }
 }

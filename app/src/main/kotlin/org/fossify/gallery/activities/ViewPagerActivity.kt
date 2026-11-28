@@ -436,10 +436,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             logSystemBarOwner("restored", "return_cancelled")
             // A cancelled shared return must not leave finishAfterSharedTransition stuck
             // and the pager input lock held; restore VIEWING so the next back can close.
-            // Do not run PROXY/CHROME finish-time cleanup — the Viewer still owns the screen.
+            // Run clip/animator cleanup; do not run PROXY/CHROME finish-time teardown —
+            // the Viewer still owns the screen and those would detach the proxy.
             if (!isFinishing && !isDestroyed) {
                 returnLeases.release(operation, Resource.INPUT)
                 returnLeases.release(operation, Resource.CALLBACKS)
+                returnLeases.release(operation, Resource.RETURN_TOOLBAR_CLIP)
+                returnLeases.release(operation, Resource.INTERACTIVE_ANIMATOR)
                 returnLeases.discardRemaining()
                 transitionSession.abortCancelledReturn(operation)
                 setEnterSharedElementCallback(null as SharedElementCallback?)
