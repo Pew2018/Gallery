@@ -55,7 +55,7 @@ class AuditFavoriteRevalidationTest {
             val real = Files.write(live.resolve("a.jpg"), byteArrayOf(1)).toString()
             var fail = false
             val flaky: (String) -> FavoriteAccessSessionManager.Protection? = {
-                if (fail) throw IllegalStateException("read failed")
+                if (fail) error("read failed")
                 null
             }
             val snap = FavoriteAccessSessionManager.captureSnapshot(listOf(real), flaky)
