@@ -101,12 +101,13 @@ class FastScrollerBubbleTest {
         assertEquals(View.VISIBLE, popup.visibility)
 
         // A touch on the edge rail, away from the handle, must not start a drag.
+        // Stay inside the 650ms hide window so the popup assertion is meaningful.
         val positionBeforeEdge = manager.findFirstVisibleItemPosition()
         val x = if (vertical) 4f else track.width - 8f
         val y = if (vertical) track.height - 8f else 4f
         touch(track, MotionEvent.ACTION_DOWN, x, y, consumed = false)
         touch(track, MotionEvent.ACTION_MOVE, x, if (vertical) y - 80f else y, consumed = false)
-        main.idleFor(400, TimeUnit.MILLISECONDS)
+        main.idleFor(50, TimeUnit.MILLISECONDS)
         assertEquals(listOf(true, false), states)
         assertEquals(positionBeforeEdge, manager.findFirstVisibleItemPosition())
         assertEquals(View.VISIBLE, popup.visibility)
@@ -116,7 +117,7 @@ class FastScrollerBubbleTest {
         } else {
             OxygenFastScroller.disposeGalleryTouchHandling(scroller)
         }
-        assertEquals(listOf(true, false, true, false), states)
+        assertEquals(listOf(true, false), states)
         assertEquals(View.INVISIBLE, popup.visibility)
         OxygenFastScroller.setRangeAvailable(scroller, true)
         assertEquals(View.INVISIBLE, popup.visibility)

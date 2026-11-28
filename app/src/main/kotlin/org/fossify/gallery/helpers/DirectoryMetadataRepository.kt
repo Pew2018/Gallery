@@ -105,7 +105,12 @@ internal object DirectoryMetadataRepository {
     fun defer(path: String, requestVersion: Long) {
         if (requestVersion == 0L) return
         synchronized(lock) {
-            if (activeRequests[path] == requestVersion && committedRequests[path] != requestVersion) pending.add(path)
+            if (activeRequests[path] == requestVersion && committedRequests[path] != requestVersion) {
+                pending.add(path)
+                // Release the abandoned ticket so a later refreshPendingPaths wake
+                // can begin a new version instead of starving behind this one.
+                activeRequests.remove(path)
+            }
         }
     }
 

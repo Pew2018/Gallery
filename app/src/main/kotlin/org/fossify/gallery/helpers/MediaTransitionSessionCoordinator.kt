@@ -271,6 +271,16 @@ internal class MediaTransitionSessionCoordinator(
         fun releaseAll() {
             owned.entries.toList().asReversed().forEach { (kind, lease) -> release(lease.first, kind) }
         }
+
+        /** Drop remaining leases without running finish-time cleanup (cancel stay-open). */
+        fun discardRemaining() {
+            while (owned.isNotEmpty()) {
+                val (kind, lease) = owned.entries.last()
+                owned.remove(kind)
+                leaseCount--
+                emit("transition_lease_discarded", lease.first, kind.name)
+            }
+        }
     }
 
     private fun update(token: Token, to: State, vararg from: State): Boolean {

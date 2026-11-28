@@ -2,9 +2,11 @@ package org.fossify.gallery.helpers
 
 import android.app.Application
 import org.fossify.commons.extensions.getSharedPrefs
+import org.fossify.commons.helpers.SORT_BY_SIZE
 import org.fossify.gallery.databases.GalleryDatabase
 import org.fossify.gallery.extensions.config
 import org.fossify.gallery.extensions.directoryDB
+import org.fossify.gallery.models.Directory
 import org.fossify.gallery.models.Medium
 import org.junit.After
 import org.junit.Assert.*
@@ -47,16 +49,33 @@ class AuditMetadataRetryTicketTest {
             DirectoryMetadataRepository.commit(context, snapshot)
         }.get(5, TimeUnit.SECONDS)
 
+    /** The metadata executor only queues one task; wait without requiring a free slot up front. */
+    private fun awaitMetadataIdle() {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
+        while (System.nanoTime() < deadline) {
+            val idle = CountDownLatch(1)
+            try {
+                GalleryDirectoryMetadataExecutor.execute { idle.countDown() }
+                if (idle.await(15, TimeUnit.SECONDS)) return
+            } catch (_: java.util.concurrent.RejectedExecutionException) {
+                Thread.sleep(25)
+            }
+        }
+        fail("metadata executor did not drain")
+    }
+
     @Test fun refreshPendingPathsDoesNotReplaceAnActiveTicket() {
         val versionA = DirectoryMetadataRepository.begin(root.path)
         assertEquals(versionA, DirectoryMetadataRepository.activeRequestVersion(root.path))
-        DirectoryMetadataRepository.defer(root.path, versionA)
-        assertTrue(root.path in DirectoryMetadataRepository.pendingPaths())
 
-        DirectoryMetadataRepository.refreshPendingPaths(context)
-        val idle = CountDownLatch(1)
-        GalleryDirectoryMetadataExecutor.execute { idle.countDown() }
-        assertTrue(idle.await(10, TimeUnit.SECONDS))
+        // Queue a stats retry while the foreground ticket is still live. The
+        // retry must skip begin() rather than steal version A.
+        context.config.directorySorting = SORT_BY_SIZE
+        DirectoryMetadataRepository.ensureStatistics(
+            context,
+            listOf(Directory().apply { path = root.path }),
+        )
+        awaitMetadataIdle()
 
         assertEquals(
             "retry must not allocate a newer ticket over an in-flight scan",
@@ -87,5 +106,19 @@ class AuditMetadataRetryTicketTest {
         assertTrue(
             commit(DirectoryScanSnapshot(root.path, versionB, scope, read, media.map { it.copy() }))
         )
+    }
+
+    @Test fun deferredTicketCanBeRetriedByRefreshPendingPaths() {
+        val abandoned = DirectoryMetadataRepository.begin(root.path)
+        DirectoryMetadataRepository.defer(root.path, abandoned)
+        assertNull(DirectoryMetadataRepository.activeRequestVersion(root.path))
+        assertTrue(root.path in DirectoryMetadataRepository.pendingPaths())
+
+        DirectoryMetadataRepository.refreshPendingPaths(context)
+        awaitMetadataIdle()
+
+        assertEquals(1, readExecutor.submit<Int?> {
+            context.directoryDB.getByPath(root.path)?.mediaCnt
+        }.get(5, TimeUnit.SECONDS))
     }
 }

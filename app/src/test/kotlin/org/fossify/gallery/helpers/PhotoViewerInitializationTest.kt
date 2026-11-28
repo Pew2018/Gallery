@@ -528,8 +528,25 @@ class PhotoViewerInitializationTest {
         fixture.set("sharedReturnView", proxy)
         fixture.set("sharedReturnPage", photo.page)
         fixture.beginReturn()
+        val returning = requireNotNull(
+            (fixture.field("transitionSession") as MediaTransitionSessionCoordinator).returnOperation
+        )
+        fun invokeReturn(name: String, vararg args: Any?) {
+            val types = args.map {
+                when (it) {
+                    is Boolean -> Boolean::class.javaPrimitiveType
+                    is Float -> Float::class.javaPrimitiveType
+                    else -> it!!.javaClass
+                }
+            }.toTypedArray()
+            ViewPagerActivity::class.java.getDeclaredMethod(name, MediaTransitionSessionCoordinator.Token::class.java, *types)
+                .apply { isAccessible = true }
+                .invoke(fixture.activity, returning, *args)
+        }
+        // Hold the return ticket for late animator frames: cancel abort clears
+        // session.returnOperation so the next back can close.
         val transition = OxygenClassicActivityMotion.mediaTransition(PhotoViewerTransition.DURATION_MS,
-            onProgress = { fixture.call("renderSharedReturnProgress", arrayOf(it)) }) as android.transition.TransitionSet
+            onProgress = { invokeReturn("renderSharedReturnProgress", it) }) as android.transition.TransitionSet
         val progress = transition.getTransitionAt(transition.transitionCount - 1)
         val start = android.transition.TransitionValues().apply { view = proxy }.also(progress::captureStartValues)
         val end = android.transition.TransitionValues().apply { view = proxy }.also(progress::captureEndValues)
@@ -541,8 +558,8 @@ class PhotoViewerInitializationTest {
         animator.setCurrentFraction(.8f)
         val last = fixture.binding.viewerTransitionScrim.alpha
         assertTrue(last < mid)
-        fixture.call("onSharedReturnTerminal", arrayOf(true))
-        fixture.call("onSharedReturnTerminal", arrayOf(false))
+        invokeReturn("onSharedReturnTerminal", true)
+        invokeReturn("onSharedReturnTerminal", false)
         animator.end()
         assertEquals(last, fixture.binding.viewerTransitionScrim.alpha, 0f)
         assertNotNull(proxy.parent)
