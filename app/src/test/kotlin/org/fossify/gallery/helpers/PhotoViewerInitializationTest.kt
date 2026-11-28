@@ -367,40 +367,6 @@ class PhotoViewerInitializationTest {
         assertEquals(0f, surface.translationY, 0f)
     }
 
-    @Test fun zoomedSystemBackStillDrivesAPredictiveEnvelopeWithoutASharedProxy() {
-        val fixture = EntryFixture()
-        val photo = fixture.setPhoto()
-        fixture.finishEntry()
-        fixture.set("photoSharedElementMapped", true)
-        // Genuine pinch zoom rejects the shared proxy (NOT_AT_FIT).
-        val baseline = photo.field("zoomBaseline") as GestureZoomBaseline
-        baseline.javaClass.getDeclaredField("currentZoom").apply { isAccessible = true }.set(baseline, 2f)
-        assertNull(photo.page.sharedElementViewFor(fixture.path))
-        assertEquals(ViewerProxyRejection.NOT_AT_FIT, photo.page.lastProxyRejection)
-
-        assertTrue("TYPE_CALLBACK must still own a visible envelope while zoomed",
-            fixture.call("beginSystemBackGesture") as Boolean)
-        assertTrue(fixture.field("interactiveDismissWithoutProxy") as Boolean)
-        val surface = fixture.field("interactiveDismissSurface") as View
-        assertSame(photo.binding.root, surface)
-        assertBackground(fixture.activity.window.decorView, Color.TRANSPARENT)
-        assertEquals(View.VISIBLE, fixture.binding.viewerTransitionScrim.visibility)
-
-        fixture.call("renderSystemBackProgress", arrayOf(.5f))
-        assertEquals(1f - .34f * .5f, surface.scaleX, .001f)
-        assertEquals(.5f, fixture.binding.viewerTransitionScrim.alpha, .001f)
-
-        fixture.call("cancelSystemBackGesture")
-        val settle = fixture.field("interactiveDismissSettleAnimator") as android.animation.ValueAnimator
-        settle.end()
-        assertNull(fixture.field("interactiveDismissSurface"))
-        assertFalse(fixture.field("interactiveDismissWithoutProxy") as Boolean)
-        assertEquals(MediaTransitionSessionCoordinator.State.VIEWING,
-            (fixture.field("transitionSession") as MediaTransitionSessionCoordinator).state)
-        assertBackground(fixture.activity.window.decorView, Color.BLACK)
-        assertEquals(1f, surface.scaleX, 0f)
-    }
-
     @Test fun terminalCommitIsNotAppliedTwiceAfterTheFinalProgressFrame() {
         val fixture = EntryFixture()
         val photo = fixture.setPhoto()

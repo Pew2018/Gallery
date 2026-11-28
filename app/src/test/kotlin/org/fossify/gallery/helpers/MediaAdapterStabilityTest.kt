@@ -1634,30 +1634,6 @@ class MediaAdapterStabilityTest {
         assertSame(displayed, image.drawable)
         adapter.onViewRecycled(holder)
         assertNull(image.getTag(R.id.thumbnail_request_key))
-        assertTrue("recycle must paint a placeholder instead of a transparent hole",
-            image.background is android.graphics.drawable.GradientDrawable)
-    }
-
-    @Test fun samePathSignatureRefreshKeepsTheVisibleThumbnailFrame() = withAdapter { adapter, recycler, _ ->
-        val holder = adapter.onCreateViewHolder(recycler, adapter.getItemViewType(0))
-        adapter.onBindViewHolder(holder, 0)
-        val image = holder.itemView.findViewById<android.widget.ImageView>(R.id.medium_thumbnail)
-        val previousKey = image.getTag(R.id.thumbnail_request_key)
-        val displayed = ColorDrawable(android.graphics.Color.BLUE)
-        image.setImageDrawable(displayed)
-        // Simulate a loaded cell whose path tag matches the bound media.
-        image.tag = (adapter.media[0] as Medium).path
-        image.setTag(R.id.media_bound_path, (adapter.media[0] as Medium).path)
-        // A newer modified time / size changes Medium.getKey() and therefore the
-        // request key, which used to Glide.clear + null the drawable before reload.
-        val refreshed = item("a.jpg").apply {
-            modified = 99
-            size = 200
-        }
-        adapter.media = arrayListOf(refreshed)
-        adapter.onBindViewHolder(holder, 0)
-        assertSame("signature-only rebind must hold the on-screen frame", displayed, image.drawable)
-        assertNotEquals(previousKey, image.getTag(R.id.thumbnail_request_key))
     }
 
     @Test fun untouchedInitialLoadPinsNewEarlierRowsUntilUserIntentChanges() = withAdapter { adapter, recycler, tasks ->

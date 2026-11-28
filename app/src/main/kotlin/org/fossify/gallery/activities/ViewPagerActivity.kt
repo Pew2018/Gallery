@@ -254,8 +254,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
     private var interactiveDismissSurface: View? = null
     private var interactiveDismissPage: ViewPagerFragment? = null
     private var interactiveDismissPath: String? = null
-    /** True when the gesture envelope scales a non-proxy surface (zoom/rotation/etc.). */
-    private var interactiveDismissWithoutProxy = false
     private var interactiveDismissDragActive = false
     private var interactiveDismissSettleAnimator: ValueAnimator? = null
     private var interactiveDismissProgress = 0f
@@ -559,7 +557,6 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         interactiveDismissSurface = null
         interactiveDismissPage = null
         interactiveDismissPath = null
-        interactiveDismissWithoutProxy = false
         interactiveDismissDragActive = false
         interactiveDismissProgress = 0f
         interactiveDismissDeltaXSlope = 0f
@@ -684,20 +681,15 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         val fragment = getCurrentFragment() ?: return false
         val operation = transitionSession.beginGesture() ?: return false
         val path = getCurrentPath()
-        val proxy = getCurrentSharedElementView(path)
-        // Zoom / rotation / missing renderer cannot map a shared proxy. The Viewer
-        // still owns TYPE_CALLBACK, so refusing the envelope leaves the edge gesture
-        // with no pixels. Scale the page (or pager) instead; commit stays the existing
-        // no-proxy fade. Vertical drag stays gated at the fragment and never reaches here
-        // while zoomed.
-        val surface = proxy ?: fragment.view ?: binding.viewPager
-        if (proxy == null) {
-            org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_return_gesture_envelope_without_proxy",
+        val surface = getCurrentSharedElementView(path) ?: run {
+            // The predictive-back gesture cannot enter the shared return. The session
+            // rolls back cleanly below; record why, so the device log can tell a
+            // legitimate zoom/rotation state from a missing renderer frame.
+            org.fossify.gallery.helpers.GalleryPerfTrace.event("viewer_return_gesture_unavailable",
                 org.fossify.gallery.helpers.ViewerProxyRejection.legacyCode(
                     lastProxyRejection ?: org.fossify.gallery.helpers.ViewerProxyRejection.PROXY_PREPARE_REJECTED))
-            interactiveDismissWithoutProxy = true
-        } else {
-            interactiveDismissWithoutProxy = false
+            transitionSession.cancelGesture(operation)
+            return false
         }
         ownReturnSurface(operation, fragment)
         returnLeases.acquire(operation, Resource.INTERACTIVE_ANIMATOR, ::clearInteractiveDismissDrag)
@@ -1659,12 +1651,8 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         viewerReturnId = ViewerEntryDiagnostics.newRequest()
         val motionEnabled = OxygenClassicMotion.enabled(this)
         val eligible = photoSharedElementMapped && motionEnabled && returnPath.isNotEmpty()
-        val proxy = if (eligible && !interactiveDismissWithoutProxy) {
-            getCurrentSharedElementView(returnPath, returnRequestId = viewerReturnId)
-        } else null
-        // A zoomed/no-proxy envelope scaled the page itself; do not hand that surface to
-        // the shared-element return. Fade closes from the live predictive frame.
-        val canReturn = proxy?.isAttachedToWindow == true && !interactiveDismissWithoutProxy
+        val proxy = if (eligible) getCurrentSharedElementView(returnPath, returnRequestId = viewerReturnId) else null
+        val canReturn = proxy?.isAttachedToWindow == true
         ViewerReturnDiagnostics.event(viewerReturnId, "viewer_requested") {
             mapOf(
                 "reason" to reason, "kind" to if (getCurrentMedium()?.isVideo() == true) "video" else "image",

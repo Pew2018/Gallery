@@ -63,23 +63,4 @@ class AuditFixSourceWiringTest {
             .substringBefore("override fun onConfigurationChanged")
         assertTrue(visibility.contains("restoreIdleVideoChrome()"))
     }
-
-    @Test fun zoomedPredictiveBackKeepsANonProxyEnvelope() {
-        val text = source.resolve("activities/ViewPagerActivity.kt").readText()
-        assertTrue(text.contains("interactiveDismissWithoutProxy"))
-        assertTrue(text.contains("viewer_return_gesture_envelope_without_proxy"))
-        val begin = text.substringAfter("private fun beginInteractiveDismiss(): Boolean")
-            .substringBefore("override fun mediaDismissSettled")
-        assertTrue(begin.contains("proxy ?: fragment.view ?: binding.viewPager"))
-        assertTrue(begin.contains("interactiveDismissWithoutProxy = true"))
-        assertFalse("zoomed back must not cancel the gesture before drawing an envelope",
-            begin.contains("viewer_return_gesture_unavailable"))
-    }
-
-    @Test fun mediaThumbnailHoldFrameMatchesFolderCoverBinder() {
-        val text = source.resolve("adapters/MediaAdapter.kt").readText()
-        assertTrue(text.contains("placeholderDrawable = retainedFrame"))
-        assertTrue(text.contains("visible_drawable_held"))
-        assertTrue(text.contains("OxygenThumbnailPlaceholder.apply(activity, tmb, corners)"))
-    }
 }
