@@ -179,7 +179,10 @@ internal object FavoriteAccessSessionManager {
             Thread.currentThread().interrupt()
             return null
         } catch (_: Exception) {
-            null
+            // Transient snapshot read failure: leave the session installed so the
+            // loader can report FAILED instead of treating this as a revoke.
+            GalleryPerfTrace.end("favorites_full_validation", validationStarted, orderedPaths.size)
+            return null
         }
         GalleryPerfTrace.end("favorites_full_validation", validationStarted, orderedPaths.size)
         if (Thread.currentThread().isInterrupted) return null

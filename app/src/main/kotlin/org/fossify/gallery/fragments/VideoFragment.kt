@@ -744,7 +744,13 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
 
             override fun onPlaybackStateChanged(@Player.State playbackState: Int) {
                 when (playbackState) {
-                    Player.STATE_READY -> videoPrepared()
+                    Player.STATE_READY -> {
+                        // Media3 can deliver READY after releaseExoPlayer(). Match the
+                        // identity/view guards used by the adjacent listener callbacks.
+                        if (mExoPlayer === listenerPlayer && view != null) {
+                            videoPrepared(listenerPlayer)
+                        }
+                    }
                     Player.STATE_ENDED -> videoCompleted()
                 }
             }
@@ -1094,13 +1100,13 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         }
     }
 
-    private fun videoPrepared() {
+    private fun videoPrepared(player: ExoPlayer) {
         if (mDuration == 0L) {
-            mDuration = mExoPlayer!!.duration
+            mDuration = player.duration
             setupTimeHolder()
             setPosition(mCurrTime)
 
-            if (mIsFragmentVisible && (mConfig.autoplayVideos)) {
+            if (mIsFragmentVisible && mConfig.autoplayVideos && isAdded && view != null) {
                 playVideo()
             }
         }
@@ -1113,11 +1119,13 @@ class VideoFragment : ViewPagerFragment(), TextureView.SurfaceTextureListener,
         mIsPlayerPrepared = true
         if (mPlayOnPrepared && !mIsPlaying) {
             if (mPositionAtPause != 0L) {
-                mExoPlayer?.seekTo(mPositionAtPause)
+                player.seekTo(mPositionAtPause)
                 mPositionAtPause = 0L
             }
             updatePlaybackSpeed(mConfig.playbackSpeed)
-            playVideo()
+            if (isAdded && view != null) {
+                playVideo()
+            }
         }
         mWasPlayerInited = true
         mPlayOnPrepared = false

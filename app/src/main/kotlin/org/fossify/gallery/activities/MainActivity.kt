@@ -3158,9 +3158,13 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
     }
 
     private fun styleFastScroller() {
+        val bottomBar = if (mIsThirdPartyIntent) 0 else
+            resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height)
         OxygenFastScroller.apply(binding.directoriesFastscroller, binding.directoriesGrid,
-            OxygenThemeEngine.snapshot(this, config),
-            if (mIsThirdPartyIntent) 0 else resources.getDimensionPixelSize(R.dimen.oxygen_bottom_bar_height))
+            OxygenThemeEngine.snapshot(this, config), bottomBar)
+        // Horizontal home rails must clear the bottom bar the same way Media/Search do.
+        // Vertical grids still rely only on trackMarginEnd from apply().
+        OxygenFastScroller.applyGalleryBottomInsets(binding.directoriesFastscroller, bottomBar)
         OxygenFastScroller.installGalleryTouchHandling(
             binding.directoriesFastscroller,
             binding.directoriesGrid,
@@ -3198,7 +3202,7 @@ class MainActivity : SimpleActivity(), DirectoryOperationsListener {
                     val hasMediaFile = children.any { child ->
                         child != null && (
                             child.isMediaFile() ||
-                                (child.startsWith("img_", true) && File(child).isDirectory)
+                                (child.startsWith("img_", true) && File(folder, child).isDirectory)
                             )
                     }
                     if (!hasMediaFile) {

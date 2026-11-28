@@ -434,6 +434,13 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
             viewerBars.terminal(viewerBarToken, cancelled = true)?.let(::writeViewerBarProgress)
             viewerBars.settleViewer()
             logSystemBarOwner("restored", "return_cancelled")
+            // A cancelled shared return must not leave finishAfterSharedTransition stuck
+            // and the pager input lock held; restore VIEWING so the next back can close.
+            if (!isFinishing && !isDestroyed) {
+                returnLeases.releaseAll()
+                transitionSession.abortCancelledReturn(operation)
+                setEnterSharedElementCallback(null as SharedElementCallback?)
+            }
         } else {
             // The settled return already wrote the page surface on its last frame; this
             // only covers a return that never produced one (fallback, no animator).
@@ -5743,23 +5750,26 @@ class ViewPagerActivity : BaseViewerActivity(), ViewPager.OnPageChangeListener, 
         ensureBackgroundThread {
             val newUri = getFinalUriFromPath(path, BuildConfig.APPLICATION_ID) ?: return@ensureBackgroundThread
             val mimeType = getUriMimeType(path, newUri)
-            Intent().apply {
-                action = Intent.ACTION_VIEW
-                setDataAndType(newUri, mimeType)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                putExtra(IS_FROM_GALLERY, true)
-                putExtra(REAL_FILE_PATH, path)
-                putExtra(SHOW_PREV_ITEM, binding.viewPager.currentItem != 0)
-                putExtra(SHOW_NEXT_ITEM, binding.viewPager.currentItem != mMediaFiles.lastIndex)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                Intent().apply {
+                    action = Intent.ACTION_VIEW
+                    setDataAndType(newUri, mimeType)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    putExtra(IS_FROM_GALLERY, true)
+                    putExtra(REAL_FILE_PATH, path)
+                    putExtra(SHOW_PREV_ITEM, binding.viewPager.currentItem != 0)
+                    putExtra(SHOW_NEXT_ITEM, binding.viewPager.currentItem != mMediaFiles.lastIndex)
 
-                try {
-                    startActivityForResult(this, REQUEST_VIEW_VIDEO)
-                } catch (e: ActivityNotFoundException) {
-                    if (!tryGenericMimeType(this, mimeType, newUri)) {
-                        toast(org.fossify.commons.R.string.no_app_found)
+                    try {
+                        startActivityForResult(this, REQUEST_VIEW_VIDEO)
+                    } catch (e: ActivityNotFoundException) {
+                        if (!tryGenericMimeType(this, mimeType, newUri)) {
+                            toast(org.fossify.commons.R.string.no_app_found)
+                        }
+                    } catch (e: Exception) {
+                        showErrorToast(e)
                     }
-                } catch (e: Exception) {
-                    showErrorToast(e)
                 }
             }
         }

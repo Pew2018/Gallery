@@ -177,6 +177,24 @@ internal class MediaTransitionSessionCoordinator(
         return true
     }
 
+    /**
+     * After a cancelled shared-element return that leaves the Viewer open, drop the
+     * return lease and restore VIEWING so a later back can close normally.
+     */
+    fun abortCancelledReturn(token: Token): Boolean {
+        if (outcome != null || returnOperation != token || viewerMotionOutcome != State.CANCELLED) {
+            return rejected(token, "abort_cancelled_return")
+        }
+        if (state != State.RETURN_PREPARING && state != State.RETURNING) {
+            return rejected(token, "abort_cancelled_return")
+        }
+        releaseGridPreview(token)
+        returnOperation = null
+        viewerMotionOutcome = null
+        change(State.VIEWING, token)
+        return true
+    }
+
     fun targetReady(token: Token) = update(token, State.RETURNING, State.RETURN_PREPARING)
 
     fun acceptResult(token: Token): Boolean {
