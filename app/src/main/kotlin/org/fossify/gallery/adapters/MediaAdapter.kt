@@ -306,6 +306,14 @@ class MediaAdapter(
                 Picasso.get().cancelRequest(tmb)
                 Glide.with(activity).clear(tmb)
                 tmb.setImageDrawable(null)
+                val corners = when {
+                    isListViewType -> ROUNDED_CORNERS_SMALL
+                    config.fileRoundedCorners -> ROUNDED_CORNERS_BIG
+                    else -> ROUNDED_CORNERS_NONE
+                }
+                // Match folder recycle: never leave a transparent ImageView over the
+                // light page colour while the holder waits for its next bind.
+                OxygenThumbnailPlaceholder.apply(activity, tmb, corners)
             }
         }
     }
@@ -1598,15 +1606,26 @@ class MediaAdapter(
             if (mediumThumbnail.getTag(R.id.thumbnail_request_key) != requestKey) {
                 InteractiveGridThumbnail.restoreBeforeRebind(mediumThumbnail)
                 cancelThumbnailLoad(mediumThumbnail, "binding_key_changed")
+                // Same path as the folder cover binder: a signature-only (or crop/GIF/
+                // corners) refresh must not blank a cell that already shows this media.
+                // Glide's default transparent placeholder would otherwise expose the
+                // near-white OxygenThumbnailPlaceholder / page colour for a frame.
+                val retainedFrame = if (path.isNotEmpty() && mediumThumbnail.tag == path) {
+                    mediumThumbnail.drawable
+                } else null
                 // Change the token before cancellation so an obsolete failure cannot start a fallback.
                 mediumThumbnail.setTag(R.id.thumbnail_request_key, requestKey)
                 mediumThumbnail.setTag(R.id.thumbnail_loaded_key, null)
                 Picasso.get().cancelRequest(mediumThumbnail)
-                Glide.with(activity).clear(mediumThumbnail)
-                mediumThumbnail.setImageDrawable(null)
-                logVisibleDrawable(mediumThumbnail, medium, requestKey, "visible_drawable_cleared", "binding_key_changed")
+                if (retainedFrame == null) {
+                    Glide.with(activity).clear(mediumThumbnail)
+                    mediumThumbnail.setImageDrawable(null)
+                    logVisibleDrawable(mediumThumbnail, medium, requestKey, "visible_drawable_cleared", "binding_key_changed")
+                    OxygenThumbnailPlaceholder.apply(activity, mediumThumbnail, roundedCorners)
+                } else {
+                    logVisibleDrawable(mediumThumbnail, medium, requestKey, "visible_drawable_held", "binding_key_changed")
+                }
                 mediumThumbnail.tag = path
-                OxygenThumbnailPlaceholder.apply(activity, mediumThumbnail, roundedCorners)
                 mediumThumbnail.scaleType = if (cropThumbnails) ImageView.ScaleType.CENTER_CROP else ImageView.ScaleType.FIT_CENTER
                 val trace = thumbnailTrace(mediumThumbnail, medium.path, thumbnailPriority)
                 val load = ThumbnailLoad(requestKey, trace)
@@ -1625,6 +1644,7 @@ class MediaAdapter(
                         skipMemoryCacheAtPaths = rotatedImagePaths,
                         crossFadeDuration = 0,
                         priority = priority,
+                        placeholderDrawable = retainedFrame,
                         onLoadStage = trace?.let {
                             { stage, reason, cache ->
                                 if (stage == "REQUEST_FAILED") load.finished = true

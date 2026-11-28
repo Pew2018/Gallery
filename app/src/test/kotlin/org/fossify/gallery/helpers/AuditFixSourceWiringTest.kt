@@ -52,4 +52,34 @@ class AuditFixSourceWiringTest {
         assertTrue(function.contains("if (!state.canScroll()) return@OnTouchListener false"))
         assertFalse(function.contains("track.setOnTouchListener(listener)"))
     }
+
+    @Test fun videoChromeRestoresAfterSharedEntryOnNeighborPages() {
+        val text = source.resolve("fragments/VideoFragment.kt").readText()
+        assertTrue(text.contains("restoreIdleVideoChrome()"))
+        assertTrue(text.contains("fun finishSharedTransition()"))
+        val finish = text.substringAfter("fun finishSharedTransition()").substringBefore("fun setSharedChromeAlpha")
+        assertTrue(finish.contains("restoreIdleVideoChrome()"))
+        val visibility = text.substringAfter("override fun setMenuVisibility(menuVisible: Boolean)")
+            .substringBefore("override fun onConfigurationChanged")
+        assertTrue(visibility.contains("restoreIdleVideoChrome()"))
+    }
+
+    @Test fun zoomedPredictiveBackKeepsANonProxyEnvelope() {
+        val text = source.resolve("activities/ViewPagerActivity.kt").readText()
+        assertTrue(text.contains("interactiveDismissWithoutProxy"))
+        assertTrue(text.contains("viewer_return_gesture_envelope_without_proxy"))
+        val begin = text.substringAfter("private fun beginInteractiveDismiss(): Boolean")
+            .substringBefore("override fun mediaDismissSettled")
+        assertTrue(begin.contains("proxy ?: fragment.view ?: binding.viewPager"))
+        assertTrue(begin.contains("interactiveDismissWithoutProxy = true"))
+        assertFalse("zoomed back must not cancel the gesture before drawing an envelope",
+            begin.contains("viewer_return_gesture_unavailable"))
+    }
+
+    @Test fun mediaThumbnailHoldFrameMatchesFolderCoverBinder() {
+        val text = source.resolve("adapters/MediaAdapter.kt").readText()
+        assertTrue(text.contains("placeholderDrawable = retainedFrame"))
+        assertTrue(text.contains("visible_drawable_held"))
+        assertTrue(text.contains("OxygenThumbnailPlaceholder.apply(activity, tmb, corners)"))
+    }
 }

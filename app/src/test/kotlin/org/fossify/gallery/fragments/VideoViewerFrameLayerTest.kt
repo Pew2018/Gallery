@@ -156,4 +156,39 @@ class VideoViewerFrameLayerTest {
             controller.pause().stop().destroy()
         }
     }
+
+    @Test fun finishSharedTransitionRestoresPlayOutlineAlphaZeroedDuringEntry() {
+        val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
+        try {
+            val binding = PagerVideoItemBinding.inflate(controller.get().layoutInflater)
+            controller.get().setContentView(binding.root)
+            val fragment = VideoFragment()
+            val type = VideoFragment::class.java
+            fun videoField(name: String, value: Any) = type.getDeclaredField(name)
+                .apply { isAccessible = true }.set(fragment, value)
+            fun fragmentField(name: String, value: Any) = Fragment::class.java.getDeclaredField(name)
+                .apply { isAccessible = true }.set(fragment, value)
+            val activity = controller.get()
+            val host = FragmentManager::class.java.getDeclaredField("mHost").apply { isAccessible = true }
+                .get(activity.supportFragmentManager)
+            fragmentField("mView", binding.root)
+            fragmentField("mHost", host)
+            fragmentField("mAdded", true)
+            videoField("mMedium", Medium().apply { path = "/Gallery/neighbor.mp4" })
+            videoField("mIsFragmentVisible", false)
+            videoField("mIsFullscreen", false)
+            videoField("binding", binding)
+            videoField("mTextureView", binding.videoSurface)
+            videoField("mConfig", activity.config)
+            // Neighbor pages created during shared entry get the same alpha-0 write as
+            // the entering page; only the current page is faded back by the activity.
+            fragment.setSharedChromeAlpha(0f)
+            assertEquals(0f, binding.videoPlayOutline.alpha, 0f)
+            fragment.finishSharedTransition()
+            assertEquals(1f, binding.videoPlayOutline.alpha, 0f)
+            assertEquals(1f, binding.bottomVideoTimeHolder.root.alpha, 0f)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
 }
