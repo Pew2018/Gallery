@@ -27,6 +27,7 @@ internal object ViewerGridOrderStore {
 
     @Synchronized fun offer(source: String, selected: String, items: List<ThumbnailItem>,
         version: Long = 0L, contract: String? = null, includeCandidates: Boolean = false,
+        committedWindowOnly: Boolean = false, boundedCandidates: List<Medium>? = null,
         revision: Long = FolderContentRevision.current(),
         isCurrent: () -> Boolean = { true }): String? {
         if (!isCurrent() || source.isBlank() || selected.isBlank()) return null
@@ -38,7 +39,16 @@ internal object ViewerGridOrderStore {
         }.getOrNull() ?: return null
         if (paths.isEmpty() || paths.size > MAX_ITEMS || selected !in paths) return null
         val id = UUID.randomUUID().toString()
-        val candidates = if (includeCandidates) items.filterIsInstance<Medium>().map { it.copy() } else emptyList()
+        // Favorites hand off only the committed radius. A Photos preview larger
+        // than the cache-preview limit is ignored so a full grid is never copied.
+        val candidates = when {
+            committedWindowOnly -> ViewerOpeningWindow.committed(
+                items.filterIsInstance<Medium>(), selected) { it.path }.map { it.copy() }
+            boundedCandidates != null && boundedCandidates.size <= CachedMediaPreviewOrder.LIMIT ->
+                boundedCandidates.map { it.copy() }
+            includeCandidates -> items.filterIsInstance<Medium>().map { it.copy() }
+            else -> emptyList()
+        }
         if (!isCurrent()) return null
         pending = Entry(id, source, selected, SystemClock.elapsedRealtime(), Evidence(paths, candidates, version, contract, revision))
         if (GalleryDiagnosticLogger.isEnabled()) GalleryDiagnosticLogger.event(
