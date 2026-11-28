@@ -13,13 +13,13 @@ import org.fossify.gallery.helpers.OxygenClassicDialog
 
 /** A label and a trailing checkmark; the adjacent reorder handle is outside this press target. */
 internal class ClassicToolbarChoiceBody(
-    context: Context, private val check: CheckBox, accent: Int
+    context: Context, private val check: CheckBox, accent: Int, contentColor: Int
 ) : LinearLayout(context) {
     private val mark = ImageView(context).apply {
         setImageDrawable(AppCompatResources.getDrawable(context, R.drawable.tieba_choice_check_mark)!!.mutate().apply { setTint(accent) })
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
     }
-    private val press = OxygenClassicDialog.ripple(accent, resources.displayMetrics.density)
+    private val press = OxygenClassicDialog.ripple(contentColor, resources.displayMetrics.density)
     private var interactive = true
     init {
         orientation = HORIZONTAL

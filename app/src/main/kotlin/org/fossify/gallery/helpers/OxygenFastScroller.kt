@@ -650,7 +650,8 @@ object OxygenFastScroller {
         private fun fadeThumbOut() {
             if (dragging || recycler.scrollState != RecyclerView.SCROLL_STATE_IDLE) return
             thumb.animate().cancel()
-            thumb.animate().alpha(0f).setDuration(FADE_DURATION_MS).withEndAction {
+            thumb.animate().alpha(0f).setDuration(FADE_DURATION_MS)
+                .setInterpolator(OxygenClassicMotion.easing()).withEndAction {
                 if (!dragging && recycler.scrollState == RecyclerView.SCROLL_STATE_IDLE) thumb.visibility = View.INVISIBLE
             }.start()
         }

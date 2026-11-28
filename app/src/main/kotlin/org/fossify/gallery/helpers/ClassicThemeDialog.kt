@@ -8,7 +8,6 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
-import androidx.core.graphics.ColorUtils
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import org.fossify.gallery.R
@@ -53,7 +52,7 @@ internal object ClassicThemeDialog {
         }
         val base = shape(if (selected) OxygenThemeColors.blend(tokens.dialogBackground, tokens.interactiveAccent, .08)
             else tokens.dialogBackground).apply { if (selected) setStroke(dp(host, 2), tokens.interactiveAccent) }
-        return RippleDrawable(ColorStateList.valueOf(ColorUtils.setAlphaComponent(tokens.interactiveAccent, 28)),
+        return RippleDrawable(ColorStateList.valueOf(OxygenThemeColors.pressedStateLayer(tokens.primaryText)),
             base, shape(android.graphics.Color.WHITE))
     }
 
@@ -73,7 +72,7 @@ internal object ClassicThemeDialog {
         val mask = GradientDrawable().apply {
             cornerRadius = dp(host, 4).toFloat(); setColor(android.graphics.Color.WHITE)
         }
-        return RippleDrawable(ColorStateList.valueOf(ColorUtils.setAlphaComponent(tokens.interactiveAccent, 28)), states, mask)
+        return RippleDrawable(ColorStateList.valueOf(OxygenThemeColors.pressedStateLayer(tokens.primaryText)), states, mask)
     }
 
     fun show(host: SimpleActivity, builder: AlertDialog.Builder, content: View): AlertDialog {

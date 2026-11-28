@@ -56,7 +56,7 @@ internal object ClassicPasswordMethodDialog {
                 minHeight = dp(48)
                 setPadding(0, dp(8), 0, dp(8))
                 setTextColor(palette.text)
-                background = OxygenClassicDialog.ripple(palette.accent, density)
+                background = OxygenClassicDialog.ripple(palette.text, density)
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {

@@ -11,7 +11,6 @@ import android.widget.TextView
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import org.fossify.commons.extensions.getProperPrimaryColor
 import org.fossify.gallery.R
 import org.fossify.gallery.extensions.config
 import java.util.Collections
@@ -52,7 +51,7 @@ object BottomNavigationOrderDialog {
                     setPadding(dp(24), 0, dp(16), 0)
                     minimumHeight = dp(56)
                     layoutParams = RecyclerView.LayoutParams(-1, -2)
-                    background = OxygenClassicDialog.ripple(activity.getProperPrimaryColor(), density)
+                    background = OxygenClassicDialog.ripple(colors.text, density)
                 }
                 val handle = ImageView(activity).apply {
                     setImageResource(R.drawable.oxygen_classic_drag_handle)
@@ -62,7 +61,7 @@ object BottomNavigationOrderDialog {
                     contentDescription = activity.getString(R.string.navigation_order_reorder)
                     isClickable = true
                     isFocusable = true
-                    background = OxygenClassicDialog.ripple(activity.getProperPrimaryColor(), density)
+                    background = OxygenClassicDialog.ripple(colors.text, density)
                 }
                 val title = TextView(activity).apply {
                     textSize = 16f
@@ -144,7 +143,7 @@ object BottomNavigationOrderDialog {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(24), 0, dp(24), 0)
             minHeight = dp(48)
-            background = OxygenClassicDialog.ripple(colors.accent, density)
+            background = OxygenClassicDialog.ripple(colors.text, density)
             setOnClickListener {
                 pending.clear()
                 pending.addAll(defaults)

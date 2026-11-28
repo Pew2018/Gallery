@@ -58,15 +58,17 @@ class PhotoProfileEditActivity : SimpleActivity() {
             // Removed children are retained only by ViewGroup's disappearing-view
             // animation, never by sourceRows or a delayed application callback.
             setAnimator(LayoutTransition.DISAPPEARING,
-                android.animation.ObjectAnimator.ofFloat(null, "alpha", 0f))
-            setDuration(LayoutTransition.DISAPPEARING, OxygenClassicMotion.CHECKBOX_MS)
+                android.animation.ObjectAnimator.ofFloat(null, "alpha", 0f).apply {
+                    interpolator = OxygenClassicMotion.easing()
+                })
+            setDuration(LayoutTransition.DISAPPEARING, OxygenClassicMotion.LIST_MOVE_MS)
             setStartDelay(LayoutTransition.DISAPPEARING, 0L)
-            setStartDelay(LayoutTransition.CHANGE_DISAPPEARING, OxygenClassicMotion.CHECKBOX_MS)
+            setStartDelay(LayoutTransition.CHANGE_DISAPPEARING, OxygenClassicMotion.LIST_MOVE_MS)
             setStartDelay(LayoutTransition.CHANGE_APPEARING, 0L)
             setAnimateParentHierarchy(false)
-            for (kind in intArrayOf(LayoutTransition.CHANGE_APPEARING,
+            for (kind in intArrayOf(LayoutTransition.DISAPPEARING, LayoutTransition.CHANGE_APPEARING,
                 LayoutTransition.CHANGE_DISAPPEARING, LayoutTransition.CHANGING)) {
-                setDuration(kind, OxygenClassicMotion.LIST_MOVE_MS)
+                if (kind != LayoutTransition.DISAPPEARING) setDuration(kind, OxygenClassicMotion.LIST_MOVE_MS)
                 setInterpolator(kind, OxygenClassicMotion.easing())
             }
         }
@@ -208,7 +210,7 @@ class PhotoProfileEditActivity : SimpleActivity() {
             val onAccent = if (OxygenThemeColors.contrastRatio(android.graphics.Color.WHITE, tokens.rawAccent) >= 3.0)
                 android.graphics.Color.WHITE else android.graphics.Color.BLACK
             imageTintList = android.content.res.ColorStateList.valueOf(onAccent)
-            rippleColor = androidx.core.graphics.ColorUtils.setAlphaComponent(onAccent, 30)
+            rippleColor = OxygenThemeColors.pressedStateLayer(onAccent)
             shapeAppearanceModel = shapeAppearanceModel.toBuilder()
                 .setAllCornerSizes(com.google.android.material.shape.RelativeCornerSize(0.5f)).build()
         }
@@ -269,7 +271,7 @@ class PhotoProfileEditActivity : SimpleActivity() {
                 if (child is LinearLayout && child.alpha == 0f) {
                     child.animate().cancel()
                     if (animate) child.animate().alpha(1f)
-                        .setDuration(OxygenClassicMotion.CHECKBOX_MS)
+                        .setDuration(OxygenClassicMotion.LIST_MOVE_MS)
                         .setInterpolator(OxygenClassicMotion.easing())
                         .withEndAction { child.alpha = 1f }.start()
                     else child.alpha = 1f
@@ -336,7 +338,7 @@ class PhotoProfileEditActivity : SimpleActivity() {
                 OxygenClassicPageInput.readableTextColor(colors.primaryText, colors))
             contentDescription = getString(R.string.photo_profiles_remove_source)
             background = OxygenClassicDialog.ripple(
-                colors.interactiveAccent, resources.displayMetrics.density)
+                colors.primaryText, resources.displayMetrics.density)
             setOnClickListener {
                 sourceStatusRequests.invalidate()
                 draft = draft.copy(sources = draft.sources.filterNot { it == source })

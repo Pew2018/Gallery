@@ -37,7 +37,7 @@ internal class PhotoProfileManageAdapter(
         with(holder.binding) {
             root.setBackgroundColor(colors.pageBackground)
             profileManageRow.background = OxygenClassicDialog.ripple(
-                colors.interactiveAccent, context.resources.displayMetrics.density
+                colors.primaryText, context.resources.displayMetrics.density
             )
             profileManageName.text = row.name
             profileManageName.setTextColor(colors.primaryText)
@@ -53,7 +53,7 @@ internal class PhotoProfileManageAdapter(
                 setImageResource(R.drawable.photo_profile_more)
                 imageTintList = ColorStateList.valueOf(colors.primaryText)
                 contentDescription = context.getString(R.string.photo_profiles_more_actions_for, row.name)
-                background = OxygenClassicDialog.ripple(colors.interactiveAccent, context.resources.displayMetrics.density)
+                background = OxygenClassicDialog.ripple(colors.primaryText, context.resources.displayMetrics.density)
                 setOnClickListener { onMoreClick(row.id, this) }
             }
             profileManageDivider.setBackgroundColor(

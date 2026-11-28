@@ -65,7 +65,7 @@ object ToolbarQuickActionsDialog {
             gravity = Gravity.CENTER_VERTICAL
             minHeight = dp(48)
             setPadding(dp(8), 0, dp(8), 0)
-            background = OxygenClassicDialog.ripple(palette.interactiveAccent, density)
+            background = OxygenClassicDialog.ripple(palette.primaryText, density)
             setOnClickListener {
                 current().clear()
                 current().addAll(ToolbarQuickActions.defaults)
@@ -116,7 +116,7 @@ object ToolbarQuickActionsDialog {
         val searchCheck = createCheckBox().apply {
             text = activity.getString(org.fossify.commons.R.string.search)
         }
-        val searchBody = ClassicToolbarChoiceBody(activity, searchCheck, palette.interactiveAccent)
+        val searchBody = ClassicToolbarChoiceBody(activity, searchCheck, palette.interactiveAccent, palette.primaryText)
         searchRow.addView(searchBody, LinearLayout.LayoutParams(-1, -2))
 
         fixedRows.addView(searchRow)
@@ -257,7 +257,7 @@ object ToolbarQuickActionsDialog {
                     isClickable = true
                     isFocusable = true
                 }
-                row.addView(ClassicToolbarChoiceBody(activity, check, palette.interactiveAccent),
+                row.addView(ClassicToolbarChoiceBody(activity, check, palette.interactiveAccent, palette.primaryText),
                     LinearLayout.LayoutParams(0, -2, 1f))
                 row.addView(drag, LinearLayout.LayoutParams(dp(48), dp(48)))
                 return Holder(row, check, drag)
@@ -348,7 +348,7 @@ object ToolbarQuickActionsDialog {
                 isClickable = true
                 isFocusable = true
                 background = RippleDrawable(
-                    ColorStateList.valueOf(ColorUtils.setAlphaComponent(palette.interactiveAccent, 26)),
+                    ColorStateList.valueOf(OxygenThemeColors.pressedStateLayer(palette.primaryText)),
                     null,
                     ColorDrawable(Color.WHITE)
                 )

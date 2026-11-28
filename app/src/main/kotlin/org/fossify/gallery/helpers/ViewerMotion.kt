@@ -61,7 +61,8 @@ internal class ViewerLoadingMotion(
             return
         }
         if (loading && view.visibility == View.VISIBLE) {
-            view.animate().alpha(1f).setDuration(OxygenClassicMotion.VIEWER_LOADING_FADE_MS).start()
+            view.animate().alpha(1f).setDuration(OxygenClassicMotion.VIEWER_LOADING_FADE_MS)
+                .setInterpolator(OxygenClassicMotion.easing()).start()
             return
         }
         val delay = if (loading) OxygenClassicMotion.VIEWER_LOADING_DELAY_MS else

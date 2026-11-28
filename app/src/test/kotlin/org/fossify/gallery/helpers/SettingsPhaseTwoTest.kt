@@ -304,7 +304,7 @@ class SettingsPhaseTwoTest {
             val ripple = row.background as RippleDrawable
             if (previous != null) assertSame(previous, ripple)
             assertTrue(row.isPressed)
-            val expected = if (dark) 0x1FFFFFFF else 0x14000000
+            val expected = if (dark) 0x1AFAFAFA else 0x1A212121
             assertEquals(expected, ClassicSettingsPresentation.rowRippleColor(tokens))
             assertTrue(OxygenThemeColors.contrastRatio(tokens.interactiveAccent, tokens.pageBackground) >= 4.5)
             previous = ripple

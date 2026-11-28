@@ -4,7 +4,6 @@ import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.RippleDrawable
 import android.content.res.ColorStateList
-import androidx.core.graphics.ColorUtils
 import androidx.core.view.AccessibilityDelegateCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
@@ -118,11 +117,11 @@ internal class PhotoSourceDirectoryAdapter(
                 if (Color.luminance(background) > .5) Color.DKGRAY else Color.LTGRAY
             ))
             sourceCheckTarget.background = RippleDrawable(
-                ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 32)),
+                ColorStateList.valueOf(OxygenThemeColors.pressedStateLayer(text)),
                 ColorDrawable(Color.TRANSPARENT), ColorDrawable(Color.WHITE)
             )
             bindSelection(holder, directory)
-            root.background = OxygenClassicDialog.ripple(accent, activity.resources.displayMetrics.density)
+            root.background = OxygenClassicDialog.ripple(text, activity.resources.displayMetrics.density)
             root.contentDescription = directory.name + if (locked) ", " + activity.getString(R.string.photo_source_locked) else ""
             root.setOnClickListener { toggleSource(directory.path) }
             sourceCheckTarget.setOnClickListener { toggleSource(directory.path) }

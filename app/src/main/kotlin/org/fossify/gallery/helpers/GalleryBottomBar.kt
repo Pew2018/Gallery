@@ -3,7 +3,6 @@ package org.fossify.gallery.helpers
 import android.app.Activity
 import android.content.Intent
 import android.content.res.ColorStateList
-import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.os.Handler
@@ -187,12 +186,11 @@ object GalleryBottomBar {
         }
     }
 
-    /** Use the resolved theme accent unchanged, with a consistent 8% ripple opacity. */
-    internal fun rippleColor(accent: Int): Int =
-        Color.argb(20, Color.red(accent), Color.green(accent), Color.blue(accent))
+    /** On-surface content ink at the Material pressed-state opacity. Selection keeps the accent on the icon and label. */
+    internal fun rippleColor(content: Int): Int = OxygenThemeColors.pressedStateLayer(content)
 
     private fun updateRipple(item: LinearLayout, colors: OxygenThemeTokens) {
-        val color = rippleColor(colors.interactiveAccent)
+        val color = rippleColor(colors.primaryText)
         val ripple = item.background as? NavigationRippleDrawable
         val scale = animationScale(item)
         if (ripple == null) {

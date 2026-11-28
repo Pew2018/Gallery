@@ -65,10 +65,15 @@ class GalleryBottomBarRippleTest {
         assertEquals(inFlight, ripples[1].pulse)
         assertEquals(progressBeforeRecolor, ripples[1].progress(sampledAt))
         val secondColor = GalleryBottomBar.currentRippleColor(tabs[0])
-        assertNotEquals(firstColor, secondColor)
+        assertEquals(firstColor, secondColor)
         assertTrue(tabs.all { GalleryBottomBar.currentRippleColor(it) == secondColor })
+        activity.config.oxygenAppearanceMode = "dark"
+        GalleryBottomBar.recolor(activity)
+        val darkColor = GalleryBottomBar.currentRippleColor(tabs[0])
+        assertNotEquals(firstColor, darkColor)
+        assertTrue(tabs.all { GalleryBottomBar.currentRippleColor(it) == darkColor })
         val tokens = OxygenThemeEngine.snapshot(activity, activity.config)
-        assertEquals(GalleryBottomBar.rippleColor(tokens.interactiveAccent), secondColor)
+        assertEquals(GalleryBottomBar.rippleColor(tokens.primaryText), darkColor)
         assertTrue(tabs[1].isPressed)
         tabs[1].isPressed = false
         GalleryBottomBar.recolor(activity)
@@ -76,44 +81,41 @@ class GalleryBottomBarRippleTest {
         activity.finish()
     }
 
-    @Test fun rippleUsesResolvedThemeAccentRgbAtEightPercentInBothThemes() {
+    @Test fun rippleUsesOnSurfaceContentAtTenPercentAndIgnoresAccent() {
         val (activity, bar) = fixture()
         val item = items(bar).first()
         activity.config.oxygenCustomAccent = Color.BLACK
         GalleryBottomBar.recolor(activity)
         val highContrast = OxygenThemeEngine.snapshot(activity, activity.config)
-        assertEquals(GalleryBottomBar.rippleColor(highContrast.interactiveAccent),
+        assertEquals(GalleryBottomBar.rippleColor(highContrast.primaryText),
             GalleryBottomBar.currentRippleColor(item))
-        assertEquals(20, Color.alpha(GalleryBottomBar.currentRippleColor(item)!!))
-        assertEquals(Color.red(highContrast.interactiveAccent), Color.red(GalleryBottomBar.currentRippleColor(item)!!))
-        assertEquals(Color.green(highContrast.interactiveAccent), Color.green(GalleryBottomBar.currentRippleColor(item)!!))
-        assertEquals(Color.blue(highContrast.interactiveAccent), Color.blue(GalleryBottomBar.currentRippleColor(item)!!))
+        assertEquals(OxygenThemeColors.STATE_LAYER_PRESSED_ALPHA, Color.alpha(GalleryBottomBar.currentRippleColor(item)!!))
+        assertEquals(Color.red(highContrast.primaryText), Color.red(GalleryBottomBar.currentRippleColor(item)!!))
+        assertEquals(Color.green(highContrast.primaryText), Color.green(GalleryBottomBar.currentRippleColor(item)!!))
+        assertEquals(Color.blue(highContrast.primaryText), Color.blue(GalleryBottomBar.currentRippleColor(item)!!))
+        assertNotEquals(Color.red(highContrast.interactiveAccent), Color.red(GalleryBottomBar.currentRippleColor(item)!!))
 
-        val paleAccent = Color.rgb(255, 245, 220)
-        activity.config.oxygenCustomAccent = paleAccent
+        val beforePale = GalleryBottomBar.currentRippleColor(item)
+        activity.config.oxygenCustomAccent = Color.rgb(255, 245, 220)
         GalleryBottomBar.recolor(activity)
-        val lightSurface = OxygenThemeEngine.snapshot(activity, activity.config)
-        assertNotEquals(paleAccent, lightSurface.interactiveAccent)
-        assertEquals(20, Color.alpha(GalleryBottomBar.currentRippleColor(item)!!))
-        assertEquals(GalleryBottomBar.rippleColor(lightSurface.interactiveAccent),
-            GalleryBottomBar.currentRippleColor(item))
+        assertEquals(beforePale, GalleryBottomBar.currentRippleColor(item))
 
         activity.config.oxygenAppearanceMode = "dark"
         GalleryBottomBar.recolor(activity)
         val darkSurface = OxygenThemeEngine.snapshot(activity, activity.config)
-        assertEquals(20, Color.alpha(GalleryBottomBar.currentRippleColor(item)!!))
-        assertEquals(GalleryBottomBar.rippleColor(darkSurface.interactiveAccent),
+        assertEquals(OxygenThemeColors.STATE_LAYER_PRESSED_ALPHA, Color.alpha(GalleryBottomBar.currentRippleColor(item)!!))
+        assertEquals(GalleryBottomBar.rippleColor(darkSurface.primaryText),
             GalleryBottomBar.currentRippleColor(item))
         activity.finish()
     }
 
-    @Test fun rippleOpacityIsEightPercentAndRgbTracksEachAccent() {
-        val first = GalleryBottomBar.rippleColor(Color.rgb(10, 80, 170))
-        val second = GalleryBottomBar.rippleColor(Color.rgb(220, 70, 45))
-        assertEquals(20, Color.alpha(first))
-        assertEquals(20, Color.alpha(second))
-        assertEquals(Color.rgb(10, 80, 170), Color.rgb(Color.red(first), Color.green(first), Color.blue(first)))
-        assertEquals(Color.rgb(220, 70, 45), Color.rgb(Color.red(second), Color.green(second), Color.blue(second)))
+    @Test fun rippleOpacityIsTenPercentAndRgbTracksContentColor() {
+        val first = GalleryBottomBar.rippleColor(Color.rgb(33, 33, 33))
+        val second = GalleryBottomBar.rippleColor(Color.rgb(250, 250, 250))
+        assertEquals(OxygenThemeColors.STATE_LAYER_PRESSED_ALPHA, Color.alpha(first))
+        assertEquals(OxygenThemeColors.STATE_LAYER_PRESSED_ALPHA, Color.alpha(second))
+        assertEquals(Color.rgb(33, 33, 33), Color.rgb(Color.red(first), Color.green(first), Color.blue(first)))
+        assertEquals(Color.rgb(250, 250, 250), Color.rgb(Color.red(second), Color.green(second), Color.blue(second)))
     }
 
     @Test fun rapidTapsOnlyNavigateOnceAndOutgoingSelectionStillMatchesOutgoingContent() {

@@ -49,7 +49,7 @@ internal object TiebaDialogChoices {
         button.gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
         button.setSingleLine(false)
         button.setPaddingRelative(insets.first, dp(8), insets.second, dp(8))
-        button.background = RippleDrawable(ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, 24)),
+        button.background = RippleDrawable(ColorStateList.valueOf(OxygenThemeColors.pressedStateLayer(text)),
             if (highlightSelection) selectedBackground(accent, surface)
             else android.graphics.drawable.ColorDrawable(surface),
             android.graphics.drawable.ColorDrawable(Color.WHITE))
